@@ -1107,7 +1107,8 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
 
     A record whose engine block names a ``signal`` is a turn-by-turn record,
     described by :func:`pyat_turn_settings.describe_signal`: ``arm``,
-    ``rf_switch``, ``pilot_tone`` and ``stored`` are setpoints refreshing
+    ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
+    ``offset_<coordinate>`` and ``mismatch_<plane>`` are setpoints refreshing
     ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and
     ``turns_tracked`` are outputs refreshing ``event``; none has a plane, and
     the kind is the signal.

@@ -45,7 +45,7 @@ def ring() -> Any:
 @pytest.fixture(scope="module")
 def bunch(ring: Any) -> np.ndarray:
     shape = turns.declared_bunch(ring, 0, PARTICLES, **SHAPE)
-    return turns.launched_bunch(LAUNCH, shape, key="SR", shot=1, jitter=(0.0, 0.0))
+    return turns.launched_bunch(LAUNCH, shape, key="SR", shot=1)
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +124,7 @@ def test_no_slice_holds_the_interpreter_much_past_the_budget(
     catches that.
     """
     shape = turns.declared_bunch(ring, 0, 1000, **SHAPE)
-    heavy = turns.launched_bunch(LAUNCH, shape, key="SR", shot=2, jitter=(0.0, 0.0))
+    heavy = turns.launched_bunch(LAUNCH, shape, key="SR", shot=2)
     spans: list[float] = []
     track = at.lattice_track
 

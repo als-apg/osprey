@@ -1,5 +1,9 @@
 """The turn state of a turn-by-turn ring, and the model that holds it (contract C8).
 
+The injected beam's settings (``offset_<coordinate>``, ``mismatch_<plane>``)
+are plain held settings, not turn state: every shot reads the values the
+model holds for them, beside the block's launch, optics and jitter.
+
 One :class:`TurnState` per turn-by-turn ring model: per monitor element an
 armed flag and its three turn arrays (``x``, ``y``, ``sum``, each
 ``trigger_sample + turns`` samples), the turns of the last tracked shot, the
@@ -24,6 +28,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from osprey.simulation.engines.pyat_model import PyATLatticeModel
+from osprey.simulation.engines.pyat_turn_settings import (
+    BEAM_SIGNALS,
+    MISMATCH_SIGNALS,
+    OFFSET_SIGNALS,
+)
 from osprey.simulation.engines.pyat_variables import (
     TurnArrayVariable,
     TurnSetpointVariable,
@@ -257,6 +266,11 @@ class TurnByTurnModel(PyATLatticeModel):
         self._armed_names: dict[str, list[str]] = {}
         self._array_names: dict[str, dict[str, str]] = {}
         self._turns_names: list[str] = []
+        self._beam_names: dict[str, str] = {
+            variable.signal: variable.name
+            for variable in channels
+            if isinstance(variable, TurnSetpointVariable) and variable.signal in BEAM_SIGNALS
+        }
         for variable in channels:
             if isinstance(variable, (TurnStateVariable, TurnArrayVariable)):
                 variable.bind(self.turn_state)
@@ -377,6 +391,13 @@ class TurnByTurnModel(PyATLatticeModel):
         lattice = self.lattice.deepcopy()
         if settings.aperture is not None:
             pyat_turns.write_apertures(lattice, **settings.aperture.keywords)
+        beam = self.get(list(self._beam_names.values())) if self._beam_names else {}
+        held = {signal: float(beam[name]) for signal, name in self._beam_names.items()}
+        offset = [held.get(signal, 0.0) for signal in OFFSET_SIGNALS]
+        mismatch = [
+            held.get(signal, factor)
+            for signal, factor in zip(MISMATCH_SIGNALS, settings.mismatch, strict=True)
+        ]
         if any(
             (settings.emittance_x, settings.emittance_y, settings.sigma_delta, settings.sigma_z)
         ):
@@ -388,6 +409,10 @@ class TurnByTurnModel(PyATLatticeModel):
                 emittance_y=settings.emittance_y,
                 sigma_delta=settings.sigma_delta,
                 sigma_z=settings.sigma_z,
+                beta=settings.twiss.beta,
+                alpha=settings.twiss.alpha,
+                dispersion=settings.twiss.dispersion,
+                mismatch=mismatch,
             )
         else:
             shape = np.zeros((6, settings.particles), dtype=np.float64)
@@ -401,6 +426,7 @@ class TurnByTurnModel(PyATLatticeModel):
             key=self.model_id,
             shot=shot,
             jitter=settings.jitter,
+            offset=offset,
         )
         charge = float(inputs.get("charge", 0.0))
         stored_current = float(previous.get("stored_current", 0.0))

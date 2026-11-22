@@ -427,7 +427,7 @@ def test_consecutive_shots_differ_by_jitter_and_noise_and_the_stored_sum_grows(
     (x1, y1, sum1), (x2, y2, sum2) = shots
 
     first = _sample(1, trigger)
-    for one, two, jitter in ((x1, x2, block.jitter[0]), (y1, y2, block.jitter[1])):
+    for one, two, jitter in ((x1, x2, block.jitter[0]), (y1, y2, block.jitter[2])):
         moved = np.abs(two[:, first] - one[:, first])
         # Noise alone moves a sample by about position_noise; jitter by far more.
         assert np.median(moved) > 3 * readout.position_noise

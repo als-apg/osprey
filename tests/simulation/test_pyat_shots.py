@@ -292,6 +292,124 @@ class TestShots:
             np.testing.assert_array_equal(_value(ring, name), _value(other, name))
 
 
+OFFSET_X = "SR:INJ:OFFSET:X"
+OFFSET_PY = "SR:INJ:OFFSET:PY"
+MISMATCH_X = "SR:INJ:MISMATCH:X"
+MISMATCH_Y = "SR:INJ:MISMATCH:Y"
+STEERER = "SR:MAG:HCM:01:CURRENT:SP"
+POSITION_X = "SR:DIAG:BPM:01:POSITION:X"
+
+
+def _beam_records() -> list[dict[str, Any]]:
+    return [
+        _record("offset_x", OFFSET_X, write=True),
+        _record("offset_py", OFFSET_PY, write=True),
+        _record("mismatch_x", MISMATCH_X, write=True),
+        _record("mismatch_y", MISMATCH_Y, write=True),
+    ]
+
+
+def _beam_ring(demo: dict[str, Any], active: dict[str, Any] | None = None, **block: Any) -> Any:
+    settings = _settings(demo)
+    settings["pyat"]["turn_by_turn"].update(block)
+    records = [*demo["wiring"], *_turn_records(), *_beam_records()]
+    # The facility build states each record's default: a mismatch starts at the block's.
+    stated = block.get("mismatch", {})
+    for record in records:
+        if record["address"] in (MISMATCH_X, MISMATCH_Y):
+            record["default"] = stated.get("x" if record["address"] == MISMATCH_X else "y", 1.0)
+    model = engine.build(MODEL, records, demo["deck"], settings, active or {})
+    engine.advance(model, 0.0)
+    return model
+
+
+def _first_shot(model: Any) -> tuple[np.ndarray, np.ndarray]:
+    _baselined(model)
+    _arm(model, ARM_1)
+    _deliver(model, 11.0)
+    return np.asarray(_value(model, X_1)), np.asarray(_value(model, Y_1))
+
+
+class TestTheInjectedBeam:
+    def test_an_offset_record_launches_as_the_same_launch_does(self, demo):
+        stated = _beam_ring(demo, launch={"x": 1.0e-3, "py": -2.0e-4})
+        written = _beam_ring(demo)
+        written.set({OFFSET_X: 1.0e-3, OFFSET_PY: -2.0e-4})
+        for one, other in zip(_first_shot(stated), _first_shot(written), strict=True):
+            np.testing.assert_array_equal(one, other)
+
+    def test_an_offset_adds_to_the_blocks_launch(self, demo):
+        stated = _beam_ring(demo, launch={"x": 1.0e-3})
+        both = _beam_ring(demo, launch={"x": 4.0e-4})
+        both.set({OFFSET_X: 6.0e-4})
+        np.testing.assert_allclose(_first_shot(stated)[0], _first_shot(both)[0], atol=1e-15)
+
+    def test_an_offset_moves_the_first_turn(self, demo):
+        plain, moved = _beam_ring(demo), _beam_ring(demo)
+        moved.set({OFFSET_X: 1.0e-3})
+        x, x_moved = _first_shot(plain)[0], _first_shot(moved)[0]
+        assert abs(x_moved[TRIGGER] - x[TRIGGER]) > 1.0e-4
+
+    def test_the_active_scenario_states_an_offset(self, demo):
+        written = _beam_ring(demo)
+        written.set({OFFSET_X: 1.0e-3})
+        seeded = _beam_ring(demo, active={OFFSET_X: 1.0e-3})
+        np.testing.assert_array_equal(_first_shot(written)[0], _first_shot(seeded)[0])
+
+    def test_a_ring_without_beam_records_launches_the_block(self, demo, ring):
+        with_records = _beam_ring(demo)
+        np.testing.assert_array_equal(_first_shot(ring)[0], _first_shot(with_records)[0])
+
+    def test_the_shot_takes_the_blocks_optics_and_the_records_mismatch(self, demo, monkeypatch):
+        twiss = {"beta": [7.0, 3.0], "alpha": [0.4, -0.2]}
+        model = _beam_ring(demo, emittance_x=2.0e-8, twiss=twiss, mismatch={"x": 1.5}, particles=4)
+        assert _value(model, MISMATCH_X) == 1.5
+        model.set({MISMATCH_Y: 0.5})
+        seen: dict[str, Any] = {}
+        declared = pyat_turns.declared_bunch
+
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            return declared(*args, **kwargs)
+
+        monkeypatch.setattr(pyat_turns, "declared_bunch", spy)
+        _first_shot(model)
+        assert tuple(seen["mismatch"]) == (1.5, 0.5)
+        assert tuple(seen["beta"]) == (7.0, 3.0)
+        assert tuple(seen["alpha"]) == (0.4, -0.2)
+        assert seen["dispersion"] is None
+
+    def test_a_stated_beam_is_tracked_on_a_ring_without_a_closed_orbit(self, demo):
+        """A corrector far off leaves no periodic solution; the stated optics need none."""
+        stated = {"beta": [7.0, 3.0], "alpha": [0.4, -0.2], "dispersion": [0.0, 0.0, 0.0, 0.0]}
+        block = {"emittance_x": 2.0e-8, "particles": 4, "aperture": {"x": 0.03, "y": 0.03}}
+        matched, arriving = _beam_ring(demo, **block), _beam_ring(demo, twiss=stated, **block)
+        for model in (matched, arriving):
+            model.set({STEERER: 3000.0})
+            assert np.isnan(_value(model, POSITION_X))
+        x, y = _first_shot(arriving)
+        assert _value(arriving, TURNS_TRACKED) == TURNS
+        assert np.asarray(_value(arriving, SUM_1))[TRIGGER] > 0.5
+        assert np.isfinite(x[TRIGGER]) and np.isfinite(y[TRIGGER])
+        assert x[TRIGGER] != 0.0
+        # The ring's own optics are not there to match to: that shot fails.
+        _first_shot(matched)
+        assert _value(matched, TURNS_TRACKED) == 0
+        assert np.all(np.asarray(_value(matched, SUM_1)) == 0.0)
+
+    def test_a_mismatch_written_as_zero_fails_the_shot_not_the_ring(self, demo):
+        model = _beam_ring(demo, emittance_x=2.0e-8, particles=4)
+        model.set({MISMATCH_X: 0.0})
+        _first_shot(model)
+        assert _value(model, TURNS_TRACKED) == 0
+        assert _value(model, ARMED_1) == 1.0  # the drop follows the drain, as for any shot
+
+    def test_the_jitter_of_the_block_reaches_the_shot_in_six_coordinates(self, demo):
+        quiet = _beam_ring(demo, jitter={"x": 0, "y": 0})
+        kicked = _beam_ring(demo, jitter={"x": 0, "y": 0, "px": 1.0e-4})
+        assert np.abs(_first_shot(quiet)[0] - _first_shot(kicked)[0]).max() > 1.0e-5
+
+
 class TestHandshake:
     def test_armed_drops_only_after_a_drain(self, ring):
         _baselined(ring)
