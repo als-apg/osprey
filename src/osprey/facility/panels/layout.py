@@ -157,6 +157,7 @@ ROW_GAP = 4
 SECTION_GAP = 16
 STAMP_DIGITS = 8  # of the model's content hash, in the header
 GAP = 8  # between two widgets on one row
+MARK_GAP = 2  # between a title and the reference mark after it
 INDENT = 20  # one level of a roll-up tree
 LABEL_WIDTH = 200  # a row's label column, however short its section's labels
 LABEL_MOST = 360  # a row's label column, however long its section's labels
@@ -543,6 +544,9 @@ _BEAM_AXIS = "beam axis"
 _ELLIPSIS = "\u2026"
 #: While :func:`render` runs with ``cuts``: the list each label cut to fit is added to.
 _CUTS: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("cuts", default=None)
+#: While :func:`render` runs with ``crossed``: each badge stem drawn through another
+#: thing's state word, in words.
+_CROSSED: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("crossed", default=None)
 _FORMULA_PREFIX = "formula://"
 _NUMBERS = frozenset({"value", "setpoint", "untyped"})  # the kinds a label prints as a number
 _WHOLE_KINDS = frozenset({"state", "command"})  # an enum, a two-valued output: printed whole
@@ -1406,6 +1410,20 @@ class _Screen:
     formulas: list[dict[str, Any]] = field(default_factory=list)
     _widgets: int = 1
     _rules: int = 0
+    _item: tuple[str, ...] = ()
+
+    @contextlib.contextmanager
+    def item(self, kind: str, thing: str | None = None, order: int | None = None):
+        """Every widget added inside names the view item it draws (:data:`ITEM_TAGS`):
+        its *kind*, the *thing* it stands for, and its *order* where the view
+        states one. The tags go into the widget's ``meta`` comment, which a viewer
+        does not read."""
+        saved = self._item
+        self._item = item_tags(kind, thing, order)
+        try:
+            yield
+        finally:
+            self._item = saved
 
     def add(
         self,
@@ -1437,6 +1455,7 @@ class _Screen:
             ]
         if rules:
             out["rules"] = rules
+        tags = (*tags, *self._item)
         if tags:
             out["meta"] = {"comment": "; ".join(tags)}
         self.nodes.append(out)
@@ -1573,9 +1592,11 @@ class _Page:
         ] = {}  # strip values: symbol, signal, unit
         self.dropped = 0  # strip values the budget left out
         self.crowded = 0  # strip values with no room in the lanes under their symbol
+        self.strip_order: dict[str, int] = {}  # a strip's things, in the beam order it states
         self.taken: list[tuple[float, float, float, float]] = []  # a strip row's boxes
         # the last section heading: its line's top and the right edge of its words
         self.head: tuple[float, float] | None = None
+        self.words: list[tuple[str, tuple[float, float, float, float]]] = []  # its state words
         self.x0: float = MARGIN  # the left edge of the column drawn in
         self.right: float = PAGE_WIDTH - MARGIN + PANEL_PAD  # where text is cut
         self.lit: set[str] = set()  # channels whose light a card's table drew
@@ -2463,27 +2484,31 @@ class _Page:
         slots = max(len(tiles), KEY_TILES_WIDE)  # a lone tile keeps a tile's width
         w = (total - (slots - 1) * KEY_TILE_GAP) / slots
         for i, tile in enumerate(tiles):
-            x = left + i * (w + KEY_TILE_GAP)
-            self.box(x, self.y, w, KEY_TILE_HEIGHT, fill=PANEL_BACKGROUND)
-            inner = x + TILE_PAD + GAP / 2
-            self.text(
-                inner,
-                self.y + GAP,
-                tile.title.upper(),
-                size=HEADING_SIZE,
-                h=SMALL_LINE + 2,
-                fg=MUTED_TEXT,
-            )
-            room = w - 2 * TILE_PAD - GAP
-            if tile.channels:  # a figure over every channel of the role
-                self.key_figure(inner, self.y + KEY_VALUE_TOP, room, tile)
-                continue
-            self.shown_value(
-                inner, self.y + KEY_VALUE_TOP, room, tile.channel, tile.shown_as, tile.words,
-                unit=tile.unit, scale=tile.scale, size=KEY_VALUE_SIZE, h=KEY_VALUE_LINE,
-                note_below=KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE,
-            )  # fmt: skip
+            with self.s.item("key-tile", None, i):
+                self.key_tile(left + i * (w + KEY_TILE_GAP), w, tile)
         self.y += KEY_TILE_HEIGHT + 2 * GAP
+
+    def key_tile(self, x: float, w: float, tile: KeyTile) -> None:
+        """One tile of the top row: its title and its value or figure."""
+        self.box(x, self.y, w, KEY_TILE_HEIGHT, fill=PANEL_BACKGROUND)
+        inner = x + TILE_PAD + GAP / 2
+        self.text(
+            inner,
+            self.y + GAP,
+            tile.title.upper(),
+            size=HEADING_SIZE,
+            h=SMALL_LINE + 2,
+            fg=MUTED_TEXT,
+        )
+        room = w - 2 * TILE_PAD - GAP
+        if tile.channels:  # a figure over every channel of the role
+            self.key_figure(inner, self.y + KEY_VALUE_TOP, room, tile)
+            return
+        self.shown_value(
+            inner, self.y + KEY_VALUE_TOP, room, tile.channel, tile.shown_as, tile.words,
+            unit=tile.unit, scale=tile.scale, size=KEY_VALUE_SIZE, h=KEY_VALUE_LINE,
+            note_below=KEY_TILE_HEIGHT - KEY_VALUE_TOP - SMALL_LINE,
+        )  # fmt: skip
 
     def key_figure(self, x: float, y: float, w: float, tile: KeyTile) -> None:
         """A key tile's figure over every channel of its role: "k of N" true, the
@@ -3418,9 +3443,11 @@ class _Page:
                 block = chain.blocks[n]
                 lines, short = words[n]
                 n += 1
-                end = self.chain_block(x, top, w, block, band)
-                for other in block.stack:  # the other things the hop reaches, under it
-                    end = self.chain_block(x, end + GAP, w, other)
+                thing = block.link.target.id if block.link is not None else None
+                with self.s.item("chain-block", thing, n - 1):
+                    end = self.chain_block(x, top, w, block, band)
+                    for other in block.stack:  # the other things the hop reaches, under it
+                        end = self.chain_block(x, end + GAP, w, other)
                 bottom = max(bottom, end)
                 if k != len(widths) - 1:
                     gap = gaps[k]
@@ -3894,35 +3921,46 @@ class _Page:
         per = -(-len(grid.rows) // columns)
         top = self.y
         for i, (short, channel) in enumerate(grid.rows):
-            c, r = divmod(i, per)
-            x, y = self.x0 + c * cw, top + r * GRID_ROW
-            span = max(GRID_VALUE, self.value_span(channel))
-            value_w = min(span, cw - GRID_NAME_LEAST - 2 * GAP)  # the name keeps its least
-            vx = x + cw - value_w - GAP
-            name_x = x
-            lit = [describe_light(self.graph, channel)] if self.graph.rule(channel) else []
-            rule = ladder(self.graph, lit) if lit else None
-            if lit and not meaning_stated(self.graph, channel):  # a rule, no stated meaning
-                name_x = self.no_rule(x, y + (ROW - LIGHT_SIZE) / 2) + GAP
-            elif isinstance(rule, Ladder) and self.budget.take([light_cost(rule)]):
-                name_x = self.light(x, y + (ROW - LIGHT_SIZE) / 2, lit, rule=rule) + GAP
-
-            name_w = vx - GAP - name_x
-            self.text(
-                name_x, y, _cut(short, name_w, SMALL_SIZE), size=SMALL_SIZE, w=name_w, fg=MUTED_TEXT
-            )
-            words = tuple(self.graph.state_words(channel).items())
-            if words and self.budget.take([(1, frozenset({channel}))]):
-                self.word(vx, y, value_w, ROW, channel, words, size=TEXT_SIZE)
-            else:
-                drawn_as = self.graph.channel(channel).drawn_as
-                held = "unit" if span > value_w else None
-                self.field(vx, y, channel, drawn_as=drawn_as, w=value_w, units=True, within=held)
-            self.s.widget(
-                "rectangle", x, y, cw - GAP, ROW,
-                {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: channel},
-            )  # fmt: skip
+            with self.s.item("grid-row", None, i):
+                self.grid_row(i, short, channel, cw, per, top)
         self.y = top + per * GRID_ROW + ROW_GAP
+        self.grid_rest(grid)
+
+    def grid_row(self, i: int, short: str, channel: str, cw: float, per: int, top: float) -> None:
+        """One row of the channel grid: light, short name, value, and the full name
+        on hover."""
+        c, r = divmod(i, per)
+        x, y = self.x0 + c * cw, top + r * GRID_ROW
+        span = max(GRID_VALUE, self.value_span(channel))
+        value_w = min(span, cw - GRID_NAME_LEAST - 2 * GAP)  # the name keeps its least
+        vx = x + cw - value_w - GAP
+        name_x = x
+        lit = [describe_light(self.graph, channel)] if self.graph.rule(channel) else []
+        rule = ladder(self.graph, lit) if lit else None
+        if lit and not meaning_stated(self.graph, channel):  # a rule, no stated meaning
+            name_x = self.no_rule(x, y + (ROW - LIGHT_SIZE) / 2) + GAP
+        elif isinstance(rule, Ladder) and self.budget.take([light_cost(rule)]):
+            name_x = self.light(x, y + (ROW - LIGHT_SIZE) / 2, lit, rule=rule) + GAP
+
+        name_w = vx - GAP - name_x
+        self.text(
+            name_x, y, _cut(short, name_w, SMALL_SIZE), size=SMALL_SIZE, w=name_w, fg=MUTED_TEXT
+        )
+        words = tuple(self.graph.state_words(channel).items())
+        if words and self.budget.take([(1, frozenset({channel}))]):
+            self.word(vx, y, value_w, ROW, channel, words, size=TEXT_SIZE)
+        else:
+            drawn_as = self.graph.channel(channel).drawn_as
+            held = "unit" if span > value_w else None
+            self.field(vx, y, channel, drawn_as=drawn_as, w=value_w, units=True, within=held)
+        self.s.widget(
+            "rectangle", x, y, cw - GAP, ROW,
+            {"fill": False, "lineColor": TRANSPARENT, "lineWidth": 0, _TOOLTIP: channel},
+        )  # fmt: skip
+
+    def grid_rest(self, grid: ChannelGrid) -> None:
+        """Under the channel grid: the count of the channels it does not list, and
+        the link to the full list."""
         if grid.hidden:
             note = _HIDDEN.format(grid.hidden)
             self.small(self.x0, self.y, note, fg=MUTED_TEXT)
@@ -4712,34 +4750,57 @@ class _Page:
     def calibrations(self, table: Calibrations) -> None:
         """A device's calibration block: column heads, then a row per kind (see
         :meth:`calibration_row`); conditions that several rows state alike once,
-        under the rows, after the titles of the rows they hold for. Read-only."""
+        under the rows: after half a row of space and a thin rule, each such text
+        behind a reference mark (1, 2, ...) that also follows the title of every
+        row it holds for, so it reads as theirs and not as the last row's note.
+        Read-only."""
         for word, dx in zip(_CAL_HEADS, CAL_COLUMNS, strict=True):
             self.text(MARGIN + dx, self.y, word.upper(), size=SMALL_SIZE, fg=MUTED_TEXT)
         self.y += ROW
         # conditions that several rows state alike are stated once, under the rows
         shared = Counter(row.conditions for row in table.rows if row.conditions)
-        once = {text for text, n in shared.items() if n > 1}
+        once = [
+            text
+            for text in dict.fromkeys(row.conditions for row in table.rows)
+            if text is not None and shared[text] > 1
+        ]
+        marks = {text: str(n) for n, text in enumerate(once, start=1)}
         for row in table.rows:
-            self.calibration_row(replace(row, conditions=None) if row.conditions in once else row)
-        for text in sorted(once, key=lambda t: [r.conditions for r in table.rows].index(t)):
-            titles = ", ".join(r.title for r in table.rows if r.conditions == text)
-            for line in _prose(f"{titles}: {text}", STRIP_WIDTH, SMALL_SIZE):
-                self.small(MARGIN, self.y, line, fg=MUTED_TEXT)
+            if row.conditions in marks:
+                self.calibration_row(replace(row, conditions=None), mark=marks[row.conditions])
+            else:
+                self.calibration_row(row)
+        if not once:
+            return
+        self.y += (ROW + ROW_GAP) / 2
+        self.line([(MARGIN, self.y), (MARGIN + STRIP_WIDTH, self.y)], MUTED_TEXT, LINE_WIDTH)
+        self.y += ROW_GAP
+        for text in once:
+            mark = marks[text]
+            indent = text_width(mark, SMALL_SIZE) + GAP / 2
+            self.small(MARGIN, self.y, mark)
+            # the mark points at the rows: their titles are not said again
+            for line in _prose(text, STRIP_WIDTH - indent, SMALL_SIZE):
+                self.small(MARGIN + indent, self.y, line, fg=MUTED_TEXT)
                 self.y += SMALL_LINE
             self.y += ROW_GAP
 
-    def calibration_row(self, row: CalibrationRow) -> None:
+    def calibration_row(self, row: CalibrationRow, mark: str | None = None) -> None:
         """One kind: its title (a link to the kind's view over a set), wrapped and
-        never cut; the value in force, or the live channels, with the note and the
+        never cut, and after it the *mark* of conditions stated under the table;
+        the value in force, or the live channels, with the note and the
         conditions muted under it (at most :data:`CAL_CONDITION_LINES` lines, the
         whole text on hover when cut); the basis chip; date, source and history."""
         x = [MARGIN + dx for dx in CAL_COLUMNS]
         widths = [b - a - GAP for a, b in itertools.pairwise([*x, MARGIN + STRIP_WIDTH])]
         top = self.y
-        titles = _wrap(row.title, widths[0], TEXT_SIZE, lines=len(row.title.split()))
+        room = widths[0] - (text_width(mark, SMALL_SIZE) + MARK_GAP if mark else 0)
+        titles = _wrap(row.title, room, TEXT_SIZE, lines=len(row.title.split()))
         for n, line in enumerate(titles):
-            w = min(text_width(line, TEXT_SIZE), widths[0])
-            self.text(x[0], top + n * TITLE_LINE, line, w=w)
+            w = min(text_width(line, TEXT_SIZE), room)
+            right = self.text(x[0], top + n * TITLE_LINE, line, w=w)
+        if mark:  # raised beside the title's last line, as a reference mark
+            self.small(right + MARK_GAP, top + (len(titles) - 1) * TITLE_LINE, mark)
         if row.link is not None:
             wide = max(min(text_width(line, TEXT_SIZE), widths[0]) for line in titles)
             self.nav(x[0], top, wide, ROW + (len(titles) - 1) * TITLE_LINE, row.link)
@@ -5008,6 +5069,7 @@ class _Page:
         """A place in beam order: the title line, each row of symbols with its locator,
         the legend of the symbols drawn, the tray, and the count of the rest."""
         self.strip_title(looks=bool(item.elements))
+        self.strip_order = {e.thing: i for i, e in enumerate(item.elements)}
         if item.elements:
             widths = {kind: units * SYMBOL_UNIT for kind, units in symbols.WIDTH_UNITS.items()}
             for row in _strip_rows(item.elements, widths):
@@ -5043,40 +5105,58 @@ class _Page:
         placed, _scale = strip.arrange_scaled(drawn, widths, STRIP_WIDTH, fill=True)
         beam = [p for p in placed if p.lane != "above"]
         badges = [p for p in placed if p.lane == "above"]
-        # a ringed badge needs its ring's room beside its neighbour's
-        ringed = any(p.channels for p in badges)
-        levels = stem_levels(
-            [p.x for p in badges], BADGE + BADGE_GAP + (2 * RING_PAD if ringed else 0)
-        )
-        # the upper lane only when something stands in it
-        tags = stem_levels([p.x for p in beam], TAG_WIDTH + STRIP_LABEL_GAP)
+        if any(p.channels for p in badges):
+            # a ringed badge carries its word over its ring: words of one stem
+            # length never touch, and a word clears the ring of the longer stem
+            levels = word_lanes([tag_centre(p.x) for p in badges], TAG_WIDTH + STRIP_LABEL_GAP)
+            pitch = max(STEM_HIGH - STEM_LOW, BADGE + 2 * RING_PAD + TAG_HEIGHT)
+        else:
+            levels = stem_levels([p.x for p in badges], BADGE + BADGE_GAP)
+            pitch = STEM_HIGH - STEM_LOW
+        stems = [STEM_LOW + level * pitch for level in levels]
+        # a ring's word in the lowest lane where it touches no other word; only
+        # ringed symbols carry one, and a lane above only when something stands in it
+        ringed_beam = [p for p in beam if p.channels]
+        words = word_lanes([tag_centre(p.x) for p in ringed_beam], TAG_WIDTH + STRIP_LABEL_GAP)
+        lane = {id(p): n for p, n in zip(ringed_beam, words, strict=True)}
+        tags = [lane.get(id(p), 0) for p in beam]
         above: float = STRIP_AXIS  # room over the axis: rings' words, then badges with theirs
         if any(p.channels for p in beam):
             above += RING_PAD + (max(tags) + 1) * TAG_HEIGHT
         if badges:
-            stem = STEM_HIGH if any(levels) else STEM_LOW
+            stem = max(stems)
             ruled = any(p.channels for p in badges)
             above = max(above, stem + BADGE / 2 + (RING_PAD + TAG_HEIGHT if ruled else 0))
         axis = self.y + above + GAP
         self.line([(MARGIN, axis), (MARGIN + STRIP_WIDTH, axis)], PAGE_TEXT, AXIS_WIDTH)
         self.taken = []  # boxes a badge's name and values must clear: tags, badges
+        self.words = []
         for p, tag_level in zip(beam, tags, strict=True):
             x = MARGIN + p.x
-            self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
-            if p.link is not None:
-                half = p.width / 2
-                link = replace(p.link, label=p.thing)
-                self.nav(x - half, axis - STRIP_AXIS, p.width, 2 * STRIP_AXIS, link)
+            with self.s.item("strip-element", p.thing, self.strip_order.get(p.thing)):
+                self.symbol(p, x, axis, p.width / symbols.WIDTH_UNITS[p.symbol], tag_level)
+                if p.link is not None:
+                    half = p.width / 2
+                    link = replace(p.link, label=p.thing)
+                    self.nav(x - half, axis - STRIP_AXIS, p.width, 2 * STRIP_AXIS, link)
         centres = []
-        for p, level in zip(badges, levels, strict=True):
+        for p, stem in zip(badges, stems, strict=True):
             x = MARGIN + p.x
-            cy = axis - (STEM_HIGH if level else STEM_LOW)
-            self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
-            self.badge(p, x, cy)
+            cy = axis - stem
+            with self.s.item("strip-element", p.thing, self.strip_order.get(p.thing)):
+                self.line([(x, cy + BADGE / 2), (x, axis)], MUTED_TEXT)
+                self.badge(p, x, cy)
             self.taken.append((x - BADGE / 2, cy - BADGE / 2, BADGE, BADGE))
             centres.append((p, x, cy))
         for p, x, cy in centres:
-            self.badge_text(p, x, cy)
+            with self.s.item("strip-element", p.thing):
+                self.badge_text(p, x, cy)
+            crossed = _CROSSED.get()
+            if crossed is None:
+                continue
+            for thing, (wx, wy, ww, wh) in self.words:  # a stem runs from its badge down
+                if thing != p.thing and wx < x < wx + ww and cy + BADGE / 2 < wy + wh and wy < axis:
+                    crossed.append(f"{p.thing}'s stem runs through {thing}'s state word")
         blocks = self.value_blocks(beam)
         lines = 0
         bare = [p for p in beam if id(p) not in blocks]
@@ -5302,11 +5382,14 @@ class _Page:
         outline = symbols.ring(left, top, right, bottom, RING_PAD, static)
         outline["props"][_TOOLTIP] = element.thing
         above = top - RING_PAD - level * TAG_HEIGHT
-        low, high = MARGIN + TAG_WIDTH / 2, MARGIN + STRIP_WIDTH - TAG_WIDTH / 2
-        centre = min(max((left + right) / 2, low), high)  # the word stays on the page
+        middle = (left + right) / 2
+        centre = MARGIN + tag_centre(middle - MARGIN)  # the word stays on the page
         word = symbols.tag(centre, above, TAG_WIDTH, TAG_HEIGHT, SMALL_SIZE, static)
+        if centre != middle:  # moved in from the page's edge: the word keeps to its side
+            word["props"]["align"] = "right" if centre < middle else "left"
         g = word["geometry"]
         self.taken.append((g["x"], g["y"], g["width"], g["height"]))
+        self.words.append((element.thing, (g["x"], g["y"], g["width"], g["height"])))
         rules: list[dict] = []
         word_rules: list[dict] = []
         if live is not None:
@@ -6448,7 +6531,13 @@ class _Page:
         # and each in a list under the rack with its own light
         crowded: list[RackUnit] = []
         spans: list[list[int]] = []  # the crowded bars' units, lowest and highest
-        for unit, unit_top, (lane, count) in zip(elevation.units, tops, lanes, strict=True):
+        # the units numbered by where they stand: top down, then left to right
+        rank = sorted(range(len(tops)), key=lambda k: (-tops[k], lanes[k][0]))
+        numbered = {k: n for n, k in enumerate(rank)}
+        for k, (unit, unit_top, (lane, count)) in enumerate(
+            zip(elevation.units, tops, lanes, strict=True)
+        ):
+            order = numbered[k]
             w = RACK_WIDTH / count  # chassis whose units overlap share the rack's width
             x = bars_x + lane * w
             y = rack_top + (height - unit_top) * RACK_U
@@ -6463,7 +6552,8 @@ class _Page:
             if w < RACK_LANE_LEAST:
                 crowded.append(unit)
                 continue
-            self.chassis(x, y, w, h, unit)
+            with self.s.item("rack-unit", _unit_thing(unit), order):
+                self.chassis(x, y, w, h, unit)
         crowded.sort(key=lambda u: u.position or 0)
         for unit in crowded:
             low, high = unit.position or 0, _unit_top(unit)
@@ -6863,6 +6953,39 @@ def _block_label(block: ChainBlock) -> float:
     """The label column of a block's lines: its longest label, and the gap before it."""
     widths = [text_width(row.label, SMALL_SIZE) for row in block.rows]
     return max([BLOCK_LABEL_LEAST, *widths]) + GAP
+
+
+#: The view items a widget names in its ``meta`` comment, each with the way the
+#: items read on a screen in the order the view states for them: ``across``, left
+#: to right and on in rows top to bottom; ``down``, top to bottom (side by side
+#: left to right) and on in columns left to right.
+ITEM_TAGS: Mapping[str, str] = MappingProxyType(
+    {
+        "rack-unit": "down",
+        "strip-element": "across",
+        "key-tile": "across",
+        "chain-block": "across",
+        "grid-row": "down",
+    }
+)
+
+
+def item_tags(kind: str, thing: str | None = None, order: int | None = None) -> tuple[str, ...]:
+    """The tags that name one view item: ``item: <kind>``, then ``thing: <id>``
+    and ``order: <n>`` where they are given."""
+    if kind not in ITEM_TAGS:
+        raise ValueError(f"no item kind {kind!r}")
+    tags = [f"item: {kind}"]
+    if thing is not None:
+        tags.append(f"thing: {thing}")
+    if order is not None:
+        tags.append(f"order: {order}")
+    return tuple(tags)
+
+
+def _unit_thing(unit: RackUnit) -> str | None:
+    """The thing a rack unit stands for: its link's screen's thing, else none."""
+    return unit.link.target.id if isinstance(unit.link, Link) else None
 
 
 def _hover_box(g: Mapping[str, float], text: str) -> dict[str, Any]:
@@ -7265,7 +7388,8 @@ def metric_formula(name: str, item: Tile) -> dict[str, Any]:
 def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[int]:
     """The level of each of a row of things at *xs* (in order), each *room* wide: the
     low one, unless it would touch the last one there, then the high one; when both
-    would, the level whose last thing is further away. Badges' stems, rings' tags."""
+    would, the level whose last thing is further away: the stems of badges that carry
+    no ring, so no word (:func:`word_lanes` places the others)."""
     last = [-math.inf, -math.inf]
     out = []
     for x in xs:
@@ -7274,6 +7398,28 @@ def stem_levels(xs: Sequence[float], room: float = BADGE + BADGE_GAP) -> list[in
             level = 0 if last[0] <= last[1] else 1
         last[level] = x
         out.append(level)
+    return out
+
+
+def tag_centre(x: float) -> float:
+    """Where a ring's word stands over a symbol at *x* on a strip: over it, kept
+    whole on the strip."""
+    return min(max(x, TAG_WIDTH / 2), STRIP_WIDTH - TAG_WIDTH / 2)
+
+
+def word_lanes(xs: Sequence[float], room: float) -> list[int]:
+    """The lane of each of a row of words centred at *xs* (in order), each *room*
+    wide: the lowest lane whose last word it does not touch, a new lane above
+    when it touches them all. Unlike :func:`stem_levels`, which has two stem
+    lengths to give, a word never stands over another."""
+    last: list[float] = []
+    out = []
+    for x in xs:
+        lane = next((n for n, at in enumerate(last) if x - at >= room), len(last))
+        if lane == len(last):
+            last.append(x)
+        last[lane] = x
+        out.append(lane)
     return out
 
 
@@ -7308,6 +7454,7 @@ def render(
     doc_id: str,
     colours: Mapping[str, str] = MappingProxyType({}),
     cuts: list[str] | None = None,
+    crossed: list[str] | None = None,
 ) -> dict[str, Any]:
     """The view as a Screen-IR 1.1 document.
 
@@ -7323,12 +7470,15 @@ def render(
             the panel's ground.
         cuts: When given, each label the layout cuts to fit is added to it, as it
             was before the cut.
+        crossed: When given, each badge stem drawn through another thing's state
+            word is added to it, in words.
 
     Returns:
         The document, as JSON-ready data. Equal inputs give equal documents.
     """
-    token = _CUTS.set(cuts)
+    token, crossing = _CUTS.set(cuts), _CROSSED.set(crossed)
     try:
         return _Page(view, graph, screens, doc_id, colours).draw()
     finally:
+        _CROSSED.reset(crossing)
         _CUTS.reset(token)
