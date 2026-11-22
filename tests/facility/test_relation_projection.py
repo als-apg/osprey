@@ -1,9 +1,11 @@
 """The compute stage projects a device's place from its ``located_in`` claims.
 
 A device no source and no span places takes the place its ``located_in`` key's
-accepted, non-coarse claims all name, recorded ``place_from: relation``, when no
-claim on the key is contested. A place stated by any source or set by a span
-always wins, and a projected place is numbered like any other.
+accepted claims agree on, recorded ``place_from: relation``: a contested claim
+removes only itself, a claim is coarse only beside an accepted one, and of a
+place and a place inside it the finer is the one both agree with. A place
+stated by any source or set by a span always wins, and a projected place is
+numbered like any other.
 """
 
 from __future__ import annotations
@@ -143,7 +145,10 @@ class TestDisputes:
         assert _place(_devices(report)["PS1"]) == (None, None)
         assert [line for line in _lines(report) if "relation-contested" in line]
 
-    def test_a_coarse_claim_beside_a_contested_pair_projects_nothing(self, tmp_path: Path) -> None:
+    def test_a_coarse_claim_beside_a_contested_pair_projects_its_rack(self, tmp_path: Path) -> None:
+        """The two claims that disagree on the unit remove themselves; the claim
+        that names the rack alone is coarse beside no accepted claim, so it
+        places the device in the rack, and no unit is copied."""
         report = _run(
             tmp_path,
             _tree(
@@ -152,21 +157,64 @@ class TestDisputes:
                 _located("ps1-coarse", "PS1", "HALL/RK1"),
             ),
         )
+        devices = _devices(report)
+        assert _place(devices["PS1"]) == ("HALL/RK1", "relation")
+        assert "unit" not in devices["PS1"]
+        assert [line for line in _lines(report) if "relation-contested" in line]  # still said
+
+    def test_a_contested_claim_removes_only_itself(self, tmp_path: Path) -> None:
+        """Two layers agree on the rack; two others name it with units that
+        disagree. The pair removes itself, and the rack the accepted claims
+        agree on is the device's place, its unit left out."""
+        tree = _tree(
+            **{
+                "imported/mml/relations.yaml": [_located("ps1-mml", "PS1", "HALL/RK1")],
+                "imported/csv/relations.yaml": [_located("ps1-csv", "PS1", "HALL/RK1")],
+                "records/relations.yaml": [
+                    _located("ps1-a", "PS1", "HALL/RK1", unit=22),
+                    _located("ps1-b", "PS1", "HALL/RK1", unit=23),
+                ],
+            }
+        )
+        report = _run(tmp_path, tree)
+        standing = {c["id"]: c.get("standing") for c in report.validated.document["relations"]}
+        assert standing["ps1-a"] == standing["ps1-b"] == "contested"
+        devices = _devices(report)
+        assert _place(devices["PS1"]) == ("HALL/RK1", "relation")
+        assert "unit" not in devices["PS1"]
+
+    def test_a_device_whose_claims_are_all_contested_gets_no_place(self, tmp_path: Path) -> None:
+        report = _run(
+            tmp_path,
+            _tree(
+                _located("ps1-a", "PS1", "HALL/RK1", unit=22),
+                _located("ps1-b", "PS1", "HALL/RK1", unit=23),
+            ),
+        )
         assert _place(_devices(report)["PS1"]) == (None, None)
 
-    def test_a_dispute_on_one_device_leaves_another_projected(self, tmp_path: Path) -> None:
-        devices = _devices(
-            _run(
-                tmp_path,
-                _tree(
-                    _located("ps1-a", "PS1", "HALL/RK1"),
-                    _located("ps1-b", "PS1", "HALL/RK2"),
-                    _located("ps2-a", "PS2", "HALL/RK2"),
-                ),
-            )
+    def test_a_hall_and_a_rack_in_it_are_contested_before_any_projection(
+        self, tmp_path: Path
+    ) -> None:
+        """The relations stage contests two claims that name different places on
+        one key, a place and the place inside it too: neither is accepted, so
+        nothing is projected (:func:`_agreed_place` sees no accepted claim)."""
+        report = _run(
+            tmp_path,
+            _tree(_located("ps1-hall", "PS1", "HALL"), _located("ps1-rk1", "PS1", "HALL/RK1")),
         )
-        assert _place(devices["PS1"]) == (None, None)
-        assert _place(devices["PS2"]) == ("HALL/RK2", "relation")
+        assert _place(_devices(report)["PS1"]) == (None, None)
+
+
+def test_accepted_ends_at_two_levels_of_one_tree_agree_on_the_finer() -> None:
+    from osprey.facility.compute import _agreed_place
+
+    assert _agreed_place({("place", "HALL"), ("place", "HALL/RK1")}) == "HALL/RK1"
+    assert _agreed_place({("place", "HALL/RK1")}) == "HALL/RK1"
+    assert _agreed_place({("place", "HALL/RK1"), ("place", "HALL/RK2")}) is None
+    assert _agreed_place({("place", "HALL"), ("place", "HALLWAY/RK1")}) is None  # no prefix
+    assert _agreed_place({("place", "HALL"), ("device", "PS2")}) is None
+    assert _agreed_place(set()) is None
 
 
 class TestStatedPlacesWin:
