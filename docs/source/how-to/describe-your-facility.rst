@@ -155,7 +155,9 @@ address means anything to OSPREY. What a channel is comes from its fields:
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
        ``{relative: <fraction>}`` of its seed's ``nominal``. The setpoint and
-       its readback must both state a ``unit``.
+       its readback must both state a ``unit``. An address under a wiring
+       record's ``also`` settles within the tolerance of the record's
+       ``address`` and states none of its own.
    * - ``idle``
      - On a readback a command pairs with, its status: what it reads while no
        act runs, typed by the channel: a label on a bool or enum channel, an
@@ -863,7 +865,7 @@ and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
 write to it is a write to ``address``. It reads back the ``pair`` of
 ``address``, and a command fired under it waits as one fired under
-``address``; ``timeout_s`` and ``idle`` are stated on ``address`` only. It
+``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
 carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records' ``address`` names: the build stops when an address under ``also``
 states a ``pair``, and when a setpoint's ``pair`` names an address under

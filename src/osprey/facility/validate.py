@@ -1232,6 +1232,8 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
     (all but the nominal band, which needs the computed operating point), and
     ``relation-invalid`` for a relation claim whose shape breaks a rule.
+    A further address of a wiring record (under ``also``) states no
+    ``tolerance``: the record's holds under each of its addresses.
 
     Args:
         document: The document S3 validated.
@@ -1287,7 +1289,13 @@ class _Records:
         yield from self._gate_cycles()
         yield from self._pairs()
         for address, channel in sorted(self.index.channels.items()):
-            if "tolerance" in channel and address not in self.broken:
+            if "tolerance" not in channel:
+                continue
+            if address in self._further:
+                yield from self._on_further(
+                    "value-invalid", ("tolerance",), address, channel, *self._further[address]
+                )
+            elif address not in self.broken:
                 yield from self._tolerance(address, channel)
         yield from self._wiring()
         yield from self._limits()
@@ -1305,17 +1313,12 @@ class _Records:
             if channel.get("command") is True
         }
         awaited = {status for address, status in status_of.items() if status != address}
-        # A further address of a wiring record is that record under another
-        # name: its bound and its status's idle are the record's own.
-        further: dict[str, tuple[str, str]] = {}
-        for _, entry in self.index.wiring:
-            own, *names = wiring_addresses(entry)
-            for name in names:
-                if name != own:
-                    further.setdefault(name, (str(entry.get("id")), own))
+        further = self._further
         for address, channel in sorted(channels.items()):
             if address in further:
-                yield from self._on_further(address, channel, *further[address])
+                yield from self._on_further(
+                    "command-invalid", ("timeout_s", "idle"), address, channel, *further[address]
+                )
                 continue
             yield from self._bound(address, channel, status_of.get(address))
             if "idle" in channel:
@@ -1337,14 +1340,34 @@ class _Records:
                     f"remove `confirm`; the wait for {status_of[own]} confirms the write",
                 )
 
+    @cached_property
+    def _further(self) -> dict[str, tuple[str, str]]:
+        """A further address of a wiring record is that record under another name.
+
+        Each further address, by the wiring record's id and ``address`` it names.
+        """
+        further: dict[str, tuple[str, str]] = {}
+        for _, entry in self.index.wiring:
+            own, *names = wiring_addresses(entry)
+            for name in names:
+                if name != own:
+                    further.setdefault(name, (str(entry.get("id")), own))
+        return further
+
     def _on_further(
-        self, address: str, channel: Mapping[str, Any], wid: str, own: str
+        self,
+        code: str,
+        keys: tuple[str, ...],
+        address: str,
+        channel: Mapping[str, Any],
+        wid: str,
+        own: str,
     ) -> Iterator[FacilityBuildError]:
-        """``timeout_s`` and ``idle`` are stated on a wiring record's ``address`` only."""
-        for key in ("timeout_s", "idle"):
+        """A record fact is stated on a wiring record's ``address`` only."""
+        for key in keys:
             if key in channel:
                 yield self._error(
-                    "command-invalid",
+                    code,
                     "channel",
                     address,
                     stating_files(channel, key),

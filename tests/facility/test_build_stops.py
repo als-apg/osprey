@@ -560,6 +560,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a relative `tolerance` on a setpoint without a seed `nominal`",
     ),
+    (
+        "value_invalid__tolerance_on_further_address",
+        "value-invalid",
+        "`tolerance` on a further address of a wiring record",
+    ),
     ("value_invalid__enum_bounds", "value-invalid", "enum bounds"),
     ("value_invalid__linear_wired", "value-invalid", "`linear` inputs wired"),
     ("value_invalid__linear_cyclic", "value-invalid", "`linear` inputs cyclic"),
@@ -2043,6 +2048,25 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: value-invalid: channel Q1:SP — a relative `tolerance` is taken of the "
             "setpoint's seed `nominal`, which it does not state; fix: state `absolute`, or give "
             "the setpoint a seed `nominal`"
+        ),
+    ),
+    "value_invalid__tolerance_on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "tolerance": {"absolute": 0.1},
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: value-invalid: channel RACK:QD:SP — `tolerance` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `tolerance` on QD:SP only; it "
+            "holds under each of its addresses"
         ),
     ),
     "value_invalid__enum_bounds": (
