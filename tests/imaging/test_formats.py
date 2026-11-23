@@ -51,16 +51,27 @@ IMAGE_FIXTURES = {
     "tiff-be": (b"MM\x00*\x00\x00\x00\x08" + _PAD, "image/tiff"),
 }
 
+# name -> (bytes, mime, row). The SVG behind an XML prolog stays the svg row, and CSV is
+# classed as the reserved text row.
 RESERVED_FIXTURES = {
-    "svg": (b'<svg xmlns="http://www.w3.org/2000/svg" width="1"/>' + b" " * 20, "image/svg+xml"),
+    "svg": (
+        b'<svg xmlns="http://www.w3.org/2000/svg" width="1"/>' + b" " * 20,
+        "image/svg+xml",
+        "svg",
+    ),
     "svg-xml-prolog": (
         b'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="x"/>',
         "image/svg+xml",
+        "svg",
     ),
-    "pdf": (b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n" + _PAD, "application/pdf"),
-    "csv": (b"timestamp,pv,value\n2026-10-01,SR:C01:BPM,1.25\n2026-10-01,x,2\n", "text/plain"),
-    "mp4": (b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + _PAD, "video/mp4"),
-    "zip": (b"PK\x03\x04\x14\x00\x00\x00\x08\x00" + _PAD, "application/zip"),
+    "pdf": (b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n" + _PAD, "application/pdf", "pdf"),
+    "csv": (
+        b"timestamp,pv,value\n2026-10-01,SR:C01:BPM,1.25\n2026-10-01,x,2\n",
+        "text/plain",
+        "text",
+    ),
+    "mp4": (b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + _PAD, "video/mp4", "video"),
+    "zip": (b"PK\x03\x04\x14\x00\x00\x00\x08\x00" + _PAD, "application/zip", "archive"),
 }
 
 
@@ -80,23 +91,14 @@ def test_accepted_formats_sniff_as_image(name):
 
 @pytest.mark.parametrize("name", sorted(RESERVED_FIXTURES))
 def test_reserved_formats_are_skipped_with_reserved_format(name):
-    data, mime = RESERVED_FIXTURES[name]
+    data, mime, row = RESERVED_FIXTURES[name]
     result = sniff(data)
     assert result.kind == "reserved"
     assert not result.is_image
     assert result.mime == mime
+    assert result.row == row
     assert result.skip_reason == "reserved_format"
     assert not is_markup(result)
-
-
-def test_svg_with_xml_prolog_stays_reserved_svg():
-    result = sniff(RESERVED_FIXTURES["svg-xml-prolog"][0])
-    assert (result.kind, result.row, result.mime) == ("reserved", "svg", "image/svg+xml")
-
-
-def test_csv_is_classed_as_reserved_text():
-    result = sniff(RESERVED_FIXTURES["csv"][0])
-    assert (result.kind, result.row, result.mime) == ("reserved", "text", "text/plain")
 
 
 def test_sniff_reads_only_the_first_32_bytes_for_magic():
@@ -184,7 +186,7 @@ def test_binary_with_control_bytes_is_not_text():
 
 def test_classification_never_calls_pillow():
     pil_image = pytest.importorskip("PIL.Image")
-    fixtures = {**IMAGE_FIXTURES, **RESERVED_FIXTURES}
+    fixtures = {**IMAGE_FIXTURES, **{k: v[:2] for k, v in RESERVED_FIXTURES.items()}}
     with mock.patch.object(pil_image, "open", side_effect=AssertionError("Pillow called")):
         for name, (data, mime) in fixtures.items():
             assert sniff(data).mime == mime, name

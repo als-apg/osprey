@@ -444,17 +444,13 @@ class TestTheClaimingSitesRunOnTheAwaitedTask:
     and that is a property worth failing a build over rather than a convention.
     """
 
-    def test_the_config_write_routes_are_coroutines(self):
+    @pytest.mark.parametrize(
+        "name", ["put_config", "patch_config", "save_claude_setup", "create_claude_setup"]
+    )
+    def test_the_config_and_claude_setup_write_routes_are_coroutines(self, name):
         from osprey.interfaces.web_terminal.routes import config as config_routes
 
-        for route in (config_routes.put_config, config_routes.patch_config):
-            assert inspect.iscoroutinefunction(route), route.__name__
-
-    def test_the_claude_setup_write_routes_are_coroutines(self):
-        from osprey.interfaces.web_terminal.routes import config as config_routes
-
-        for route in (config_routes.save_claude_setup, config_routes.create_claude_setup):
-            assert inspect.iscoroutinefunction(route), route.__name__
+        assert inspect.iscoroutinefunction(getattr(config_routes, name)), name
 
     def test_the_scaffold_write_routes_are_coroutines(self):
         from osprey.interfaces.web_terminal.routes import scaffold as scaffold_routes

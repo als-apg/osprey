@@ -88,36 +88,40 @@ async def test_budget_cap_subtype_flips_to_run(monkeypatch):
     assert "done" not in types
 
 
+@pytest.mark.parametrize(
+    ("subtype", "result_text", "expected_class"),
+    [
+        pytest.param(
+            "error_max_turns", "Max turns", failure_class.FAILURE_RUN, id="max-turns-is-run"
+        ),
+        # A non-budget error whose text reads as a provider fault stays retryable.
+        pytest.param(
+            "error_during_execution",
+            "upstream 429 rate limit exceeded",
+            failure_class.FAILURE_PROVIDER,
+            id="provider-text-is-provider",
+        ),
+        pytest.param(
+            "error_during_execution",
+            "a tool crashed mid-run",
+            failure_class.FAILURE_RUN,
+            id="generic-error-is-run",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_max_turns_subtype_flips_to_run(monkeypatch):
+async def test_an_error_result_flips_to_error_with_its_class(
+    monkeypatch, subtype, result_text, expected_class
+):
     async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield result_event(is_error=True, subtype="error_max_turns", result="Max turns")
+        yield result_event(is_error=True, subtype=subtype, result=result_text)
 
     monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
 
     result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
 
     assert result["status"] == "error"
-    assert result["failure_class"] == failure_class.FAILURE_RUN
-
-
-@pytest.mark.asyncio
-async def test_error_result_with_provider_text_is_provider(monkeypatch):
-    """A non-budget error whose text reads as a provider fault stays retryable."""
-
-    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield result_event(
-            is_error=True,
-            subtype="error_during_execution",
-            result="upstream 429 rate limit exceeded",
-        )
-
-    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
-
-    result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
-
-    assert result["status"] == "error"
-    assert result["failure_class"] == failure_class.FAILURE_PROVIDER
+    assert result["failure_class"] == expected_class
 
 
 @pytest.mark.asyncio
@@ -138,20 +142,6 @@ async def test_error_result_api_status_folds_into_classification(monkeypatch):
 
     assert result["failure_class"] == failure_class.FAILURE_PROVIDER
     assert "429" in result["error"]
-
-
-@pytest.mark.asyncio
-async def test_error_result_generic_is_run(monkeypatch):
-    async def fake_stream(project_dir, prompt, **_kw):  # noqa: ARG001 - matches the stream_query signature
-        yield result_event(
-            is_error=True, subtype="error_during_execution", result="a tool crashed mid-run"
-        )
-
-    monkeypatch.setattr(sdk_runner, "stream_query", fake_stream)
-
-    result = await sdk_runner.run_dispatch("go", ["Read"], event_queue=asyncio.Queue(), run_id="r")
-
-    assert result["failure_class"] == failure_class.FAILURE_RUN
 
 
 @pytest.mark.asyncio

@@ -1318,7 +1318,10 @@ def test_the_nominal_is_the_setpoint_and_the_monitor_only_without_one(
 
     assert "names = {'Setpoint', 'Monitor'};" in body
     assert body.index("'Setpoint'") < body.index("'Monitor'")
-    assert "return" in body, "the first field the family carries is the one read"
+    assert re.search(
+        r"if isfield\(AO\.\(family\), names\{k\}\)[^\n]*\n\s*field = names\{k\};\s*\n\s*return\b",
+        body,
+    ), "the first field the family carries is the one read"
 
 
 def test_the_nominal_read_asks_for_hardware_units_and_for_the_units_statement(
