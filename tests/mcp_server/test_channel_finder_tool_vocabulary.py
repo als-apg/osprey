@@ -360,7 +360,7 @@ def test_masks_match_whole_words_only():
 
 
 def test_osprey_vocabulary_is_never_a_facility_string():
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     aliases = [alias for row in vocabulary()["classes"] for alias in row.get("aliases", [])]
     assert aliases, "the vocabulary table lists no alias; the guard is not reading it"

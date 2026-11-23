@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from osprey_facility.records import FacilityRecords
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     dict_repository_fixture,
     example_entry_fields_fixture,

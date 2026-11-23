@@ -318,8 +318,8 @@ class TestGraphVocabulary:
 
     def test_every_relation_type_has_a_row_with_its_vocabulary_ends(self, payload):
         """Rows come from the view's predicate table and the vocabulary's end kinds."""
-        from osprey.facility.validate import relation_types
         from osprey.facility.views.graph import RELATION_PREDICATES
+        from osprey_facility.validate import relation_types
 
         rows = {(rel["type"], rel["from"], rel["to"]): rel for rel in payload["relationships"]}
         for name, predicate in RELATION_PREDICATES.items():
