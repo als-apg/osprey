@@ -17,8 +17,12 @@ freezes a value the operator can move, and emission is byte-deterministic.
 from __future__ import annotations
 
 import dataclasses
+import json
+import os
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -70,6 +74,45 @@ _FOREIGN_PORT_MARKER = re.compile(r"^#\s*Not a deployment port:\s*(\d+(?:,\s*\d+
 
 def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
     return emit_standalone_profile_yaml(preset, set_pairs, "Emitted", project_name="emitted")
+
+
+_EMIT_PROGRAM = """
+import json, sys
+from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
+out, presets = sys.argv[1], sys.argv[2:]
+emitted = {p: emit_standalone_profile_yaml(p, (), "Emitted", project_name="emitted") for p in presets}
+open(out, "w", encoding="utf-8").write(json.dumps(emitted))
+"""
+
+
+def emit_under_hash_seed(presets: list[str], seed: int, out: Path) -> dict[str, str]:
+    """Emit ``presets`` the way :func:`_emit` does, in a fresh interpreter whose
+    ``PYTHONHASHSEED`` is ``seed``.
+
+    One process fixes its string-hash seed for its whole life, so two emissions
+    in it iterate every set of strings in the same order: a set-iteration leak
+    only shows between processes that hash differently.
+    """
+    env = {**os.environ, "PYTHONHASHSEED": str(seed)}
+    subprocess.run(
+        [sys.executable, "-c", _EMIT_PROGRAM, str(out), *presets],
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    return json.loads(out.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def emissions_under_two_hash_seeds(tmp_path_factory) -> tuple[dict[str, str], dict[str, str]]:
+    """Every preset's emission from two interpreters that hash strings differently."""
+    tmp = tmp_path_factory.mktemp("emit-seeds")
+    presets = list_presets()
+    return (
+        emit_under_hash_seed(presets, 0, tmp / "seed-0.json"),
+        emit_under_hash_seed(presets, 1, tmp / "seed-1.json"),
+    )
 
 
 def _active_and_commented(text: str) -> tuple[set[str], set[str]]:
@@ -288,14 +331,18 @@ def test_commented_members_stay_covered_with_set_supplying_blocks() -> None:
 
 
 @pytest.mark.parametrize("preset", list_presets())
-def test_emission_is_byte_deterministic(preset: str) -> None:
+def test_emission_is_byte_deterministic(
+    preset: str, emissions_under_two_hash_seeds: tuple[dict[str, str], dict[str, str]]
+) -> None:
     """Two emissions of the same preset are byte-identical.
 
     Facilities keep profile.yml under version control, so a set-iteration order
     or a timestamp leaking into the output would show up as a spurious diff on
-    every re-emit.
+    every re-emit. The two emissions come from interpreters with different hash
+    seeds, the only place a set-iteration order can differ.
     """
-    assert _emit(preset) == _emit(preset)
+    first, second = emissions_under_two_hash_seeds
+    assert first[preset] == second[preset]
 
 
 @pytest.mark.parametrize("preset", list_presets())
@@ -665,11 +712,12 @@ def test_no_comment_freezes_the_port_base(preset: str) -> None:
 def test_emission_is_byte_deterministic_across_two_runs(preset: str) -> None:
     """Re-emitting must produce the same bytes, config block included.
 
-    ``test_emission_is_byte_deterministic`` above says the same thing and is
-    kept: this one exists because the config block is where determinism became
-    easy to lose. It is built by merging dotted keys and their comments out of
-    a preset document, and a set iteration anywhere in that path would show up
-    as a spurious diff on every re-emit of a file facilities keep in git.
+    The hash-seed test above covers set-iteration leaks across processes; this
+    one checks re-emission within one process. It exists because the config
+    block is where determinism became easy to lose: it is built by merging
+    dotted keys and their comments out of a preset document, and a set
+    iteration anywhere in that path would show up as a spurious diff on every
+    re-emit of a file facilities keep in git.
     """
     first, second = _emit(preset), _emit(preset)
 

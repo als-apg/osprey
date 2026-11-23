@@ -78,16 +78,20 @@ def test_a_cli_edit_folds_the_shorthand_into_the_dotted_key() -> None:
 # ── validation: the resolver's rules apply at parse time ─────────────────────
 
 
-@pytest.mark.parametrize("bad", ["a-string", True, 12.5, None])
-def test_a_non_integer_base_is_refused(bad) -> None:
-    with pytest.raises(BuildProfileError, match="port_base"):
-        _parse_profile(_minimal(port_base=bad))
-
-
-@pytest.mark.parametrize("bad", [500, 65000])
-def test_an_impossible_block_is_refused(bad) -> None:
-    """Below 1024, or a block running past 65535 — the same rule
-    ``resolve_port_base`` enforces for every runtime consumer."""
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param("a-string", id="non-integer-a-string"),
+        pytest.param(True, id="non-integer-True"),
+        pytest.param(12.5, id="non-integer-12.5"),
+        pytest.param(None, id="non-integer-None"),
+        # Below 1024, or a block running past 65535 — the same rule
+        # ``resolve_port_base`` enforces for every runtime consumer.
+        pytest.param(500, id="impossible-block-500"),
+        pytest.param(65000, id="impossible-block-65000"),
+    ],
+)
+def test_a_base_that_is_not_a_possible_block_is_refused(bad) -> None:
     with pytest.raises(BuildProfileError, match="port_base"):
         _parse_profile(_minimal(port_base=bad))
 

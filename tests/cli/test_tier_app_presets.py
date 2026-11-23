@@ -1114,22 +1114,27 @@ class TestDemoTiersAndApps:
         )
         assert sorted(wt["shared"]) == list(SHARED_LOGIN_NAMES)
 
-    def test_readonly_disables_writes(self, layers: dict[str, BuildProfile]) -> None:
-        profile = layers["tiers/readonly"]
-        assert profile.name == "OSPREY Demo (Read-Only)"
+    @pytest.mark.parametrize(
+        ("layer", "name", "writes"),
+        [
+            pytest.param(
+                "readonly", "OSPREY Demo (Read-Only)", "never", id="readonly-disables-writes"
+            ),
+            pytest.param(
+                "readwrite", "OSPREY Demo (Read-Write)", "asked", id="readwrite-arms-the-simulator"
+            ),
+        ],
+    )
+    def test_a_person_tier_sets_only_the_write_posture(
+        self, layers: dict[str, BuildProfile], layer: str, name: str, writes: str
+    ) -> None:
+        profile = layers[f"tiers/{layer}"]
+        assert profile.name == name
         assert _profile_data_bundle(profile) == "demo"
-        assert profile.config.get(WRITES_KEY) == "never"
+        assert profile.config.get(WRITES_KEY) == writes
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         # Flat dotted key, never nested YAML under config:.
-        assert "control_system" not in _own_config("tiers", "readonly")
-
-    def test_readwrite_arms_the_simulator(self, layers: dict[str, BuildProfile]) -> None:
-        profile = layers["tiers/readwrite"]
-        assert profile.name == "OSPREY Demo (Read-Write)"
-        assert _profile_data_bundle(profile) == "demo"
-        assert profile.config.get(WRITES_KEY) == "asked"
-        assert not _posture_keys(profile.config) - {WRITES_KEY}
-        assert "control_system" not in _own_config("tiers", "readwrite")
+        assert "control_system" not in _own_config("tiers", layer)
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
         """The admin tier is readwrite plus deployment editing at the ceiling
