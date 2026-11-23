@@ -29,12 +29,13 @@ from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
 from osprey.facility.build import LATER_STAGES
-from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import run_stages
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation.engines import pyat as pyat_engine
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.engines import ENGINE_GROUP
+from tests._builds import FRAMEWORK_CHECKS
 
 PRODUCER_ENGINE = "fake_model_input_producer_engine"
 CONSUMER_ENGINE = "fake_model_input_consumer_engine"
@@ -194,7 +195,9 @@ def _simulator_view(tmp_path: Path, *, with_inputs: bool) -> Path:
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     for model in files["models.yaml"]:
         _save_deck(facility_dir / model["deck"])
-    report = run_stages(facility_dir, project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        facility_dir, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.ok, [error.format_message() for error in report.errors]
     document = report.validated.document
     assert document is not None

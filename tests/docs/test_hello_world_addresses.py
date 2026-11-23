@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from osprey.facility.build import build_facility
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GETTING_STARTED = REPO_ROOT / "docs/source/getting-started"
@@ -46,7 +47,9 @@ LITERALINCLUDE = re.compile(r"^\.\. literalinclude:: (\S+)", re.MULTILINE)
 
 @cache
 def _channels(facility: str) -> frozenset[str]:
-    document = build_facility(FACILITIES / facility, project_name=facility)
+    document = build_facility(
+        FACILITIES / facility, project_name=facility, extra_checks=FRAMEWORK_CHECKS
+    )
     return frozenset(channel["id"] for channel in document["channels"])
 
 
