@@ -47,9 +47,6 @@ import pytest
 import yaml
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
-from osprey.facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import run_stages
 from osprey.facility.views import VIEWS
 from osprey.facility.views.channel_finder import (
     HIERARCHICAL_FILE,
@@ -58,6 +55,9 @@ from osprey.facility.views.channel_finder import (
 )
 from osprey.facility.views.facts import FACTS_FILE
 from osprey.facility.views.outputs import WrittenViews, render_facility_outputs
+from osprey_facility.build import LATER_STAGES, build_facility, build_facility_with_warnings
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import example_without_appendix_a

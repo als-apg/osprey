@@ -29,9 +29,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.layers.relations import import_relations
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.layers.relations import import_relations
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import POLICY, appendix_a_tree, build_appendix_a
 from tests.facility._synthetic_trees import write_tree

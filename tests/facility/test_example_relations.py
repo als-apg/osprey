@@ -25,9 +25,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
 from osprey.facility.bundled import classify
-from osprey.facility.validate import run_stages
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import run_stages
 from tests._builds import FRAMEWORK_CHECKS, init_project
 from tests.facility._appendix_a import CLAIM_IDS, POLICY
 

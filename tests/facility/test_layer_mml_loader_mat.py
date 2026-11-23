@@ -20,10 +20,10 @@ import pytest
 from scipy.io import savemat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
-from osprey.facility.errors import FacilityInputError
-from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.facility.layers.mml.loaders.mat import decode, load_lattice, load_mat
-from osprey.facility.layers.mml.normalize import normalize_family
+from osprey_facility.errors import FacilityInputError
+from osprey_facility.layers.mml.loaders import LoadedInput
+from osprey_facility.layers.mml.loaders.mat import decode, load_lattice, load_mat
+from osprey_facility.layers.mml.normalize import normalize_family
 from tests.templates.mml_export_contract import VA_LATTICE_KEYS
 
 SYNTHETIC = Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "synthetic"

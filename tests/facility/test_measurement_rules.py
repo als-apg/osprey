@@ -18,9 +18,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.measurement_groups import measurement_groups
-from osprey.facility.records import FacilityRecords
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.measurement_groups import measurement_groups
+from osprey_facility.records import FacilityRecords
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
 if TYPE_CHECKING:
@@ -405,10 +405,13 @@ def test_the_words_a_measurement_file_may_use_are_the_words_the_view_reads() -> 
     """
     import yaml
 
-    from osprey.facility.kinds import SHIPPED_SORTS, builtin_kinds
-    from osprey.facility.measurement_groups import GROUP_ROLES
+    from osprey_facility.kinds import SHIPPED_SORTS, builtin_kinds
+    from osprey_facility.measurement_groups import GROUP_ROLES
 
-    schema_path = Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/core.yaml"
+    schema_path = (
+        Path(__file__).resolve().parents[2]
+        / "packages/osprey-facility/src/osprey_facility/schema/core.yaml"
+    )
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     measurement = schema["classes"]["Measurement"]["attributes"]
     keys = set(measurement) - {"kinds", "groups", "instruments", "kind_blocks"}
