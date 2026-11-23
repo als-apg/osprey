@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from osprey.facility.kinds import ORM
+from osprey_facility.kinds import ORM
 
 HOOKED_KIND = {
     **{field.name: getattr(ORM, field.name) for field in dataclasses.fields(ORM)},
