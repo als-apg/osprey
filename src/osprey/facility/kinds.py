@@ -60,13 +60,12 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pyaml_cs_osprey.names import CHROMATICITY_MONITOR_NAME
-
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
 __all__ = [
     "BUILTIN_DISTRIBUTION",
+    "CHROMATICITY_MONITOR_NAME",
     "CRM_FILE",
     "E_DELTA_CAP",
     "E_DELTA_ORBIT",
@@ -83,6 +82,7 @@ __all__ = [
     "KindTool",
     "MEMBER_SORTS",
     "SHIPPED_SORTS",
+    "STEP_FACTORIES",
     "ViewContext",
     "ViewSection",
     "block_problems",
@@ -494,10 +494,42 @@ def plan_problems(plan: Mapping[str, Any]) -> list[str]:
     return problems
 
 
-def _step_factory(name: str) -> bool:
-    from pyaml_cs_osprey.measure import StepMeasurement
+#: The ``StepMeasurement`` factories a measure plan may name: every public callable on
+#: the class, as the measure script reaches it with ``getattr``. Held as description data
+#: so the description imports no pyAML; ``tests/pyaml_cs_osprey`` keeps it equal to the
+#: class.
+STEP_FACTORIES: frozenset[str] = frozenset(
+    {
+        "attach",
+        "attached_to",
+        "check_peer",
+        "crm",
+        "dispersion",
+        "get",
+        "get_description",
+        "get_from_cb",
+        "get_lattice_names",
+        "get_name",
+        "get_peer_from_cb",
+        "measure",
+        "orm",
+        "post_init",
+        "save",
+        "send_callback",
+        "set_energy",
+        "set_harmonic",
+        "set_mcf",
+        "trm",
+    }
+)
 
-    return not name.startswith("_") and callable(getattr(StepMeasurement, name, None))
+#: The pyAML name of the chromaticity monitor a chromaticity kind measures through;
+#: ``tests/pyaml_cs_osprey`` keeps it equal to ``pyaml_cs_osprey.names``.
+CHROMATICITY_MONITOR_NAME = "CHROMATICITY_MONITOR"
+
+
+def _step_factory(name: str) -> bool:
+    return name in STEP_FACTORIES
 
 
 def registered() -> dict[str, KindDeclaration]:
