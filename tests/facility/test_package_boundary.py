@@ -1,21 +1,22 @@
 """The facility description and the panel engine keep to the imports of their packages.
 
-The facility leaves the framework as two distributions: the description, the
+The facility lives outside the framework as two distributions: the description, the
 ``osprey_facility`` package of ``osprey-facility`` (``packages/osprey-facility/src``), and
-the panel engine (``osprey.facility.panels``, becoming ``osprey-panels``). Which module goes
-where is written once, in the import-linter contracts of ``pyproject.toml``; this module
-reads the sides from there and checks the two edge classes import-linter cannot see:
+the panel engine, the ``osprey_panels`` package of ``osprey-panels``
+(``packages/osprey-panels/src``). Which module goes where is written once, in the
+import-linter contracts of ``pyproject.toml``; this module reads the sides from there and
+checks the two edge classes import-linter cannot see:
 
 * **A1, third-party imports.** import-linter only follows imports inside its root packages,
   so an import of any other distribution is invisible to it. Each package may import the
   standard library, the root packages import-linter already checks, and its own ruled
-  dependency set (:data:`DESCRIPTION_DEPENDENCIES`, :data:`PANELS_DEPENDENCIES`); the
-  description's sets are the dependencies ``osprey-facility`` declares.
+  dependency set (:data:`DESCRIPTION_DEPENDENCIES`, :data:`PANELS_DEPENDENCIES`); each
+  package's sets are the dependencies its ``pyproject.toml`` declares.
 * **A2, dynamic reaches.** ``importlib.import_module("...")``,
   ``importlib.resources.files("...")`` and a path climbed from ``__file__`` reach a module
   without an import statement. Such a reach is held to the contract row it crosses, the
-  same rule a static import of that module would meet. Both source roots (:data:`SOURCES`)
-  are scanned whole, since framework modules reach the two packages too; a file is parsed
+  same rule a static import of that module would meet. Every source root (:data:`SOURCES`)
+  is scanned whole, since framework modules reach the two packages too; a file is parsed
   only when its text spells one of the reaches, which keeps the scan fast.
 
 Today's edges are ratchets (:data:`THIRD_PARTY_RATCHET`, :data:`DYNAMIC_RATCHET`), each
@@ -24,12 +25,11 @@ an entry whose edge is gone: the lists only shrink.
 
 The completeness half keeps the contracts themselves whole:
 
-* every module under both source roots (bar the build-written ``_version`` modules) is
-  on exactly one side, read with the contracts' ``as_packages = false`` semantics. A
-  top-level ``osprey.*`` wildcard would be skipped by import-linter's overlap rule, so
-  the framework is listed module by module, and a new module or package fails until a
-  list names it;
-* the framework list is the same in the three contracts that spell it;
+* every module under the source roots (bar the build-written ``_version`` modules) is
+  on exactly one side, a contract that names whole packages read as ``X`` plus ``X.**``;
+  a new top-level package fails until a list names it;
+* S1, S4 and S5 forbid whole packages, and the framework's own metadata never names
+  ``osprey-panels``;
 * every ``ignore_imports`` entry of the facility contracts sits under a ``# phase N``
   header naming an epic phase (2-6), read from the raw text since TOML drops comments,
   and none uses a wildcard;
@@ -38,7 +38,9 @@ The completeness half keeps the contracts themselves whole:
   they cover the description exactly once;
 * each declared public module names exactly one consumer (a fork/tool, a kind plug-in,
   an app, or a framework job naming the framework modules that import it), and the
-  declared rows are the rows of the package README's "Public API" table.
+  declared rows are the rows of the package README's "Public API" table;
+* code outside ``osprey_panels`` imports only the modules the ``osprey-panels`` README's
+  "Public API" table declares.
 
 The scan functions take the source roots as an argument, so the detection tests can run
 them on a temporary tree.
@@ -61,10 +63,13 @@ REPO = Path(__file__).resolve().parents[2]
 #: The ``osprey-facility`` distribution: its ``pyproject.toml``, README and ``src``.
 FACILITY_PACKAGE = REPO / "packages" / "osprey-facility"
 
-#: The source roots scanned: the framework's (``osprey``, the panel engine inside it) and
-#: the description package's (``osprey_facility``). Each top-level package with an
-#: ``__init__.py`` under a root is read.
-SOURCES = (REPO / "src", FACILITY_PACKAGE / "src")
+#: The ``osprey-panels`` distribution: its ``pyproject.toml``, README and ``src``.
+PANELS_PACKAGE = REPO / "packages" / "osprey-panels"
+
+#: The source roots scanned: the framework's (``osprey``), the description package's
+#: (``osprey_facility``) and the panel engine's (``osprey_panels``). Each top-level
+#: package with an ``__init__.py`` under a root is read.
+SOURCES = (REPO / "src", FACILITY_PACKAGE / "src", PANELS_PACKAGE / "src")
 
 #: Third-party import roots the description may use (ruling 3), each with its
 #: distribution. The mml import layer additionally gets :data:`MML_DEPENDENCIES`.
@@ -84,8 +89,9 @@ MML_DEPENDENCIES: Mapping[str, str] = {
 #: The description modules the ``mml`` extra serves.
 MML_PREFIX = "osprey_facility.layers.mml"
 
-#: Third-party import roots the panel engine may use: the standard library plus the
-#: validator of its pinned Screen-IR schema (ruling 8).
+#: Third-party import roots the panel engine may use besides the standard library: the
+#: validator of its vendored Screen-IR schema (ruling 8), the dependency ``osprey-panels``
+#: declares.
 PANELS_DEPENDENCIES: Mapping[str, str] = {
     "jsonschema": "jsonschema (ruling 8)",
 }
@@ -94,11 +100,7 @@ PANELS_DEPENDENCIES: Mapping[str, str] = {
 THIRD_PARTY_RATCHET: Mapping[str, str] = {}
 
 #: Today's A2 edges, ``importer -> target [spelling]``, with row, ruling and removing phase.
-DYNAMIC_RATCHET: Mapping[str, str] = {
-    "osprey.facility.panels.emit -> osprey.templates.apps.demo [__file__]": (
-        "S4, ruling 7: the caller passes the theme file in; phase 5"
-    ),
-}
+DYNAMIC_RATCHET: Mapping[str, str] = {}
 
 #: Substrings one of which a file must contain to be parsed for A2.
 _DYNAMIC_SPELLINGS = ("import_module", "__import__", "files(", "__file__")
@@ -128,11 +130,11 @@ class Sides:
     """The module lists of the facility contracts.
 
     Attributes:
-        description: Modules of the description (``facility-description-without-panels``,
-            spelled module by module; ``facility-description-standalone`` names the
-            package whole).
+        description: Modules of the description (``facility-description-without-panels``;
+            ``facility-description-standalone`` names the package whole).
         panels: Modules of the panel engine (``panels-document-only``).
-        framework: Modules of the framework (``framework-without-panels``).
+        framework: Modules of the framework (``framework-without-panels``, the whole
+            ``osprey`` package).
         non_public: Description modules the framework may not reach
             (``facility-public-api``).
         roots: import-linter's root packages, whose static imports it checks itself.
@@ -174,6 +176,18 @@ def _contracts(config: dict | None = None) -> dict[str, dict]:
     return {contract["id"]: contract for contract in (config or _importlinter())["contracts"]}
 
 
+def _listed(contract: dict, key: str) -> tuple[str, ...]:
+    """The entries of ``contract[key]`` in ``as_packages = false`` spelling.
+
+    import-linter reads an entry as a package unless the contract sets ``as_packages =
+    false``; such an entry ``X`` names ``X`` and every module below it, ``X.**``.
+    """
+    entries = contract[key]
+    if not contract.get("as_packages", True):
+        return tuple(entries)
+    return tuple(spelled for entry in entries for spelled in (entry, f"{entry}.**"))
+
+
 def read_sides(pyproject: Path = PYPROJECT) -> Sides:
     """The sides as the contracts in ``pyproject`` list them."""
     config = _importlinter(pyproject)
@@ -187,10 +201,10 @@ def read_sides(pyproject: Path = PYPROJECT) -> Sides:
     missing = [cid for cid in wanted if cid not in contracts]
     assert not missing, f"pyproject.toml has no import-linter contract {missing}"
     return Sides(
-        description=tuple(contracts["facility-description-without-panels"]["source_modules"]),
-        panels=tuple(contracts["panels-document-only"]["source_modules"]),
-        framework=tuple(contracts["framework-without-panels"]["source_modules"]),
-        non_public=tuple(contracts["facility-public-api"]["protected_modules"]),
+        description=_listed(contracts["facility-description-without-panels"], "source_modules"),
+        panels=_listed(contracts["panels-document-only"], "source_modules"),
+        framework=_listed(contracts["framework-without-panels"], "source_modules"),
+        non_public=_listed(contracts["facility-public-api"], "protected_modules"),
         roots=tuple(config["root_packages"]),
     )
 
@@ -516,6 +530,16 @@ def test_the_description_sets_are_what_osprey_facility_declares() -> None:
     )
 
 
+def test_the_panels_set_is_what_osprey_panels_declares() -> None:
+    """A1 for the panel engine: its import roots are the package's own dependencies."""
+    project = tomllib.loads((PANELS_PACKAGE / "pyproject.toml").read_text("utf-8"))["project"]
+    declared = {_distribution(requirement) for requirement in project["dependencies"]}
+    assert declared == _distributions(PANELS_DEPENDENCIES), (
+        "osprey-panels's dependencies and PANELS_DEPENDENCIES differ"
+    )
+    assert not project.get("optional-dependencies"), "osprey-panels declares an extra"
+
+
 def test_every_third_party_ratchet_entry_is_still_an_edge() -> None:
     edges = third_party_edges(SOURCES, read_sides())
     stale = THIRD_PARTY_RATCHET.keys() - edges.keys()
@@ -570,17 +594,14 @@ EPIC_PHASES = range(2, 7)
 #: Modules no contract names: the ``_version`` modules are written by the build and
 #: missing on a fresh clone, so import-linter would refuse them (the policy comment of
 #: the contracts).
-UNLISTED = frozenset({"osprey._version", "osprey_facility._version"})
+UNLISTED = frozenset({"osprey._version", "osprey_facility._version", "osprey_panels._version"})
 
-#: The contract lists that spell the framework, where a new framework module goes.
-#: ``facility-description-standalone`` forbids ``osprey`` whole and spells none of it.
-FRAMEWORK_LISTS = (
-    "framework-without-panels.source_modules",
-    "panels-standalone.forbidden_modules",
-)
+#: The contract lists that spell the framework, where a new top-level framework package
+#: would go. S1 and S4 forbid ``osprey`` whole and spell none of it.
+FRAMEWORK_LISTS = ("framework-without-panels.source_modules",)
 
 #: The root packages the facility contracts name modules of.
-CONTRACT_ROOTS = frozenset({"osprey", "osprey_facility"})
+CONTRACT_ROOTS = frozenset({"osprey", "osprey_facility", "osprey_panels"})
 
 #: The consumers a public description module may serve besides a framework job, which
 #: names the framework modules that import it (the package README's "Public API" table).
@@ -726,22 +747,12 @@ def test_every_module_is_on_exactly_one_side() -> None:
     several = {module: named for module, named in wrong.items() if named}
     assert not wrong, (
         "Modules the facility contracts place on no side or on several; each module is "
-        "on exactly one. A framework module or package goes into each of "
+        "on exactly one. A new top-level framework package goes into "
         + ", ".join(FRAMEWORK_LISTS)
-        + " (a package as 'X' plus 'X.**'); a description or panel-engine module "
-        "into that side's lists.\n"
+        + "; a description or panel-engine module into that side's lists.\n"
         f"  on no side: {nowhere}\n"
         f"  on several: {several}"
     )
-
-
-def test_the_framework_list_is_the_same_in_every_contract_that_spells_it() -> None:
-    contracts = _contracts()
-    framework = contracts["framework-without-panels"]["source_modules"]
-    for spelled in FRAMEWORK_LISTS[1:]:
-        cid, key = spelled.split(".")
-        missing = [module for module in framework if module not in contracts[cid][key]]
-        assert not missing, f"{spelled} lacks framework modules {missing}"
 
 
 def test_osprey_facility_never_imports_osprey() -> None:
@@ -756,6 +767,57 @@ def test_osprey_facility_never_imports_osprey() -> None:
     assert read_sides().description == ("osprey_facility", "osprey_facility.**"), (
         "the description side (S2-S3, S6's allowed importers) is the whole package"
     )
+
+
+def _shape(cid: str) -> tuple[str, list[str], list[str], bool]:
+    """A contract's type, lists and package reading; it must ignore no import."""
+    contract = _contracts()[cid]
+    assert not contract.get("ignore_imports"), f"{cid} ignores imports, its ratchet is done"
+    return (
+        contract["type"],
+        contract["source_modules"],
+        contract["forbidden_modules"],
+        contract.get("as_packages", True),
+    )
+
+
+def test_osprey_panels_never_imports_the_framework_or_connectors() -> None:
+    """S4 forbids the whole framework and the whole connector package to the whole engine;
+    the description is S3's."""
+    assert _shape("panels-standalone") == (
+        "forbidden",
+        ["osprey_panels"],
+        ["osprey", "osprey_connectors"],
+        True,
+    )
+    assert read_sides().panels == ("osprey_panels", "osprey_panels.**"), (
+        "the panel-engine side (S3, S4) is the whole package"
+    )
+
+
+def test_the_framework_never_imports_osprey_panels() -> None:
+    """S5 forbids the whole engine to the whole framework."""
+    assert _shape("framework-without-panels") == ("forbidden", ["osprey"], ["osprey_panels"], True)
+    assert read_sides().framework == ("osprey", "osprey.**")
+
+
+def test_the_framework_metadata_never_names_osprey_panels() -> None:
+    """The framework does not depend on the engine: no ``[project]`` dependency or extra
+    names it, so a release never resolves it (the checkout gets it from the dev group)."""
+    project = tomllib.loads(_pyproject_text())["project"]
+    requirements = {
+        "dependencies": project.get("dependencies", []),
+        **{
+            f"optional-dependencies.{extra}": listed
+            for extra, listed in project.get("optional-dependencies", {}).items()
+        },
+    }
+    naming = {
+        where: [r for r in listed if _distribution(r) == "osprey-panels"]
+        for where, listed in requirements.items()
+    }
+    naming = {where: listed for where, listed in naming.items() if listed}
+    assert not naming, f"the framework's [project] names osprey-panels: {naming}"
 
 
 def test_the_contracts_name_only_existing_modules() -> None:
@@ -863,4 +925,106 @@ def test_the_readme_table_is_the_declared_public_set() -> None:
     assert _public_rows() == readme, (
         "facility-public-api's Public rows and the README's 'Public API' table differ; "
         "copy each `module` | consumer row across"
+    )
+
+
+# --- the panel engine's public set -----------------------------------------------------------
+
+#: A row of the ``osprey-panels`` README's "Public API" table.
+_PANELS_README_ROW = re.compile(r"^\|\s*`(osprey_panels(?:\.\w+)*)`\s*\|\s*(.+?)\s*\|\s*$")
+
+#: Any spelling of the engine's package name, which a file must contain to be parsed.
+_PANELS_NAME = re.compile(r"\bosprey_panels\b")
+
+
+def panels_public(readme: Path = PANELS_PACKAGE / "README.md") -> frozenset[str]:
+    """The modules the ``osprey-panels`` README's "Public API" table declares public."""
+    return frozenset(
+        match.group(1)
+        for line in readme.read_text(encoding="utf-8").splitlines()
+        if (match := _PANELS_README_ROW.match(line))
+    )
+
+
+def _panels_module(name: str, package_src: Path) -> bool:
+    """Whether ``name`` is a module or package of the engine under ``package_src``."""
+    path = package_src.joinpath(*name.split("."))
+    return path.with_suffix(".py").is_file() or (path / "__init__.py").is_file()
+
+
+def _panels_targets(tree: ast.AST, package_src: Path) -> Iterator[tuple[int, str]]:
+    """Each engine module ``tree`` imports, with its line.
+
+    ``from osprey_panels.x import y`` imports ``osprey_panels.x`` and, when ``y`` is a
+    module of the engine, ``osprey_panels.x.y`` too; ``import_module`` and ``__import__``
+    with a literal name count as imports.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            yield node.lineno, node.module
+            for alias in node.names:
+                below = f"{node.module}.{alias.name}"
+                if node.module.split(".")[0] == "osprey_panels" and _panels_module(
+                    below, package_src
+                ):
+                    yield node.lineno, below
+        elif (
+            isinstance(node, ast.Call)
+            and ast.unparse(node.func).rsplit(".", 1)[-1] in ("import_module", "__import__")
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            yield node.lineno, node.args[0].value
+
+
+def private_panels_imports(
+    roots: Iterable[Path], public: frozenset[str], package_src: Path = PANELS_PACKAGE / "src"
+) -> list[str]:
+    """Imports of a non-public engine module in the Python files under ``roots``."""
+    found: list[str] = []
+    for root in roots:
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if not _PANELS_NAME.search(text):
+                continue
+            for line, target in _panels_targets(ast.parse(text, filename=str(path)), package_src):
+                if target.split(".")[0] == "osprey_panels" and target not in public:
+                    found.append(f"{path.relative_to(root.parent)}:{line} -> {target}")
+    return found
+
+
+#: The code outside the engine: the framework, the root tests and every other package.
+OUTSIDE_PANELS = (
+    REPO / "src",
+    REPO / "tests",
+    *sorted(
+        package / part
+        for package in (REPO / "packages").iterdir()
+        if package != PANELS_PACKAGE
+        for part in ("src", "tests")
+        if (package / part).is_dir()
+    ),
+)
+
+
+def test_the_panels_readme_declares_a_public_set() -> None:
+    public = panels_public()
+    assert "osprey_panels" in public, "packages/osprey-panels/README.md has no Public API rows"
+    missing = sorted(m for m in public if not _panels_module(m, PANELS_PACKAGE / "src"))
+    assert not missing, f"the osprey-panels README declares modules that do not exist: {missing}"
+
+
+def test_code_outside_the_engine_imports_only_its_public_modules() -> None:
+    """Every other module of ``osprey_panels`` is private to the package and its suite."""
+    private = private_panels_imports(OUTSIDE_PANELS, panels_public())
+    assert not private, (
+        "Imports of osprey_panels modules the package README's 'Public API' table does not "
+        "declare (import a public module, or make the module public with its consumer row):\n  "
+        + "\n  ".join(private)
     )

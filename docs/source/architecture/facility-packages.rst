@@ -11,8 +11,8 @@ keeps the views, the settings and the command line, and reaches the
 description through its public modules only.
 
 Today the description is the ``osprey-facility`` package under
-``packages/osprey-facility``, and the panel engine is still
-``src/osprey/facility/panels`` in the framework. This page states the end
+``packages/osprey-facility``, and the panel engine is the ``osprey-panels``
+package under ``packages/osprey-panels``. This page states the end
 state, why each part of it is the way it is, which phase of the split realises
 it, and how a check holds the code to it while the split is under way. What the
 build writes is in :doc:`facility-file`; the version rules of the document are
@@ -92,7 +92,7 @@ bring the framework back into the description.
 *Phase:* 3 untangles the description from the framework, 4 makes it a package,
 5 makes the panel engine a package. *Today:* the description is
 osprey-facility and imports neither the framework nor click; the panel engine
-is still framework code.
+is osprey-panels and imports neither the framework nor ``osprey_connectors``.
 
 4. The simulation-engine contract lives in osprey-connectors
 ------------------------------------------------------------
@@ -117,8 +117,8 @@ The distributions are ``osprey-facility`` (import ``osprey_facility``) and
 ``osprey-panels`` (import ``osprey_panels``). Each declares its public modules;
 the rest is private, and a contract enforces it the way the connectors' public
 API is enforced. osprey-panels ships its own command,
-``osprey-panels write|check|classes``, and the framework's
-``osprey facility panels`` goes away. Entry-point groups take the new roots, such
+``osprey-panels write|check|classes``, and the framework's command line has
+no panels command. Entry-point groups take the new roots, such
 as ``osprey_facility.kinds``.
 
 *Why:* top-level names keep the import contract enforceable. Namespace packages
@@ -129,9 +129,9 @@ into the framework's command line too.
 
 *Phase:* 4 for osprey-facility, 5 for osprey-panels. *Today:* osprey-facility
 declares its public modules, the framework and apps reach no description module
-outside them, and the kinds group is ``osprey_facility.kinds``. The panel engine
-is still ``osprey.facility.panels``, and the framework's command line imports
-it.
+outside them, and the kinds group is ``osprey_facility.kinds``. osprey-panels
+declares its public modules, ships the ``osprey-panels`` command
+(:ref:`reference-osprey-panels`), and the framework imports none of it.
 
 6. Both packages have their own tag streams
 -------------------------------------------
@@ -145,8 +145,8 @@ osprey-facility floor.
 *Why:* each package gets its own version and cadence. One parameterised workflow
 generalises the connectors' release stream instead of copying it twice.
 
-*Phase:* 6. *Today:* osprey-facility is built from the checkout only and no
-release publishes it; the panel engine ships in the framework.
+*Phase:* 6. *Today:* osprey-facility and osprey-panels are built from the
+checkout only and no release publishes them.
 
 7. A fork is a separate distribution that replaces osprey-panels
 ----------------------------------------------------------------
@@ -160,8 +160,8 @@ into the framework. There are no plug-in points inside the engine.
 *Why:* the inputs and outputs are files at declared versions, which is all a
 replacement needs. Plug-in points would be an abstraction with no second user.
 
-*Phase:* 5. *Today:* the engine finds the framework's theme by climbing from its
-own ``__file__``.
+*Phase:* 5, done. *Today:* the engine reads the theme file ``--theme`` names,
+else only its fallback state colours, and has no path into the framework.
 
 8. osprey-panels owns its Screen-IR pin
 ---------------------------------------
@@ -175,8 +175,11 @@ the engine's Screen-IR version.
 *Why:* an engine release, a fork or a facility edit cannot emit a screen that
 fails only once it reaches Canopy.
 
-*Phase:* 5. *Today:* the version is an inline literal, and screens are
-validated only by a framework test.
+*Phase:* 5, done. *Today:* the engine vendors ``screen-ir.schema.json`` and
+names its version in ``osprey_panels.screen_ir.SCREEN_IR_VERSION``; ``write``
+refuses and ``check`` reports a screen the schema refuses.
+``tests/integrations/canopy/test_screen_ir_pin.py`` holds the vendored schema
+and the version to the pinned Canopy commit.
 
 9. Tests live inside each package
 ---------------------------------
@@ -194,9 +197,10 @@ Test helpers in the wheel would become public API.
 
 *Phase:* 4 for osprey-facility, 5 for osprey-panels. *Today:* osprey-facility
 tests itself in ``packages/osprey-facility/tests/osprey_facility_tests/``,
-which the ``osprey-facility-standalone`` job runs without the framework. The
-panel tests are still in the root ``tests/``; they read
-``tests/facility/panels/fixture/facility.json``, and
+which the ``osprey-facility-standalone`` job runs without the framework, and
+osprey-panels in ``packages/osprey-panels/tests/osprey_panels_tests/``, which
+the ``osprey-panels-standalone`` job runs. The panel tests read
+``packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json``, and
 ``packages/osprey-facility/tests/osprey_facility_tests/test_panel_fixture_rebuild.py``
 rebuilds it.
 
@@ -206,14 +210,15 @@ The boundary check
 Two tools hold the code to the end state, and both read one classification.
 
 The classification is the module lists of six import-linter contracts in
-``pyproject.toml``. Every module under ``src/osprey`` and ``osprey_facility``
-sits on one side: description, panel engine, engine contract or framework. The
-side follows the end state, not today's directory, so ``osprey.facility.panels``
-is the panel engine while the views, settings, bundled facility,
-``osprey.utils.facility`` and the engine implementations are framework.
+``pyproject.toml``. Every module under ``src/osprey``, ``osprey_facility`` and
+``osprey_panels`` sits on one side: description, panel engine, engine contract
+or framework. ``osprey_panels`` is the panel engine, and the whole of
+``osprey`` is framework, the views, settings, bundled facility,
+``osprey.utils.facility`` and the engine implementations among them.
 
 ``lint-imports``, run by the ``import-contracts`` check, follows every static
-import between ``osprey``, ``osprey_connectors`` and ``osprey_facility``. Its
+import between ``osprey``, ``osprey_connectors``, ``osprey_facility`` and
+``osprey_panels``. Its
 contracts forbid:
 
 .. list-table::
@@ -268,9 +273,9 @@ The headers name these phases:
 - **Phase 4** removed the framework's reaches into private description
   modules, one resource read of the MML layer by the command line among them;
   its header is empty.
-- **Phase 5** removes the framework command line's imports of the panel engine,
+- **Phase 5** removed the framework command line's imports of the panel engine,
   the engine's climb to the framework theme and its atomic writes through
-  ``osprey_connectors.safety_file``.
+  ``osprey_connectors.safety_file``; its header is empty.
 - **Phase 6** is the release wiring and removes no edge.
 
 Refreshing the baseline

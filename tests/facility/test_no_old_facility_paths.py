@@ -1,9 +1,9 @@
 """No description module is referenced under its old ``osprey.facility`` path.
 
 The facility description moved out of the framework into the top-level
-``osprey_facility`` distribution; only the framework side (``views``,
-``panels``, ``settings``, ``bundled``) stays under ``osprey.facility``. No shim
-re-exports the old paths, so a reference left behind breaks at run time or
+``osprey_facility`` distribution, and the panel builder ``osprey.facility.panels``
+into ``osprey_panels``; only the framework side (``views``, ``settings``,
+``bundled``) stays under ``osprey.facility``. No shim re-exports the old paths, so a reference left behind breaks at run time or
 leaves a dead link in the docs. This sweep reads the shipped roots for every
 form a module reference takes:
 
@@ -20,8 +20,8 @@ form a module reference takes:
 A document identifier ``osprey.facility.<name>/<N>`` (``scenarios/3``,
 ``facility/4``) names a file format, not a module, and is not a reference.
 
-Exempt as whole files: the root and package changelogs and this phase's
-retirement fragment (they record what was removed), and the frozen floor
+Exempt as whole files: the root and package changelogs and the retirement
+and package fragments of both moves (they record what was removed), and the frozen floor
 schema (its text is fixed at the version it describes). A line that must name
 an old path on purpose is listed in :data:`LINE_ALLOWLIST` with its reason;
 an entry that no longer matches its line fails, so the list cannot rot.
@@ -42,8 +42,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: The description package whose top-level modules were once ``osprey.facility.*``.
 _DESCRIPTION_PACKAGE = REPO_ROOT / "packages/osprey-facility/src/osprey_facility"
 
+#: The panel builder package, once ``osprey.facility.panels``.
+_PANELS_PACKAGE = REPO_ROOT / "packages/osprey-panels/src/osprey_panels"
+
 #: The framework modules that stay under ``osprey.facility``.
-SURVIVING_MODULES = frozenset({"views", "panels", "settings", "bundled"})
+SURVIVING_MODULES = frozenset({"views", "settings", "bundled"})
 
 
 def _description_modules(package: Path) -> frozenset[str]:
@@ -68,8 +71,13 @@ def _package_exports(package: Path) -> frozenset[str]:
     return frozenset()
 
 
-#: Every name a module of the old description tree went by.
-DESCRIPTION_MODULES = _description_modules(_DESCRIPTION_PACKAGE)
+#: The modules of the old ``osprey.facility.panels`` tree, now ``osprey_panels``.
+PANELS_MODULES = _description_modules(_PANELS_PACKAGE)
+
+#: Every name a module of the old description and panels trees went by: the
+#: panels package itself, its modules (a respelling ``osprey.facility.emit``)
+#: and the description modules.
+DESCRIPTION_MODULES = _description_modules(_DESCRIPTION_PACKAGE) | {"panels"} | PANELS_MODULES
 
 #: The names a caller once imported from ``osprey.facility`` itself and now
 #: imports from ``osprey_facility``: its modules and its package exports.
@@ -95,6 +103,8 @@ SUFFIXES = (*SHIPPED_TEXT_SUFFIXES, ".html", ".cfg", ".ini")
 EXEMPT_FILES = frozenset(
     {
         "changelog.d/facility-package.removed.md",
+        "changelog.d/panels-package.removed.md",
+        "packages/osprey-panels/changelog.d/panels-package.added.md",
         "packages/osprey-facility/src/osprey_facility/schema/_generated/facility-4.schema.json",
         "tests/facility/test_no_old_facility_paths.py",
         "tests/facility/test_no_old_facility_paths_detects.py",
@@ -127,6 +137,10 @@ LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
         "tests/facility/test_graph_determinism.py",
         "from osprey.facility.validate import",
     ): "respells the base commit's writer source, which used the old path",
+    (
+        "tests/facility/test_facility_document_tables.py",
+        "from osprey.facility.records import FacilityRecords",
+    ): "the golden's regeneration recipe runs at 8f22637c06, which used the old path",
     (
         "tests/facility/test_package_boundary_detects.py",
         "osprey.facility.build",
@@ -239,6 +253,8 @@ def _repo_sweep() -> tuple[tuple[str, ...], frozenset[tuple[str, str]]]:
 def test_description_modules_are_known() -> None:
     """The sweep knows the names it looks for; an empty list would pass anything."""
     assert {"build", "kinds", "records", "validate", "schema", "layers"} <= DESCRIPTION_MODULES
+    assert {"emit", "layout", "model", "document"} <= PANELS_MODULES
+    assert {"panels"} | PANELS_MODULES <= DESCRIPTION_MODULES
     assert {"DEFAULT_ROLE", "PN_LOCAL"} <= DESCRIPTION_NAMES
     assert not DESCRIPTION_NAMES & SURVIVING_MODULES
 
@@ -246,7 +262,8 @@ def test_description_modules_are_known() -> None:
 def test_no_old_facility_paths() -> None:
     offenders, _ = _repo_sweep()
     assert offenders == (), (
-        "description modules live in osprey_facility; rewrite these references "
+        "description modules live in osprey_facility and panel modules in "
+        "osprey_panels; rewrite these references "
         "(or, for a line that must name the old path, add it to LINE_ALLOWLIST "
         "with its reason):\n" + "\n".join(offenders)
     )

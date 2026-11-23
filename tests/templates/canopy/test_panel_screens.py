@@ -1,7 +1,7 @@
 """Every rendered panel view is a valid Screen-IR 1.1 document, by CANOPY's own checks.
 
-``osprey.facility.panels.layout`` draws the panels fixture's views (every view
-kind) and the invented views of ``tests/facility/panels``.
+``osprey_panels.layout`` draws the panels fixture's views (every view kind) and
+the invented views of the package suite's helpers (``osprey_panels_tests``).
 
 The contract is the schema and runtime this repository pins: CANOPY and the PyDM
 converter at the commits ``osprey.integrations.canopy`` proves
@@ -21,8 +21,13 @@ from pathlib import Path
 import pytest
 from canopy_mcp.check.schema import check_schema, schema_path
 from canopy_mcp.check.semantic import check_semantic
-from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
-from tests.facility.panels._views import (
+
+from osprey_panels import layout, screen_ir, symbols
+from osprey_panels.describe import light
+from osprey_panels.model import PanelGraph, load_graph
+from osprey_panels.view import StripElement
+from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
+from osprey_panels_tests._views import (
     RULED,
     fixture_views,
     invented_views,
@@ -31,11 +36,6 @@ from tests.facility.panels._views import (
     strip_view,
     stub_render,
 )
-
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import light
-from osprey.facility.panels.model import PanelGraph, load_graph
-from osprey.facility.panels.view import StripElement
 
 WRITE_NOT_RELAYED = "write_not_relayed"
 
@@ -50,7 +50,7 @@ def panel_graph(tmp_path_factory: pytest.TempPathFactory) -> PanelGraph:
 def spec_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("spec")
     source = files("pydmconverter.ir").joinpath("data", "screen-ir.schema.json")
-    target = schema_path(root, "1.1")
+    target = schema_path(root, screen_ir.SCREEN_IR_VERSION)
     target.parent.mkdir(parents=True)
     target.write_bytes(source.read_bytes())
     return root

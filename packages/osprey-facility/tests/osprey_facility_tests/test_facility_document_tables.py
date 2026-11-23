@@ -106,3 +106,16 @@ def test_the_document_s_tables_are_copies_not_the_vocabulary(tmp_path: Path) -> 
 
     assert all(row["name"] != "changed" for row in vocabulary()["signal_roles"])
     assert all("changed" not in row["subject"] for row in vocabulary()["relations"])
+
+
+def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
+    titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
+    assert {name: titles[name] for name in (
+        "current_readback", "current_setpoint", "voltage_readback", "ramp_rate_setpoint",
+        "power_on_command", "temperature_lolo_limit_readback", "temperature_hihi_limit_setpoint",
+    )} == {
+        "current_readback": "Current", "current_setpoint": "Setpoint",
+        "voltage_readback": "Voltage", "ramp_rate_setpoint": "Ramp rate",
+        "power_on_command": "On command", "temperature_lolo_limit_readback": "Lolo",
+        "temperature_hihi_limit_setpoint": "Hihi",
+    }  # fmt: skip

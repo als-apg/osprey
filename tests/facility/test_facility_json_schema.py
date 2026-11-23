@@ -22,8 +22,8 @@ import jsonschema
 import pytest
 
 import osprey_facility
-from osprey.facility.panels import document
 from osprey_facility.validate import FACILITY_HEADER
+from osprey_panels import document
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject

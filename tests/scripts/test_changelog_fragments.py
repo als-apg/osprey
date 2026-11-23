@@ -2384,10 +2384,12 @@ class TestWorktree:
 
 CONNECTORS = "packages/osprey-connectors"
 FACILITY = "packages/osprey-facility"
+PANELS = "packages/osprey-panels"
 #: Each package tree with the path, relative to its root, of a file it ships.
 PACKAGE_TREES = [
     pytest.param(cf.CONNECTORS_TREE, "src/osprey_connectors/b.py", id="connectors"),
     pytest.param(cf.FACILITY_TREE, "src/osprey_facility/c.py", id="facility"),
+    pytest.param(cf.PANELS_TREE, "src/osprey_panels/d.py", id="panels"),
 ]
 
 
@@ -2399,6 +2401,7 @@ class TestTrees:
             "src/osprey/a.py",
             f"{CONNECTORS}/src/osprey_connectors/b.py",
             f"{FACILITY}/src/osprey_facility/c.py",
+            f"{PANELS}/src/osprey_panels/d.py",
             "packages/x/d.py",
         ]
         assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/d.py"]
@@ -2409,6 +2412,7 @@ class TestTrees:
             "src/osprey/a.py",
             f"{CONNECTORS}/src/osprey_connectors/b.py",
             f"{FACILITY}/src/osprey_facility/c.py",
+            f"{PANELS}/src/osprey_panels/d.py",
         ]
         assert cf.tree_paths(tree, paths) == [own]
 
@@ -2422,14 +2426,15 @@ class TestTrees:
         assert not cf.needs_fragment([f"tests/{package}_tests/test_x.py"], gated)
         assert not cf.needs_fragment(["CHANGELOG.md", "changelog.d/x.fixed.md"], gated)
 
-    def test_the_trees_are_the_three_release_streams(self):
+    def test_the_trees_are_the_four_release_streams(self):
         assert [(t.root, t.tag_prefix) for t in cf.TREES] == [
             ("", "v"),
             (CONNECTORS, "osprey-connectors-v"),
             (FACILITY, "osprey-facility-v"),
+            (PANELS, "osprey-panels-v"),
         ]
 
-    @pytest.mark.parametrize("package", [CONNECTORS, FACILITY])
+    @pytest.mark.parametrize("package", [CONNECTORS, FACILITY, PANELS])
     def test_a_package_sdist_ships_no_fragments_and_no_repo_checks(self, package):
         import tomllib
 
@@ -2444,6 +2449,7 @@ class TestTrees:
         [
             pytest.param(cf.CONNECTORS_TREE, "osprey-connectors-v2026.10.0", id="connectors"),
             pytest.param(cf.FACILITY_TREE, "osprey-facility-v2026.10.0", id="facility"),
+            pytest.param(cf.PANELS_TREE, "osprey-panels-v2026.10.0", id="panels"),
         ],
     )
     def test_a_package_tag_probe_asks_for_the_package_tag(self, tree, tag):
@@ -2451,9 +2457,10 @@ class TestTrees:
         with pytest.raises(cf.ProbeError, match=f"refs/tags/{tag}"):
             cf.tag_probe(git, tree.tag_prefix)("2026.10.0")
 
-    def test_the_facility_package_ships_its_tree(self):
+    @pytest.mark.parametrize("package", [FACILITY, PANELS])
+    def test_the_package_ships_its_tree(self, package):
         """The live package carries the changelog pair its tree names."""
-        root = cf.REPO_ROOT / FACILITY
+        root = cf.REPO_ROOT / package
         assert (root / cf.FRAGMENT_DIR / cf.KEEP).is_file()
         assert "## [Unreleased]" in (root / cf.CHANGELOG).read_text(encoding="utf-8")
         _, errors = cf.validate_dir(root / cf.FRAGMENT_DIR)
@@ -2463,7 +2470,7 @@ class TestTrees:
 
     @staticmethod
     def repo(tmp_path: Path, monkeypatch) -> Path:
-        for root in ("", CONNECTORS, FACILITY):
+        for root in ("", CONNECTORS, FACILITY, PANELS):
             base = tmp_path / root
             write(base / "changelog.d", "README.md", "how to write one\n")
             (base / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
@@ -2474,7 +2481,7 @@ class TestTrees:
     def table(diff: str, untracked: str | None = None) -> dict:
         """:func:`git_table`, with each package tree's base changelog shown as well."""
         table = git_table(diff=diff, untracked=untracked)
-        for package in (CONNECTORS, FACILITY):
+        for package in (CONNECTORS, FACILITY, PANELS):
             table[("git", "show", f"{MERGE_BASE}:{package}/CHANGELOG.md")] = completed(CHANGELOG)
         return table
 
@@ -2539,8 +2546,9 @@ class TestTrees:
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 0 fragment(s) valid",
             f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid",
-            # The untouched facility tree is validated, never diffed.
+            # The untouched facility and panels trees are validated, never diffed.
             f"✓ {FACILITY}/changelog.d: 0 fragment(s) valid",
+            f"✓ {PANELS}/changelog.d: 0 fragment(s) valid",
             "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
             f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):",

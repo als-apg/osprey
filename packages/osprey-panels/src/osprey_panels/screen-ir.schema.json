@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:canopy:screen-ir:1.1",
+  "title": "Canopy Screen IR",
+  "description": "Canonical Canopy screen Intermediate Representation, owned by canopy-spec. This file is the structural part of the contract; the cross-field rules it can't express (macro defaults, formula:// resolution) are the semantic rules in the canopy-spec README.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "metadata", "macros", "root"],
+  "properties": {
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "kind": { "enum": ["screen", "template"] },
+    "id": { "type": "string" },
+    "metadata": { "$ref": "#/$defs/ScreenMetadata" },
+    "macros": { "type": "array", "items": { "$ref": "#/$defs/MacroDeclaration" } },
+    "formulas": { "type": "array", "items": { "$ref": "#/$defs/FormulaDeclaration" } },
+    "root": { "$ref": "#/$defs/WidgetNode" }
+  },
+  "$defs": {
+    "ScreenMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "source", "size"],
+      "properties": {
+        "title": { "type": "string" },
+        "source": { "$ref": "#/$defs/ScreenSource" },
+        "size": { "$ref": "#/$defs/ScreenSize" },
+        "description": { "type": "string" },
+        "author": { "type": "string" }
+      }
+    },
+    "ScreenSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      }
+    },
+    "ScreenSource": {
+      "description": "Open by design: `type` is any string so the editor reads converter-stamped source types (e.g. 'edl-converter') forever. The named variants are documentation, not an exhaustive list.",
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" },
+        "savedAt": { "type": "string" },
+        "sourceFile": { "type": "string" },
+        "convertedAt": { "type": "string" }
+      }
+    },
+    "MacroDeclaration": {
+      "description": "default required on a screen, forbidden on a template — the semantic rules macro-default-required and macro-default-forbidden, not expressible here.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$" },
+        "default": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "FormulaDeclaration": {
+      "description": "Screen-level formula, referenced by name via formula://<name>.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expression"],
+      "properties": {
+        "name": { "type": "string" },
+        "kind": { "enum": ["scalar", "timeseries", "waveform"] },
+        "expression": { "type": "string" },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "Geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      }
+    },
+    "WidgetMeta": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "comment": { "type": "string" }
+      }
+    },
+    "WidgetNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "props", "geometry"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "props": {
+          "description": "JSON literals, with a ColorRole legal wherever a color is held, at any depth (for example curves[].color). Open by design: per-widget prop sets are not enumerated here; only props every widget honours are. formula:// references live in designated channel props; the semantic rule formula-ref-unresolved checks that they resolve.",
+          "type": "object",
+          "properties": {
+            "hoverLabel": {
+              "description": "Text shown centred over the widget while the pointer is on it. Only a widget whose props.actions run on click shows it.",
+              "type": "string"
+            },
+            "hoverLabelPlacement": {
+              "description": "Where the hoverLabel sits inside the widget's box (default bottom-left).",
+              "enum": ["bottom-left", "bottom-right", "top-left", "top-right", "center"]
+            },
+            "outlineColor": {
+              "description": "A resting outline drawn just inside the widget's box: a CSS color or a ColorRole. A rule targeting outlineColor binds it to live data.",
+              "anyOf": [{ "type": "string" }, { "$ref": "#/$defs/ColorRole" }]
+            },
+            "outlineWidth": {
+              "description": "Width of the resting outline in authored px (default 2; 0 draws none).",
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": { "$ref": "#/$defs/PropertyValue" }
+        },
+        "geometry": { "$ref": "#/$defs/Geometry" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/WidgetNode" } },
+        "rules": { "type": "array", "items": { "$ref": "#/$defs/Rule" } },
+        "meta": { "$ref": "#/$defs/WidgetMeta" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "RulePvBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "trigger"],
+      "properties": {
+        "name": { "type": "string" },
+        "trigger": { "type": "boolean" }
+      }
+    },
+    "RuleCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expression", "value"],
+      "properties": {
+        "expression": { "type": "string" },
+        "value": { "anyOf": [{ "$ref": "#/$defs/RuleScalar" }, { "$ref": "#/$defs/ColorRole" }] }
+      }
+    },
+    "RuleScalar": { "type": ["string", "number", "boolean", "null"] },
+    "PropertyValue": {
+      "description": "A widget property value: a JSON literal or a ColorRole. An object that carries $role is a ColorRole and must be well-formed; every other object and every array is checked member by member.",
+      "if": { "type": "object", "required": ["$role"] },
+      "then": { "$ref": "#/$defs/ColorRole" },
+      "else": {
+        "additionalProperties": { "$ref": "#/$defs/PropertyValue" },
+        "items": { "$ref": "#/$defs/PropertyValue" }
+      }
+    },
+    "ColorRole": {
+      "description": "Themeable color reference, legal as a property value and at a rule position: a theme role name with hex fallbacks for light and (optionally) dark themes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$role", "fallback"],
+      "properties": {
+        "$role": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "fallback": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+        "fallbackDark": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" }
+      }
+    },
+    "Rule": {
+      "description": "Discriminated union: conditional arm (pvs + conditions, what the converter emits) or formula arm (formula). The oneOf below enforces exactly one arm.",
+      "type": "object",
+      "required": ["id", "name", "targetProperty", "default"],
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["id", "name", "targetProperty", "default", "pvs", "conditions"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "targetProperty": { "type": "string" },
+            "default": {
+              "anyOf": [{ "$ref": "#/$defs/RuleScalar" }, { "$ref": "#/$defs/ColorRole" }]
+            },
+            "pvs": { "type": "array", "items": { "$ref": "#/$defs/RulePvBinding" } },
+            "conditions": { "type": "array", "items": { "$ref": "#/$defs/RuleCondition" } }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["id", "name", "targetProperty", "default", "formula"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "targetProperty": { "type": "string" },
+            "default": { "$ref": "#/$defs/RuleScalar" },
+            "formula": { "type": "string" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -42,6 +42,11 @@ PROVEN_COMMITS: dict[str, str] = {
     "PyDMConverter": "4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f",
 }
 
+#: The Screen-IR version the proven PyDMConverter's schema describes, and the
+#: one the panels write (``osprey_panels.screen_ir.SCREEN_IR_VERSION``); the
+#: contract holds the two equal, so moving the PyDMConverter pin moves this too.
+SCREEN_IR_VERSION = "1.1"
+
 #: The public mirror each repository of the proven payload is cloned from.
 _MIRROR = "https://github.com/als-apg/canopy-osprey-mirror-"
 
