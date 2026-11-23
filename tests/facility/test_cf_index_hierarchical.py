@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
+from tests._facility_file import FACILITY_V4
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -566,13 +568,17 @@ def test_a_render_that_selects_another_index_names_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+    from osprey.facility.render import FACILITY_FILE
+    from osprey.facility.views.outputs import render_facility_outputs
 
     (view,) = [view for view in views.VIEWS if view.name == "hierarchical"]
     monkeypatch.setattr(views, "VIEWS", (view,))
 
     written = render_facility_outputs(
-        tmp_path, {"channels": []}, {"channel_finder": {"pipeline_mode": "graph"}}, tmp_path
+        tmp_path,
+        {"schema": FACILITY_V4, "channels": []},
+        {"channel_finder": {"pipeline_mode": "graph"}},
+        tmp_path,
     )
 
     assert written == [tmp_path / FACILITY_FILE]
@@ -712,7 +718,9 @@ def test_a_view_stop_names_the_file_that_states_its_record(
         tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": [fix]}
     else:
         tree["records/channels.yaml"].append(channel)
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(FacilityRecords(document))

@@ -20,13 +20,14 @@ from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.facility import views
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
-from osprey.facility.render import WrittenViews, render_facility_outputs
 from osprey.facility.views.benchmarks import (
     BENCHMARK_DATASET_KEY,
     QUERY_SOURCES,
     benchmarks_wanted,
     write_benchmarks_view,
 )
+from osprey.facility.views.outputs import WrittenViews, render_facility_outputs
+from tests._facility_file import FACILITY_V4
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 QUERIES_DIR = (
@@ -160,7 +161,7 @@ def test_two_renders_that_differ_in_mode_each_carry_their_own_file(
         render_dir.mkdir()
         render_facility_outputs(
             render_dir,
-            {"channels": []},
+            {"schema": FACILITY_V4, "channels": []},
             _config(mode),
             facility_dir,
             views_written=views_written,

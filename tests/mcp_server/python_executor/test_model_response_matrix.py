@@ -39,6 +39,7 @@ from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG, solve_and_print
 from osprey_connectors.simulation.view import VARIABLES_SCHEMA
+from tests._facility_file import write_facility_v4
 from tests._simulator_view import view_channel
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -175,9 +176,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
     for name, document in files.items():
         (view / name).write_text(json.dumps(document), encoding="utf-8")
     measurement = {} if corrector_delta is None else {tool.STEP_KEY: corrector_delta}
-    (root / "facility.json").write_text(
-        json.dumps({"models": [{"name": LINE, "measurement": measurement}]}), encoding="utf-8"
-    )
+    write_facility_v4(root, {"models": [{"name": LINE, "measurement": measurement}]})
     return root
 
 
