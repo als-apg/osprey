@@ -21,7 +21,6 @@ this module is framework, and reaches the description only through it.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Hashable, Mapping
 from dataclasses import replace
@@ -30,16 +29,18 @@ from typing import TYPE_CHECKING, Any
 
 from osprey_facility import FACILITY_FILE
 from osprey_facility.build import FacilityDocument
-from osprey_facility.render import copy_checked, write_facility_file
+from osprey_facility.render import copy_checked, file_sha256, write_facility_file
 
 if TYPE_CHECKING:
     from osprey.facility.views import View, ViewInputs
 
 #: What one build's renders have written of each view, keyed on what the view
 #: was written from: per file, its path relative to the render root, the file
-#: the first render wrote, and the sha256 of its bytes. The bytes themselves are
-#: not held: a large facility's views run to hundreds of megabytes, and every
-#: render after the first copies them from the first render's files.
+#: the first render wrote, and the sha256 of its bytes. A single file written
+#: through :func:`osprey.facility.views.write_once` is recorded under its own
+#: key, as a list of that one file. The bytes themselves are not held: a large
+#: facility's views run to hundreds of megabytes, and every render after the
+#: first copies them from the first render's files.
 WrittenViews = dict[Hashable, list[tuple[str, Path, str]]]
 
 __all__ = ["WrittenViews", "render_facility_outputs"]
@@ -105,6 +106,7 @@ def render_facility_outputs(
         reported=omitted_reported,
         built_databases=built_databases,
         content_dir=content_dir,
+        written=views_written,
     )
     target = render_dir / FACILITY_FILE
     write_facility_file(target, doc)
@@ -156,12 +158,7 @@ def _write_view(
             return copied
     paths = view.write(root, inputs)
     views_written[key] = [
-        (
-            path.relative_to(render_dir).as_posix(),
-            path,
-            hashlib.sha256(path.read_bytes()).hexdigest(),
-        )
-        for path in paths
+        (path.relative_to(render_dir).as_posix(), path, file_sha256(path)) for path in paths
     ]
     return paths
 
