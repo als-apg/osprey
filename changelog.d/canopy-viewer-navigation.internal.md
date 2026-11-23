@@ -1,0 +1,1 @@
+Pin CANOPY to 8f4d7dd0 and record the payload's screen viewer at b8257f93. The server hands a library's `navigation.json` to the viewer, which draws its sidebar from it, followed by the folder tree as one collapsed group. A screen opens at fit width, and a three-way switch in the screen header (Fit width, Fit page, 100%) sets the display mode for the whole viewer.
