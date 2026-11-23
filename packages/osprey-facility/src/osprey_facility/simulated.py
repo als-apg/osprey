@@ -13,10 +13,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.facility import STILL_ALL
-from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import SCENARIOS_DIR, SERVER_HEALTH_SIGNALS
+from osprey_facility import STILL_ALL
+from osprey_facility.records import ChannelSelection, FacilityRecords
 
 __all__ = [
     "resolved_still",
@@ -78,7 +78,7 @@ def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> lis
             channel, or a resolved reading is one whose ``noise`` or ``couple``
             the scenario sets.
     """
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     name = str(scenario["name"])
 

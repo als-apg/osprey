@@ -4,10 +4,10 @@ A measurement kind is a measurement a model's measurement file lists under
 ``kinds:``. Each kind is one :class:`KindDeclaration`, named by an entry point of
 the group :data:`ENTRY_POINT_GROUP` and nothing else: the five pyAML kinds
 OSPREY ships (``orm``, ``dispersion``, ``trm``, ``crm``,
-``chromaticity_monitor``) are entry points of the ``osprey-framework``
+``chromaticity_monitor``) are entry points of the ``osprey-facility``
 distribution, and a deployment registers its own kind the same way, from an
 installable package present both where ``osprey build`` runs and in the
-project image. "Built-in" means "declared by the ``osprey-framework``
+project image. "Built-in" means "declared by the ``osprey-facility``
 distribution".
 
 The declarations are read by ``osprey build`` alone. The build writes what
@@ -97,10 +97,10 @@ __all__ = [
 ]
 
 #: The entry-point group every measurement kind registers under.
-ENTRY_POINT_GROUP = "osprey.facility.kinds"
+ENTRY_POINT_GROUP = "osprey_facility.kinds"
 
 #: The distribution whose kinds are the built-in ones.
-BUILTIN_DISTRIBUTION = "osprey-framework"
+BUILTIN_DISTRIBUTION = "osprey-facility"
 
 #: How a member is judged against the model: named and wired by the model,
 #: named and present in the facility, or neither required.
@@ -560,7 +560,7 @@ def listed_kinds(pyprojects: Iterable[Path]) -> dict[str, str]:
     """The kinds a deployment's listed packages declare, read from their project files.
 
     Each ``pyproject.toml`` is parsed for its ``[project]`` name and its
-    ``[project.entry-points."osprey.facility.kinds"]`` table. Nothing is built
+    ``[project.entry-points."osprey_facility.kinds"]`` table. Nothing is built
     and nothing is imported, so a kind is found whether or not its package is
     installed. Entry points a build backend computes (``dynamic``) are not read.
 
@@ -593,7 +593,7 @@ def listed_kinds(pyprojects: Iterable[Path]) -> dict[str, str]:
 
 
 def builtin_kinds() -> dict[str, KindDeclaration]:
-    """The kinds the ``osprey-framework`` distribution declares, by name."""
+    """The kinds the ``osprey-facility`` distribution declares, by name."""
     found, sources = _load()
     return {name: declaration for name, declaration in found.items() if sources[name] == "built-in"}
 

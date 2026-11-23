@@ -19,12 +19,12 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from osprey.facility.compute import check_compute
-from osprey.facility.errors import FacilityBuildWarning
-from osprey.facility.knowledge_links import check_knowledge_links
-from osprey.facility.relations import fill_relation_slots
-from osprey.facility.validate import Stage, check_measurement, run_stages
-from osprey.facility.wiring import fill_wiring_slots
+from osprey_facility.compute import check_compute
+from osprey_facility.errors import FacilityBuildWarning
+from osprey_facility.knowledge_links import check_knowledge_links
+from osprey_facility.relations import fill_relation_slots
+from osprey_facility.validate import Stage, check_measurement, run_stages
+from osprey_facility.wiring import fill_wiring_slots
 
 __all__ = ["LATER_STAGES", "FacilityDocument", "build_facility", "build_facility_with_warnings"]
 
@@ -59,7 +59,7 @@ def build_facility(
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
         judges_kinds: Whether this tree is where its listed kinds are judged
-            (:func:`osprey.facility.kinds.judged_here`).
+            (:func:`osprey_facility.kinds.judged_here`).
         extra_checks: Checks the caller supplies, run by the compute stage
             after its scenario checks; the framework passes its scenario
             server check here.
@@ -97,7 +97,7 @@ def build_facility_with_warnings(
         content_dir: The content root when mounted, where the knowledge pages
             are read; ``None`` means ``facility_dir``.
         judges_kinds: Whether this tree is where its listed kinds are judged
-            (:func:`osprey.facility.kinds.judged_here`).
+            (:func:`osprey_facility.kinds.judged_here`).
         extra_checks: Checks the caller supplies, run by the compute stage
             after its scenario checks; the framework passes its scenario
             server check here.

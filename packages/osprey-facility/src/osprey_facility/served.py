@@ -14,11 +14,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError, quoted_slots
-from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey_facility import TEXTURE
+from osprey_facility.errors import FacilityBuildError, quoted_slots
+from osprey_facility.records import ChannelSelection, FacilityRecords
 
-__all__ = ["CONFIG_SOURCE", "SIMULATION_MODELS_KEY", "resolve_served"]
+__all__ = ["CONFIG_SOURCE", "SIMULATION_MODELS_KEY", "resolve_served", "served_scope"]
 
 #: The dotted config key that names the served models.
 SIMULATION_MODELS_KEY = "simulation.models"
@@ -81,7 +81,7 @@ def resolve_served(rendered_config: Mapping[str, Any], records: FacilityRecords)
     return [*sorted(set(requested) - {TEXTURE}), TEXTURE]
 
 
-def _served_scope(records: FacilityRecords, served: list[str]) -> list[Mapping[str, Any]]:
+def served_scope(records: FacilityRecords, served: list[str]) -> list[Mapping[str, Any]]:
     """The channels the served simulator holds.
 
     Each served physics model's selection, plus every channel in no model's

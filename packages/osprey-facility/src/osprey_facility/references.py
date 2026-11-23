@@ -14,7 +14,7 @@ A facility link is a standard markdown inline link whose destination uses the
 whitespace, a parenthesis, an angle bracket or a backslash is written as a
 CommonMark angle-bracket destination around the whole destination,
 ``[label](<facility:ADDRESS WITH SPACES>)``.
-:meth:`osprey.facility.records.FacilityRecords.resolve_link` resolves the target:
+:meth:`osprey_facility.records.FacilityRecords.resolve_link` resolves the target:
 a channel id or a device id, or ``place/<id>`` for a place, where an exact
 channel or device id wins. Logbook prose never names a place.
 
@@ -30,10 +30,10 @@ from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from osprey.facility.records import LINK_KINDS, PLACE_LINK_PREFIX, LinkKind, describe_records
+from osprey_facility.records import LINK_KINDS, PLACE_LINK_PREFIX, LinkKind, describe_records
 
 if TYPE_CHECKING:
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "LINK_SCHEME",
@@ -251,7 +251,7 @@ def find_facility_references(text: str, records: FacilityRecords) -> list[Facili
     Returns:
         One :class:`FacilityReference` per quote, with code-point offsets, no
         label, and the kinds its target resolves to in the order
-        :meth:`~osprey.facility.records.FacilityRecords.resolve` lists them.
+        :meth:`~osprey_facility.records.FacilityRecords.resolve` lists them.
     """
     targets = records.targets()
     lengths = sorted({len(target) for target in targets if target}, reverse=True)
@@ -299,8 +299,8 @@ def resolved_references(
         description?}`` per record the target resolves to (empty for a target
         the facility file does not hold), or is ``None`` without records: a
         link resolves through
-        :meth:`~osprey.facility.records.FacilityRecords.resolve_link`, a
-        mention through :meth:`~osprey.facility.records.FacilityRecords.resolve`.
+        :meth:`~osprey_facility.records.FacilityRecords.resolve_link`, a
+        mention through :meth:`~osprey_facility.records.FacilityRecords.resolve`.
         ``target`` stays the reference's own text, ``place/<id>`` for a place
         link.
     """

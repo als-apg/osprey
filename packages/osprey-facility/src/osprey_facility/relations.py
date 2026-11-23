@@ -1,7 +1,7 @@
 """Relation claim rules: shape, keys, coarseness and standing.
 
 Every function here is pure and takes the relation type rows as an argument
-(the shape of :func:`osprey.facility.validate.relation_types`): the end kinds
+(the shape of :func:`osprey_facility.validate.relation_types`): the end kinds
 ``subject`` and ``object``, ``symmetric`` and the ``single_per`` key fields are
 read from those rows only, never from a second table.
 
@@ -26,12 +26,12 @@ from collections import Counter
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
-from osprey.facility.provenance import add_defaults
-from osprey.facility.sources import AUTHORED
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey_facility.provenance import add_defaults
+from osprey_facility.sources import AUTHORED
 
 if TYPE_CHECKING:
-    from osprey.facility.validate import Validated
+    from osprey_facility.validate import Validated
 
 #: The kinds one relation end may name; an end names exactly one.
 END_KINDS: tuple[str, ...] = ("device", "place", "group")
@@ -752,7 +752,7 @@ def fill_relation_slots(validated: Validated) -> list[FacilityBuildError]:
     Raises:
         RuntimeError: The stage ran before S2 produced the document.
     """
-    from osprey.facility.validate import need, relation_types
+    from osprey_facility.validate import need, relation_types
 
     document: dict[str, Any] = need(validated.document)
     claims: list[dict[str, Any]] = document.get("relations") or []

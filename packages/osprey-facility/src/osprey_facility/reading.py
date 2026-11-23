@@ -4,7 +4,7 @@ A reader outside the panel engine reads the facility document through
 :func:`load_facility`, or checks a document it already holds with
 :func:`check_header`. Both compare the header against :data:`READS` (an exact
 string compare) and refuse anything else with
-:class:`~osprey.facility.errors.FacilityFileError`, naming the rebuild. The
+:class:`~osprey_facility.errors.FacilityFileError`, naming the rebuild. The
 wording is the panel engine's (``osprey.facility.panels.document``), so an
 operator reads one sentence whichever reader met the file. Only an absent file
 is an absence: :func:`load_facility` lets :class:`FileNotFoundError` through and
@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.errors import FacilityFileError
+from osprey_facility.errors import FacilityFileError
 
 __all__ = ["READS", "REBUILD", "check_header", "load_facility"]
 

@@ -4,7 +4,7 @@ A page under ``data/facility/knowledge`` links the facility two ways. The
 ``device_id`` key of its frontmatter names a device, and a
 ``[label](facility:ADDRESS)`` link in its body names a channel id or a device
 id, or a place as ``facility:place/<id>``. Every link resolves through
-:class:`~osprey.facility.records.FacilityRecords`;
+:class:`~osprey_facility.records.FacilityRecords`;
 a frontmatter id that is no device id, or a body link that resolves to no
 record, is a dangling link: the build names it and goes on. A page whose
 frontmatter does not parse links nothing.
@@ -17,11 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
-from osprey.facility.records import PLACE_LINK_PREFIX, FacilityRecords
-from osprey.facility.references import LINK_SCHEME, FacilityReference, find_facility_links
-from osprey.facility.validate import Validated, need
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.records import PLACE_LINK_PREFIX, FacilityRecords
+from osprey_facility.references import LINK_SCHEME, FacilityReference, find_facility_links
+from osprey_facility.validate import Validated, need
 
 __all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "check_knowledge_links", "dangling_links"]
 

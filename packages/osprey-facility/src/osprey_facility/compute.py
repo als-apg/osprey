@@ -63,24 +63,24 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import TEXTURE, wiring_addresses
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
-from osprey.facility.pairing import simulated_pairs
-from osprey.facility.provenance import add_defaults, set_place_from
-from osprey.facility.relations import (
+from osprey_facility import TEXTURE, wiring_addresses
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
+from osprey_facility.pairing import simulated_pairs
+from osprey_facility.provenance import add_defaults, set_place_from
+from osprey_facility.relations import (
     ACCEPTED,
     claim_keys,
     coarse_reasons,
     end_identity,
 )
-from osprey.facility.scenarios import (
+from osprey_facility.scenarios import (
     check_scenario_attachments,
     check_scenario_engines,
     check_scenario_events,
 )
-from osprey.facility.served import CONFIG_SOURCE, SIMULATION_MODELS_KEY
-from osprey.facility.sources import AUTHORED
-from osprey.facility.validate import (
+from osprey_facility.served import CONFIG_SOURCE, SIMULATION_MODELS_KEY
+from osprey_facility.sources import AUTHORED
+from osprey_facility.validate import (
     Validated,
     _cycle_from,
     need,
@@ -88,7 +88,7 @@ from osprey.facility.validate import (
     relation_types,
     stating_files,
 )
-from osprey.facility.wiring import element_stop
+from osprey_facility.wiring import element_stop
 
 __all__ = [
     "TEXTURE",
@@ -264,7 +264,7 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
-    from osprey.facility.simulated import server_health_addresses, status_address
+    from osprey_facility.simulated import server_health_addresses, status_address
 
     code = run.document["identity"]["code"]
     physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]

@@ -42,9 +42,9 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import PN_LOCAL
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors import yaml_loader
+from osprey_facility import PN_LOCAL
+from osprey_facility.errors import FacilityBuildError
 
 __all__ = [
     "AUTHORED",
@@ -679,7 +679,7 @@ class _Reader:
             self.sources.classes.append(row)
 
     def _read_signals(self) -> None:
-        from osprey.facility.validate import signal_roles
+        from osprey_facility.validate import signal_roles
 
         rel = "signals.yaml"
         built_in = signal_roles()
@@ -913,7 +913,7 @@ class _Reader:
             self.sources.documents.append(row)
 
     def _read_policy(self) -> None:
-        from osprey.facility.validate import relation_types
+        from osprey_facility.validate import relation_types
 
         rel = "policy.yaml"
         data = self._mapping(self.root / rel)

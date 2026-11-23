@@ -20,9 +20,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.build import FacilityDocument
-from osprey.facility.roots import (
+from osprey_facility import FACILITY_FILE
+from osprey_facility.build import FacilityDocument
+from osprey_facility.roots import (
     DEPLOYMENT_CONTENT_DIRS,
     FacilityRoots,
     is_machine_entry,

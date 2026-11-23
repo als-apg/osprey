@@ -61,12 +61,13 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
-from osprey.facility.pairing import PAIR_RULE, derive_pairs
-from osprey.facility.provenance import Stating, add_defaults, build_provenance
-from osprey.facility.records import DEFAULT_GROUP_KIND
-from osprey.facility.sources import (
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
+from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
+from osprey_facility.pairing import PAIR_RULE, derive_pairs
+from osprey_facility.provenance import Stating, add_defaults, build_provenance
+from osprey_facility.records import DEFAULT_GROUP_KIND
+from osprey_facility.sources import (
     AUTHORED,
     COMPUTED_SLOTS,
     KEYED_SETS,
@@ -79,7 +80,6 @@ from osprey.facility.sources import (
     keyed_clashes,
     keyed_order,
 )
-from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
 
 __all__ = [
     "FIXES_FILE",
@@ -1002,7 +1002,7 @@ class _Combiner:
         ]
         if not measured:
             return
-        from osprey.facility.kinds import KindRegistryError, registered
+        from osprey_facility.kinds import KindRegistryError, registered
 
         try:
             declared = registered()
@@ -1012,7 +1012,7 @@ class _Combiner:
             self._patch_model(model, declared)
 
     def _patch_model(self, model: dict[str, Any], declared: Mapping[str, Any]) -> None:
-        from osprey.facility.kinds import KindSettingsError, kind_source, settings_patch
+        from osprey_facility.kinds import KindSettingsError, kind_source, settings_patch
 
         name = str(model["name"])
         engine = model.get("engine")
@@ -1121,7 +1121,7 @@ def _by_name(table: str, added: Iterable[Mapping[str, Any]] = ()) -> list[dict[s
 
     Each row keeps only the fields its source states.
     """
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     rows = [*vocabulary()[table], *added]
     return sorted(copy.deepcopy(rows), key=lambda row: str(row.get("name")))

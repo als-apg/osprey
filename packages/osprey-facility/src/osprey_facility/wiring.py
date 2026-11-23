@@ -22,7 +22,7 @@ record as its source.
 
 Once the records are described, the stage marks each command channel
 ``command: true``: a setpoint whose vocabulary signal is a command word
-(:func:`osprey.facility.pairing.is_command_signal`), or a channel some model's
+(:func:`osprey_facility.pairing.is_command_signal`), or a channel some model's
 engine marks ``command``, under each address its record names. A channel whose signal is a command word that an
 engine describes without the mark stops (``engine-invalid``). Whatever fires or
 judges a command reads this mark and no rule of its own.
@@ -35,10 +35,10 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE, wiring_addresses
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.provenance import add_defaults
-from osprey.facility.validate import Validated, need, stating_files
+from osprey_facility import DEFAULT_ROLE, TEXTURE, wiring_addresses
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.provenance import add_defaults
+from osprey_facility.validate import Validated, need, stating_files
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
@@ -91,7 +91,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
     limits: dict[str, dict[str, Any]] = {
         r["address"]: r for r in (document.get("limits") or {}).get("records", [])
     }
-    from osprey.facility.pairing import simulated_pairs
+    from osprey_facility.pairing import simulated_pairs
 
     setpoint_of = simulated_pairs(channels)
     pairs = frozenset(setpoint_of)
@@ -115,8 +115,8 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
 
 def _mark_commands(document: dict[str, Any]) -> list[FacilityBuildError]:
     """Mark every command channel ``command: true``; stop where the vocabulary and an engine differ."""
-    from osprey.facility.pairing import is_command_signal
-    from osprey.facility.schema import core
+    from osprey_facility.pairing import is_command_signal
+    from osprey_facility.schema import core
 
     command = core.WiringMarkEnum.command.value
     marked: set[str] = set()
@@ -331,7 +331,7 @@ def _check_description(
     Every word a description says is one the facility schema states for its slot,
     and only a ``write`` record carries the ``command`` mark.
     """
-    from osprey.facility.schema import core
+    from osprey_facility.schema import core
 
     address = str(record["address"])
     words: dict[str, frozenset[Any]] = {

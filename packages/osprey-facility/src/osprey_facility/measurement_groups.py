@@ -13,9 +13,9 @@ import math
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.facility.kinds import SHIPPED_SORTS
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families
+from osprey_facility.kinds import SHIPPED_SORTS
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families
 
 __all__ = [
     "GROUP_ROLES",
@@ -93,7 +93,7 @@ def measurement_groups(
     Args:
         records: The facility file's records.
         model: The model's name.
-        sorts: Each member role's sort (:func:`osprey.facility.kinds.member_sorts`);
+        sorts: Each member role's sort (:func:`osprey_facility.kinds.member_sorts`);
             the shipped roles' when omitted, and a role of no known sort is
             left out.
 

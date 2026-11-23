@@ -57,9 +57,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
-from osprey.facility import wiring_addresses
-from osprey.facility.places import resolve_place_name
-from osprey.facility.reading import load_facility
+from osprey_facility import wiring_addresses
+from osprey_facility.places import resolve_place_name
+from osprey_facility.reading import load_facility
 
 __all__ = [
     "LINK_KINDS",
@@ -182,7 +182,7 @@ class ChannelSelection:
 
     def _check_wiring_vocabulary(self) -> None:
         """Refuse an ``engine_role`` or ``plane`` the facility schema does not state."""
-        from osprey.facility.schema import core
+        from osprey_facility.schema import core
 
         if self.engine_role is not None and self.engine_role not in {
             m.value for m in core.EngineRoleEnum
@@ -249,7 +249,7 @@ class FacilityRecords:
         Raises:
             FacilityFileError: The file is there but cannot be read, is not
                 JSON, is not a JSON object, or carries a ``schema`` header this
-                reader does not read (see :mod:`osprey.facility.reading`).
+                reader does not read (see :mod:`osprey_facility.reading`).
         """
         try:
             document = load_facility(path)
@@ -265,19 +265,19 @@ class FacilityRecords:
     def facility_bytes(self) -> bytes:
         """The bytes of the facility file this read model was built from.
 
-        Serialised by :func:`osprey.facility.render.facility_bytes` from the
+        Serialised by :func:`osprey_facility.render.facility_bytes` from the
         document handed in, not a copy of it, so a build's renders, which each
         build their own read model over the one document, share its one
         serialisation.
         """
-        from osprey.facility.render import facility_bytes
+        from osprey_facility.render import facility_bytes
 
         source = self._source
         return facility_bytes(source if isinstance(source, dict) else dict(source))
 
     def facility_sha256(self) -> str:
         """The sha256 hex digest of :meth:`facility_bytes`, from the build's one serialisation."""
-        from osprey.facility.render import facility_sha256
+        from osprey_facility.render import facility_sha256
 
         source = self._source
         return facility_sha256(source if isinstance(source, dict) else dict(source))
@@ -319,7 +319,7 @@ class FacilityRecords:
         Matches come in three groups: ``"id"`` (the record's id is ``text``),
         ``"name"`` (a ``names`` entry or a ``scheme_names[].name`` is ``text``,
         exact string), then ``"segment"`` (places only: the flat-name rule of
-        :func:`~osprey.facility.places.resolve_place_name`). Within a group,
+        :func:`~osprey_facility.places.resolve_place_name`). Within a group,
         places come before devices, each kind in id order. A record appears
         once, at its first match. :meth:`find`, :meth:`resolve`,
         :meth:`targets` and :meth:`describe` stay exact-id.

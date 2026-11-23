@@ -39,15 +39,19 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
-from osprey.facility.combine import FIXES_FILE, CombineResult, combine
-from osprey.facility.errors import (
+from osprey_connectors.settle import declared_tolerance
+from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
+from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
+from osprey_connectors.simulation.values import is_waveform
+from osprey_facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
+from osprey_facility.combine import FIXES_FILE, CombineResult, combine
+from osprey_facility.errors import (
     FacilityBuildError,
     FacilityBuildWarning,
     exact_number,
     quoted_slots,
 )
-from osprey.facility.pairing import (
+from osprey_facility.pairing import (
     COPY_INDEX,
     FOLLOWS_NONE,
     NOT_FOLLOWED,
@@ -58,14 +62,10 @@ from osprey.facility.pairing import (
     same_type,
     seed_follows,
 )
-from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.relations import shape_problems
-from osprey.facility.scenarios import FaultRoster, fault_roster, map_fault_errors
-from osprey.facility.sources import Sources, group_families, load_sources
-from osprey_connectors.settle import declared_tolerance
-from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
-from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
-from osprey_connectors.simulation.values import is_waveform
+from osprey_facility.records import ChannelSelection, FacilityRecords
+from osprey_facility.relations import shape_problems
+from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
+from osprey_facility.sources import Sources, group_families, load_sources
 
 __all__ = [
     "FACILITY_HEADER",
@@ -185,7 +185,7 @@ class Validated:
             ``ariel/`` and ``benchmarks/`` are read; ``None`` means
             ``facility_dir``, a single tree.
         judges_kinds: Whether this tree is where its listed kinds are judged
-            (:func:`osprey.facility.kinds.judged_here`).
+            (:func:`osprey_facility.kinds.judged_here`).
         extra_checks: The checks the caller supplies, run by the compute stage
             after its scenario checks, their errors joining that stage's.
     """
@@ -274,7 +274,7 @@ def run_stages(
         content_dir: The content root when mounted; ``None`` means
             ``facility_dir``.
         judges_kinds: Whether this tree is where its listed kinds are judged
-            (:func:`osprey.facility.kinds.judged_here`).
+            (:func:`osprey_facility.kinds.judged_here`).
         extra_checks: Checks the caller supplies, run by the compute stage
             after its scenario checks; the framework passes its scenario
             server check here.
@@ -353,7 +353,7 @@ def validate(
         to show: every error of the first failing stage, or the warnings of
         the build when the directory is clean.
     """
-    from osprey.facility.build import LATER_STAGES
+    from osprey_facility.build import LATER_STAGES
 
     result = run_stages(
         facility_dir, project_name=project_name, later=LATER_STAGES, extra_checks=extra_checks
@@ -376,7 +376,7 @@ def vocabulary() -> dict[str, Any]:
         ``relations`` rows of ``{name, description, subject, object, symmetric,
         single_per}``.
     """
-    table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
+    table = resources.files("osprey_facility.schema._generated") / "vocabulary.json"
     data: dict[str, Any] = json.loads(table.read_text(encoding="utf-8"))
     return data
 
@@ -436,7 +436,7 @@ def ordered_slots() -> frozenset[tuple[str, str]]:
     """
     import pydantic
 
-    from osprey.facility.schema import core
+    from osprey_facility.schema import core
 
     ordered = set()
     for name, cls in sorted(vars(core).items()):
@@ -540,7 +540,7 @@ def _model_failures(document: Mapping[str, Any]) -> Iterator[tuple[tuple[Any, ..
     Yields:
         ``(loc, error)`` per failure: the full location, and pydantic's error.
     """
-    from osprey.facility.schema import Facility
+    from osprey_facility.schema import Facility
 
     lists = _record_lists()
     rest = dict(document)
@@ -578,7 +578,7 @@ def _record_lists() -> dict[str, Any]:
 
     import pydantic
 
-    from osprey.facility.schema import Facility
+    from osprey_facility.schema import Facility
 
     found: dict[str, Any] = {}
     for name, info in Facility.model_fields.items():
@@ -1751,7 +1751,7 @@ class _Records:
         """Each setpoint's ``pair`` names a readback it agrees with. Several setpoints
         may name one readback. The checks of what the simulation does (one model,
         the start value) apply only to a pair the simulation follows
-        (:func:`~osprey.facility.pairing.pair_follows`)."""
+        (:func:`~osprey_facility.pairing.pair_follows`)."""
         named: dict[str, list[str]] = {}
         for address, channel in sorted(self.index.channels.items()):
             role = channel.get("role", DEFAULT_ROLE)
@@ -2636,10 +2636,10 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     Runs once every wiring slot is filled, so a group or instrument is judged
     by the setpoints and readbacks its model actually wires. A group plays one
     group role; only ``hcor`` and ``vcor`` may name the same group. Every kind
-    the file allows is a registered kind (:mod:`osprey.facility.kinds`). Every
+    the file allows is a registered kind (:mod:`osprey_facility.kinds`). Every
     role the file names under ``groups`` or ``instruments`` is one the pyAML
     view ships or one a listed kind declares, named in the map its sort says
-    (:func:`osprey.facility.kinds.member_sorts`); each
+    (:func:`osprey_facility.kinds.member_sorts`); each
     member the kind declares is judged by its requirement: ``wired`` must be
     named by the file and wired by the model, ``exists`` named and present in
     the facility, ``optional`` either absent or present. A ``single_pass``
@@ -2650,7 +2650,7 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     document, to the kind's ``build_stops`` hook.
 
     A listed kind no installed package registers stops a tree where kinds are
-    judged (:func:`osprey.facility.kinds.judged_here`). In a machine tree on
+    judged (:func:`osprey_facility.kinds.judged_here`). In a machine tree on
     its own the kind is deferred with a ``kind-deferred`` warning, and its
     block and the roles nobody here declares are left to the deployment that
     mounts the tree.
@@ -2687,14 +2687,14 @@ def _measurement_stops(
     document: dict[str, Any],
     deferred: list[FacilityBuildWarning] | None = None,
 ) -> Iterator[FacilityBuildError]:
-    from osprey.facility.kinds import (
+    from osprey_facility.kinds import (
         ENTRY_POINT_GROUP,
         KindRegistryError,
         kind_source,
         member_sorts,
         registered,
     )
-    from osprey.facility.measurement_groups import (
+    from osprey_facility.measurement_groups import (
         GROUP_ROLES,
         ROLE_PLANES,
         measurement_groups,
@@ -2901,7 +2901,7 @@ def _kind_facts_stops(
     document: dict[str, Any], declared: Mapping[str, Any]
 ) -> Iterator[FacilityBuildError]:
     """A kind's facts writer failing on a model's block."""
-    from osprey.facility.kinds import KindFactsError, kind_source, written_facts
+    from osprey_facility.kinds import KindFactsError, kind_source, written_facts
 
     try:
         written_facts(document, declared)
@@ -2921,7 +2921,7 @@ def _block_stops(
     model: str, files: list[str], declaration: Any, block: Any
 ) -> list[FacilityBuildError]:
     """What a listed kind refuses in its own sub-block; an absent block is an empty one."""
-    from osprey.facility.kinds import block_admitted, block_problems
+    from osprey_facility.kinds import block_admitted, block_problems
 
     if block_admitted(declaration, block):
         return []
@@ -3180,7 +3180,7 @@ def tolerance_warnings(
     so settle within the lane's floor, the first line followed by up to
     :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
     ``still`` counts as the simulator view writes it
-    (:func:`~osprey.facility.simulated.resolved_still`), so a reading
+    (:func:`~osprey_facility.simulated.resolved_still`), so a reading
     it stills, by ``all``, address or selection, moves nothing.
 
     Args:
@@ -3190,8 +3190,8 @@ def tolerance_warnings(
     Returns:
         The warnings, scenario lines first.
     """
-    from osprey.facility.simulated import resolved_still
     from osprey_connectors.simulation.envelope import active_envelopes
+    from osprey_facility.simulated import resolved_still
 
     document = records.document
     channels = _by_key(document.get("channels"), "id")

@@ -27,7 +27,7 @@ An entry's ``attachments`` list names its pictures, each item one of
 scenario's own directory ``scenarios/<name>/``.
 
 A scenario's ``sessions`` block parses through
-:func:`~osprey.simulation.sessions.parse_sessions`;
+:func:`~osprey_facility.sessions.parse_sessions`;
 :func:`check_scenario_sessions` checks it against the facility. The tool
 steps' server names are the framework's to check
 (:mod:`osprey.registry.scenario_servers`); the build runs that check beside
@@ -45,10 +45,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
-from osprey.simulation.sessions import SessionTurn, parse_sessions
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
+from osprey_facility.errors import FacilityBuildError, exact_number, quoted_slots
+from osprey_facility.sessions import SessionTurn, parse_sessions
 
 __all__ = [
     "FaultRoster",
@@ -975,7 +975,7 @@ def check_scenario_engines(document: Mapping[str, Any]) -> list[FacilityBuildErr
 
 
 def _roster_refused(model: Mapping[str, Any], roster: FaultRoster) -> FacilityBuildError:
-    from osprey.facility.validate import stating_files
+    from osprey_facility.validate import stating_files
 
     return FacilityBuildError(
         "engine-invalid",
