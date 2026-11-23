@@ -271,6 +271,7 @@ def test_every_pytest_check_resolves_through_the_bound(check):
         "readonly-warmups-py314",
         "app-check-js",
         "facility-wheel-build",
+        "panels-wheel-build",
         "canopy-contract",
     ]
     assert _unbounded_pytest_checks(check, check.CHECKS) == []

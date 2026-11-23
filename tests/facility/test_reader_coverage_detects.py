@@ -117,7 +117,7 @@ UNCHECKED = [
         id="a-module-attribute",
     ),
     pytest.param(
-        "from osprey.facility.panels.document import FACILITY_FILE\n"
+        "from osprey_panels.document import FACILITY_FILE\n"
         "def g(root):\n"
         "    return (root / FACILITY_FILE).read_text()\n",
         ".read_text",

@@ -358,8 +358,9 @@ LANE_LEAVING_MARKERS = (
             ),
         ),
     ),
-    # Tests that read a built osprey-facility wheel: the package's standalone job
-    # builds it once and names it in OSPREY_FACILITY_WHEEL.
+    # Tests that read a built osprey-facility or osprey-panels wheel: each
+    # package's standalone job builds it once and names it in
+    # OSPREY_FACILITY_WHEEL or OSPREY_PANELS_WHEEL.
     LaneLeavingMarker(
         "wheel_build",
         (
@@ -367,6 +368,12 @@ LANE_LEAVING_MARKERS = (
                 "osprey-facility-standalone",
                 "Run the wheel-contents tests against the built wheel",
                 "packages/osprey-facility/tests",
+                "-m wheel_build",
+            ),
+            SerialHost(
+                "osprey-panels-standalone",
+                "Run the wheel-contents tests against the built wheel",
+                "packages/osprey-panels/tests",
                 "-m wheel_build",
             ),
         ),
@@ -5253,7 +5260,11 @@ REPO_ROOT = TESTS_ROOT.parent
 #: Workspace packages' own suites, which the root ``testpaths`` lists beside
 #: ``tests``. Each is one entry of the unit shards' partition, like a top-level
 #: ``tests/<dir>``.
-PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests", "packages/osprey-facility/tests")
+PACKAGE_TEST_ROOTS = (
+    "packages/osprey-connectors/tests",
+    "packages/osprey-facility/tests",
+    "packages/osprey-panels/tests",
+)
 
 
 #: The marker a module applies to itself to say it drives a browser. It is
@@ -11270,14 +11281,15 @@ def _framework_build_commands(release: dict[str, Any]) -> list[str]:
 def test_the_framework_release_builds_its_lockstep_members_only(
     release: dict[str, Any] | None = None,
 ) -> None:
-    """Every workspace member but osprey-connectors and osprey-facility rides
-    the v-tag (osprey-facility has no release until its own tag stream exists);
-    a member added later fails here until the release builds it."""
+    """Every workspace member but osprey-connectors, osprey-facility and
+    osprey-panels rides the v-tag (osprey-facility and osprey-panels have no
+    release until their own tag streams exist); a member added later fails here
+    until the release builds it."""
     release = release if release is not None else _load_release()
     members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
         "members"
     ]
-    own_streams = {"osprey-connectors", "osprey-facility"}
+    own_streams = {"osprey-connectors", "osprey-facility", "osprey-panels"}
     lockstep = sorted(Path(m).name for m in members if Path(m).name not in own_streams)
     expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
     assert _framework_build_commands(release) == expected, (
@@ -12957,6 +12969,7 @@ def test_the_coverage_cell_measures_the_pyaml_member(workflow: dict[str, Any]) -
     )
     assert "--cov=packages/osprey-connectors/src/osprey_connectors" in flags
     assert "--cov=packages/osprey-facility/src/osprey_facility" in flags
+    assert "--cov=packages/osprey-panels/src/osprey_panels" in flags
 
 
 def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() -> None:
@@ -15058,9 +15071,10 @@ CHECKS_WITHOUT_A_CI_STEP = {
     # The wall-clock budgets run alone in the lane that hosts their marker
     # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
-    # The same for the facility wheel-contents tests: the standalone job builds
+    # The same for the facility and panels wheel-contents tests: each standalone job builds
     # the wheel once and runs them against it (LANE_LEAVING_MARKERS).
     "facility-wheel-build": "its tests run in the lane that hosts the wheel_build marker",
+    "panels-wheel-build": "its tests run in the lane that hosts the wheel_build marker",
     # A test module the sweep collects on a full-history checkout runs each of
     # these on the whole tree; SWEPT_CHECK_TESTS names it.
     "config-keys": "its guard and back-test run in a module of the parallel sweep",
