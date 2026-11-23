@@ -43,8 +43,11 @@ CONTRACT_TESTS = ("tests/integrations/canopy", "tests/templates/canopy")
 INVARIANT_TESTS = ("tests/integrations/canopy/test_contract_marker.py",)
 
 #: The CANOPY contract's declared roots: the CANOPY code, the contract, the
-#: marker's rules, the data the contract reads, the job that runs it on CI and
-#: the dependency declarations that decide what it runs against.
+#: marker's rules, the data the contract reads, the job that runs it on CI, the
+#: dependency declarations that decide what it runs against, and the panel
+#: engine whose screens and vendored Screen-IR schema the contract validates.
+#: The engine is declared whole: the import hop is one level and reads no
+#: data file, so ``emit.py`` and the schema would otherwise fall outside it.
 #: The Python under the first four is where the scope's import hop starts.
 CANOPY_CONTRACT_ROOTS = (
     "src/osprey/integrations/canopy/**",
@@ -56,15 +59,21 @@ CANOPY_CONTRACT_ROOTS = (
     "pyproject.toml",
     "uv.lock",
     "packages/osprey-connectors/pyproject.toml",
+    "packages/osprey-panels/src/**",
+    "packages/osprey-panels/pyproject.toml",
 )
 CANOPY_IMPORTING_ROOTS = CANOPY_CONTRACT_ROOTS[:4]
 
 #: The repository's own top-level packages; an import of anything else is not followed.
-OWN_PACKAGES = frozenset({"osprey", "osprey_connectors", "tests"})
+OWN_PACKAGES = frozenset(
+    {"osprey", "osprey_connectors", "osprey_panels", "osprey_panels_tests", "tests"}
+)
 #: Where an own package is imported from, in the order a module is looked up.
 PACKAGE_BASES = (
     "src/",
     "packages/osprey-connectors/src/",
+    "packages/osprey-panels/src/",
+    "packages/osprey-panels/tests/",
     "",
 )
 
