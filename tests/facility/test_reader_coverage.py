@@ -3,7 +3,7 @@
 The invariant is held at the call sites, so a reader that takes the facility file
 as a parameter cannot hide behind it:
 
-* **Names.** Every expression in ``src/`` (outside ``osprey.facility.panels``,
+* **Names.** Every expression in the source roots (outside ``osprey_panels``,
   which carries its own chain) that names the facility document is found: a
   ``facility_file_path(...)`` call, ``FACILITY_FILE`` under any import alias or
   re-export, the ``"facility.json"`` literal or a path spelling ending in it, and
@@ -52,11 +52,15 @@ import pytest
 from tests.facility._reader_roster import CHANNELS, ROSTER
 
 REPO = Path(__file__).resolve().parents[2]
-SRC = (REPO / "src", REPO / "packages" / "osprey-facility" / "src")
+SRC = (
+    REPO / "src",
+    REPO / "packages" / "osprey-facility" / "src",
+    REPO / "packages" / "osprey-panels" / "src",
+)
 
 #: The panel engine reads the document through its own chain; its modules are
 #: not scanned for names, and its chain is held by the entry-point check.
-PANELS = "osprey.facility.panels"
+PANELS = "osprey_panels"
 
 #: The functions that read the facility document and check its header before
 #: any other use. Handing them the document's path is always allowed.
@@ -68,7 +72,7 @@ CHECKED_ENTRY_POINTS: frozenset[str] = frozenset(
         "osprey.utils.facility.facility_identity",
         "osprey.utils.facility.facility_name",
         "osprey.facility.views.facts.read_facts",
-        "osprey.facility.panels.model.load_graph",
+        "osprey_panels.model.load_graph",
     }
 )
 
@@ -79,8 +83,8 @@ HEADER_CHECKS: frozenset[str] = frozenset(
 
 #: The panel engine's own chain: ``load_graph`` reaches the reader, the reader
 #: reaches the check.
-PANELS_READER = "osprey.facility.panels.document.FacilityDocument.from_file"
-PANELS_CHECK = "osprey.facility.panels.document._check_header"
+PANELS_READER = "osprey_panels.document.FacilityDocument.from_file"
+PANELS_CHECK = "osprey_panels.document._check_header"
 
 #: Where ``FACILITY_FILE`` is defined, and the modules that re-export it. Any alias
 #: resolves to one of these; re-exports elsewhere are followed through the index.
@@ -88,8 +92,8 @@ NAME_CONSTANTS: frozenset[str] = frozenset(
     {
         "osprey_facility.FACILITY_FILE",
         "osprey_facility.render.FACILITY_FILE",
-        "osprey.facility.panels.document.FACILITY_FILE",
-        "osprey.facility.panels.FACILITY_FILE",
+        "osprey_panels.document.FACILITY_FILE",
+        "osprey_panels.FACILITY_FILE",
     }
 )
 
@@ -118,8 +122,6 @@ PATH_ONLY: frozenset[str] = frozenset(
         "osprey.facility.views.bluesky.write_bluesky_view",
         # Same, for the device document of records already read (plan deviation).
         "osprey.facility.views.bluesky.bluesky_document",
-        # Resolves the built facility file and hands it to load_graph, which checks it.
-        "osprey.cli.facility_cmd._panel_graph",
         # The public SDK spelling of the render's facility file: returns the path.
         "osprey.apps.sdk._facts.facility_file",
         # The reserved-file pattern that keeps a profile from writing over facility.json.
@@ -673,7 +675,6 @@ def test_path_only_is_the_ruled_list():
             "osprey_facility.render.serialised_file_document",
             "osprey.facility.views.bluesky.write_bluesky_view",
             "osprey.facility.views.bluesky.bluesky_document",
-            "osprey.cli.facility_cmd._panel_graph",
             "osprey.apps.sdk._facts.facility_file",
             "osprey.cli.profile_conventions",
             "osprey.channel_roster.sources.facility_file_path",
@@ -695,7 +696,7 @@ def test_each_checked_entry_point_checks_the_header(entry: str):
 
 def test_the_panel_engine_reads_through_its_own_check():
     assert reaches(SRC, PANELS_READER, frozenset({PANELS_CHECK}))
-    assert reaches(SRC, "osprey.facility.panels.model.load_graph", frozenset({PANELS_READER}))
+    assert reaches(SRC, "osprey_panels.model.load_graph", frozenset({PANELS_READER}))
 
 
 def test_every_caller_of_a_checked_entry_point_is_on_the_roster():
