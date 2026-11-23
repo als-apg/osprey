@@ -25,10 +25,6 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.render import FACILITY_FILE
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
 from osprey.facility.views.outputs import render_facility_outputs
@@ -40,6 +36,10 @@ from osprey_connectors.simulation.view import (
     SERVER_HEALTH_SIGNALS,
     SimulatorView,
 )
+from osprey_facility import TEXTURE
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.render import FACILITY_FILE
 from tests._builds import init_project
 
 if TYPE_CHECKING:
@@ -1092,7 +1092,7 @@ def _render_follows(
 
 
 def _a_followed_pair(built: BuiltProject) -> tuple[str, str]:
-    from osprey.facility.pairing import FOLLOWED_DEFAULT, pair_follows
+    from osprey_facility.pairing import FOLLOWED_DEFAULT, pair_follows
 
     channels = {str(c["id"]): c for c in built.facility["channels"]}
     return next(
@@ -1105,7 +1105,7 @@ def _a_followed_pair(built: BuiltProject) -> tuple[str, str]:
 def test_follows_says_for_each_pair_whether_the_simulation_follows_it(
     built_demo: BuiltProject,
 ) -> None:
-    from osprey.facility.pairing import pair_follows
+    from osprey_facility.pairing import pair_follows
 
     follows = _view(built_demo.build_dir, FOLLOWS)
     channels = {str(c["id"]): c for c in built_demo.facility["channels"]}
@@ -1145,7 +1145,7 @@ def _a_command_status_pair(built: BuiltProject) -> tuple[str, str]:
 
 
 def _a_followed_pair_where(built: BuiltProject, keep: Any) -> tuple[str, str]:
-    from osprey.facility.pairing import FOLLOWED_DEFAULT, pair_follows
+    from osprey_facility.pairing import FOLLOWED_DEFAULT, pair_follows
 
     channels = {str(c["id"]): c for c in built.facility["channels"]}
     return next(

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.bluesky import (
     BLUESKY_DEVICES_FILE,
     BLUESKY_DEVICES_SCHEMA,
@@ -27,6 +26,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import FACILITY_V4
 from tests.facility.test_cf_view_parity import fingerprint_rows, load_golden
 

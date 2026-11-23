@@ -49,8 +49,8 @@ from typing import Any
 import pytest
 
 from osprey.facility.bundled import header_line
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import read_yaml
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import read_yaml
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.test_cf_view_parity import fingerprint_rows
 

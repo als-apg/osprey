@@ -21,11 +21,6 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility import TEXTURE
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
     FACTS_FILE,
     FACTS_PAGE,
@@ -39,6 +34,11 @@ from osprey.facility.views.facts import (
     zero_source_facts,
 )
 from osprey.facility.views.outputs import render_facility_outputs
+from osprey_facility import TEXTURE
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER, vocabulary
 from tests._builds import FRAMEWORK_CHECKS
 from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 from tests.facility._pyaml_trees import measured_tree
@@ -521,7 +521,7 @@ def test_a_dry_run_regeneration_after_the_build_changes_no_file(
 
 
 def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) -> None:
-    from osprey.facility.measurement_groups import measurement_groups
+    from osprey_facility.measurement_groups import measurement_groups
     from tests.facility._pyaml_trees import built_document
 
     document, facility = built_document(tmp_path / "tree", measured_tree())

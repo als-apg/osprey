@@ -50,8 +50,8 @@ def _ltb_wired(
     wires the family through, on a device the import's row table records for
     one of the family's export rows.
     """
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-    from osprey.facility.layers.mml.rows import read_rows
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+    from osprey_facility.layers.mml.rows import read_rows
 
     mapping = read_mapping(built.facility / MAPPING_FILE)
     (model,) = [model for model in mapping.models.values() if model.name == built.name]

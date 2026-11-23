@@ -11,8 +11,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.build import build_facility
-from osprey.facility.sources import read_yaml
+from osprey_facility.build import build_facility
+from osprey_facility.sources import read_yaml
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
