@@ -129,8 +129,8 @@ if TYPE_CHECKING:
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
     from osprey.facility.build import FacilityDocument
-    from osprey.facility.render import WrittenViews
     from osprey.facility.roots import FacilityRoots
+    from osprey.facility.views.outputs import WrittenViews
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -2918,7 +2918,7 @@ def _render_project(
 
         # The build's facility outputs, written before the search index and the
         # manifest so both are taken over a render that already carries them.
-        from osprey.facility.render import render_facility_outputs
+        from osprey.facility.views.outputs import render_facility_outputs
 
         render_facility_outputs(
             render_dir,
@@ -4307,6 +4307,7 @@ def _build_repo(
         # is the author's to fix, and nothing is installed or rendered first.
         from osprey.facility.build import build_facility_with_warnings
         from osprey.facility.render import facility_digest
+        from osprey.registry.scenario_servers import check_scenario_servers
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
@@ -4338,6 +4339,7 @@ def _build_repo(
             project_name=name,
             content_dir=content_dir,
             judges_kinds=_judges_kinds(build_profile, content_dir),
+            extra_checks=(check_scenario_servers,),
         )
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)

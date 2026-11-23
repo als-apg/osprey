@@ -28,7 +28,10 @@ scenario's own directory ``scenarios/<name>/``.
 
 A scenario's ``sessions`` block parses through
 :func:`~osprey.simulation.sessions.parse_sessions`;
-:func:`check_scenario_sessions` checks it against the facility.
+:func:`check_scenario_sessions` checks it against the facility. The tool
+steps' server names are the framework's to check
+(:mod:`osprey.registry.scenario_servers`); the build runs that check beside
+these through its ``extra_checks``.
 """
 
 from __future__ import annotations
@@ -39,10 +42,11 @@ from collections.abc import Iterator, Mapping, Set
 from datetime import time
 from importlib import metadata
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
-from osprey.simulation.sessions import SessionTurn, ToolStep, parse_sessions
+from osprey.simulation.sessions import SessionTurn, parse_sessions
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
 
@@ -53,6 +57,7 @@ __all__ = [
     "check_scenario_engines",
     "check_scenario_events",
     "check_scenario_sessions",
+    "engine_plugin",
     "fault_roster",
     "map_fault_errors",
     "scenario_logbook",
@@ -227,6 +232,27 @@ class FaultRoster:
         return None
 
 
+def engine_plugin(name: str) -> ModuleType | None:
+    """The engine plug-in registered under ``name``, loaded.
+
+    The plug-in is resolved through the engines entry-point group
+    (:data:`osprey_connectors.simulation.engines.ENGINE_GROUP`); no engine code
+    is imported by name.
+
+    Args:
+        name: The engine name, a model record's ``engine``.
+
+    Returns:
+        The plug-in module; ``None`` when nothing is registered under ``name``.
+    """
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+
+    engines = metadata.entry_points(group=ENGINE_GROUP)
+    if name not in engines.names:
+        return None
+    return engines[name].load()
+
+
 def fault_roster(
     model: Mapping[str, Any], channels: Mapping[str, Mapping[str, Any]]
 ) -> FaultRoster | None:
@@ -246,13 +272,10 @@ def fault_roster(
         ``fault_variables`` raises ``ValueError`` refuses the model: the
         roster has no slot and carries the text as its ``refusal``.
     """
-    from osprey_connectors.simulation.engines import ENGINE_GROUP
-
     name = str(model.get("engine"))
-    engines = metadata.entry_points(group=ENGINE_GROUP)
-    if name not in engines.names:
+    plugin = engine_plugin(name)
+    if plugin is None:
         return None
-    plugin = engines[name].load()
     wiring = [
         {**record, "direction": record.get("direction", _direction(channels, record))}
         for record in model.get("wiring") or []
@@ -623,20 +646,19 @@ def check_scenario_sessions(document: Mapping[str, Any]) -> list[FacilityBuildEr
     The block parses through the session model, which refuses a malformed
     shape and a controls tool input naming a channel its turn's ``channels:``
     lacks; that is one ``value-invalid``. A parsed block's turns then name, in
-    ``channels:``, only channels of the facility, in ``logbook_ids:``, only
-    entries of the ``nominal`` scenario's logbook or the scenario's own, and in
-    each tool step, a known OSPREY server; each miss is one
-    ``reference-missing``. :func:`check_scenario_events` runs this check, so
-    its stops join the build's scenario errors.
+    ``channels:``, only channels of the facility, and in ``logbook_ids:``, only
+    entries of the ``nominal`` scenario's logbook or the scenario's own; each
+    miss is one ``reference-missing``. The tool steps' server names are left to
+    the framework's check (:mod:`osprey.registry.scenario_servers`).
+    :func:`check_scenario_events` runs this check, so its stops join the
+    build's scenario errors.
 
     Args:
         document: The combined document.
 
     Returns:
-        Every stop, in scenario, session, part, turn and step order.
+        Every stop, in scenario, session, part and turn order.
     """
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
-
     channels = {str(c["id"]) for c in document.get("channels") or [] if isinstance(c, dict)}
     scenarios = [s for s in document.get("scenarios") or [] if isinstance(s, dict)]
     shared = {
@@ -669,9 +691,7 @@ def check_scenario_sessions(document: Mapping[str, Any]) -> list[FacilityBuildEr
             for p, part in enumerate(session.parts):
                 for t, turn in enumerate(part.turns):
                     slot = f"sessions[{s}].parts[{p}].turns[{t}]"
-                    errors.extend(
-                        _turn_errors(name, files, slot, turn, channels, citable, FRAMEWORK_SERVERS)
-                    )
+                    errors.extend(_turn_errors(name, files, slot, turn, channels, citable))
     return errors
 
 
@@ -682,7 +702,6 @@ def _turn_errors(
     turn: SessionTurn,
     channels: Set[str],
     citable: Set[str],
-    servers: Mapping[str, Any],
 ) -> Iterator[FacilityBuildError]:
     """A parsed turn's names the facility does not hold, one stop each."""
     where = f"{files[0]} `{slot}"
@@ -705,16 +724,6 @@ def _turn_errors(
                 f"`{_SHARED_LOGBOOK_SCENARIO}` nor this scenario states",
                 f"add entry {entry_id} to this scenario's `logbook` or correct "
                 f"`{slot}.logbook_ids`",
-            )
-    for index, step in enumerate(turn.steps):
-        if isinstance(step, ToolStep) and step.server not in servers:
-            yield _error(
-                "reference-missing",
-                name,
-                files,
-                f"{where}.steps[{index}].tool.server` names server {step.server}, "
-                "not an OSPREY server",
-                f"name one of {', '.join(sorted(servers))} in `{slot}.steps[{index}].tool.server`",
             )
 
 
