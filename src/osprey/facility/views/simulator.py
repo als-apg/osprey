@@ -84,8 +84,9 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
-from osprey.facility.records import ChannelSelection, FacilityRecords
+from osprey.facility.records import FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
+from osprey.facility.simulated import resolved_still, server_health_addresses, status_address
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation.servers import served_servers
 from osprey_connectors.simulation.state import STILL_SCENARIO
@@ -101,7 +102,6 @@ from osprey_connectors.simulation.view import (
     SEEDS_SCHEMA,
     SERVED_MODELS_FILE,
     SERVED_MODELS_SCHEMA,
-    SERVER_HEALTH_SIGNALS,
     SETPOINT,
     VARIABLES_FILE,
     VARIABLES_SCHEMA,
@@ -124,11 +124,8 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
-    "resolved_still",
     "served_deck_path",
-    "server_health_addresses",
     "simulator_wiring",
-    "status_address",
     "unlisted_setpoints_writable",
     "withdraw_scenarios",
     "write_simulator_view",
@@ -263,33 +260,6 @@ def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
     return {"value_type": "waveform", "shape": list(channel.get("shape") or [])}
 
 
-def status_address(code: str, model: str) -> str:
-    """The status address the simulator serves for one physics model.
-
-    Args:
-        code: The facility's identity ``code``.
-        model: The model's name.
-
-    Returns:
-        ``<code>:SIM:<model>:STATUS``.
-    """
-    return f"{code}:SIM:{model}:STATUS"
-
-
-def server_health_addresses(code: str, model: str) -> list[str]:
-    """The IOC health addresses the simulator serves for one model, texture included.
-
-    Args:
-        code: The facility's identity ``code``.
-        model: The model's name.
-
-    Returns:
-        ``<code>:SIM:<model>:<signal>`` for each signal of the view's
-        ``SERVER_HEALTH_SIGNALS``.
-    """
-    return [f"{code}:SIM:{model}:{signal}" for signal in SERVER_HEALTH_SIGNALS]
-
-
 def unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     """Whether a setpoint without a limits record is writable on the simulated target."""
     from osprey_connectors.types import (
@@ -401,72 +371,6 @@ def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:
             for follow in follows
         ],
     }
-
-
-def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
-    return {
-        str(channel["id"])
-        for channel in channels
-        if channel.get("value_type", DEFAULT_VALUE_TYPE) == DEFAULT_VALUE_TYPE
-    }
-
-
-def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> list[str]:
-    """The float addresses a scenario's ``still`` names, sorted, each once.
-
-    ``all`` is every float channel, an address is itself, and a selection is the
-    float channels its query matches, over every model of the file.
-
-    Args:
-        records: The facility file's records.
-        scenario: A scenario stating ``still``.
-
-    Returns:
-        The addresses the scenario stills.
-
-    Raises:
-        FacilityBuildError: ``value-invalid``: a selection matches no float
-            channel, or a resolved reading is one whose ``noise`` or ``couple``
-            the scenario sets.
-    """
-    from osprey.facility.errors import FacilityBuildError
-
-    name = str(scenario["name"])
-
-    def stop(detail: str, remedy: str) -> FacilityBuildError:
-        return FacilityBuildError(
-            "value-invalid",
-            name,
-            [f"{SCENARIOS_DIR}/{name}.yaml"],
-            remedy,
-            record_kind="scenario",
-            detail=detail,
-        )
-
-    still = scenario["still"]
-    resolved: set[str] = set()
-    if still == STILL_ALL:
-        resolved = _float_addresses(records.of_kind("channel"))
-    else:
-        for entry in still:
-            if isinstance(entry, str):
-                resolved.add(entry)
-                continue
-            matched = _float_addresses(records.select_channels(ChannelSelection(**entry)))
-            if not matched:
-                raise stop(
-                    f"`still` selection {dict(entry)!r} matches no float channel",
-                    "correct this selection in `still`",
-                )
-            resolved |= matched
-    for slot in ("noise", "couple"):
-        clashes = sorted(resolved.intersection(scenario.get(slot) or ()))
-        if clashes:
-            raise stop(
-                f"`{slot}.{clashes[0]}` sets the motion of a reading `still` stills",
-                "a scenario either stills a reading or sets its motion",
-            )
-    return sorted(resolved)
 
 
 def _split_stopped_servers(

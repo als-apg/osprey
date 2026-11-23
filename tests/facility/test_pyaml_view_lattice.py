@@ -19,8 +19,9 @@ import pytest
 import yaml
 
 from osprey.apps.sdk.testing import calibrated_setting, measured_sr_deck, model
+from osprey.facility.measurement_groups import measurement_groups
 from osprey.facility.records import FacilityRecords
-from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE, measurement_groups
+from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE
 from tests.facility._pyaml_trees import (
     measured_tree,
     view_inputs,
