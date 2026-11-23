@@ -428,17 +428,24 @@ def _python_blocks(page: Path) -> list[str]:
 
 
 @pytest.mark.no_auth_seam
-def test_the_docs_example_runs_against_a_scaffold_copy(
+def test_the_docs_examples_run_against_a_scaffold_copy(
     synthetic_deployment, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app_dir = _new_app(tmp_path, "corrector-trim")
     _importable(app_dir, "corrector_trim", monkeypatch)
     namespace: dict[str, Any] = {"__file__": str(app_dir / "tests" / "test_backend.py")}
 
-    (example,) = [b for b in _python_blocks(DOCS_PAGE) if "synthetic_deployment" in b]
+    examples = [b for b in _python_blocks(DOCS_PAGE) if "synthetic_deployment" in b]
 
-    exec(compile(example, str(DOCS_PAGE), "exec"), namespace)
-    namespace["test_state_reads_the_configured_channel"](synthetic_deployment)
+    for example in examples:
+        exec(compile(example, str(DOCS_PAGE), "exec"), namespace)
+    tests = [name for name in namespace if name.startswith("test_")]
+    assert tests == [
+        "test_state_reads_the_configured_channel",
+        "test_a_write_is_refused_for_an_owner_at_never",
+    ]
+    for name in tests:
+        namespace[name](synthetic_deployment)
 
 
 # --- a deployment's own measurement kind, through the same fixture -----------------------
