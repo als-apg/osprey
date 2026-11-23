@@ -866,6 +866,7 @@ markers = [
     "wallclock: Tests that assert an absolute wall-clock budget. Deselected from every parallel run, whose other workers would distort the clock they read; each is timed in a serial step that selects this marker. tests/deployment/test_ci_workflow_wiring.py LANE_LEAVING_MARKERS names the step and fails when a marked file has none.",
     "real_bounded_run: Test of run_captured's bounded (timeout/watch) runner itself — opts out of the conftest stub that routes bounded runs through the plain subprocess.run spool path the deploy tests fake",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
+    "foreign_header: Test that writes a facility.json whose header osprey.facility.reading.READS does not hold, on purpose (a /3 document, a header-less one, a non-object): the header-sweep check of tests that write facility.json skips it",
 ]
 
 # Import boundaries, checked by `lint-imports` (import-linter) in the lint job.
@@ -1238,6 +1239,7 @@ source_modules = [
     "osprey.facility.frontmatter",
     "osprey.facility.kinds",
     "osprey.facility.knowledge_links",
+    "osprey.facility.measurement_groups",
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
@@ -1248,6 +1250,7 @@ source_modules = [
     "osprey.facility.roots",
     "osprey.facility.scenarios",
     "osprey.facility.served",
+    "osprey.facility.simulated",
     "osprey.facility.sources",
     "osprey.facility.validate",
     "osprey.facility.wiring",
@@ -1358,7 +1361,6 @@ ignore_imports = [
     "osprey.facility.layers.mml.seed -> osprey.simulation.engines.pyat_faults",
     "osprey.facility.layers.relations -> osprey.facility.bundled",
     "osprey.facility.records -> osprey.utils.facility",
-    "osprey.facility.render -> osprey.facility.views",
     "osprey.facility.scenarios -> osprey.registry.mcp",
     "osprey.facility.validate -> osprey.facility.views.pyaml",
     "osprey.facility.validate -> osprey.facility.views.simulator",
@@ -1382,6 +1384,7 @@ source_modules = [
     "osprey.facility.frontmatter",
     "osprey.facility.kinds",
     "osprey.facility.knowledge_links",
+    "osprey.facility.measurement_groups",
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
@@ -1392,6 +1395,7 @@ source_modules = [
     "osprey.facility.roots",
     "osprey.facility.scenarios",
     "osprey.facility.served",
+    "osprey.facility.simulated",
     "osprey.facility.sources",
     "osprey.facility.validate",
     "osprey.facility.wiring",
@@ -1430,6 +1434,7 @@ forbidden_modules = [
     "osprey.facility.frontmatter",
     "osprey.facility.kinds",
     "osprey.facility.knowledge_links",
+    "osprey.facility.measurement_groups",
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
@@ -1440,6 +1445,7 @@ forbidden_modules = [
     "osprey.facility.roots",
     "osprey.facility.scenarios",
     "osprey.facility.served",
+    "osprey.facility.simulated",
     "osprey.facility.sources",
     "osprey.facility.validate",
     "osprey.facility.wiring",
@@ -1687,8 +1693,9 @@ name = "The framework reaches the facility description only through its public m
 # else is private, as in `connectors-public-api`. The public set is the
 # description modules the framework imports today; phase 4 refines it into
 # the package's API. Public: `osprey.facility` and its `build`, `errors`,
-# `frontmatter`, `kinds`, `pairing`, `records`, `references`, `relations`,
-# `render`, `roots`, `scenarios`, `served`, `sources` and `validate`;
+# `frontmatter`, `kinds`, `measurement_groups`, `pairing`, `reading`,
+# `records`, `references`, `relations`, `render`, `roots`, `scenarios`,
+# `served`, `simulated`, `sources` and `validate`;
 # `layers`, `layers.list`, `layers.relations` and `layers.mml`'s `family`,
 # `importer`, `mapping`, `response_check` and `seed`; and
 # `osprey.simulation.sessions`. The modules listed below are the rest.
@@ -1729,6 +1736,7 @@ allowed_importers = [
     "osprey.facility.frontmatter",
     "osprey.facility.kinds",
     "osprey.facility.knowledge_links",
+    "osprey.facility.measurement_groups",
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
@@ -1739,6 +1747,7 @@ allowed_importers = [
     "osprey.facility.roots",
     "osprey.facility.scenarios",
     "osprey.facility.served",
+    "osprey.facility.simulated",
     "osprey.facility.sources",
     "osprey.facility.validate",
     "osprey.facility.wiring",

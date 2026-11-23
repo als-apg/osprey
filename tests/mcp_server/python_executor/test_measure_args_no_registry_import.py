@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 _SRC = str(Path(__file__).resolve().parents[3] / "src")

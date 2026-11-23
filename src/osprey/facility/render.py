@@ -1,30 +1,24 @@
-"""What a render carries from the facility file.
+"""What a render carries from the facility file, and how its bytes are made.
 
 A build makes the facility file once (``build.build_facility``) and every render
-of that build — the deployment's own, each render's, each container image's —
-receives the same outputs through :func:`render_facility_outputs`, the only
-writer of them::
+of that build carries it, byte-equal, as ``<render root>/facility.json``:
+:func:`write_facility_file` writes it, serialised by :func:`facility_bytes`,
+and copies the first render's file into each later one (:func:`copy_checked`).
+The views a render carries beside it are framework, written by
+:func:`osprey.facility.views.outputs.render_facility_outputs`.
 
-    <render root>/facility.json    the facility file, byte-equal in every render
-    <render root>/data/<view>/     each view of :data:`osprey.facility.views.VIEWS`
-                                   the render's config asks for
-
-No output carries timestamps, version or absolute paths, so equal sources and
-equal configs give equal bytes in every render of every build. A build hands
-every render one record of the views it has written, so a view whose inputs a
-render shares with an earlier one is copied from that one's bytes rather than
-written again.
+No output carries timestamps, version or absolute paths, so equal sources give
+equal bytes in every render of every build. :func:`json_bytes` is the one JSON
+serialisation the facility file and every view share.
 """
 
 from __future__ import annotations
 
 import hashlib
-import json
 import os
-from collections.abc import Hashable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.build import FacilityDocument
@@ -35,22 +29,13 @@ from osprey.facility.roots import (
     is_vcs_metadata,
 )
 
-if TYPE_CHECKING:
-    from osprey.facility.views import View, ViewInputs
-
-#: What one build's renders have written of each view, keyed on what the view
-#: was written from: per file, its path relative to the render root, the file
-#: the first render wrote, and the sha256 of its bytes. The bytes themselves are
-#: not held: a large facility's views run to hundreds of megabytes, and every
-#: render after the first copies them from the first render's files.
-WrittenViews = dict[Hashable, list[tuple[str, Path, str]]]
-
 __all__ = [
     "FACILITY_FILE",
+    "copy_checked",
     "facility_bytes",
     "facility_digest",
     "facility_sha256",
-    "render_facility_outputs",
+    "json_bytes",
     "write_facility_file",
 ]
 
@@ -137,8 +122,6 @@ def facility_bytes(doc: FacilityDocument) -> bytes:
     Returns:
         The UTF-8 bytes of ``facility.json``.
     """
-    from osprey.facility.views import json_bytes
-
     global _serialised
     raw = json_bytes(doc)
     if _serialised is None or _serialised.doc is not doc:
@@ -154,12 +137,42 @@ def facility_sha256(doc: FacilityDocument) -> str:
     return _serialised.sha256
 
 
+def json_bytes(document: Any, *, sort_keys: bool = True) -> bytes:
+    """``(json.dumps(document, indent=2, ...) + "\\n").encode("utf-8")``, without its copies.
+
+    An indented ``json.dumps`` joins a list of every token it wrote, then the
+    text is copied once more into its bytes: for a document of a large facility
+    the transient copies are several times the size of the file. Encoding
+    into a byte buffer token by token holds only the bytes. The output is the
+    same, byte for byte: ``json.dump`` and ``json.dumps`` write one token
+    stream.
+
+    Args:
+        document: The document.
+        sort_keys: Whether keys are written sorted.
+
+    Returns:
+        Its UTF-8 bytes: two-space indent, non-ASCII written as itself, NaN
+        refused, one final newline.
+    """
+    import io
+    import json
+
+    buffer = io.BytesIO()
+    text = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
+    json.dump(document, text, indent=2, sort_keys=sort_keys, ensure_ascii=False, allow_nan=False)
+    text.write("\n")
+    text.flush()
+    text.detach()
+    return buffer.getvalue()
+
+
 def write_facility_file(target: Path, doc: FacilityDocument) -> None:
     """Write :func:`facility_bytes` of ``doc`` to ``target``.
 
     The first render of a build serialises the document; each later one copies
     that render's file a block at a time, held to the digest
-    (:func:`_copy_checked`), and serialises again only when the file has
+    (:func:`copy_checked`), and serialises again only when the file has
     changed since.
     """
     known = _serialised
@@ -167,7 +180,7 @@ def write_facility_file(target: Path, doc: FacilityDocument) -> None:
         known is not None
         and known.doc is doc
         and known.written is not None
-        and _copy_checked(known.written, target, known.sha256)
+        and copy_checked(known.written, target, known.sha256)
     ):
         return
     target.write_bytes(facility_bytes(doc))
@@ -234,7 +247,7 @@ def serialised_file_document(path: Path) -> FacilityDocument | None:
 _BLOCK = 1 << 20
 
 
-def _copy_checked(source: Path, target: Path, sha256: str) -> bool:
+def copy_checked(source: Path, target: Path, sha256: str) -> bool:
     """Copy ``source`` to ``target`` a block at a time; whether the bytes copied have ``sha256``.
 
     A copy whose digest differs is left at ``target`` for the caller to write over.
@@ -285,142 +298,3 @@ def _reads_back_as_itself(doc: Any) -> bool:
         elif type(value) not in (str, int, float, bool, type(None)):
             return False
     return True
-
-
-def render_facility_outputs(
-    render_dir: Path,
-    doc: FacilityDocument,
-    rendered_config: Mapping[str, Any],
-    facility_dir: Path,
-    *,
-    omitted_reported: set[str] | None = None,
-    built_databases: dict[str, Path] | None = None,
-    views_written: WrittenViews | None = None,
-    content_dir: Path | None = None,
-) -> list[Path]:
-    """Write the facility outputs of one render.
-
-    Args:
-        render_dir: The render's root, the directory holding its ``config.yml``.
-        doc: The build's facility file.
-        rendered_config: The render's ``config.yml``, as a mapping.
-        facility_dir: The build's machine root, its ``data/facility``
-            directory unless mounted, the source of the machine files a view
-            copies.
-        omitted_reported: The views this build has already named as not
-            written, and the view notes it has printed; one in it is not
-            printed again and each one printed is added. ``None`` prints every
-            one.
-        built_databases: The view databases this build has already written,
-            keyed by the sha256 of the view bytes each was imported from; a
-            view whose bytes match copies the database, and each one imported
-            is added. ``None`` imports every one.
-        views_written: What this build's earlier renders wrote of each view;
-            each view this render writes is added. A view whose writer reads
-            what an earlier render's did is copied from its bytes. ``None``
-            writes every view. One build's only: it holds neither the facility
-            file nor the files a view copies, which a build does not change.
-        content_dir: The content root when mounted, the source of the
-            deployment's files a view copies; ``None`` means ``facility_dir``.
-
-    Each view whose predicate is false is named on stderr, one line each, once
-    per build, unless a selector picks it from among its alternatives: a view
-    the selector did not pick is not named.
-
-    Returns:
-        The files written, sorted.
-
-    Raises:
-        FacilityBuildError: ``profile-invalid`` when the render's
-            ``simulation.models`` does not resolve against the facility file.
-    """
-    from osprey.facility import views
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
-
-    records = FacilityRecords(doc)
-    inputs = views.ViewInputs(
-        records=records,
-        rendered_config=rendered_config,
-        facility_dir=facility_dir,
-        served=resolve_served(rendered_config, records),
-        reported=omitted_reported,
-        built_databases=built_databases,
-        content_dir=content_dir,
-    )
-    target = render_dir / FACILITY_FILE
-    write_facility_file(target, doc)
-    written = [target]
-    for view in views.VIEWS:
-        carried, reason = view.written_when(inputs)
-        if carried:
-            written.extend(_write_view(view, render_dir, inputs, views_written))
-        elif view.selected_by is not None:
-            continue
-        elif omitted_reported is None or view.name not in omitted_reported:
-            views.report_omitted(view, reason)
-            if omitted_reported is not None:
-                omitted_reported.add(view.name)
-    return sorted(written)
-
-
-def _write_view(
-    view: View, render_dir: Path, inputs: ViewInputs, views_written: WrittenViews | None
-) -> list[Path]:
-    """Write one view into a render, or copy it from an earlier render of the build.
-
-    The writer is handed the config keys it reads and nothing else, and a view
-    written from the same keys, the same served models and the same engine
-    registry is the same bytes; its notes were printed by the render that wrote
-    it, and the build prints each once. A copy writes the files, and makes their
-    directories, in the order the writer did: a directory lists its entries in
-    the order they were made on some filesystems, and the build manifest takes
-    its order from that listing.
-    """
-    from importlib import metadata
-
-    from osprey.facility.views import config_read
-
-    inputs = replace(inputs, rendered_config=config_read(inputs.rendered_config, view.reads))
-    root = render_dir / "data" / view.path
-    if views_written is None:
-        return view.write(root, inputs)
-    key = (
-        view.name,
-        tuple(inputs.served),
-        json.dumps(inputs.rendered_config, default=repr),
-        metadata.entry_points,
-    )
-    files = views_written.get(key)
-    if files is not None:
-        copied = _copy_written(files, render_dir)
-        if copied is not None:
-            return copied
-    paths = view.write(root, inputs)
-    views_written[key] = [
-        (
-            path.relative_to(render_dir).as_posix(),
-            path,
-            hashlib.sha256(path.read_bytes()).hexdigest(),
-        )
-        for path in paths
-    ]
-    return paths
-
-
-def _copy_written(files: list[tuple[str, Path, str]], render_dir: Path) -> list[Path] | None:
-    """Copy a view's files from the render that wrote them; ``None`` when one has changed.
-
-    One file at a time, in the order the view wrote them, a block at a time.
-    Each copy is held to the digest taken when the file was written, so a copy
-    is the bytes the view wrote: a file changed or removed since sends the
-    caller back to writing the view, over whatever was copied.
-    """
-    paths = []
-    for relative, written, digest in files:
-        path = render_dir / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not _copy_checked(written, path, digest):
-            return None
-        paths.append(path)
-    return paths
