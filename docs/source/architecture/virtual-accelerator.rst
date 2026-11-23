@@ -159,7 +159,13 @@ that reach it. Only a client write starts what a write triggers; a restore, a
 scenario's start state and a write a ``stuck`` or ``disconnected`` setpoint
 holds start nothing. A rebuild, which a scenario change makes, discards what
 a model had pending. In process nothing advances the model: it serves its
-start values and a write starts nothing.
+start values and a write starts nothing. A connector that states
+``evolve: true`` is the exception: its composite is built to evolve, advances
+on every read, write and tick, and wakes its tick at the next deadline.
+Connectors share the setpoints written and nothing a model reached in time,
+so that state is the one connector's, and a connector taking up another's
+writes restores them without a client write: a request among them starts
+nothing (:ref:`Shots in process <va-in-process-evolve>`).
 
 The shipped ``injection`` engine (``osprey.simulation.engines.injection``) is
 time-driven. A model naming it names no deck: its wiring
@@ -210,9 +216,10 @@ consumer's engine receives the producer's plain value through
 - **A failed producer.** Its inputs are left out of the delivery; when none
   remain, no call is made. A ``take_inputs`` that raises fails the consumer.
 
-Only the served Virtual Accelerator advances time. In process the composite
-does not evolve: it delivers at build, at reset and after every write, each
-delivery a baseline, so an input never starts anything there.
+The served Virtual Accelerator advances time. In process the composite does
+not evolve unless the connector states ``evolve: true``: it delivers at
+build, at reset and after every write, each delivery a baseline, so an input
+never starts anything there.
 
 The LUME stack and its pins
 ===========================
