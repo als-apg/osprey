@@ -37,6 +37,7 @@ members = [
     "osprey-facility",
     "osprey-framework",
     "osprey-optimizer",
+    "osprey-panels",
     "pyaml-cs-osprey",
 ]
 constraints = [
@@ -5728,6 +5729,11 @@ virtual-accelerator = [
     { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "osprey-panels" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "accelerator-commissioning", specifier = "==1.5.3" },
@@ -5909,6 +5915,9 @@ requires-dist = [
 ]
 provides-extras = ["alarm-state", "all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "optimizer", "screen-capture-linux", "teams", "virtual-accelerator"]
 
+[package.metadata.requires-dev]
+dev = [{ name = "osprey-panels", editable = "packages/osprey-panels" }]
+
 [[package]]
 name = "osprey-optimizer"
 source = { editable = "packages/osprey-optimizer" }
@@ -5958,6 +5967,32 @@ requires-dist = [
     { name = "xopt", marker = "extra == 'service'", specifier = "==3.1.2" },
 ]
 provides-extras = ["service"]
+
+[[package]]
+name = "osprey-panels"
+source = { editable = "packages/osprey-panels" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "fonttools" },
+    { name = "pytest" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jsonschema", specifier = ">=4.26,<5" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fonttools" },
+    { name = "pytest" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
 
 [[package]]
 name = "overrides"

@@ -638,7 +638,12 @@ _MACOS_RUNS = (
 #: The sweep's roots. An explicit path replaces testpaths, so each package's own
 #: suite runs only where it is named; the ``rest-b`` shard takes what the other
 #: shards leave of them.
-_SWEEP_ROOTS = ("tests/", "packages/osprey-connectors/tests", "packages/osprey-facility/tests")
+_SWEEP_ROOTS = (
+    "tests/",
+    "packages/osprey-connectors/tests",
+    "packages/osprey-facility/tests",
+    "packages/osprey-panels/tests",
+)
 
 UNIT_SELECTION = UnitSelection(
     roots=_SWEEP_ROOTS,
@@ -655,8 +660,8 @@ UNIT_SELECTION = UnitSelection(
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
     ),
-    # A `wheel_build` test reads a built facility wheel; the package's standalone
-    # CI job builds one and runs them. A `canopy` test needs CANOPY installed and
+    # A `wheel_build` test reads a built facility or panels wheel; the package's
+    # standalone CI job builds one and runs them. A `canopy` test needs CANOPY installed and
     # refuses to skip; the CANOPY integration's `canopy-contract` check runs them.
     marker="not pty and not wallclock and not wheel_build and not canopy",
     quick_marker="not pty and not wallclock and not wheel_build and not canopy and not slow",
