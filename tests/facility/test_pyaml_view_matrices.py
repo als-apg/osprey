@@ -19,8 +19,8 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.facility.kinds import TRM_FILE
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
+from osprey_facility.kinds import TRM_FILE
 from tests.facility._pyaml_trees import measured_tree, write_view
 
 

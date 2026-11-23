@@ -21,8 +21,8 @@ import pytest
 import yaml
 
 from osprey.apps.sdk.testing import measured_sr_deck
-from osprey.facility.kinds import TRM_FILE
 from osprey.facility.views.pyaml import CONFIGURATION_FILE
+from osprey_facility.kinds import TRM_FILE
 from tests.facility._pyaml_trees import (
     measured_tree,
     with_correctors,
