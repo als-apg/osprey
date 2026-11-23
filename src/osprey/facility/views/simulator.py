@@ -83,10 +83,6 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
-from osprey.facility.records import FacilityRecords
-from osprey.facility.scenarios import scenario_logbook
-from osprey.facility.simulated import resolved_still, server_health_addresses, status_address
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation.servers import served_servers
 from osprey_connectors.simulation.state import STILL_SCENARIO
@@ -107,6 +103,10 @@ from osprey_connectors.simulation.view import (
     VARIABLES_SCHEMA,
     SimulatorView,
 )
+from osprey_facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
+from osprey_facility.records import FacilityRecords
+from osprey_facility.scenarios import scenario_logbook
+from osprey_facility.simulated import resolved_still, server_health_addresses, status_address
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -286,7 +286,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     limits = limits_document(inputs.records)
     unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
 
-    from osprey.facility.pairing import simulated_pairs
+    from osprey_facility.pairing import simulated_pairs
 
     followed = {
         setpoint: readback
@@ -360,7 +360,7 @@ def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:
-    from osprey.facility.pairing import follow_totals, pair_follows
+    from osprey_facility.pairing import follow_totals, pair_follows
 
     follows = pair_follows({str(c["id"]): c for c in doc.get("channels", [])})
     return {
@@ -389,8 +389,8 @@ def _split_stopped_servers(
         FacilityBuildError: ``value-invalid``: a default scenario names an IOC
             this render does not serve.
     """
-    from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.apply import resolve_default_scenarios
+    from osprey_facility.errors import FacilityBuildError
 
     name = str(scenario["name"])
     physics = [
@@ -490,7 +490,7 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     """Copy each file a scenario's logbook entries attach into the view.
 
     Every scenario's entries are read first
-    (:func:`~osprey.facility.scenarios.scenario_logbook`), so an attachment
+    (:func:`~osprey_facility.scenarios.scenario_logbook`), so an attachment
     that leaves its scenario directory, names a missing file or holds a
     malformed picture is refused before anything is copied. A file two entries
     attach is copied, and listed, once.

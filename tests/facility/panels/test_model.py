@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.pairing import PAIR_RULE
 from osprey.facility.panels import PanelGraph, load_graph
+from osprey_facility.pairing import PAIR_RULE
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.panels._fixture import (
     PANELS_DIR,
@@ -118,8 +118,8 @@ def test_a_pair_the_build_derives_is_inferred_by_the_build_s_rule(
 def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path) -> None:
     import shutil
 
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import facility_bytes
+    from osprey_facility.build import build_facility
+    from osprey_facility.render import facility_bytes
     from tests.facility.panels._fixture import FACILITY_TREE
 
     tree = tmp_path / "facility"

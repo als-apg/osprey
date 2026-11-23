@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from osprey.facility.layers import LAYER_ROOT
+from osprey_facility.layers import LAYER_ROOT
 
 __all__ = [
     "HEADER_CAPABLE",
@@ -79,14 +79,14 @@ def _is_seeded(path: Path) -> bool:
     That is the header the facility import seeds files under, or the one it
     seeded them under before.
     """
-    from osprey.facility.layers import FORMER_HEADER, HEADER
+    from osprey_facility.layers import FORMER_HEADER, HEADER
 
     return path.suffix in HEADER_CAPABLE and _first_line(path) in (HEADER, FORMER_HEADER)
 
 
 def _under_retired_header(path: Path) -> bool:
     """Whether a file opens with the seed header the import wrote before the current one."""
-    from osprey.facility.layers import FORMER_HEADER
+    from osprey_facility.layers import FORMER_HEADER
 
     return path.suffix in HEADER_CAPABLE and _first_line(path) == FORMER_HEADER
 
@@ -119,8 +119,8 @@ class Classification:
 
 
 def _proves_nothing(relative: Path) -> bool:
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
-    from osprey.facility.roots import is_vcs_metadata
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.roots import is_vcs_metadata
 
     if is_vcs_metadata(relative) or relative.as_posix() == MAPPING_FILE:
         return True

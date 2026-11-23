@@ -2649,7 +2649,7 @@ def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> No
 
 
 def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
     assert {name: titles[name] for name in (
