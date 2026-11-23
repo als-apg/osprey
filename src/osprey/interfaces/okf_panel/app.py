@@ -192,13 +192,13 @@ def _load_facility_records():
     config itself for where the facility file sits.
 
     Returns:
-        A :class:`~osprey.facility.records.FacilityRecords`, or ``None`` when
+        A :class:`~osprey_facility.records.FacilityRecords`, or ``None`` when
         no facility file is there or it cannot be read. The reading pane then
         marks every facility link unresolved rather than failing the page.
     """
     from osprey.channel_roster.sources import facility_file_path
-    from osprey.facility.records import FacilityRecords
     from osprey_connectors.workspace import load_osprey_config
+    from osprey_facility.records import FacilityRecords
 
     # Config load included: nothing here is worth more than the reading pane.
     try:
@@ -295,7 +295,7 @@ def _facility_references(body, records):
         resolves to (empty for a dangling link), or is ``None`` when no
         facility file loaded, which ``unresolved`` then states.
     """
-    from osprey.facility.references import find_facility_links, resolved_references
+    from osprey_facility.references import find_facility_links, resolved_references
 
     found = find_facility_links(body or "", records)
     return {

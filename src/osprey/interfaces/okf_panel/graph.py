@@ -179,7 +179,7 @@ def page_references(bundle: Any, records: Any) -> dict[tuple[str, str], list[str
         sorted. A page that cannot be read
         names nothing.
     """
-    from osprey.facility.references import find_facility_links
+    from osprey_facility.references import find_facility_links
 
     pages: dict[tuple[str, str], set[str]] = {}
     for entry in bundle.list_concepts():
