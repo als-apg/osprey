@@ -715,7 +715,7 @@ filters the file’s own channel records and names a model or a place.</p>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">from_file(path)</span></code></p></td>
 <td><p>The read model of a render’s <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>.</p></td>
 <td></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> with no file; <code class="docutils literal notranslate"><span class="pre">FacilityFileError</span></code> when it cannot be read, is not JSON or is not an object.</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">None</span></code> with no file; <code class="docutils literal notranslate"><span class="pre">FacilityFileError</span></code> when it cannot be read, is not JSON, is not an object or does not declare a <code class="docutils literal notranslate"><span class="pre">schema</span></code> header this reader reads, naming the rebuild (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">document</span></code></p></td>
 <td><p>The mapping it was built from, read-only.</p></td>

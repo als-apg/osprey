@@ -912,11 +912,11 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 <ul class="simple">
 <li><p><strong>Phase 2</strong> removed the panel engine’s imports of facility code and its read
 of the vocabulary files; its header is empty.</p></li>
-<li><p><strong>Phase 3</strong> removes the description’s imports of the framework (views helpers,
-<code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>, the MCP registry, the command line, deployment and
-config paths, the engine implementations), its click imports in nine modules,
-its import of pyaml-cs-osprey and the <code class="docutils literal notranslate"><span class="pre">osprey.</span></code> spelling of the engine
-contract.</p></li>
+<li><p><strong>Phase 3</strong> removed the description’s imports of the framework (views
+helpers, <code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>, the MCP registry, the bundled kinds, the
+engine implementations), its click imports in nine modules, its import of
+pyaml-cs-osprey and the <code class="docutils literal notranslate"><span class="pre">osprey.</span></code> spelling of the engine contract; its
+header is empty.</p></li>
 <li><p><strong>Phase 4</strong> removes framework reaches into private description modules: none
 by static import today, one resource read of the MML layer by the command
 line.</p></li>

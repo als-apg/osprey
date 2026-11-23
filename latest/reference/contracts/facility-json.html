@@ -495,7 +495,8 @@ the records mean is in <a class="reference internal" href="../../architecture/fa
 version rules only.</p>
 <p>Parts of the contract are not enforced yet. Each rule below says whether it
 holds today or is a target, and which phase of the package split makes it hold.
-The panel engine checks the version today; the framework’s readers do not yet.</p>
+Every reader checks the version today: the panel engine and each framework
+reader in <a class="reference internal" href="#the-readers">The readers</a>.</p>
 <section id="producer">
 <h2>Producer<a class="headerlink" href="#producer" title="Link to this heading">#</a></h2>
 <p>The description’s build is the only producer. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> assembles the
@@ -529,7 +530,9 @@ what it is single per.</p></li>
 <li><p>every group has a <code class="docutils literal notranslate"><span class="pre">kind</span></code>. When no source states one, the build writes
 <code class="docutils literal notranslate"><span class="pre">family</span></code> and records it in the group’s <code class="docutils literal notranslate"><span class="pre">provenance.defaults</span></code>.</p></li>
 </ul>
-<p>Version <code class="docutils literal notranslate"><span class="pre">4</span></code> added these tables and made a group’s <code class="docutils literal notranslate"><span class="pre">kind</span></code> always present.</p>
+<p>Version <code class="docutils literal notranslate"><span class="pre">4</span></code> added <code class="docutils literal notranslate"><span class="pre">relation_types</span></code>, widened <code class="docutils literal notranslate"><span class="pre">signals</span></code> from the roles
+the facility adds (all that version <code class="docutils literal notranslate"><span class="pre">3</span></code> carried) to the effective table and
+made it always present, and made a group’s <code class="docutils literal notranslate"><span class="pre">kind</span></code> always present.</p>
 </section>
 <section id="breaking-changes-and-the-bump-rule">
 <h2>Breaking changes and the bump rule<a class="headerlink" href="#breaking-changes-and-the-bump-rule" title="Link to this heading">#</a></h2>
@@ -552,12 +555,30 @@ build at the same <code class="docutils literal notranslate"><span class="pre">N
 <h2>The reader rule<a class="headerlink" href="#the-reader-rule" title="Link to this heading">#</a></h2>
 <p>Every reader declares the versions it reads, as a set of complete header
 strings, and compares the document’s <code class="docutils literal notranslate"><span class="pre">schema</span></code> value against that set exactly.
-A document whose header is missing, malformed or not in the set is refused, and
-the refusal tells the user to rebuild:</p>
+A document whose header is missing, malformed or not in the set is one the
+reader cannot read. The framework’s readers share this check in
+<code class="docutils literal notranslate"><span class="pre">osprey.facility.reading</span></code>, and its message names the rebuild:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/facility.json is osprey.facility.facility/3; this reader reads
 osprey.facility.facility/4 -- rebuild with osprey build
 </pre></div>
 </div>
+<p>What a reader does next is its channel, one of three:</p>
+<dl class="simple">
+<dt>refuse</dt><dd><p>The reader raises with that message and does nothing with the document. A
+write, a deploy or a tool call stops there; the user rebuilds and runs it
+again. Most readers refuse.</p>
+</dd>
+<dt>report corrupt</dt><dd><p>The reader answers with a corrupt-source report whose detail is that
+message, so the operator sees why the source gave nothing and that a
+rebuild clears it. The channel roster reports this way.</p>
+</dd>
+<dt>degrade as absent</dt><dd><p>The reader carries on as if no document were there, with a warning or a
+marked-unresolved result in place of what the document would have given;
+a rebuild restores it. Only a reader whose output stays correct without
+the document degrades: an assistant context, a screen guide, a search
+index’s facility links. A write never does.</p>
+</dd>
+</dl>
 <p>A reader does not try to read a version it did not declare, older or newer, and
 does not guess from the keys present. A fork that tracks the document declares
 the versions it has been tested against – today that is <code class="docutils literal notranslate"><span class="pre">/4</span></code> – and adds a
@@ -620,9 +641,11 @@ must be additive over the floor of the current <code class="docutils literal not
 </tr>
 <tr class="row-even"><td><p>The generated JSON Schema is pinned by a test</p></td>
 <td><p>Enforced</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the committed schema
-and the floors equal the generator’s output, and the schema’s header is
-<code class="docutils literal notranslate"><span class="pre">FACILITY_HEADER</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the committed current
+schema equals the generator’s output, a floor exists for the current
+<code class="docutils literal notranslate"><span class="pre">N</span></code>, and the schema’s header is <code class="docutils literal notranslate"><span class="pre">FACILITY_HEADER</span></code>. A floor is not
+compared with the generator: it is written once and parts from the
+current schema at the first additive change</p></td>
 </tr>
 <tr class="row-odd"><td><p>The schema ships in the description’s package</p></td>
 <td><p>Target</p></td>
@@ -634,11 +657,12 @@ in the <code class="docutils literal notranslate"><span class="pre">osprey</span
 <td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_unknown_keys.py</span></code>; the framework’s readers
 look up the keys they use and pass over the rest, not checked</p></td>
 </tr>
-<tr class="row-odd"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and refuse others</p></td>
-<td><p>Enforced for the panel engine</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_document.py</span></code> and
-<code class="docutils literal notranslate"><span class="pre">tests/cli/test_facility_panels.py</span></code>; the framework’s readers in
-phase 3, see the readers below</p></td>
+<tr class="row-odd"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and act on others through their channel</p></td>
+<td><p>Enforced</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_reader_coverage.py</span></code>: every function that reads
+the document reaches the header check and is on the reader roster
+with its channel and a test that hands it a <code class="docutils literal notranslate"><span class="pre">/3</span></code> document; the
+panel engine in <code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_document.py</span></code></p></td>
 </tr>
 </tbody>
 </table>
@@ -646,55 +670,126 @@ phase 3, see the readers below</p></td>
 </section>
 <section id="the-readers">
 <h2>The readers<a class="headerlink" href="#the-readers" title="Link to this heading">#</a></h2>
-<p>The contract binds every reader of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>. The panel engine checks
-the header today; each framework reader starts checking it in the phase shown,
-and until then reads whatever <code class="docutils literal notranslate"><span class="pre">N</span></code> it finds.</p>
+<p>The contract binds every reader of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>, and every reader checks
+the header today. The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.document</span></code>)
+refuses: it reads <code class="docutils literal notranslate"><span class="pre">/4</span></code> and imports no facility code, because it is the
+reader a fork replaces.</p>
+<p>Each framework reader is on the reader roster with its channel, below. The
+roster is <code class="docutils literal notranslate"><span class="pre">tests/facility/_reader_roster.py</span></code>;
+<code class="docutils literal notranslate"><span class="pre">tests/facility/test_reader_coverage.py</span></code> holds it complete, and a docs test
+holds this table equal to it.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 45.0%" />
-<col style="width: 40.0%" />
-<col style="width: 15.0%" />
+<col style="width: 75.0%" />
+<col style="width: 25.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"><p>Reader</p></th>
-<th class="head"><p>What it reads</p></th>
-<th class="head"><p>Checks <code class="docutils literal notranslate"><span class="pre">N</span></code> from</p></th>
+<th class="head"><p>Channel</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.document</span></code>)</p></td>
-<td><p>Every record and the <code class="docutils literal notranslate"><span class="pre">signals</span></code> and <code class="docutils literal notranslate"><span class="pre">relation_types</span></code> tables, to lay
-out the facility’s screens</p></td>
-<td><p>Enforced: reads <code class="docutils literal notranslate"><span class="pre">/4</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.reading.load_facility</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p>The write guard (<code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run</span></code>)</p></td>
-<td><p>Each channel’s <code class="docutils literal notranslate"><span class="pre">command</span></code>, before a write is let through</p></td>
-<td><p>Phase 3, first among the framework readers</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.reading.check_header</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
-<tr class="row-even"><td><p>The channel roster (<code class="docutils literal notranslate"><span class="pre">osprey.channel_roster.sources</span></code>)</p></td>
-<td><p>The channel list the roster serves</p></td>
-<td><p>Phase 3</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run._facility_commands</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p>The facility identity (<code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>)</p></td>
-<td><p>The recorded <code class="docutils literal notranslate"><span class="pre">identity</span></code></p></td>
-<td><p>Phase 3</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.simulation.model_request._corrector_delta</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
-<tr class="row-even"><td><p>The app SDK model (<code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code>)</p></td>
-<td><p>The records an app reads through <code class="docutils literal notranslate"><span class="pre">FacilityRecords</span></code></p></td>
-<td><p>Phase 3</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor.tools.pyaml_measure._facility</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p>Every other framework reader (the simulation model request, the
-Canopy screen guide, the channel finder’s database, the CLI)</p></td>
-<td><p>The records each one needs</p></td>
-<td><p>Phase 3</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor.tools._pyaml_measure_result.measure_labels</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.testing._deployment.RenderedTree.read</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.records.FacilityRecords.from_file</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk._model.model_members</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.services.ariel_search.ingestion.facility_references.load_facility_records</span></code></p></td>
+<td><p>degrade-absent</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.interfaces.okf_panel.app._load_facility_records</span></code></p></td>
+<td><p>degrade-absent</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.views.facts.parsed_facility_file</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.channel_roster.sources.read_facility_roster</span></code></p></td>
+<td><p>report-corrupt</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.integrations.canopy.screen_guide._guide_facility</span></code></p></td>
+<td><p>degrade-absent</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.templates.claude_code._read_facility</span></code></p></td>
+<td><p>degrade-absent</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.utils.facility._recorded_identity</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.utils.facility.facility_name</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.runtime._facility_channels</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_hierarchical.server_context.ChannelFinderHierContext.initialize</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.initialize</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.initialize</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.interfaces.channel_finder.app._create_lifespan</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.deployment.web_terminals.artifacts.resolve_render_inputs</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.views.facts.read_facts</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor.server.pyaml_view_present</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor.tools.pyaml_measure.advertised</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor.tools._pyaml_measure_args._facts</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.templates.claude_code.config_derived_context</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk._model.closed_orbit_models</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk._facts.read_facts</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.build_injectors._inject_dispatch</span></code></p></td>
+<td><p>refuse</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.facility_cmd._panel_graph</span></code></p></td>
+<td><p>refuse</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The panel engine checks first because it is the reader a fork replaces: it
-imports no facility code and reads the document alone. The write
-guard is the first framework reader to check, because a write must never pass
-on a document the guard cannot vouch for.</p>
+<p>The write guard (<code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run</span></code>) refuses, because a write must
+never pass on a document the guard cannot vouch for.</p>
 </section>
 </section>
 
