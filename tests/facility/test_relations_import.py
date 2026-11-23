@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.errors import LayerSourceInvalid
 from osprey.facility.layers import relations as relations_layer
 from osprey.facility.layers.relations import import_relations
 

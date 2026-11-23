@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 import pytest
 from click.testing import CliRunner
 
+from osprey.cli.main import cli, facility_errors_as_click
 from osprey.facility import PN_LOCAL, fold_code
-from osprey.facility.errors import KINDS, WARNING_KINDS, FacilityBuildError, FacilityBuildWarning
+from osprey.facility.errors import (
+    KINDS,
+    WARNING_KINDS,
+    FacilityBuildError,
+    FacilityBuildWarning,
+    FacilityError,
+    FacilityInputError,
+    FacilityUsageError,
+    ImportStop,
+    LayerSourceInvalid,
+    MappingProblems,
+)
+from osprey_connectors.simulation.engines import FacilityDefectError
 
 
 def _error(**overrides: object) -> FacilityBuildError:
@@ -57,9 +72,11 @@ class TestLineGrammar:
         assert err.remedy == "add place S01 or correct the device's place"
         assert err.detail == "place S01 does not exist"
 
-    def test_exit_code_is_one(self) -> None:
-        assert _error().exit_code == 1
-        assert isinstance(_error(), click.ClickException)
+    def test_it_is_a_plain_facility_error(self) -> None:
+        assert isinstance(_error(), FacilityError)
+        assert isinstance(_error(), FacilityDefectError)
+        assert not isinstance(_error(), click.ClickException)
+        assert not isinstance(_error(), ValueError)
 
     def test_unknown_kind_is_refused(self) -> None:
         with pytest.raises(ValueError, match="no-such-kind"):
@@ -143,13 +160,20 @@ class TestKinds:
         }
 
 
+def _run(error: Exception) -> click.testing.Result:
+    """Raise *error* from a command run as the command line runs it."""
+
+    @click.command()
+    def cmd() -> None:
+        with facility_errors_as_click():
+            raise error
+
+    return CliRunner().invoke(cmd, [])
+
+
 class TestShow:
     def test_show_writes_the_line_alone_to_stderr(self) -> None:
-        @click.command()
-        def cmd() -> None:
-            raise _error()
-
-        result = CliRunner().invoke(cmd, [])
+        result = _run(_error())
         assert result.exit_code == 1
         assert result.stderr == _error().format_message() + "\n"
         assert "Error: " not in result.stderr
@@ -162,6 +186,84 @@ class TestShow:
         _error().show(buffer)
         assert buffer.getvalue() == _error().format_message() + "\n"
         assert capsys.readouterr().err == ""
+
+    def test_show_defaults_to_stderr(self, capsys: pytest.CaptureFixture[str]) -> None:
+        FacilityError("one\ntwo").show()
+        captured = capsys.readouterr()
+        assert captured.err == "one\ntwo\n"
+        assert captured.out == ""
+
+
+class TestFacilityErrorFamily:
+    def test_the_base_is_a_plain_exception(self) -> None:
+        error = FacilityError("broken")
+        assert error.format_message() == "broken"
+        assert str(error) == "broken"
+        assert not isinstance(error, ValueError)
+        assert not isinstance(error, click.ClickException)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            LayerSourceInvalid([_error()]),
+            ImportStop("mapping-draft", ["x"]),
+            MappingProblems(Path("m.yaml"), ["p"]),
+            FacilityInputError("cannot read"),
+            FacilityUsageError("no such system"),
+        ],
+    )
+    def test_every_error_derives_from_the_base(self, error: FacilityError) -> None:
+        assert isinstance(error, FacilityError)
+        assert not isinstance(error, click.ClickException)
+
+    def test_layer_source_invalid_prints_each_line(self) -> None:
+        second = _error(record_id="QF2")
+        result = _run(LayerSourceInvalid([_error(), second]))
+        assert result.exit_code == 1
+        assert result.stderr == f"{_error().format_message()}\n{second.format_message()}\n"
+
+    def test_import_stop_prints_one_line_per_finding(self) -> None:
+        stop = ImportStop("export-invalid", ["a", "b"])
+        assert stop.problem == "export-invalid"
+        assert stop.lines == ("a", "b")
+        result = _run(stop)
+        assert result.exit_code == 1
+        assert result.stderr == "import mml: export-invalid: a\nimport mml: export-invalid: b\n"
+
+    def test_mapping_problems_count_their_problems(self) -> None:
+        one = MappingProblems(Path("m.yaml"), ["p1"])
+        two = MappingProblems(Path("m.yaml"), ["p1", "p2"])
+        assert one.format_message() == "p1\n1 problem in m.yaml; fix each and check again."
+        assert two.format_message().endswith("2 problems in m.yaml; fix each and check again.")
+        assert two.problems == ("p1", "p2")
+
+    def test_an_input_error_keeps_the_error_prefix(self) -> None:
+        result = _run(FacilityInputError("cannot read x.mat"))
+        assert result.exit_code == 1
+        assert result.stderr == "Error: cannot read x.mat\n"
+
+    def test_a_usage_error_left_unconverted_prints_bare(self) -> None:
+        result = _run(FacilityUsageError("no such system"))
+        assert result.exit_code == 1
+        assert result.stderr == "no such system\n"
+
+    def test_other_exceptions_pass_through(self) -> None:
+        result = _run(RuntimeError("boom"))
+        assert result.exit_code == 1
+        assert isinstance(result.exception, RuntimeError)
+        assert result.stderr == ""
+
+
+class TestRootGroup:
+    def test_the_root_group_encloses_its_subcommands(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        @click.command("boom")
+        def boom() -> None:
+            raise _error()
+
+        monkeypatch.setattr(type(cli), "get_command", lambda self, ctx, name: boom)
+        result = CliRunner().invoke(cli, ["boom"])
+        assert result.exit_code == 1
+        assert result.stderr == _error().format_message() + "\n"
 
 
 class TestFold:

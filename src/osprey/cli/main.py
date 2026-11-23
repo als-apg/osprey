@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
+    from osprey.facility.errors import FacilityError
+
     from .phase_reporter import PhaseReporter
 
 # Ensure UTF-8 on Windows for Unicode CLI output
@@ -44,8 +46,70 @@ except ImportError:
     __version__ = "0.0.0+unknown"
 
 
+class FacilityClickError(click.ClickException):
+    """A facility description error, as the command line reports it.
+
+    It prints exactly what the original prints and exits 1.
+
+    Attributes:
+        error: The :class:`~osprey.facility.errors.FacilityError` it carries.
+    """
+
+    exit_code = 1
+
+    def __init__(self, error: "FacilityError") -> None:
+        self.error = error
+        super().__init__(str(error))
+
+    def format_message(self) -> str:
+        """The original's message."""
+        return self.error.format_message()
+
+    def show(self, file=None) -> None:
+        """Print as the original prints itself.
+
+        Args:
+            file: The stream to write to; stderr when omitted.
+        """
+        self.error.show(file)
+
+
+@contextmanager
+def facility_errors_as_click() -> Iterator[None]:
+    """Turn a facility description error raised inside into a click error.
+
+    The description raises plain :class:`~osprey.facility.errors.FacilityError`
+    exceptions; click prints and exits only on its own. Every command run
+    through the root group runs inside this, as does anything else that
+    invokes a command and wants the command line's output.
+
+    Raises:
+        FacilityClickError: For a facility error raised inside; it prints what
+            the error prints and exits 1.
+    """
+    try:
+        yield
+    except Exception as error:
+        # Looked up rather than imported: `osprey --help` loads only this
+        # module, and no facility error can exist before its module is loaded.
+        errors = sys.modules.get("osprey.facility.errors")
+        if errors is None or not isinstance(error, errors.FacilityError):
+            raise
+        raise FacilityClickError(error) from error
+
+
 class LazyGroup(click.Group):
     """Click group that lazily loads subcommands only when invoked."""
+
+    def invoke(self, ctx):
+        """Run the command line inside :func:`facility_errors_as_click`.
+
+        The root group encloses every nested group, subcommand and
+        ``ctx.invoke`` chain, so a facility error raised anywhere below it
+        prints as itself and exits 1.
+        """
+        with facility_errors_as_click():
+            return super().invoke(ctx)
 
     def get_command(self, _ctx, cmd_name):
         """Lazily import and return the command when it's invoked."""

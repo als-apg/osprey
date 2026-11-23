@@ -220,7 +220,9 @@ def test_a_restated_record_stops_before_the_venv(
     restated = repo / "data" / "facility" / "identity.yaml"
     shutil.copy2(repo / MACHINE_DIR / "identity.yaml", restated)
 
-    result = CliRunner().invoke(build_cmd.build, ["--repo", str(repo), "--skip-lifecycle"])
+    from osprey.cli.main import cli
+
+    result = CliRunner().invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle"])
 
     assert result.exit_code == 1, result.output
     assert result.stderr == (

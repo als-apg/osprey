@@ -37,6 +37,7 @@ from osprey.cli.output import fail, machine_mode, note, report, warn
 from osprey.cli.record_access import find_build
 from osprey.cli.repo_resolver import PROFILE_FILENAME, repo_option
 from osprey.cli.styles import Styles
+from osprey.facility.errors import FacilityError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("users")
@@ -528,7 +529,7 @@ def _users_session(repo: Path | None, *, announce: bool = True) -> Iterator[_Rep
     try:
         os.chdir(repo_root)
         yield _Repo(root=repo_root, config=str(config_path))
-    except (click.Abort, click.ClickException):
+    except (click.Abort, click.ClickException, FacilityError):
         raise
     except KeyboardInterrupt:
         warn("Operation cancelled by user")
