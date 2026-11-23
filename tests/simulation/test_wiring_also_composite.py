@@ -25,7 +25,6 @@ import yaml
 from lume.exceptions import ReadOnlyError
 
 from osprey.apps.sdk.testing import model
-from osprey.facility.build import build_facility
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.facility.views.simulator import write_simulator_view
 from osprey.services.virtual_accelerator.serving.runner_config import (
@@ -35,6 +34,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.servers import model_server
 from osprey_connectors.simulation.view import SCENARIOS_FILE, SimulatorView
+from osprey_facility.build import build_facility
 from tests._builds import FRAMEWORK_CHECKS
 from tests.connectors._view_records import activate
 from tests.facility._pyaml_trees import measured_tree, view_inputs

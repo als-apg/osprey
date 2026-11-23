@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import injection as engine
 from osprey_connectors.simulation.engines import ENGINE_GROUP, TIME_CONTRACT, EnginePlugin
+from osprey_facility.errors import FacilityBuildError
 
 MODEL = "CHAIN"
 T0 = 1024.0

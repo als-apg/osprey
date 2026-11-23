@@ -19,9 +19,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility.scenarios import scenario_logbook
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.logbook import PlotSpec, parse_plot_spec
+from osprey_facility.scenarios import scenario_logbook
 from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
@@ -143,7 +143,7 @@ def test_the_baseline_is_the_dcct_held_level() -> None:
 
 
 def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> None:
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
 
     facility = tmp_path / "facility"
     shutil.copytree(packaged_facility_dir("demo"), facility)

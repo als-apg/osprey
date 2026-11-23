@@ -381,9 +381,9 @@ class TestFacilityFile:
 @pytest.mark.parametrize("error_type", ["defect", "build"])
 def test_cause_classifies_any_facility_defect_as_facility(error_type: str) -> None:
     """A contract FacilityDefectError, raised by any engine, is a facility cause."""
-    from osprey.facility.errors import FacilityBuildError
     from osprey.simulation.response import _cause
     from osprey_connectors.simulation.engines import FacilityDefectError
+    from osprey_facility.errors import FacilityBuildError
 
     exc = (
         FacilityDefectError("x")

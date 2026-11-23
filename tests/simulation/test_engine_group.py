@@ -119,7 +119,7 @@ def test_the_scan_sees_each_kind_of_group_use(line: str) -> None:
         f'"{OLD_GROUP}",',
         f"from {OLD_GROUP} import pyat",
         f'pyat = "{OLD_GROUP}.pyat"',
-        f'"osprey.facility.validate -> {OLD_GROUP}.pyat",',
+        f'"osprey_facility.validate -> {OLD_GROUP}.pyat",',
         f'[project.entry-points."{ENGINE_GROUP}"]',
         f'group="{ENGINE_GROUP}"',
     ],
