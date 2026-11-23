@@ -35,6 +35,7 @@ from osprey_connectors.simulation.engines import (
     to_hardware,
     to_physics,
 )
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
@@ -97,7 +98,7 @@ def _golden() -> dict[str, float]:
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, Any]:
-    return build_facility(EXAMPLE, project_name="demo")
+    return build_facility(EXAMPLE, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 # --- the models --------------------------------------------------------------------

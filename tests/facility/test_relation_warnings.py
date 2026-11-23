@@ -12,6 +12,7 @@ import yaml
 
 from osprey.facility.build import LATER_STAGES
 from osprey.facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -24,7 +25,9 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(root: Path, files: dict[str, Any]) -> StageReport:
-    report = run_stages(_write(root, files), project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        _write(root, files), project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.failed is None, [e.format_message() for e in report.errors]
     return report
 
@@ -405,7 +408,9 @@ class TestPlaceUnplaced:
 
 def test_the_bundled_example_raises_no_place_warning() -> None:
     example = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-    report = run_stages(example, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        example, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.failed is None, [e.format_message() for e in report.errors]
     assert _place_lines(report) == []
 

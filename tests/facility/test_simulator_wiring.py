@@ -21,6 +21,7 @@ import osprey.facility.views.simulator as simulator
 from osprey.facility.build import FacilityDocument, build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
+from tests._builds import FRAMEWORK_CHECKS
 
 DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
@@ -54,7 +55,7 @@ UNWIRED_ELEMENT = {"SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:D
 
 @pytest.fixture(scope="module")
 def demo() -> FacilityDocument:
-    return build_facility(DEMO_FACILITY, project_name="demo")
+    return build_facility(DEMO_FACILITY, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 @pytest.fixture(scope="module")

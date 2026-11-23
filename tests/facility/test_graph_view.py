@@ -29,6 +29,7 @@ from osprey.facility.validate import FACILITY_HEADER, relation_types
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._graph_relations import (
     expected_located_in,
     expected_part_of,
@@ -595,7 +596,13 @@ class TestTheBuiltGraph:
         # deployment wrote ``text`` to its file, and this one builds the tree that
         # deployment was initialised from, in memory, and renders it afresh.
         second = graph_text(
-            FacilityRecords(build_facility(packaged_facility_dir("demo"), project_name="demo"))
+            FacilityRecords(
+                build_facility(
+                    packaged_facility_dir("demo"),
+                    project_name="demo",
+                    extra_checks=FRAMEWORK_CHECKS,
+                )
+            )
         )
 
         assert text.encode("utf-8") == second.encode("utf-8")
