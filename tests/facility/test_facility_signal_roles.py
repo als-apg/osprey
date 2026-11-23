@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from click.testing import Result
 
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 if TYPE_CHECKING:
@@ -33,7 +33,7 @@ FIXTURE_ROLE = {
 
 def _effective(*declared: dict[str, Any]) -> list[dict[str, Any]]:
     """The ``signals`` a build writes: the vocabulary's rows and ``declared``, by name."""
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     return sorted([*vocabulary()["signal_roles"], *declared], key=lambda row: row["name"])
 
@@ -86,7 +86,7 @@ def test_the_facts_describe_the_declared_role(build_project: Build) -> None:
 
 
 def test_signal_roles_joins_the_declared_rows_to_the_vocabulary() -> None:
-    from osprey.facility.validate import signal_roles
+    from osprey_facility.validate import signal_roles
 
     assert "fixture_role" not in signal_roles()
     joined = signal_roles([FIXTURE_ROLE])
@@ -113,7 +113,7 @@ def test_an_undeclared_role_stops_the_build_naming_signals_yaml(build_project: B
 
 
 def test_a_role_shadowing_a_vocabulary_role_is_refused_naming_both(build_project: Build) -> None:
-    from osprey.facility.validate import signal_roles
+    from osprey_facility.validate import signal_roles
 
     assert "current_readback" in signal_roles()
     shadow = {"name": "current_readback", "description": "a second readback"}
@@ -144,7 +144,7 @@ def test_an_unknown_key_in_a_row_is_refused(build_project: Build) -> None:
 
 
 def test_facility_signals_reads_the_rows_of_signals_yaml(tmp_path: Path) -> None:
-    from osprey.facility.sources import facility_signals
+    from osprey_facility.sources import facility_signals
 
     write_tree(tmp_path, {"signals.yaml": [FIXTURE_ROLE]})
     assert facility_signals(tmp_path) == [FIXTURE_ROLE]
@@ -152,7 +152,7 @@ def test_facility_signals_reads_the_rows_of_signals_yaml(tmp_path: Path) -> None
 
 
 def test_check_mapping_accepts_a_declared_role_as_a_field_signal() -> None:
-    from osprey.facility.layers.mml.mapping import check_mapping, draft_mapping, parse_mapping
+    from osprey_facility.layers.mml.mapping import check_mapping, draft_mapping, parse_mapping
     from tests.facility.test_layer_mml_mapping import _typed_export
 
     document = draft_mapping(_typed_export())

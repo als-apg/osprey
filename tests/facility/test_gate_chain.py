@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.sources import read_yaml
+from osprey_facility.sources import read_yaml
 from tests.facility.conftest import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

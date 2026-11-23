@@ -18,8 +18,6 @@ import pytest
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig
 from osprey.cli.build_profile_load import manifest_rows
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import (
     BENCHMARK_DATASET_PATH,
     FACILITY_SETTINGS,
@@ -34,6 +32,8 @@ from osprey.facility.settings import (
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.simulation.state import STILL_SCENARIO
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 
 #: The architecture page that lists the table.
 FACILITY_FILE_PAGE = (

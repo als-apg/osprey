@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility import reading, validate
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.reading import READS, check_header, load_facility
+from osprey_facility import reading, validate
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.reading import READS, check_header, load_facility
 from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 from tests.facility._reader_roster import CHANNELS, ROSTER
 
@@ -57,10 +57,10 @@ def test_imports_only_the_error_module_and_the_stdlib():
     foreign = {
         name
         for name in imported
-        if name.split(".")[0] not in sys.stdlib_module_names and name != "osprey.facility.errors"
+        if name.split(".")[0] not in sys.stdlib_module_names and name != "osprey_facility.errors"
     }
     assert foreign == set()
-    assert "osprey.facility.errors" in imported
+    assert "osprey_facility.errors" in imported
 
 
 def test_the_refusal_is_a_value_error():
