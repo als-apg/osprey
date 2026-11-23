@@ -79,23 +79,7 @@ PANELS_DEPENDENCIES: Mapping[str, str] = {
 }
 
 #: Today's A1 edges, ``importer -> import root``, with ruling and removing phase.
-#: The click edges go when the description raises plain errors and the framework's
-#: command line turns them into click ones (ruling 3).
-_CLICK = "ruling 3: the description raises plain errors, the CLI adapts them; phase 3"
-
-THIRD_PARTY_RATCHET: Mapping[str, str] = {
-    "osprey.facility.errors -> click": _CLICK,
-    "osprey.facility.layers -> click": _CLICK,
-    "osprey.facility.layers.list -> click": _CLICK,
-    "osprey.facility.layers.mml.importer -> click": _CLICK,
-    "osprey.facility.layers.mml.loaders.json_any -> click": _CLICK,
-    "osprey.facility.layers.mml.loaders.mat -> click": _CLICK,
-    "osprey.facility.layers.mml.mapping -> click": _CLICK,
-    "osprey.facility.layers.mml.systems -> click": _CLICK,
-    "osprey.facility.validate -> click": _CLICK,
-    "osprey.facility.kinds -> pyaml_cs_osprey": "ruling 3: the kind name becomes the "
-    "description's own; phase 3",
-}
+THIRD_PARTY_RATCHET: Mapping[str, str] = {}
 
 #: Today's A2 edges, ``importer -> target [spelling]``, with row, ruling and removing phase.
 DYNAMIC_RATCHET: Mapping[str, str] = {

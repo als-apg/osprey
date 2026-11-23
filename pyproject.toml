@@ -1354,11 +1354,6 @@ forbidden_modules = [
     "osprey.simulation.engines.pyat_variables",
     "osprey.simulation.engines",
 ]
-ignore_imports = [
-    # phase 3 — the framework half of the description: views helpers, the
-    # shared FacilityFileError, the MCP registry, the bundled kinds, and the
-    # engine implementations, which are framework.
-]
 
 [[tool.importlinter.contracts]]
 id = "facility-description-without-panels"
