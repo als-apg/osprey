@@ -395,17 +395,17 @@ class TestOnlyCarryableIdentitiesAreStored:
                 "alice", expires_at=codec.now() + 600, oidc_subject=NON_ASCII_SUBJECT
             )
 
-    def test_with_user_refuses_a_non_ascii_role(self) -> None:
+    @pytest.mark.parametrize(
+        "role",
+        [
+            pytest.param("öps", id="non-ascii"),
+            pytest.param("ops\r\nX-Osprey-Auth-Role: admin", id="carrying-a-newline"),
+        ],
+    )
+    def test_with_user_refuses_an_uncarryable_role(self, role: str) -> None:
         codec = SessionCodec(SESSION_SECRET)
         with pytest.raises(ValueError, match="role"):
-            codec.new_state().with_user("alice", expires_at=codec.now() + 600, role="öps")
-
-    def test_with_user_refuses_a_role_carrying_a_newline(self) -> None:
-        codec = SessionCodec(SESSION_SECRET)
-        with pytest.raises(ValueError, match="role"):
-            codec.new_state().with_user(
-                "alice", expires_at=codec.now() + 600, role="ops\r\nX-Osprey-Auth-Role: admin"
-            )
+            codec.new_state().with_user("alice", expires_at=codec.now() + 600, role=role)
 
     @pytest.mark.parametrize("key", ["sub", "role"])
     def test_decoding_refuses_an_uncarryable_value(self, key: str) -> None:

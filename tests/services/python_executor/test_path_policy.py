@@ -22,16 +22,17 @@ def roots(tmp_path):
     }
 
 
-def test_render_zone_write_is_flagged(roots):
-    issues = path_policy_issues("open('build/config.yml', 'w')", **roots)
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("build/config.yml", id="render-zone"),
+        pytest.param("profile.yml", id="profile-source"),
+    ],
+)
+def test_protected_write_is_flagged(roots, path):
+    issues = path_policy_issues(f"open('{path}', 'w')", **roots)
     assert len(issues) == 1
-    assert "build/config.yml" in issues[0]
-
-
-def test_profile_source_write_is_flagged(roots):
-    issues = path_policy_issues("open('profile.yml', 'w')", **roots)
-    assert len(issues) == 1
-    assert "profile.yml" in issues[0]
+    assert path in issues[0]
 
 
 @pytest.mark.parametrize(
@@ -195,9 +196,19 @@ def test_guard_tampering_is_flagged(code, message, roots):
     assert message in issues[0]
 
 
-def test_guard_tamper_is_flagged_without_any_protected_root():
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        pytest.param("_restore_patched_targets()", "sandbox guard", id="guard-tamper"),
+        # Reloading a guarded module: see "Reloading a guarded module" below.
+        pytest.param("importlib.reload(os)", "Reloading the module 'os'", id="reload"),
+    ],
+)
+def test_tampering_is_flagged_without_any_protected_root(code, message):
     """Guard ownership does not depend on the path sets — there is no path."""
-    assert path_policy_issues("_restore_patched_targets()", protected_roots=[])
+    issues = path_policy_issues(code, protected_roots=[])
+    assert issues, f"no issue raised for: {code}"
+    assert message in issues[0]
 
 
 def test_each_distinct_guard_name_is_reported_once():
@@ -215,11 +226,6 @@ def test_each_distinct_guard_name_is_reported_once():
 # the runtime guard cannot see it at all (nothing calls a patched entry point),
 # so this walker is the only layer that can refuse it.
 # ---------------------------------------------------------------------------
-
-
-def test_reload_is_flagged_without_any_protected_root():
-    """Same as guard-identifier tampering: it does not depend on the path sets."""
-    assert path_policy_issues("importlib.reload(os)", protected_roots=[])
 
 
 def test_reloading_a_guarded_module_is_flagged__mutation_renames_the_module(roots):

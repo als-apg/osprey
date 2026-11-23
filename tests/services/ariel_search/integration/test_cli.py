@@ -75,7 +75,10 @@ class TestCLIStatusCommand:
         with patch("osprey.cli.ariel.get_config_value", return_value={}):
             result = runner.invoke(ariel_group, ["status"])
 
-        assert "not configured" in result.output or "error" in result.output.lower()
+        # Status reports the problem rather than failing the command.
+        assert result.exit_code == 0, result.output
+        assert "ARIEL Status: error" in result.output
+        assert "ARIEL not configured" in result.output
 
 
 class TestCLIMigrateCommand:

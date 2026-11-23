@@ -128,6 +128,12 @@ def test_upload_script_installs_a_generator_plan_under_its_own_name() -> None:
 
 
 def test_installed_plan_validates_kwargs_and_resolves_worker_devices() -> None:
+    """The wrapper narrows devices; it stamps no metadata of its own.
+
+    Run identity is stamped on the enqueue path, as the queue item's metadata,
+    so what this wrapper yields is exactly what ``build_plan`` yielded: the
+    whole stream is compared, not just its first message.
+    """
     motor = FakeDevice("motor")
     namespace = worker_namespace(motor=motor)
     run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
@@ -257,19 +263,6 @@ def test_a_plan_file_with_no_params_declares_nothing_and_resolves_nothing() -> N
     run_upload_script(namespace, "sample_scan", source)
 
     assert list(namespace["sample_scan"]()) == [("offered", [])]
-
-
-def test_the_session_wrapper_adds_nothing_to_the_plans_message_stream() -> None:
-    """The wrapper narrows devices; it stamps no metadata of its own.
-
-    Run identity is stamped on the enqueue path, as the queue item's metadata,
-    so what this wrapper yields is exactly what ``build_plan`` yielded.
-    """
-    motor = FakeDevice("motor")
-    namespace = worker_namespace(motor=motor)
-    run_upload_script(namespace, "sample_scan", PLAN_SOURCE)
-
-    assert list(namespace["sample_scan"](channel="motor", steps=1)) == [("move", motor, 1)]
 
 
 def test_two_session_plans_keep_their_own_schemas_and_bodies() -> None:

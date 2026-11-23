@@ -687,19 +687,19 @@ class TestSyncWatchCommand:
         assert result.exit_code == 0
         assert "--watch" in result.output
 
-    def test_the_failure_cap_exits_non_zero(self, runner, monkeypatch):
-        self._patch_composite(monkeypatch, result=StopReason.FAILURE_CAP)
+    @pytest.mark.parametrize(
+        ("stop_reason", "exit_code"),
+        [
+            pytest.param(StopReason.FAILURE_CAP, 1, id="failure_cap_exits_non_zero"),
+            pytest.param(StopReason.SIGNAL, 0, id="signal_exits_zero"),
+        ],
+    )
+    def test_the_stop_reason_sets_the_exit_code(self, runner, monkeypatch, stop_reason, exit_code):
+        self._patch_composite(monkeypatch, result=stop_reason)
 
         result = runner.invoke(ariel_group, ["sync", "--watch"])
 
-        assert result.exit_code == 1
-
-    def test_a_signal_exits_zero(self, runner, monkeypatch):
-        self._patch_composite(monkeypatch, result=StopReason.SIGNAL)
-
-        result = runner.invoke(ariel_group, ["sync", "--watch"])
-
-        assert result.exit_code == 0
+        assert result.exit_code == exit_code
 
     def test_a_cancelled_run_exits_zero(self, runner, monkeypatch):
         self._patch_composite(monkeypatch, error=asyncio.CancelledError())

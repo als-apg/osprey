@@ -42,20 +42,21 @@ def test_revocation_is_scoped_to_the_revoked_id(store: RevocationStore, clock: F
     assert store.is_revoked("sess-b") is False
 
 
-def test_revocation_holds_right_up_to_the_expiry(store: RevocationStore, clock: FakeClock) -> None:
+@pytest.mark.parametrize(
+    ("advance", "revoked"),
+    [
+        pytest.param(3599, True, id="holds-right-up-to-the-expiry"),
+        pytest.param(3600, False, id="lapses-at-the-expiry"),
+    ],
+)
+def test_revocation_expiry_boundary(
+    store: RevocationStore, clock: FakeClock, advance: int, revoked: bool
+) -> None:
     store.revoke("sess-a", expires_at=clock.now + 3600)
 
-    clock.advance(3599)
+    clock.advance(advance)
 
-    assert store.is_revoked("sess-a") is True
-
-
-def test_revocation_lapses_at_the_expiry(store: RevocationStore, clock: FakeClock) -> None:
-    store.revoke("sess-a", expires_at=clock.now + 3600)
-
-    clock.advance(3600)
-
-    assert store.is_revoked("sess-a") is False
+    assert store.is_revoked("sess-a") is revoked
 
 
 def test_entry_is_dropped_when_its_expiry_is_observed(

@@ -103,19 +103,20 @@ class TestBuiltInDescriptors:
     """The three built-in modules still build a descriptor that carries the fields."""
 
     @pytest.mark.parametrize(
-        "factory",
+        ("factory", "query_parser"),
         [
-            keyword_get_tool_descriptor,
-            semantic_get_tool_descriptor,
-            hybrid_get_tool_descriptor,
+            pytest.param(keyword_get_tool_descriptor, keyword.parse_keyword_query, id="keyword"),
+            pytest.param(semantic_get_tool_descriptor, None, id="semantic"),
+            pytest.param(hybrid_get_tool_descriptor, None, id="hybrid"),
         ],
     )
-    def test_built_in_descriptor_exposes_new_fields(self, factory):
-        """Existing descriptors construct and expose both new fields."""
+    def test_built_in_descriptor_exposes_new_fields(self, factory, query_parser):
+        """Existing descriptors construct and expose both new fields: all three accept
+        expansion, and only keyword brings its own query parser."""
         desc = factory()
         assert isinstance(desc, SearchToolDescriptor)
-        assert isinstance(desc.accepts_expansion, bool)
-        assert desc.query_parser is None or callable(desc.query_parser)
+        assert desc.accepts_expansion is True
+        assert desc.query_parser is query_parser
 
 
 def _image_search_config() -> ARIELConfig:

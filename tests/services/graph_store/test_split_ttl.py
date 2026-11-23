@@ -273,42 +273,41 @@ class TestDirectives:
         assert any(str(s) == "https://example.org/before" for s in whole.subjects())
         assert any(str(s) == "https://second.example/after" for s in whole.subjects())
 
-    def test_a_base_is_carried_and_a_later_base_replaces_it(self):
-        text = _padded(
-            [
-                "@base <https://base.example/one/> .",
-                "<a> ex:p <b> .",
-                "@base <../two/> .",
-                "<c> ex:p <d> .",
-            ]
-        )
-
-        _assert_same_triples(text, max_chars=200)
-
-    def test_sparql_style_directives_are_carried(self):
-        text = _padded(
-            [
-                "PREFIX sp: <https://sparql.example/>",
-                "sp:s sp:p sp:o .",
-                "base <https://base.example/>",
-                "<relative> sp:p sp:o .",
-                "prefix lower: <https://lower.example/>\nlower:s lower:p lower:o .",
-            ]
-        )
-
-        _assert_same_triples(text, max_chars=200)
-
-    def test_a_name_that_reads_like_a_directive_is_a_name(self):
-        text = _padded(
-            [
-                "@prefix base: <https://base.example/> .",
-                "@prefix prefix: <https://prefix.example/> .",
-                "base:s prefix:p ex:BASE .",
-                "ex:prefix ex:base base:o .",
-            ]
-        )
-
-        _assert_same_triples(text, max_chars=200)
+    @pytest.mark.parametrize(
+        "lines",
+        [
+            pytest.param(
+                [
+                    "@base <https://base.example/one/> .",
+                    "<a> ex:p <b> .",
+                    "@base <../two/> .",
+                    "<c> ex:p <d> .",
+                ],
+                id="a-base-is-carried-and-a-later-base-replaces-it",
+            ),
+            pytest.param(
+                [
+                    "PREFIX sp: <https://sparql.example/>",
+                    "sp:s sp:p sp:o .",
+                    "base <https://base.example/>",
+                    "<relative> sp:p sp:o .",
+                    "prefix lower: <https://lower.example/>\nlower:s lower:p lower:o .",
+                ],
+                id="sparql-style-directives-are-carried",
+            ),
+            pytest.param(
+                [
+                    "@prefix base: <https://base.example/> .",
+                    "@prefix prefix: <https://prefix.example/> .",
+                    "base:s prefix:p ex:BASE .",
+                    "ex:prefix ex:base base:o .",
+                ],
+                id="a-name-that-reads-like-a-directive-is-a-name",
+            ),
+        ],
+    )
+    def test_the_parts_hold_the_same_triples_as_the_whole(self, lines):
+        _assert_same_triples(_padded(lines), max_chars=200)
 
 
 class TestBlankNodes:

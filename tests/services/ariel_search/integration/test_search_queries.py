@@ -7,7 +7,7 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -28,9 +28,6 @@ KEYWORD_PREFIX = "search-kw-"
 #: Rows carrying a real embedding, seeded only where a local embedding
 #: service answers.
 SEMANTIC_PREFIX = "semantic-"
-
-#: The single row the source-filtered time-range query is asserted over.
-SOURCE_PREFIX = "search-source-"
 
 #: Rows for the partial-match fallback: a short entry whose numbers live in its
 #: picture caption, its twin a day later, and a same-day entry sharing two words.
@@ -550,28 +547,6 @@ class TestSemanticSearchWithRealEmbeddings:
                 else:
                     dim = len(embedding)
                 assert dim == 768
-
-
-class TestSearchQueryStructure:
-    """Test search query structure without semantic data."""
-
-    async def test_search_by_time_range_with_source_filter(
-        self, repository, seed_entry_factory, seeded_prefixes
-    ):
-        """Search with source system filter."""
-        now = datetime.now(UTC)
-        entry = seed_entry_factory(
-            entry_id=f"{SOURCE_PREFIX}001",
-            source_system="als_logbook",
-            timestamp=now,
-            raw_text="Test entry from the logbook",
-        )
-        seeded_prefixes.add(SOURCE_PREFIX)
-        await repository.upsert_entry(entry)
-
-        # This tests the query structure even if filtering isn't implemented
-        results = await repository.search_by_time_range(limit=10)
-        assert isinstance(results, list)
 
 
 # ==============================================================================
