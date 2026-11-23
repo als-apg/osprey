@@ -39,6 +39,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tests._builds import FRAMEWORK_CHECKS
+
 if TYPE_CHECKING:
     from osprey.facility.panels.tables import PanelTables
 
@@ -56,7 +58,7 @@ def build_fixture_document() -> dict[str, Any]:
     """The fixture tree built into its facility document."""
     from osprey.facility.build import build_facility
 
-    return build_facility(FACILITY_TREE, project_name=PROJECT_NAME)
+    return build_facility(FACILITY_TREE, project_name=PROJECT_NAME, extra_checks=FRAMEWORK_CHECKS)
 
 
 def load_fixture_document() -> dict[str, Any]:

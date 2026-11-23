@@ -14,6 +14,7 @@ from typing import Any
 
 from osprey.facility.build import build_facility
 from osprey.facility.combine import FIXES_HEADER
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import write_tree
 
 
@@ -33,7 +34,9 @@ def _channel(
     else:
         tree["imported/mml/channels.yaml"] = [channel]
         tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": fixes}
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
     (built,) = [c for c in document["channels"] if c["id"] == channel["id"]]
     return built
 

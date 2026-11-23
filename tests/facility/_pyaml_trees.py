@@ -22,6 +22,7 @@ from osprey.apps.sdk.testing import (
     write_tree,
 )
 from osprey.facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 
 __all__ = [
     "LINE_GROUPS",
@@ -40,7 +41,7 @@ def built_document(root: Path, tree: Mapping[str, Any]) -> tuple[dict[str, Any],
     from osprey.facility.build import build_facility
 
     facility = write_tree(root / "data" / "facility", copy.deepcopy(dict(tree)))
-    return build_facility(facility, project_name="demo"), facility
+    return build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS), facility
 
 
 def view_inputs(root: Path, tree: Mapping[str, Any], served: list[str] | None = None) -> Any:

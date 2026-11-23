@@ -28,7 +28,7 @@ import yaml
 from osprey.facility.build import LATER_STAGES
 from osprey.facility.bundled import classify
 from osprey.facility.validate import run_stages
-from tests._builds import init_project
+from tests._builds import FRAMEWORK_CHECKS, init_project
 from tests.facility._appendix_a import CLAIM_IDS, POLICY
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
@@ -40,7 +40,9 @@ BUNDLED_HEADER = (
 
 
 def _build(facility_dir: Path) -> tuple[dict[str, Any], list[Any]]:
-    report = run_stages(facility_dir, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        facility_dir, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     if report.failed is not None:
         raise AssertionError([error.format_message() for error in report.errors])
     document = report.validated.document

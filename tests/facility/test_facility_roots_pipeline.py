@@ -20,7 +20,7 @@ from osprey.facility.build import build_facility_with_warnings
 from osprey.facility.bundled import classify
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
-from osprey.facility.render import facility_digest, render_facility_outputs
+from osprey.facility.render import facility_digest
 from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
 from osprey.facility.settings import (
     BENCHMARK_DATASET_PATH,
@@ -28,7 +28,9 @@ from osprey.facility.settings import (
     fill_facility_settings,
 )
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -177,9 +179,11 @@ def built_both_ways(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     (machine / "knowledge").mkdir()
     (machine / "knowledge" / "stale.md").write_text(_STALE)
 
-    one_doc, one_warnings = build_facility_with_warnings(tree, project_name="site")
+    one_doc, one_warnings = build_facility_with_warnings(
+        tree, project_name="site", extra_checks=FRAMEWORK_CHECKS
+    )
     split_doc, split_warnings = build_facility_with_warnings(
-        machine, project_name="site", content_dir=content
+        machine, project_name="site", content_dir=content, extra_checks=FRAMEWORK_CHECKS
     )
     one_render = root / "render-one"
     split_render = root / "render-split"
