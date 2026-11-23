@@ -358,6 +358,19 @@ LANE_LEAVING_MARKERS = (
             ),
         ),
     ),
+    # Tests that read a built osprey-facility wheel: the package's standalone job
+    # builds it once and names it in OSPREY_FACILITY_WHEEL.
+    LaneLeavingMarker(
+        "wheel_build",
+        (
+            SerialHost(
+                "osprey-facility-standalone",
+                "Run the wheel-contents tests against the built wheel",
+                "packages/osprey-facility/tests",
+                "-m wheel_build",
+            ),
+        ),
+    ),
 )
 
 
@@ -381,7 +394,9 @@ def _lane_deselect(rows: tuple[LaneLeavingMarker, ...]) -> str:
 #: The parallel lane's marker expression, derived from the table. Matched as a
 #: literal substring: single spaces and the quoting are part of the pin.
 UNIT_LANE_DESELECT = _lane_deselect(LANE_LEAVING_MARKERS)
-assert UNIT_LANE_DESELECT == '-m "not pty and not wallclock and not canopy"', UNIT_LANE_DESELECT
+assert UNIT_LANE_DESELECT == (
+    '-m "not pty and not wallclock and not wheel_build and not canopy"'
+), UNIT_LANE_DESELECT
 
 #: The row the terminal-only cases read (Linux gate, files that open a pty).
 TERMINAL_ROW = _row("pty")
@@ -2410,8 +2425,12 @@ def test_lane_leaving_marker_is_registered__mutation_drops_it(row: LaneLeavingMa
 
 @functools.cache
 def _test_tree_paths() -> tuple[Path, ...]:
-    """Every ``tests/**/test_*.py`` path, walked once per process."""
-    return tuple((CI_YML.parents[2] / "tests").rglob("test_*.py"))
+    """Every ``test_*.py`` path under ``tests/`` and the packages' own suites
+    (:data:`PACKAGE_TEST_ROOTS`), walked once per process."""
+    root = CI_YML.parents[2]
+    return tuple(
+        path for tree in ("tests", *PACKAGE_TEST_ROOTS) for path in (root / tree).rglob("test_*.py")
+    )
 
 
 @functools.cache
@@ -3389,7 +3408,7 @@ def _gate_runs_missing(source: str, row: LaneLeavingMarker) -> list[str]:
     the sweep over the whole suite (empty = both are wired)."""
     missing = []
     serial = [line for line in _script_pytest_lines(source) if row.selected_by(line)]
-    if not any(re.search(r"(?<!\S)tests/", line) for line in serial):
+    if not any(re.search(r"(?<!\S)(?:packages/[\w.-]+/)?tests/", line) for line in serial):
         missing.append("serial run")
     if not any("--ignore=tests/e2e" in line for line in _gate_sweeps(source)):
         missing.append("sweep")
@@ -5234,7 +5253,7 @@ REPO_ROOT = TESTS_ROOT.parent
 #: Workspace packages' own suites, which the root ``testpaths`` lists beside
 #: ``tests``. Each is one entry of the unit shards' partition, like a top-level
 #: ``tests/<dir>``.
-PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests",)
+PACKAGE_TEST_ROOTS = ("packages/osprey-connectors/tests", "packages/osprey-facility/tests")
 
 
 #: The marker a module applies to itself to say it drives a browser. It is
@@ -11251,13 +11270,15 @@ def _framework_build_commands(release: dict[str, Any]) -> list[str]:
 def test_the_framework_release_builds_its_lockstep_members_only(
     release: dict[str, Any] | None = None,
 ) -> None:
-    """Every workspace member but osprey-connectors rides the v-tag; a member
-    added later fails here until the release builds it."""
+    """Every workspace member but osprey-connectors and osprey-facility rides
+    the v-tag (osprey-facility has no release until its own tag stream exists);
+    a member added later fails here until the release builds it."""
     release = release if release is not None else _load_release()
     members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
         "members"
     ]
-    lockstep = sorted(Path(m).name for m in members if Path(m).name != "osprey-connectors")
+    own_streams = {"osprey-connectors", "osprey-facility"}
+    lockstep = sorted(Path(m).name for m in members if Path(m).name not in own_streams)
     expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
     assert _framework_build_commands(release) == expected, (
         f"the framework release builds {_framework_build_commands(release)}"
@@ -12912,6 +12933,7 @@ PACKAGE_JOB = "package"
 PYAML_WHEEL_GLOBS = (
     "dist/osprey_framework-*.whl",
     "dist/osprey_connectors-*.whl",
+    "dist/osprey_facility-*.whl",
     "dist/pyaml_cs_osprey-*.whl",
 )
 RELEASE_VERIFY_JOB = "verify-pypi-resolvable"
@@ -12934,6 +12956,7 @@ def test_the_coverage_cell_measures_the_pyaml_member(workflow: dict[str, Any]) -
         f"the coverage cell does not measure the pyAML member; COV_ARGS names {flags}"
     )
     assert "--cov=packages/osprey-connectors/src/osprey_connectors" in flags
+    assert "--cov=packages/osprey-facility/src/osprey_facility" in flags
 
 
 def test_the_coverage_cell_measures_the_pyaml_member__mutation_drops_the_flag() -> None:
@@ -13122,6 +13145,53 @@ def test_the_release_gate_stages_every_member_wheel__mutation_stages_the_wrong_s
     mutated = _with_staging(yaml.safe_load(RELEASE_YML.read_text()), staging)
     with pytest.raises(AssertionError, match="wrong sibling set"):
         _assert_release_stages_every_member_wheel(mutated, tmp_path)
+
+
+def test_the_release_resolves_osprey_facility_from_pypi_only(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """osprey-facility releases on its own tags, so the framework release
+    builds no wheel of it and the PyPI gate never installs it from the
+    checkout: a framework that needs it publishes only once PyPI has it."""
+    release = release if release is not None else _load_release()
+    names = ("osprey-facility", "osprey_facility")
+    built = [c for c in _framework_build_commands(release) if any(n in c for n in names)]
+    assert not built, f"the framework release builds osprey-facility: {built}"
+    verify = yaml.safe_dump(release["jobs"][RELEASE_VERIFY_JOB]["steps"])
+    assert not any(n in verify for n in names), (
+        f"{RELEASE_VERIFY_JOB} installs osprey-facility from the checkout"
+    )
+    needs = release["jobs"][PUBLISH_JOB]["needs"]
+    needs = [needs] if isinstance(needs, str) else needs
+    assert RELEASE_VERIFY_JOB in needs, f"{PUBLISH_JOB} publishes without {RELEASE_VERIFY_JOB}"
+
+
+def test_the_release_resolves_osprey_facility__mutation_builds_it() -> None:
+    mutated = _load_release()
+    step = next(s for s in mutated["jobs"]["build"]["steps"] if s.get("name") == "Build packages")
+    step["run"] += "uv build --package osprey-facility\n"
+    with pytest.raises(AssertionError, match="the framework release builds osprey-facility"):
+        test_the_release_resolves_osprey_facility_from_pypi_only(mutated)
+
+
+def test_the_release_resolves_osprey_facility__mutation_installs_it_locally() -> None:
+    mutated = _load_release()
+    for step in mutated["jobs"][RELEASE_VERIFY_JOB]["steps"]:
+        if RELEASE_SIBLING_DIR in str(step.get("run", "")):
+            step["run"] = (
+                f"uv build --package osprey-facility --out-dir {RELEASE_SIBLING_DIR}\n"
+                + step["run"]
+            )
+    with pytest.raises(AssertionError, match="installs osprey-facility from the checkout"):
+        test_the_release_resolves_osprey_facility_from_pypi_only(mutated)
+
+
+def test_the_release_resolves_osprey_facility__mutation_publish_skips_the_gate() -> None:
+    mutated = _load_release()
+    job = mutated["jobs"][PUBLISH_JOB]
+    job["needs"] = [n for n in job["needs"] if n != RELEASE_VERIFY_JOB]
+    with pytest.raises(AssertionError, match="publishes without"):
+        test_the_release_resolves_osprey_facility_from_pypi_only(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -13973,14 +14043,16 @@ def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str,
     """Only the connectors leave the workspace. ``--no-sources`` drops every
     workspace source (``--no-sources-package osprey-connectors`` alone leaves the
     root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
-    the workspace pyaml-cs-osprey and osprey-optimizer are named by their paths or
-    they would come from PyPI."""
+    the workspace pyaml-cs-osprey, osprey-optimizer and osprey-facility are named
+    by their paths or they would come from PyPI (where osprey-facility has no
+    release)."""
     install = _find_named_step(
         workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
     )["run"]
     assert "--no-sources " in install
     assert "-e ./packages/pyaml-cs-osprey " in install
     assert "-e ./packages/osprey-optimizer " in install
+    assert "-e ./packages/osprey-facility " in install
     assert '"osprey-connectors==$FLOOR"' in install
 
 
@@ -14986,6 +15058,9 @@ CHECKS_WITHOUT_A_CI_STEP = {
     # The wall-clock budgets run alone in the lane that hosts their marker
     # (LANE_LEAVING_MARKERS), on a runner with no xdist workers beside them.
     "pytest-wallclock": "its suite runs serially in the lane that hosts the wallclock marker",
+    # The same for the facility wheel-contents tests: the standalone job builds
+    # the wheel once and runs them against it (LANE_LEAVING_MARKERS).
+    "facility-wheel-build": "its tests run in the lane that hosts the wheel_build marker",
     # A test module the sweep collects on a full-history checkout runs each of
     # these on the whole tree; SWEPT_CHECK_TESTS names it.
     "config-keys": "its guard and back-test run in a module of the parallel sweep",

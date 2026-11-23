@@ -90,6 +90,7 @@ INVARIANT_TESTS = (
     "tests/interfaces/test_js_module_tests.py",
     "tests/interfaces/test_page_ready_guard.py",
     "tests/interfaces/test_page_ready_pages.py",
+    "tests/facility/test_no_old_facility_paths.py",
     "tests/facility/test_package_boundary.py",
     "tests/facility/test_reader_coverage.py",
     "tests/deployment/test_ci_workflow_wiring.py",
@@ -634,10 +635,13 @@ _MACOS_RUNS = (
     "tests/test_e2e_chart_value_reading_build.py",
 )
 
+#: The sweep's roots. An explicit path replaces testpaths, so each package's own
+#: suite runs only where it is named; the ``rest-b`` shard takes what the other
+#: shards leave of them.
+_SWEEP_ROOTS = ("tests/", "packages/osprey-connectors/tests", "packages/osprey-facility/tests")
+
 UNIT_SELECTION = UnitSelection(
-    # An explicit path replaces testpaths, so the connectors package's own
-    # suite runs only where it is named.
-    roots=("tests/", "packages/osprey-connectors/tests"),
+    roots=_SWEEP_ROOTS,
     ignores=(
         ("tests/e2e", "e2e-tests"),
         ("tests/va/test_apply_fault.py", "live-ca"),
@@ -651,18 +655,16 @@ UNIT_SELECTION = UnitSelection(
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
     ),
-    # A `canopy` test needs CANOPY installed and refuses to skip; the CANOPY
-    # integration's `canopy-contract` check runs them.
-    marker="not pty and not wallclock and not canopy",
-    quick_marker="not pty and not wallclock and not canopy and not slow",
+    # A `wheel_build` test reads a built facility wheel; the package's standalone
+    # CI job builds one and runs them. A `canopy` test needs CANOPY installed and
+    # refuses to skip; the CANOPY integration's `canopy-contract` check runs them.
+    marker="not pty and not wallclock and not wheel_build and not canopy",
+    quick_marker="not pty and not wallclock and not wheel_build and not canopy and not slow",
     shards={
         "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
         "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (
-            ("tests/", "packages/osprey-connectors/tests"),
-            ("tests/cli", *_REST_A, *_REST_C),
-        ),
+        "rest-b": (_SWEEP_ROOTS, ("tests/cli", *_REST_A, *_REST_C)),
         "rest-c": (_REST_C, ()),
     },
     subsets={"macos": _MACOS_RUNS},
@@ -1253,12 +1255,13 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         *("dist/osprey_connectors-*.whl", "dist/osprey_optimizer-*.whl"),
     ),
     ("{scratch}/optimizer/bin/python", "-c", OPTIMIZER_BASE_PROBE),
+    ("uv", "build", "--package", "osprey-facility"),
     ("uv", "build", "--package", "pyaml-cs-osprey"),
     ("uv", "venv", "{scratch}/pyaml", "--python", "3.11"),
     (
         *("uv", "pip", "install", "--python", "{scratch}/pyaml/bin/python"),
         *("dist/osprey_framework-*.whl", "dist/osprey_connectors-*.whl"),
-        "dist/pyaml_cs_osprey-*.whl",
+        *("dist/osprey_facility-*.whl", "dist/pyaml_cs_osprey-*.whl"),
     ),
     ("{scratch}/pyaml/bin/python", "-c", PYAML_WHEEL_PROBE),
 )

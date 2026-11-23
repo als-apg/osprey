@@ -20,6 +20,11 @@ on:
 # be that gate: it installs with `--find-links dist`, so any unpublished sibling
 # resolves locally there.) A framework that needs a newer connectors release
 # raises the floor only after release-connectors.yml has published it.
+# osprey-facility is not built here either: it will have its own
+# osprey-facility-v* stream and has no release yet, so the framework declares
+# it without a floor and verify-pypi-resolvable must find it on PyPI, never in
+# this run's dist/. Until it is published, that gate holds every framework
+# publish.
 
 # Nothing at workflow level writes. The two jobs that do — the PyPI upload
 # (`id-token`) and the GitHub release (`contents`) — say so in their own block,
@@ -131,8 +136,9 @@ jobs:
       # rather than `--all-packages`: osprey-connectors is a workspace member
       # too, but it releases from its own tags (release-connectors.yml), and a
       # wheel of it built here would carry the framework-tag checkout's
-      # connectors number. tests/deployment/test_ci_workflow_wiring.py holds
-      # this list to the workspace members minus osprey-connectors.
+      # connectors number. osprey-facility is left out the same way: it has
+      # its own tag stream. tests/deployment/test_ci_workflow_wiring.py holds
+      # this list to the workspace members minus those two.
       run: |
         uv build
         uv build --package osprey-optimizer
