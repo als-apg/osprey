@@ -22,8 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import click
-
+from osprey.facility.errors import FacilityUsageError
 from osprey.facility.layers.mml.loaders import LoadedInput
 from osprey.facility.layers.mml.mapping import exported_text
 from osprey.facility.layers.mml.normalize import normalize_family
@@ -49,12 +48,12 @@ def resolve_system(loaded: LoadedInput, explicit: str | None) -> str | None:
         whose systems are its own top-level keys (see :func:`input_systems`).
 
     Raises:
-        click.UsageError: A system-keyed input was given ``--system``, a token
+        FacilityUsageError: A system-keyed input was given ``--system``, a token
             starts with ``_``, or no rule yields a token for a flat input.
     """
     if loaded.system_keyed:
         if explicit is not None:
-            raise click.UsageError(
+            raise FacilityUsageError(
                 f"{loaded.source} is keyed by system and names its own systems; "
                 "drop --system for this input."
             )
@@ -71,7 +70,7 @@ def resolve_system(loaded: LoadedInput, explicit: str | None) -> str | None:
     if ad_submachine is not None:
         return _checked_token(ad_submachine, loaded, "AD.SubMachine")
 
-    raise click.UsageError(
+    raise FacilityUsageError(
         f"Cannot tell which system {loaded.source} belongs to: it has no "
         "_export.submachine and no AD.SubMachine; pass --system TOKEN for it."
     )
@@ -89,7 +88,7 @@ def input_systems(loaded: LoadedInput, explicit: str | None) -> list[str]:
         otherwise the single resolved token.
 
     Raises:
-        click.UsageError: As :func:`resolve_system`.
+        FacilityUsageError: As :func:`resolve_system`.
     """
     token = resolve_system(loaded, explicit)
     if token is not None:
@@ -99,7 +98,7 @@ def input_systems(loaded: LoadedInput, explicit: str | None) -> list[str]:
         if not isinstance(key, str) or key.startswith("_"):
             continue
         if exported_text(key) != key:
-            raise click.UsageError(
+            raise FacilityUsageError(
                 f"Invalid system key {key!r} in {loaded.source}: a system token is a "
                 "non-empty name without surrounding whitespace."
             )
@@ -124,7 +123,7 @@ def merge_inputs(
         normalised as a family body whether or not it holds a channel key.
 
     Raises:
-        click.UsageError: A system token is resolved twice, or as
+        FacilityUsageError: A system token is resolved twice, or as
             :func:`resolve_system`.
     """
     ao: dict[str, Any] = {}
@@ -136,7 +135,7 @@ def merge_inputs(
     for loaded, explicit in inputs:
         for system in input_systems(loaded, explicit):
             if system in seen:
-                raise click.UsageError(
+                raise FacilityUsageError(
                     f"System {system!r} is imported twice, from {seen[system].source} "
                     f"and from {loaded.source}; give each input a distinct system."
                 )
@@ -185,7 +184,7 @@ def _without_export(ad: dict) -> dict:
 def _checked_token(token: object, loaded: LoadedInput, origin: str) -> str:
     text = exported_text(token)
     if text is None or text.startswith("_"):
-        raise click.UsageError(
+        raise FacilityUsageError(
             f"Invalid system token {token!r} for {loaded.source} (from {origin}): "
             "a system token is a non-empty name that does not start with '_'."
         )

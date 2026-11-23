@@ -19,9 +19,10 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, read_mapping
+from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
 from osprey_connectors.simulation.engines import Linear, Table
 from tests.facility._mml_built import MmlImport, load_yaml, read_yaml

@@ -15,12 +15,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
 import numpy as np
 import pytest
 from scipy.io import savemat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
+from osprey.facility.errors import FacilityInputError
 from osprey.facility.layers.mml.loaders import LoadedInput
 from osprey.facility.layers.mml.loaders.mat import decode, load_lattice, load_mat
 from osprey.facility.layers.mml.normalize import normalize_family
@@ -144,7 +144,7 @@ class TestLoadMat:
         """A file without AO raises a ClickException naming the file."""
         path = tmp_path / "noao.mat"
         savemat(str(path), {"other": 1})
-        with pytest.raises(click.ClickException, match="noao.mat"):
+        with pytest.raises(FacilityInputError, match="noao.mat"):
             load_mat(path)
 
 
@@ -158,7 +158,7 @@ class TestV73Refusal:
         text = b"MATLAB 7.3 MAT-file, Platform: GLNXA64, Created on: Mon Jan  1 00:00:00 2026 HDF5"
         header = text.ljust(116, b" ") + b"\x00" * 8 + version_and_endian
         path.write_bytes(header + b"\x89HDF\r\n\x1a\n" + b"\x00" * 256)
-        with pytest.raises(click.ClickException) as excinfo:
+        with pytest.raises(FacilityInputError) as excinfo:
             load_mat(path)
         message = excinfo.value.message
         assert "save('-v7', ...)" in message
@@ -231,7 +231,7 @@ class TestLatticeInput:
         path = tmp_path / "both.mat"
         ring = _cell({"FamName": "DR", "Length": 1.0, "PassMethod": "DriftPass"})
         savemat(str(path), {"AO": {"HCM": {"FamilyName": "HCM"}}, "THERING": ring})
-        with pytest.raises(click.ClickException, match="both.mat"):
+        with pytest.raises(FacilityInputError, match="both.mat"):
             load_mat(path)
 
     def test_loading_the_lattice_keeps_the_ringparam_and_matlab_indices(self):
@@ -272,5 +272,5 @@ class TestLatticeInput:
         """A ``THERING`` pyAT cannot build raises a message naming the file."""
         path = tmp_path / "broken.mat"
         savemat(str(path), {"THERING": _cell({"FamName": "DR", "PassMethod": "DriftPass"})})
-        with pytest.raises(click.ClickException, match="broken.mat"):
+        with pytest.raises(FacilityInputError, match="broken.mat"):
             load_lattice(path)

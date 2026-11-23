@@ -19,11 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import click
 import numpy as np
 from scipy.io import loadmat, whosmat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
+from osprey.facility.errors import FacilityInputError
 from osprey.facility.layers.mml.loaders import LoadedInput
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ def load_mat(path: Path | str) -> LoadedInput:
         lattice is read on demand by :func:`load_lattice`.
 
     Raises:
-        click.ClickException: The file is a v7.3 (HDF5) MAT-file, cannot be
+        FacilityInputError: The file is a v7.3 (HDF5) MAT-file, cannot be
             read, carries both a lattice and an ``AO``, or carries neither.
     """
     path = Path(path)
@@ -64,7 +64,7 @@ def load_mat(path: Path | str) -> LoadedInput:
     names = _variable_names(path)
     if LATTICE_VARIABLE in names:
         if any(name in names for name in _AO_NAMES):
-            raise click.ClickException(
+            raise FacilityInputError(
                 f"MAT-file {path} carries both {LATTICE_VARIABLE} and an AO variable; "
                 "save the lattice and the Accelerator Objects as separate files."
             )
@@ -74,19 +74,19 @@ def load_mat(path: Path | str) -> LoadedInput:
     try:
         variables = loadmat(str(path), struct_as_record=False, squeeze_me=True)
     except Exception as exc:  # scipy raises several unrelated types on bad input
-        raise click.ClickException(f"Cannot read MAT-file {path}: {exc}") from exc
+        raise FacilityInputError(f"Cannot read MAT-file {path}: {exc}") from exc
 
     ao_raw = _first_present(variables, _AO_NAMES)
     if ao_raw is None:
-        raise click.ClickException(f"MAT-file {path} has no AO or ao variable.")
+        raise FacilityInputError(f"MAT-file {path} has no AO or ao variable.")
     ao = decode(ao_raw)
     if not isinstance(ao, dict):
-        raise click.ClickException(f"The AO variable in MAT-file {path} is not a struct.")
+        raise FacilityInputError(f"The AO variable in MAT-file {path} is not a struct.")
 
     ad_raw = _first_present(variables, _AD_NAMES)
     ad = None if ad_raw is None else decode(ad_raw)
     if ad is not None and not isinstance(ad, dict):
-        raise click.ClickException(f"The AD variable in MAT-file {path} is not a struct.")
+        raise FacilityInputError(f"The AD variable in MAT-file {path} is not a struct.")
 
     return LoadedInput(ao=ao, ad=ad, export=None, system_keyed=False, source=path)
 
@@ -107,7 +107,7 @@ def load_lattice(path: Path | str) -> at.Lattice:
         The lattice, with its elements in saved order.
 
     Raises:
-        click.ClickException: The file carries no readable lattice; the message
+        FacilityInputError: The file carries no readable lattice; the message
             names the file.
     """
     import at
@@ -116,7 +116,7 @@ def load_lattice(path: Path | str) -> at.Lattice:
     try:
         return at.load_mat(str(path), use=LATTICE_VARIABLE, keep_all=True, periodicity=1)
     except Exception as exc:  # pyAT raises several unrelated types on a bad deck
-        raise click.ClickException(f"Cannot read the lattice in {path}: {exc}") from exc
+        raise FacilityInputError(f"Cannot read the lattice in {path}: {exc}") from exc
 
 
 def decode(value: Any) -> Any:
@@ -170,7 +170,7 @@ def _variable_names(path: Path) -> set[str]:
     try:
         return {name for name, _shape, _dtype in whosmat(str(path))}
     except Exception as exc:  # scipy raises several unrelated types on bad input
-        raise click.ClickException(f"Cannot read MAT-file {path}: {exc}") from exc
+        raise FacilityInputError(f"Cannot read MAT-file {path}: {exc}") from exc
 
 
 def _first_present(variables: dict, names: tuple[str, ...]) -> Any:
@@ -187,13 +187,13 @@ def _refuse_hdf5(path: Path) -> None:
         with path.open("rb") as handle:
             header = handle.read(_HEADER_LENGTH)
     except OSError as exc:
-        raise click.ClickException(f"Cannot read MAT-file {path}: {exc}") from exc
+        raise FacilityInputError(f"Cannot read MAT-file {path}: {exc}") from exc
     if len(header) < _HEADER_LENGTH:
         return
     version = header[_VERSION_OFFSET:_ENDIAN_OFFSET]
     major = version[1] if header[_ENDIAN_OFFSET:_HEADER_LENGTH] == b"IM" else version[0]
     if major == _HDF5_MAJOR_VERSION:
-        raise click.ClickException(
+        raise FacilityInputError(
             f"MAT-file {path} is version 7.3 (HDF5), which cannot be read. "
             "Re-save it in MATLAB with save('-v7', ...) and try again."
         )

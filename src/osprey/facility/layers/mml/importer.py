@@ -86,13 +86,12 @@ from __future__ import annotations
 
 import shutil
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any
 
-import click
-
+from osprey.facility.errors import FacilityUsageError, ImportStop, MappingProblems
 from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey.facility.layers.mml.identity import (
     common_class,
@@ -105,7 +104,6 @@ from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     READBACK_ROLE,
     SETPOINT_ROLE,
-    ImportStop,
     Mapping,
     Problem,
     TuneBlock,
@@ -129,7 +127,6 @@ __all__ = [
     "MODEL_SUFFIX",
     "TRANSPORT",
     "Exports",
-    "MappingProblems",
     "check_decks",
     "import_mml",
     "read_exports",
@@ -220,10 +217,10 @@ def read_exports(paths: Sequence[Path]) -> Exports:
         The merged export and every sibling found.
 
     Raises:
-        click.ClickException: An input cannot be read or names no system.
+        FacilityInputError: An input cannot be read.
+        FacilityUsageError: An input names no system or names one twice, or
+            a deck is named in place of an export's AO file.
     """
-    import click
-
     from osprey.facility.layers.mml.loaders.json_any import (
         AO_SUFFIX,
         LATTICE_SUFFIX,
@@ -242,7 +239,7 @@ def read_exports(paths: Sequence[Path]) -> Exports:
 
             loaded = load_mat(path)
             if loaded.lattice is not None:
-                raise click.UsageError(
+                raise FacilityUsageError(
                     f"Cannot import {path}: it is a deck; name the export's AO file."
                 )
         else:
@@ -356,43 +353,16 @@ def check_decks(exports: Exports) -> list[str]:
     return lines
 
 
-class MappingProblems(click.ClickException):
-    """The mapping fails its check: one line per problem, then how many there are.
-
-    Args:
-        path: The mapping file.
-        problems: What the check refused, in its order.
-    """
-
-    exit_code = 1
-
-    def __init__(self, path: Path, problems: Sequence[Problem]) -> None:
-        self.path = path
-        self.problems = tuple(problems)
-        count = len(self.problems)
-        noun = "problem" if count == 1 else "problems"
-        lines = [str(problem) for problem in self.problems]
-        lines.append(f"{count} {noun} in {path}; fix each and check again.")
-        super().__init__("\n".join(lines))
-
-    def show(self, file: IO[Any] | None = None) -> None:
-        """Write the lines alone, with no ``Error: `` prefix.
-
-        Args:
-            file: The stream to write to; stderr when omitted.
-        """
-        if file is None:
-            click.echo(self.format_message(), err=True, color=self.show_color)
-        else:
-            click.echo(self.format_message(), file=file, color=self.show_color)
-
-
-def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
+def import_mml(
+    paths: Sequence[Path], facility_dir: Path, echo: Callable[[str], None] = print
+) -> list[Path]:
     """Import MML exports as the mml layer's record sources and seed the authored files.
 
     Args:
         paths: The exports' AO files.
         facility_dir: The ``data/facility`` directory.
+        echo: Receives each progress line (deck checks, tolerance count,
+            wiring and seeding notes), in the order the import reaches it.
 
     Returns:
         Every file written, in write order: the layer's records, then each
@@ -413,25 +383,27 @@ def import_mml(paths: Sequence[Path], facility_dir: Path) -> list[Path]:
 
     exports = read_exports(paths)
     for line in check_decks(exports):
-        click.echo(line)
+        echo(line)
     mapping = load_or_draft(facility_dir, exports.ao, exports.ad or None, exports.va or None)
     problems = check_mapping(mapping, exports.ao, signals=facility_signals(facility_dir))
     if problems:
         raise MappingProblems(facility_dir / MAPPING_FILE, problems)
     judged, views = _carried(exports, mapping)
-    written, untoleranced = _write_records(exports, mapping, facility_dir, judged, views)
+    written, untoleranced = _write_records(exports, mapping, facility_dir, judged, views, echo)
     if untoleranced:
-        click.echo(f"{untoleranced} setpoint devices export no usable `Setpoint.Tolerance`")
+        echo(f"{untoleranced} setpoint devices export no usable `Setpoint.Tolerance`")
     seeded = seed_once(exports, mapping, facility_dir, views)
     for line in seeded.lines:
-        click.echo(line)
+        echo(line)
     return [*written, *seeded.written]
 
 
 # -- records ------------------------------------------------------------------
 
 
-def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> list[Path]:
+def write_records(
+    exports: Exports, mapping: Mapping, facility_dir: Path, echo: Callable[[str], None] = print
+) -> list[Path]:
     """Write the layer's record files and decks and copy each response export.
 
     Args:
@@ -439,6 +411,7 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
         mapping: The layer's mapping, every slot decided and its check
             against these exports clean.
         facility_dir: The ``data/facility`` directory.
+        echo: Receives each line the wiring pass reports.
 
     Returns:
         Every file written, in write order.
@@ -459,7 +432,7 @@ def write_records(exports: Exports, mapping: Mapping, facility_dir: Path) -> lis
     if unnamed:
         raise MappingProblems(facility_dir / MAPPING_FILE, unnamed)
     judged, views = _carried(exports, mapping)
-    return _write_records(exports, mapping, facility_dir, judged, views)[0]
+    return _write_records(exports, mapping, facility_dir, judged, views, echo)[0]
 
 
 def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
@@ -489,6 +462,7 @@ def _write_records(
     facility_dir: Path,
     judged: dict[str, dict[str, FamilyView]],
     views: list[FamilyView],
+    echo: Callable[[str], None],
 ) -> tuple[list[Path], int]:
     """Write the layer's files from the families as :func:`_carried` judged them.
 
@@ -569,7 +543,7 @@ def _write_records(
             stale.unlink()
     written.extend(_copy_responses(exports, mapping, layer))
     for line in lines:
-        click.echo(line)
+        echo(line)
     untoleranced -= {address for address, channel in channels.items() if "tolerance" in channel}
     return written, len(untoleranced)
 
