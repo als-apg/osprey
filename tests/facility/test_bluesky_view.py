@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.bluesky import (
     BLUESKY_DEVICES_FILE,
     BLUESKY_DEVICES_SCHEMA,
@@ -27,6 +26,8 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
+from osprey_facility.records import FacilityRecords
+from tests._facility_file import FACILITY_V4
 from tests.facility.test_cf_view_parity import fingerprint_rows, load_golden
 
 if TYPE_CHECKING:
@@ -406,7 +407,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     (view,) = [view for view in views.VIEWS if view.name == "bluesky"]
     monkeypatch.setattr(views, "VIEWS", (view,))
@@ -416,7 +417,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
         render_dir.mkdir()
         render_facility_outputs(
             render_dir,
-            {"channels": []},
+            {"schema": FACILITY_V4, "channels": []},
             {"services": {}},
             tmp_path / "facility",
             omitted_reported=reported,

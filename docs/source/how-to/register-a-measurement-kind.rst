@@ -20,7 +20,7 @@ The worked example is the package ``fixture-kind-deployment`` under
 1. Declare the kind
 ===================
 
-A kind is one ``KindDeclaration`` from ``osprey.facility.kinds``, the only
+A kind is one ``KindDeclaration`` from ``osprey_facility.kinds``, the only
 OSPREY module the package should import:
 
 .. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
@@ -46,14 +46,14 @@ The full field table is *The declaration* in
 ==============
 
 The package names the declaration under the entry-point group
-``osprey.facility.kinds``, and an engine of its own, when it has one, under
+``osprey_facility.kinds``, and an engine of its own, when it has one, under
 ``osprey_connectors.simulation.engines``:
 
 .. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment-0.1.dist-info/entry_points.txt
    :language: ini
 
 In the package's ``pyproject.toml`` these are the
-``[project.entry-points."osprey.facility.kinds"]`` and
+``[project.entry-points."osprey_facility.kinds"]`` and
 ``[project.entry-points."osprey_connectors.simulation.engines"]`` tables.
 
 3. Install it in both places
@@ -133,7 +133,7 @@ Each stops ``osprey build``, which prints the line and how to fix it.
 
    * - The build says
      - Meaning
-   * - ``kind fixture_kind is not registered under osprey.facility.kinds by any
+   * - ``kind fixture_kind is not registered under osprey_facility.kinds by any
        installed package``
      - A measurement file lists the kind, and no package installed where
        ``osprey build`` runs declares it. A tree that mounts no machine root

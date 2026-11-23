@@ -340,7 +340,9 @@ agents: [<name>]              # optional, each agents/<name>.md
 Files of an app: `app.yml`, `pyproject.toml`, `<package>/{__init__,server,tools}.py`,
 `panel/{index.html,panel.js,panel.css}`, `tests/panel.test.js`,
 `skills/<name>/SKILL.md`, `agents/<name>.md`. Application code imports `osprey.apps.sdk`,
-`osprey.facility.kinds` and `osprey_connectors`, nothing else of OSPREY.
+`osprey_facility.kinds` and the public `osprey_connectors` modules, nothing else of OSPREY:
+`osprey app check` refuses any other `osprey_facility` import, `osprey_facility.records`
+included.
 
 The narrative version of all this, with the worked example, is the
 documentation's *How-to: Apps* section (*Build Your Own App*).

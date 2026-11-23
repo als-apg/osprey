@@ -18,10 +18,10 @@ from typing import Any
 import pytest
 
 from osprey.apps.sdk.testing import model
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import write_simulator_view
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 from tests.facility._pyaml_trees import built_document, measured_tree, view_inputs
 
 #: A reading and a setpoint the measured tree wires, and a second address for each.

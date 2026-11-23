@@ -10,7 +10,10 @@ import-linter contracts behind it, would fail on a forbidden edge. Nothing here 
   A hand-written contract would prove nothing: the point is that the shipped lists bite
   through import-linter's overlap skip (success criterion C6).
 * **Dynamic reaches and third-party imports** (A1, A2) are invisible to import-linter, so
-  they run the scan of ``test_package_boundary`` on a temporary ``src`` tree.
+  they run the scan of ``test_package_boundary`` on a temporary ``src`` tree holding both
+  ``osprey`` and ``osprey_facility``, as one site-packages does.
+* **The public set**: a public row of ``facility-public-api``'s comment without exactly one
+  consumer is reported.
 
 Both boundary files together stay under 10 s (SM-3). The contract classes and the option
 reader are import-linter internals; the dev pin (``<3``) holds their shape.
@@ -39,8 +42,10 @@ from tests.facility.test_package_boundary import (
     PANELS,
     REPO,
     THIRD_PARTY_RATCHET,
+    consumer_faults,
     crossed_row,
     dynamic_edges,
+    public_rows,
     read_sides,
     third_party_edges,
 )
@@ -101,29 +106,35 @@ def test_the_real_tree_keeps_every_facility_contract(shipped: Shipped) -> None:
     ("importer", "imported", "contract"),
     [
         pytest.param(
-            "osprey.facility.build",
+            "osprey_facility.build",
             "osprey.cli.facility_cmd",
             "facility-description-standalone",
             id="S1-description-to-framework",
         ),
         pytest.param(
-            "osprey.facility.build", "osprey", "facility-description-standalone", id="S1-to-root"
+            "osprey_facility.build", "osprey", "facility-description-standalone", id="S1-to-root"
         ),
         pytest.param(
-            "osprey.facility.compute",
+            "osprey_facility.compute",
             "osprey.simulation.engines.pyat",
             "facility-description-standalone",
             id="S1-description-to-engines",
         ),
         pytest.param(
-            "osprey.facility.build",
-            "osprey.facility.panels.emit",
-            "facility-description-without-panels",
-            id="S2-description-to-panels",
+            "osprey_facility",
+            "osprey.cli",
+            "facility-description-standalone",
+            id="S1-package-root-to-framework",
+        ),
+        pytest.param(
+            "osprey_facility.layers.mml.importer",
+            "osprey.facility",
+            "facility-description-standalone",
+            id="S1-description-to-framework-facility",
         ),
         pytest.param(
             "osprey.facility.panels.emit",
-            "osprey.facility.records",
+            "osprey_facility.records",
             "panels-document-only",
             id="S3-panels-to-description",
         ),
@@ -153,18 +164,30 @@ def test_the_real_tree_keeps_every_facility_contract(shipped: Shipped) -> None:
         ),
         pytest.param(
             "osprey.cli.main",
-            "osprey.facility.compute",
+            "osprey_facility.compute",
             "facility-public-api",
             id="S6-framework-to-non-public",
         ),
         pytest.param(
             "osprey.cli.main",
-            "osprey.facility.layers.relations.claims",
+            "osprey_facility.layers.relations.claims",
             "facility-public-api",
             id="S6-framework-to-non-public-wildcard",
         ),
         pytest.param(
-            "osprey.facility.render",
+            "osprey.cli.facility_cmd",
+            "osprey_facility.schema.compat",
+            "facility-public-api",
+            id="S6-framework-to-private-module-of-a-public-package",
+        ),
+        pytest.param(
+            "osprey.facility.views",
+            "osprey_facility.layers.mml",
+            "facility-public-api",
+            id="S6-framework-to-private-package",
+        ),
+        pytest.param(
+            "osprey_facility.render",
             "osprey.facility.views.simulator",
             "facility-description-standalone",
             id="CC5-new-edge-in-a-module-with-ratchet-entries",
@@ -179,20 +202,58 @@ def test_a_new_static_import_breaks_its_contract(
     )
 
 
-def test_an_import_of_a_public_description_module_breaks_nothing(shipped: Shipped) -> None:
-    """The control for S6: the framework may use the description's public modules."""
-    assert shipped.broken(shipped.with_edge("osprey.cli.main", "osprey.facility.render")) == set()
+@pytest.mark.parametrize(
+    ("importer", "imported", "contracts"),
+    [
+        pytest.param(
+            "osprey_facility.build",
+            "osprey.facility.panels.emit",
+            {"facility-description-standalone", "facility-description-without-panels"},
+            id="S1-S2-description-to-panels",
+        ),
+        pytest.param(
+            "osprey.facility.panels.emit",
+            "osprey_facility.compute",
+            {"panels-document-only", "facility-public-api"},
+            id="S3-S6-panels-to-non-public",
+        ),
+    ],
+)
+def test_an_edge_across_two_rows_breaks_both(
+    shipped: Shipped, importer: str, imported: str, contracts: set[str]
+) -> None:
+    """S1 forbids all of ``osprey``, the panel engine included, and S6 allows only the
+    package's own modules, so these edges cross two rows each."""
+    assert shipped.broken(shipped.with_edge(importer, imported)) == contracts
+
+
+@pytest.mark.parametrize(
+    ("importer", "imported"),
+    [
+        pytest.param("osprey.cli.main", "osprey_facility.render", id="framework-to-public"),
+        pytest.param("osprey.cli.main", "osprey_facility.schema", id="framework-to-public-schema"),
+        pytest.param(
+            "osprey_facility.build", "osprey_facility.compute", id="package-internal-private"
+        ),
+        pytest.param(
+            "osprey_facility",
+            "osprey_facility.layers.relations.claims",
+            id="package-root-to-private-wildcard",
+        ),
+        pytest.param(
+            "osprey_facility.build", "osprey_connectors.config", id="description-to-connectors"
+        ),
+    ],
+)
+def test_an_allowed_import_breaks_nothing(shipped: Shipped, importer: str, imported: str) -> None:
+    """The controls for S1 and S6: the framework may use the public modules, and the
+    package its own private modules and osprey_connectors."""
+    assert shipped.broken(shipped.with_edge(importer, imported)) == set()
 
 
 @pytest.mark.parametrize(
     ("importer", "imported", "contract"),
     [
-        pytest.param(
-            "osprey.facility.render",
-            "osprey.facility.views",
-            "facility-description-standalone",
-            id="S1",
-        ),
         pytest.param(
             "osprey.facility.panels.emit",
             "osprey_connectors.safety_file",
@@ -239,51 +300,52 @@ def tree(root: Path, files: Mapping[str, str]) -> Path:
 #: Dynamic reaches into a forbidden module: (module file, its source, expected key, row).
 DYNAMIC_CASES = [
     pytest.param(
-        "osprey/facility/build.py",
+        "osprey_facility/build.py",
         "import importlib\nimportlib.import_module('osprey.cli')\n",
-        "osprey.facility.build -> osprey.cli [import_module]",
+        "osprey_facility.build -> osprey.cli [import_module]",
         "S1",
         id="description-import_module",
     ),
     pytest.param(
-        "osprey/facility/build.py",
+        "osprey_facility/build.py",
         "from importlib.resources import files\nfiles('osprey.cli')\n",
-        "osprey.facility.build -> osprey.cli [files]",
+        "osprey_facility.build -> osprey.cli [files]",
         "S1",
         id="description-resources-files",
     ),
     pytest.param(
-        "osprey/facility/build.py",
-        "from pathlib import Path\nHERE = Path(__file__).parents[1] / 'cli'\n",
-        "osprey.facility.build -> osprey.cli [__file__]",
+        "osprey_facility/build.py",
+        "from pathlib import Path\nHERE = Path(__file__).parents[1] / 'osprey' / 'cli'\n",
+        "osprey_facility.build -> osprey.cli [__file__]",
         "S1",
         id="description-__file__-climb",
     ),
     pytest.param(
-        "osprey/facility/build.py",
+        "osprey_facility/build.py",
         "import importlib\nimportlib.import_module('osprey.facility.panels.emit')\n",
-        "osprey.facility.build -> osprey.facility.panels.emit [import_module]",
+        "osprey_facility.build -> osprey.facility.panels.emit [import_module]",
         "S2",
         id="description-to-panels-import_module",
     ),
     pytest.param(
         "osprey/facility/panels/emit.py",
-        "import importlib\nimportlib.import_module('osprey.facility.records')\n",
-        "osprey.facility.panels.emit -> osprey.facility.records [import_module]",
+        "import importlib\nimportlib.import_module('osprey_facility.records')\n",
+        "osprey.facility.panels.emit -> osprey_facility.records [import_module]",
         "S3",
         id="panels-import_module",
     ),
     pytest.param(
         "osprey/facility/panels/emit.py",
-        "import importlib.resources\nimportlib.resources.files('osprey.facility.records')\n",
-        "osprey.facility.panels.emit -> osprey.facility.records [files]",
+        "import importlib.resources\nimportlib.resources.files('osprey_facility.records')\n",
+        "osprey.facility.panels.emit -> osprey_facility.records [files]",
         "S3",
         id="panels-resources-files",
     ),
     pytest.param(
         "osprey/facility/panels/emit.py",
-        "from pathlib import Path\nDOC = Path(__file__).parent.parent / 'records.py'\n",
-        "osprey.facility.panels.emit -> osprey.facility.records [__file__]",
+        "from pathlib import Path\n"
+        "DOC = Path(__file__).parents[3] / 'osprey_facility' / 'records.py'\n",
+        "osprey.facility.panels.emit -> osprey_facility.records [__file__]",
         "S3",
         id="panels-__file__-climb",
     ),
@@ -303,8 +365,8 @@ DYNAMIC_CASES = [
     ),
     pytest.param(
         "osprey/cli/main.py",
-        "from importlib.resources import files\nfiles('osprey.facility.compute')\n",
-        "osprey.cli.main -> osprey.facility.compute [files]",
+        "from importlib.resources import files\nfiles('osprey_facility.compute')\n",
+        "osprey.cli.main -> osprey_facility.compute [files]",
         "S6",
         id="framework-to-non-public-files",
     ),
@@ -313,8 +375,8 @@ DYNAMIC_CASES = [
 #: Real-tree modules a dynamic case reaches, present so the target resolves exactly.
 _TARGETS = {
     "osprey/cli/__init__.py": "",
-    "osprey/facility/records.py": "",
-    "osprey/facility/compute.py": "",
+    "osprey_facility/records.py": "",
+    "osprey_facility/compute.py": "",
     "osprey/facility/panels/__init__.py": "",
 }
 
@@ -324,7 +386,7 @@ def test_a_dynamic_reach_across_a_row_fails(
     tmp_path: Path, path: str, source: str, key: str, row: str
 ) -> None:
     sides = read_sides()
-    edges = dynamic_edges(tree(tmp_path, {**_TARGETS, path: source}), sides)
+    edges = dynamic_edges((tree(tmp_path, {**_TARGETS, path: source}),), sides)
     assert key in edges.keys() - DYNAMIC_RATCHET.keys(), (
         f"the scan missed {key}; it found {sorted(edges)}"
     )
@@ -335,7 +397,7 @@ def test_a_dynamic_reach_across_a_row_fails(
 def test_the_dynamic_cases_start_on_the_sides_they_claim() -> None:
     """Guards the cases: a renamed module would silently move a case off its side."""
     sides = read_sides()
-    assert sides.of("osprey.facility.build") == DESCRIPTION
+    assert sides.of("osprey_facility.build") == DESCRIPTION
     assert sides.of("osprey.facility.panels.emit") == PANELS
     assert sides.of("osprey.cli.main") == FRAMEWORK
 
@@ -344,21 +406,21 @@ def test_the_dynamic_cases_start_on_the_sides_they_claim() -> None:
     ("path", "source", "key"),
     [
         pytest.param(
-            "osprey/facility/build.py",
+            "osprey_facility/build.py",
             "import requests\n",
-            "osprey.facility.build -> requests",
+            "osprey_facility.build -> requests",
             id="description-outside-its-set",
         ),
         pytest.param(
-            "osprey/facility/build.py",
+            "osprey_facility/build.py",
             "from pyaml_cs_osprey import kinds\n",
-            "osprey.facility.build -> pyaml_cs_osprey",
+            "osprey_facility.build -> pyaml_cs_osprey",
             id="description-to-sibling-pyaml_cs_osprey",
         ),
         pytest.param(
-            "osprey/facility/build.py",
+            "osprey_facility/build.py",
             "import scipy\n",
-            "osprey.facility.build -> scipy",
+            "osprey_facility.build -> scipy",
             id="description-mml-extra-outside-mml",
         ),
         pytest.param(
@@ -378,7 +440,7 @@ def test_the_dynamic_cases_start_on_the_sides_they_claim() -> None:
 def test_a_third_party_import_outside_the_dependency_set_fails(
     tmp_path: Path, path: str, source: str, key: str
 ) -> None:
-    edges = third_party_edges(tree(tmp_path, {path: source}), read_sides())
+    edges = third_party_edges((tree(tmp_path, {path: source}),), read_sides())
     assert key in edges.keys() - THIRD_PARTY_RATCHET.keys(), (
         f"the scan missed {key}; it found {sorted(edges)}"
     )
@@ -387,40 +449,27 @@ def test_a_third_party_import_outside_the_dependency_set_fails(
 def test_a_third_party_import_inside_the_dependency_set_passes(tmp_path: Path) -> None:
     """The control for A1: the ruled sets, the stdlib and the root packages are allowed."""
     files = {
-        "osprey/facility/build.py": "import json\nimport numpy\nimport pydantic\nimport osprey\n",
-        "osprey/facility/layers/mml/importer.py": "import scipy\nimport at\n",
+        "osprey_facility/build.py": "import json\nimport numpy\nimport pydantic\nimport osprey\n",
+        "osprey_facility/layers/mml/importer.py": "import scipy\nimport at\n",
         "osprey/facility/panels/emit.py": "import jsonschema\nimport osprey_connectors\n",
     }
-    assert third_party_edges(tree(tmp_path, files), read_sides()) == {}
+    assert third_party_edges((tree(tmp_path, files),), read_sides()) == {}
 
 
 #: Sources reproducing every scan-ratchet edge, by file.
 _RATCHET_SOURCES = {
-    "osprey/facility/errors.py": "import click\n",
-    "osprey/facility/layers/__init__.py": "import click\n",
-    "osprey/facility/layers/list.py": "import click\n",
-    "osprey/facility/layers/mml/importer.py": "import click\n",
-    "osprey/facility/layers/mml/loaders/json_any.py": "import click\n",
-    "osprey/facility/layers/mml/loaders/mat.py": "import click\n",
-    "osprey/facility/layers/mml/mapping.py": "import click\n",
-    "osprey/facility/layers/mml/systems.py": "import click\n",
-    "osprey/facility/validate.py": "import click\n",
-    "osprey/facility/kinds.py": "import pyaml_cs_osprey\n",
     "osprey/facility/panels/emit.py": (
         "from pathlib import Path\n"
         "THEME = Path(__file__).parents[2] / 'templates' / 'apps' / 'demo'\n"
     ),
     "osprey/templates/apps/demo/__init__.py": "",
-    "osprey/cli/facility_cmd.py": (
-        "from importlib.resources import files\nfiles('osprey.facility.layers.mml')\n"
-    ),
 }
 
 
 def _stale(src: Path) -> set[str]:
     sides = read_sides()
-    return (THIRD_PARTY_RATCHET.keys() - third_party_edges(src, sides).keys()) | (
-        DYNAMIC_RATCHET.keys() - dynamic_edges(src, sides).keys()
+    return (THIRD_PARTY_RATCHET.keys() - third_party_edges((src,), sides).keys()) | (
+        DYNAMIC_RATCHET.keys() - dynamic_edges((src,), sides).keys()
     )
 
 
@@ -433,14 +482,6 @@ def test_a_tree_with_every_scan_ratchet_edge_leaves_no_entry_stale(tmp_path: Pat
     ("path", "key"),
     [
         pytest.param(
-            "osprey/facility/validate.py", "osprey.facility.validate -> click", id="third-party"
-        ),
-        pytest.param(
-            "osprey/cli/facility_cmd.py",
-            "osprey.cli.facility_cmd -> osprey.facility.layers.mml [files]",
-            id="dynamic-files",
-        ),
-        pytest.param(
             "osprey/facility/panels/emit.py",
             "osprey.facility.panels.emit -> osprey.templates.apps.demo [__file__]",
             id="dynamic-__file__",
@@ -452,3 +493,60 @@ def test_deleting_a_scan_ratchet_edge_without_its_entry_fails(
 ) -> None:
     src = tree(tmp_path, {**_RATCHET_SOURCES, path: "\n"})
     assert _stale(src) == {key}
+
+
+def test_a_package_internal_dynamic_reach_crosses_no_row(tmp_path: Path) -> None:
+    """The control for A2 inside the package: its own private modules are its to reach."""
+    source = "from importlib.resources import files\nfiles('osprey_facility.compute')\n"
+    src = tree(tmp_path, {**_TARGETS, "osprey_facility/build.py": source})
+    assert dynamic_edges((src,), read_sides()) == {}
+
+
+# --- the public set ------------------------------------------------------------------------
+
+#: A ``facility-public-api`` block whose rows are good, as the shipped one's.
+_PUBLIC_BLOCK = [
+    'id = "facility-public-api"',
+    "# S6. Public:",
+    "#   `osprey_facility` | framework job: `osprey.cli`, `osprey.facility.views`",
+    "#   `osprey_facility.kinds` | kind plug-in",
+    "#   `osprey_facility.reading` | fork/tool",
+    "# The modules listed below are the rest.",
+    'type = "protected"',
+]
+
+
+def _with_row(row: str) -> list[str]:
+    return [*_PUBLIC_BLOCK[:-2], f"#   {row}", *_PUBLIC_BLOCK[-2:]]
+
+
+def test_a_block_of_good_rows_has_no_consumer_fault() -> None:
+    """The control for the cases below."""
+    rows = public_rows(_PUBLIC_BLOCK)
+    assert [module for module, _ in rows] == [
+        "osprey_facility",
+        "osprey_facility.kinds",
+        "osprey_facility.reading",
+    ]
+    assert consumer_faults(rows) == {}
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        pytest.param("`osprey_facility.build`", id="no-consumer"),
+        pytest.param("`osprey_facility.build` |", id="empty-consumer"),
+        pytest.param("`osprey_facility.build` | fork/tool, app", id="two-consumers"),
+        pytest.param("`osprey_facility.build` | framework job:", id="job-naming-no-module"),
+        pytest.param("`osprey_facility.build` | framework job: osprey.cli", id="job-unquoted"),
+        pytest.param("`osprey_facility.build` | the CLI", id="unknown-consumer"),
+    ],
+)
+def test_a_public_entry_without_exactly_one_consumer_fails(row: str) -> None:
+    faults = consumer_faults(public_rows(_with_row(row)))
+    assert list(faults) == ["osprey_facility.build"], faults
+
+
+def test_a_line_between_the_anchors_that_is_no_row_fails() -> None:
+    with pytest.raises(AssertionError, match="not a `module` \\| consumer row"):
+        public_rows(_with_row("`osprey.facility.build` | fork/tool"))

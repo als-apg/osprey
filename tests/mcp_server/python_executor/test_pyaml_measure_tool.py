@@ -13,6 +13,7 @@ import inspect
 import json
 import os
 import pwd
+import shutil
 import socket
 from pathlib import Path
 from typing import Any
@@ -23,11 +24,12 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from osprey.audit.call import call_scope
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.mcp_server.python_executor import executor, server
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 from osprey.mcp_server.python_executor.tools import pyaml_measure as tool
 from osprey.mcp_server.python_executor.tools._pyaml_measure_script import RESULT_TAG
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 
@@ -516,3 +518,49 @@ def test_the_server_registers_both_tools_only_with_a_pyaml_view(rendered, tmp_pa
         "model_response_matrix",
     }
     assert asyncio.run(without.list_tools()) == []
+
+
+# --- the facility file the script inputs are read from -------------------------------
+
+REBUILD = "-- rebuild with osprey build"
+
+
+def _copied(rendered: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A private copy of the render the tool now reads, its facility document returned."""
+    copy = tmp_path / "render"
+    shutil.copytree(rendered, copy, symlinks=True)
+    monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: copy)
+    return copy
+
+
+def _document(render: Path) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads((render / "facility.json").read_text(encoding="utf-8"))
+    document.pop("schema", None)
+    return document
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_is_refused_before_any_write(gated, rendered, tmp_path, monkeypatch):
+    copy = _copied(rendered, tmp_path, monkeypatch)
+    path = write_facility_document(copy, _document(copy), schema="osprey.facility.facility/3")
+
+    envelope = _error(kind="orm")
+
+    assert envelope["error_type"] == "validation_error"
+    assert envelope["error_message"] == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        f"osprey.facility.facility/4 {REBUILD}"
+    )
+    assert any("osprey build" in hint for hint in envelope["suggestions"])
+    gated.assert_not_called()
+
+
+def test_a_v4_facility_file_reaches_the_gate(gated, rendered, tmp_path, monkeypatch):
+    copy = _copied(rendered, tmp_path, monkeypatch)
+    write_facility_v4(copy, _document(copy))
+    gated.result = _result(_line(kind="orm", refused="stopped here"))
+
+    envelope = _error(kind="orm")
+
+    assert envelope["error_message"] == "stopped here"
+    gated.assert_called_once()

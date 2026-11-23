@@ -14,8 +14,8 @@ import pytest
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.facility import facility_identity
+from osprey_facility.validate import FACILITY_HEADER
 from tests._preset_data import bundle_data_root, create_project_as_built
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 
 from .document import OKFDocument, OKFDocumentError
 from .paths import bundle_markdown_files, load_concept

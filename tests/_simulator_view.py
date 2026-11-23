@@ -7,10 +7,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.sources import read_yaml
 from osprey.facility.views import view_bytes
 from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
 from osprey_connectors.simulation.view import SCHEMAS
+from osprey_facility.sources import read_yaml
 
 #: The documents of a texture-only view with no channels, by file name.
 _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {

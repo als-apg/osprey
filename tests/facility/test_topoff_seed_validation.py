@@ -19,8 +19,9 @@ import pydantic
 import pytest
 import yaml
 
-from osprey.facility.schema import core
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.schema import core
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESEED = REPO_ROOT / "scripts/demo_seeds/reseed.py"
@@ -53,7 +54,11 @@ def _files(seeds: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run(tmp_path: Path, seeds: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", _files(seeds)), project_name="topoff")
+    return run_stages(
+        _write(tmp_path / "facility", _files(seeds)),
+        project_name="topoff",
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
 
 def _lines(report: StageReport) -> list[str]:
@@ -155,7 +160,7 @@ def test_of_names_a_topoff_seed(tmp_path: Path, of: str, seeds: dict[str, Any], 
 
 
 def test_the_example_facility_still_validates() -> None:
-    report = run_stages(EXAMPLE_TREE, project_name="example")
+    report = run_stages(EXAMPLE_TREE, project_name="example", extra_checks=FRAMEWORK_CHECKS)
     assert report.ok, _lines(report)
 
 

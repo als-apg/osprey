@@ -45,6 +45,7 @@ from osprey_connectors.service_answers import (
     Source,
     Unavailable,
 )
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 from tests._vocabulary import PROTOCOL_WORDS
 from tests.mcp_server.conftest import assert_raises_error
@@ -207,7 +208,7 @@ def no_context() -> Iterator[None]:
 def _context(
     tmp_path: Path, control_system: dict[str, Any], section: dict[str, Any] | None
 ) -> server.ToolContext:
-    (tmp_path / "facility.json").write_text(json.dumps({"channels": []}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": []})
     config: dict[str, Any] = {"config_dir": str(tmp_path), "control_system": control_system}
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}

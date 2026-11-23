@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
+import types
 from collections import Counter
 from collections.abc import Callable
 from functools import cached_property
@@ -22,20 +24,22 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.layers import HEADER
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.errors import FacilityBuildError, ImportStop
+from osprey_facility.layers import HEADER
+from osprey_facility.layers.mml import seed as seed_module
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
     read_exports,
     write_records,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families
-from osprey.facility.validate import known_classes, run_stages
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+from osprey_facility.layers.mml.seed import READOUT_FILE, TUNING, band
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families
+from osprey_facility.validate import known_classes, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import (
     BUILT,
     TREES,
@@ -243,7 +247,7 @@ def test_an_existing_classes_file_gains_only_the_classes_it_lacks(
 def test_one_import_judges_each_export_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey.facility.layers.mml import judgments
+    from osprey_facility.layers.mml import judgments
 
     judged: list[str] = []
     judge = judgments.judged_family_views
@@ -343,7 +347,7 @@ def test_band_reads_a_flat_pair_or_the_rows_of_the_devices_on_the_address(
 
 def test_the_build_stops_on_a_nominal_outside_its_range(synthetic: Path) -> None:
     with pytest.raises(FacilityBuildError) as stop:
-        build_facility(synthetic, project_name="demo")
+        build_facility(synthetic, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert (stop.value.kind, stop.value.record_kind, stop.value.record_id) == (
         "seed-invalid",
         "channel",
@@ -353,7 +357,9 @@ def test_the_build_stops_on_a_nominal_outside_its_range(synthetic: Path) -> None
 
 
 def test_the_planted_nominal_is_the_only_stop_of_the_synthetic_tree(synthetic: Path) -> None:
-    report = run_stages(synthetic, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        synthetic, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert [(error.kind, error.record_kind, error.record_id) for error in report.errors] == [
         ("seed-invalid", "channel", OUTSIDE)
     ]
@@ -603,7 +609,7 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
 def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
     imported: _Imported,
 ) -> None:
-    from osprey.facility.kinds import builtin_kinds
+    from osprey_facility.kinds import builtin_kinds
 
     periodic = {
         model["name"]: (model.get("settings") or {}).get(model["engine"], {}).get("solve")
@@ -629,7 +635,7 @@ def test_the_import_seeds_no_kind_a_deployment_package_registers(
     The SPEAR3 export names every member the fixture kind declares, so a seed
     that offered every registered kind would list it.
     """
-    from osprey.facility.kinds import registered
+    from osprey_facility.kinds import registered
     from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
     install(monkeypatch)
@@ -807,7 +813,7 @@ def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_m
 
     facility = imports("synthetic").copy(tmp_path)
     widen(facility, {OUTSIDE: ("max_value", 2.0)})
-    document = build_facility(facility, project_name="demo")
+    document = build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
     seeded = _readout_rows(facility)
     assert seeded == {
@@ -845,6 +851,85 @@ def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
     assert rows
     assert {field for fields in rows.values() for field in fields} == {"roll"}
     assert not [address for address in rows if "Y" in address]
+
+
+def _engines_registered(monkeypatch: pytest.MonkeyPatch, plugins: dict[str, Any]) -> None:
+    """Register each module of ``plugins`` as the engine of its name, and nothing else."""
+    from importlib import metadata
+
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+
+    for name, module in plugins.items():
+        monkeypatch.setitem(sys.modules, f"_seed_fake_engine_{name}", module)
+    found = metadata.EntryPoints(
+        [
+            metadata.EntryPoint(name=name, value=f"_seed_fake_engine_{name}", group=ENGINE_GROUP)
+            for name in plugins
+        ]
+    )
+    monkeypatch.setattr(metadata, "entry_points", lambda **kwargs: found)
+
+
+def test_a_model_whose_engine_has_no_plugin_stops_the_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facility = mapped_facility(tmp_path, "synthetic")
+    _engines_registered(monkeypatch, {})
+
+    with pytest.raises(ImportStop) as stopped:
+        import_mml(export_files("synthetic"), facility)
+
+    assert stopped.value.problem == "reference-missing"
+    (line,) = stopped.value.lines
+    assert "osprey_connectors.simulation.engines" in line
+    assert "pyat" in line
+
+
+def test_the_readout_roster_calls_the_plugins_fault_variables_on_the_raw_wiring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Any, Any]] = []
+
+    def fault_variables(wiring: Any, settings: Any = None) -> dict[str, Any]:
+        calls.append((wiring, settings))
+        return {"s": types.SimpleNamespace(address="BPM:1:X", field="roll")}
+
+    plugin = types.ModuleType("plugin")
+    plugin.fault_variables = fault_variables  # type: ignore[attr-defined]
+    _engines_registered(monkeypatch, {"pyat": plugin})
+    wiring = [{"address": "BPM:1:X", "element": "BPM1"}]
+    settings = {"pyat": {"solve": "ring"}}
+
+    roster = seed_module._roster(
+        {"name": "SR", "engine": "pyat", "wiring": wiring, "settings": settings}
+    )
+
+    assert roster == {("BPM:1:X", "roll")}
+    assert calls == [(wiring, settings)]
+
+
+def test_the_readout_roster_lets_the_plugins_refusal_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fault_variables(*_: Any) -> dict[str, Any]:
+        raise ValueError("wiring refused")
+
+    plugin = types.ModuleType("plugin")
+    plugin.fault_variables = fault_variables  # type: ignore[attr-defined]
+    _engines_registered(monkeypatch, {"pyat": plugin})
+
+    with pytest.raises(ValueError, match="wiring refused"):
+        seed_module._roster({"name": "SR", "engine": "pyat", "wiring": []})
+
+
+def test_a_plugin_without_fault_variables_declares_no_readout_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _engines_registered(monkeypatch, {"pyat": types.ModuleType("plugin")})
+
+    assert (
+        seed_module._roster({"name": "SR", "engine": "pyat", "wiring": [{"address": "A"}]}) == set()
+    )
 
 
 # --- classes.yaml -------------------------------------------------------------------
@@ -1048,7 +1133,9 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
     exports = read_exports(export_files(name))
     write_records(exports, read_mapping(facility / MAPPING_FILE), facility)
 
-    report = run_stages(facility, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        facility, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
 
     assert Counter(error.kind for error in report.errors) == {
         "class-unknown": UNKNOWN_CLASS_DEVICES[name]
@@ -1056,7 +1143,9 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
 
     import_mml(export_files(name), facility)
 
-    seeded = run_stages(facility, project_name="demo", later=LATER_STAGES)
+    seeded = run_stages(
+        facility, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert sorted((error.kind, error.record_kind, error.record_id) for error in seeded.errors) == [
         ("seed-invalid", "channel", address) for address in sorted(WIDENED[name])
     ]
@@ -1065,7 +1154,7 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
         assert "widen the limits record" in error.remedy, error.record_id
     if WIDENED[name]:
         with pytest.raises(FacilityBuildError):
-            build_facility(facility, project_name="demo")
+            build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
     widen(facility, WIDENED[name])
 

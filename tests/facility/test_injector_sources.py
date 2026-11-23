@@ -49,8 +49,9 @@ from typing import Any
 import pytest
 
 from osprey.facility.bundled import header_line
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import read_yaml
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import read_yaml
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.test_cf_view_parity import fingerprint_rows
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -450,10 +451,13 @@ def test_the_middle_layer_view_keys_both_septa_under_the_septum_family() -> None
 
 
 def test_the_example_tree_validates() -> None:
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = io.StringIO()
-    assert validate(EXAMPLE, project_name="example", file=out) == 0, out.getvalue()
+    assert (
+        validate_facility(EXAMPLE, project_name="example", file=out, extra_checks=FRAMEWORK_CHECKS)
+        == 0
+    ), out.getvalue()
     assert "seed-missing" not in out.getvalue()
     assert "seed-invalid" not in out.getvalue()
 

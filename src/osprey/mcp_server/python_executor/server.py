@@ -62,6 +62,11 @@ def pyaml_view_present(render_root: Path | None) -> bool:
     Args:
         render_root: The directory holding the rendered ``config.yml``, or
             ``None`` when there is none.
+
+    Raises:
+        FacilityFileError: The render has no usable facts file and its facility
+            file cannot be read or carries a header this reader does not read;
+            the server refuses to start, and the message names the rebuild.
     """
     if render_root is None:
         return False

@@ -22,6 +22,8 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tests._builds import FRAMEWORK_CHECKS
+
 if TYPE_CHECKING:
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -327,19 +329,21 @@ def facility_view(tree: Path, root: Path) -> SimulatorView:
     ``root`` is created when missing, as the build's render root exists before
     the facility file is written into it.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
     from osprey_connectors.simulation.view import SimulatorView
+    from osprey_facility.build import build_facility
 
     root.mkdir(parents=True, exist_ok=True)
-    render_facility_outputs(root, build_facility(tree, project_name=tree.name), {}, tree)
+    render_facility_outputs(
+        root, build_facility(tree, project_name=tree.name, extra_checks=FRAMEWORK_CHECKS), {}, tree
+    )
     return SimulatorView.of_render(root)
 
 
 def repo_facility(repo: Path) -> dict[str, Any]:
     """The facility file the build rendered into ``repo``."""
-    from osprey.facility import FACILITY_FILE
     from osprey_connectors.workspace import rendered_config_path
+    from osprey_facility import FACILITY_FILE
 
     path = rendered_config_path(Path(repo)).parent / FACILITY_FILE
     if not path.is_file():

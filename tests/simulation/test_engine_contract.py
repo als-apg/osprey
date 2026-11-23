@@ -9,6 +9,7 @@ framework ships: its registered engines satisfy the contract, and
 from __future__ import annotations
 
 import ast
+import importlib
 import subprocess
 import sys
 import types
@@ -19,7 +20,6 @@ import pytest
 
 import osprey
 import osprey.simulation.engines
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.engines import (
     ENGINE_GROUP,
     OPTIONAL_NAMES,
@@ -27,11 +27,12 @@ from osprey_connectors.simulation.engines import (
     EnginePlugin,
     FacilityDefectError,
 )
+from osprey_facility.errors import FacilityBuildError
 
 #: The engine-neutral modules that ask an engine for a solve.
 SOLVE_CALLERS = (
-    "simulation/response.py",
-    "facility/layers/mml/response_check.py",
+    "osprey/simulation/response.py",
+    "osprey_facility/layers/mml/response_check.py",
 )
 
 #: The engines the framework registers.
@@ -137,7 +138,8 @@ def _engine_import(module: str) -> bool:
 
 @pytest.mark.parametrize("relative", SOLVE_CALLERS)
 def test_the_engine_neutral_solve_callers_import_no_engine(relative: str):
-    path = Path(osprey.__file__).parent / relative
+    package, _, rest = relative.partition("/")
+    path = Path(str(importlib.import_module(package).__file__)).parent / rest
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imported: list[str] = []
     for node in ast.walk(tree):

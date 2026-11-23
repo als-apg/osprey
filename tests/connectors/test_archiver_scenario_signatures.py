@@ -39,12 +39,12 @@ import pytest
 import yaml
 
 import osprey
-from osprey.facility.sources import read_yaml
 from osprey_connectors.archiver._mock_archiver_connector import MockArchiverConnector
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 from osprey_connectors.simulation import topoff
+from osprey_facility.sources import read_yaml
 from tests.facility.served_tree import in_process_config
 
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"

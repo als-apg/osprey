@@ -10,10 +10,11 @@ import at
 import pytest
 import yaml
 
-from osprey.facility import wiring as wiring_module
-from osprey.facility.validate import StageReport, run_stages
-from osprey.facility.wiring import fill_wiring_slots
 from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility import wiring as wiring_module
+from osprey_facility.validate import StageReport, run_stages
+from osprey_facility.wiring import fill_wiring_slots
+from tests._builds import FRAMEWORK_CHECKS
 
 GAIN = 0.37
 OFFSET = -0.012
@@ -98,7 +99,9 @@ def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     _save_deck(root / "decks" / "sr.json")
-    return run_stages(root, project_name="p", later=[("wiring", fill_wiring_slots)])
+    return run_stages(
+        root, project_name="p", later=[("wiring", fill_wiring_slots)], extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def _lines(result: StageReport) -> list[str]:

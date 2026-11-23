@@ -56,7 +56,6 @@ from typing import TYPE_CHECKING, Any
 
 from lume_pyat.exceptions import AmbiguousElementError, OrbitSolveError, UnknownElementError
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat_turn_settings as turn_settings
 from osprey.simulation.engines.pyat_faults import (
     CIRCUMFERENCE_ERROR,
@@ -79,6 +78,7 @@ from osprey_connectors.simulation.engines import (
     to_hardware,
     to_physics,
 )
+from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
     import numpy as np

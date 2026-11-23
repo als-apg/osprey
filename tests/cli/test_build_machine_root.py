@@ -24,8 +24,8 @@ import yaml
 
 from osprey.cli.build_persistence import _profile_known_root_entries
 from osprey.cli.build_profile_model import BuildProfile
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project, run_build
 
 pytestmark = [pytest.mark.slow]
@@ -220,7 +220,9 @@ def test_a_restated_record_stops_before_the_venv(
     restated = repo / "data" / "facility" / "identity.yaml"
     shutil.copy2(repo / MACHINE_DIR / "identity.yaml", restated)
 
-    result = CliRunner().invoke(build_cmd.build, ["--repo", str(repo), "--skip-lifecycle"])
+    from osprey.cli.main import cli
+
+    result = CliRunner().invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle"])
 
     assert result.exit_code == 1, result.output
     assert result.stderr == (

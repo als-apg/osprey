@@ -20,14 +20,15 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.errors import FacilityError, ImportStop, MappingProblems
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
-    MappingProblems,
     import_mml,
     read_exports,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
-from osprey.facility.validate import run_stages
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import BuiltModel, MmlImport, load_yaml, read_yaml
 
 #: The module's second spear3 import is made once per module, which only holds on one worker.
@@ -155,7 +156,7 @@ def test_devices_carry_their_common_name_as_label_and_no_attributes(
 
 
 def test_rows_json_maps_every_export_row_to_its_device(spear3: Path, spear3_again: Path) -> None:
-    from osprey.facility.layers.mml.rows import ROWS_FILE, ROWS_SCHEMA, read_rows
+    from osprey_facility.layers.mml.rows import ROWS_FILE, ROWS_SCHEMA, read_rows
 
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     raw = (spear3 / LAYER_DIR / ROWS_FILE).read_bytes()
@@ -233,7 +234,7 @@ def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
 
 def _first_device(facility: Path, family: str) -> tuple[str, float]:
     """The device of a spear3 family's first export row, and that row's ``Position``."""
-    from osprey.facility.layers.mml.rows import read_rows
+    from osprey_facility.layers.mml.rows import read_rows
 
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     row = tuple(ao[family]["DeviceList"][0])
@@ -374,7 +375,7 @@ def test_an_eps_or_infinite_tolerance_writes_none(
 
 
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:
-    report = run_stages(spear3, project_name="demo")
+    report = run_stages(spear3, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert [e.format_message() for e in report.errors if "is not a layer file" in e.detail] == []
     assert report.failed != "load"
 
@@ -426,14 +427,18 @@ def test_nsls2_imports_both_trees_into_one_facility(
 def test_no_facility_word_under_the_layer() -> None:
     """The layer's own code names no facility; the exporter it ships is an outside format."""
     tracked = subprocess.run(
-        ["git", "ls-files", "src/osprey/facility/layers/mml/"],
+        ["git", "ls-files", "packages/osprey-facility/src/osprey_facility/layers/mml/"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.split()
-    files = [path for path in tracked if path != "src/osprey/facility/layers/mml/mml_export.m"]
-    assert "src/osprey/facility/layers/mml/importer.py" in files
+    files = [
+        path
+        for path in tracked
+        if path != "packages/osprey-facility/src/osprey_facility/layers/mml/mml_export.m"
+    ]
+    assert "packages/osprey-facility/src/osprey_facility/layers/mml/importer.py" in files
     word = re.compile(r"\b(als|spear3?|nsls-?(ii|2)?|ltb|gtl|gtb|bts|quokka)\b", re.IGNORECASE)
     found = [
         f"{path}:{number}"
@@ -540,7 +545,7 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     with pytest.raises(MappingProblems) as stop:
         import_mml([FIXTURES / "synthetic" / "quokka.sr.ao.json"], facility)
 
-    assert stop.value.exit_code == 1
+    assert isinstance(stop.value, FacilityError)
     lines = stop.value.format_message().splitlines()
     assert lines[0] == "models.SR.name: 'S R' is not PN_LOCAL"
     assert lines[1:-1] == [str(problem) for problem in stop.value.problems[1:]]
@@ -606,7 +611,7 @@ def test_plane_twins_are_one_group(spear3: Path, parsed: Callable[..., Any]) -> 
 
 
 def test_two_folds_with_one_stem_keep_both_groups() -> None:
-    from osprey.facility.layers.mml.importer import _physical_groups
+    from osprey_facility.layers.mml.importer import _physical_groups
 
     def group(token: str, members: list[str]) -> dict[str, Any]:
         return {"id": token, "members": members}
@@ -643,7 +648,7 @@ def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -
     import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)
     channels = _by_id(_rows(facility, "channels.yaml"))
     assert channels["QK:R12:HCM:RB"]["endpoint_of"] == ["RING/hcm_1", "RING/hcm_2"]
-    result = run_stages(facility, project_name="demo")
+    result = run_stages(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert not result.errors
     built = _by_id(result.validated.document["channels"])
     for setpoint in ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP"):

@@ -27,6 +27,7 @@ from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 
 VA_BUILD = {"type": "virtual_accelerator"}
@@ -215,7 +216,7 @@ def _config(
     *curated: str,
 ) -> dict[str, Any]:
     channels = [{"id": address, "role": "none"} for address in curated]
-    (tmp_path / "facility.json").write_text(json.dumps({"channels": channels}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": channels})
     config: dict[str, Any] = {"config_dir": str(tmp_path), "control_system": control_system}
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}

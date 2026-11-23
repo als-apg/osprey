@@ -18,7 +18,6 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from osprey.facility.layers.mml.family import CHANNEL_KEYS
 from osprey.services.channel_finder.databases import (
     HierarchicalChannelDatabase,
     MiddleLayerDatabase,
@@ -28,6 +27,7 @@ from osprey.services.channel_finder.tools.validate_database import (
     print_graph_paradigm_guidance,
 )
 from osprey.services.channel_finder.utils.detection import detect_pipeline_config
+from osprey_facility.layers.mml.family import CHANNEL_KEYS
 
 _default_console = Console()
 

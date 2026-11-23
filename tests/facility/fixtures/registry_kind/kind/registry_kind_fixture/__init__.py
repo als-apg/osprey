@@ -6,7 +6,7 @@ instruments judged ``exists`` and ``optional``, a sub-block of its own (a
 trigger sample, operator settings and an ordered chain of steps, each of which
 may write a command), a build-stop hook that refuses a command step whose
 address the facility does not mark ``command``, a facts writer and a settings
-transform. It imports OSPREY only through :mod:`osprey.facility.kinds`.
+transform. It imports OSPREY only through :mod:`osprey_facility.kinds`.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from osprey.facility.kinds import KindDeclaration, KindStop, KindTool, ViewContext, ViewSection
+from osprey_facility.kinds import KindDeclaration, KindStop, KindTool, ViewContext, ViewSection
 
 #: The mark the build puts on a channel a program fires as a command.
 COMMAND = "command"

@@ -28,6 +28,7 @@ from osprey.apps.sdk.testing import (
     plain_tree,
     synthetic_deployment,
 )
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests.facility._fixture_kind import (
     FACTS,
     KIND,
@@ -125,6 +126,40 @@ def test_the_render_holds_the_facility_and_the_applications_skill(rendered) -> N
     assert {c["id"] for c in tree.facility["channels"]} >= {"Q1:SP", "Q1:RB", "BPM1:X"}
     assert set(tree.skills("operator")) == {APP}
     assert tree.skills("operator")[APP].read_text(encoding="utf-8").startswith("---")
+
+
+def _private_render(tree: RenderedTree, parent: Path) -> tuple[Path, dict[str, Any]]:
+    """A copy of the built repository and its facility document without the header."""
+    copy = parent / "repo"
+    shutil.copytree(tree.root, copy, symlinks=True)
+    document = dict(tree.facility)
+    document.pop("schema", None)
+    return copy, document
+
+
+@pytest.mark.foreign_header
+def test_a_render_whose_facility_file_is_v3_is_refused_naming_the_rebuild(
+    rendered, tmp_path: Path
+) -> None:
+    _deployment, tree = rendered
+    copy, document = _private_render(tree, tmp_path)
+    path = write_facility_document(copy / "build", document, schema="osprey.facility.facility/3")
+
+    with pytest.raises(ValueError) as raised:
+        RenderedTree.read(copy)
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
+
+
+def test_a_render_whose_facility_file_is_v4_is_read_as_before(rendered, tmp_path: Path) -> None:
+    _deployment, tree = rendered
+    copy, document = _private_render(tree, tmp_path)
+    write_facility_v4(copy / "build", document)
+
+    assert RenderedTree.read(copy).facility == tree.facility
 
 
 @pytest.mark.no_auth_seam

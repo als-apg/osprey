@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.okf_panel.app import create_app
 from osprey.services.facility_knowledge.okf.bundle import OKF_COLLECTION
 from osprey.services.qmd import QMDSearchResult
+from tests._facility_file import write_facility_document, write_facility_v4
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 
@@ -438,23 +439,20 @@ def _linked_bundle(root: Path) -> Path:
 
 
 def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path):
-    import json
 
     import osprey_connectors.workspace as workspace
 
     render = tmp_path / "render"
     render.mkdir()
-    (render / "facility.json").write_text(
-        json.dumps(
-            {
-                "channels": [
-                    {"id": "SR:DIAG:BPM:01:POSITION:X", "unit": "mm", "description": "Beam X."},
-                    {"id": "TWIN"},
-                ],
-                "devices": [{"id": "SR/BPM01", "description": "A monitor."}, {"id": "TWIN"}],
-            }
-        ),
-        encoding="utf-8",
+    write_facility_v4(
+        render,
+        {
+            "channels": [
+                {"id": "SR:DIAG:BPM:01:POSITION:X", "unit": "mm", "description": "Beam X."},
+                {"id": "TWIN"},
+            ],
+            "devices": [{"id": "SR/BPM01", "description": "A monitor."}, {"id": "TWIN"}],
+        },
     )
     monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
     c = TestClient(create_app(str(_linked_bundle(tmp_path))))
@@ -500,23 +498,20 @@ def test_concept_carries_its_facility_references_resolved(monkeypatch, tmp_path)
 
 
 def test_concept_carries_a_place_link_with_its_place_record(monkeypatch, tmp_path):
-    import json
 
     import osprey_connectors.workspace as workspace
 
     render = tmp_path / "render"
     render.mkdir()
-    (render / "facility.json").write_text(
-        json.dumps(
-            {
-                "places": [
-                    {"id": "HALL"},
-                    {"id": "HALL/RK08", "description": "Rack 8."},
-                ],
-                "devices": [{"id": "SR/BPM01"}],
-            }
-        ),
-        encoding="utf-8",
+    write_facility_v4(
+        render,
+        {
+            "places": [
+                {"id": "HALL"},
+                {"id": "HALL/RK08", "description": "Rack 8."},
+            ],
+            "devices": [{"id": "SR/BPM01"}],
+        },
     )
     monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
     bundle = tmp_path / "bundle"
@@ -947,3 +942,29 @@ def test_asset_svg_carries_opaque_policy_nosniff_and_its_own_policy(asset_bundle
         assert not name.startswith("script"), name
         for source in sources:
             assert source in {"'none'", "'unsafe-inline'", "data:"}, (name, source)
+
+
+@pytest.mark.foreign_header
+def test_concept_with_a_v3_facility_file_marks_links_unresolved(monkeypatch, tmp_path, caplog):
+    import osprey_connectors.workspace as workspace
+
+    render = tmp_path / "render"
+    write_facility_document(
+        render,
+        {"channels": [{"id": "SR:DIAG:BPM:01:POSITION:X"}], "devices": [{"id": "SR/BPM01"}]},
+        schema="osprey.facility.facility/3",
+    )
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {"config_dir": str(render)})
+    with caplog.at_level(logging.WARNING, logger="osprey.interfaces.okf_panel.app"):
+        c = TestClient(create_app(str(_linked_bundle(tmp_path))))
+
+    r = c.get("/api/concept", params={"id": "devices/bpm"})
+
+    assert r.status_code == 200
+    assert r.json()["unresolved"] is True
+    assert [entry["records"] for entry in r.json()["facility_references"]] == [None] * 4
+    (warning,) = [
+        record for record in caplog.records if "facility file cannot be read" in record.getMessage()
+    ]
+    assert warning.exc_info is not None
+    assert "this reader reads osprey.facility.facility/4" in str(warning.exc_info[1])

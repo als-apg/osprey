@@ -18,22 +18,21 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.combine import CombineResult, combine
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.combine import CombineResult, combine
+from osprey_facility.errors import ImportStop, MappingProblems
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
     Exports,
-    MappingProblems,
     import_mml,
     write_records,
 )
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     FieldRole,
-    ImportStop,
     field_roles,
     parse_mapping,
 )
-from osprey.facility.sources import load_sources
+from osprey_facility.sources import load_sources
 from tests.facility._mml_built import MmlImport, read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -422,7 +421,7 @@ def test_the_mml_layer_reads_no_channel_finder_database_module() -> None:
     import ast
     from importlib.util import resolve_name
 
-    import osprey.facility.layers.mml as layer
+    import osprey_facility.layers.mml as layer
 
     package = Path(layer.__file__).parent
     forbidden = "osprey.services.channel_finder.databases"

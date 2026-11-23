@@ -25,9 +25,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import read_yaml
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation.engines import (
     curve_from_record,
@@ -35,6 +32,10 @@ from osprey_connectors.simulation.engines import (
     to_hardware,
     to_physics,
 )
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import read_yaml
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
@@ -97,7 +98,7 @@ def _golden() -> dict[str, float]:
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, Any]:
-    return build_facility(EXAMPLE, project_name="demo")
+    return build_facility(EXAMPLE, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 # --- the models --------------------------------------------------------------------

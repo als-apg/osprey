@@ -806,9 +806,6 @@ DEPLOYMENT_PACKAGES_DIRNAME = "osprey-deployment-packages"
 #: The manifest listing the built wheels, beside them.
 DEPLOYMENT_PACKAGES_MANIFEST = "manifest.json"
 
-#: The entry-point group a measurement kind is registered under.
-FACILITY_KINDS_GROUP = "osprey.facility.kinds"
-
 #: The framework's own distribution name.
 FRAMEWORK_DISTRIBUTION = "osprey-framework"
 
@@ -1185,11 +1182,16 @@ def refuse_unshipped_apps(
 
 
 def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
-    """The canonical names of the distributions the project image installs."""
+    """The canonical names of the distributions the project image installs.
+
+    The framework and every workspace member it depends on (``WORKSPACE_MEMBERS``)
+    ship with it, then each distribution *requirements* names.
+    """
     from packaging.requirements import InvalidRequirement, Requirement
     from packaging.utils import canonicalize_name
 
     shipped: set[str] = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
+    shipped.update(canonicalize_name(member) for member in WORKSPACE_MEMBERS)
     for raw in requirements:
         try:
             shipped.add(canonicalize_name(Requirement(raw).name))
@@ -1203,9 +1205,9 @@ def refuse_unshipped_kinds(
 ) -> None:
     """Refuse a registered measurement kind the project image would not install.
 
-    Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
+    Every :data:`~osprey_facility.kinds.ENTRY_POINT_GROUP` entry point is mapped to the distribution
     declaring it. That distribution has to be one the image installs: the
-    framework itself, a distribution *requirements* names (an index
+    framework itself or one of its workspace members, a distribution *requirements* names (an index
     requirement, or a built deployment package by its name), or a listed
     package whose project file declares that kind (*listed*), which stands for
     the wheel a caller that builds nothing does not have.
@@ -1213,18 +1215,21 @@ def refuse_unshipped_kinds(
     Args:
         requirements: The dependency list the image installs, beside the framework.
         listed: ``{kind: distribution}`` as
-            :func:`osprey.facility.kinds.listed_kinds` reads it.
+            :func:`osprey_facility.kinds.listed_kinds` reads it.
 
     Raises:
         BuildProfileError: Naming each kind whose package is not installed.
     """
     from packaging.utils import canonicalize_name
 
+    # Imported here: the kind registry is build-time code, and this module is
+    # imported by render paths that must not load it.
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.kinds import ENTRY_POINT_GROUP
 
     shipped = _shipped_distributions(requirements)
     refused = []
-    for kind in entry_points(group=FACILITY_KINDS_GROUP):
+    for kind in entry_points(group=ENTRY_POINT_GROUP):
         dist = getattr(kind, "dist", None)
         dist_name = getattr(dist, "name", None)
         canonical = None if dist_name is None else canonicalize_name(dist_name)

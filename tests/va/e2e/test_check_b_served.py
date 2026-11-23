@@ -14,7 +14,7 @@ same view; the comparison and its bands are ``tests/facility/test_check_b.py``.
 The lanes:
 
 * **The served harvested trees.** Every export the supported-tree registry
-  says takes check B (``tests/fixtures/mml/_trees.py``) is installed from its
+  says takes check B (``osprey_facility_tests/_mml_trees.py``) is installed from its
   export, built and served, and measured for every kind -- the orbit and
   dispersion responses unipolar, the tune and chromaticity responses stepped
   by group, and the chromaticity monitor. The measurement file the import
@@ -52,7 +52,7 @@ from typing import Any
 
 import pytest
 
-from tests.fixtures.mml._trees import exports_taking
+from osprey_facility_tests._mml_trees import exports_taking
 from tests.va._collection import assert_module_collected
 from tests.va._still import assert_readings_still
 from tests.va.e2e import _guarded_measure as gm

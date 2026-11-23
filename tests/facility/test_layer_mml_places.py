@@ -17,8 +17,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import LAYER_DIR, MappingProblems, import_mml
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.errors import MappingProblems
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     MappingError,
     Model,
@@ -27,8 +28,9 @@ from osprey.facility.layers.mml.mapping import (
     check_mapping,
     parse_mapping,
 )
-from osprey.facility.layers.mml.places import Slot, place_devices
-from osprey.facility.validate import run_stages
+from osprey_facility.layers.mml.places import Slot, place_devices
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import load_yaml, read_yaml
 
 pytestmark = pytest.mark.xdist_group("layer_mml_import")
@@ -381,7 +383,7 @@ def _read_rows(facility: Path) -> list[dict[str, Any]]:
 
 
 def test_placed_records_pass_the_stages(nsls2_placed: Path) -> None:
-    report = run_stages(nsls2_placed, project_name="demo")
+    report = run_stages(nsls2_placed, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert report.ok, [str(error) for error in report.errors]
 
 

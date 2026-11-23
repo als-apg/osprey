@@ -58,10 +58,10 @@ def _replay_channels() -> set[str]:
 @pytest.fixture(scope="module")
 def example_view(tmp_path_factory: pytest.TempPathFactory) -> SimulatorView:
     """The example facility's simulator view, as a build renders it."""
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
 
     config = {"control_system": {"type": "virtual_accelerator"}}
     records = FacilityRecords(demo_facility_document())

@@ -106,6 +106,10 @@ class ModelRequest:
     kind: str = DEFAULT_KIND
 
 
+#: The remedy for a facility file the request cannot read.
+_REBUILD = "Run `osprey build`; the facility file is written by the build."
+
+
 def _refuse(message: str, suggestion: str) -> NoReturn:
     raise ModelRequestRefused(message, suggestion)
 
@@ -163,9 +167,17 @@ def _model(view: Any, model: object) -> Any:
 
 
 def _corrector_delta(render_root: Path, model: str) -> float:
-    from osprey.facility import FACILITY_FILE
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.errors import FacilityFileError
+    from osprey_facility.reading import load_facility
 
-    document = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    path = render_root / FACILITY_FILE
+    try:
+        document = load_facility(path)
+    except FileNotFoundError:
+        _refuse(f"{path} does not exist", _REBUILD)
+    except FacilityFileError as exc:
+        _refuse(str(exc), _REBUILD)
     record: dict[str, Any] = next(
         (entry for entry in document.get("models") or [] if entry.get("name") == model), {}
     )

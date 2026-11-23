@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import (
+from osprey_facility.pairing import (
     FOLLOWED_DEFAULT,
     FOLLOWED_SEED,
     NOT_FOLLOWED,
@@ -21,7 +21,8 @@ from osprey.facility.pairing import (
     signal_quantity,
     simulated_pairs,
 )
-from osprey.facility.validate import StageReport, run_stages, vocabulary
+from osprey_facility.validate import StageReport, run_stages, vocabulary
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import TREES, BuiltModel
 
 EXAMPLE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
@@ -370,7 +371,9 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", files), project_name="my proj")
+    return run_stages(
+        _write(tmp_path / "facility", files), project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def _channels(result: StageReport) -> dict[str, dict[str, Any]]:
@@ -474,7 +477,9 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
     def pairs(root: Path) -> dict[str, str]:
         return {
             address: channel["pair"]
-            for address, channel in _channels(run_stages(root, project_name="demo")).items()
+            for address, channel in _channels(
+                run_stages(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
+            ).items()
             if channel["role"] == "setpoint"
         }
 

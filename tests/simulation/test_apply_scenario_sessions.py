@@ -19,7 +19,6 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.simulation.apply import (
     SCENARIO_SESSIONS_FILENAME,
     activate_default_scenarios,
@@ -29,6 +28,8 @@ from osprey.simulation.apply import (
 )
 from osprey_connectors.simulation.state import read_active_state
 from osprey_connectors.workspace import resolve_simulation_state_dir
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests._simulator_view import write_scenarios_view
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -64,13 +65,13 @@ def built_view(tmp_path_factory: pytest.TempPathFactory) -> Path:
     that dropped ``sessions`` (or the archived channels a plot reads) would
     leave every seed test here without a history.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
     root = tmp_path_factory.mktemp("view")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = build_facility(TEMPLATE_FACILITY, project_name="example", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root,
         ViewInputs(

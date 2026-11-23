@@ -14,11 +14,12 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.pairing import NOT_FOLLOWED, pair_follows
-from osprey.facility.schema import core
 from osprey.simulation.engines import pyat
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.pairing import NOT_FOLLOWED, pair_follows
+from osprey_facility.schema import core
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._pyaml_trees import built_document, measured_tree
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
@@ -59,7 +60,9 @@ def _tree(**changes: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build(tmp_path: Path, tree: dict[str, Any]) -> dict[str, Any]:
-    return build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    return build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def _channels(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -194,7 +197,7 @@ def test_a_bound_on_a_command_whose_status_is_a_waveform_stops_the_build(tmp_pat
 
 #: Where the build's sentence on how ``idle`` is typed is also stated.
 _REPO = Path(__file__).parents[2]
-_CORE_YAML = _REPO / "src" / "osprey" / "facility" / "schema" / "core.yaml"
+_CORE_YAML = _REPO / "packages/osprey-facility/src/osprey_facility/schema/core.yaml"
 _DOCS_PAGE = _REPO / "docs" / "source" / "how-to" / "describe-your-facility.rst"
 _FIX = "type `idle` by the channel: "
 

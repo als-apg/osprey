@@ -7,7 +7,6 @@ runtime's connector is a fake served through ``osprey.runtime._get_connector``.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -24,6 +23,7 @@ from osprey_connectors.control_system._base import ChannelMetadata, ChannelValue
 from osprey_connectors.settle import SettleTimeoutError
 from osprey_connectors.simulation.envelope import _MOTION_SIGMAS
 from osprey_connectors.workspace import reset_config_cache
+from tests._facility_file import write_facility_document, write_facility_v4
 
 LIVE = {"type": "epics", "connector": {"epics": {}}}
 SIMULATOR = {"type": "virtual_accelerator", "connector": {"virtual_accelerator": {}}}
@@ -41,12 +41,10 @@ def _render(root: Path, control_system: dict[str, Any]) -> None:
 
 
 def _plant(root: Path, *channels: dict[str, Any], models: list | None = None) -> Path:
-    path = root / "build" / "facility.json"
     document: dict[str, Any] = {"channels": list(channels)}
     if models is not None:
         document["models"] = models
-    path.write_text(json.dumps(document), encoding="utf-8")
-    return path
+    return write_facility_v4(root / "build", document)
 
 
 @pytest.fixture
@@ -244,6 +242,24 @@ def test_a_render_without_a_facility_file_is_refused(repo: Path, served: Readbac
         osprey.runtime.settle({"Q1:SP": 2.0})
 
     assert str(path) in str(info.value) and "osprey build" in str(info.value)
+    assert served.reads == []
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_is_refused_naming_the_rebuild(repo: Path, served: Readbacks) -> None:
+    path = write_facility_document(
+        repo / "build",
+        {"channels": [{"id": "Q1:SP", "role": "setpoint", "tolerance": {"absolute": 0.05}}]},
+        schema="osprey.facility.facility/3",
+    )
+
+    with pytest.raises(ValueError) as info:
+        osprey.runtime.settle({"Q1:SP": 2.0})
+
+    assert str(info.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
     assert served.reads == []
 
 

@@ -37,6 +37,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests._builds import FRAMEWORK_CHECKS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"
 FACILITY_PAGE = HOW_TO / "describe-your-facility.rst"
@@ -227,10 +229,12 @@ CHANNEL_LIST = "examples/facility/channels.csv"
 
 def _validates(facility_dir: Path) -> str:
     """The validator's output for *facility_dir*; empty-handed when it passes."""
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = StringIO()
-    code = validate(facility_dir, project_name="ca", file=out)
+    code = validate_facility(
+        facility_dir, project_name="ca", file=out, extra_checks=FRAMEWORK_CHECKS
+    )
     return "" if code == 0 else out.getvalue() or f"exit {code}"
 
 
@@ -295,8 +299,8 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
     import click
 
     from osprey.cli.facility_cmd import _replace_or_refuse
-    from osprey.facility.layers.list import import_list
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.layers.list import import_list
+    from osprey_facility.roots import FacilityRoots
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -312,7 +316,7 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
 @pytest.mark.slow  # validating the whole preset takes a few seconds
 def test_the_relation_tables_build_on_the_preset(tmp_path: Path) -> None:
     """``osprey facility import relations`` leaves the bundled preset in place."""
-    from osprey.facility.layers.relations import import_relations
+    from osprey_facility.layers.relations import import_relations
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -360,7 +364,7 @@ def test_an_included_preset_file_is_a_bundled_file(block: Block) -> None:
 
 
 def test_the_mapping_fragments_hold_keys_the_mapping_reads() -> None:
-    from osprey.facility.layers.mml import mapping
+    from osprey_facility.layers.mml import mapping
 
     blocks = [block for block in _blocks(MML_PAGE) if block.first == "families:"]
     assert blocks, f"{MML_PAGE.name}: no block opens with 'families:'"

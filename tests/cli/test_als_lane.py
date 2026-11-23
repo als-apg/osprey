@@ -142,7 +142,7 @@ MIN_COLLECTED_TESTS = 25
 
 def _mapping_file() -> str:
     """The reviewed mapping's place under a facility directory."""
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     return MAPPING_FILE
 
@@ -455,7 +455,7 @@ class Install:
 
     @property
     def document(self) -> dict[str, Any]:
-        from osprey.facility import FACILITY_FILE
+        from osprey_facility import FACILITY_FILE
 
         return json.loads((self.repo / "build" / FACILITY_FILE).read_text(encoding="utf-8"))
 
@@ -466,7 +466,7 @@ class Install:
 
     def models(self) -> list[str]:
         """Every model of the facility file that wires channels: all but the texture."""
-        from osprey.facility import TEXTURE
+        from osprey_facility import TEXTURE
 
         return [str(model["name"]) for model in self.document["models"] if model["name"] != TEXTURE]
 

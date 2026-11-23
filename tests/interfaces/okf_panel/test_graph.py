@@ -15,8 +15,6 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views.graph import graph_text
 from osprey.interfaces.okf_panel.app import create_app
 from osprey.interfaces.okf_panel.graph import (
@@ -25,6 +23,8 @@ from osprey.interfaces.okf_panel.graph import (
     page_references,
     read_graph,
 )
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 

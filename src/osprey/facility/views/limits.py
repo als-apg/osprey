@@ -28,10 +28,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import LIMIT_BOUNDS, record_missing, record_writable
 from osprey.facility.views import ViewInputs
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import LIMIT_BOUNDS, record_missing, record_writable
 
 __all__ = [
     "LIMITS_FILE",
@@ -98,7 +98,7 @@ def limits_findings(
     no range when *unlisted_writable* (its limits mode is ``optional``) and
     refuses otherwise; and the limits records that serve their setpoint not
     writable for want of a slot
-    (:func:`~osprey.facility.validate.record_missing`), each line naming the
+    (:func:`~osprey_facility.validate.record_missing`), each line naming the
     slots its record states and the ones it lacks. A finding with no address
     is left out.
 
@@ -165,7 +165,7 @@ def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    from osprey.facility.views import json_bytes
+    from osprey_facility.render import json_bytes
 
     root.mkdir(parents=True, exist_ok=True)
     target = root / LIMITS_FILE

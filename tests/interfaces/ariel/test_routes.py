@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.facility.records import FacilityRecords
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey_facility.records import FacilityRecords
 from tests.interfaces.ariel._attachments import PNG_URL, attachment_entry, attachment_row
 from tests.interfaces.ariel._routes_app import routes_app
 

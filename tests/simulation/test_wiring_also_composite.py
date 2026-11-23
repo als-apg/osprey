@@ -25,8 +25,7 @@ import yaml
 from lume.exceptions import ReadOnlyError
 
 from osprey.apps.sdk.testing import model
-from osprey.facility.build import build_facility
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.facility.views.simulator import write_simulator_view
 from osprey.services.virtual_accelerator.serving.runner_config import (
     pass_readback,
@@ -35,6 +34,8 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.servers import model_server
 from osprey_connectors.simulation.view import SCENARIOS_FILE, SimulatorView
+from osprey_facility.build import build_facility
+from tests._builds import FRAMEWORK_CHECKS
 from tests.connectors._view_records import activate
 from tests.facility._pyaml_trees import measured_tree, view_inputs
 from tests.facility._turn_by_turn_fixture import (
@@ -257,7 +258,9 @@ def _turn_by_turn_view(root: Path) -> Path:
     models.write_text(yaml.safe_dump(document), encoding="utf-8")
     render_dir = root / "build"
     render_dir.mkdir(parents=True)
-    built = build_facility(facility_dir, project_name="turn-by-turn-also")
+    built = build_facility(
+        facility_dir, project_name="turn-by-turn-also", extra_checks=FRAMEWORK_CHECKS
+    )
     render_facility_outputs(render_dir, built, IN_PROCESS_RENDER_CONFIG, facility_dir)
     return render_dir / "data" / "simulator"
 

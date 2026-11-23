@@ -16,7 +16,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
+from tests._facility_file import FACILITY_V4
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -298,7 +300,7 @@ def test_a_device_with_no_class_sits_under_no_class(tmp_path: Path) -> None:
 
 
 def _class_text(name: str) -> str:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     (row,) = [row for row in vocabulary()["classes"] if row["name"] == name]
     return str(row["description"])
@@ -345,8 +347,8 @@ def test_a_leaf_takes_its_channel_s_description(tmp_path: Path) -> None:
 
 
 def test_two_level_words_at_one_depth_stop_with_view_unsupported() -> None:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(
@@ -398,8 +400,8 @@ def test_level_words_of_places_holding_no_channel_are_not_counted(tmp_path: Path
 
 
 def test_a_level_word_that_is_a_tail_level_stops_with_view_unsupported() -> None:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(
@@ -473,8 +475,8 @@ def test_zero_channels_write_an_empty_tree(tmp_path: Path) -> None:
 def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
     doc: dict[str, Any], record: str
 ) -> None:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(FacilityRecords(doc))
@@ -519,8 +521,8 @@ def _shared_leaf_key(device: str | None) -> dict[str, Any]:
 def test_two_channels_on_one_leaf_key_stop_with_view_unsupported(
     device: str | None, line: str
 ) -> None:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(FacilityRecords(_shared_leaf_key(device)))
@@ -566,13 +568,17 @@ def test_a_render_that_selects_another_index_names_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.render import FACILITY_FILE
 
     (view,) = [view for view in views.VIEWS if view.name == "hierarchical"]
     monkeypatch.setattr(views, "VIEWS", (view,))
 
     written = render_facility_outputs(
-        tmp_path, {"channels": []}, {"channel_finder": {"pipeline_mode": "graph"}}, tmp_path
+        tmp_path,
+        {"schema": FACILITY_V4, "channels": []},
+        {"channel_finder": {"pipeline_mode": "graph"}},
+        tmp_path,
     )
 
     assert written == [tmp_path / FACILITY_FILE]
@@ -699,10 +705,10 @@ def test_a_hierarchical_build_writes_the_index(built_demo: BuiltProject, tmp_pat
 def test_a_view_stop_names_the_file_that_states_its_record(
     tmp_path: Path, stated_in: str, sources: tuple[str, ...]
 ) -> None:
-    from osprey.facility.build import build_facility
-    from osprey.facility.combine import FIXES_HEADER
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.build import build_facility
+    from osprey_facility.combine import FIXES_HEADER
+    from osprey_facility.errors import FacilityBuildError
     from tests.facility._synthetic_trees import plain_tree, write_tree
 
     tree = plain_tree()
@@ -712,7 +718,9 @@ def test_a_view_stop_names_the_file_that_states_its_record(
         tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": [fix]}
     else:
         tree["records/channels.yaml"].append(channel)
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
 
     with pytest.raises(FacilityBuildError) as caught:
         hierarchical_document(FacilityRecords(document))
@@ -751,8 +759,8 @@ def test_a_rack_tree_holding_no_channel_leaves_the_hierarchy(tmp_path: Path) -> 
 def test_a_channelled_device_projected_into_a_rack_stops_with_the_trees_and_words(
     tmp_path: Path,
 ) -> None:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.channel_finder import hierarchical_document
+    from osprey_facility.errors import FacilityBuildError
 
     facility = _appendix_a_with_channels(tmp_path, "SR/QF05", "SR/BPM13-EL")
     (chassis,) = [device for device in facility["devices"] if device["id"] == "SR/BPM13-EL"]

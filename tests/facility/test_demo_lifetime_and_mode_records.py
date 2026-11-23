@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.validate import run_stages, signal_roles
+from osprey_facility.validate import run_stages, signal_roles
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -39,7 +40,7 @@ def stated(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, dict[str, Any]]:
-    report = run_stages(EXAMPLE, project_name="demo")
+    report = run_stages(EXAMPLE, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert report.ok, [error.format_message() for error in report.errors]
     return {channel["id"]: channel for channel in report.validated.document["channels"]}
 

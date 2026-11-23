@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
 from osprey_connectors.errors import ChannelLimitsViolationError
+from osprey_facility.records import FacilityRecords
 from tests.facility._limits_render import render_limits, validator_under
 from tests.facility.test_cf_view_parity import load_golden
 
@@ -414,8 +414,8 @@ def _stating(record: dict[str, Any], missing: tuple[str, ...]) -> dict[str, Any]
 
 
 def test_every_listed_record_becomes_writable_by_stating_what_its_line_lacks() -> None:
-    from osprey.facility.validate import record_missing, record_writable
     from osprey.facility.views.limits import limits_findings
+    from osprey_facility.validate import record_missing, record_writable
 
     qs = "SR:MAG:QS:01:CURRENT:SP"
     lock = "SR:MAG:QL:01:CURRENT:SP"

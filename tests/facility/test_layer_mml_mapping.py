@@ -1,4 +1,4 @@
-"""Tests for the mml layer's mapping loader (``osprey.facility.layers.mml.mapping``)."""
+"""Tests for the mml layer's mapping loader (``osprey_facility.layers.mml.mapping``)."""
 
 from __future__ import annotations
 
@@ -13,13 +13,14 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.facility.layers.mml.mapping import (
+from osprey.cli.main import facility_errors_as_click
+from osprey_facility.errors import FacilityError, ImportStop
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     Coordinates,
     EngineBlock,
     FieldRole,
     Identity,
-    ImportStop,
     MappingError,
     Problem,
     SameAs,
@@ -462,7 +463,7 @@ class TestUndecided:
         document["directions"]["QF.Setpoint"]["direction"] = None
         with pytest.raises(ImportStop) as caught:
             require_decided(parse_mapping(document))
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message().splitlines() == [
             "import mml: mapping-undecided: models.SR.wiring.QF.engine: "
             "name the attribute and index, or the axis, the model wires",
@@ -476,7 +477,8 @@ class TestUndecided:
 
         @click.command()
         def stop() -> None:
-            require_decided(mapping)
+            with facility_errors_as_click():
+                require_decided(mapping)
 
         result = CliRunner().invoke(stop)
         assert result.exit_code == 1
@@ -1191,7 +1193,7 @@ class TestDraft:
         )
 
     def test_the_nsls2_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("nsls2")
         drafted = draft_mapping(ao, ad, va)["families"]
@@ -1208,7 +1210,7 @@ class TestDraft:
         }
 
     def test_the_spear3_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("spear3")
         drafted = parse_mapping(draft_mapping(ao, ad, va)).families
@@ -1247,7 +1249,7 @@ class TestLoadOrDraft:
     def test_an_absent_mapping_is_drafted_and_stops_the_import(self, tmp_path: Path) -> None:
         with pytest.raises(ImportStop) as caught:
             load_or_draft(tmp_path, _typed_export(), va=_va())
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message() == (
             "import mml: mapping-draft: imported/mml/mapping.yaml written; review it, then re-run"
         )
@@ -1424,7 +1426,7 @@ class TestPhysicsUnits:
         assert families["HC"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
 
     def test_the_vocabulary_titles_strength_and_kick(self) -> None:
-        from osprey.facility.validate import vocabulary
+        from osprey_facility.validate import vocabulary
 
         titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
         assert {n: titles[n] for n in (

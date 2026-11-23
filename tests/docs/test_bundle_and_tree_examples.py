@@ -55,10 +55,6 @@ from osprey.cli.profile_conventions import (
     validate_convention_sources,
 )
 from osprey.deployment.compose_generator import SERVICES_DIR, TEMPLATE_FILENAME
-from osprey.facility import sources
-from osprey.facility.knowledge_links import KNOWLEDGE_DIR
-from osprey.facility.records import FacilityRecords
-from osprey.facility.references import LINK_SCHEME, find_facility_links
 from osprey.facility.settings import VOCABULARY_SOURCE
 from osprey.facility.views import VIEWS
 from osprey.facility.views.benchmarks import QUERY_SOURCES
@@ -71,6 +67,10 @@ from osprey.services.facility_knowledge.okf.assets import (
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
 from osprey.services.facility_knowledge.okf.paths import concept_id_of_link
+from osprey_facility import sources
+from osprey_facility.knowledge_links import KNOWLEDGE_DIR
+from osprey_facility.records import FacilityRecords
+from osprey_facility.references import LINK_SCHEME, find_facility_links
 from tests._builds import BuiltProject
 from tests._by_path import load_module
 

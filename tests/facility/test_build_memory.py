@@ -26,22 +26,18 @@ import pydantic
 import pytest
 import yaml
 
-from osprey.facility.build import build_facility
-from osprey.facility.render import (
-    FACILITY_FILE,
-    WrittenViews,
-    facility_bytes,
-    render_facility_outputs,
-)
-from osprey.facility.schema import Facility
-from osprey.facility.sources import _Loader, _loader_on, read_yaml
-from osprey.facility.validate import _model_failures
-from osprey.facility.views import json_bytes
 from osprey.facility.views.facts import parsed_facility_file
+from osprey.facility.views.outputs import WrittenViews, render_facility_outputs
 from osprey.services.channel_finder.graph_index import builder
 from osprey.services.channel_finder.graph_index.builder import build_graph_index, parse_corpus
 from osprey.services.graph_store.seeder import ttl_file_sha256, ttl_sha256
 from osprey_connectors import yaml_loader
+from osprey_facility.build import build_facility
+from osprey_facility.render import FACILITY_FILE, facility_bytes, json_bytes
+from osprey_facility.schema import Facility
+from osprey_facility.sources import _Loader, _loader_on, read_yaml
+from osprey_facility.validate import _model_failures
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import BPM, QUAD, write_tree
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 from tests.services.channel_finder.graph_index import corpora
@@ -98,10 +94,10 @@ def _tree(devices: int) -> dict[str, Any]:
 def _build_and_render(root: Path, devices: int) -> tuple[Any, Path]:
     """Build, render ``RENDERS`` times, read each render's file back, index the graph."""
     from osprey.cli.templates.claude_code import _read_facility
-    from osprey.integrations.canopy.screen_guide import load_facility
+    from osprey.integrations.canopy.screen_guide import _guide_facility
 
     facility_dir = write_tree(root / "facility", _tree(devices))
-    document = build_facility(facility_dir, project_name="synthetic")
+    document = build_facility(facility_dir, project_name="synthetic", extra_checks=FRAMEWORK_CHECKS)
     written: WrittenViews = {}
     for index in range(RENDERS):
         render = root / f"render{index}"
@@ -116,7 +112,7 @@ def _build_and_render(root: Path, devices: int) -> tuple[Any, Path]:
             built_databases={},
         )
         _read_facility(render)
-        load_facility(render / FACILITY_FILE)
+        _guide_facility(render / FACILITY_FILE)
     first = root / "render0"
     build_graph_index(first / "data" / "graph" / "facility.ttl", root / "index.duckdb")
     return document, first
@@ -192,7 +188,9 @@ class TestTheRenders:
 
     def test_a_view_changed_since_it_was_written_is_written_again(self, tmp_path: Path) -> None:
         facility_dir = write_tree(tmp_path / "facility", _tree(8))
-        document = build_facility(facility_dir, project_name="synthetic")
+        document = build_facility(
+            facility_dir, project_name="synthetic", extra_checks=FRAMEWORK_CHECKS
+        )
         written: WrittenViews = {}
         renders = []
         for index in range(2):
@@ -308,7 +306,11 @@ class TestTheSchemaCheck:
     @pytest.fixture(scope="class")
     def document(self, tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         root = tmp_path_factory.mktemp("schema")
-        return build_facility(write_tree(root / "facility", _tree(6)), project_name="synthetic")
+        return build_facility(
+            write_tree(root / "facility", _tree(6)),
+            project_name="synthetic",
+            extra_checks=FRAMEWORK_CHECKS,
+        )
 
     @pytest.mark.parametrize(
         "break_it",

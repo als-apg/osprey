@@ -315,16 +315,22 @@ def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureL
     Returns:
         The labels of every BPM, magnet, array, RF plant and tune monitor the
         view holds.
+
+    Raises:
+        FileNotFoundError: The render holds no facility file.
+        FacilityFileError: The facility file cannot be read or carries a
+            header this reader does not read; the message names the rebuild.
     """
     import yaml
 
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.reading import load_facility
+    from osprey_facility.records import FacilityRecords
     from pyaml_cs_osprey.catalog import parse_reference
     from pyaml_cs_osprey.names import RF_PLANT_NAME, TUNE_MONITOR_NAME
 
-    doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
+    doc = load_facility(render_root / FACILITY_FILE)
     names = view_names(FacilityRecords(doc), model)
     device_of = {
         str(channel["id"]): (channel.get("on") or {}).get("device")

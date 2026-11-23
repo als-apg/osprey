@@ -13,7 +13,8 @@ version rules only.
 
 Parts of the contract are not enforced yet. Each rule below says whether it
 holds today or is a target, and which phase of the package split makes it hold.
-The panel engine checks the version today; the framework's readers do not yet.
+Every reader checks the version today: the panel engine and each framework
+reader in `The readers`_.
 
 Producer
 ========
@@ -34,7 +35,7 @@ The document's first key is its header:
 
 The header is ``osprey.facility.facility/N``, where ``N`` is a positive integer
 with no leading zero. The current version is ``4``; the build takes it from
-``osprey.facility.validate.FACILITY_HEADER``.
+``osprey_facility.validate.FACILITY_HEADER``.
 
 Tables a reader needs besides the records
 =========================================
@@ -53,7 +54,9 @@ description's vocabulary, so a reader needs the document alone:
 - every group has a ``kind``. When no source states one, the build writes
   ``family`` and records it in the group's ``provenance.defaults``.
 
-Version ``4`` added these tables and made a group's ``kind`` always present.
+Version ``4`` added ``relation_types``, widened ``signals`` from the roles
+the facility adds (all that version ``3`` carried) to the effective table and
+made it always present, and made a group's ``kind`` always present.
 
 Breaking changes and the bump rule
 ==================================
@@ -80,13 +83,31 @@ The reader rule
 
 Every reader declares the versions it reads, as a set of complete header
 strings, and compares the document's ``schema`` value against that set exactly.
-A document whose header is missing, malformed or not in the set is refused, and
-the refusal tells the user to rebuild:
+A document whose header is missing, malformed or not in the set is one the
+reader cannot read. The framework's readers share this check in
+``osprey_facility.reading``, and its message names the rebuild:
 
 .. code-block:: text
 
    build/facility.json is osprey.facility.facility/3; this reader reads
    osprey.facility.facility/4 -- rebuild with osprey build
+
+What a reader does next is its channel, one of three:
+
+refuse
+   The reader raises with that message and does nothing with the document. A
+   write, a deploy or a tool call stops there; the user rebuilds and runs it
+   again. Most readers refuse.
+report corrupt
+   The reader answers with a corrupt-source report whose detail is that
+   message, so the operator sees why the source gave nothing and that a
+   rebuild clears it. The channel roster reports this way.
+degrade as absent
+   The reader carries on as if no document were there, with a warning or a
+   marked-unresolved result in place of what the document would have given;
+   a rebuild restores it. Only a reader whose output stays correct without
+   the document degrades: an assistant context, a screen guide, a search
+   index's facility links. A write never does.
 
 A reader does not try to read a version it did not declare, older or newer, and
 does not guess from the keys present. A fork that tracks the document declares
@@ -97,7 +118,8 @@ The published schema
 ====================
 
 The document's shape is published as a JSON Schema generated from the
-description's schema model, in ``src/osprey/facility/schema/_generated/``:
+description's schema model, in ``osprey_facility/schema/_generated/`` of the
+``osprey-facility`` package:
 
 - ``facility.schema.json`` is the current shape. It is open: it does not
   refuse a key it does not name, so a document with an added key validates.
@@ -105,7 +127,7 @@ description's schema model, in ``src/osprey/facility/schema/_generated/``:
   when ``N`` first appears and never rewritten. ``facility-4.schema.json`` is
   today's floor.
 
-``uv run python scripts/facility_schema/json_schema.py`` regenerates them, and
+``uv run python -m osprey_facility.schema._generate`` regenerates them, and
 its ``--check`` fails when the current file is stale or a floor is missing. A
 test compares the current schema with the floor of the current ``N``: a change
 that is not additive -- a removed, renamed or retyped key, a newly required
@@ -113,9 +135,20 @@ key, a removed enum value -- fails until its author bumps ``N``. The test
 sees shape only; a key that keeps its shape and changes its meaning is held by
 review.
 
-The schema files ship inside the ``osprey`` wheel today, so forks and readers
-outside Python can validate a document without OSPREY's source tree. In
-phase 4 they ship in the description's own package.
+The schema files ship inside the ``osprey-facility`` wheel, at
+``osprey_facility/schema/_generated/``, so forks and readers outside Python can
+validate a document without OSPREY's source tree or the framework.
+``osprey_facility.schema.published_schema()`` returns the current file;
+``published_schema(N)`` returns the floor for version ``N`` and raises
+``LookupError`` for a version the package ships no floor for:
+
+.. code-block:: python
+
+   import json
+
+   from osprey_facility.schema import published_schema
+
+   schema = json.loads(published_schema().read_text(encoding="utf-8"))
 
 What holds today
 ================
@@ -136,66 +169,118 @@ What holds today
      - Only the build's render writes the file; no test guards it
    * - ``N`` bumps on a change of shape, not on an added key
      - Enforced
-     - ``tests/facility/test_facility_json_schema.py``: the current schema
-       must be additive over the floor of the current ``N``
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py``:
+       the current schema must be additive over the floor of the current ``N``
    * - ``N`` bumps on a change of meaning that keeps the shape
      - Holds, not checked
      - Review; no test can see a meaning
    * - The generated JSON Schema is pinned by a test
      - Enforced
-     - ``tests/facility/test_facility_json_schema.py``: the committed schema
-       and the floors equal the generator's output, and the schema's header is
-       ``FACILITY_HEADER``
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py``:
+       the committed current schema equals the generator's output, a floor
+       exists for the current ``N``, and the schema's header is
+       ``FACILITY_HEADER``. A floor is not compared with the generator: it is
+       written once and parts from the current schema at the first additive
+       change
    * - The schema ships in the description's package
-     - Target
-     - Phase 4, when the description becomes its own package; today it ships
-       in the ``osprey`` wheel
+     - Enforced
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_wheel_contents.py``:
+       the built ``osprey-facility`` wheel holds both schema files where
+       ``published_schema`` resolves them, and the compat module
    * - Readers ignore unknown keys
      - Enforced for the panel engine
      - ``tests/facility/panels/test_unknown_keys.py``; the framework's readers
        look up the keys they use and pass over the rest, not checked
-   * - Readers check ``N`` and refuse others
-     - Enforced for the panel engine
-     - ``tests/facility/panels/test_document.py`` and
-       ``tests/cli/test_facility_panels.py``; the framework's readers in
-       phase 3, see the readers below
+   * - Readers check ``N`` and act on others through their channel
+     - Enforced
+     - ``tests/facility/test_reader_coverage.py``: every function that reads
+       the document reaches the header check and is on the reader roster
+       with its channel and a test that hands it a ``/3`` document; the
+       panel engine in ``tests/facility/panels/test_document.py``
 
 The readers
 ===========
 
-The contract binds every reader of ``facility.json``. The panel engine checks
-the header today; each framework reader starts checking it in the phase shown,
-and until then reads whatever ``N`` it finds.
+The contract binds every reader of ``facility.json``, and every reader checks
+the header today. The panel engine (``osprey.facility.panels.document``)
+refuses: it reads ``/4`` and imports no facility code, because it is the
+reader a fork replaces.
+
+Each framework reader is on the reader roster with its channel, below. The
+roster is ``tests/facility/_reader_roster.py``;
+``tests/facility/test_reader_coverage.py`` holds it complete, and a docs test
+holds this table equal to it.
 
 .. list-table::
    :header-rows: 1
-   :widths: 45 40 15
+   :widths: 75 25
 
    * - Reader
-     - What it reads
-     - Checks ``N`` from
-   * - The panel engine (``osprey.facility.panels.document``)
-     - Every record and the ``signals`` and ``relation_types`` tables, to lay
-       out the facility's screens
-     - Enforced: reads ``/4``
-   * - The write guard (``osprey.runtime.guarded_run``)
-     - Each channel's ``command``, before a write is let through
-     - Phase 3, first among the framework readers
-   * - The channel roster (``osprey.channel_roster.sources``)
-     - The channel list the roster serves
-     - Phase 3
-   * - The facility identity (``osprey.utils.facility``)
-     - The recorded ``identity``
-     - Phase 3
-   * - The app SDK model (``osprey.apps.sdk``)
-     - The records an app reads through ``FacilityRecords``
-     - Phase 3
-   * - Every other framework reader (the simulation model request, the
-       Canopy screen guide, the channel finder's database, the CLI)
-     - The records each one needs
-     - Phase 3
+     - Channel
+   * - ``osprey_facility.reading.load_facility``
+     - refuse
+   * - ``osprey_facility.reading.check_header``
+     - refuse
+   * - ``osprey.runtime.guarded_run._facility_commands``
+     - refuse
+   * - ``osprey.simulation.model_request._corrector_delta``
+     - refuse
+   * - ``osprey.mcp_server.python_executor.tools.pyaml_measure._facility``
+     - refuse
+   * - ``osprey.mcp_server.python_executor.tools._pyaml_measure_result.measure_labels``
+     - refuse
+   * - ``osprey.apps.sdk.testing._deployment.RenderedTree.read``
+     - refuse
+   * - ``osprey_facility.records.FacilityRecords.from_file``
+     - refuse
+   * - ``osprey.apps.sdk._model.model_members``
+     - refuse
+   * - ``osprey.services.ariel_search.ingestion.facility_references.load_facility_records``
+     - degrade-absent
+   * - ``osprey.interfaces.okf_panel.app._load_facility_records``
+     - degrade-absent
+   * - ``osprey.facility.views.facts.parsed_facility_file``
+     - refuse
+   * - ``osprey.channel_roster.sources.read_facility_roster``
+     - report-corrupt
+   * - ``osprey.integrations.canopy.screen_guide._guide_facility``
+     - degrade-absent
+   * - ``osprey.cli.templates.claude_code._read_facility``
+     - degrade-absent
+   * - ``osprey.utils.facility._recorded_identity``
+     - refuse
+   * - ``osprey.utils.facility.facility_name``
+     - refuse
+   * - ``osprey.runtime._facility_channels``
+     - refuse
+   * - ``osprey.mcp_server.channel_finder_hierarchical.server_context.ChannelFinderHierContext.initialize``
+     - refuse
+   * - ``osprey.mcp_server.channel_finder_middle_layer.server_context.ChannelFinderMLContext.initialize``
+     - refuse
+   * - ``osprey.mcp_server.channel_finder_in_context.server_context.ChannelFinderICContext.initialize``
+     - refuse
+   * - ``osprey.interfaces.channel_finder.app._create_lifespan``
+     - refuse
+   * - ``osprey.deployment.web_terminals.artifacts.resolve_render_inputs``
+     - refuse
+   * - ``osprey.facility.views.facts.read_facts``
+     - refuse
+   * - ``osprey.mcp_server.python_executor.server.pyaml_view_present``
+     - refuse
+   * - ``osprey.mcp_server.python_executor.tools.pyaml_measure.advertised``
+     - refuse
+   * - ``osprey.mcp_server.python_executor.tools._pyaml_measure_args._facts``
+     - refuse
+   * - ``osprey.cli.templates.claude_code.config_derived_context``
+     - refuse
+   * - ``osprey.apps.sdk._model.closed_orbit_models``
+     - refuse
+   * - ``osprey.apps.sdk._facts.read_facts``
+     - refuse
+   * - ``osprey.cli.build_injectors._inject_dispatch``
+     - refuse
+   * - ``osprey.cli.facility_cmd._panel_graph``
+     - refuse
 
-The panel engine checks first because it is the reader a fork replaces: it
-imports no facility code and reads the document alone. The write
-guard is the first framework reader to check, because a write must never pass
-on a document the guard cannot vouch for.
+The write guard (``osprey.runtime.guarded_run``) refuses, because a write must
+never pass on a document the guard cannot vouch for.

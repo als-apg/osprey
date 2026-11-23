@@ -3,7 +3,7 @@
 Every view is one row of :data:`VIEWS`: its name, its directory under the
 render's ``data/``, the predicate that decides whether a render carries it and
 returns the config key or model fact it decided on, and the writer that writes
-it. :func:`osprey.facility.render.render_facility_outputs` is the only writer:
+it. :func:`osprey.facility.views.outputs.render_facility_outputs` is the only writer:
 it asks each view's predicate of every render, writes the
 views whose predicate holds and names each other one in a note on stderr, once
 per build — except a view a selector (``View.selected_by``) did not pick from
@@ -16,7 +16,7 @@ predicate of the main render and lists each view with its answer.
 A view's writer sees only the config keys its row names in ``View.reads``, so
 two renders that agree on those keys and serve the same models get the same
 bytes, and a build writes each such view once and copies it into the others
-(:func:`osprey.facility.render.render_facility_outputs`).
+(:func:`osprey.facility.views.outputs.render_facility_outputs`).
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
-from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "GRAPH_BASIS_KEY",
@@ -160,37 +160,9 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
     Returns:
         Its UTF-8 bytes.
     """
+    from osprey_facility.render import json_bytes
+
     return json_bytes(document)
-
-
-def json_bytes(document: Any, *, sort_keys: bool = True) -> bytes:
-    """``(json.dumps(document, indent=2, ...) + "\\n").encode("utf-8")``, without its copies.
-
-    An indented ``json.dumps`` joins a list of every token it wrote, then the
-    text is copied once more into its bytes: for a document of a large facility
-    the transient copies are several times the size of the file. Encoding
-    into a byte buffer token by token holds only the bytes. The output is the
-    same, byte for byte: ``json.dump`` and ``json.dumps`` write one token
-    stream.
-
-    Args:
-        document: The document.
-        sort_keys: Whether keys are written sorted.
-
-    Returns:
-        Its UTF-8 bytes: two-space indent, non-ASCII written as itself, NaN
-        refused, one final newline.
-    """
-    import io
-    import json
-
-    buffer = io.BytesIO()
-    text = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
-    json.dump(document, text, indent=2, sort_keys=sort_keys, ensure_ascii=False, allow_nan=False)
-    text.write("\n")
-    text.flush()
-    text.detach()
-    return buffer.getvalue()
 
 
 def report_omitted(view: View, reason: str) -> None:

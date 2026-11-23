@@ -19,8 +19,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 MODEL = "CHAIN"
 
@@ -93,7 +94,12 @@ def _write(root: Path, tree: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, tree: dict[str, Any], *, later=LATER_STAGES) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", tree), project_name="p", later=later)
+    return run_stages(
+        _write(tmp_path / "facility", tree),
+        project_name="p",
+        later=later,
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
 
 def _lines(report: StageReport) -> list[str]:
@@ -112,7 +118,9 @@ def _records(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def test_deckless_engine_model_builds_with_each_setpoint_started(tmp_path: Path) -> None:
-    document = build_facility(_write(tmp_path / "facility", _tree()), project_name="p")
+    document = build_facility(
+        _write(tmp_path / "facility", _tree()), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
     records = _records(document)
     for address, start in STARTS.items():
         assert records[address]["default"] == start, address
@@ -256,7 +264,7 @@ def test_lattice_only_facility_builds_byte_identical(tmp_path: Path) -> None:
     from tests.facility._synthetic_trees import write_tree
 
     root = write_tree(tmp_path / "facility", _lattice_tree())
-    document = build_facility(root, project_name="p")
+    document = build_facility(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
     optics = _records(document)["QP:SP"]
     assert "default" not in optics
     assert "default" not in optics["provenance"]["defaults"]

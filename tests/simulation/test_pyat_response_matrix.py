@@ -16,9 +16,9 @@ import at
 import numpy as np
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"

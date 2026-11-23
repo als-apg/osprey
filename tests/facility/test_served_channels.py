@@ -17,9 +17,6 @@ import pytest
 import yaml
 
 from osprey.cli.build_profile_archiver import FRESHNESS_CONFIG_KEY, VAArchiverConfig
-from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.served import resolve_served
 from osprey.facility.settings import (
     NO_READBACK_WARNING,
     SERVED_PROBE_KEYS,
@@ -31,6 +28,9 @@ from osprey_connectors.types import (
     VIRTUAL_ACCELERATOR,
     configured_targets,
 )
+from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility.records import ChannelSelection, FacilityRecords
+from osprey_facility.served import resolve_served
 from tests._builds import BuiltProject, init_project, run_build
 
 VA_PROBE_KEY = SERVED_PROBE_KEYS[0]

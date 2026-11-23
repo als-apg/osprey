@@ -17,8 +17,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import (
     CHANNEL_FINDER_SCHEMA,
     IN_CONTEXT_FILE,
@@ -26,6 +24,10 @@ from osprey.facility.views.channel_finder import (
     in_context_selected,
     write_in_context,
 )
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
+from tests._facility_file import FACILITY_V4
 from tests.facility.test_cf_view_parity import IN_CONTEXT_ADDITIONS, load_golden
 
 if TYPE_CHECKING:
@@ -107,11 +109,13 @@ def test_an_untagged_facility_indexes_every_channel() -> None:
 
 
 def test_hello_world_builds_an_in_context_index_of_its_five_labelled_channels() -> None:
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
     from tests.facility.test_standalone_sources import HELLO_WORLD, HELLO_WORLD_ADDRESSES
 
     document = in_context_document(
-        FacilityRecords(build_facility(HELLO_WORLD, project_name="hello"))
+        FacilityRecords(
+            build_facility(HELLO_WORLD, project_name="hello", extra_checks=FRAMEWORK_CHECKS)
+        )
     )
 
     rows = document["channels"]
@@ -163,13 +167,17 @@ def test_a_render_that_selects_another_index_names_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.render import FACILITY_FILE
 
     (view,) = [view for view in views.VIEWS if view.name == "in_context"]
     monkeypatch.setattr(views, "VIEWS", (view,))
 
     written = render_facility_outputs(
-        tmp_path, {"channels": []}, {"channel_finder": {"pipeline_mode": "graph"}}, tmp_path
+        tmp_path,
+        {"schema": FACILITY_V4, "channels": []},
+        {"channel_finder": {"pipeline_mode": "graph"}},
+        tmp_path,
     )
 
     assert written == [tmp_path / FACILITY_FILE]

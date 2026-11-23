@@ -1,20 +1,22 @@
 """The facility description and the panel engine keep to the imports of their packages.
 
-``osprey.facility`` will leave the framework as two distributions: the description
-(``osprey-facility``) and the panel engine (``osprey-panels``). Which module goes where is
-written once, in the import-linter contracts of ``pyproject.toml``; this module reads the
-sides from there and checks the two edge classes import-linter cannot see:
+The facility leaves the framework as two distributions: the description, the
+``osprey_facility`` package of ``osprey-facility`` (``packages/osprey-facility/src``), and
+the panel engine (``osprey.facility.panels``, becoming ``osprey-panels``). Which module goes
+where is written once, in the import-linter contracts of ``pyproject.toml``; this module
+reads the sides from there and checks the two edge classes import-linter cannot see:
 
 * **A1, third-party imports.** import-linter only follows imports inside its root packages,
   so an import of any other distribution is invisible to it. Each package may import the
   standard library, the root packages import-linter already checks, and its own ruled
-  dependency set (:data:`DESCRIPTION_DEPENDENCIES`, :data:`PANELS_DEPENDENCIES`).
+  dependency set (:data:`DESCRIPTION_DEPENDENCIES`, :data:`PANELS_DEPENDENCIES`); the
+  description's sets are the dependencies ``osprey-facility`` declares.
 * **A2, dynamic reaches.** ``importlib.import_module("...")``,
   ``importlib.resources.files("...")`` and a path climbed from ``__file__`` reach a module
   without an import statement. Such a reach is held to the contract row it crosses, the
-  same rule a static import of that module would meet. The whole ``src/osprey`` tree is
-  scanned, since framework modules reach the two packages too; a file is parsed only when
-  its text spells one of the reaches, which keeps the scan fast.
+  same rule a static import of that module would meet. Both source roots (:data:`SOURCES`)
+  are scanned whole, since framework modules reach the two packages too; a file is parsed
+  only when its text spells one of the reaches, which keeps the scan fast.
 
 Today's edges are ratchets (:data:`THIRD_PARTY_RATCHET`, :data:`DYNAMIC_RATCHET`), each
 entry naming its ruling and the epic phase that removes it. A new edge fails, and so does
@@ -22,8 +24,8 @@ an entry whose edge is gone: the lists only shrink.
 
 The completeness half keeps the contracts themselves whole:
 
-* every module under ``src/osprey`` (bar the build-written ``osprey._version``) is on
-  exactly one side, read with the contracts' ``as_packages = false`` semantics. A
+* every module under both source roots (bar the build-written ``_version`` modules) is
+  on exactly one side, read with the contracts' ``as_packages = false`` semantics. A
   top-level ``osprey.*`` wildcard would be skipped by import-linter's overlap rule, so
   the framework is listed module by module, and a new module or package fails until a
   list names it;
@@ -33,9 +35,12 @@ The completeness half keeps the contracts themselves whole:
   and none uses a wildcard;
 * the public modules ``facility-public-api`` declares in its comment exist, are
   description modules and are not protected, and together with ``protected_modules``
-  they cover the description exactly once.
+  they cover the description exactly once;
+* each declared public module names exactly one consumer (a fork/tool, a kind plug-in,
+  an app, or a framework job naming the framework modules that import it), and the
+  declared rows are the rows of the package README's "Public API" table.
 
-The scan functions take the source root as an argument, so the detection tests can run
+The scan functions take the source roots as an argument, so the detection tests can run
 them on a temporary tree.
 """
 
@@ -52,7 +57,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SRC = REPO / "src"
+
+#: The ``osprey-facility`` distribution: its ``pyproject.toml``, README and ``src``.
+FACILITY_PACKAGE = REPO / "packages" / "osprey-facility"
+
+#: The source roots scanned: the framework's (``osprey``, the panel engine inside it) and
+#: the description package's (``osprey_facility``). Each top-level package with an
+#: ``__init__.py`` under a root is read.
+SOURCES = (REPO / "src", FACILITY_PACKAGE / "src")
 
 #: Third-party import roots the description may use (ruling 3), each with its
 #: distribution. The mml import layer additionally gets :data:`MML_DEPENDENCIES`.
@@ -63,14 +75,14 @@ DESCRIPTION_DEPENDENCIES: Mapping[str, str] = {
     "numpy": "numpy (ruling 3)",
 }
 
-#: The ``mml`` extra of the description (ruling 3), for ``osprey.facility.layers.mml``.
+#: The ``mml`` extra of the description (ruling 3), for ``osprey_facility.layers.mml``.
 MML_DEPENDENCIES: Mapping[str, str] = {
     "scipy": "scipy (ruling 3, mml extra)",
     "at": "accelerator-toolbox (ruling 3, mml extra)",
 }
 
 #: The description modules the ``mml`` extra serves.
-MML_PREFIX = "osprey.facility.layers.mml"
+MML_PREFIX = "osprey_facility.layers.mml"
 
 #: Third-party import roots the panel engine may use: the standard library plus the
 #: validator of its pinned Screen-IR schema (ruling 8).
@@ -79,31 +91,12 @@ PANELS_DEPENDENCIES: Mapping[str, str] = {
 }
 
 #: Today's A1 edges, ``importer -> import root``, with ruling and removing phase.
-#: The click edges go when the description raises plain errors and the framework's
-#: command line turns them into click ones (ruling 3).
-_CLICK = "ruling 3: the description raises plain errors, the CLI adapts them; phase 3"
-
-THIRD_PARTY_RATCHET: Mapping[str, str] = {
-    "osprey.facility.errors -> click": _CLICK,
-    "osprey.facility.layers -> click": _CLICK,
-    "osprey.facility.layers.list -> click": _CLICK,
-    "osprey.facility.layers.mml.importer -> click": _CLICK,
-    "osprey.facility.layers.mml.loaders.json_any -> click": _CLICK,
-    "osprey.facility.layers.mml.loaders.mat -> click": _CLICK,
-    "osprey.facility.layers.mml.mapping -> click": _CLICK,
-    "osprey.facility.layers.mml.systems -> click": _CLICK,
-    "osprey.facility.validate -> click": _CLICK,
-    "osprey.facility.kinds -> pyaml_cs_osprey": "ruling 3: the kind name becomes the "
-    "description's own; phase 3",
-}
+THIRD_PARTY_RATCHET: Mapping[str, str] = {}
 
 #: Today's A2 edges, ``importer -> target [spelling]``, with row, ruling and removing phase.
 DYNAMIC_RATCHET: Mapping[str, str] = {
     "osprey.facility.panels.emit -> osprey.templates.apps.demo [__file__]": (
         "S4, ruling 7: the caller passes the theme file in; phase 5"
-    ),
-    "osprey.cli.facility_cmd -> osprey.facility.layers.mml [files]": (
-        "S6, ruling 5: the framework uses the description's public modules; phase 4"
     ),
 }
 
@@ -135,7 +128,9 @@ class Sides:
     """The module lists of the facility contracts.
 
     Attributes:
-        description: Modules of the description (``facility-description-standalone``).
+        description: Modules of the description (``facility-description-without-panels``,
+            spelled module by module; ``facility-description-standalone`` names the
+            package whole).
         panels: Modules of the panel engine (``panels-document-only``).
         framework: Modules of the framework (``framework-without-panels``).
         non_public: Description modules the framework may not reach
@@ -184,16 +179,15 @@ def read_sides(pyproject: Path = PYPROJECT) -> Sides:
     config = _importlinter(pyproject)
     contracts = _contracts(config)
     wanted = (
-        "facility-description-standalone",
+        "facility-description-without-panels",
         "panels-document-only",
         "framework-without-panels",
         "facility-public-api",
     )
     missing = [cid for cid in wanted if cid not in contracts]
     assert not missing, f"pyproject.toml has no import-linter contract {missing}"
-    description = contracts["facility-description-standalone"]
     return Sides(
-        description=tuple(description["source_modules"]),
+        description=tuple(contracts["facility-description-without-panels"]["source_modules"]),
         panels=tuple(contracts["panels-document-only"]["source_modules"]),
         framework=tuple(contracts["framework-without-panels"]["source_modules"]),
         non_public=tuple(contracts["facility-public-api"]["protected_modules"]),
@@ -374,24 +368,32 @@ class _Reaches(ast.NodeVisitor):
 
 
 @functools.cache
-def scan(src: Path, sides: Sides) -> tuple[tuple[str | None, Reach], ...]:
-    """Every reach under ``src/osprey`` relevant to A1 or A2, with the importer's side.
+def scan(sources: tuple[Path, ...], sides: Sides) -> tuple[tuple[str | None, Reach], ...]:
+    """Every reach under ``sources`` relevant to A1 or A2, with the importer's side.
 
     A description or panel-engine module is read whole; any other module only when its
     text spells a dynamic reach, and then for its dynamic reaches alone.
     """
-    return tuple(_scan(src, sides))
+    return tuple(_scan(sources, sides))
 
 
-def _module_files(src: Path) -> Iterator[tuple[Path, str]]:
-    """Each source file under ``src/osprey`` with the module it lies in, in path order."""
-    for path in sorted((src / "osprey").rglob("*.py")):
-        if "__pycache__" not in path.parts and (module := _module_of(src, path)):
-            yield path, module
+def _module_files(sources: tuple[Path, ...]) -> Iterator[tuple[Path, Path, str]]:
+    """Each source file of the packages under ``sources`` with its root and module.
+
+    A file's module is named against its own root, so a package installed from another
+    ``src`` reads as it imports.
+    """
+    for src in sources:
+        for package in sorted(src.iterdir()):
+            if not (package / "__init__.py").is_file():
+                continue
+            for path in sorted(package.rglob("*.py")):
+                if "__pycache__" not in path.parts and (module := _module_of(src, path)):
+                    yield src, path, module
 
 
-def _scan(src: Path, sides: Sides) -> Iterator[tuple[str | None, Reach]]:
-    for path, module in _module_files(src):
+def _scan(sources: tuple[Path, ...], sides: Sides) -> Iterator[tuple[str | None, Reach]]:
+    for src, path, module in _module_files(sources):
         side = sides.of(module)
         whole = side in (DESCRIPTION, PANELS)
         text = path.read_text(encoding="utf-8")
@@ -413,11 +415,11 @@ def allowed_third_party(module: str) -> Mapping[str, str]:
     return DESCRIPTION_DEPENDENCIES
 
 
-def third_party_edges(src: Path, sides: Sides) -> dict[str, list[Reach]]:
+def third_party_edges(sources: tuple[Path, ...], sides: Sides) -> dict[str, list[Reach]]:
     """A1: imports of a description or panel-engine module outside its dependency set."""
     stdlib = sys.stdlib_module_names
     found: dict[str, list[Reach]] = {}
-    for side, reach in scan(src, sides):
+    for side, reach in scan(sources, sides):
         if reach.how != "import" or side not in (DESCRIPTION, PANELS):
             continue
         root = reach.target.split(".")[0]
@@ -448,10 +450,10 @@ def crossed_row(side: str | None, target: str, sides: Sides) -> str | None:
     return None
 
 
-def dynamic_edges(src: Path, sides: Sides) -> dict[str, list[Reach]]:
-    """A2: dynamic reaches anywhere under ``src/osprey`` that cross a contract row."""
+def dynamic_edges(sources: tuple[Path, ...], sides: Sides) -> dict[str, list[Reach]]:
+    """A2: dynamic reaches anywhere under ``sources`` that cross a contract row."""
     found: dict[str, list[Reach]] = {}
-    for side, reach in scan(src, sides):
+    for side, reach in scan(sources, sides):
         if reach.how != "import" and crossed_row(side, reach.target, sides):
             found.setdefault(reach.edge, []).append(reach)
     return found
@@ -475,7 +477,7 @@ def test_every_contract_side_names_some_module() -> None:
 
 def test_the_two_packages_import_only_their_dependency_sets() -> None:
     """A description or panel-engine import of another distribution is ruled (A1)."""
-    edges = third_party_edges(SRC, read_sides())
+    edges = third_party_edges(SOURCES, read_sides())
     new = edges.keys() - THIRD_PARTY_RATCHET.keys()
     assert not new, _report(
         "Imports outside the package's dependency set (rule out, or name the "
@@ -485,8 +487,37 @@ def test_the_two_packages_import_only_their_dependency_sets() -> None:
     )
 
 
+def _distribution(requirement: str) -> str:
+    """The normalised distribution name of a PEP 508 requirement string."""
+    name = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", requirement)
+    assert name, f"unreadable requirement {requirement!r}"
+    return re.sub(r"[-_.]+", "-", name.group(0)).lower()
+
+
+def _distributions(dependencies: Mapping[str, str]) -> set[str]:
+    """The distributions a dependency set names, its values reading ``dist (ruling)``."""
+    return {_distribution(why.split(" (")[0]) for why in dependencies.values()}
+
+
+def test_the_description_sets_are_what_osprey_facility_declares() -> None:
+    """A1 per package: the import roots allowed are the package's own dependencies.
+
+    ``osprey_connectors`` is a root package (import-linter checks it) and the one
+    declared dependency no set names.
+    """
+    project = tomllib.loads((FACILITY_PACKAGE / "pyproject.toml").read_text("utf-8"))["project"]
+    declared = {_distribution(requirement) for requirement in project["dependencies"]}
+    assert declared == _distributions(DESCRIPTION_DEPENDENCIES) | {"osprey-connectors"}, (
+        "osprey-facility's dependencies and DESCRIPTION_DEPENDENCIES differ"
+    )
+    extra = {_distribution(r) for r in project["optional-dependencies"]["mml"]}
+    assert extra == _distributions(MML_DEPENDENCIES), (
+        "osprey-facility's mml extra and MML_DEPENDENCIES differ"
+    )
+
+
 def test_every_third_party_ratchet_entry_is_still_an_edge() -> None:
-    edges = third_party_edges(SRC, read_sides())
+    edges = third_party_edges(SOURCES, read_sides())
     stale = THIRD_PARTY_RATCHET.keys() - edges.keys()
     assert not stale, (
         f"THIRD_PARTY_RATCHET entries whose edge is gone, delete them: {sorted(stale)}"
@@ -496,7 +527,7 @@ def test_every_third_party_ratchet_entry_is_still_an_edge() -> None:
 def test_no_dynamic_reach_crosses_a_contract_row() -> None:
     """``import_module``, ``resources.files`` and ``__file__`` climbs meet the contracts (A2)."""
     sides = read_sides()
-    edges = dynamic_edges(SRC, sides)
+    edges = dynamic_edges(SOURCES, sides)
     new = edges.keys() - DYNAMIC_RATCHET.keys()
     rows = {
         key: crossed_row(sides.of(edges[key][0].module), edges[key][0].target, sides) for key in new
@@ -511,7 +542,7 @@ def test_no_dynamic_reach_crosses_a_contract_row() -> None:
 
 
 def test_every_dynamic_ratchet_entry_is_still_an_edge() -> None:
-    edges = dynamic_edges(SRC, read_sides())
+    edges = dynamic_edges(SOURCES, read_sides())
     stale = DYNAMIC_RATCHET.keys() - edges.keys()
     assert not stale, f"DYNAMIC_RATCHET entries whose edge is gone, delete them: {sorted(stale)}"
 
@@ -536,30 +567,47 @@ FACILITY_CONTRACTS = (
 #: The epic phases a ratchet entry may name: phase 1 adds the entries, 2-6 remove them.
 EPIC_PHASES = range(2, 7)
 
-#: Modules no contract names: ``osprey._version`` is written by the build and missing on
-#: a fresh clone, so import-linter would refuse it (the policy comment of the contracts).
-UNLISTED = frozenset({"osprey._version"})
+#: Modules no contract names: the ``_version`` modules are written by the build and
+#: missing on a fresh clone, so import-linter would refuse them (the policy comment of
+#: the contracts).
+UNLISTED = frozenset({"osprey._version", "osprey_facility._version"})
 
 #: The contract lists that spell the framework, where a new framework module goes.
+#: ``facility-description-standalone`` forbids ``osprey`` whole and spells none of it.
 FRAMEWORK_LISTS = (
     "framework-without-panels.source_modules",
-    "facility-description-standalone.forbidden_modules",
     "panels-standalone.forbidden_modules",
 )
+
+#: The root packages the facility contracts name modules of.
+CONTRACT_ROOTS = frozenset({"osprey", "osprey_facility"})
+
+#: The consumers a public description module may serve besides a framework job, which
+#: names the framework modules that import it (the package README's "Public API" table).
+CONSUMERS = ("fork/tool", "kind plug-in", "app")
+
+#: A framework job: ``framework job:`` and one or more backticked framework modules.
+_FRAMEWORK_JOB = re.compile(r"framework job: `osprey(?:\.\w+)*`(?:, `osprey(?:\.\w+)*`)*")
+
+#: A public row of ``facility-public-api``'s comment: `` `module` | consumer ``.
+_PUBLIC_ROW = re.compile(r"^`(osprey_facility(?:\.\w+)*)`(?:\s*\|\s*(.*?))?\s*$")
+
+#: A row of the package README's "Public API" table.
+_README_ROW = re.compile(r"^\|\s*`(osprey_facility(?:\.\w+)*)`\s*\|\s*(.+?)\s*\|\s*$")
 
 _PHASE = re.compile(r"#\s*phase\s+(\d+)\b")
 _ENTRY = re.compile(r'^\s*"([^"]*)"\s*,?\s*(#.*)?$')
 
 
-def modules(src: Path) -> list[str]:
-    """Every module and package under ``src/osprey``, by dotted name."""
-    return sorted({module for _, module in _module_files(src)})
+def modules(sources: tuple[Path, ...]) -> list[str]:
+    """Every module and package under ``sources``, by dotted name."""
+    return sorted({module for _, _, module in _module_files(sources)})
 
 
-def misclassified(src: Path, sides: Sides) -> dict[str, list[str]]:
+def misclassified(sources: tuple[Path, ...], sides: Sides) -> dict[str, list[str]]:
     """Modules on no side or on several, with the sides that name them."""
     found: dict[str, list[str]] = {}
-    for module in modules(src):
+    for module in modules(sources):
         if module in UNLISTED:
             continue
         named = sides.naming(module)
@@ -612,49 +660,68 @@ def ignore_phases(block: list[str]) -> list[tuple[str, int | None]]:
     return entries
 
 
-def contract_comment(block: list[str]) -> str:
-    """The comment lines of a raw contract block, joined into one text."""
-    return " ".join(
-        line.strip().lstrip("#").strip() for line in block if line.strip().startswith("#")
-    )
+def public_rows(block: list[str]) -> list[tuple[str, str]]:
+    """The public rows, ``(module, consumer)``, a ``facility-public-api`` block declares.
 
-
-def declared_public(comment: str) -> list[str]:
-    """The public description modules a ``facility-public-api`` comment declares.
-
-    The declaration runs from ``Public:`` to the sentence that hands over to the list;
-    names are relative to ``osprey.facility`` unless spelled from ``osprey.``, and a
-    possessive (``layers.mml``'s ``family``) makes its module the base of the names
-    after it, up to the next ``;``.
+    The declaration is the comment lines after the one ending ``Public:`` and before the
+    one starting ``The modules listed below``, each a `` `module` | consumer `` row; a row
+    without a consumer reads with an empty one.
     """
-    match = re.search(r"Public:(.*?)The modules listed below", comment)
-    assert match, "facility-public-api's comment declares no public set ('Public: ...')"
-    public: list[str] = []
-    for clause in match.group(1).split(";"):
-        base = "osprey.facility"
-        for name, possessive in re.findall(r"`([^`]+)`('s)?", clause):
-            module = name if name.startswith("osprey.") else f"{base}.{name}"
-            if possessive:
-                base = module
-            else:
-                public.append(module)
-    return public
+    comments = [line.strip().lstrip("#").strip() for line in block if line.strip().startswith("#")]
+    opening = [i for i, text in enumerate(comments) if text.endswith("Public:")]
+    closing = [i for i, text in enumerate(comments) if text.startswith("The modules listed below")]
+    assert len(opening) == 1 and len(closing) == 1 and opening[0] < closing[0], (
+        "facility-public-api's comment declares no public set: a line ending 'Public:', "
+        "the rows, then a line starting 'The modules listed below'"
+    )
+    rows: list[tuple[str, str]] = []
+    for text in comments[opening[0] + 1 : closing[0]]:
+        match = _PUBLIC_ROW.match(text)
+        assert match, f"facility-public-api: not a `module` | consumer row: {text!r}"
+        rows.append((match.group(1), match.group(2) or ""))
+    return rows
+
+
+def consumer_fault(consumer: str) -> str | None:
+    """Why ``consumer`` is not exactly one consumer, or None when it is."""
+    if not consumer:
+        return "names no consumer"
+    if consumer in CONSUMERS or _FRAMEWORK_JOB.fullmatch(consumer):
+        return None
+    return f"is not exactly one of {', '.join(CONSUMERS)}, framework job: `osprey.<module>`"
+
+
+def consumer_faults(rows: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """The public rows whose consumer is faulty, by module, with the fault."""
+    return {module: fault for module, consumer in rows if (fault := consumer_fault(consumer))}
+
+
+def readme_rows(readme: Path = FACILITY_PACKAGE / "README.md") -> list[tuple[str, str]]:
+    """The rows of the package README's "Public API" table, ``(module, consumer)``."""
+    return [
+        (match.group(1), match.group(2))
+        for line in readme.read_text(encoding="utf-8").splitlines()
+        if (match := _README_ROW.match(line))
+    ]
 
 
 def _pyproject_text() -> str:
     return PYPROJECT.read_text(encoding="utf-8")
 
 
+def _public_rows() -> list[tuple[str, str]]:
+    """The public rows ``facility-public-api`` declares in ``pyproject.toml``."""
+    return public_rows(contract_blocks(_pyproject_text())["facility-public-api"])
+
+
 def _declared_public() -> list[str]:
     """The public modules ``facility-public-api`` declares in ``pyproject.toml``."""
-    return declared_public(
-        contract_comment(contract_blocks(_pyproject_text())["facility-public-api"])
-    )
+    return [module for module, _ in _public_rows()]
 
 
 def test_every_module_is_on_exactly_one_side() -> None:
     """A new module, a new top-level package included, fails until a contract lists it."""
-    wrong = misclassified(SRC, read_sides())
+    wrong = misclassified(SOURCES, read_sides())
     nowhere = sorted(module for module, named in wrong.items() if not named)
     several = {module: named for module, named in wrong.items() if named}
     assert not wrong, (
@@ -677,22 +744,36 @@ def test_the_framework_list_is_the_same_in_every_contract_that_spells_it() -> No
         assert not missing, f"{spelled} lacks framework modules {missing}"
 
 
+def test_osprey_facility_never_imports_osprey() -> None:
+    """S1 forbids the whole framework to the whole package, as ``connectors-standalone``."""
+    contract = _contracts()["facility-description-standalone"]
+    assert (contract["type"], contract["source_modules"], contract["forbidden_modules"]) == (
+        "forbidden",
+        ["osprey_facility"],
+        ["osprey"],
+    )
+    assert contract.get("as_packages", True), "S1 must read its two modules as packages"
+    assert read_sides().description == ("osprey_facility", "osprey_facility.**"), (
+        "the description side (S2-S3, S6's allowed importers) is the whole package"
+    )
+
+
 def test_the_contracts_name_only_existing_modules() -> None:
     """A list entry that names no module is a typo or a module since moved."""
-    existing = modules(SRC)
+    existing = modules(SOURCES)
     contracts = _contracts()
     stale = {
         f"{cid}.{key}": [
             pattern
             for pattern in contracts[cid].get(key, ())
-            if pattern.split(".")[0] == "osprey"
+            if pattern.split(".")[0] in CONTRACT_ROOTS
             and not any(_matches(module, pattern) for module in existing)
         ]
         for cid in FACILITY_CONTRACTS
-        for key in ("source_modules", "forbidden_modules", "protected_modules")
+        for key in ("source_modules", "forbidden_modules", "protected_modules", "allowed_importers")
     }
     stale = {where: patterns for where, patterns in stale.items() if patterns}
-    assert not stale, f"Contract entries naming no module under src/osprey: {stale}"
+    assert not stale, f"Contract entries naming no module under the source roots: {stale}"
 
 
 def test_every_ignored_import_sits_under_an_epic_phase_header() -> None:
@@ -726,7 +807,7 @@ def test_no_ignored_import_uses_a_wildcard() -> None:
 def test_the_declared_public_set_names_existing_description_modules() -> None:
     sides = read_sides()
     public = _declared_public()
-    existing = set(modules(SRC))
+    existing = set(modules(SOURCES))
     missing = [module for module in public if module not in existing]
     assert not missing, f"facility-public-api declares modules that do not exist: {missing}"
     elsewhere = [module for module in public if sides.of(module) != DESCRIPTION]
@@ -738,13 +819,48 @@ def test_the_declared_public_set_names_existing_description_modules() -> None:
 def test_every_description_module_is_public_or_protected() -> None:
     sides = read_sides()
     public = set(_declared_public())
-    description = [module for module in modules(SRC) if sides.of(module) == DESCRIPTION]
+    description = [module for module in modules(SOURCES) if sides.of(module) == DESCRIPTION]
     undeclared = [
         module
         for module in description
-        if module not in public and not _named(module, sides.non_public)
+        if module not in public and module not in UNLISTED and not _named(module, sides.non_public)
     ]
     assert not undeclared, (
         "Description modules neither declared public in facility-public-api's comment nor "
         f"listed in its protected_modules: {undeclared}"
+    )
+
+
+def test_every_public_module_names_exactly_one_consumer() -> None:
+    rows = _public_rows()
+    named = [module for module, _ in rows]
+    assert len(named) == len(set(named)), "facility-public-api declares a module twice"
+    faults = consumer_faults(rows)
+    assert not faults, f"facility-public-api rows whose consumer is wrong: {faults}"
+
+
+def test_a_framework_job_names_framework_modules() -> None:
+    """The modules a framework job names exist and are framework modules."""
+    sides = read_sides()
+    existing = set(modules(SOURCES))
+    jobs = {
+        module: re.findall(r"`([^`]+)`", consumer)
+        for module, consumer in _public_rows()
+        if consumer.startswith("framework job: ")
+    }
+    wrong = {
+        module: [job for job in named if job not in existing or sides.of(job) != FRAMEWORK]
+        for module, named in jobs.items()
+    }
+    wrong = {module: named for module, named in wrong.items() if named}
+    assert not wrong, f"framework jobs naming no framework module: {wrong}"
+
+
+def test_the_readme_table_is_the_declared_public_set() -> None:
+    """The contract comment and the package README carry the same rows, in one order."""
+    readme = readme_rows()
+    assert readme, "packages/osprey-facility/README.md has no 'Public API' table rows"
+    assert _public_rows() == readme, (
+        "facility-public-api's Public rows and the README's 'Public API' table differ; "
+        "copy each `module` | consumer row across"
     )

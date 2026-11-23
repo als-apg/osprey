@@ -61,7 +61,7 @@ Reading the facility file
 =========================
 
 Code reads the built file through one read model,
-``osprey.facility.records.FacilityRecords``: the records of a finished document
+``osprey_facility.records.FacilityRecords``: the records of a finished document
 by kind and id. A reference resolves to a channel or a device. A selection
 filters the file's own channel records and names a model or a place.
 
@@ -80,13 +80,13 @@ filters the file's own channel records and names a model or a place.
    * - ``from_file(path)``
      - The read model of a render's ``facility.json``.
      -
-     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON, is not an object or does not declare a ``schema`` header this reader reads, naming the rebuild (``osprey build``).
    * - ``document``
      - The mapping it was built from, read-only.
      -
      -
    * - ``facility_bytes()``
-     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
+     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey_facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
      - Sorted keys.
      -
    * - ``facility_sha256()``
@@ -150,7 +150,7 @@ filters the file's own channel records and names a model or a place.
      - Document order.
      - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or an engine_role or plane outside the schema's vocabulary.
 
-``osprey.facility.references.resolved_references`` is the one describer of
+``osprey_facility.references.resolved_references`` is the one describer of
 references: every surface that returns ``facility_references`` calls it, and each
 reference's ``start`` and ``end`` are Unicode code-point offsets into the text it
 was found in.
@@ -370,7 +370,7 @@ The schema
 
 The facility file's shape is two `LinkML <https://linkml.io/>`_ modules (LinkML
 is a YAML language for data schemas) in
-``src/osprey/facility/schema/``: ``core.yaml``, the records, and
+``packages/osprey-facility/src/osprey_facility/schema/``: ``core.yaml``, the records, and
 ``vocabulary.yaml``, the device classes, signal roles and property names. Both
 carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list

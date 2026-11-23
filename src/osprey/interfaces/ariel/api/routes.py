@@ -51,7 +51,6 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search import ARIELSearchService
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
@@ -69,6 +68,7 @@ if TYPE_CHECKING:
         FacilityEntryCreateResult,
     )
     from osprey.stores.artifact_scope import SessionScope
+    from osprey_facility.records import FacilityRecords
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -256,12 +256,12 @@ def _entry_to_response(
     Returns:
         The entry response.
     """
-    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.imaging.formats import skip_reason_text
     from osprey.services.ariel_search.attachments.summaries import (
         build_attachment_summary_pairs,
     )
     from osprey.services.ariel_search.subject import entry_subject
+    from osprey_facility.references import FacilityReference, resolved_references
 
     entry_id = str(entry.get("entry_id") or "")
     pairs = build_attachment_summary_pairs(

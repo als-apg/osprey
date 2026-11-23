@@ -25,8 +25,8 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.facility_cmd import _relation_summary
 from osprey.cli.main import cli
-from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.render import FACILITY_FILE
 from tests._builds import Restorable, init_project, run_build
 from tests.facility._appendix_a import (
     VARIANTS,
@@ -300,10 +300,10 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One call, on a render outside the repo that is gone once the verb returns."""
-    from osprey.facility import render
+    from osprey.facility.views import outputs as facility_outputs
 
     calls: list[tuple[Path, list[Path]]] = []
-    real = render.render_facility_outputs
+    real = facility_outputs.render_facility_outputs
 
     def spy(
         render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path, **kwargs: Any
@@ -313,7 +313,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
         calls.append((render_dir, written))
         return written
 
-    monkeypatch.setattr(render, "render_facility_outputs", spy)
+    monkeypatch.setattr(facility_outputs, "render_facility_outputs", spy)
 
     result = _validate(repo)
 

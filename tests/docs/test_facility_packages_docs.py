@@ -14,6 +14,10 @@ The two new pages that show them (``architecture/facility-packages.rst`` and
 ASCII-art drawing. A page not written yet is skipped here; the phase check
 asserts both exist. Other pages keep their file-tree blocks: the scan is
 scoped to these two on purpose.
+
+The contract page's readers table lists each reader on the reader roster
+(``tests/facility/_reader_roster.py``) with its channel; it is held equal to
+the roster, so a reader added to the roster and not to the page fails here.
 """
 
 from __future__ import annotations
@@ -177,3 +181,39 @@ def test_prose_tables_and_code_are_not_drawings() -> None:
         "the build \u2192 facility.json \u2192 the readers.\n"
     )
     assert _ascii_art_lines(page) == []
+
+
+#: The contract page whose readers table is held equal to the reader roster.
+CONTRACT_PAGE = DOCS / "reference" / "contracts" / "facility-json.rst"
+
+_ROW = re.compile(r"^   \* - ``([\w.]+)``\n     - ([\w-]+)$", re.M)
+
+
+def _readers_table(text: str) -> list[tuple[str, str]]:
+    """The (reader, channel) rows of the page's "The readers" section, in order."""
+    start = text.index("\nThe readers\n===========\n")
+    return _ROW.findall(text[start:])
+
+
+def test_the_readers_table_is_the_reader_roster() -> None:
+    from tests.facility._reader_roster import CHANNELS, ROSTER
+
+    rows = _readers_table(CONTRACT_PAGE.read_text(encoding="utf-8"))
+    functions = [function for function, _ in rows]
+    assert len(functions) == len(set(functions)), "a reader is listed twice"
+    assert {channel for _, channel in rows} <= CHANNELS
+    assert dict(rows) == {reader.function: reader.channel for reader in ROSTER}
+
+
+def test_the_readers_table_parser_reads_each_row() -> None:
+    page = (
+        "The readers\n===========\n\n"
+        ".. list-table::\n   :header-rows: 1\n\n"
+        "   * - Reader\n     - Channel\n"
+        "   * - ``osprey.a.read``\n     - refuse\n"
+        "   * - ``osprey.b.C.read``\n     - degrade-absent\n"
+    )
+    assert _readers_table("\n" + page) == [
+        ("osprey.a.read", "refuse"),
+        ("osprey.b.C.read", "degrade-absent"),
+    ]

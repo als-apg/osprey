@@ -1,4 +1,4 @@
-"""Tests for the mml layer's deck pass (``osprey.facility.layers.mml.decks``).
+"""Tests for the mml layer's deck pass (``osprey_facility.layers.mml.decks``).
 
 The layer is driven over the new-format spear3 and nsls2 mappings and the
 decks their exports saved, and over small decks built here for the rules a
@@ -16,21 +16,22 @@ from typing import Any
 import at
 import pytest
 
-from osprey.facility.layers.mml.decks import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.decks import (
     DECKS_DIR,
     Addressing,
     address_elements,
     served_deck,
     write_deck,
 )
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     EngineBlock,
-    ImportStop,
     MappingError,
     Model,
     WiringFamily,
     read_mapping,
 )
+from tests._builds import FRAMEWORK_CHECKS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
@@ -43,8 +44,8 @@ STORAGE = (
 
 def _fixture(tree: str, stem: str, raw: str) -> tuple[Model, Any, dict, dict]:
     """One model, its saved deck, its export's Accelerator Objects and accelerator data."""
-    from osprey.facility.layers.mml.importer import read_exports
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.importer import read_exports
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / "imported" / "mml" / "mapping.yaml")
     deck = load_lattice(FIXTURES / tree / f"{stem}.lattice.mat")
@@ -448,7 +449,7 @@ def test_two_elements_named_alike_are_refused() -> None:
 
 
 def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) -> None:
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
     from tests.facility._synthetic_trees import deck_tree, model, sr_deck, write_tree
 
     def frozen(at: Any) -> Any:
@@ -468,5 +469,8 @@ def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) ->
 
     write_deck(served_deck(addressing), root, "SR")
 
-    names = {m["name"] for m in build_facility(root, project_name="demo")["models"]}
+    names = {
+        m["name"]
+        for m in build_facility(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)["models"]
+    }
     assert "SR" in names

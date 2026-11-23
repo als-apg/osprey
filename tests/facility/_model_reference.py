@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from tests.fixtures.mml._trees import exports_taking
+from osprey_facility_tests._mml_trees import exports_taking
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 

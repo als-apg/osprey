@@ -44,11 +44,11 @@ from osprey.channel_roster.records import (
     RosterSource,
     RosterSourceKind,
 )
-from osprey.facility import FACILITY_FILE
 from osprey_connectors.logger import get_logger
+from osprey_facility import FACILITY_FILE
 
 if TYPE_CHECKING:
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
 logger = get_logger("channel_roster.sources")
 
@@ -168,7 +168,8 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         absence when the file is not there, a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`
         one when it is there and is not a facility file this reader can turn
-        into records, or an
+        into records (a document whose ``schema`` header it does not read among
+        them, the detail naming the rebuild), or an
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_EMPTY`
         one when it holds no channel.
     """
@@ -194,7 +195,7 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         return _corrupt(source, str(e))
     except ValueError as e:
         return _corrupt(source, _failure(e))
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
     try:
         facility = FacilityRecords(document)

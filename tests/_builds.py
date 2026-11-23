@@ -40,7 +40,30 @@ from typing import Any, NamedTuple
 import pytest
 from click.testing import CliRunner, Result
 
+from osprey.registry.scenario_servers import check_scenario_servers
 from tests._scoped_temp import shared_dir
+
+#: The checks a framework build passes the description's ``extra_checks``: what
+#: ``osprey build`` and ``osprey facility validate`` pass, so a test build stops
+#: where theirs do.
+FRAMEWORK_CHECKS = (check_scenario_servers,)
+
+
+def build(facility_dir: Path, **kw: Any) -> dict[str, Any]:
+    """Build a facility file in memory as ``osprey build`` does.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+        **kw: The keywords of :func:`osprey_facility.build.build_facility`;
+            ``extra_checks`` defaults to :data:`FRAMEWORK_CHECKS`.
+
+    Returns:
+        The facility file.
+    """
+    from osprey_facility.build import build_facility
+
+    kw.setdefault("extra_checks", FRAMEWORK_CHECKS)
+    return build_facility(facility_dir, **kw)
 
 
 def init_project(parent: Path, preset: str, name: str, *sets: str) -> Path:
@@ -105,7 +128,10 @@ def strip_machine(repo: Path) -> None:
 
 
 def run_build(repo: Path, *extra: str) -> Result:
-    """Run ``osprey build --skip-deps`` on a repo.
+    """Run ``osprey build --skip-deps`` on a repo, through the root group.
+
+    The root group is what turns a facility error into its printed line, so
+    the build runs as ``osprey build`` runs.
 
     Args:
         repo: The repo.
@@ -114,9 +140,9 @@ def run_build(repo: Path, *extra: str) -> Result:
     Returns:
         The CliRunner result.
     """
-    from osprey.cli.build_cmd import build
+    from osprey.cli.main import cli
 
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", *extra])
+    return CliRunner().invoke(cli, ["build", "--repo", str(repo), "--skip-deps", *extra])
 
 
 class RenderOutputs(NamedTuple):
@@ -163,7 +189,7 @@ class BuiltProject:
     @cached_property
     def facility_raw(self) -> bytes:
         """The bytes of ``build/facility.json``."""
-        from osprey.facility.render import FACILITY_FILE
+        from osprey_facility.render import FACILITY_FILE
 
         return (self.build_dir / FACILITY_FILE).read_bytes()
 
@@ -209,11 +235,11 @@ def build_demo(parent: Path, *sets: str) -> BuiltProject:
     Returns:
         The built repo and what each render's facility outputs were.
     """
-    from osprey.facility import render
+    from osprey.facility.views import outputs as facility_outputs
 
     repo = init_project(parent, "demo", "demo", *sets)
     built = BuiltProject(repo)
-    real = render.render_facility_outputs
+    real = facility_outputs.render_facility_outputs
 
     def spy(
         render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path, **kwargs: Any
@@ -228,7 +254,7 @@ def build_demo(parent: Path, *sets: str) -> BuiltProject:
         return written
 
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(render, "render_facility_outputs", spy)
+        patch.setattr(facility_outputs, "render_facility_outputs", spy)
         result = run_build(repo)
     assert result.exit_code == 0, result.output
     built.output = result.output

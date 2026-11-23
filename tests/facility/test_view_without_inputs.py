@@ -40,9 +40,10 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.facility.views.simulator import FOLLOWS_FILE, VARIABLES_SCHEMA
+from osprey_facility.build import build_facility
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import BUILT, BuiltModel
 from tests.facility._mml_built import TREES as MML_TREES
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
@@ -68,7 +69,9 @@ def _built(
     if name in TREES:
         facility_dir = root / "data" / "facility"
         shutil.copytree(TREES[name], facility_dir)
-        return build_facility(facility_dir, project_name=name), facility_dir
+        return build_facility(
+            facility_dir, project_name=name, extra_checks=FRAMEWORK_CHECKS
+        ), facility_dir
     # An MML tree is the run's one ``build_tree`` of it; the render only reads it.
     tree = name.removeprefix("mml-")
     model = mml_built(tree, MML_TREES[tree][0])

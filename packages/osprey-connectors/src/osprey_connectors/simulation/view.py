@@ -459,7 +459,7 @@ class SimulatorView:
     # overloads below state that shape, the records of
     # :mod:`osprey_connectors.simulation.records`, for each file by name. The
     # facility schema leaves a scenario's ``archiver`` events free-form; the
-    # build checks each one with ``osprey.facility.scenarios.check_scenario_events``
+    # build checks each one with ``osprey_facility.scenarios.check_scenario_events``
     # before it writes ``scenarios.json``, and ``ArchiverEvent`` states what
     # that check guarantees.
     @overload

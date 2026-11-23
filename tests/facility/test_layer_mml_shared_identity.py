@@ -14,9 +14,11 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml, read_exports
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, draft_mapping
-from osprey.facility.validate import run_stages
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml, read_exports
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, draft_mapping
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 SYNTHETIC = Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "synthetic"
 AO = "quokka.sr.ao.json"
@@ -122,7 +124,7 @@ def _one_identity(tmp_path: Path) -> Path:
 
 
 def _refused(facility: Path) -> list[str]:
-    report = run_stages(facility, project_name="demo")
+    report = run_stages(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert report.failed is None, [error.format_message() for error in report.errors]
     return [error.format_message() for error in report.errors if error.kind == "pair-invalid"]
 

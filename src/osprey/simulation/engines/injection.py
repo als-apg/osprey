@@ -35,7 +35,7 @@ The module states:
 
 Per-record defects raise :class:`ValueError` from :func:`describe`;
 defects across records or in the settings raise
-:class:`~osprey.facility.errors.FacilityBuildError` naming the model from
+:class:`~osprey_facility.errors.FacilityBuildError` naming the model from
 :func:`start_values`, and again from :func:`build`. The model module imports
 LUME, so it is imported inside :func:`build` alone.
 """
@@ -46,8 +46,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.engines import field
+from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.injection_model import InjectionModel

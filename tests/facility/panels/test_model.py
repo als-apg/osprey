@@ -7,8 +7,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.pairing import PAIR_RULE
 from osprey.facility.panels import PanelGraph, load_graph
+from osprey_facility.pairing import PAIR_RULE
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.panels._fixture import (
     PANELS_DIR,
     RING_FRAME,
@@ -117,8 +118,8 @@ def test_a_pair_the_build_derives_is_inferred_by_the_build_s_rule(
 def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path) -> None:
     import shutil
 
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import facility_bytes
+    from osprey_facility.build import build_facility
+    from osprey_facility.render import facility_bytes
     from tests.facility.panels._fixture import FACILITY_TREE
 
     tree = tmp_path / "facility"
@@ -137,7 +138,9 @@ def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path
         encoding="utf-8",
     )
     facility = tmp_path / "facility.json"
-    facility.write_bytes(facility_bytes(build_facility(tree, project_name="xr")))
+    facility.write_bytes(
+        facility_bytes(build_facility(tree, project_name="xr", extra_checks=FRAMEWORK_CHECKS))
+    )
     graph = load_graph(facility, PANELS_DIR)
     stated = graph.pair("XR01-QF1:Current-SP")  # records/channels.yaml states it outright
     assert stated is not None and (stated.basis, stated.rule) == ("stated", None)

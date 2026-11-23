@@ -9,14 +9,15 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility import STILL_ALL
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.render import render_facility_outputs
-from osprey.facility.scenarios import _value_errors
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey_connectors.simulation.envelope import active_envelopes
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_facility import STILL_ALL
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.scenarios import _value_errors
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -72,7 +73,9 @@ def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
     faults = {"optics": {TANGO: {"offset": 1.0e-4, "roll": 0.01}}}
     tree["scenarios/tango.yaml"] = {"faults": faults, "channel_faults": {"Q1:SP": "stuck"}}
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
 
     assert [s["faults"] for s in document["scenarios"]] == [faults]
 
@@ -92,7 +95,7 @@ def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
     if authored is not None:
         tree[f"scenarios/{name}.yaml"] = authored
     facility_dir = write_tree(tmp_path / "facility", tree)
-    document = build_facility(facility_dir, project_name="demo")
+    document = build_facility(facility_dir, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
     render_dir = tmp_path / "render"
     render_dir.mkdir()
@@ -112,7 +115,11 @@ def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -
     tree["scenarios/hush.yaml"] = {"still": STILL_ALL.upper()}
 
     with pytest.raises(FacilityBuildError) as caught:
-        build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
+        )
 
     assert "neither `all` nor a list of addresses and selections" in str(caught.value)
 
@@ -128,7 +135,11 @@ def test_an_override_off_its_band_prints_every_digit_it_carries(tmp_path: Path) 
     tree["scenarios/warm.yaml"] = {"overrides": {"Q1:SP": 1.23456789}}
 
     with pytest.raises(FacilityBuildError) as caught:
-        build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
+        )
 
     assert "`overrides.Q1:SP` 1.23456789 lies above `max_value` 1.2345678" in str(caught.value)
 

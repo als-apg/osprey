@@ -21,11 +21,13 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.kinds import registered
-from osprey.facility.records import FacilityRecords
-from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
-from osprey.facility.views.pyaml import RF_PLANT_TYPE, measurement_groups
+from osprey.facility.views.outputs import render_facility_outputs
+from osprey.facility.views.pyaml import RF_PLANT_TYPE
+from osprey_facility.kinds import registered
+from osprey_facility.measurement_groups import measurement_groups
+from osprey_facility.records import FacilityRecords
+from osprey_facility.render import FACILITY_FILE
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"

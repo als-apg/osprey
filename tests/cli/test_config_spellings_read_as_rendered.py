@@ -20,8 +20,8 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import resolve_profile_document
 from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
-from osprey.facility.errors import FacilityBuildError
 from osprey.utils.config_writer import config_read, config_update_fields
+from osprey_facility.errors import FacilityBuildError
 
 _TICK_ZERO_LINE = (
     "facility: profile-invalid: path simulation.tick_s — simulation.tick_s must be a "

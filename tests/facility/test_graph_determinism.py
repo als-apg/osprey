@@ -28,8 +28,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.graph import (
     CONTESTED_SUFFIX,
     RELATION_PREDICATES,
@@ -38,6 +36,9 @@ from osprey.facility.views.graph import (
     graph_text,
 )
 from osprey.facility.views.graph_iri import namespace
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import (
     VARIANTS,
     appendix_a_tree,
@@ -58,7 +59,7 @@ from tests.facility.test_graph_view import (
 )
 
 if TYPE_CHECKING:
-    from osprey.facility.build import FacilityDocument
+    from osprey_facility.build import FacilityDocument
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -100,6 +101,17 @@ def _base_is_here() -> bool:
     return found.returncode == 0
 
 
+#: The base writer's imports of description code, respelled to where that code lives now.
+_MOVED_SINCE_BASE = (
+    (
+        "from osprey.facility import DEFAULT_ROLE, PN_LOCAL",
+        "from osprey_facility import DEFAULT_ROLE, PN_LOCAL",
+    ),
+    ("from osprey.facility.records import", "from osprey_facility.records import"),
+    ("from osprey.facility.validate import", "from osprey_facility.validate import"),
+)
+
+
 @pytest.fixture(scope="module")
 def base_writer() -> types.ModuleType:
     """The graph view module as it stood at ``BASE``.
@@ -114,6 +126,9 @@ def base_writer() -> types.ModuleType:
         )
     module = types.ModuleType("base_graph")
     source = _at_base("src/osprey/facility/views/graph.py")
+    # The description moved out of the framework after BASE; the bytes it writes did not.
+    for was, now in _MOVED_SINCE_BASE:
+        source = source.replace(was, now)
     exec(compile(source, "base_graph.py", "exec"), module.__dict__)
     return module
 
@@ -122,7 +137,7 @@ def base_writer() -> types.ModuleType:
 def pre_appendix_a(tmp_path_factory: pytest.TempPathFactory) -> FacilityDocument:
     """The example facility built without its Appendix A records: no claims."""
     root = example_without_appendix_a(tmp_path_factory.mktemp("pre-appendix-a") / "facility")
-    return build_facility(root, project_name="demo")
+    return build_facility(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 def _sha(text: str) -> str:

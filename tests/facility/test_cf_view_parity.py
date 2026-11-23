@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -610,7 +610,7 @@ def test_the_pre_line_copy_holds_161_field_sentences() -> None:
 def test_every_pre_line_field_sentence_survives_on_its_channels(
     built_demo: BuiltProject,
 ) -> None:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     roles = {row["name"]: row.get("description") for row in vocabulary()["signal_roles"]}
     channels = {channel["id"]: channel for channel in built_demo.facility["channels"]}

@@ -147,6 +147,7 @@ def test_the_gate_checks_the_declared_trees() -> None:
     assert gate.declared_targets(gate.PYPROJECT) == [
         "src",
         "packages/osprey-connectors/src",
+        "packages/osprey-facility/src",
         "packages/osprey-optimizer/src",
         "packages/pyaml-cs-osprey/src",
         "tests/type_contracts",

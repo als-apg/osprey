@@ -1,1 +1,1 @@
-A status channel states `idle` and a command states `timeout_s`; the build checks both (`command-invalid`) and the channel roster carries them.
+The channel roster carries the `idle` a status channel states and the `timeout_s` a command states.

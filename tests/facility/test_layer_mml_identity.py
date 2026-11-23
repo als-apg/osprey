@@ -21,16 +21,18 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.family import FamilyView
-from osprey.facility.layers.mml.identity import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.family import FamilyView
+from osprey_facility.layers.mml.identity import (
     axis_twins,
     common_class,
     device_ids,
     endpoints,
 )
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, Coordinates, ImportStop, SameAs
-from osprey.facility.validate import run_stages
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, Coordinates, SameAs
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -194,7 +196,7 @@ def test_slots_repeating_a_common_name_are_one_device(nsls2: Path) -> None:
 
 
 def test_the_imported_tree_states_no_id_twice(imported: Path) -> None:
-    report = run_stages(imported, project_name="demo")
+    report = run_stages(imported, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert [e.format_message() for e in report.errors if e.kind == "layer-duplicate"] == []
     assert report.failed != "load"
 

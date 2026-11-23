@@ -11,10 +11,12 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility_with_warnings
-from osprey.facility.relations import fill_relation_slots
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import StageReport, run_stages, validate
+from osprey.cli.facility_report import validate_facility
+from osprey_facility.build import LATER_STAGES, build_facility_with_warnings
+from osprey_facility.relations import fill_relation_slots
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -27,7 +29,9 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(root: Path, files: dict[str, Any]) -> StageReport:
-    report = run_stages(_write(root, files), project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        _write(root, files), project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.failed is None, [e.format_message() for e in report.errors]
     return report
 
@@ -115,14 +119,21 @@ class TestSlots:
 
     def test_build_returns_the_slots(self, tmp_path: Path) -> None:
         root = _write(tmp_path, _tree(**{"records/relations.yaml": [_power("a", "PS1")]}))
-        document, _warnings = build_facility_with_warnings(root, project_name="p")
+        document, _warnings = build_facility_with_warnings(
+            root, project_name="p", extra_checks=FRAMEWORK_CHECKS
+        )
         assert document["relations"][0]["standing"] == "accepted"
 
     def test_no_claims_leaves_the_file_byte_identical(self, tmp_path: Path) -> None:
         files = _tree()
         with_stage = _run(tmp_path / "a", files)
         later = [stage for stage in LATER_STAGES if stage[0] != "relations"]
-        without = run_stages(_write(tmp_path / "b", files), project_name="p", later=later)
+        without = run_stages(
+            _write(tmp_path / "b", files),
+            project_name="p",
+            later=later,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
         assert with_stage.validated.document is not None
         assert without.validated.document is not None
         assert "relations" not in with_stage.validated.document
@@ -217,7 +228,9 @@ class TestWarnings:
     def test_warnings_print_after_a_clean_build_and_exit_zero(self, tmp_path: Path) -> None:
         root = _write(tmp_path, self._files())
         out = io.StringIO()
-        assert validate(root, project_name="p", file=out) == 0
+        assert (
+            validate_facility(root, project_name="p", file=out, extra_checks=FRAMEWORK_CHECKS) == 0
+        )
         printed = [line for line in out.getvalue().splitlines() if line.startswith("facility: ")]
         assert [line.split(":")[1].strip() for line in printed] == [
             "relation-coarse",

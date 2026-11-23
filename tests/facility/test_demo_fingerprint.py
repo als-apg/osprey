@@ -23,7 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.validate import FACILITY_HEADER
+from osprey_facility.validate import FACILITY_HEADER
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.test_cf_view_parity import (
     FINGERPRINT_ROW_KEYS,
     FINGERPRINT_SHA256,
@@ -121,7 +122,7 @@ def test_the_demo_holds_1027_devices_in_80_groups(built_demo: BuiltProject) -> N
 
 
 def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> None:
-    from osprey.facility.schema import Facility
+    from osprey_facility.schema import Facility
 
     Facility.model_validate(built_demo.facility)
     assert built_demo.facility["schema"] == FACILITY_HEADER
@@ -129,13 +130,14 @@ def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> N
 
 def test_the_sources_validate_with_only_the_coarse_warning(built_demo: BuiltProject) -> None:
     """The example's ``policy.yaml`` settles its one dispute; only the coarse cable warns."""
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = io.StringIO()
-    code = validate(
+    code = validate_facility(
         built_demo.facility_dir,
         project_name=built_demo.repo.name,
         file=out,
+        extra_checks=FRAMEWORK_CHECKS,
     )
     assert (code, out.getvalue().splitlines()) == (
         0,

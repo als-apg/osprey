@@ -150,8 +150,8 @@ class TestGeneratedCorpus:
 
     def test_the_graph_view_of_a_facility_document_survives_the_cut(self):
         """The real writer's output, not only this module's imitation of it."""
-        from osprey.facility.records import FacilityRecords
         from osprey.facility.views.graph import graph_text
+        from osprey_facility.records import FacilityRecords
         from tests.facility.test_graph_view import _doc
 
         text = graph_text(FacilityRecords(_doc()))
