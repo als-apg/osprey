@@ -193,7 +193,6 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
-from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
@@ -204,6 +203,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     SimulatorView,
 )
 from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
+from osprey_facility import TEXTURE  # noqa: E402
 from tests.e2e._facility_select import monitor_addresses  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402

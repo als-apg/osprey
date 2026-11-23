@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.knowledge_links import (
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.knowledge_links import (
     DanglingLink,
     check_knowledge_links,
     dangling_links,
 )
-from osprey.facility.validate import Validated
+from osprey_facility.validate import Validated
 from tests._builds import BuiltProject, init_project, run_build
 
 DOC = {
@@ -302,9 +302,9 @@ def test_the_example_pages_link_only_held_records(built_demo: BuiltProject) -> N
 def test_every_linking_example_page_links_a_held_record(
     built_demo: BuiltProject,
 ) -> None:
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.references import find_facility_links
     from osprey.services.facility_knowledge.okf.document import OKFDocument
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.references import find_facility_links
 
     records = FacilityRecords(built_demo.facility)
     knowledge = built_demo.facility_dir / "knowledge"

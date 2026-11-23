@@ -323,10 +323,10 @@ def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureL
     """
     import yaml
 
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.reading import load_facility
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.reading import load_facility
+    from osprey_facility.records import FacilityRecords
     from pyaml_cs_osprey.catalog import parse_reference
     from pyaml_cs_osprey.names import RF_PLANT_NAME, TUNE_MONITOR_NAME
 

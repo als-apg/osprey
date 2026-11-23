@@ -42,12 +42,12 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
-from osprey.facility import DEFAULT_ROLE
-from osprey.facility.records import FacilityRecords
 from osprey_connectors import yaml_loader
+from osprey_facility import DEFAULT_ROLE
+from osprey_facility.records import FacilityRecords
+from osprey_facility_tests._mml_trees import names
 from tests.cli._lifecycle_build import rendered_config
 from tests.facility._limits_render import without_limits_findings
-from tests.fixtures.mml._trees import names
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = _REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -133,7 +133,7 @@ def stage_export(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 def facility_mapping(fixture: Path) -> Path:
     """The reviewed mapping ``facility import mml`` reads, committed beside a tree."""
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     return fixture / MAPPING_FILE
 
@@ -143,7 +143,7 @@ def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mappi
 
     Every export of a facility goes in one call, as the verb takes them.
     """
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     target = repo / FACILITY_DIR / MAPPING_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -610,9 +610,9 @@ class TestTheFacilityImportOfATwoZeroExport:
         self, served_repo: dict, tmp_path: Path
     ) -> None:
         """A fresh import of the same exports differs only in the widened edges."""
-        from osprey.facility.layers import HEADER
-        from osprey.facility.layers.mml.importer import import_mml
-        from osprey.facility.layers.mml.mapping import MAPPING_FILE
+        from osprey_facility.layers import HEADER
+        from osprey_facility.layers.mml.importer import import_mml
+        from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
         fixture = FIXTURES / served_repo["fixture"]
         fresh = tmp_path / FACILITY_DIR

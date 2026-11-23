@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.sources import read_yaml
+from osprey_facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESEED = REPO_ROOT / "scripts/demo_seeds/reseed.py"
@@ -165,8 +165,8 @@ def test_every_tolerance_holds_its_readbacks_envelope() -> None:
 
 
 def test_every_tolerance_holds_its_readbacks_envelope_under_each_shipped_scenario() -> None:
-    from osprey.facility.sources import load_sources
     from osprey_connectors.simulation.envelope import active_envelopes
+    from osprey_facility.sources import load_sources
 
     result = load_sources(TREE)
     assert result.errors == []

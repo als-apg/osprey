@@ -194,7 +194,7 @@ class ArchiverEvent(TypedDict, total=False):
 
     The facility schema leaves a scenario's ``archiver`` block free-form;
     ``osprey build`` checks each event with
-    :func:`osprey.facility.scenarios.check_scenario_events` and writes it to
+    :func:`osprey_facility.scenarios.check_scenario_events` and writes it to
     ``scenarios.json`` as stated, so an event of the view has this shape:
 
     * ``shape`` is one of the five shapes, and the event states exactly one

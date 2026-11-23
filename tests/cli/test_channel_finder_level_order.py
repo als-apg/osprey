@@ -21,9 +21,9 @@ import pytest
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import ABSENT, hierarchical_document
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
+from osprey_facility.records import FacilityRecords
 
 AGENT_TEMPLATE = "claude_code/claude/agents/channel-finder.md.j2"
 

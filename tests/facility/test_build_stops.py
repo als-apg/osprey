@@ -29,13 +29,13 @@ from click.testing import CliRunner
 
 import osprey.facility
 from osprey.cli.main import cli
-from osprey.facility.build import build_facility
-from osprey.facility.errors import KINDS
-from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.state import STILL_SCENARIO
+from osprey_facility.build import build_facility
+from osprey_facility.errors import KINDS
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS, init_project, run_build
 from tests._facility_file import FACILITY_V4
 from tests.facility._synthetic_trees import (

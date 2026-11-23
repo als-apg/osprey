@@ -12,10 +12,10 @@ import copy
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.scenarios import check_scenario_sessions
-from osprey.facility.validate import Validated
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.registry.scenario_servers import check_scenario_servers, scenario_server_errors
+from osprey_facility.scenarios import check_scenario_sessions
+from osprey_facility.validate import Validated
 
 _PATH = "scenarios/warm.yaml `sessions[0].parts[0].turns[0]"
 

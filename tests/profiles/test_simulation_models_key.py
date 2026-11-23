@@ -16,11 +16,11 @@ import pytest
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import load_profile_document
 from osprey.cli.build_profile_resolve import resolve_build_document
-from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.served import resolve_served
 from osprey.utils.workspace import TIERS_DIRNAME
+from osprey_facility import TEXTURE
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.served import resolve_served
 from tests._facility_file import demo_facility_document
 
 #: The shipped presets every all-templates key must appear in.

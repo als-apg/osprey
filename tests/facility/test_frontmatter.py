@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 from tests._fresh_import import modules_added_by_import
 
 
@@ -54,7 +54,7 @@ def test_error_is_a_value_error() -> None:
 
 
 def test_facility_build_does_not_import_knowledge() -> None:
-    added = modules_added_by_import("osprey.facility.build")
+    added = modules_added_by_import("osprey_facility.build")
     assert not any(
         name == "osprey.services.facility_knowledge"
         or name.startswith("osprey.services.facility_knowledge.")

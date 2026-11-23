@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import (
+from osprey_facility.pairing import (
     FOLLOWED_DEFAULT,
     FOLLOWED_SEED,
     NOT_FOLLOWED,
@@ -21,7 +21,7 @@ from osprey.facility.pairing import (
     signal_quantity,
     simulated_pairs,
 )
-from osprey.facility.validate import StageReport, run_stages, vocabulary
+from osprey_facility.validate import StageReport, run_stages, vocabulary
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import TREES, BuiltModel
 

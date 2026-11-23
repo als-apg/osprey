@@ -1,2 +1,2 @@
-[osprey.facility.kinds]
+[osprey_facility.kinds]
 orm = fixture_kind_clash:ORM_AGAIN

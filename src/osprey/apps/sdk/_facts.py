@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import FACILITY_FILE
+from osprey_facility import FACILITY_FILE
 
 
 def _render_root() -> Path:

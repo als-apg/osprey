@@ -32,13 +32,22 @@ from tests.templates.mml_export_contract import (
 )
 
 from osprey.cli.main import cli
-from osprey.facility.layers.mml.judgments import _VA_READOUT_ROW_KEYS
-from osprey.facility.layers.mml.loaders.json_any import load_json
-from osprey.facility.layers.mml.normalize import normalize_family
-from osprey.facility.layers.mml.systems import resolve_system
+from osprey_facility.layers.mml.judgments import _VA_READOUT_ROW_KEYS
+from osprey_facility.layers.mml.loaders.json_any import load_json
+from osprey_facility.layers.mml.normalize import normalize_family
+from osprey_facility.layers.mml.systems import resolve_system
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
+EXPORTER = (
+    REPO_ROOT
+    / "packages"
+    / "osprey-facility"
+    / "src"
+    / "osprey_facility"
+    / "layers"
+    / "mml"
+    / "mml_export.m"
+)
 PAIRED_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "mml" / "paired" / "quokka.ring.ao.json"
 
 PRINT_LINE = "osprey facility import mml --print-exporter"

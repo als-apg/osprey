@@ -50,7 +50,7 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from osprey.facility.validate import FACILITY_HEADER
+from osprey_facility.validate import FACILITY_HEADER
 from tests.facility.panels._fixture import (
     PANELS_DIR,
     RING_FRAME,

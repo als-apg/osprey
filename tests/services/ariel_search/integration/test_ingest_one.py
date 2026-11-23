@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.services.ariel_search.attachments import copy as copy_mod
 from osprey.services.ariel_search.attachments.compose import (
@@ -32,6 +31,7 @@ from osprey.services.ariel_search.ingestion.ingest import (
     EntryIngestOutcome,
     ingest_one,
 )
+from osprey_facility.records import FacilityRecords
 from tests.services.ariel_search.fake_adapters import ORIGINS, StubAdapter
 from tests.services.ariel_search.integration._support import fake_prepare
 

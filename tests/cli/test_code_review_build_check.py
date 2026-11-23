@@ -21,8 +21,8 @@ from click.testing import CliRunner
 
 from osprey.cli.build_posture_check import PROFILE_FILENAME, check_code_review
 from osprey.cli.init_cmd import init
-from osprey.facility.errors import FacilityBuildError
 from osprey.services.code_review.settings import DEFAULT_PROMPT
+from osprey_facility.errors import FacilityBuildError
 from tests.cli._lifecycle_build import invoke_build
 
 BOTH_HOOKS = ("code-review", "memory-guard")

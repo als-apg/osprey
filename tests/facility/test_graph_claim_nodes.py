@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 from rdflib import OWL, RDF, Graph, Literal, URIRef
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.graph import (
     NARAD_SEM,
     PROPERTY_NAMES,
@@ -19,6 +18,7 @@ from osprey.facility.views.graph import (
     graph_text,
 )
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.records import FacilityRecords
 from tests.facility._appendix_a import CLAIM_IDS, VARIANTS, appendix_a_tree, build_appendix_a
 from tests.facility._graph_relations import NARAD_P
 

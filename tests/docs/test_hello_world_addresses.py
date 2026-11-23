@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.build import build_facility
+from osprey_facility.build import build_facility
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

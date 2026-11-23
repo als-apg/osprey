@@ -53,7 +53,7 @@ from osprey.cli.build_posture_check import (
     effective_policy,
     missing_posture_errors,
 )
-from osprey.facility.errors import FacilityBuildError
+from osprey_facility.errors import FacilityBuildError
 from tests.cli._lifecycle_build import rendered_config
 
 #: The presets the feature converts, and the ones the floor has to leave alone.

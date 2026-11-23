@@ -23,7 +23,7 @@ resolved measurement request. The script runs in the executor sandbox
    number, or a ``max_step`` not above zero, refuses the measurement;
 3. runs the measurement through ``pyaml_cs_osprey.run_tool.run_tool``, called
    once at the top level of the script, never inside a lock the script takes
-   itself: the kind's measure plan (:mod:`osprey.facility.kinds`, rendered into
+   itself: the kind's measure plan (:mod:`osprey_facility.kinds`, rendered into
    the header as ``PLAN``) is data the script interprets, never code it
    imports: which pyAML tool runs, how its step is sized, the arguments
    ``measure`` takes, the ``StepMeasurement`` constructor a unipolar or group

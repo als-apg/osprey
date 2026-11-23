@@ -1,10 +1,12 @@
 """The panels fixture: an invented two-sector ring and its rule tables.
 
-``fixture/facility/`` is a ``data/facility`` tree built by the framework's own
-build; ``fixture/facility.json`` is that tree built, checked in, so the panel tests
-read a document without running the build (``tests/facility/rebuild_panel_fixture.py``
-regenerates it, and a root test holds it to the build byte for byte);
-``fixture/panels/`` holds the rule tables beside it. Every name, number
+The ``data/facility`` tree is a description, so it lives in the package suite
+(``packages/osprey-facility/tests/osprey_facility_tests/panel_fixture/``, read
+here as :data:`FACILITY_TREE`); ``fixture/facility.json`` is that tree built,
+checked in, so the panel tests read a document without running the build (the
+package suite's ``rebuild_panel_fixture.py`` regenerates it, and a package test
+holds it to the build byte for byte); ``fixture/panels/`` holds the rule tables
+beside it. Every name, number
 and document in both is made up for the tests.
 
 The facility: places ``XR`` (machine), sectors ``XR/XR01`` and ``XR/XR02``,
@@ -39,26 +41,23 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from tests._builds import FRAMEWORK_CHECKS
-
 if TYPE_CHECKING:
     from osprey.facility.panels.tables import PanelTables
 
 FIXTURE_DIR = Path(__file__).parent / "fixture"
-FACILITY_TREE = FIXTURE_DIR / "facility"
+#: The fixture's ``data/facility`` tree, in the package suite.
+FACILITY_TREE = (
+    Path(__file__).resolve().parents[3]
+    / "packages"
+    / "osprey-facility"
+    / "tests"
+    / "osprey_facility_tests"
+    / "panel_fixture"
+)
 PANELS_DIR = FIXTURE_DIR / "panels"
 #: The fixture tree built into its facility file, checked in.
 FIXTURE_DOCUMENT = FIXTURE_DIR / "facility.json"
-#: The project name the fixture tree is built under.
-PROJECT_NAME = "xr"
 RING_FRAME = "XR-RING"
-
-
-def build_fixture_document() -> dict[str, Any]:
-    """The fixture tree built into its facility document."""
-    from osprey.facility.build import build_facility
-
-    return build_facility(FACILITY_TREE, project_name=PROJECT_NAME, extra_checks=FRAMEWORK_CHECKS)
 
 
 def load_fixture_document() -> dict[str, Any]:
@@ -92,7 +91,7 @@ def write_fixture_facility(
     Returns:
         *target*.
     """
-    from osprey.facility.render import facility_bytes
+    from osprey_facility.render import facility_bytes
 
     document = load_fixture_document()
     if change is not None:

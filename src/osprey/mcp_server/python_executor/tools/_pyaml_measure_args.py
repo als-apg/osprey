@@ -157,8 +157,8 @@ def _timeout(timeout: object) -> float:
 
 def _facts(render_root: Path) -> Mapping[str, Any]:
     """The render's facts; a facility file the facts fall back to and cannot use is refused."""
-    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import read_facts
+    from osprey_facility.errors import FacilityFileError
 
     try:
         return read_facts(render_root, "")

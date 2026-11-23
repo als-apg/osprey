@@ -2383,49 +2383,87 @@ class TestWorktree:
 
 
 CONNECTORS = "packages/osprey-connectors"
+FACILITY = "packages/osprey-facility"
+#: Each package tree with the path, relative to its root, of a file it ships.
+PACKAGE_TREES = [
+    pytest.param(cf.CONNECTORS_TREE, "src/osprey_connectors/b.py", id="connectors"),
+    pytest.param(cf.FACILITY_TREE, "src/osprey_facility/c.py", id="facility"),
+]
 
 
 class TestTrees:
-    """Two changelogs, one per tag stream: each tree's rules over its own paths."""
+    """One changelog per tag stream: each tree's rules over its own paths."""
 
-    def test_the_framework_tree_does_not_reach_into_the_connectors_package(self):
-        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py", "packages/x/c.py"]
-        assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/c.py"]
+    def test_the_framework_tree_does_not_reach_into_a_package(self):
+        paths = [
+            "src/osprey/a.py",
+            f"{CONNECTORS}/src/osprey_connectors/b.py",
+            f"{FACILITY}/src/osprey_facility/c.py",
+            "packages/x/d.py",
+        ]
+        assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/d.py"]
 
-    def test_the_connectors_tree_sees_its_paths_relative_to_its_root(self):
-        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py"]
-        assert cf.tree_paths(cf.CONNECTORS_TREE, paths) == ["src/osprey_connectors/b.py"]
+    @pytest.mark.parametrize(("tree", "own"), PACKAGE_TREES)
+    def test_a_package_tree_sees_its_paths_and_not_its_siblings(self, tree, own):
+        paths = [
+            "src/osprey/a.py",
+            f"{CONNECTORS}/src/osprey_connectors/b.py",
+            f"{FACILITY}/src/osprey_facility/c.py",
+        ]
+        assert cf.tree_paths(tree, paths) == [own]
 
-    def test_the_connectors_tree_gates_what_ships_and_not_its_tests(self):
-        gated = cf.CONNECTORS_TREE.gated
-        assert cf.needs_fragment(["src/osprey_connectors/b.py"], gated)
+    @pytest.mark.parametrize(("tree", "own"), PACKAGE_TREES)
+    def test_a_package_tree_gates_what_ships_and_not_its_tests(self, tree, own):
+        package = own.split("/")[1]
+        gated = tree.gated
+        assert cf.needs_fragment([own], gated)
         assert cf.needs_fragment(["pyproject.toml"], gated)
-        assert not cf.needs_fragment(["tests/osprey_connectors_tests/test_x.py"], gated)
+        assert cf.needs_fragment(["README.md"], gated)
+        assert not cf.needs_fragment([f"tests/{package}_tests/test_x.py"], gated)
         assert not cf.needs_fragment(["CHANGELOG.md", "changelog.d/x.fixed.md"], gated)
 
-    def test_the_trees_are_the_two_release_streams(self):
+    def test_the_trees_are_the_three_release_streams(self):
         assert [(t.root, t.tag_prefix) for t in cf.TREES] == [
             ("", "v"),
             (CONNECTORS, "osprey-connectors-v"),
+            (FACILITY, "osprey-facility-v"),
         ]
 
-    def test_the_connectors_sdist_ships_no_fragments(self):
+    @pytest.mark.parametrize("package", [CONNECTORS, FACILITY])
+    def test_a_package_sdist_ships_no_fragments_and_no_repo_checks(self, package):
         import tomllib
 
-        pyproject = cf.REPO_ROOT / CONNECTORS / "pyproject.toml"
+        pyproject = cf.REPO_ROOT / package / "pyproject.toml"
         hatch = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["hatch"]
-        assert cf.FRAGMENT_DIR in hatch["build"]["targets"]["sdist"]["exclude"]
+        exclude = hatch["build"]["targets"]["sdist"]["exclude"]
+        assert cf.FRAGMENT_DIR in exclude
+        assert "repo_checks.py" in exclude
 
-    def test_the_connectors_tag_probe_asks_for_the_connectors_tag(self):
+    @pytest.mark.parametrize(
+        ("tree", "tag"),
+        [
+            pytest.param(cf.CONNECTORS_TREE, "osprey-connectors-v2026.10.0", id="connectors"),
+            pytest.param(cf.FACILITY_TREE, "osprey-facility-v2026.10.0", id="facility"),
+        ],
+    )
+    def test_a_package_tag_probe_asks_for_the_package_tag(self, tree, tag):
         git = FakeGit({})
-        with pytest.raises(cf.ProbeError, match="refs/tags/osprey-connectors-v2026.10.0"):
-            cf.tag_probe(git, cf.CONNECTORS_TREE.tag_prefix)("2026.10.0")
+        with pytest.raises(cf.ProbeError, match=f"refs/tags/{tag}"):
+            cf.tag_probe(git, tree.tag_prefix)("2026.10.0")
+
+    def test_the_facility_package_ships_its_tree(self):
+        """The live package carries the changelog pair its tree names."""
+        root = cf.REPO_ROOT / FACILITY
+        assert (root / cf.FRAGMENT_DIR / cf.KEEP).is_file()
+        assert "## [Unreleased]" in (root / cf.CHANGELOG).read_text(encoding="utf-8")
+        _, errors = cf.validate_dir(root / cf.FRAGMENT_DIR)
+        assert errors == []
 
     # ---- check over both trees, from a repository laid out in tmp_path -----
 
     @staticmethod
     def repo(tmp_path: Path, monkeypatch) -> Path:
-        for root in ("", CONNECTORS):
+        for root in ("", CONNECTORS, FACILITY):
             base = tmp_path / root
             write(base / "changelog.d", "README.md", "how to write one\n")
             (base / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
@@ -2433,12 +2471,48 @@ class TestTrees:
         return tmp_path
 
     @staticmethod
-    def table(diff: str, **shows: str) -> dict:
-        table = git_table(diff=diff)
-        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(
-            shows.get("connectors", CHANGELOG)
-        )
+    def table(diff: str, untracked: str | None = None) -> dict:
+        """:func:`git_table`, with each package tree's base changelog shown as well."""
+        table = git_table(diff=diff, untracked=untracked)
+        for package in (CONNECTORS, FACILITY):
+            table[("git", "show", f"{MERGE_BASE}:{package}/CHANGELOG.md")] = completed(CHANGELOG)
         return table
+
+    def test_a_facility_change_needs_a_facility_fragment(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(
+            ("M", f"{FACILITY}/src/osprey_facility/b.py"),
+            ("A", f"{CONNECTORS}/changelog.d/745.fixed.md"),
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 1
+        out = capsys.readouterr().out
+        assert f"{FACILITY}/ (its own CHANGELOG.md, osprey-facility-v* tags):" in out
+        assert "✗ no changelog fragment for 1 changed file(s) under src/, pyproject.toml" in out
+        assert f"  add {FACILITY}/changelog.d/<name>.<type>.md" in out
+
+    def test_a_facility_fragment_satisfies_a_facility_change(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / FACILITY / "changelog.d", "745.fixed.md", "a facility fix.\n")
+        diff = diff_z(
+            ("M", f"{FACILITY}/src/osprey_facility/b.py"),
+            ("A", f"{FACILITY}/changelog.d/745.fixed.md"),
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 0
+        out = capsys.readouterr().out
+        assert f"✓ {FACILITY}/changelog.d: 1 fragment(s) valid" in out
+        assert f"{FACILITY}/ (its own CHANGELOG.md, osprey-facility-v* tags):" in out
+
+    def test_apply_with_the_facility_root_folds_that_tree_alone(self, tmp_path, monkeypatch):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / FACILITY / "changelog.d", "745.fixed.md", "a facility fix.\n")
+        assert cf.main(["apply", "--root", FACILITY]) == 0
+        text = (root / FACILITY / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert "- a facility fix. (#745)" in text
+        assert "a facility fix" not in (root / CONNECTORS / "CHANGELOG.md").read_text(
+            encoding="utf-8"
+        )
+        assert "a facility fix" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
     def test_a_connectors_change_needs_a_connectors_fragment(self, tmp_path, monkeypatch, capsys):
         root = self.repo(tmp_path, monkeypatch)
@@ -2465,6 +2539,8 @@ class TestTrees:
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 0 fragment(s) valid",
             f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid",
+            # The untouched facility tree is validated, never diffed.
+            f"✓ {FACILITY}/changelog.d: 0 fragment(s) valid",
             "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
             f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):",
@@ -2542,8 +2618,7 @@ class TestTrees:
         diff = diff_z(("M", f"{CONNECTORS}/src/osprey_connectors/b.py"))
         assert cf.main(["check"], FakeGit(self.table(diff))) == 1
         capsys.readouterr()
-        table = git_table(diff=diff, untracked=f"{CONNECTORS}/changelog.d/745.fixed.md\0")
-        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(CHANGELOG)
+        table = self.table(diff, untracked=f"{CONNECTORS}/changelog.d/745.fixed.md\0")
         assert cf.main(["check", "--worktree"], FakeGit(table)) == 0
         out = capsys.readouterr().out
         assert "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s)" in out

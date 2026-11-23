@@ -20,12 +20,12 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.facility import TEXTURE
-from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import TEXTURE
+from osprey_facility.render import FACILITY_FILE, facility_digest
+from osprey_facility.validate import FACILITY_HEADER
 from tests._builds import BuiltProject, init_project
 
 pytestmark = [pytest.mark.slow]

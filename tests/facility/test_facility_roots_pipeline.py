@@ -16,12 +16,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import build_facility_with_warnings
 from osprey.facility.bundled import classify
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.render import facility_digest
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
 from osprey.facility.settings import (
     BENCHMARK_DATASET_PATH,
     VOCABULARY_ENABLED_KEY,
@@ -30,6 +25,11 @@ from osprey.facility.settings import (
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_facility.build import build_facility_with_warnings
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.render import facility_digest
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

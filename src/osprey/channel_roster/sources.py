@@ -42,8 +42,8 @@ from osprey.channel_roster.records import (
     RosterSource,
     RosterSourceKind,
 )
-from osprey.facility import FACILITY_FILE
 from osprey_connectors.logger import get_logger
+from osprey_facility import FACILITY_FILE
 
 logger = get_logger("channel_roster.sources")
 

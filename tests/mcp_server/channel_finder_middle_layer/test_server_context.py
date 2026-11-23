@@ -5,7 +5,6 @@ import json
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     DEFAULT_QUERY_MAX_ROWS,
     QUERY_MAX_ROWS_CONFIG_KEY,
@@ -13,6 +12,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from osprey.utils.facility import facility_identity
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import write_facility_v4
 
 

@@ -33,7 +33,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,

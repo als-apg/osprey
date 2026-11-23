@@ -12,15 +12,15 @@ import pytest
 import yaml
 
 from osprey.cli.facility_report import validate_facility
-from osprey.facility import compute
-from osprey.facility.build import (
+from osprey_facility import compute
+from osprey_facility.build import (
     LATER_STAGES,
     build_facility,
     build_facility_with_warnings,
 )
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.simulated import server_health_addresses
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.simulated import server_health_addresses
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 QUAD = "Quadrupole"

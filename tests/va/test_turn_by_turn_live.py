@@ -188,9 +188,9 @@ def _slow_view(root: Path) -> Path:
     tracks more particles; the render's facility file gains the measurement
     step a response-matrix request is solved at.
     """
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.build import build_facility
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
     facility_dir = root / "data" / "facility"

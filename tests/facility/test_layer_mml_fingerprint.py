@@ -20,13 +20,13 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.layers.mml.fingerprint import (
+from osprey_facility.layers.mml.fingerprint import (
     ENERGY_TOLERANCE_GEV,
     FINGERPRINT_KEYS,
     check_fingerprint,
     lattice_fingerprint,
 )
-from osprey.facility.layers.mml.loaders.mat import load_lattice
+from osprey_facility.layers.mml.loaders.mat import load_lattice
 from tests.templates.mml_export_contract import VA_LATTICE_KEYS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"

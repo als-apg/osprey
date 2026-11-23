@@ -12,7 +12,7 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          ``vcor`` is two arrays, one per plane; a group role
                          only a registered kind declares has no array), and each
                          measurement kind's tool section, written by the kind's
-                         declaration (:mod:`osprey.facility.kinds`)
+                         declaration (:mod:`osprey_facility.kinds`)
     lattice.json         the design simulator's lattice, referenced as
                          ``${path:lattice.json}``: the model's deck with each
                          corrector the view drives carrying its kick as the
@@ -47,20 +47,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility import TEXTURE
-from osprey.facility.measurement_groups import (
+from osprey.facility.views import ViewInputs, report_note
+from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
+from osprey_facility import TEXTURE
+from osprey_facility.measurement_groups import (
     GROUP_ROLES,
     ROLE_PLANES,
     measurement_groups,
     tune_references,
     wiring,
 )
-from osprey.facility.records import FacilityRecords
-from osprey.facility.views import ViewInputs, report_note
-from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
+from osprey_facility.records import FacilityRecords
 
 if TYPE_CHECKING:
-    from osprey.facility.kinds import ViewContext
+    from osprey_facility.kinds import ViewContext
     from pyaml_cs_osprey.names import ViewNames
 
 __all__ = [
@@ -540,7 +540,7 @@ def _tuning_matrix(
 def _names(
     magnets: Sequence[_Magnet], bpms: Sequence[_Bpm], groups_named: Mapping[str, Any], rf: Any
 ) -> ViewNames:
-    from osprey.facility.sources import group_families
+    from osprey_facility.sources import group_families
     from pyaml_cs_osprey.names import ViewNames
 
     return ViewNames.build(
@@ -760,7 +760,7 @@ def _view_context(
     tuning: Callable[[str, str], dict[str, Any] | None],
 ) -> ViewContext:
     """What the model's kinds' view writers are handed; each matrix is computed once."""
-    from osprey.facility.kinds import ViewContext
+    from osprey_facility.kinds import ViewContext
     from pyaml_cs_osprey.names import (
         CHROMATICITY_MONITOR_NAME,
         RF_PLANT_NAME,
@@ -803,7 +803,7 @@ def _kind_sections(
     measurement file states. A kind the measurement stage deferred, registered
     by no installed package, writes nothing.
     """
-    from osprey.facility.kinds import registered
+    from osprey_facility.kinds import registered
 
     declared = registered()
     tools: list[dict[str, Any]] = []
@@ -860,7 +860,7 @@ def kind_records(
         the view writes no array for, those :func:`measurement_groups` resolves;
         an instrument's its one channel.
     """
-    from osprey.facility.kinds import member_sorts, registered
+    from osprey_facility.kinds import member_sorts, registered
 
     arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
     devices = {str(d["name"]): d for d in configuration.get("devices") or []}
@@ -961,9 +961,9 @@ def _design_lattice(
         FacilityBuildError: ``engine-invalid``: the view drives a corrector and
             the model's engine states no ``polynomial_kicks``.
     """
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.scenarios import engine_plugin
-    from osprey.facility.validate import stating_files
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.scenarios import engine_plugin
+    from osprey_facility.validate import stating_files
 
     deck = inputs.facility_dir / str(record["deck"])
     elements = sorted(

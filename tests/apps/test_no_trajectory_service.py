@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.kinds import builtin_kinds
 from osprey.port_layout import LAYOUT
+from osprey_facility.kinds import builtin_kinds
 from tests._text_sweep import SHIPPED_TEXT_SUFFIXES, matching_lines, text_files
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]

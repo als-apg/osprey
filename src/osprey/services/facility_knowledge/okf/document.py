@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 import yaml
 
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 
 _FRONTMATTER_DELIM = "---"
 

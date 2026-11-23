@@ -27,9 +27,9 @@ import at
 import numpy as np
 import pytest
 
-from osprey.facility import FACILITY_FILE
 from osprey.simulation import model_request
 from osprey_connectors.simulation.composite import Composite
+from osprey_facility import FACILITY_FILE
 from tests.facility._turn_by_turn_fixture import (
     ARMS,
     DECK,

@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility import TEXTURE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ENGINE_ROLES,
@@ -32,6 +31,7 @@ from osprey_connectors.simulation.view import (
     SimulatorView,
     ViewSchemaError,
 )
+from osprey_facility import TEXTURE
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject

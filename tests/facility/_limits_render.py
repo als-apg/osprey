@@ -69,8 +69,8 @@ def render_limits(
     Returns:
         The render's ``data/channel_limits.json``.
     """
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
 
     facility_dir = tmp_path / f"{name}-facility"
     shutil.copytree(packaged_facility_dir(bundle), facility_dir)

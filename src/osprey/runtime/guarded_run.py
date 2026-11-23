@@ -769,7 +769,7 @@ def _facility_commands() -> frozenset[str]:
     """The command channels of the rendered facility definition.
 
     ``facility.json`` of the render this process reads its config from, read
-    through :func:`osprey.facility.reading.load_facility`: every channel the
+    through :func:`osprey_facility.reading.load_facility`: every channel the
     build marked ``command: true`` (a setpoint whose vocabulary signal is a
     command word, or one a model's engine marks ``command``). A channel list
     that is empty holds no command, so each write is then refused as no command.
@@ -780,9 +780,9 @@ def _facility_commands() -> frozenset[str]:
             read, or holds no channel list. Each refusal names the rebuild.
     """
     from osprey.channel_roster.sources import facility_file_path
-    from osprey.facility.errors import FacilityFileError
-    from osprey.facility.reading import REBUILD, load_facility
     from osprey_connectors.workspace import load_osprey_config
+    from osprey_facility.errors import FacilityFileError
+    from osprey_facility.reading import REBUILD, load_facility
 
     path = facility_file_path(load_osprey_config())
     try:

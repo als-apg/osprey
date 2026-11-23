@@ -819,8 +819,8 @@ class TestMonitorStartValues:
 
     @pytest.mark.parametrize("readbacks", [None, {"DIAG:MONITOR:X": None}])
     def test_a_table_without_an_inverse_stops(self, deck: Path, readbacks: Any) -> None:
-        from osprey.facility.errors import FacilityBuildError
         from osprey.simulation.engines import pyat
+        from osprey_facility.errors import FacilityBuildError
 
         record = monitor_record(calibration={"curve": _table([-1.0, 1.0], [-1e-3, 1e-3])})
         with pytest.raises(FacilityBuildError) as caught:
@@ -830,8 +830,8 @@ class TestMonitorStartValues:
         assert caught.value.remedy == "add calibration.inverse"
 
     def test_a_zero_gain_stops(self, deck: Path) -> None:
-        from osprey.facility.errors import FacilityBuildError
         from osprey.simulation.engines import pyat
+        from osprey_facility.errors import FacilityBuildError
 
         record = monitor_record(calibration={"curve": _linear(0.0)})
         with pytest.raises(FacilityBuildError) as caught:

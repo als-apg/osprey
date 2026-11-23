@@ -89,7 +89,7 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
     ),
-    ("src/osprey/facility/layers/relations/__init__.py", "_replace"): (
+    ("packages/osprey-facility/src/osprey_facility/layers/relations/__init__.py", "_replace"): (
         "swaps a staged layer directory into place, setting the previous one aside"
     ),
     ("src/osprey/integrations/canopy/push/verbs.py", "_promote_stage"): (

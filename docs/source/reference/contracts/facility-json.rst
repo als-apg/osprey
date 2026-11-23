@@ -35,7 +35,7 @@ The document's first key is its header:
 
 The header is ``osprey.facility.facility/N``, where ``N`` is a positive integer
 with no leading zero. The current version is ``4``; the build takes it from
-``osprey.facility.validate.FACILITY_HEADER``.
+``osprey_facility.validate.FACILITY_HEADER``.
 
 Tables a reader needs besides the records
 =========================================
@@ -85,7 +85,7 @@ Every reader declares the versions it reads, as a set of complete header
 strings, and compares the document's ``schema`` value against that set exactly.
 A document whose header is missing, malformed or not in the set is one the
 reader cannot read. The framework's readers share this check in
-``osprey.facility.reading``, and its message names the rebuild:
+``osprey_facility.reading``, and its message names the rebuild:
 
 .. code-block:: text
 
@@ -118,7 +118,8 @@ The published schema
 ====================
 
 The document's shape is published as a JSON Schema generated from the
-description's schema model, in ``src/osprey/facility/schema/_generated/``:
+description's schema model, in ``osprey_facility/schema/_generated/`` of the
+``osprey-facility`` package:
 
 - ``facility.schema.json`` is the current shape. It is open: it does not
   refuse a key it does not name, so a document with an added key validates.
@@ -126,7 +127,7 @@ description's schema model, in ``src/osprey/facility/schema/_generated/``:
   when ``N`` first appears and never rewritten. ``facility-4.schema.json`` is
   today's floor.
 
-``uv run python scripts/facility_schema/json_schema.py`` regenerates them, and
+``uv run python -m osprey_facility.schema._generate`` regenerates them, and
 its ``--check`` fails when the current file is stale or a floor is missing. A
 test compares the current schema with the floor of the current ``N``: a change
 that is not additive -- a removed, renamed or retyped key, a newly required
@@ -134,9 +135,20 @@ key, a removed enum value -- fails until its author bumps ``N``. The test
 sees shape only; a key that keeps its shape and changes its meaning is held by
 review.
 
-The schema files ship inside the ``osprey`` wheel today, so forks and readers
-outside Python can validate a document without OSPREY's source tree. In
-phase 4 they ship in the description's own package.
+The schema files ship inside the ``osprey-facility`` wheel, at
+``osprey_facility/schema/_generated/``, so forks and readers outside Python can
+validate a document without OSPREY's source tree or the framework.
+``osprey_facility.schema.published_schema()`` returns the current file;
+``published_schema(N)`` returns the floor for version ``N`` and raises
+``LookupError`` for a version the package ships no floor for:
+
+.. code-block:: python
+
+   import json
+
+   from osprey_facility.schema import published_schema
+
+   schema = json.loads(published_schema().read_text(encoding="utf-8"))
 
 What holds today
 ================
@@ -157,22 +169,24 @@ What holds today
      - Only the build's render writes the file; no test guards it
    * - ``N`` bumps on a change of shape, not on an added key
      - Enforced
-     - ``tests/facility/test_facility_json_schema.py``: the current schema
-       must be additive over the floor of the current ``N``
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py``:
+       the current schema must be additive over the floor of the current ``N``
    * - ``N`` bumps on a change of meaning that keeps the shape
      - Holds, not checked
      - Review; no test can see a meaning
    * - The generated JSON Schema is pinned by a test
      - Enforced
-     - ``tests/facility/test_facility_json_schema.py``: the committed current
-       schema equals the generator's output, a floor exists for the current
-       ``N``, and the schema's header is ``FACILITY_HEADER``. A floor is not
-       compared with the generator: it is written once and parts from the
-       current schema at the first additive change
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py``:
+       the committed current schema equals the generator's output, a floor
+       exists for the current ``N``, and the schema's header is
+       ``FACILITY_HEADER``. A floor is not compared with the generator: it is
+       written once and parts from the current schema at the first additive
+       change
    * - The schema ships in the description's package
-     - Target
-     - Phase 4, when the description becomes its own package; today it ships
-       in the ``osprey`` wheel
+     - Enforced
+     - ``packages/osprey-facility/tests/osprey_facility_tests/test_wheel_contents.py``:
+       the built ``osprey-facility`` wheel holds both schema files where
+       ``published_schema`` resolves them, and the compat module
    * - Readers ignore unknown keys
      - Enforced for the panel engine
      - ``tests/facility/panels/test_unknown_keys.py``; the framework's readers
@@ -203,9 +217,9 @@ holds this table equal to it.
 
    * - Reader
      - Channel
-   * - ``osprey.facility.reading.load_facility``
+   * - ``osprey_facility.reading.load_facility``
      - refuse
-   * - ``osprey.facility.reading.check_header``
+   * - ``osprey_facility.reading.check_header``
      - refuse
    * - ``osprey.runtime.guarded_run._facility_commands``
      - refuse
@@ -217,7 +231,7 @@ holds this table equal to it.
      - refuse
    * - ``osprey.apps.sdk.testing._deployment.RenderedTree.read``
      - refuse
-   * - ``osprey.facility.records.FacilityRecords.from_file``
+   * - ``osprey_facility.records.FacilityRecords.from_file``
      - refuse
    * - ``osprey.apps.sdk._model.model_members``
      - refuse

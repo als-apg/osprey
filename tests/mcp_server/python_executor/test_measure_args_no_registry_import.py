@@ -4,7 +4,7 @@ What a measurement kind is and how it behaves is written into the facts by
 ``osprey build``. The executor's ``resolve_measure_args`` and the context the
 web terminal regenerates at every launch (``config_derived_context``, which
 writes the approval hook's measurement block) read that rendered block and
-import neither the kind registry (``osprey.facility.kinds``) nor the pyAML view
+import neither the kind registry (``osprey_facility.kinds``) nor the pyAML view
 writer. Both run in a child interpreter with only ``src/`` on its path,
 because the test process has imported both modules long before.
 """
@@ -25,7 +25,7 @@ from tests.facility._pyaml_trees import built_document, measured_tree, with_corr
 _SRC = str(Path(__file__).resolve().parents[3] / "src")
 
 #: The modules a runtime reader of the kind block never loads.
-_BUILD_ONLY = ("osprey.facility.kinds", "osprey.facility.views.pyaml")
+_BUILD_ONLY = ("osprey_facility.kinds", "osprey.facility.views.pyaml")
 
 _CHILD = """
 import json, sys

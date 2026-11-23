@@ -44,12 +44,12 @@ class Reader:
 
 ROSTER: tuple[Reader, ...] = (
     Reader(
-        "osprey.facility.reading.load_facility",
+        "osprey_facility.reading.load_facility",
         "refuse",
         "tests/facility/test_reading.py::test_a_v3_document_is_refused",
     ),
     Reader(
-        "osprey.facility.reading.check_header",
+        "osprey_facility.reading.check_header",
         "refuse",
         "tests/facility/test_reading.py::test_check_header_refuses_a_v3_document",
     ),
@@ -83,7 +83,7 @@ ROSTER: tuple[Reader, ...] = (
         "test_a_render_whose_facility_file_is_v3_is_refused_naming_the_rebuild",
     ),
     Reader(
-        "osprey.facility.records.FacilityRecords.from_file",
+        "osprey_facility.records.FacilityRecords.from_file",
         "refuse",
         "tests/facility/test_records.py::test_from_file_refuses_a_v3_document",
     ),

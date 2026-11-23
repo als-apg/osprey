@@ -21,9 +21,6 @@ import numpy as np
 import pytest
 from lume_pyat.exceptions import OrbitSolveError, UnknownElementError
 
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_faults
@@ -35,6 +32,9 @@ from osprey.simulation.engines.pyat_faults import (
     fault_variables,
     multipole_field,
 )
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
@@ -377,8 +377,8 @@ def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
 def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
     tmp_path: Path, element: str, named: bool
 ) -> None:
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.validate import run_stages
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.validate import run_stages
 
     settings = _declaring({"element": element})
     tree = _tree({"Q1/dx": 1.0e-4}, settings)

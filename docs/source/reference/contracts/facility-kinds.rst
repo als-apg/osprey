@@ -21,10 +21,10 @@ engine ``fixture_ring``, proven by ``tests/facility/test_fixture_kind_deployment
 Registering a kind
 ==================
 
-A kind is one :class:`osprey.facility.kinds.KindDeclaration`, named by an entry
-point of the group ``osprey.facility.kinds`` in its package's
+A kind is one :class:`osprey_facility.kinds.KindDeclaration`, named by an entry
+point of the group ``osprey_facility.kinds`` in its package's
 ``pyproject.toml``. The entry point's name is the kind's name and loads to the
-declaration (or a mapping of its fields). The kinds the ``osprey-framework``
+declaration (or a mapping of its fields). The kinds the ``osprey-facility``
 distribution declares are the *built-in* kinds: ``orm``, ``dispersion``,
 ``trm``, ``crm`` and ``chromaticity_monitor``.
 
@@ -35,7 +35,7 @@ turns a local path into a wheel the project image installs. A kind is read by
 ``osprey build`` alone; the approval hook, the MCP servers and the measure
 script read what the build wrote and import neither the registry nor the
 kind's package. A kind's package should import OSPREY only through
-``osprey.facility.kinds`` (`Stability`_).
+``osprey_facility.kinds`` (`Stability`_).
 
 The build stops on:
 
@@ -101,7 +101,7 @@ Every field is required except ``member_sorts``, ``facts_writer``,
        writer ``(ViewContext) -> str | None``; ``None`` writes no file.
    * - ``measure_plan``
      - What the measure script does for the kind, as data;
-       ``osprey.facility.kinds.plan_problems`` states the vocabulary.
+       ``osprey_facility.kinds.plan_problems`` states the vocabulary.
    * - ``description``
      - The one line the agent is told about the kind.
    * - ``measurement_schema``
@@ -247,7 +247,7 @@ no command. The engine contract is in :doc:`/contributing/extending-osprey`.
 Stability
 =========
 
-Every name in ``osprey.facility.kinds.__all__`` keeps its name, its import
+Every name in ``osprey_facility.kinds.__all__`` keeps its name, its import
 path and its meaning across releases, as do the measurement-file and facts
 keys this page names; a change to one is a breaking change of the kind
 contract, announced in the changelog.

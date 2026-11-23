@@ -81,8 +81,6 @@ from osprey.cli.build_profile_load import (
     _KNOWN_VA_KEYS,
 )
 from osprey.cli.build_profile_schema import ServiceDef
-from osprey.facility.layers.mml.mapping import _TOP_OPTIONAL as _MML_TOP_OPTIONAL
-from osprey.facility.layers.mml.mapping import _TOP_REQUIRED as _MML_TOP_REQUIRED
 from osprey.health.config import parse_health_config
 from osprey.profiles.providers import _PROVIDERS_KEY
 from osprey.services.bluesky_bridge.devices._specs_from_file import (
@@ -92,12 +90,14 @@ from osprey.services.watchdog.config import _AGENT_KEYS as _WATCHDOG_AGENT_KEYS
 from osprey.services.watchdog.config import _COMMON_KEYS as _WATCHDOG_COMMON_KEYS
 from osprey.services.watchdog.config import _DECISION_KEYS as _WATCHDOG_DECISION_KEYS
 from osprey_connectors.errors import ConfigurationError
+from osprey_facility.layers.mml.mapping import _TOP_OPTIONAL as _MML_TOP_OPTIONAL
+from osprey_facility.layers.mml.mapping import _TOP_REQUIRED as _MML_TOP_REQUIRED
 from tests.docs.test_connector_config_examples import _declared_spelling, _leaves
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS = REPO_ROOT / "docs/source"
 MANIFEST = REPO_ROOT / "src/osprey/profiles/config_key_manifest.yml"
-_FACILITY_SCHEMA = REPO_ROOT / "src/osprey/facility/schema/core.yaml"
+_FACILITY_SCHEMA = REPO_ROOT / "packages/osprey-facility/src/osprey_facility/schema/core.yaml"
 _EXAMPLE_VOCABULARY = REPO_ROOT / "src/osprey/templates/facilities/example/ariel/vocabulary.yml"
 
 #: A YAML code block. Other directives (``literalinclude``) name files that

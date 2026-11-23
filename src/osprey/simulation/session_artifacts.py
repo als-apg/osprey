@@ -38,13 +38,13 @@ from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
-    from osprey.simulation.sessions import (
+    from osprey_connectors.simulation.archive import ArchiveComposite
+    from osprey_facility.sessions import (
         ArtifactSpec,
         ResolvedSession,
         ResolvedTurn,
         ToolStep,
     )
-    from osprey_connectors.simulation.archive import ArchiveComposite
 
 __all__ = [
     "PLOT_DIV_ID",
@@ -326,7 +326,7 @@ def _plotted(sample: object) -> float:
 
 def _read_units(turn: ResolvedTurn) -> dict[str, str]:
     """Each channel's unit, as the turn's ``archiver_read`` result states it."""
-    from osprey.simulation.sessions import ToolStep
+    from osprey_facility.sessions import ToolStep
 
     units: dict[str, str] = {}
     for step in turn.turn.steps:
@@ -354,7 +354,7 @@ def _stated_window(turn: ResolvedTurn, tz: ZoneInfo) -> tuple[float, float] | No
     The spellings are the tool's own (``now``, ``30m ago``, ISO-8601, a naive time
     facility-local), placed against the turn's instant instead of the clock.
     """
-    from osprey.simulation.sessions import ToolStep
+    from osprey_facility.sessions import ToolStep
 
     for step in turn.turn.steps:
         if isinstance(step, ToolStep) and (step.server, step.name) == _READ_TOOL:
@@ -507,7 +507,7 @@ def _producing_step(
     turn: ResolvedTurn, spec: ArtifactSpec, tools: Sequence[str]
 ) -> ToolStep | None:
     """The turn's call that produced ``spec``: by tool preference, the one titled as it first."""
-    from osprey.simulation.sessions import ToolStep
+    from osprey_facility.sessions import ToolStep
 
     calls = [step for step in turn.turn.steps if isinstance(step, ToolStep)]
     for tool in tools:

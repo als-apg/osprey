@@ -202,6 +202,8 @@ def test_the_check_ids_are_the_public_names() -> None:
         "linkcheck",
         "package",
         "connectors-public-names",
+        "facility-public-names",
+        "facility-wheel-build",
         "canopy-marker",
         "canopy-contract",
     ]
@@ -215,6 +217,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "docs",
         "linkcheck",
         "package",
+        "facility-wheel-build",
     ]
 
 
@@ -1114,6 +1117,7 @@ SHARD_SELECTIONS = {
     "rest-b": [
         "tests/",
         "packages/osprey-connectors/tests",
+        "packages/osprey-facility/tests",
         "--ignore=tests/cli",
         "--ignore=tests/facility",
         "--ignore=tests/deployment",
@@ -1141,7 +1145,7 @@ SHARD_SELECTIONS = {
 }
 
 #: The sweep's marker expression in the full tier.
-SWEEP_MARKER = ["-m", "not pty and not wallclock and not canopy"]
+SWEEP_MARKER = ["-m", "not pty and not wallclock and not wheel_build and not canopy"]
 
 
 def pytest_report(check_id: str, reports: str = "{reports}") -> list[str]:
@@ -1261,11 +1265,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
             "dist/osprey_optimizer-*.whl",
         ],
         [optimizer, "-c", fw.OPTIMIZER_BASE_PROBE],
+        ["uv", "build", "--package", "osprey-facility"],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
             *("uv", "pip", "install", "--python", pyaml, "dist/osprey_framework-*.whl"),
-            *("dist/osprey_connectors-*.whl", "dist/pyaml_cs_osprey-*.whl"),
+            "dist/osprey_connectors-*.whl",
+            *("dist/osprey_facility-*.whl", "dist/pyaml_cs_osprey-*.whl"),
         ],
         [pyaml, "-c", fw.PYAML_WHEEL_PROBE],
     ]
@@ -1467,7 +1473,20 @@ def test_the_wallclock_scan_covers_every_root_the_sweep_collects() -> None:
     roots = {root.rstrip("/") for root in fw.UNIT_SELECTION.roots}
     assert set(wallclock_files.sweep_roots()) == roots
     marked = fw.wallclock_unit_files()
-    assert {root for root in roots if any(f.startswith(f"{root}/") for f in marked)} == roots
+    # A root whose source carries the marker is one the scan finds a budget in;
+    # a root with no budget yet (the facility suite) has nothing to find. The
+    # mark is spelled in pieces so this module does not carry it itself.
+    mark = "pytest.mark." + "wallclock"
+    carrying = {
+        root
+        for root in roots
+        if any(
+            mark in path.read_text(encoding="utf-8")
+            for path in (REPO_ROOT / root).rglob("test_*.py")
+        )
+    }
+    assert {"tests", "packages/osprey-connectors/tests"} <= carrying, carrying
+    assert {root for root in roots if any(f.startswith(f"{root}/") for f in marked)} == carrying
     scope = BY_ID["pytest-wallclock-unit"].scope
     for root in roots:
         assert kit.touches([f"{root}/x/test_new.py"], scope), (root, scope)
@@ -1555,6 +1574,7 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
     tops = sorted(
         {path.as_posix() for path in (REPO_ROOT / "tests").iterdir() if path.is_dir()}
         | {(REPO_ROOT / "packages/osprey-connectors/tests").as_posix()}
+        | {(REPO_ROOT / "packages/osprey-facility/tests").as_posix()}
     )
 
     def owners(top: str) -> list[str]:
@@ -1856,7 +1876,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "900", "600", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "900", "600", "600", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:
@@ -2742,19 +2762,22 @@ class Recorder:
         return any(text in shlex.join(argv) for argv in self.calls)
 
 
-#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: The packages' checks modules. Each one's ``*-public-names`` check is a
 #: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
 #: not stand in for it), and it sweeps the real tree from the module's own
 #: ``ROOT``, not ``kit.ROOT``.
 _connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
-#: The sweep, run once per worker for each root: every ``check.main`` here
+_facility_checks = check.DECLARED.modules["packages/osprey-facility/repo_checks.py"]
+#: The sweeps, run once per worker for each root: every ``check.main`` here
 #: is about the runner, and the real tree does not change during a session.
 _cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+_cached_facility_stray_exports = functools.cache(_facility_checks.stray_exports)
 
 
 @pytest.fixture(autouse=True)
 def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
+    monkeypatch.setattr(_facility_checks, "stray_exports", _cached_facility_stray_exports)
 
 
 @pytest.fixture
@@ -4483,7 +4506,7 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
     optimizer_build, optimizer_venv, optimizer_install, optimizer_probe, *rest = rest
-    pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
+    facility_build, pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
         "twine",
@@ -4504,11 +4527,13 @@ def test_the_package_check_builds_into_an_empty_dist(
         "dist/osprey_connectors-1.0-py3-none-any.whl",
     ]
     assert probe == [python, "-I", fw.LEAN_IMPORT_WALK]
+    assert facility_build == ["uv", "build", "--package", "osprey-facility"]
     assert pyaml_build == ["uv", "build", "--package", "pyaml-cs-osprey"]
     pyaml_python = f"{pyaml_venv[2]}/bin/python"
     assert pyaml_install[:5] == ["uv", "pip", "install", "--python", pyaml_python]
     # A glob no built file matches is passed on as written, for the step to fail on.
     assert "dist/osprey_framework-*.whl" in pyaml_install
+    assert "dist/osprey_facility-*.whl" in pyaml_install
     assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
     assert optimizer_build == ["uv", "build", "--package", "osprey-optimizer"]
     optimizer_python = f"{optimizer_venv[2]}/bin/python"
@@ -4901,9 +4926,26 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     """The lanes that install the connectors on their own are the package's,
     declared beside it and collected after the framework's."""
     connectors = "packages/osprey-connectors/repo_checks.py"
-    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors, CANOPY_MODULE]
+    facility = "packages/osprey-facility/repo_checks.py"
+    assert list(check.DECLARED.modules) == [
+        check.FRAMEWORK_MODULE,
+        connectors,
+        facility,
+        CANOPY_MODULE,
+    ]
     own = {lane.job for lane in check.DECLARED.modules[connectors].LANES}
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
+    assert own <= {lane.job for lane in check.LANES}
+    assert not own & {lane.job for lane in fw.LANES}
+
+
+def test_the_facility_package_declares_its_own_lane() -> None:
+    """The lane that installs the facility package with no framework is the
+    package's, declared beside it and collected with the others."""
+    own = {
+        lane.job for lane in check.DECLARED.modules["packages/osprey-facility/repo_checks.py"].LANES
+    }
+    assert own == {"osprey-facility-standalone"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
 

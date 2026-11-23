@@ -26,13 +26,13 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.relations import end_identity
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import FACILITY_HEADER, relation_types
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.records import FacilityRecords
+from osprey_facility.relations import end_identity
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import FACILITY_HEADER, relation_types
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._graph_relations import (
     expected_located_in,
@@ -614,7 +614,7 @@ class TestTheBuiltGraph:
         }
 
     def test_two_independent_builds_render_equal_bytes(self, text: str) -> None:
-        from osprey.facility.build import build_facility
+        from osprey_facility.build import build_facility
         from tests._preset_data import packaged_facility_dir
 
         # Two builds and two read models: the shared ``osprey build`` of the demo

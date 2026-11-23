@@ -15,15 +15,17 @@ import sys
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
-# Add project root and src directories. The osprey-connectors workspace package
-# keeps its own src tree; the API reference under reference/connectors-api/
-# autodocs it, and the framework imports it.
+# Add project root and src directories. The osprey-connectors and osprey-facility
+# workspace packages keep their own src trees; the API reference under
+# reference/connectors-api/ autodocs the connectors, and the framework imports both.
 project_root = os.path.abspath("../..")
 src_root = os.path.abspath("../../src")
 connectors_src_root = os.path.abspath("../../packages/osprey-connectors/src")
+facility_src_root = os.path.abspath("../../packages/osprey-facility/src")
 
 sys.path.insert(0, project_root)
 sys.path.insert(0, connectors_src_root)
+sys.path.insert(0, facility_src_root)
 sys.path.insert(0, src_root)
 
 # Imported here rather than at the top of the file: the sys.path setup above is what

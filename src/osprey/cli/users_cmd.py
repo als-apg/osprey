@@ -37,8 +37,8 @@ from osprey.cli.output import fail, machine_mode, note, report, warn
 from osprey.cli.record_access import find_build
 from osprey.cli.repo_resolver import PROFILE_FILENAME, repo_option
 from osprey.cli.styles import Styles
-from osprey.facility.errors import FacilityError
 from osprey_connectors.logger import get_logger
+from osprey_facility.errors import FacilityError
 
 logger = get_logger("users")
 

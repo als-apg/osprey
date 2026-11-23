@@ -125,9 +125,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE
-from osprey.facility.records import FacilityRecords, is_family
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
+from osprey_facility import DEFAULT_ROLE
+from osprey_facility.records import FacilityRecords, is_family
 
 __all__ = [
     "ABSENT",
@@ -224,8 +224,8 @@ def _pipeline_mode(inputs: ViewInputs) -> str | None:
 
 def _mode_unsupported(detail: str, remedy: str) -> Exception:
     """The ``view-unsupported`` stop on the rendered ``channel_finder.pipeline_mode``."""
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.served import CONFIG_SOURCE
 
     return FacilityBuildError(
         "view-unsupported",
@@ -284,8 +284,8 @@ def _unsupported(
     record: Mapping[str, Any], record_kind: str, detail: str, remedy: str
 ) -> Exception:
     """The ``view-unsupported`` stop naming one facility record."""
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.validate import stating_files
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.validate import stating_files
 
     return FacilityBuildError(
         "view-unsupported",
@@ -475,7 +475,7 @@ def _place_keys(
 
 
 def _class_descriptions(records: FacilityRecords) -> dict[str, str]:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     descriptions = {
         str(row["name"]): str(row["description"])

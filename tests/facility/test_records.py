@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.records import (
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.records import (
     LINK_KINDS,
     RECORD_KINDS,
     ChannelSelection,
@@ -493,7 +493,7 @@ def test_with_a_model_named_only_that_models_record_matches() -> None:
 
 
 def test_engine_role_and_plane_vocabulary_is_the_schemas() -> None:
-    from osprey.facility.schema import core
+    from osprey_facility.schema import core
 
     for member in core.EngineRoleEnum:
         assert ChannelSelection(place="P", engine_role=member.value).engine_role == member.value

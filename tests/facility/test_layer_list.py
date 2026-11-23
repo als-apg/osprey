@@ -10,8 +10,8 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE
-from osprey.facility.errors import LayerSourceInvalid
-from osprey.facility.layers.list import LAYER_DIR, import_list
+from osprey_facility.errors import LayerSourceInvalid
+from osprey_facility.layers.list import LAYER_DIR, import_list
 from tests._builds import FRAMEWORK_CHECKS
 
 
@@ -367,8 +367,8 @@ class TestPositions:
         self, tmp_path: Path
     ) -> None:
         pytest.importorskip("at")
-        from osprey.facility.build import LATER_STAGES
-        from osprey.facility.validate import run_stages
+        from osprey_facility.build import LATER_STAGES
+        from osprey_facility.validate import run_stages
         from tests.facility._synthetic_trees import deck_tree, write_tree
 
         facility_dir = write_tree(tmp_path / "facility", deck_tree())

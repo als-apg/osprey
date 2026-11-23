@@ -22,8 +22,8 @@ PACKAGE_DIR = REPO_ROOT / "tests/facility/fixtures/fixture_kind"
 
 #: Where a refusal on the page is spelled: the code that raises it and the test pinning it.
 REFUSAL_SOURCES = (
-    REPO_ROOT / "src/osprey/facility/kinds.py",
-    REPO_ROOT / "src/osprey/facility/validate.py",
+    REPO_ROOT / "packages/osprey-facility/src/osprey_facility/kinds.py",
+    REPO_ROOT / "packages/osprey-facility/src/osprey_facility/validate.py",
     REPO_ROOT / "src/osprey/deployment/wheel_build.py",
     PACKAGE_DIR / "fixture_kind_deployment/__init__.py",
     REPO_ROOT / "tests/facility/test_fixture_kind_deployment.py",

@@ -25,8 +25,8 @@ from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.claude_code import build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.errors import FacilityBuildError
 from osprey.registry.mcp import governed_write_tools, resolve_servers
+from osprey_facility.errors import FacilityBuildError
 
 #: The presets the project ships.
 PRESETS = ("hello-world", "demo")

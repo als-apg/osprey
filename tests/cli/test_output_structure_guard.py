@@ -314,7 +314,7 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         2,
         "report_lines' two writes: the facility error, warning and validation "
         "lines, unstyled, one per line, to stderr or the stream the caller hands "
-        "in. They moved here verbatim from osprey.facility.validate when the "
+        "in. They moved here verbatim from osprey_facility.validate when the "
         "description stopped printing; `osprey facility validate`, the build and "
         "import stops print them byte-for-byte as before "
         "(tests/cli/test_facility_error_output.py), and callers passing a stream "
