@@ -1,12 +1,12 @@
 """The panel graph: a built facility file read with its rule tables.
 
 :func:`load_graph` reads the facility file through
-:class:`~osprey.facility.panels.document.FacilityDocument` and the rule tables through
-:func:`~osprey.facility.panels.tables.read_tables`, then builds every index
+:class:`~osprey_panels.document.FacilityDocument` and the rule tables through
+:func:`~osprey_panels.tables.read_tables`, then builds every index
 once. :class:`PanelGraph` is read-only; each accessor returns fresh lists.
 
 A thing is a device, a place or a group of the facility file, the three kinds
-a relation end may name (:data:`~osprey.facility.panels.document.END_KINDS`). One id
+a relation end may name (:data:`~osprey_panels.document.END_KINDS`). One id
 can name records of two kinds; an accessor given only an id takes the first
 kind in that order (device, place, group), and ``kind=`` picks another.
 
@@ -54,14 +54,14 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from osprey.facility.panels.document import (
+from osprey_panels.document import (
     END_KINDS,
     FACILITY_FILE,
     FacilityDocument,
     end_identity,
 )
-from osprey.facility.panels.order import name_order
-from osprey.facility.panels.tables import (
+from osprey_panels.order import name_order
+from osprey_panels.tables import (
     CALIBRATION_BASES,
     CHANNEL_ROLES,
     CONTROLS,
@@ -444,7 +444,7 @@ class CalibrationState:
             claims in force of one basis differ by more than the kind's
             tolerance; else the basis of the claim in force; else ``none``.
         below_wanted: The claim in force ranks under the kind's wanted basis
-            (in :data:`~osprey.facility.panels.tables.CALIBRATION_BASES`, a
+            (in :data:`~osprey_panels.tables.CALIBRATION_BASES`, a
             display order), or there is none.
         design: The newest accepted ``design`` claim, in force or not, the
             value a deviation is taken from; ``None`` with none.
@@ -588,7 +588,7 @@ class PanelGraph:
     """
 
     #: The write scope a write kept to ``write_under`` describes the graph under
-    #: (:func:`~osprey.facility.panels.emit.scoped`); ``None`` for the whole facility.
+    #: (:func:`~osprey_panels.emit.scoped`); ``None`` for the whole facility.
     write_scope: Any = None
 
     def __init__(
@@ -1073,7 +1073,7 @@ class PanelGraph:
 
     def channels(self, thing_id: str, kind: ThingKind | None = None) -> list[Channel]:
         """The channels on the thing (``on`` it or, for a device, ``endpoint_of`` it),
-        by name, numbers by value (:func:`~osprey.facility.panels.order.name_order`).
+        by name, numbers by value (:func:`~osprey_panels.order.name_order`).
 
         Raises:
             KeyError: No such thing, or it is excluded.

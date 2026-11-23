@@ -1,6 +1,6 @@
 """Advance widths of the viewer's text font, for measuring text in a panel.
 
-Written by ``scripts/panel_font_metrics.py`` from IBM Plex Sans, Version 3.005; do not edit.
+Written by ``packages/osprey-panels/tools/panel_font_metrics.py`` from IBM Plex Sans, Version 3.005; do not edit.
 Each width is in thousandths of an em; a character not listed is measured as
 :data:`UNLISTED`, the widest listed one, so an estimate never falls short.
 """

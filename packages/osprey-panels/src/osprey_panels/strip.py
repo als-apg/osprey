@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from osprey.facility.panels.view import Link, StripElement
+from osprey_panels.view import Link, StripElement
 
 #: Width, in units, of a symbol with no entry in the widths mapping.
 DEFAULT_WIDTH = 24.0

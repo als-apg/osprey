@@ -1,9 +1,10 @@
-"""Layout: a view description drawn as a Canopy Screen-IR 1.1 document.
+"""Layout: a view description drawn as a Canopy Screen-IR document of
+:data:`~osprey_panels.screen_ir.SCREEN_IR_VERSION`.
 
 This is the only module of the panels with geometry. :func:`render` walks a
-:class:`~osprey.facility.panels.view.View` top to bottom, one section after
+:class:`~osprey_panels.view.View` top to bottom, one section after
 another, and draws every item with the pinned viewer's widgets. Colours are
-the theme roles of :mod:`~osprey.facility.panels.symbols`.
+the theme roles of :mod:`~osprey_panels.symbols`.
 
 States are the viewer's to compute. A light's rule over its channels, written from
 their health rows (see :func:`ladder`), is a list of arms, each a condition that
@@ -38,9 +39,9 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any
 
-from osprey.facility.panels import health, metrics, strip, symbols
-from osprey.facility.panels import picture as drawing
-from osprey.facility.panels.describe import (
+from osprey_panels import health, metrics, strip, symbols
+from osprey_panels import picture as drawing
+from osprey_panels.describe import (
     ENUMERATED_OUTPUTS,
     NO_POSITION,
     PROBE_SECTION,
@@ -49,12 +50,13 @@ from osprey.facility.panels.describe import (
     action_word,
     press_words,
 )
-from osprey.facility.panels.describe import light as describe_light
-from osprey.facility.panels.health import State
-from osprey.facility.panels.model import Citation, PanelGraph, id_tail
-from osprey.facility.panels.order import name_order
-from osprey.facility.panels.strip import Placed
-from osprey.facility.panels.symbols import (
+from osprey_panels.describe import light as describe_light
+from osprey_panels.health import State
+from osprey_panels.model import Citation, PanelGraph, id_tail
+from osprey_panels.order import name_order
+from osprey_panels.screen_ir import SCREEN_IR_VERSION
+from osprey_panels.strip import Placed
+from osprey_panels.symbols import (
     BOX_BORDER,
     FIELD_BACKGROUND,
     MUTED_TEXT,
@@ -63,8 +65,8 @@ from osprey.facility.panels.symbols import (
     PANEL_BACKGROUND,
     TRANSPARENT,
 )
-from osprey.facility.panels.tables import PicturePart
-from osprey.facility.panels.view import (
+from osprey_panels.tables import PicturePart
+from osprey_panels.view import (
     ENTRIES_IN_ONE_COLUMN,
     Band,
     BlockRow,
@@ -1645,7 +1647,7 @@ class _Screen:
             "children": self.nodes,
         }
         return {
-            "schemaVersion": "1.1",
+            "schemaVersion": SCREEN_IR_VERSION,
             "kind": "screen",
             "id": self.doc_id,
             "metadata": {
@@ -6419,7 +6421,7 @@ class _Page:
     def picture(self, picture: Picture) -> None:
         """A device class's drawing in one view, across the card's left column.
 
-        With a body (:func:`osprey.facility.panels.picture.body`), the magnet as
+        With a body (:func:`osprey_panels.picture.body`), the magnet as
         seen from its end, painted by material (:meth:`body_shape`): the yoke with
         its cavity cut out, broad poles with rounded tips short of the bore,
         copper coil blocks along their flanks, corrector windings as thin bands
@@ -8302,7 +8304,7 @@ def render(
     cuts: list[str] | None = None,
     crossed: list[str] | None = None,
 ) -> dict[str, Any]:
-    """The view as a Screen-IR 1.1 document.
+    """The view as a Screen-IR document of :data:`~osprey_panels.screen_ir.SCREEN_IR_VERSION`.
 
     Args:
         view: What the screen shows.
@@ -8310,7 +8312,7 @@ def render(
         screens: The screen file a link to a target opens, relative to this
             screen's directory.
         doc_id: The document's id; the caller names it, as it names the files
-            links open (:func:`osprey.facility.panels.emit.screen_ids`).
+            links open (:func:`osprey_panels.emit.screen_ids`).
         colours: The fill of each symbol on a strip, by symbol name (the
             drawing settings' ``colours``); a symbol not named is filled with
             the panel's ground.

@@ -20,9 +20,9 @@ many-sided one, because the pinned viewer dashes the outline of lines and
 polygons only.
 
 :func:`draw` gives the widget nodes of one element symbol, without ids;
-:mod:`~osprey.facility.panels.layout` places them and numbers them. Shapes are
+:mod:`~osprey_panels.layout` places them and numbers them. Shapes are
 written in multiples of a unit the caller passes, so this module holds ratios
-and :mod:`~osprey.facility.panels.layout` holds every size.
+and :mod:`~osprey_panels.layout` holds every size.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-from osprey.facility.panels.health import State
+from osprey_panels.health import State
 
 __all__ = [
     "AGGREGATE_MARK",

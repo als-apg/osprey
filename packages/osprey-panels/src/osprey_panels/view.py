@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from osprey.facility.panels.model import Citation, ThingKind
-from osprey.facility.panels.tables import PicturePart, ProbeElement
+from osprey_panels.model import Citation, ThingKind
+from osprey_panels.tables import PicturePart, ProbeElement
 
 __all__ = [
     "VIEW_KINDS",
@@ -184,7 +184,7 @@ class Light:
         channel: The channel whose state the light shows.
         inferred: Every health row of the channel is inferred.
         disagree: The channel's rows give one stated value more than one state
-            (:func:`~osprey.facility.panels.health.disagrees`).
+            (:func:`~osprey_panels.health.disagrees`).
         unsupported: Some row of the channel has a form the engine cannot
             evaluate, so the light can read unknown where the rule would not.
     """

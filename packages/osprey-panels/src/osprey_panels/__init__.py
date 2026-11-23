@@ -1,21 +1,21 @@
 """Operator screens generated from a built facility and its rule tables.
 
-:mod:`~osprey.facility.panels.document` reads and checks the facility file;
-:mod:`~osprey.facility.panels.tables` reads and checks the rule tables;
-:mod:`~osprey.facility.panels.model` joins them with the facility file into
+:mod:`~osprey_panels.document` reads and checks the facility file;
+:mod:`~osprey_panels.tables` reads and checks the rule tables;
+:mod:`~osprey_panels.model` joins them with the facility file into
 the :class:`PanelGraph` every later step reads through;
-:mod:`~osprey.facility.panels.health` turns values into states;
-:mod:`~osprey.facility.panels.view` and :mod:`~osprey.facility.panels.describe`
+:mod:`~osprey_panels.health` turns values into states;
+:mod:`~osprey_panels.view` and :mod:`~osprey_panels.describe`
 say what each screen contains, without layout;
-:mod:`~osprey.facility.panels.strip` arranges a place's devices in beam order;
-:mod:`~osprey.facility.panels.layout` draws a view as a Screen-IR document with
-the symbols and theme roles of :mod:`~osprey.facility.panels.symbols`;
-:mod:`~osprey.facility.panels.emit` writes the screens to disk and checks a
-written set against the model; :mod:`~osprey.facility.panels.classes` groups the
+:mod:`~osprey_panels.strip` arranges a place's devices in beam order;
+:mod:`~osprey_panels.layout` draws a view as a Screen-IR document with
+the symbols and theme roles of :mod:`~osprey_panels.symbols`;
+:mod:`~osprey_panels.emit` writes the screens to disk and checks a
+written set against the model; :mod:`~osprey_panels.classes` groups the
 written screens into classes, each judged by one standard screen.
 """
 
-from osprey.facility.panels.describe import (
+from osprey_panels.describe import (
     channel_list,
     checkout,
     describe,
@@ -26,8 +26,8 @@ from osprey.facility.panels.describe import (
     set_overview,
     targets,
 )
-from osprey.facility.panels.document import FacilityDocument, FacilityDocumentError
-from osprey.facility.panels.health import (
+from osprey_panels.document import FacilityDocument, FacilityDocumentError
+from osprey_panels.health import (
     State,
     channel_state,
     rollup,
@@ -37,7 +37,7 @@ from osprey.facility.panels.health import (
     unsupported,
     worst,
 )
-from osprey.facility.panels.model import (
+from osprey_panels.model import (
     Channel,
     Citation,
     Edge,
@@ -46,14 +46,14 @@ from osprey.facility.panels.model import (
     Thing,
     load_graph,
 )
-from osprey.facility.panels.tables import (
+from osprey_panels.tables import (
     HealthRule,
     PanelTableError,
     PanelTables,
     Pose,
     read_tables,
 )
-from osprey.facility.panels.view import Target, View
+from osprey_panels.view import Target, View
 
 __all__ = [
     "Channel",

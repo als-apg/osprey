@@ -1,10 +1,10 @@
 """What each screen contains: one pure function per view kind, graph in, view out.
 
 :func:`targets` lists every screen a graph gets, each addressed by a
-:class:`~osprey.facility.panels.view.Target` (view kind, thing kind, id). The
-view functions return :class:`~osprey.facility.panels.view.View` objects whose
+:class:`~osprey_panels.view.Target` (view kind, thing kind, id). The
+view functions return :class:`~osprey_panels.view.View` objects whose
 links only point at those targets; a thing with no screen is named in a
-:class:`~osprey.facility.panels.view.Fact` instead.
+:class:`~osprey_panels.view.Fact` instead.
 
 Which things get which screens:
 
@@ -18,7 +18,7 @@ Which things get which screens:
   with a rule-bearing channel within it, at any depth.
 
 Views carry channel names, never values or states: whoever draws a view binds
-the channels and asks :mod:`~osprey.facility.panels.health` for the states.
+the channels and asks :mod:`~osprey_panels.health` for the states.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from osprey.facility.panels.health import disagrees, rule_channels, supported, unplaced_channels
-from osprey.facility.panels.model import (
+from osprey_panels.health import disagrees, rule_channels, supported, unplaced_channels
+from osprey_panels.model import (
     MODEL_FRAME,
     PART_RELATION,
     PLACE_RELATION,
@@ -51,8 +51,8 @@ from osprey.facility.panels.model import (
     ThingKind,
     calibration_numbers,
 )
-from osprey.facility.panels.order import name_order
-from osprey.facility.panels.tables import (
+from osprey_panels.order import name_order
+from osprey_panels.tables import (
     CONTROLS,
     CURVE_PREFIX,
     DRAWN_AS,
@@ -66,7 +66,7 @@ from osprey.facility.panels.tables import (
     Pose,
     RecordType,
 )
-from osprey.facility.panels.view import (
+from osprey_panels.view import (
     ENTRIES_IN_ONE_COLUMN,
     Band,
     BlockRow,
@@ -4252,7 +4252,7 @@ def home(graph: PanelGraph) -> View:
     reached that way or from no screen at all.
 
     Under a write scope (the graph's ``write_scope``, set by
-    :func:`~osprey.facility.panels.emit.scoped`) it lists only what the scope keeps
+    :func:`~osprey_panels.emit.scoped`) it lists only what the scope keeps
     and says once, first, which places the write keeps to.
     """
     index = _index(graph)

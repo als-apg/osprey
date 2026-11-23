@@ -36,7 +36,7 @@ The stamp
     is free text, so every file ends its description with
     ``Facility <sha256>, panels format <N>.``. ``index.json`` records the same
     two values as ``facility_hash`` and ``format``. The hash is
-    :attr:`~osprey.facility.panels.model.PanelGraph.content_hash`. No file
+    :attr:`~osprey_panels.model.PanelGraph.content_hash`. No file
     holds a time, an absolute path or a host name, so equal inputs give equal
     bytes on any machine.
 
@@ -47,7 +47,7 @@ Classes
     its own ``sizes``, ``gaps``, ``flags`` and longest ``label``. The index's
     ``classes`` table holds each class's key, standard, counts, layout hash and
     sample, and ``class_summary`` the counts a gate reads
-    (:mod:`osprey.facility.panels.classes`). A write of a subset draws the kept
+    (:mod:`osprey_panels.classes`). A write of a subset draws the kept
     screens again in memory to class them; ``check`` compares all of it.
 
 Ownership
@@ -71,9 +71,10 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from osprey.facility.panels import classes as screen_classes
-from osprey.facility.panels import layout
-from osprey.facility.panels.describe import (
+from osprey_panels import classes as screen_classes
+from osprey_panels import layout, screen_ir
+from osprey_panels._files import atomic_replace
+from osprey_panels.describe import (
     NO_CLASS,
     NOT_PLACED,
     describe,
@@ -83,10 +84,10 @@ from osprey.facility.panels.describe import (
     targets,
     unset_groups,
 )
-from osprey.facility.panels.health import supported
-from osprey.facility.panels.model import SIMULATION_PREFIX, PanelGraph
-from osprey.facility.panels.symbols import WIDTH_UNITS, near_state
-from osprey.facility.panels.view import VIEW_KINDS, Node, Target, View
+from osprey_panels.health import supported
+from osprey_panels.model import SIMULATION_PREFIX, PanelGraph
+from osprey_panels.symbols import WIDTH_UNITS, near_state
+from osprey_panels.view import VIEW_KINDS, Node, Target, View
 
 __all__ = [
     "FORMAT_VERSION",
@@ -159,7 +160,8 @@ class Problem:
     Attributes:
         kind: ``stale``, ``missing``, ``orphan``, ``dangling_link``,
             ``unknown_channel``, ``stamp``, ``invalid``, ``oversize``,
-            ``incomplete`` (an earlier write did not finish), ``unrolled``
+            ``incomplete`` (an earlier write did not finish), ``schema`` (a
+            screen the vendored Screen-IR schema refuses), ``unrolled``
             (a channel with a rule a light can read that no roll-up screen
             reads, nor a screen one of its rows opens),
             ``static_rollup`` (a roll-up that reads a rule a light can read,
@@ -222,7 +224,9 @@ def _strings(value: Any, name: str, path: Path) -> list[str]:
     return value
 
 
-def load_draw(path: Path) -> Draw:
+def load_draw(
+    path: Path, *, theme_roles: Mapping[str, Mapping[str, str]] = MappingProxyType({})
+) -> Draw:
     """Read the drawing settings from a JSON file.
 
     The keys are ``colours`` (symbol name to
@@ -231,6 +235,9 @@ def load_draw(path: Path) -> Draw:
     shows under its symbols) and ``write_under``
     (place ids a write keeps to, :func:`write_scope`; each must be a place of the
     graph). All are optional.
+
+    A colour is held against the symbols' fallback state colours and, when
+    given, the state roles of *theme_roles* (:func:`load_theme`).
 
     Raises:
         EmitError: The file is missing or unreadable, is not JSON, holds a key
@@ -254,13 +261,12 @@ def load_draw(path: Path) -> Draw:
     colours = document.get("colours", {})
     if not isinstance(colours, dict) or not all(isinstance(v, str) for v in colours.values()):
         raise EmitError(f"{path}: colours must map symbol names to #rrggbb")
-    theme = _theme_roles()
     for name, colour in sorted(colours.items()):
         if name not in known:
             raise EmitError(f"{path}: colours names {name}, which is not a symbol of the engine")
         if not _HEX.fullmatch(colour):
             raise EmitError(f"{path}: the colour of {name} is {colour!r}, not #rrggbb")
-        state = near_state(colour, theme)
+        state = near_state(colour, theme_roles)
         if state is not None:
             raise EmitError(
                 f"{path}: the colour of {name}, {colour}, is too near the state colour {state}"
@@ -300,19 +306,27 @@ def check_draw(graph: PanelGraph, draw: Draw) -> None:
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
 #: The most signals a symbol shows the values of on a strip.
 MAX_ANNOTATIONS = 2
-#: The theme the panels' screens are drawn for, shipped with OSPREY.
-THEME_FILE = Path(__file__).parents[2] / "templates/apps/demo/data/canopy/theme/osprey.json"
 
 
-def _theme_roles() -> Mapping[str, Mapping[str, str]]:
-    """The shipped theme's roles (name to its light and dark colour); none when absent."""
+def load_theme(path: Path) -> dict[str, dict[str, str]]:
+    """Read a theme file's ``roles``: role name to its shades (``light``, ``dark``).
+
+    Raises:
+        EmitError: The file is missing or unreadable, is not JSON, is no object
+            with a ``roles`` object, or a role is no object of ``#rrggbb`` strings.
+    """
+    path = Path(path)
     try:
-        roles: Mapping[str, Mapping[str, str]] = json.loads(
-            THEME_FILE.read_text(encoding="utf-8")
-        ).get("roles", {})
-        return roles
-    except (OSError, ValueError):
-        return {}
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise EmitError(f"{path} cannot be read as a theme: {error}") from error
+    roles = document.get("roles") if isinstance(document, dict) else None
+    if not isinstance(roles, dict):
+        raise EmitError(f"{path}: a theme must hold one JSON object with a roles object")
+    for name, shades in roles.items():
+        if not isinstance(shades, dict) or not all(isinstance(v, str) for v in shades.values()):
+            raise EmitError(f"{path}: the role {name} must map shades to #rrggbb")
+    return roles
 
 
 # -- ids ------------------------------------------------------------------------------
@@ -649,8 +663,6 @@ def _classes(
 
 
 def _atomic(path: Path, data: bytes) -> None:
-    from osprey_connectors.safety_file import atomic_replace
-
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_replace(path, data, mode=_FILE_MODE)
 
@@ -772,8 +784,9 @@ def write(
 
     Raises:
         EmitError: *out* holds files and no ``index.json``, the index is not
-            one this generator wrote, or *draw* does not hold for the graph
-            (:func:`check_draw`).
+            one this generator wrote, *draw* does not hold for the graph
+            (:func:`check_draw`), or a screen to write fails the Screen-IR schema
+            (every such screen is named, and nothing is written).
     """
     check_draw(graph, draw)
     if draw.write_under:
@@ -817,6 +830,27 @@ def write(
             f"generator; they were left alone: {shown}",
             UserWarning,
             stacklevel=2,
+        )
+    # Every target is drawn and checked against the schema in memory before the first
+    # byte is written: a failing screen leaves *out* exactly as it was.
+    drawn_by: dict[str, _Drawn] = {}
+    kept: dict[str, screen_classes.Sample] = {}
+    failing: list[str] = []
+    for target in found:
+        relative = _path(target, ids)
+        if only is None or only(target):
+            drawn = _generate(graph, target, ids, draw)
+            drawn_by[relative] = drawn
+            found_problems = screen_ir.problems(json.loads(drawn.data))
+            if found_problems:
+                failing.append(f"{relative} ({found_problems[0]})")
+        elif relative in owned and _guard(out, relative, seen).is_file():
+            # kept from an earlier run: its class is drawn again in memory, not read back
+            kept[relative] = _generate(graph, target, ids, draw).sample
+    if failing:
+        raise EmitError(
+            f"{len(failing)} screen{'s' if len(failing) > 1 else ''} fail the Screen-IR "
+            "schema; nothing was written: " + "; ".join(failing)
         )
     if out.is_dir():
         _clean_temporaries(out)
@@ -867,18 +901,17 @@ def write(
     samples: list[screen_classes.Sample] = []
     for target in found:
         relative = _path(target, ids)
-        if only is None or only(target):
-            drawn = _generate(graph, target, ids, draw)
+        if relative in drawn_by:
+            drawn = drawn_by[relative]
             written.append(_put(out, relative, drawn.data, seen))
             entries[relative] = _entry(target, ids, drawn.title, len(drawn.data))
             samples.append(drawn.sample)
-        elif relative in owned and _guard(out, relative, seen).is_file():
+        elif relative in kept:
             old = owned[relative]
             entries[relative] = _entry(
                 target, ids, str(old.get("title", "")), (out / relative).stat().st_size
             )
-            # kept from an earlier run: its class is drawn again in memory, not read back
-            samples.append(_generate(graph, target, ids, draw).sample)
+            samples.append(kept[relative])
         else:
             outside.append(
                 {k: v for k, v in _entry(target, ids, "", 0).items() if k not in {"title", "bytes"}}
@@ -1390,6 +1423,12 @@ def _check_file(
         description = document["metadata"]["description"]
     except (ValueError, KeyError, TypeError):
         return [*problems, Problem("invalid", relative, "not a screen document")]
+    refused = screen_ir.problems(document)  # a dict: its metadata was read above
+    if refused:
+        more = f" (and {len(refused) - 1} more)" if len(refused) > 1 else ""
+        problems.append(
+            Problem("schema", relative, f"fails the Screen-IR schema: {refused[0]}{more}")
+        )
     stamped = _STAMP.search(description) if isinstance(description, str) else None
     now = (graph.content_hash, str(FORMAT_VERSION), draw.digest)
     if stamped is None or stamped.groups() != now:

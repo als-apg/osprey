@@ -7,7 +7,7 @@ different states make the channel ``disagree``. The row's ``basis`` does not
 change the state.
 
 A roll-up reads the rule-bearing channels of a node (its own, plus the
-:meth:`~osprey.facility.panels.model.PanelGraph.contents` of a place, or the
+:meth:`~osprey_panels.model.PanelGraph.contents` of a place, or the
 members of a group) and takes the
 :func:`worst`. A thing with no rule-bearing channel contributes nothing, and a
 roll-up where nothing contributed is ``None``: whoever draws it decides how to
@@ -24,7 +24,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from osprey.facility.panels.model import PanelGraph, ThingKind
+from osprey_panels.model import PanelGraph, ThingKind
 
 State = Literal["normal", "warn", "bad", "unknown", "disagree"]
 

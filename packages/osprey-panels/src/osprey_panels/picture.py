@@ -1,7 +1,7 @@
 """The geometry of a device class's drawing: a magnet seen from its end, in mm.
 
 Pure functions of the ``pictures.csv`` rows of one view
-(:class:`~osprey.facility.panels.tables.PicturePart`); the layout scales and paints
+(:class:`~osprey_panels.tables.PicturePart`); the layout scales and paints
 what they return. Every proportion is a drawing unit (a *unit*, :data:`BORE` of
 them the bore's radius); a stated size sets the unit, and a shape row that states
 no size is drawn at the default proportion (:attr:`Body.sized` says so).
@@ -36,7 +36,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from osprey.facility.panels.tables import PicturePart
+from osprey_panels.tables import PicturePart
 
 __all__ = [
     "BORE",

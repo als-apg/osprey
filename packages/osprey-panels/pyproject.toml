@@ -1,0 +1,70 @@
+[build-system]
+# setuptools-scm >= 9.2 for `scm.git.describe_command` below (the 8.x line hatch-vcs
+# still admits has no `scm` table and refuses the keyword).
+requires = ["hatchling", "hatch-vcs", "setuptools-scm>=9.2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "osprey-panels"
+dynamic = ["version"]
+description = "The OSPREY panel engine: control-room screens generated from a facility.json"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+# The only runtime dependency: the written screens are validated against the
+# Screen-IR schema. The lower bound is the framework's own.
+dependencies = [
+    "jsonschema>=4.26,<5",
+]
+
+[project.urls]
+Repository = "https://github.com/als-apg/osprey"
+Issues = "https://github.com/als-apg/osprey/issues"
+Changelog = "https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/CHANGELOG.md"
+
+[project.scripts]
+osprey-panels = "osprey_panels.cli:main"
+
+[tool.hatch.version]
+source = "vcs"
+# The package has its own calendar stream, on its own tags:
+# osprey-panels-vYYYY.M.P. `root` climbs to the repository the tags live in;
+# the describe glob reads only this package's calendar tags, and the backend's
+# default tag regex strips the `osprey-panels-` prefix and leading `v`. With no
+# such tag reachable the build is 0.0.postN+g…, which is intended until the
+# package's first release. The describe command sits in the `scm.git` table, not
+# the deprecated flat `git_describe_command` key, as in osprey-facility.
+raw-options = { root = "../..", version_scheme = "post-release", scm = { git = { describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-panels-v2[0-9][0-9][0-9].*" } } }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey_panels/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osprey_panels"]
+
+# Unreleased changelog fragments are repository workflow, not package content:
+# the release fold empties the directory into CHANGELOG.md, which does ship. So
+# is the package's checks module, which only the repository's check command
+# reads, and `tools/`, the font-metrics generator and its font, which only a
+# maintainer regenerating `metrics.py` runs.
+[tool.hatch.build.targets.sdist]
+exclude = ["changelog.d", "repo_checks.py", "tools"]
+
+# The package suite's test dependencies: a group, not an extra, so they never
+# reach the wheel's metadata. `uv sync --package osprey-panels` installs it.
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-timeout",
+    "pytest-xdist",
+    "fontTools",  # the font-metrics drift test reads the font the generator measured
+]
+
+# Read by the standalone lane; a run from the repository root uses the root's.
+[tool.pytest.ini_options]
+addopts = "-ra -v --tb=short --strict-markers --color=yes"
+testpaths = ["tests"]
+tmp_path_retention_policy = "failed"
+markers = [
+    "wheel_build: Tests that read a built osprey-panels wheel named by OSPREY_PANELS_WHEEL. Deselected from the root unit shards; the package's standalone CI job builds the wheel once and selects them.",
+]

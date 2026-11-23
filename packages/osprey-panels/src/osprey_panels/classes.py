@@ -21,7 +21,7 @@ Every other screen, a set among them
     alike share a class, and only a screen of a truly single structure stays
     alone.
 
-Sameness is measured on the screen's view (:mod:`~osprey.facility.panels.view`),
+Sameness is measured on the screen's view (:mod:`~osprey_panels.view`),
 not on the drawn file. :func:`measure` reduces a view to its *structure*: the
 sections, the kinds of item, block and relation it shows, and nothing else. Four
 things are left out, because a reviewer would not call them another card:
@@ -60,9 +60,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from osprey.facility.panels.describe import DEFAULT_RECIPE, INTERNAL_ROLE
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Fact, Operate, Target, View
+from osprey_panels.describe import DEFAULT_RECIPE, INTERNAL_ROLE
+from osprey_panels.model import PanelGraph
+from osprey_panels.view import Fact, Operate, Target, View
 
 __all__ = [
     "DRAWING_RULE",
@@ -261,7 +261,7 @@ class Sample:
         measure: Its view's structure and sizes (:func:`measure`).
         cuts: The labels the layout cut to fit, before the cut.
         others: What the screen shows of other things on purpose
-            (:func:`~osprey.facility.panels.describe.others`).
+            (:func:`~osprey_panels.describe.others`).
         blocks: For a device card drawn by the default recipe, the kinds of
             block it shows (:func:`blocks`); empty otherwise.
         drawing: The digest of its written file without the model stamp

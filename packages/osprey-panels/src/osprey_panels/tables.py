@@ -428,16 +428,24 @@ PROBE_NEEDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
 def walked_relations(rows: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
     """The relation types of ``rows`` that run from a device to a device, sorted by name.
 
-    ``rows`` are a facility document's ``relation_types`` rows. Sorted, not a set,
-    so the order edges are walked in never depends on the hash seed.
+    ``rows`` are a facility document's ``relation_types`` rows. A row's ``subject``
+    and ``object`` are lists of kinds, matched whole: a string or a kind such as
+    ``devices`` is not ``device``. Sorted, not a set, so the order edges are walked
+    in never depends on the hash seed.
     """
     return tuple(
         sorted(
             str(row["name"])
             for row in rows
-            if "device" in (row.get("subject") or ()) and "device" in (row.get("object") or ())
+            if _names_kind(row.get("subject"), "device")
+            and _names_kind(row.get("object"), "device")
         )
     )
+
+
+def _names_kind(kinds: Any, kind: str) -> bool:
+    """Whether ``kinds``, a relation type's list of kinds, holds ``kind`` itself."""
+    return isinstance(kinds, (list, tuple)) and kind in kinds
 
 
 #: The scopes of a ``channel_roles.csv`` row that need no relation: the device's
@@ -736,10 +744,10 @@ class PicturePart:
     A shape row may leave its size empty, the normal case: a pole, a coil or a
     corrector winding is then placed by its ``angle_deg`` alone (its ``x_mm``,
     ``y_mm`` are not read), at the default proportions of
-    :mod:`osprey.facility.panels.picture`: a broad pole from the yoke's cavity to a
+    :mod:`osprey_panels.picture`: a broad pole from the yoke's cavity to a
     rounded tip short of the bore, the coil blocks along its flanks. The proportions
     are scaled to a stated bore (or gap), else to a stated yoke or outline, else to
-    :data:`osprey.facility.panels.picture.DEFAULT_BORE_MM`. The caption under the
+    :data:`osprey_panels.picture.DEFAULT_BORE_MM`. The caption under the
     drawing's scale bar names the row the drawing is scaled from and the kinds drawn
     at the default proportion ("scaled from the yoke; pole, coil at default
     proportions"), or says "size not stated" and "schematic, not to scale" when no
@@ -790,7 +798,7 @@ class PicturePart:
     under: str | None = None
     devices: str | None = None
     #: The channel ``signal`` resolves to on one device: set when a card is
-    #: described (:func:`osprey.facility.panels.describe.device_card`), ``None``
+    #: described (:func:`osprey_panels.describe.device_card`), ``None``
     #: as the table is read.
     channel: str | None = None
     #: Read from a file without the size columns: the row is a part at a point,
@@ -878,7 +886,7 @@ class ChannelRole:
     revision: str | None
     locator: str | None
     #: False for the role a channel's own ``signal`` gives it when no row names it
-    #: (:func:`osprey.facility.panels.model.signal_role`): it names what the channel
+    #: (:func:`osprey_panels.model.signal_role`): it names what the channel
     #: is, never how the card presses it.
     stated: bool = True
     #: The ``title`` the signal named ``role`` states (in the vocabulary or
@@ -974,7 +982,7 @@ class StripSymbol:
 
 def _check_symbol(row: StripSymbol, line: int) -> None:
     """A ``symbols.csv`` row names a symbol the drawing knows."""
-    from osprey.facility.panels.symbols import KINDS  # the drawing's, read at run time
+    from osprey_panels.symbols import KINDS  # the drawing's, read at run time
 
     if row.symbol not in KINDS:
         raise PanelTableError(
@@ -987,7 +995,7 @@ def _strip_symbol(**columns: Any) -> StripSymbol:
 
 
 #: The conditions a ``cards.csv`` row's ``when`` names, joined by ``;``: the device
-#: has no channel a card shows (:meth:`~osprey.facility.panels.model.PanelGraph.card_channels`);
+#: has no channel a card shows (:meth:`~osprey_panels.model.PanelGraph.card_channels`);
 #: the device has no drawing (no card recipe, no picture).
 CARD_CONDITIONS: tuple[str, ...] = ("no-channel", "no-drawing")
 

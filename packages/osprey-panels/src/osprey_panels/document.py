@@ -17,6 +17,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+__all__ = [
+    "END_KINDS",
+    "FACILITY_FILE",
+    "READS",
+    "FacilityDocument",
+    "FacilityDocumentError",
+    "end_identity",
+]
+
 #: The facility-document headers this reader reads, compared as exact strings.
 READS: frozenset[str] = frozenset({"osprey.facility.facility/4"})
 
