@@ -575,7 +575,7 @@ tested:
     languages: [python]
     kind: runs
     contains: "synthetic_deployment"
-    what: runs the example test against a scaffold copy named corrector-trim, through the plugin's fixture
+    what: runs both example tests against a scaffold copy named corrector-trim, through the plugin's fixture
 
 not_counted:
   - test: tests/docs/test_no_model_tier_words.py

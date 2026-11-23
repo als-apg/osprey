@@ -7,7 +7,7 @@
     "An entry is {path, kind, mode, sha256}: path relative to the root with '/', kind one of file, dir, symlink, other (from lstat), mode the permission bits, sha256 on files only. The judge reads path, kind and sha256.",
     "list is the text of the list: one line '<sha256>  screens/<relpath>' plus LF per listed file, sorted by the UTF-8 bytes of relpath. digest is 'sha256:' plus the hex sha256 of the UTF-8 bytes of list.",
     "A file is listed when it is a regular file under screens/ named *.screen.json (as spelled) or carrying an image suffix (in any case: .png .jpg .jpeg .gif .svg .webp .bmp .ico) and no segment of its path below screens/ is refused.",
-    "refusals are {path, code}, sorted by the UTF-8 bytes of path (a lone surrogate encoded as such), then code. Codes: outside_screens (reported once, at the top-level name; LIBRARY-REPORT.json and LIBRARY-REPORT.md are the only files allowed beside screens/), symlink, not_regular, bad_name (a character of category Cc, Cf or Cs), leftover_tmp ('.' ... '.tmp', below screens/ or as an entry of the root itself), dotfile, ignored_name, suffix, case_collision.",
+    "refusals are {path, code}, sorted by the UTF-8 bytes of path (a lone surrogate encoded as such), then code. Codes: outside_screens (reported once, at the top-level name; LIBRARY-REPORT.json, LIBRARY-REPORT.md and navigation.json are the only files allowed beside screens/, each as a regular file: a symlink of such a name is refused as symlink, a directory of such a name as outside_screens; none of the three is on the list), symlink, not_regular, bad_name (a character of category Cc, Cf or Cs), leftover_tmp ('.' ... '.tmp', below screens/ or as an entry of the root itself), dotfile, ignored_name, suffix, case_collision.",
     "A name rule (bad_name, leftover_tmp, dotfile, ignored_name; the first that applies, in that order) is judged on every segment below screens/ and reported at the shortest path that breaks it; an entry under a refused name earns no refusal of its own. Otherwise the kind decides: symlink, not_regular, or for a file its suffix.",
     "A regular file named exactly .DS_Store is skipped anywhere: neither listed nor refused.",
     "case_collision names every spelling, among the entries below screens/ and their directory prefixes, that shares its str.casefold() with a different spelling. A colliding file is still listed.",
@@ -413,6 +413,137 @@
           {
             "path": "extra",
             "code": "outside_screens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "navigation.json beside screens/ is admitted and not listed",
+      "entries": [
+        {
+          "path": "navigation.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec"
+        }
+      ],
+      "expect": {
+        "list": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec  screens/a.screen.json\n",
+        "digest": "sha256:13353395b84cdc067c91e07d13a29dd461b3f82fac92406cd306798951e6e523",
+        "refusals": []
+      }
+    },
+    {
+      "name": "navigation.json a symlink",
+      "entries": [
+        {
+          "path": "navigation.json",
+          "kind": "symlink",
+          "mode": 511
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec"
+        }
+      ],
+      "expect": {
+        "list": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec  screens/a.screen.json\n",
+        "digest": "sha256:13353395b84cdc067c91e07d13a29dd461b3f82fac92406cd306798951e6e523",
+        "refusals": [
+          {
+            "path": "navigation.json",
+            "code": "symlink"
+          }
+        ]
+      }
+    },
+    {
+      "name": "navigation.json a directory",
+      "entries": [
+        {
+          "path": "navigation.json",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec"
+        }
+      ],
+      "expect": {
+        "list": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec  screens/a.screen.json\n",
+        "digest": "sha256:13353395b84cdc067c91e07d13a29dd461b3f82fac92406cd306798951e6e523",
+        "refusals": [
+          {
+            "path": "navigation.json",
+            "code": "outside_screens"
+          }
+        ]
+      }
+    },
+    {
+      "name": "navigation.json below screens/ or spelled otherwise is not the navigation",
+      "entries": [
+        {
+          "path": "Navigation.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        },
+        {
+          "path": "screens",
+          "kind": "dir",
+          "mode": 493
+        },
+        {
+          "path": "screens/a.screen.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec"
+        },
+        {
+          "path": "screens/navigation.json",
+          "kind": "file",
+          "mode": 420,
+          "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+        }
+      ],
+      "expect": {
+        "list": "7282187b5165a6591b62faa43cdca8b9e36d1c68d89e439560b26222718abaec  screens/a.screen.json\n",
+        "digest": "sha256:13353395b84cdc067c91e07d13a29dd461b3f82fac92406cd306798951e6e523",
+        "refusals": [
+          {
+            "path": "Navigation.json",
+            "code": "outside_screens"
+          },
+          {
+            "path": "screens/navigation.json",
+            "code": "suffix"
           }
         ]
       }
