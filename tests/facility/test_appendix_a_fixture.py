@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
+from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import (
     ADDED_IDS,
@@ -209,7 +210,9 @@ class TestReadsTheExample:
         assert facility == tmp_path / "facility"
         assert not (facility / "documents.yaml").exists()
         assert not (facility / "records" / "relations.yaml").exists()
-        report = run_stages(facility, project_name="p", later=LATER_STAGES)
+        report = run_stages(
+            facility, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         assert report.failed is None, [e.format_message() for e in report.errors]
         document = report.validated.document
         assert not document.get("relations")

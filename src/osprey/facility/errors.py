@@ -7,16 +7,19 @@ Every stop is a single line on stderr::
 A schema failure names its location as record kind ``path`` and the dotted path
 as the id. The exit code is 1; click keeps 2 for usage errors. A warning shares
 the line shape, prints after a clean build, and leaves the exit code at 0.
+
+Every error the description raises derives from :class:`FacilityError`, a plain
+exception that knows how to print itself. None of them depends on click; the
+command line turns them into click errors at its root group.
 """
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
-
-import click
 
 from osprey_connectors.simulation.engines import FacilityDefectError
 
@@ -25,6 +28,13 @@ __all__ = [
     "WARNING_KINDS",
     "FacilityBuildError",
     "FacilityBuildWarning",
+    "FacilityError",
+    "FacilityFileError",
+    "FacilityInputError",
+    "FacilityUsageError",
+    "ImportStop",
+    "LayerSourceInvalid",
+    "MappingProblems",
     "exact_number",
     "quoted_slots",
 ]
@@ -97,7 +107,43 @@ def quoted_slots(slots: Iterable[str]) -> str:
     return ", ".join(f"`{slot}`" for slot in slots)
 
 
-class FacilityBuildError(click.ClickException, FacilityDefectError):
+class FacilityFileError(ValueError):
+    """A facility file is present but cannot be used.
+
+    It is unreadable, not JSON, not an object, declares no header it must
+    carry, or (for the identity read) names no identity code. Only an absent
+    file is ever an absence; every other defect of the file stops here.
+    """
+
+
+class FacilityError(Exception):
+    """An error the facility description stops with.
+
+    It prints itself: :meth:`show` writes its message, and nothing else, as
+    the lines a person reads. The command line exits 1 on it.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+    def format_message(self) -> str:
+        """The message the error prints."""
+        return self.message
+
+    def __str__(self) -> str:
+        return self.message
+
+    def show(self, file: IO[Any] | None = None) -> None:
+        """Write the message alone, with no ``Error: `` prefix.
+
+        Args:
+            file: The stream to write to; stderr when omitted.
+        """
+        (file or sys.stderr).write(self.format_message() + "\n")
+
+
+class FacilityBuildError(FacilityError, FacilityDefectError):
     """A facility build stop: one kind, one record, one remedy.
 
     It is a :class:`~osprey_connectors.simulation.engines.FacilityDefectError`,
@@ -114,8 +160,6 @@ class FacilityBuildError(click.ClickException, FacilityDefectError):
             ...), or ``path`` for a schema failure.
         detail: What is wrong with the record.
     """
-
-    exit_code = 1
 
     def __init__(
         self,
@@ -137,16 +181,90 @@ class FacilityBuildError(click.ClickException, FacilityDefectError):
         self.detail = detail
         super().__init__(f"facility: {kind}: {record_kind} {record_id} — {detail}; fix: {remedy}")
 
+
+class LayerSourceInvalid(FacilityError):
+    """The source holds records the layer cannot write; nothing was written.
+
+    Attributes:
+        errors: One ``source-invalid`` error per problem, in the order the
+            layer reports them.
+        warnings: The warning lines the layer found before it refused,
+            shown ahead of the errors.
+    """
+
+    def __init__(self, errors: list[FacilityBuildError], *, warnings: tuple[str, ...] = ()) -> None:
+        self.errors = errors
+        self.warnings = warnings
+        super().__init__("\n".join(error.format_message() for error in errors))
+
     def show(self, file: IO[Any] | None = None) -> None:
-        """Write the error line alone, with no ``Error: `` prefix.
+        """Write each warning's line, then each error's, with no ``Error: `` prefix.
 
         Args:
             file: The stream to write to; stderr when omitted.
         """
-        if file is None:
-            click.echo(self.format_message(), err=True, color=self.show_color)
-        else:
-            click.echo(self.format_message(), file=file, color=self.show_color)
+        stream = file if file is not None else sys.stderr
+        for warning in self.warnings:
+            stream.write(warning + "\n")
+        for error in self.errors:
+            error.show(file)
+
+
+class ImportStop(FacilityError):
+    """An importer stop: ``import mml: <problem>: <what>``, one line per finding.
+
+    Args:
+        problem: The stop's word: ``mapping-draft``, ``mapping-undecided``,
+            ``mapping-invalid``, ``export-invalid`` or ``reference-missing``.
+        lines: What stopped the import, one entry per printed line.
+    """
+
+    def __init__(self, problem: str, lines: list[str]) -> None:
+        self.problem = problem
+        self.lines = tuple(lines)
+        super().__init__("\n".join(f"import mml: {problem}: {line}" for line in lines))
+
+
+class MappingProblems(FacilityError):
+    """The mapping fails its check: one line per problem, then how many there are.
+
+    Args:
+        path: The mapping file.
+        problems: What the check refused, in its order; each prints as its
+            ``str``.
+    """
+
+    def __init__(self, path: Path, problems: Sequence[object]) -> None:
+        self.path = path
+        self.problems = tuple(problems)
+        count = len(self.problems)
+        noun = "problem" if count == 1 else "problems"
+        lines = [str(problem) for problem in self.problems]
+        lines.append(f"{count} {noun} in {path}; fix each and check again.")
+        super().__init__("\n".join(lines))
+
+
+class FacilityInputError(FacilityError):
+    """An outside export a loader cannot read.
+
+    It prints as a command-line error does: ``Error: <message>``.
+    """
+
+    def show(self, file: IO[Any] | None = None) -> None:
+        """Write ``Error: <message>``.
+
+        Args:
+            file: The stream to write to; stderr when omitted.
+        """
+        (file or sys.stderr).write(f"Error: {self.format_message()}\n")
+
+
+class FacilityUsageError(FacilityError):
+    """The invocation names something the description cannot act on.
+
+    The command that raises it into the command line reports it as a usage
+    error of that command.
+    """
 
 
 @dataclass(frozen=True)

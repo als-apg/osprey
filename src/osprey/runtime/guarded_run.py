@@ -768,31 +768,37 @@ def lock(
 def _facility_commands() -> frozenset[str]:
     """The command channels of the rendered facility definition.
 
-    ``facility.json`` of the render this process reads its config from: every
-    channel the build marked ``command: true`` (a setpoint whose vocabulary
-    signal is a command word, or one a model's engine marks ``command``).
+    ``facility.json`` of the render this process reads its config from, read
+    through :func:`osprey.facility.reading.load_facility`: every channel the
+    build marked ``command: true`` (a setpoint whose vocabulary signal is a
+    command word, or one a model's engine marks ``command``). A channel list
+    that is empty holds no command, so each write is then refused as no command.
 
     Raises:
-        OspreyWriteRefused: There is no rendered facility definition, or it
-            cannot be read.
+        OspreyWriteRefused: There is no rendered facility definition, it cannot
+            be read, is not a JSON object, carries a header this reader does not
+            read, or holds no channel list. Each refusal names the rebuild.
     """
     from osprey.channel_roster.sources import facility_file_path
+    from osprey.facility.errors import FacilityFileError
+    from osprey.facility.reading import REBUILD, load_facility
     from osprey_connectors.workspace import load_osprey_config
 
     path = facility_file_path(load_osprey_config())
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
+        document = load_facility(path)
     except FileNotFoundError:
         raise OspreyWriteRefused(
-            f"no command fires without the rendered facility definition ({path} is missing)"
+            f"no command fires without the rendered facility definition ({path} is missing) "
+            f"{REBUILD}"
         ) from None
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise OspreyWriteRefused(
-            f"the rendered facility definition {path} cannot be read: {exc}"
-        ) from None
-    channels = document.get("channels") if isinstance(document, dict) else None
+    except FacilityFileError as exc:
+        raise OspreyWriteRefused(str(exc)) from None
+    channels = document.get("channels")
+    if not isinstance(channels, list):
+        raise OspreyWriteRefused(f"{path} holds no channel list {REBUILD}")
     commands: set[str] = set()
-    for channel in channels if isinstance(channels, list) else ():
+    for channel in channels:
         if isinstance(channel, dict) and channel.get("command") is True:
             commands.add(str(channel.get("id")))
     return frozenset(commands)

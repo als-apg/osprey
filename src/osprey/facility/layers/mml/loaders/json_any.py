@@ -25,8 +25,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
-
+from osprey.facility.errors import FacilityInputError
 from osprey.facility.layers.mml.family import is_family_dict
 from osprey.facility.layers.mml.loaders import LoadedInput
 
@@ -77,7 +76,7 @@ def load_json(path: str | Path) -> LoadedInput:
         ``ao`` into ``export``.
 
     Raises:
-        click.ClickException: When the file cannot be read or parsed, or holds
+        FacilityInputError: When the file cannot be read or parsed, or holds
             no family in any accepted form; the message names the file.
     """
     source = Path(path)
@@ -124,13 +123,13 @@ def load_sibling(path: str | Path) -> dict:
         normaliser's strings exactly as in an AO or AD input.
 
     Raises:
-        click.ClickException: When the file cannot be read or parsed, or its
+        FacilityInputError: When the file cannot be read or parsed, or its
             top level is not a map; the message names the file.
     """
     source = Path(path)
     data = _read(source)
     if not isinstance(data, dict):
-        raise click.ClickException(
+        raise FacilityInputError(
             f"Cannot import {source}: the top level of a sibling document is a map."
         )
     return data
@@ -159,11 +158,11 @@ def _read(source: Path) -> object:
         with source.open(encoding="utf-8") as handle:
             return json.load(handle, parse_constant=_NON_FINITE.__getitem__)
     except (OSError, ValueError) as exc:
-        raise click.ClickException(f"Cannot read JSON from {source}: {exc}") from exc
+        raise FacilityInputError(f"Cannot read JSON from {source}: {exc}") from exc
 
 
-def _no_family(source: Path) -> click.ClickException:
-    return click.ClickException(
+def _no_family(source: Path) -> FacilityInputError:
+    return FacilityInputError(
         f"No middle-layer family found in {source}: expected a map of families, "
         "an 'ao'/'AO' wrapper around one, or a map of systems holding families."
     )

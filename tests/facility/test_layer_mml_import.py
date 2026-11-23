@@ -20,14 +20,15 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.errors import FacilityError, ImportStop, MappingProblems
 from osprey.facility.layers.mml.importer import (
     LAYER_DIR,
-    MappingProblems,
     import_mml,
     read_exports,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
+from osprey.facility.layers.mml.mapping import MAPPING_FILE
 from osprey.facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import BuiltModel, MmlImport, load_yaml, read_yaml
 
 #: The module's second spear3 import is made once per module, which only holds on one worker.
@@ -374,7 +375,7 @@ def test_an_eps_or_infinite_tolerance_writes_none(
 
 
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:
-    report = run_stages(spear3, project_name="demo")
+    report = run_stages(spear3, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert [e.format_message() for e in report.errors if "is not a layer file" in e.detail] == []
     assert report.failed != "load"
 
@@ -540,7 +541,7 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     with pytest.raises(MappingProblems) as stop:
         import_mml([FIXTURES / "synthetic" / "quokka.sr.ao.json"], facility)
 
-    assert stop.value.exit_code == 1
+    assert isinstance(stop.value, FacilityError)
     lines = stop.value.format_message().splitlines()
     assert lines[0] == "models.SR.name: 'S R' is not PN_LOCAL"
     assert lines[1:-1] == [str(problem) for problem in stop.value.problems[1:]]
@@ -643,7 +644,7 @@ def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -
     import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)
     channels = _by_id(_rows(facility, "channels.yaml"))
     assert channels["QK:R12:HCM:RB"]["endpoint_of"] == ["RING/hcm_1", "RING/hcm_2"]
-    result = run_stages(facility, project_name="demo")
+    result = run_stages(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert not result.errors
     built = _by_id(result.validated.document["channels"])
     for setpoint in ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP"):

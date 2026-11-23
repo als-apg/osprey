@@ -13,13 +13,14 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey.cli.main import facility_errors_as_click
+from osprey.facility.errors import FacilityError, ImportStop
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     Coordinates,
     EngineBlock,
     FieldRole,
     Identity,
-    ImportStop,
     MappingError,
     Problem,
     SameAs,
@@ -462,7 +463,7 @@ class TestUndecided:
         document["directions"]["QF.Setpoint"]["direction"] = None
         with pytest.raises(ImportStop) as caught:
             require_decided(parse_mapping(document))
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message().splitlines() == [
             "import mml: mapping-undecided: models.SR.wiring.QF.engine: "
             "name the attribute and index, or the axis, the model wires",
@@ -476,7 +477,8 @@ class TestUndecided:
 
         @click.command()
         def stop() -> None:
-            require_decided(mapping)
+            with facility_errors_as_click():
+                require_decided(mapping)
 
         result = CliRunner().invoke(stop)
         assert result.exit_code == 1
@@ -1247,7 +1249,7 @@ class TestLoadOrDraft:
     def test_an_absent_mapping_is_drafted_and_stops_the_import(self, tmp_path: Path) -> None:
         with pytest.raises(ImportStop) as caught:
             load_or_draft(tmp_path, _typed_export(), va=_va())
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message() == (
             "import mml: mapping-draft: imported/mml/mapping.yaml written; review it, then re-run"
         )

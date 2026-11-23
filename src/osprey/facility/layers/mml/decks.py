@@ -88,11 +88,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers.mml.mapping import (
     KICK,
     LAYER_DIR,
     EngineBlock,
-    ImportStop,
     MappingError,
     Model,
     WiringFamily,

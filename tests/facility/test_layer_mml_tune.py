@@ -109,7 +109,7 @@ def test_a_scalar_block_wires_one_record_per_plane(tmp_path: Path) -> None:
 
 
 def test_a_tune_address_a_family_wires_stops_the_import(tmp_path: Path) -> None:
-    from osprey.facility.layers.mml.mapping import ImportStop
+    from osprey.facility.errors import ImportStop
 
     facility = _facility(tmp_path, {"address": "SPEAR:RFFreqSetpt", "planes": ["x", "y"]})
     with pytest.raises(ImportStop) as stop:
@@ -163,7 +163,7 @@ async def test_the_in_process_simulator_serves_measured_tune_as_the_deck_s_tunes
 ) -> None:
     import numpy as np
 
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
     from osprey.simulation.engines import pyat as engine
     from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
     from osprey_connectors.simulation.composite import STATUS_OK

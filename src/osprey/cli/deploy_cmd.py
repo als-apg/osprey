@@ -20,6 +20,7 @@ import click
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError, DeployStepFailedError
+from osprey.facility.errors import FacilityError
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
 
@@ -29,6 +30,10 @@ if TYPE_CHECKING:
     from .phase_reporter import PhaseReporter
 
 logger = get_logger("deploy")
+
+#: What a verb's catch-all lets through untouched: each reports itself on the
+#: command line (a facility error through the root group's adapter).
+_REPORTS_ITSELF = (click.Abort, click.ClickException, FacilityError)
 
 
 def _display_name(repo_root: Path) -> str:
@@ -740,7 +745,7 @@ def up_verb(
         except KeyboardInterrupt:
             output.warn("Operation cancelled by user")
             raise click.Abort() from None
-        except (click.Abort, click.ClickException):
+        except _REPORTS_ITSELF:
             raise
         except Exception as e:
             # Some deploy failures carry a cause OSPREY can name and the raw
@@ -836,7 +841,7 @@ def down_verb(repo: Path | None) -> None:
     except KeyboardInterrupt:
         output.warn("Operation cancelled by user")
         raise click.Abort() from None
-    except (click.Abort, click.ClickException):
+    except _REPORTS_ITSELF:
         raise
     except Exception as e:
         _abort("Could not stop this deployment", str(e))
@@ -979,7 +984,7 @@ def restart_verb(
         except KeyboardInterrupt:
             output.warn("Operation cancelled by user")
             raise click.Abort() from None
-        except (click.Abort, click.ClickException):
+        except _REPORTS_ITSELF:
             raise
         except Exception as e:
             _abort("Restart failed", str(e))
@@ -1051,7 +1056,7 @@ def status_verb(repo: Path | None, show_agents: bool) -> None:
     except KeyboardInterrupt:
         output.warn("Operation cancelled by user")
         raise click.Abort() from None
-    except (click.Abort, click.ClickException):
+    except _REPORTS_ITSELF:
         raise
     except Exception as e:
         _abort("Could not report this deployment's status", str(e))
@@ -1114,7 +1119,7 @@ def logs_verb(repo: Path | None, service: str | None, follow: bool, tail: int | 
     except KeyboardInterrupt:
         output.warn("Operation cancelled by user")
         raise click.Abort() from None
-    except (click.Abort, click.ClickException):
+    except _REPORTS_ITSELF:
         raise
     except Exception as e:
         _abort("Could not read this deployment's logs", str(e))

@@ -56,9 +56,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.bundled import LAYER_ROOT
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid
+from osprey.facility.layers import LAYER_ROOT
 from osprey.facility.layers.relations import claims as _claims
 from osprey.facility.layers.relations import members as _members
 from osprey.facility.layers.relations import names as _names

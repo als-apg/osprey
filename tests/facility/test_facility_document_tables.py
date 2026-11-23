@@ -7,6 +7,29 @@ stand, sorted by name. Both are in ``build_facility()``'s document, not only in
 the rendered file. The facts view and the channel-finder role descriptions read
 ``signals`` as it stands and give what the ``/3`` build gave
 (``golden/demo_role_views.json``, captured from that build).
+
+The golden is never rewritten to make a test pass. To re-capture it byte for
+byte from the ``/3`` build, run from the repo root::
+
+    git worktree add --detach .claude/scratch/role-views 8f22637c06
+    cp tests/facility/golden/demo_role_views.json .claude/scratch/role-views/golden.json
+    (cd .claude/scratch/role-views && uv run python - <<'PY'
+    import json, tempfile
+    from pathlib import Path
+    from osprey.facility.records import FacilityRecords
+    from osprey.facility.views.channel_finder import _signal_descriptions
+    from tests._builds import build_demo
+    golden = Path("golden.json")
+    captured = json.loads(golden.read_text(encoding="utf-8"))
+    built = build_demo(Path(tempfile.mkdtemp()))
+    facts = built.build_dir / "data" / "facility_facts.json"
+    captured["facts"] = json.loads(facts.read_bytes())
+    records = FacilityRecords(built.facility)
+    captured["channel_finder_signal_descriptions"] = _signal_descriptions(records)
+    golden.write_text(json.dumps(captured, indent=2) + "\n", encoding="utf-8")
+    PY
+    ) && cp .claude/scratch/role-views/golden.json tests/facility/golden/demo_role_views.json
+    git worktree remove --force .claude/scratch/role-views
 """
 
 from __future__ import annotations
@@ -21,6 +44,7 @@ import pytest
 from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.validate import FACILITY_HEADER, vocabulary
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 if TYPE_CHECKING:
@@ -45,7 +69,9 @@ def _built(tmp_path: Path, signals: list[dict[str, Any]] | None) -> dict[str, An
         for channel in tree["records/channels.yaml"]:
             if channel["id"] == "Q1:RB":
                 channel["signal"] = signals[0]["name"]
-    return build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
+    return build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def test_the_document_carries_the_current_header(tmp_path: Path) -> None:

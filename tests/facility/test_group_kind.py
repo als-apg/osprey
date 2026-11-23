@@ -20,6 +20,7 @@ from osprey.facility.validate import run_stages
 from osprey.facility.views.channel_finder import middle_layer_families
 from osprey.facility.views.graph import graph_text
 from osprey.facility.views.graph_iri import iri
+from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import appendix_a_tree, build_appendix_a
 from tests.facility._graph_relations import NARAD_P
@@ -106,7 +107,9 @@ class TestTheSlot:
     def test_another_kind_stops_the_build(self, tmp_path: Path) -> None:
         root = tmp_path / "facility"
         write_tree(root, _tree("zone"))
-        report = run_stages(root, project_name="p", later=LATER_STAGES)
+        report = run_stages(
+            root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         assert report.failed is not None
         messages = [error.format_message() for error in report.errors]
         assert any("groups.0.kind" in m and "'family' or 'section'" in m for m in messages), (

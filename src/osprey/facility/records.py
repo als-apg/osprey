@@ -51,7 +51,6 @@ A finished document holds these invariants, each enforced by a build stage:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,7 +59,7 @@ from typing import Any, Literal, get_args
 
 from osprey.facility import wiring_addresses
 from osprey.facility.places import resolve_place_name
-from osprey.utils.facility import FacilityFileError
+from osprey.facility.reading import load_facility
 
 __all__ = [
     "LINK_KINDS",
@@ -116,16 +115,6 @@ LINK_KINDS: tuple[LinkKind, ...] = get_args(LinkKind)
 #: The target prefix of a knowledge-page link that names a place,
 #: ``facility:place/<id>``; see :meth:`FacilityRecords.resolve_link`.
 PLACE_LINK_PREFIX = "place/"
-
-#: How a refusal words the JSON type a facility file holds instead of an object.
-_JSON_TYPE_WORDS: Mapping[type, str] = {
-    list: "a list",
-    str: "a string",
-    int: "a number",
-    float: "a number",
-    bool: "a boolean",
-    type(None): "null",
-}
 
 
 @dataclass(frozen=True)
@@ -259,24 +248,13 @@ class FacilityRecords:
 
         Raises:
             FacilityFileError: The file is there but cannot be read, is not
-                JSON, or is not a JSON object.
+                JSON, is not a JSON object, or carries a ``schema`` header this
+                reader does not read (see :mod:`osprey.facility.reading`).
         """
-        path = Path(path)
         try:
-            text = path.read_text(encoding="utf-8")
+            document = load_facility(path)
         except FileNotFoundError:
             return None
-        except (OSError, UnicodeDecodeError) as exc:
-            raise FacilityFileError(f"The facility file {path} cannot be read: {exc}") from exc
-        try:
-            document = json.loads(text)
-        except ValueError as exc:
-            raise FacilityFileError(f"The facility file {path} is not JSON: {exc}") from exc
-        if not isinstance(document, dict):
-            raise FacilityFileError(
-                f"The facility file {path} is not a JSON object: "
-                f"it holds {_JSON_TYPE_WORDS[type(document)]}"
-            )
         return cls(document)
 
     @property

@@ -92,20 +92,37 @@ def build_screen_guide(library: Path, facility: Mapping[str, Any] | None) -> Scr
     return ScreenGuide(screens=tuple(screens), warnings=tuple(warnings))
 
 
-def load_facility(path: Path) -> Mapping[str, Any] | None:
-    """The build's ``facility.json``, or ``None`` when it is absent or unreadable.
+def _guide_facility(path: Path) -> Mapping[str, Any] | None:
+    """The build's ``facility.json``, or ``None`` when the guide cannot use it.
 
     Read through :func:`~osprey.facility.views.facts.parsed_facility_file`, which every
     render of a build shares: a large facility file is held in memory once,
-    not once more per render.
+    not once more per render, and a document whose header the reader does not
+    read is refused there. The guide then uses none of the file and names
+    devices by tooltip only, as without one.
+
+    Args:
+        path: The facility file at the root of the render.
+
+    Returns:
+        The document; ``None``, silently, when the file is not there, and
+        ``None`` with a warning naming the cause when it cannot be read, is not
+        JSON, is not an object or carries a header this reader does not read.
     """
+    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import parsed_facility_file
 
     try:
-        document = parsed_facility_file(path)
-    except (OSError, ValueError):
+        document: Mapping[str, Any] = parsed_facility_file(path)
+        return document
+    except FileNotFoundError:
         return None
-    return document if isinstance(document, dict) else None
+    except FacilityFileError as exc:
+        cause = str(exc)
+    except (OSError, ValueError) as exc:
+        cause = f"{path}: {exc}"
+    logger.warning("canopy screen guide: the facility file is not used: %s", cause)
+    return None
 
 
 #: The CANOPY tools whose default view the profile sets, by the key that sets it.
@@ -137,7 +154,7 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
 
     data = project_dir / "data" / "canopy"
     try:
-        guide = build_screen_guide(data / "library", load_facility(project_dir / "facility.json"))
+        guide = build_screen_guide(data / "library", _guide_facility(project_dir / "facility.json"))
     except Exception as exc:  # pragma: no cover - defensive; the builder is fail-soft
         logger.warning("canopy screen guide skipped: %s", exc)
         return None

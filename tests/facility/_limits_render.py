@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from tests._builds import FRAMEWORK_CHECKS
 
 __all__ = [
     "packaged_facility_dir",
@@ -69,7 +70,7 @@ def render_limits(
         The render's ``data/channel_limits.json``.
     """
     from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     facility_dir = tmp_path / f"{name}-facility"
     shutil.copytree(packaged_facility_dir(bundle), facility_dir)
@@ -81,7 +82,7 @@ def render_limits(
         limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
     render_dir = tmp_path / name
     render_dir.mkdir()
-    doc = build_facility(facility_dir, project_name=bundle)
+    doc = build_facility(facility_dir, project_name=bundle, extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(render_dir, doc, {}, facility_dir)
     return render_dir / "data" / "channel_limits.json"
 

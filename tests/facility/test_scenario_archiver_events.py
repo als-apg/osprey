@@ -18,6 +18,7 @@ import pytest
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.scenarios import check_scenario_events
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 CHANNELS = [
@@ -339,7 +340,11 @@ def test_the_build_stops_on_a_malformed_event(tmp_path: Path) -> None:
     }
 
     with pytest.raises(FacilityBuildError) as caught:
-        build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
+        )
 
     assert caught.value.kind == "value-invalid"
     assert "scenarios/warm.yaml `archiver` event 1 of channel BPM1:X" in caught.value.detail

@@ -11,6 +11,7 @@ import at
 import pytest
 import yaml
 
+from osprey.cli.facility_report import validate_facility
 from osprey.facility import compute
 from osprey.facility.build import (
     LATER_STAGES,
@@ -18,8 +19,9 @@ from osprey.facility.build import (
     build_facility_with_warnings,
 )
 from osprey.facility.errors import FacilityBuildError
-from osprey.facility.validate import StageReport, run_stages, validate
-from osprey.facility.views.simulator import server_health_addresses
+from osprey.facility.simulated import server_health_addresses
+from osprey.facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 QUAD = "Quadrupole"
 BPM = "BeamPositionMonitor"
@@ -144,7 +146,12 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", files), project_name="p", later=LATER_STAGES)
+    return run_stages(
+        _write(tmp_path / "facility", files),
+        project_name="p",
+        later=LATER_STAGES,
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
 
 def _lines(result: StageReport) -> list[str]:
@@ -276,7 +283,12 @@ class TestSpans:
         files = _tree()
         files["records/places.yaml"][1]["span"]["to_marker"] = "NOPE"
         stream = io.StringIO()
-        code = validate(_write(tmp_path / "facility", files), project_name="p", file=stream)
+        code = validate_facility(
+            _write(tmp_path / "facility", files),
+            project_name="p",
+            file=stream,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
         assert code == 1
         assert stream.getvalue().splitlines() == [
             "facility: span-invalid: place SR/A — `span.to_marker`: element NOPE is not in "
@@ -488,11 +500,16 @@ class TestStatedPositions:
         files = _tree()
         files["records/devices.yaml"][4].update(model="SR", s=-0.5)
         root = _write(tmp_path / "facility", files)
-        document, warnings = build_facility_with_warnings(root, project_name="p")
-        assert document == build_facility(root, project_name="p")
+        document, warnings = build_facility_with_warnings(
+            root, project_name="p", extra_checks=FRAMEWORK_CHECKS
+        )
+        assert document == build_facility(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
         assert [w.record_id for w in warnings] == ["SR/SPARE"]
         stream = io.StringIO()
-        assert validate(root, project_name="p", file=stream) == 0
+        assert (
+            validate_facility(root, project_name="p", file=stream, extra_checks=FRAMEWORK_CHECKS)
+            == 0
+        )
         assert stream.getvalue().splitlines() == [w.line for w in warnings]
 
 
@@ -603,7 +620,9 @@ class TestEngineStops:
         sr["wiring"][0]["slices"].append({"element": "GHOST"})
         root = _write(tmp_path / "facility", files)
         _sr_deck(root / "decks" / "lattice_v2.json")
-        result = run_stages(root, project_name="p", later=LATER_STAGES)
+        result = run_stages(
+            root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         assert _lines(result) == [
             "facility: engine-invalid: wiring SR/QF:SP — element GHOST is not in the deck "
             "of model SR; fix: name an element the deck holds"
@@ -796,7 +815,9 @@ def _with_readback_nominal(root: Path, nominal: float) -> Path:
 
 class TestBuildFacility:
     def test_the_wiring_default_is_the_inverted_first_slice(self, tmp_path):
-        document = build_facility(_ab_tree(tmp_path / "facility"), project_name="p")
+        document = build_facility(
+            _ab_tree(tmp_path / "facility"), project_name="p", extra_checks=FRAMEWORK_CHECKS
+        )
         record = document["models"][0]["wiring"][0]
         assert record["default"] == pytest.approx(INVERTED, abs=1e-12)
         device = document["devices"][0]
@@ -806,16 +827,18 @@ class TestBuildFacility:
         band = {"records": [{"address": "Q1:RB", "min_value": INVERTED + 1, "max_value": 9}]}
         root = _ab_tree(tmp_path / "facility", **{"limits.yaml": band})
         with pytest.raises(FacilityBuildError) as caught:
-            build_facility(root, project_name="p")
+            build_facility(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
         assert (caught.value.kind, caught.value.record_id) == ("seed-invalid", "Q1:RB")
 
     def test_an_unwired_readback_at_its_setpoint_default_builds(self, tmp_path):
         root = _with_readback_nominal(tmp_path / "facility", INVERTED)
-        build_facility(root, project_name="p")
+        build_facility(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
 
     def test_an_unwired_readback_off_its_setpoint_default_stops(self, tmp_path):
         root = _with_readback_nominal(tmp_path / "facility", 0.5)
-        report = run_stages(root, project_name="p", later=LATER_STAGES)
+        report = run_stages(
+            root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         assert _lines(report) == [
             f"facility: seed-invalid: channel Q1:RB — `nominal` 0.5 differs from its setpoint "
             f"Q1:SP's {INVERTED}; fix: remove `nominal` from Q1:RB; a paired readback starts "
@@ -823,7 +846,9 @@ class TestBuildFacility:
         ]
 
     def test_a_missing_directory_is_the_zero_source_file(self, tmp_path):
-        document = build_facility(tmp_path / "absent", project_name="my proj")
+        document = build_facility(
+            tmp_path / "absent", project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+        )
         assert document["identity"] == {"code": "my_proj", "name": "my proj"}
         assert document["models"] == [{"name": "texture", "engine": "texture"}]
         assert document["devices"] == document["channels"] == document["places"] == []
@@ -832,4 +857,8 @@ class TestBuildFacility:
         files = _tree()
         files["records/places.yaml"][1]["span"]["to_marker"] = "NOPE"
         with pytest.raises(FacilityBuildError, match="span-invalid: place SR/A"):
-            build_facility(_write(tmp_path / "facility", copy.deepcopy(files)), project_name="p")
+            build_facility(
+                _write(tmp_path / "facility", copy.deepcopy(files)),
+                project_name="p",
+                extra_checks=FRAMEWORK_CHECKS,
+            )

@@ -16,6 +16,7 @@ from typing import Any
 import at
 import pytest
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers.mml.decks import (
     DECKS_DIR,
     Addressing,
@@ -25,12 +26,12 @@ from osprey.facility.layers.mml.decks import (
 )
 from osprey.facility.layers.mml.mapping import (
     EngineBlock,
-    ImportStop,
     MappingError,
     Model,
     WiringFamily,
     read_mapping,
 )
+from tests._builds import FRAMEWORK_CHECKS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
@@ -468,5 +469,8 @@ def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) ->
 
     write_deck(served_deck(addressing), root, "SR")
 
-    names = {m["name"] for m in build_facility(root, project_name="demo")["models"]}
+    names = {
+        m["name"]
+        for m in build_facility(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)["models"]
+    }
     assert "SR" in names

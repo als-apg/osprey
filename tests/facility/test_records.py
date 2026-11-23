@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from osprey.facility.errors import FacilityFileError
 from osprey.facility.records import (
     LINK_KINDS,
     RECORD_KINDS,
@@ -16,7 +16,7 @@ from osprey.facility.records import (
     FacilityRecord,
     FacilityRecords,
 )
-from osprey.utils.facility import FacilityFileError
+from tests._facility_file import write_facility_document, write_facility_v4
 
 DOC = {
     "channels": [
@@ -76,8 +76,7 @@ def test_a_record_kind_outside_the_five_is_refused() -> None:
 
 
 def test_from_file_reads_the_facility_file(tmp_path: Path) -> None:
-    path = tmp_path / "facility.json"
-    path.write_text(json.dumps(DOC), encoding="utf-8")
+    path = write_facility_v4(tmp_path, DOC)
 
     records = FacilityRecords.from_file(path)
 
@@ -102,7 +101,30 @@ def test_from_file_names_the_type_a_non_object_file_holds(tmp_path: Path) -> Non
     path = tmp_path / "facility.json"
     path.write_text("[]", encoding="utf-8")
 
-    with pytest.raises(FacilityFileError, match="is not a JSON object: it holds a list"):
+    with pytest.raises(FacilityFileError, match="is a list, not a JSON object"):
+        FacilityRecords.from_file(path)
+
+
+@pytest.mark.foreign_header
+def test_from_file_refuses_a_v3_document(tmp_path: Path) -> None:
+    path = write_facility_document(tmp_path, DOC, schema="osprey.facility.facility/3")
+
+    with pytest.raises(FacilityFileError) as raised:
+        FacilityRecords.from_file(path)
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_from_file_refuses_a_document_without_a_header(tmp_path: Path) -> None:
+    path = write_facility_document(
+        tmp_path, {k: v for k, v in DOC.items() if k != "schema"}, schema=None
+    )
+
+    with pytest.raises(FacilityFileError, match="a document without a schema header"):
         FacilityRecords.from_file(path)
 
 

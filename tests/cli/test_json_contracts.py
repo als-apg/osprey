@@ -373,15 +373,15 @@ def facility_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def _invoke_facility(runner: CliRunner, repo: Path, hook: Callable[[], None], *args: str) -> Result:
     """Run ``facility show --json`` over the probe repo, hooked at the views' render."""
     from osprey.cli.facility_cmd import facility
-    from osprey.facility import render
+    from osprey.facility.views import outputs as facility_outputs
 
-    real = render.render_facility_outputs
+    real = facility_outputs.render_facility_outputs
 
     def _render(*a: Any, **kw: Any) -> list[Path]:
         hook()
         return real(*a, **kw)
 
-    with patch.object(render, "render_facility_outputs", _render):
+    with patch.object(facility_outputs, "render_facility_outputs", _render):
         return runner.invoke(facility, ["show", "--repo", str(repo), "--json", *args])
 
 

@@ -91,6 +91,7 @@ INVARIANT_TESTS = (
     "tests/interfaces/test_page_ready_guard.py",
     "tests/interfaces/test_page_ready_pages.py",
     "tests/facility/test_package_boundary.py",
+    "tests/facility/test_reader_coverage.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",

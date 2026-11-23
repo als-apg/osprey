@@ -90,6 +90,7 @@ from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
+from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
@@ -309,7 +310,9 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
 
-    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    facility = build_facility(
+        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+    )
     coupled = {
         str(entry["address"])
         for model in facility.get("models") or []
@@ -356,7 +359,9 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
     from osprey_connectors.simulation.view import Binding
 
-    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    facility = build_facility(
+        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+    )
     readback_of = {
         entry["setpoint"]: entry["readback"]
         for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]

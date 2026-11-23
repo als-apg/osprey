@@ -19,17 +19,16 @@ import pytest
 import yaml
 
 from osprey.facility.combine import CombineResult, combine
+from osprey.facility.errors import ImportStop, MappingProblems
 from osprey.facility.layers.mml.importer import (
     LAYER_DIR,
     Exports,
-    MappingProblems,
     import_mml,
     write_records,
 )
 from osprey.facility.layers.mml.mapping import (
     MAPPING_FILE,
     FieldRole,
-    ImportStop,
     field_roles,
     parse_mapping,
 )

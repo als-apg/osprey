@@ -3,8 +3,9 @@
 A ``sessions`` block parses through the session model (shape, and a tool
 input's channels against the turn's ``channels:``), every ``channels:`` entry
 names a channel of the facility, every ``logbook_ids:`` entry names an entry of
-``nominal`` or of the same scenario, and every tool step names a known OSPREY
-server. Each stop is one line naming the scenario file and the path.
+``nominal`` or of the same scenario. Each stop is one line naming the scenario
+file and the path. The tool steps' server names are the framework's check,
+pinned in ``tests/registry/test_scenario_servers.py``.
 """
 
 from __future__ import annotations
@@ -113,19 +114,9 @@ def test_scenario_session_another_scenarios_logbook_id_refused() -> None:
     assert "names logbook entry other-1, which neither `nominal` nor this scenario" in line
 
 
-def test_scenario_session_unknown_server_refused() -> None:
-    steps = [
-        {
-            "tool": {"server": "nowhere", "name": "channel_read"},
-            "input": {},
-            "result": "ok",
-        }
-    ]
-    line = _line(_document(steps=steps))
-    assert line.startswith(
-        f"facility: reference-missing: scenario warm — {_PATH}.steps[0].tool.server` "
-        "names server nowhere, not an OSPREY server"
-    )
+def test_scenario_session_unknown_server_is_not_the_descriptions_check() -> None:
+    steps = [{"tool": {"server": "nowhere", "name": "channel_read"}, "input": {}, "result": "ok"}]
+    assert check_scenario_sessions(_document(steps=steps)) == []
 
 
 def test_scenario_session_errors_join_the_build_check() -> None:

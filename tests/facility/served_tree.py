@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from tests._builds import FRAMEWORK_CHECKS
+
 if TYPE_CHECKING:
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -93,7 +95,7 @@ def served_tree(
             given; or a setpoint given is not writable in it.
     """
     from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     pairs = dict(setpoints) if isinstance(setpoints, Mapping) else dict.fromkeys(setpoints)
     readbacks = {*readings, *(pair for pair in pairs.values() if pair is not None)} - set(pairs)
@@ -119,7 +121,7 @@ def served_tree(
 
     render_dir = root / "build"
     render_dir.mkdir()
-    document = build_facility(facility_dir, project_name="served")
+    document = build_facility(facility_dir, project_name="served", extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(
         render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir, omitted_reported=_REPORTED
     )

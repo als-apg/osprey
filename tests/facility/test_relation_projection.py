@@ -16,6 +16,7 @@ import pytest
 
 from osprey.facility.build import LATER_STAGES
 from osprey.facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import VARIANTS, build_appendix_a
 from tests.facility._synthetic_trees import deck_tree, write_tree
 
@@ -47,7 +48,12 @@ def _tree(*claims: dict[str, Any], **extra: Any) -> dict[str, Any]:
 
 
 def _run(root: Path, tree: dict[str, Any]) -> StageReport:
-    report = run_stages(write_tree(root / "facility", tree), project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        write_tree(root / "facility", tree),
+        project_name="p",
+        later=LATER_STAGES,
+        extra_checks=FRAMEWORK_CHECKS,
+    )
     assert report.failed is None, [e.format_message() for e in report.errors]
     return report
 

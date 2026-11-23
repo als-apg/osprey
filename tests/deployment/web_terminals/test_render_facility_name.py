@@ -17,8 +17,10 @@ import yaml
 
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.facility.errors import FacilityFileError
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME
+from tests._facility_file import write_facility_document
 from tests._renders import tier_render
 
 
@@ -116,6 +118,21 @@ def test_the_deploy_hands_the_render_the_builds_identity_name(tmp_path):
     assert inputs["facility_name"] == "Demo Light Source"
     landing = _landing(render_web_terminals(_config(), **inputs))
     assert "<title>Demo Light Source Web Terminals</title>" in landing
+
+
+@pytest.mark.foreign_header
+def test_a_v3_build_facility_file_refuses_the_deploy_naming_the_rebuild(tmp_path):
+    path = write_facility_document(
+        tmp_path / "build", {"identity": {"code": "dls"}}, schema="osprey.facility.facility/3"
+    )
+
+    with pytest.raises(FacilityFileError) as raised:
+        resolve_render_inputs(_config(project_name="demo-project"), tmp_path)
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
 
 
 def test_a_build_identity_without_a_name_hands_the_project_name(tmp_path):

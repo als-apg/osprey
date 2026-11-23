@@ -8,7 +8,6 @@ carries none.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,7 @@ import osprey.channel_roster as channel_roster
 from osprey.channel_roster import ChannelRecord, RosterAbsenceReason, registered_channels
 from osprey.channel_roster.records import RosterSource, RosterSourceKind
 from osprey.channel_roster.sources import channel_record, read_facility_roster
-from tests._facility_file import write_facility_file
+from tests._facility_file import write_facility_file, write_facility_v4
 from tests.facility._synthetic_trees import plain_tree
 
 MODES = ["User operation", "Injection", "Machine studies", "Off"]
@@ -124,10 +123,8 @@ class TestChannelRecord:
             )
 
     def test_a_file_with_malformed_options_is_a_corrupt_source(self, tmp_path: Path) -> None:
-        path = tmp_path / "facility.json"
-        path.write_text(
-            json.dumps({"channels": [{"id": "OPS:MODE", "role": "readback", "options": "x"}]}),
-            encoding="utf-8",
+        path = write_facility_v4(
+            tmp_path, {"channels": [{"id": "OPS:MODE", "role": "readback", "options": "x"}]}
         )
 
         result = read_facility_roster(_source(path))

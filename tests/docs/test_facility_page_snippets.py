@@ -37,6 +37,8 @@ from typing import Any
 import pytest
 import yaml
 
+from tests._builds import FRAMEWORK_CHECKS
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"
 FACILITY_PAGE = HOW_TO / "describe-your-facility.rst"
@@ -227,10 +229,12 @@ CHANNEL_LIST = "examples/facility/channels.csv"
 
 def _validates(facility_dir: Path) -> str:
     """The validator's output for *facility_dir*; empty-handed when it passes."""
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = StringIO()
-    code = validate(facility_dir, project_name="ca", file=out)
+    code = validate_facility(
+        facility_dir, project_name="ca", file=out, extra_checks=FRAMEWORK_CHECKS
+    )
     return "" if code == 0 else out.getvalue() or f"exit {code}"
 
 

@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers import HEADER
 from osprey.facility.layers.mml.decks import FREQUENCY, KICK
 from osprey.facility.layers.mml.mapping import (
@@ -609,6 +610,36 @@ def _measurement(
 # -- readout ------------------------------------------------------------------
 
 
+def _roster(entry: dict[str, Any]) -> set[tuple[str, str]]:
+    """The ``(address, field)`` faults a model's engine declares for its raw wiring.
+
+    The plug-in's ``fault_variables`` is called on the wiring and settings as
+    written; what it raises propagates. A plug-in without it declares none.
+
+    Raises:
+        ImportStop: ``reference-missing`` when no plug-in is registered under
+            the model's engine.
+    """
+    from osprey.facility.scenarios import engine_plugin
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+
+    engine = str(entry.get("engine"))
+    plugin = engine_plugin(engine)
+    if plugin is None:
+        raise ImportStop(
+            "reference-missing",
+            [
+                f"model {entry.get('name')}: engine {engine} has no plug-in in the "
+                f"{ENGINE_GROUP} entry-point group; imported models run on pyat"
+            ],
+        )
+    declare = getattr(plugin, "fault_variables", None)
+    if declare is None:
+        return set()
+    slots = declare(entry.get("wiring") or [], entry.get("settings"))
+    return {(slot.address, slot.field) for slot in slots.values()}
+
+
 def _readout(
     exports: Exports,
     mapping: Mapping,
@@ -627,24 +658,19 @@ def _readout(
 
     Every other value is carried on the readback address of its device's
     ``Monitor`` field where the model's engine declares that field as a fault
-    of that address
-    (:func:`~osprey.simulation.engines.pyat_faults.fault_variables`): a
-    monitor reading takes its polarity, and its element's roll sits on the
-    x-axis reading only.
+    of that address (its plug-in's ``fault_variables``, resolved through
+    :func:`~osprey.facility.scenarios.engine_plugin`): a monitor reading takes
+    its polarity, and its element's roll sits on the x-axis reading only.
 
     Returns:
         ``{model: {address: {field: value}}}``, every level sorted, and the
         lines, in import order.
-    """
-    from osprey.simulation.engines.pyat_faults import fault_variables
 
-    rosters = {
-        str(entry.get("name")): {
-            (slot.address, slot.field)
-            for slot in fault_variables(entry.get("wiring") or [], entry.get("settings")).values()
-        }
-        for entry in models
-    }
+    Raises:
+        ImportStop: ``reference-missing`` when a model's engine has no
+            registered plug-in.
+    """
+    rosters = {str(entry.get("name")): _roster(entry) for entry in models}
     faults: dict[str, dict[str, dict[str, float]]] = {}
     lines: list[str] = []
     for view in views:

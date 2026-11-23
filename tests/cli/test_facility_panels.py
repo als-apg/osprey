@@ -153,6 +153,7 @@ def _assert_refused(result: Result) -> None:
     assert "Traceback" not in result.output
 
 
+@pytest.mark.foreign_header
 def test_a_facility_3_document_is_refused_with_the_rebuild_hint(tmp_path):
     def older(document) -> None:
         document["schema"] = "osprey.facility.facility/3"

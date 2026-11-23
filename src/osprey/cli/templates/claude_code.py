@@ -441,6 +441,11 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         project_dir: Root of the project being rendered; declared hooks are
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
+
+    Raises:
+        FacilityFileError: The render has no usable facts file and its facility
+            file cannot be read or carries a header this reader does not read;
+            the message names the rebuild (:func:`read_facts`).
     """
     from osprey.deployment.web_terminals.roster import (
         config_declares_panel,
@@ -746,21 +751,26 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
         project_dir: Root of the render.
 
     Returns:
-        The parsed ``facility.json``; ``{}`` when the file is absent or cannot
-        be read as a JSON object.
+        The parsed ``facility.json``; ``{}`` when the file is absent, and ``{}``
+        with a warning naming the cause when it cannot be read, is not JSON, is
+        not an object or carries a header this reader does not read -- none of
+        such a document is used.
     """
     from osprey.facility import FACILITY_FILE
+    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import parsed_facility_file
 
     path = project_dir / FACILITY_FILE
     try:
-        document = parsed_facility_file(path)
+        document: dict[str, Any] = parsed_facility_file(path)
+        return document
     except FileNotFoundError:
         return {}
+    except FacilityFileError as exc:
+        logger.warning("The facility file is not used: %s", exc)
     except (OSError, ValueError):
         logger.warning("The facility file %s could not be read", path, exc_info=True)
-        return {}
-    return document if isinstance(document, dict) else {}
+    return {}
 
 
 def _simulator_dir() -> str:

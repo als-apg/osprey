@@ -19,10 +19,12 @@ import yaml
 
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
-from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+from osprey.facility.render import FACILITY_FILE
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.services.graph_store.seeder import ttl_sha256
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.simulation import composite as composite_module
+from tests._builds import FRAMEWORK_CHECKS
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -112,7 +114,7 @@ def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: Bu
     text = seeds.read_text(encoding="utf-8")
     assert STATED_NOISE in text
     seeds.write_text(text.replace(STATED_NOISE, RESEEDED_NOISE, 1), encoding="utf-8")
-    document = build_facility(facility_dir, project_name="demo")
+    document = build_facility(facility_dir, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     render_dir = _render(tmp_path / "reseeded" / "render", document, {}, facility_dir)
 
     authored = built_demo.facility

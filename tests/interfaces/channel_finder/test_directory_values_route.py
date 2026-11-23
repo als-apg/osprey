@@ -28,6 +28,7 @@ from osprey.interfaces.channel_finder.directory_values_ipc import (
 )
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE
 from osprey_connectors import control_context
+from tests._facility_file import write_facility_v4
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _FIXTURE = Path(__file__).parent / "fixtures" / "directory_routes.json"
@@ -84,10 +85,7 @@ def client(
 ) -> Iterator[TestClient]:
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
     monkeypatch.setattr(control_context, "read_record", lambda **_: None)
-    (tmp_path / "facility.json").write_text(
-        json.dumps({"identity": {"code": "test", "name": "Test"}, "channels": []}),
-        encoding="utf-8",
-    )
+    write_facility_v4(tmp_path, {"identity": {"code": "test", "name": "Test"}, "channels": []})
     config = {
         "config_dir": str(tmp_path),
         "channel_finder": {

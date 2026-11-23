@@ -51,11 +51,11 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers.mml.mapping import (
     ENGINE_AXES,
     Coordinates,
     DeviceIdentity,
-    ImportStop,
     SameAs,
     exported_text,
     vocabulary_parents,

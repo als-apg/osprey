@@ -29,6 +29,7 @@ from osprey.simulation.apply import (
 )
 from osprey_connectors.simulation.state import read_active_state
 from osprey_connectors.workspace import resolve_simulation_state_dir
+from tests._builds import FRAMEWORK_CHECKS
 from tests._simulator_view import write_scenarios_view
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
@@ -70,7 +71,7 @@ def built_view(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from osprey.facility.views.simulator import write_simulator_view
 
     root = tmp_path_factory.mktemp("view")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = build_facility(TEMPLATE_FACILITY, project_name="example", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root,
         ViewInputs(

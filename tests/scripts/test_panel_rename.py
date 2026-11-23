@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from tests._facility_file import write_facility_v4
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "facility_demo" / "panel_rename.py"
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "panels"
@@ -516,8 +518,7 @@ def test_check_lists_the_names_missing_from_the_facility(
     document = json.loads(FACILITY.read_text(encoding="utf-8"))
     removed = {"LTB:DIAG:BPM:01:SUM:RB", "BTS:DIAG:TV:01:LAMP:RB"}
     document["channels"] = [c for c in document["channels"] if c["id"] not in removed]
-    facility = tmp_path / "facility.json"
-    facility.write_text(json.dumps(document), encoding="utf-8")
+    facility = write_facility_v4(tmp_path, document)
 
     assert panel_rename.main(["--table", str(TABLE), "check", "--facility", str(facility)]) == 1
     err = capsys.readouterr().err
@@ -528,9 +529,8 @@ def test_check_lists_the_names_missing_from_the_facility(
 
 def test_check_reads_the_checked_in_element_table_by_default(tmp_path: Path) -> None:
     names = list(dict.fromkeys(row.demo_name for row in load_elements()))
-    facility = tmp_path / "facility.json"
-    facility.write_text(json.dumps({"channels": [{"id": n} for n in names]}), encoding="utf-8")
+    facility = write_facility_v4(tmp_path, {"channels": [{"id": n} for n in names]})
     assert panel_rename.main(["check", "--facility", str(facility)]) == 0
 
-    facility.write_text(json.dumps({"channels": [{"id": n} for n in names[1:]]}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": [{"id": n} for n in names[1:]]})
     assert panel_rename.main(["check", "--facility", str(facility)]) == 1

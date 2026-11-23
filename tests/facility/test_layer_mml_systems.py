@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import click
 import pytest
 
+from osprey.facility.errors import FacilityUsageError
 from osprey.facility.layers.mml.loaders import LoadedInput
 from osprey.facility.layers.mml.loaders.json_any import load_json
 from osprey.facility.layers.mml.loaders.mat import load_mat
@@ -63,7 +63,7 @@ class TestResolveSystem:
 
     def test_system_keyed_input_refuses_explicit_system(self):
         """Rule 1: --system on a system-keyed input is a usage error naming the file."""
-        with pytest.raises(click.UsageError, match="keyed.json"):
+        with pytest.raises(FacilityUsageError, match="keyed.json"):
             resolve_system(_keyed({"SR": {"BPM": _BPM}}), "SR")
 
     def test_explicit_system_wins_over_export_and_ad(self):
@@ -88,12 +88,12 @@ class TestResolveSystem:
 
     def test_no_rule_applies_is_usage_error_naming_file(self):
         """Rule 4: nothing yields a token."""
-        with pytest.raises(click.UsageError, match="orphan.json"):
+        with pytest.raises(FacilityUsageError, match="orphan.json"):
             resolve_system(_flat(ad={"Machine": "Quokka"}, name="orphan.json"), None)
 
     def test_underscore_token_refused(self):
         """A token starting with '_' would be skipped by every reader."""
-        with pytest.raises(click.UsageError):
+        with pytest.raises(FacilityUsageError):
             resolve_system(_flat(), "_hidden")
 
     def test_paired_fixture_resolves_from_sibling_ad(self):
@@ -109,7 +109,7 @@ class TestResolveSystem:
     def test_flat_fixture_without_ad_needs_system(self):
         """A flat export with no AD falls to rule 4, or takes --system."""
         loaded = load_json(FIXTURES / "tango" / "export.json")
-        with pytest.raises(click.UsageError):
+        with pytest.raises(FacilityUsageError):
             resolve_system(loaded, None)
         assert resolve_system(loaded, "RING") == "RING"
 
@@ -163,20 +163,20 @@ class TestMergeInputs:
 
     def test_duplicate_token_across_inputs_refused(self):
         """Two inputs resolving to one system is a usage error naming both files."""
-        with pytest.raises(click.UsageError, match=r"a\.json.*b\.json"):
+        with pytest.raises(FacilityUsageError, match=r"a\.json.*b\.json"):
             merge_inputs([(_flat(name="a.json"), "SR"), (_flat(name="b.json"), "SR")])
 
     def test_duplicate_between_keyed_and_flat_refused(self):
         keyed = _keyed({"SR": {"BPM": _BPM}})
-        with pytest.raises(click.UsageError, match="SR"):
+        with pytest.raises(FacilityUsageError, match="SR"):
             merge_inputs([(keyed, None), (_flat(), "SR")])
 
     def test_explicit_system_on_keyed_input_refused(self):
-        with pytest.raises(click.UsageError):
+        with pytest.raises(FacilityUsageError):
             merge_inputs([(_keyed({"SR": {"BPM": _BPM}}), "SR")])
 
     def test_unresolvable_flat_input_refused(self):
-        with pytest.raises(click.UsageError, match="flat.json"):
+        with pytest.raises(FacilityUsageError, match="flat.json"):
             merge_inputs([(_flat(), None)])
 
     def test_exports_stored_per_system(self):

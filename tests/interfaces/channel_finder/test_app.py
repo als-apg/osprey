@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.utils.facility import facility_identity
+from tests._facility_file import write_facility_v4
 from tests.interfaces.channel_finder.graph_fixture import FakeGraphContext
 
 _APP_LOGGER = "osprey.interfaces.channel_finder.app"
@@ -138,9 +138,7 @@ class TestFacilityName:
         render = tmp_path / "build"
         render.mkdir()
         (render / "config.yml").write_text("project_name: demo-project\n")
-        (render / "facility.json").write_text(
-            json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
-        )
+        write_facility_v4(render, {"identity": {"code": "demo", "name": "Demo Lab"}})
         monkeypatch.chdir(tmp_path)
 
         from osprey.interfaces.channel_finder.app import create_app

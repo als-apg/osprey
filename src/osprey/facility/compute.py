@@ -237,6 +237,8 @@ def _compute(run: _Run, validated: Validated) -> list[FacilityBuildError]:
     run.errors.extend(check_scenario_engines(document))
     run.errors.extend(check_scenario_attachments(document, validated.facility_dir))
     run.errors.extend(check_scenario_events(document))
+    for check in validated.extra_checks:
+        run.errors.extend(check(validated))
     if run.errors:
         return run.errors
     _write_positions(document, computed)
@@ -262,7 +264,7 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
-    from osprey.facility.views.simulator import server_health_addresses, status_address
+    from osprey.facility.simulated import server_health_addresses, status_address
 
     code = run.document["identity"]["code"]
     physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]

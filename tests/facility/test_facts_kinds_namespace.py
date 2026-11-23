@@ -16,8 +16,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.render import render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, FACTS_KEYS, zero_source_facts
+from osprey.facility.views.outputs import render_facility_outputs
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 

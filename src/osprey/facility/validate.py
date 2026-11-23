@@ -14,7 +14,7 @@ A stage runs only when every earlier stage is clean::
                    engines                                 (later stages)
     S7 views       the views the profile asks for          (later stages)
 
-``validate`` prints every error of the first failing stage, sorted by (table
+``validate`` returns every error of the first failing stage, sorted by (table
 row, record kind, id); ``build`` stops on the first of those lines. Each fault
 yields one line of one kind: a slot naming a missing id is ``reference-missing``
 only, because S5 never runs on a file whose references do not resolve, and a
@@ -37,9 +37,7 @@ from dataclasses import fields as dataclass_fields
 from functools import cache, cached_property
 from importlib import resources
 from pathlib import Path
-from typing import IO, Any
-
-import click
+from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
 from osprey.facility.combine import FIXES_FILE, CombineResult, combine
@@ -84,8 +82,6 @@ __all__ = [
     "ordered_slots",
     "paired_nominal_error",
     "relation_types",
-    "report",
-    "report_warnings",
     "run_stages",
     "schema_document",
     "signal_roles",
@@ -190,6 +186,8 @@ class Validated:
             ``facility_dir``, a single tree.
         judges_kinds: Whether this tree is where its listed kinds are judged
             (:func:`osprey.facility.kinds.judged_here`).
+        extra_checks: The checks the caller supplies, run by the compute stage
+            after its scenario checks, their errors joining that stage's.
     """
 
     facility_dir: Path
@@ -200,6 +198,7 @@ class Validated:
     warnings: list[FacilityBuildWarning] = field(default_factory=list)
     content_dir: Path | None = None
     judges_kinds: bool = True
+    extra_checks: Sequence[Stage] = ()
 
     @property
     def content_root(self) -> Path:
@@ -262,6 +261,7 @@ def run_stages(
     later: Sequence[tuple[str, Stage]] = (),
     content_dir: Path | None = None,
     judges_kinds: bool = True,
+    extra_checks: Sequence[Stage],
 ) -> StageReport:
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
@@ -275,12 +275,19 @@ def run_stages(
             ``facility_dir``.
         judges_kinds: Whether this tree is where its listed kinds are judged
             (:func:`osprey.facility.kinds.judged_here`).
+        extra_checks: Checks the caller supplies, run by the compute stage
+            after its scenario checks; the framework passes its scenario
+            server check here.
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
     """
     validated = Validated(
-        facility_dir, project_name, content_dir=content_dir, judges_kinds=judges_kinds
+        facility_dir,
+        project_name,
+        content_dir=content_dir,
+        judges_kinds=judges_kinds,
+        extra_checks=tuple(extra_checks),
     )
     loaded = load_sources(facility_dir)
     validated.sources = loaded.sources
@@ -328,54 +335,32 @@ def _failed(stage: str, errors: list[FacilityBuildError], validated: Validated) 
     return StageReport(stage, sort_errors(errors), validated)
 
 
-def report(errors: Iterable[FacilityBuildError], file: IO[Any] | None = None) -> None:
-    """Print each error's line, to stderr unless a stream is given.
-
-    Args:
-        errors: The errors, in print order.
-        file: The stream to write to.
-    """
-    for error in errors:
-        if file is None:
-            click.echo(error.format_message(), err=True)
-        else:
-            click.echo(error.format_message(), file=file)
-
-
-def report_warnings(warnings: Iterable[FacilityBuildWarning], file: IO[Any] | None = None) -> None:
-    """Print each warning's line, to stderr unless a stream is given.
-
-    Args:
-        warnings: The warnings, in print order.
-        file: The stream to write to.
-    """
-    for warning in warnings:
-        if file is None:
-            click.echo(warning.line, err=True)
-        else:
-            click.echo(warning.line, file=file)
-
-
-def validate(facility_dir: Path, *, project_name: str, file: IO[Any] | None = None) -> int:
-    """Check a facility directory and print every error of the first failing stage.
-
-    A clean directory prints the warnings of its build instead.
+def validate(
+    facility_dir: Path,
+    *,
+    project_name: str,
+    extra_checks: Sequence[Stage],
+) -> tuple[int, list[str]]:
+    """Check a facility directory; print nothing.
 
     Args:
         facility_dir: The ``data/facility`` directory.
         project_name: The project's name.
-        file: The stream the lines go to; stderr when omitted.
+        extra_checks: Checks the caller supplies (:func:`run_stages`).
 
     Returns:
-        The exit code: 0 when every stage is clean, else 1.
+        The exit code, 0 when every stage is clean and else 1, and the lines
+        to show: every error of the first failing stage, or the warnings of
+        the build when the directory is clean.
     """
     from osprey.facility.build import LATER_STAGES
 
-    result = run_stages(facility_dir, project_name=project_name, later=LATER_STAGES)
-    report(result.errors, file)
-    if result.ok:
-        report_warnings(result.validated.warnings, file)
-    return 0 if result.ok else 1
+    result = run_stages(
+        facility_dir, project_name=project_name, later=LATER_STAGES, extra_checks=extra_checks
+    )
+    if not result.ok:
+        return 1, [error.format_message() for error in result.errors]
+    return 0, [warning.line for warning in result.validated.warnings]
 
 
 # --- vocabulary --------------------------------------------------------------------
@@ -2709,7 +2694,7 @@ def _measurement_stops(
         member_sorts,
         registered,
     )
-    from osprey.facility.views.pyaml import (
+    from osprey.facility.measurement_groups import (
         GROUP_ROLES,
         ROLE_PLANES,
         measurement_groups,
@@ -3124,17 +3109,21 @@ def _single_pass(model: Mapping[str, Any]) -> bool:
     return isinstance(block, dict) and block.get("solve") == "single_pass"
 
 
+#: pyAT's optics attributes, a private copy of
+#: :data:`osprey.simulation.engines.pyat.OPTICS_ATTRIBUTES`, so that checking
+#: a wiring entry does not import the lattice engine.
+_PYAT_OPTICS_ATTRIBUTES: dict[str, str] = {"tune": "tunes", "chromaticity": "chromaticity"}
+
+
 def _single_pass_optics(model: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
     """True when a single-pass ``pyat`` model's wiring entry reads tunes or chromaticity.
 
     Only a ``pyat`` model has optics attributes; any other engine's entry is
-    never read for them, and the lattice engine is not imported for it.
+    never read for them.
     """
     if model.get("engine") != "pyat" or not _single_pass(model):
         return False
-    from osprey.simulation.engines.pyat import OPTICS_ATTRIBUTES
-
-    return _reads_plane_optics(entry, OPTICS_ATTRIBUTES)
+    return _reads_plane_optics(entry, _PYAT_OPTICS_ATTRIBUTES)
 
 
 def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:
@@ -3191,7 +3180,7 @@ def tolerance_warnings(
     so settle within the lane's floor, the first line followed by up to
     :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
     ``still`` counts as the simulator view writes it
-    (:func:`~osprey.facility.views.simulator.resolved_still`), so a reading
+    (:func:`~osprey.facility.simulated.resolved_still`), so a reading
     it stills, by ``all``, address or selection, moves nothing.
 
     Args:
@@ -3201,7 +3190,7 @@ def tolerance_warnings(
     Returns:
         The warnings, scenario lines first.
     """
-    from osprey.facility.views.simulator import resolved_still
+    from osprey.facility.simulated import resolved_still
     from osprey_connectors.simulation.envelope import active_envelopes
 
     document = records.document

@@ -12,6 +12,7 @@ from osprey.facility.combine import combine
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.sources import load_sources
 from osprey.facility.validate import StageReport, check_references, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -24,7 +25,7 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path, files), project_name="p")
+    return run_stages(_write(tmp_path, files), project_name="p", extra_checks=FRAMEWORK_CHECKS)
 
 
 def _one(report: StageReport) -> FacilityBuildError:

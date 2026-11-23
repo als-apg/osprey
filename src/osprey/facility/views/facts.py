@@ -108,33 +108,46 @@ _parsed: tuple[str, dict[str, Any]] | None = None
 
 
 def parsed_facility_file(path: Path) -> Any:
-    """``facility.json`` at ``path``, as :func:`parsed_facility` gives it.
+    """``facility.json`` at ``path``, as :func:`parsed_facility` gives it, checked.
 
     A file holding the bytes the build serialised gives the build's document
     without being read into memory (:func:`~osprey.facility.render.serialised_file_document`);
-    any other file is read and parsed.
+    any other file is read and parsed. Either way the document is handed back
+    only once :func:`~osprey.facility.reading.check_header` has passed it, so
+    the shared parse never gives a caller a document whose header it does not
+    read.
 
     Args:
         path: The facility file.
 
     Returns:
-        The parsed document, shared; callers read it and never change it.
+        The parsed document, a JSON object whose ``schema`` header is in
+        :data:`~osprey.facility.reading.READS`; shared, so callers read it and
+        never change it.
 
     Raises:
         OSError: The file cannot be read; :exc:`FileNotFoundError` when it is
             not there.
         ValueError: The bytes are not UTF-8 JSON.
+        FacilityFileError: The document is not a JSON object or carries a
+            header outside :data:`~osprey.facility.reading.READS`; the message
+            names ``path`` and the rebuild. A :exc:`ValueError`.
     """
+    from osprey.facility.reading import check_header
     from osprey.facility.render import serialised_file_document
 
-    built = serialised_file_document(path)
-    if built is not None:
-        return built
-    return parsed_facility(path.read_bytes())
+    document = serialised_file_document(path)
+    if document is None:
+        document = parsed_facility(path.read_bytes())
+    check_header(document, str(path))
+    return document
 
 
 def parsed_facility(raw: bytes) -> Any:
     """``facility.json`` parsed from its bytes, once for each new bytes.
+
+    The header is not checked here: :func:`parsed_facility_file`, the one
+    caller, checks it on every document this returns.
 
     Args:
         raw: The file's bytes.
@@ -395,8 +408,17 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
             a facts file nor a facility file.
 
     Returns:
-        The render's ``data/facility_facts.json``, or the zero-source facts
-        when the render holds none, it cannot be parsed or it lacks a key.
+        The render's ``data/facility_facts.json``; when the render holds none,
+        it cannot be parsed or it lacks a key, the zero-source facts of the
+        identity the render's facility file records, or of the project when
+        there is no facility file.
+
+    Raises:
+        FacilityFileError: The facts file is not used and the facility file
+            the identity falls back to is there but cannot be read, is not a
+            JSON object, carries a header this reader does not read, or names
+            no identity code; the message names the rebuild
+            (:func:`~osprey.utils.facility.facility_identity`).
     """
     path = Path(render_root) / "data" / FACTS_FILE
     try:

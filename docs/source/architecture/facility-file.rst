@@ -80,7 +80,7 @@ filters the file's own channel records and names a model or a place.
    * - ``from_file(path)``
      - The read model of a render's ``facility.json``.
      -
-     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON, is not an object or does not declare a ``schema`` header this reader reads, naming the rebuild (``osprey build``).
    * - ``document``
      - The mapping it was built from, read-only.
      -

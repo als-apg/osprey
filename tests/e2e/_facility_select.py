@@ -22,6 +22,8 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tests._builds import FRAMEWORK_CHECKS
+
 if TYPE_CHECKING:
     from osprey_connectors.simulation.view import SimulatorView
 
@@ -328,11 +330,13 @@ def facility_view(tree: Path, root: Path) -> SimulatorView:
     the facility file is written into it.
     """
     from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
     from osprey_connectors.simulation.view import SimulatorView
 
     root.mkdir(parents=True, exist_ok=True)
-    render_facility_outputs(root, build_facility(tree, project_name=tree.name), {}, tree)
+    render_facility_outputs(
+        root, build_facility(tree, project_name=tree.name, extra_checks=FRAMEWORK_CHECKS), {}, tree
+    )
     return SimulatorView.of_render(root)
 
 

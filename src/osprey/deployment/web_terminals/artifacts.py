@@ -1214,6 +1214,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     Raises:
         BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
         OpenModeEgressError: See :func:`check_open_mode_requirements`.
+        FacilityFileError: The build's facility file cannot be read, carries a
+            header this reader does not read, or names no identity code; the
+            deploy refuses before rendering, and the message names the rebuild
+            (:func:`osprey.utils.facility.facility_name`).
     """
     from osprey.deployment.compose_generator import (
         resolve_ariel_mirror_dir,

@@ -13,6 +13,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from osprey.utils.facility import facility_identity
+from tests._facility_file import write_facility_v4
 
 
 def test_registry_database_not_configured(tmp_path, monkeypatch):
@@ -46,9 +47,7 @@ def test_registry_facility_name_from_the_facility_file(tmp_path, monkeypatch):
     """The facility file beside the config names the facility."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("project_name: 1st-lab\n")
-    (tmp_path / "facility.json").write_text(
-        json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
-    )
+    write_facility_v4(tmp_path, {"identity": {"code": "demo", "name": "Demo Lab"}})
     initialize_cf_ml_context()
     assert get_cf_ml_context().facility_name == "Demo Lab"
 
