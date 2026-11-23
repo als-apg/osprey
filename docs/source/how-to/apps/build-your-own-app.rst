@@ -609,6 +609,43 @@ inside it and call it with the header the terminal sends:
            state = client.get("/api/state", headers=served.headers()).json()
        assert (state["channel"], state["target"]) == ("Q1:RB", "va")
 
+A backend whose container declares ``drives_target`` judges a write by the
+tier of the owner the request names. ``serve`` gives it that tier the way a
+build does, as ``control_system.login_tiers`` of the served configuration:
+each owner the panel's grant admits (``served.secrets``), at the login's write
+ceiling. So the owner of a backend served on a login at ``asked`` or
+``allowed`` may write, with no configuration written by the test;
+``served.tiers`` is the map. A write also needs the owner's switch for the
+target at ``asked`` or ``allowed``. The position is in the owner's record,
+``served.record_path(owner)``; with no record there it is ``off``, as in a
+deployment.
+
+To test what the backend answers for an owner it may not write for, state
+that owner's tier: ``tiers={owner: "never"}``, or ``tiers={owner: None}`` for
+an owner whose tier is not known.
+
+.. code-block:: python
+
+   from osprey.apps.sdk import LAUNCH_TOKEN_HEADER
+
+
+   def test_a_write_is_refused_for_an_owner_at_never(synthetic_deployment):
+       deployment = synthetic_deployment(
+           apps={"corrector-trim": APP_DIR},
+           profile={"apps": {"corrector-trim": {"config": {"channel": "Q1:SP"}}}},
+       )
+       (owner,) = deployment.serve("operator").secrets
+       served = deployment.serve("operator", tiers={owner: "never"})
+       with served.environment(), TestClient(create_app()) as client:
+           state = client.get("/api/state", headers=served.headers()).json()
+           refused = client.post(
+               "/api/write",
+               json={"value": 0.5, "target": state["target"], "readback": state["readback"]},
+               headers={**served.headers(), LAUNCH_TOKEN_HEADER: served.launch_token},
+           )
+       assert refused.status_code == 403
+       assert "write tier does not allow" in refused.json()["detail"]
+
 The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
 test with the build's own message. Run pytest with the app's directory
 on the import path, so the test can import the app's package.

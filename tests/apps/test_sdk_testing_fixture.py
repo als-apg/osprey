@@ -22,9 +22,11 @@ import yaml
 from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
+from osprey.apps.sdk import WriteVerdict, write_verdict
 from osprey.apps.sdk.testing import (
     Deployment,
     RenderedTree,
+    ServedTree,
     plain_tree,
     synthetic_deployment,
 )
@@ -99,9 +101,11 @@ def rendered(
     """One deployment with two logins, built once for the tests below that take it.
 
     Shared because those tests only read the render and serve a backend on it:
-    serving reads the build's compose and config, and all a backend's request
-    adds to the repository is its record spool under ``var/spool``, which none
-    of them reads. A test that changes the deployment builds its own from
+    serving reads the build's compose and config and writes the served
+    configuration beside the login's render, one file per map of tiers. A
+    backend's request adds its record spool under ``var/spool``, which none of
+    them reads, and a test of a write puts the owner's switch at ``asked``, which
+    no test needs ``off``. A test that changes the deployment builds its own from
     :func:`_deployment`.
     """
     deployment = _deployment(
@@ -183,7 +187,7 @@ def test_the_served_environment_is_the_containers_with_the_logins_render(rendere
     served = deployment.serve("operator")
 
     assert served.env["OSPREY_APP_NAME"] == APP
-    assert served.env["OSPREY_CONFIG"] == str(tree.configs["operator"])
+    assert served.env["OSPREY_CONFIG"] == str(served.config_path)
     assert yaml.safe_load(Path(served.env["OSPREY_APP_CONFIG"]).read_text("utf-8")) == {
         "channel": CHANNEL
     }
@@ -216,6 +220,146 @@ def test_the_environment_is_put_back_when_the_block_ends(rendered, monkeypatch) 
 
     assert os.environ["OSPREY_APP_NAME"] == "before"
     assert "OSPREY_CONTROL_CONTEXT_TREE" not in os.environ
+
+
+# --- the login tiers a backend that drives the target judges an owner's write by ----------
+
+SETTING_CHANNEL = "Q1:SP"
+
+
+def _switch_asked(served: ServedTree, owner: str) -> None:
+    """Put *owner*'s switch for the simulator at ``asked``, as the owner's session does."""
+    from osprey_connectors import control_context
+
+    record = control_context.ControlContext(
+        target="va", generation=0, switch={"va": "asked"}, switch_epoch=1
+    )
+    control_context.write_json_atomic(served.record_path(owner), record.to_payload())
+    control_context.invalidate_cache()
+
+
+def _verdict(served: ServedTree, owner: str) -> WriteVerdict:
+    """The verdict on *owner*'s write to the simulator, read as the backend reads it."""
+    from osprey_connectors.config import get_config_value
+
+    with served.environment():
+        return write_verdict(get_config_value("control_system", {}), "va", owner=owner)
+
+
+def test_the_served_config_is_the_logins_render_with_each_owner_at_its_ceiling(rendered) -> None:
+    deployment, tree = rendered
+    served = deployment.serve("operator")
+    (owner,) = served.secrets
+
+    assert served.tiers == {owner: "asked"}
+    assert served.env["OSPREY_CONFIG"] == served.env["CONFIG_FILE"] == str(served.config_path)
+    assert served.config_path.parent == tree.configs["operator"].parent
+    config = yaml.safe_load(served.config_path.read_text("utf-8"))
+    assert config["control_system"].pop("login_tiers") == {owner: "asked"}
+    assert config == tree.config("operator")
+    assert "login_tiers" not in tree.config("operator")["control_system"]
+
+
+def test_the_owner_may_write_on_a_login_that_writes(rendered) -> None:
+    deployment, _tree = rendered
+    served = deployment.serve("operator")
+    (owner,) = served.secrets
+    _switch_asked(served, owner)
+
+    verdict = _verdict(served, owner)
+
+    assert (verdict.allowed, verdict.reason, verdict.position) == (True, None, "asked")
+
+
+@pytest.mark.no_auth_seam
+def test_the_backend_writes_as_the_owner_with_no_config_beside_the_kit(
+    tmp_path: Path, app_source: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.apps.sdk import LAUNCH_TOKEN_HEADER
+
+    _importable(app_source, PACKAGE, monkeypatch)
+    deployment = synthetic_deployment(
+        tmp_path / "site",
+        apps={APP: app_source},
+        profile={"apps": {APP: {"config": {"channel": SETTING_CHANNEL}}}},
+    )
+    served = deployment.serve("operator")
+    (owner,) = served.secrets
+    _switch_asked(served, owner)
+
+    with served.environment():
+        backend = importlib.import_module(f"{PACKAGE}.server")
+        with TestClient(backend.create_app()) as client:
+            state = client.get("/api/state", headers=served.headers()).json()
+            written = client.post(
+                "/api/write",
+                json={"value": 0.25, "target": state["target"], "readback": state["readback"]},
+                headers={**served.headers(), LAUNCH_TOKEN_HEADER: served.launch_token},
+            )
+            after = client.get("/api/state", headers=served.headers()).json()
+
+    assert written.status_code == 200, written.text
+    assert after["readback"] == 0.25
+
+
+def test_a_test_states_the_tier_an_owner_is_served_at(rendered) -> None:
+    deployment, _tree = rendered
+    (owner,) = deployment.serve("operator").secrets
+    served = deployment.serve("operator", tiers={owner: "never"})
+    _switch_asked(served, owner)
+
+    verdict = _verdict(served, owner)
+
+    assert served.tiers == {owner: "never"}
+    assert (verdict.allowed, verdict.reason) == (False, "tier_never")
+
+
+def test_an_owner_left_out_of_the_tiers_is_unknown_to_the_backend(rendered) -> None:
+    deployment, _tree = rendered
+    (owner,) = deployment.serve("operator").secrets
+    served = deployment.serve("operator", tiers={owner: None})
+    _switch_asked(served, owner)
+
+    verdict = _verdict(served, owner)
+
+    assert served.tiers == {}
+    assert (verdict.allowed, verdict.reason) == (False, "owner_unknown")
+
+
+def test_two_serves_of_one_login_keep_their_own_tiers(rendered) -> None:
+    deployment, _tree = rendered
+    writing = deployment.serve("operator")
+    (owner,) = writing.secrets
+    refused = deployment.serve("operator", tiers={owner: "never"})
+    _switch_asked(writing, owner)
+
+    assert writing.config_path != refused.config_path
+    assert _verdict(writing, owner).allowed
+    assert _verdict(refused, owner).reason == "tier_never"
+
+
+def test_a_login_that_never_writes_serves_its_owner_at_never(rendered) -> None:
+    deployment, _tree = rendered
+    served = deployment.serve("viewer")
+    (owner,) = served.secrets
+
+    assert served.tiers == {owner: "never"}
+    assert _verdict(served, owner).reason == "tier_never"
+
+
+def test_a_tier_for_an_owner_the_grant_does_not_admit_is_refused(rendered) -> None:
+    deployment, _tree = rendered
+
+    with pytest.raises(KeyError, match="the panel's grant admits no owner 'nobody'"):
+        deployment.serve("operator", tiers={"nobody": "asked"})
+
+
+def test_a_tier_that_is_not_a_tier_word_is_refused(rendered) -> None:
+    deployment, _tree = rendered
+    (owner,) = deployment.serve("operator").secrets
+
+    with pytest.raises(ValueError, match="'sometimes' is not a tier: never, asked, allowed"):
+        deployment.serve("operator", tiers={owner: "sometimes"})
 
 
 def test_a_login_the_deployment_does_not_have_is_named(rendered) -> None:
@@ -284,17 +428,24 @@ def _python_blocks(page: Path) -> list[str]:
 
 
 @pytest.mark.no_auth_seam
-def test_the_docs_example_runs_against_a_scaffold_copy(
+def test_the_docs_examples_run_against_a_scaffold_copy(
     synthetic_deployment, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     app_dir = _new_app(tmp_path, "corrector-trim")
     _importable(app_dir, "corrector_trim", monkeypatch)
     namespace: dict[str, Any] = {"__file__": str(app_dir / "tests" / "test_backend.py")}
 
-    (example,) = [b for b in _python_blocks(DOCS_PAGE) if "synthetic_deployment" in b]
+    examples = [b for b in _python_blocks(DOCS_PAGE) if "synthetic_deployment" in b]
 
-    exec(compile(example, str(DOCS_PAGE), "exec"), namespace)
-    namespace["test_state_reads_the_configured_channel"](synthetic_deployment)
+    for example in examples:
+        exec(compile(example, str(DOCS_PAGE), "exec"), namespace)
+    tests = [name for name in namespace if name.startswith("test_")]
+    assert tests == [
+        "test_state_reads_the_configured_channel",
+        "test_a_write_is_refused_for_an_owner_at_never",
+    ]
+    for name in tests:
+        namespace[name](synthetic_deployment)
 
 
 # --- a deployment's own measurement kind, through the same fixture -----------------------
