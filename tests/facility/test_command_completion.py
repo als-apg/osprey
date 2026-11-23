@@ -3,7 +3,9 @@
 A command channel states ``timeout_s``; the readback it pairs with, its status,
 states ``idle``. The build holds the two together and stops with
 ``command-invalid`` where one is missing, misplaced or of the wrong type, and
-where a limits record states a re-read the wait for the status replaces.
+where a limits record states a re-read the wait for the status replaces. The
+limits view writes such a command's record ``confirm: false`` when it states
+no ``confirm``.
 """
 
 from __future__ import annotations
@@ -14,10 +16,12 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility.views.limits import limits_document
 from osprey.simulation.engines import pyat
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.pairing import NOT_FOLLOWED, pair_follows
+from osprey_facility.records import FacilityRecords
 from osprey_facility.schema import core
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._pyaml_trees import built_document, measured_tree
@@ -382,3 +386,43 @@ def test_confirm_true_on_a_further_address_of_a_bounded_command_stops_the_build(
         f"command that states `timeout_s`; fix: remove `confirm`; the wait for {BUSY} confirms "
         "the write"
     )
+
+
+def _confirms(document: dict[str, Any]) -> dict[str, bool]:
+    """Each limits entry's ``confirm``, by address."""
+    limits = limits_document(FacilityRecords(document))
+    return {address: entry["confirm"] for address, entry in limits.items() if address != "_version"}
+
+
+@pytest.mark.parametrize(("stated", "written"), [({}, False), ({"confirm": False}, False)])
+def test_a_bounded_command_is_confirmed_by_its_status_not_a_reread(
+    tmp_path: Path, stated: dict[str, Any], written: bool
+) -> None:
+    tree = _tree()
+    tree["limits.yaml"] = {
+        "records": [
+            {"address": COMMAND, "writable": True, **stated},
+            {"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0},
+        ]
+    }
+
+    assert _confirms(_build(tmp_path, tree)) == {COMMAND: written, "Q1:SP": True}
+
+
+def test_a_bounded_command_without_a_limits_record_has_no_limits_entry(tmp_path: Path) -> None:
+    tree = _tree()
+    tree["limits.yaml"] = {"records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}]}
+
+    assert _confirms(_build(tmp_path, tree)) == {"Q1:SP": True}
+
+
+def test_each_address_of_a_bounded_command_is_confirmed_by_its_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tree = _further_tree(monkeypatch)
+    limit = {"min_value": -1000.0, "max_value": 1000.0}
+    tree["limits.yaml"] = {
+        "records": [{"address": address, **limit} for address in (SETPOINT, FURTHER)]
+    }
+
+    assert _confirms(built_document(tmp_path, tree)[0]) == {SETPOINT: False, FURTHER: False}

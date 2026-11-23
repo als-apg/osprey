@@ -17,7 +17,8 @@ and never when its record says ``writable: false``. A ``float`` or ``int``
 setpoint is writable when its record carries both ``min_value`` and
 ``max_value``. A setpoint of any other ``value_type`` is writable when its
 record says ``writable: true``. ``confirm`` is the record's own value, else
-true.
+true, and false on a command that states ``timeout_s``, under each of its
+addresses: the wait for its status confirms the write.
 A bound the record does not state is not written. A facility with no
 ``limits.yaml`` gets the version line alone.
 """
@@ -45,13 +46,13 @@ LIMITS_FILE = "channel_limits.json"
 LIMITS_VERSION = "4.0"
 
 
-def _entry(record: Mapping[str, Any], role: str, value_type: str) -> dict[str, Any]:
+def _entry(record: Mapping[str, Any], role: str, value_type: str, timed: bool) -> dict[str, Any]:
     entry: dict[str, Any] = {
         slot: record[slot] for slot in LIMIT_BOUNDS if record.get(slot) is not None
     }
     entry["writable"] = record_writable(record, role, value_type)
     confirm = record.get("confirm")
-    entry["confirm"] = confirm if isinstance(confirm, bool) else True
+    entry["confirm"] = confirm if isinstance(confirm, bool) else not timed
     return entry
 
 
@@ -65,20 +66,26 @@ def limits_document(records: FacilityRecords) -> dict[str, Any]:
         ``_version`` first, then one entry per limits record, sorted by address.
     """
     document: dict[str, Any] = {"_version": LIMITS_VERSION}
-    for address, row, role, value_type in _rows(records):
-        document[address] = _entry(row, role, value_type)
+    for address, row, role, value_type, timed in _rows(records):
+        document[address] = _entry(row, role, value_type, timed)
     return document
 
 
-def _rows(records: FacilityRecords) -> list[tuple[str, Mapping[str, Any], str, str]]:
-    """Each limits record with its channel's role and value type, sorted by address."""
+def _rows(records: FacilityRecords) -> list[tuple[str, Mapping[str, Any], str, str, bool]]:
+    """Each limits record with its channel's role and value type, sorted by address.
+
+    The last field says whether the channel is a command that states
+    ``timeout_s``; a further address of a wiring record holds its record's.
+    """
     rows = (records.document.get("limits") or {}).get("records") or []
     resolved = []
     for row in sorted(rows, key=lambda row: str(row["address"])):
         address = str(row["address"])
         channel = records.record("channel", address) or {}
+        held = records.record("channel", records.record_address(address)) or channel
+        timed = held.get("command") is True and "timeout_s" in held
         value_type = str(channel.get("value_type") or DEFAULT_VALUE_TYPE)
-        resolved.append((address, row, str(channel.get("role")), value_type))
+        resolved.append((address, row, str(channel.get("role")), value_type, timed))
     return resolved
 
 
@@ -119,7 +126,7 @@ def limits_findings(
     )
     short = [
         (address, row, missing)
-        for address, row, role, value_type in _rows(records)
+        for address, row, role, value_type, _ in _rows(records)
         if (missing := record_missing(row, role, value_type))
     ]
     lines: list[str] = []

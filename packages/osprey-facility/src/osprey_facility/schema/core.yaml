@@ -995,7 +995,10 @@ classes:
           its value is not checked against this record.
       confirm:
         range: boolean
-        description: Absent means true; false turns off the re-read after a write.
+        description: >-
+          Absent means true, and false on a command that states `timeout_s`,
+          whose status confirms the write; false turns off the re-read after a
+          write.
 
   Scenario:
     description: Values written into the models at start, and the narratives that go with them.

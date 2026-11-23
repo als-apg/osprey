@@ -573,9 +573,10 @@ writable when its record says ``writable: true``. For such a channel the limits
 check decides only whether it may be written; which values it takes is decided
 by the control system. ``max_step`` bounds a single change; ``writable: false``
 blocks every write; ``confirm: false`` turns off the re-read after a write. A
-record that does not state ``confirm`` is written ``confirm: true``, also on a
-command. On a command that states ``timeout_s``, stating ``confirm: true``
-stops the build: ``osprey_connectors.command.fire`` writes such a command with
+record that does not state ``confirm`` is written ``confirm: true``, and
+``confirm: false`` on a command that states ``timeout_s``, whose status confirms
+the write. On such a command, stating ``confirm: true`` stops the build:
+``osprey_connectors.command.fire`` writes such a command with
 the re-read off and confirms it by waiting for its status
 (:doc:`/reference/contracts/connectors`), and any other write of it is re-read
 as its record says.

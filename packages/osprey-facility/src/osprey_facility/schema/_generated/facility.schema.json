@@ -1212,7 +1212,7 @@
             }
           ],
           "default": null,
-          "description": "Absent means true; false turns off the re-read after a write.",
+          "description": "Absent means true, and false on a command that states `timeout_s`, whose status confirms the write; false turns off the re-read after a write.",
           "title": "Confirm"
         },
         "max_step": {
