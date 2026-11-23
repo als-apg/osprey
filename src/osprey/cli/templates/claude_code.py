@@ -762,7 +762,8 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
 
     path = project_dir / FACILITY_FILE
     try:
-        return parsed_facility_file(path)
+        document: dict[str, Any] = parsed_facility_file(path)
+        return document
     except FileNotFoundError:
         return {}
     except FacilityFileError as exc:

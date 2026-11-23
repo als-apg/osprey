@@ -104,7 +104,7 @@ def load_facility(path: Path | str) -> dict[str, Any]:
     except (OSError, UnicodeDecodeError) as exc:
         raise _refuse(source, f"cannot be read: {exc}") from exc
     try:
-        document = json.loads(text)
+        document: dict[str, Any] = json.loads(text)
     except ValueError as exc:
         raise _refuse(source, f"is not JSON: {exc}") from exc
     check_header(document, source)

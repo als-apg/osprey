@@ -250,7 +250,8 @@ def engine_plugin(name: str) -> ModuleType | None:
     engines = metadata.entry_points(group=ENGINE_GROUP)
     if name not in engines.names:
         return None
-    return engines[name].load()
+    plugin: ModuleType = engines[name].load()
+    return plugin
 
 
 def fault_roster(

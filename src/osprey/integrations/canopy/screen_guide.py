@@ -113,7 +113,8 @@ def _guide_facility(path: Path) -> Mapping[str, Any] | None:
     from osprey.facility.views.facts import parsed_facility_file
 
     try:
-        return parsed_facility_file(path)
+        document: Mapping[str, Any] = parsed_facility_file(path)
+        return document
     except FileNotFoundError:
         return None
     except FacilityFileError as exc:
