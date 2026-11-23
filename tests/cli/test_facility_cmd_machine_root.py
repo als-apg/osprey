@@ -20,7 +20,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project
 
 pytestmark = [pytest.mark.slow]

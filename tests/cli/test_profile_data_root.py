@@ -24,9 +24,9 @@ from jinja2 import Environment, FileSystemLoader
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml
 from osprey.cli.build_profile_presets import list_tiers
 from osprey.cli.templates.scaffolding import copy_template_data
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import copy_bundle_data
 

@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from osprey.cli.build_profile_load import _check_limits_database_path, _parse_profile
-from osprey.facility.errors import FacilityBuildError
+from osprey_facility.errors import FacilityBuildError
 
 WIDE = "control_system.limits_checking.database_path"
 

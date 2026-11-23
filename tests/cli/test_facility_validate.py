@@ -25,8 +25,8 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.facility_cmd import _relation_summary
 from osprey.cli.main import cli
-from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.render import FACILITY_FILE
 from tests._builds import Restorable, init_project, run_build
 from tests.facility._appendix_a import (
     VARIANTS,

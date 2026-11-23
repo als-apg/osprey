@@ -26,8 +26,8 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.errors import FacilityFileError
 from osprey.registry.mcp import framework_mixed_read_write_tools, writes_check_matchers
+from osprey_facility.errors import FacilityFileError
 from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 from tests._preset_data import create_project_as_built
 
