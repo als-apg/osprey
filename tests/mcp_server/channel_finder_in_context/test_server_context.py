@@ -11,6 +11,7 @@ from osprey.mcp_server.channel_finder_in_context.server_context import (
 )
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter, get_rate_limiter
 from osprey.utils.facility import facility_identity
+from tests._facility_file import write_facility_v4
 
 _MINIMAL_MODEL_CONFIG = "claude_code:\n  model: test-model\n  provider: anthropic\n"
 
@@ -113,9 +114,7 @@ def test_context_facility_name_is_the_project_name_without_a_facility_file(tmp_p
 def test_context_facility_name_from_the_facility_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + "project_name: 1st-lab\n")
-    (tmp_path / "facility.json").write_text(
-        json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
-    )
+    write_facility_v4(tmp_path, {"identity": {"code": "demo", "name": "Demo Lab"}})
     initialize_cf_ic_context()
     assert get_cf_ic_context().facility_name == "Demo Lab"
 

@@ -6,7 +6,7 @@ nothing. The checks are the build's own stages, run to the first that fails;
 every error of that stage is printed, sorted, one line each on stderr. A clean
 tree is then taken through the render of the repo's main profile, made in a
 temporary directory with the build's ``--skip-deps`` semantics and discarded, so
-every view :func:`osprey.facility.render.render_facility_outputs` writes is
+every view :func:`osprey.facility.views.outputs.render_facility_outputs` writes is
 checked against a real render without a file of it reaching the repo. On a clean
 tree the response check runs before the render and prints one line per kept
 response export. When the check left rows out of the comparison, a second line
@@ -242,7 +242,8 @@ def _build_in_memory(
     from osprey.facility.layers.mml.response_check import check_responses
     from osprey.facility.layers.mml.response_check import report as report_responses
     from osprey.facility.render import facility_digest
-    from osprey.facility.validate import report, report_warnings, run_stages
+    from osprey.facility.validate import run_stages
+    from osprey.registry.scenario_servers import check_scenario_servers
     from osprey_connectors.errors import BuildProfileError
 
     from .build_cmd import (
@@ -256,6 +257,7 @@ def _build_in_memory(
         _stated_machine_route,
     )
     from .build_environment import _plan_project_venv
+    from .facility_report import report_errors, report_warnings
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
@@ -304,9 +306,10 @@ def _build_in_memory(
         later=LATER_STAGES,
         content_dir=content_dir,
         judges_kinds=_judges_kinds(build_profile, content_dir),
+        extra_checks=(check_scenario_servers,),
     )
     if not result.ok:
-        report(result.errors)
+        report_errors(result.errors)
         ctx.exit(1)
     report_warnings(result.validated.warnings)
     document = result.validated.document
@@ -837,7 +840,7 @@ def _holds_a_layer(facility_dir: Path) -> bool:
     Every format's layer holds a ``channels.yaml``. A mapping or a source file
     waiting in the layer directory for a first import is no layer.
     """
-    from osprey.facility.bundled import LAYER_ROOT
+    from osprey.facility.layers import LAYER_ROOT
 
     return any((facility_dir / LAYER_ROOT).glob("*/channels.yaml"))
 
@@ -993,7 +996,7 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
-    from osprey.facility.layers.mml.importer import MappingProblems
+    from osprey.facility.errors import FacilityUsageError, MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
     from osprey_connectors.errors import BuildProfileError
@@ -1009,10 +1012,12 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     facility_dir = roots.machine
 
     try:
-        for path in run_import(list(exports), facility_dir):
+        for path in run_import(list(exports), facility_dir, echo=click.echo):
             report(f"wrote {_shown(path, repo_root)}")
     except MappingProblems as stop:
         raise MappingProblems(Path(_shown(stop.path, repo_root)), stop.problems) from None
+    except FacilityUsageError as error:
+        raise click.UsageError(error.format_message(), ctx=ctx) from None
     except MappingError as error:
         mapping = _shown(facility_dir / MAPPING_FILE, repo_root)
         fail(f"{mapping} is not a valid mapping document.", str(error))
@@ -1062,6 +1067,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     from osprey.facility.layers.list import import_list as run_import
     from osprey_connectors.errors import BuildProfileError
 
+    from .facility_report import report_lines
+
     repo_root = find_repo_root(repo)
     try:
         roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
@@ -1071,7 +1078,9 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
 
     _replace_or_refuse(ctx, "list", roots, repo_root)
 
-    for path in run_import(listing, roots.machine):
+    written, lines = run_import(listing, roots.machine)
+    report_lines(lines)
+    for path in written:
         report(f"wrote {_shown(path, repo_root)}")
 
 

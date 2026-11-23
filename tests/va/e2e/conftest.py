@@ -66,6 +66,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from tests._builds import FRAMEWORK_CHECKS
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._facility_select import LaneSelection, lane_selection, second_model
@@ -149,7 +150,7 @@ def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, Simu
     from osprey.facility.views.simulator import write_simulator_view
 
     if doc is None:
-        doc = build_facility(facility, project_name="demo")
+        doc = build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(

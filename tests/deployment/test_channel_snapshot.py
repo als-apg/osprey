@@ -15,7 +15,6 @@ shrinks the roster every other consumer reads.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,7 @@ from osprey.deployment.channel_snapshot import (
     MAX_CHANNELS_CONFIG_KEY,
     compute_channel_snapshot,
 )
-from tests._facility_file import channel_tree, write_facility_file
+from tests._facility_file import channel_tree, write_facility_file, write_facility_v4
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +156,7 @@ class TestGraphParadigm:
         # A build never writes one address twice; the snapshot would not
         # suggest it twice if a hand-edited file did.
         records = [{"id": address, "role": "readback"} for address in ("SR:B", "SR:A", "SR:B")]
-        (tmp_path / "facility.json").write_text(json.dumps({"channels": records}))
+        write_facility_v4(tmp_path, {"channels": records})
 
         decision = compute_channel_snapshot(_config(tmp_path, mode="graph"))
 
@@ -243,7 +242,7 @@ class TestSnapshotDerivesFromTheRoster:
         # typeahead wants an order a reader can scan. The sort is the view's
         # doing, so the two deliberately differ here.
         records = [{"id": address, "role": "readback"} for address in ("SR:Z", "SR:A")]
-        (tmp_path / "facility.json").write_text(json.dumps({"channels": records}))
+        write_facility_v4(tmp_path, {"channels": records})
         config = _config(tmp_path)
 
         decision = compute_channel_snapshot(config)

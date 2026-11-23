@@ -38,6 +38,7 @@ from osprey.facility.views.graph import (
     graph_text,
 )
 from osprey.facility.views.graph_iri import namespace
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import (
     VARIANTS,
     appendix_a_tree,
@@ -122,7 +123,7 @@ def base_writer() -> types.ModuleType:
 def pre_appendix_a(tmp_path_factory: pytest.TempPathFactory) -> FacilityDocument:
     """The example facility built without its Appendix A records: no claims."""
     root = example_without_appendix_a(tmp_path_factory.mktemp("pre-appendix-a") / "facility")
-    return build_facility(root, project_name="demo")
+    return build_facility(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 def _sha(text: str) -> str:

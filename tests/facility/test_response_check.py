@@ -39,6 +39,7 @@ from osprey.facility.layers.mml.response_check import (
     report,
 )
 from osprey.facility.layers.mml.rows import read_rows
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._limits_render import without_limits_findings
 from tests.facility._mml_built import WIDENED, widen
 from tests.facility.test_mml_layer_seed_once import OUTSIDE
@@ -171,7 +172,7 @@ def nsls2_run(nsls2: Path) -> tuple[list[ModelCheck], dict[str, tuple[Block, ...
     The storage ring sweeps 12 correctors.
     """
     facility = _facility(nsls2)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
     judged: dict[str, tuple[Block, ...]] = {}
 
     def recording(
@@ -197,7 +198,7 @@ def nsls2_checks(
 @pytest.fixture(scope="module")
 def spear3_document(spear3: Path) -> dict[str, Any]:
     """The spear3 tree's facility file; no case that reads it changes it."""
-    return build_facility(_facility(spear3), project_name="scratch")
+    return build_facility(_facility(spear3), project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
 
 
 @pytest.fixture(scope="module")
@@ -208,7 +209,7 @@ def spear3_blocks(spear3: Path, spear3_document: dict[str, Any]) -> tuple[Block,
 @pytest.fixture(scope="module")
 def synthetic_blocks(synthetic: Path) -> tuple[Block, ...]:
     facility = _facility(synthetic)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
     return compare(facility, document, _model(document, "SR"))
 
 
@@ -328,7 +329,13 @@ def test_a_tree_without_a_kept_export_checks_nothing(synthetic: Path, tmp_path: 
     facility = _facility(repo)
     (facility / LAYER_DIR / "SR.response.json").unlink()
 
-    assert check_responses(facility, build_facility(facility, project_name="scratch")) == []
+    assert (
+        check_responses(
+            facility,
+            build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS),
+        )
+        == []
+    )
 
 
 def test_an_unreadable_export_exits_1_without_a_traceback(
@@ -350,7 +357,7 @@ def test_a_corrector_record_naming_no_element_stops_the_build_before_the_respons
 ) -> None:
     """A setpoint naming no element has no start value to read, so the build stops first."""
     facility = _facility(synthetic)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
     model = next(model for model in document["models"] if model["name"] == "SR")
     corrector = next(
         block for block in compare(facility, document, model) if block.name == "BPMx/HC"
@@ -602,7 +609,7 @@ def test_a_corrector_whose_sweep_has_no_solve_leaves_its_column_out(
 
     monkeypatch.setattr(PyATSimulator, "solve", solve)
     facility = _facility(synthetic)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
 
     blocks = compare(facility, document, _model(document, "SR"))
 
@@ -639,7 +646,7 @@ def test_a_model_is_swept_in_one_engine_call(
 
     monkeypatch.setattr(pyat, "response_matrix", recording)
     facility = _facility(synthetic)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
 
     blocks = compare(facility, document, _model(document, "SR"))
 
@@ -747,7 +754,7 @@ def test_a_solve_error_the_engine_does_not_declare_stays_loud(
 def test_a_monitor_with_a_table_calibration_is_left_out_and_counted(synthetic: Path) -> None:
     """The reading is carried into physics by one slope, which only a straight line has."""
     facility = _facility(synthetic)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
     model = next(model for model in document["models"] if model["name"] == "SR")
     address = "QK:BPMx:1:CUR:RB"
     record = next(record for record in model["wiring"] if record["address"] == address)
@@ -802,7 +809,7 @@ def test_a_corrector_record_naming_no_element_leaves_its_column_out_as_unwired(
     """A record driving a property of the whole deck is no column the sweep can step."""
     repo, n = _with_a_deck_property_block(synthetic, tmp_path / "synthetic")
     facility = _facility(repo)
-    document = build_facility(facility, project_name="scratch")
+    document = build_facility(facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS)
     model = next(model for model in document["models"] if model["name"] == "SR")
     knobs = [
         record
@@ -812,7 +819,9 @@ def test_a_corrector_record_naming_no_element_leaves_its_column_out_as_unwired(
     assert knobs
     assert all("element" not in record and "slices" not in record for record in knobs)
     base_facility = _facility(synthetic)
-    base_document = build_facility(base_facility, project_name="scratch")
+    base_document = build_facility(
+        base_facility, project_name="scratch", extra_checks=FRAMEWORK_CHECKS
+    )
     base_model = next(model for model in base_document["models"] if model["name"] == "SR")
     baseline = compare(base_facility, base_document, base_model)
 

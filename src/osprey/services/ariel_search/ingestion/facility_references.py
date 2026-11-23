@@ -6,8 +6,8 @@ runs in; without one, entries are stored unchecked (``NULL``) until re-ingested.
 
 from __future__ import annotations
 
+from osprey.facility.errors import FacilityFileError
 from osprey.facility.records import FacilityRecords
-from osprey.utils.facility import FacilityFileError
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("ariel")

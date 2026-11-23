@@ -18,7 +18,6 @@ quantity each kind is compared on, the comparison and the replica's runtime
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -29,6 +28,7 @@ import numpy as np
 import pytest
 import yaml
 
+from tests._facility_file import write_facility_v4
 from tests.facility._model_reference import ORBIT_ATOL_M
 
 #: The precision of a published tune against pyAT's on the replica. Both are
@@ -383,20 +383,18 @@ def test_a_write_through_the_replica_settles_on_its_readback(
         encoding="utf-8",
     )
     monkeypatch.setenv("CONFIG_FILE", str(config))
-    (tmp_path / "build" / "facility.json").write_text(
-        json.dumps(
-            {
-                "channels": [
-                    {
-                        "id": "H1:SP",
-                        "role": "setpoint",
-                        "pair": "H1:RB",
-                        "tolerance": {"absolute": 0.05},
-                    }
-                ]
-            }
-        ),
-        encoding="utf-8",
+    write_facility_v4(
+        tmp_path / "build",
+        {
+            "channels": [
+                {
+                    "id": "H1:SP",
+                    "role": "setpoint",
+                    "pair": "H1:RB",
+                    "tolerance": {"absolute": 0.05},
+                }
+            ]
+        },
     )
     reset_config_cache()
     try:

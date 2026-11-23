@@ -20,7 +20,6 @@ What these tests pin:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,7 +31,7 @@ from fastapi.testclient import TestClient
 
 import osprey.channel_roster as channel_roster
 from osprey.services.channel_finder.databases import FlatChannelDatabase
-from tests._facility_file import channel_tree, write_facility_file
+from tests._facility_file import channel_tree, write_facility_file, write_facility_v4
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
 _GRAPH_CONTEXT_SEAM = "osprey.interfaces.channel_finder.app._make_graph_context"
@@ -156,8 +155,8 @@ class TestGraphEnumeration:
 
     def test_an_address_bound_twice_is_enumerated_once(self, tmp_path):
         """Otherwise the total disagrees with what membership can find."""
-        (tmp_path / "facility.json").write_text(
-            json.dumps({"channels": [{"id": "SR:DIAG:BPM:01:X", "role": "readback"}] * 2})
+        write_facility_v4(
+            tmp_path, {"channels": [{"id": "SR:DIAG:BPM:01:X", "role": "readback"}] * 2}
         )
 
         with _started(_graph_config(tmp_path)) as client:

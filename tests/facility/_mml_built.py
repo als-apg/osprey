@@ -37,7 +37,7 @@ import yaml
 
 from osprey.facility.records import FacilityRecords
 from osprey_connectors.yaml_loader import safe_load
-from tests._builds import _built_once
+from tests._builds import FRAMEWORK_CHECKS, _built_once
 from tests.fixtures.mml._trees import SUPPORTED, names
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -136,7 +136,7 @@ def build_tree(tree: str, root: Path) -> tuple[dict[str, Any], Path]:
 
     facility = import_tree(root, tree)
     widen(facility, WIDENED[tree])
-    return build_facility(facility, project_name="demo"), facility
+    return build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS), facility
 
 
 def model_name(document: dict[str, Any], stem: str) -> str:
@@ -264,7 +264,9 @@ def _build_fixture(tree: str) -> Any:
             imported: MmlImport = request.getfixturevalue(f"mml_import_{tree}")
             facility = imported.copy(parent)
             widen(facility, WIDENED[tree])
-            return build_facility(facility, project_name="demo"), facility
+            return build_facility(
+                facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS
+            ), facility
 
         made: tuple[dict[str, Any], Path] = _built_once(
             tmp_path_factory, f"mml-build-{tree}", f"mml-build-{tree}.pickle", make

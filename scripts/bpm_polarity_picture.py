@@ -84,8 +84,11 @@ def render_simulator_view(facility_dir: Path, root: Path) -> Path:
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey.registry.scenario_servers import check_scenario_servers
 
-    doc = build_facility(facility_dir, project_name="example")
+    doc = build_facility(
+        facility_dir, project_name="example", extra_checks=(check_scenario_servers,)
+    )
     config = {"control_system": {"type": "virtual_accelerator"}}
     records = FacilityRecords(doc)
     write_simulator_view(

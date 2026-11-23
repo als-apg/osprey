@@ -29,6 +29,7 @@ from osprey.simulation.engines.pyat_faults import (
     MAX_CIRCUMFERENCE_ERROR_M,
     fault_variables,
 )
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 MODEL = "SR"
@@ -82,7 +83,11 @@ def _tree(faults: dict[str, Any]) -> dict[str, Any]:
     ids=["engine-name", "map"],
 )
 def test_a_scenario_states_it_in_either_spelling(tmp_path: Path, faults: dict[str, Any]) -> None:
-    document = build_facility(write_tree(tmp_path / "facility", _tree(faults)), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", _tree(faults)),
+        project_name="demo",
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
     assert [s["faults"] for s in document["scenarios"]] == [{"optics": faults}]
 
@@ -92,6 +97,7 @@ def test_a_scenario_value_outside_its_bounds_stops(tmp_path: Path) -> None:
         build_facility(
             write_tree(tmp_path / "facility", _tree({CIRCUMFERENCE_ERROR: 1.0})),
             project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
         )
 
     assert stopped.value.kind == "seed-invalid"

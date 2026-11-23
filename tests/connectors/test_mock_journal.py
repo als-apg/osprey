@@ -29,6 +29,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
 )
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
@@ -58,12 +59,12 @@ def _journal(view: Path) -> Path:
 def _rebuild(view: Path) -> Path:
     """Build and render again the facility tree the view was rendered from."""
     from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     root = view.parent.parent.parent
     facility_dir = root / "data" / "facility"
     render_dir = root / "build"
-    document = build_facility(facility_dir, project_name="served")
+    document = build_facility(facility_dir, project_name="served", extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir)
     return render_dir / "data" / "simulator"
 

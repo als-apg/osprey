@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -23,6 +22,7 @@ from pyaml_cs_osprey import _run
 from pyaml_cs_osprey.catalog import parse_reference
 from pyaml_cs_osprey.device import OspreyDevice
 from pyaml_cs_osprey.errors import OspreyReadFailed, OspreyWriteFailed, OspreyWriteRefused
+from tests._facility_file import write_facility_v4
 from tests.pyaml_cs_osprey.conftest import Clock, RunRecord, plant_facility
 from tests.pyaml_cs_osprey.conftest import FakeRuntime as _Runtime
 
@@ -290,7 +290,7 @@ def test_an_address_that_is_no_setpoint_propagates_as_raised(
 ) -> None:
     """A written address the facility states as a readback is refused before any read."""
     facility = {"channels": [{"id": "QF_001:Cm:set", "role": "readback"}]}
-    (guarded_repo / "build" / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(guarded_repo / "build", facility)
 
     with pytest.raises(ValueError, match="is no setpoint"):
         _device(RW).set_and_wait(4.0)

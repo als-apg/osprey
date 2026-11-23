@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import click
 import pytest
 
+from osprey.facility.errors import FacilityInputError
 from osprey.facility.layers.mml.loaders import LoadedInput
 from osprey.facility.layers.mml.loaders.json_any import load_json
 
@@ -218,14 +218,14 @@ class TestRefusals:
     def test_no_family_raises_naming_file(self, tmp_path, body):
         """No family anywhere raises ClickException naming the file."""
         path = _write(tmp_path, body, name="nothing.json")
-        with pytest.raises(click.ClickException) as excinfo:
+        with pytest.raises(FacilityInputError) as excinfo:
             load_json(path)
         assert "nothing.json" in excinfo.value.message
 
     def test_invalid_json_raises_naming_file(self, tmp_path):
         """Undecodable JSON raises ClickException naming the file."""
         path = _write_text(tmp_path, "{not json", name="broken.json")
-        with pytest.raises(click.ClickException) as excinfo:
+        with pytest.raises(FacilityInputError) as excinfo:
             load_json(path)
         assert "broken.json" in excinfo.value.message
 

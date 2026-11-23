@@ -19,7 +19,7 @@ from typing import Any, NoReturn
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
+from osprey.cli.main import cli
 from osprey.facility import TEXTURE
 from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
@@ -41,7 +41,7 @@ CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 
 
 def _build(repo: Path, *extra: str) -> Any:
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-lifecycle", *extra])
+    return CliRunner().invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle", *extra])
 
 
 def _render_roots(repo: Path) -> list[Path]:

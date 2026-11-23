@@ -19,8 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid
 from osprey.facility.places import resolve_place_name
 from osprey.facility.sources import AUTHORED, load_sources
 

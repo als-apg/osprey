@@ -27,9 +27,8 @@ when stated, where a row states the device's ``s``, and no other device field.
 channel. A device another source declares merges with the record field by
 field; one declared nowhere else holds only its id and position. The layer
 writes ``devices.yaml`` only when some row names a device. When another layer
-or ``records/devices.yaml`` declares devices, one ``import list:`` line on
-stderr names the devices this list alone declares; ``fixes.yaml`` is not read
-for it.
+or ``records/devices.yaml`` declares devices, one ``import list:`` line
+names the devices this list alone declares; ``fixes.yaml`` is not read for it.
 
 A row naming both a device and a place, a role outside the three, an unknown or
 repeated column, a row with more cells than the header, a row with no address,
@@ -37,7 +36,9 @@ an address on two rows, ``s`` or ``model`` on a row with no device, an ``s``
 that is not a finite number, and two rows stating different ``s`` or ``model``
 for one device are ``source-invalid``, every one reported, and nothing is
 written. A ``model`` for a device no row states ``s`` for is ignored, with one
-warning line on stderr per device each time the file is read.
+warning line per device each time the file is read. The layer prints nothing:
+it returns its lines, warnings first, and a refusal carries the warnings found
+before it.
 """
 
 from __future__ import annotations
@@ -50,10 +51,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import click
-
-from osprey.facility.errors import FacilityBuildError, quoted_slots
-from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
 from osprey.facility.sources import load_sources
 from osprey_connectors import yaml_loader
 
@@ -107,7 +105,7 @@ class _Reading:
         )
 
 
-def import_list(path: Path, facility_dir: Path) -> list[Path]:
+def import_list(path: Path, facility_dir: Path) -> tuple[list[Path], list[str]]:
     """Write a channel list as the list layer's sources.
 
     Args:
@@ -115,20 +113,20 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
         facility_dir: The ``data/facility`` directory.
 
     Returns:
-        Every file written.
+        Every file written, and the lines to show on stderr in order: the
+        warnings, then the devices this list alone declares.
 
     Raises:
         LayerSourceInvalid: The file has rows the layer refuses; nothing is
-            written.
+            written. Its ``warnings`` hold the warning lines found first.
     """
     reading = _read(path)
-    for warning in reading.warnings:
-        click.echo(warning, err=True)
+    lines = list(reading.warnings)
     if reading.errors:
-        raise LayerSourceInvalid(reading.errors)
+        raise LayerSourceInvalid(reading.errors, warnings=tuple(lines))
     alone = _declared_alone(facility_dir, reading.devices)
     if alone:
-        click.echo(f"import list: declared by this list only: {', '.join(alone)}", err=True)
+        lines.append(f"import list: declared by this list only: {', '.join(alone)}")
     layer = facility_dir / LAYER_DIR
     layer.mkdir(parents=True, exist_ok=True)
     written = [
@@ -139,7 +137,7 @@ def import_list(path: Path, facility_dir: Path) -> list[Path]:
         written.append(_dump(devices, _devices(reading)))
     elif devices.exists():
         devices.unlink()
-    return written
+    return written, lines
 
 
 def _devices(reading: _Reading) -> list[dict[str, Any]]:

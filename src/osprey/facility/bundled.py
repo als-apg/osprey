@@ -23,9 +23,10 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from osprey.facility.layers import LAYER_ROOT
+
 __all__ = [
     "HEADER_CAPABLE",
-    "LAYER_ROOT",
     "Classification",
     "bundled_origin",
     "classify",
@@ -37,8 +38,6 @@ HEADER_CAPABLE = frozenset({".yaml", ".yml", ".md"})
 
 _ORIGIN_TEXT = "Bundled with OSPREY: the {} facility. Delete this line to make the file yours."
 _ORIGIN = re.compile(re.escape(_ORIGIN_TEXT).replace(r"\{\}", r"(\S+)"))
-#: The directory, under ``data/facility``, that holds one directory per imported layer.
-LAYER_ROOT = "imported"
 _FRONTMATTER = "---"
 
 

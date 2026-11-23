@@ -270,8 +270,8 @@ class Thing:
     level: str | None = None
     short_name: str | None = None
     model: str | None = None
-    #: For a group: its kind as stated, ``family`` when absent (only a family is a
-    #: set); ``None`` for a device or a place.
+    #: For a group: its ``kind`` as the document states it, ``None`` when it states
+    #: none (only a stated ``family`` is a set); ``None`` for a device or a place.
     group_kind: str | None = None
     #: A device's attributes as ``(name, value)`` pairs, values as text (a list
     #: value gives one pair per item), in name order; empty for a place or a group.

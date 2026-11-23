@@ -36,7 +36,8 @@ from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.state import STILL_SCENARIO
-from tests._builds import init_project, run_build
+from tests._builds import FRAMEWORK_CHECKS, init_project, run_build
+from tests._facility_file import FACILITY_V4
 from tests.facility._synthetic_trees import (
     BPM,
     LINE_TWISS,
@@ -3109,7 +3110,8 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
     for rel in MIRRORED.get(case, ()):
         mirrored = repo / "project" / rel
         mirrored.parent.mkdir(parents=True, exist_ok=True)
-        mirrored.write_text("{}\n", encoding="utf-8")
+        # The build refuses the mirror by its path, whatever it holds.
+        mirrored.write_text(json.dumps({"schema": FACILITY_V4}) + "\n", encoding="utf-8")
     edit = PROFILE_EDITS.get(case)
     if edit is not None:
         edit(repo)
@@ -3142,7 +3144,9 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     ],
 )
 def test_an_override_stop_names_what_the_tree_holds(tmp_path: Path, case: str, kind: str) -> None:
-    document = build_facility(_write(tmp_path, case), project_name=PROJECT)
+    document = build_facility(
+        _write(tmp_path, case), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     slot = "name" if kind == "scenarios" else "id"
     held = {str(record[slot]) for record in document[kind]}
     if kind == "scenarios":
@@ -3244,7 +3248,11 @@ def test_a_fault_polarity_is_one_of_its_options(
     tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
     if slot is None:
         # The polarity is a facility stage's check: the facility builds.
-        build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name=PROJECT,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
         return
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
@@ -3364,7 +3372,9 @@ def test_a_scenario_keyed_by_an_engine_variable_builds(tmp_path: Path) -> None:
     pytest.importorskip("at")
     faults = {"SR": {"QF:SP/cal_factor": 1.1, "BPM1:X": {"offset": 1e-4, "roll": 0.01}}}
     tree = _deck(*monitor_axes(), scenario("warm", {"faults": faults}))()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     assert [s["faults"] for s in document["scenarios"]] == [faults]
 
 
@@ -3377,7 +3387,9 @@ def test_permuted_fixes_build_a_byte_equal_file(tmp_path: Path) -> None:
             fixes(*order),
         )()
         root = write_tree(tmp_path / str(index) / "facility", tree)
-        documents.add(json.dumps(build_facility(root, project_name=PROJECT)))
+        documents.add(
+            json.dumps(build_facility(root, project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS))
+        )
     assert len(documents) == 1
 
 
@@ -3398,7 +3410,9 @@ def test_two_layers_stating_and_defaulting_a_slot_build(tmp_path: Path) -> None:
             ],
         ),
     )()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     channel = next(c for c in document["channels"] if c["id"] == "BPM1:X")
     assert (channel["role"], channel["value_type"]) == ("readback", "float")
     (record,) = next(m for m in document["models"] if m["name"] == "optics")["wiring"]
@@ -3407,7 +3421,9 @@ def test_two_layers_stating_and_defaulting_a_slot_build(tmp_path: Path) -> None:
 
 def test_limits_records_without_a_defaults_block_build(tmp_path: Path) -> None:
     tree = _plain(limits({"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}))()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     assert document["limits"] == {
         "records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}]
     }
@@ -3416,4 +3432,4 @@ def test_limits_records_without_a_defaults_block_build(tmp_path: Path) -> None:
 def test_a_tree_without_limits_builds(tmp_path: Path) -> None:
     root = write_tree(tmp_path / "facility", plain_tree())
     assert not (root / "limits.yaml").exists()
-    assert "limits" not in build_facility(root, project_name=PROJECT)
+    assert "limits" not in build_facility(root, project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS)

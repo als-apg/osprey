@@ -22,6 +22,7 @@ from osprey.facility.build import LATER_STAGES, FacilityDocument
 from osprey.facility.combine import FIXES_HEADER
 from osprey.facility.render import facility_bytes
 from osprey.facility.validate import need, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 pytestmark = pytest.mark.slow
 
@@ -68,7 +69,9 @@ def _build(root: Path, fixes: list[dict[str, Any]]) -> tuple[FacilityDocument, d
     (layer / "channels.yaml").write_text(yaml.safe_dump(CSV_CHANNELS), encoding="utf-8")
     document = {"schema": FIXES_HEADER, "fixes": fixes}
     (root / "fixes.yaml").write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
-    report = run_stages(root, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        root, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert [error.format_message() for error in report.errors] == []
     return need(report.validated.document), need(report.validated.combined).dropped
 

@@ -24,8 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
-from osprey.facility.render import render_facility_outputs
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
+from osprey.facility.views.outputs import render_facility_outputs
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 KIND = "turn_kind"

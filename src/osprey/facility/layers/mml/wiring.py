@@ -93,13 +93,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.errors import ImportStop
 from osprey.facility.layers.mml import decks
 from osprey.facility.layers.mml.mapping import (
     MONITOR_FIELD,
     PHYSICS_UNITS,
     TUNE_PLANES,
     EngineBlock,
-    ImportStop,
     Mapping,
     MappingError,
     Model,

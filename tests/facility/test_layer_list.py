@@ -10,8 +10,9 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE
-from osprey.facility.layers import LayerSourceInvalid
+from osprey.facility.errors import LayerSourceInvalid
 from osprey.facility.layers.list import LAYER_DIR, import_list
+from tests._builds import FRAMEWORK_CHECKS
 
 
 def _csv(tmp_path: Path, text: str, name: str = "list.csv") -> Path:
@@ -21,8 +22,14 @@ def _csv(tmp_path: Path, text: str, name: str = "list.csv") -> Path:
 
 
 def _import(tmp_path: Path, text: str) -> tuple[Path, list[Path]]:
+    facility_dir, written, _lines = _import_lines(tmp_path, text)
+    return facility_dir, written
+
+
+def _import_lines(tmp_path: Path, text: str) -> tuple[Path, list[Path], list[str]]:
     facility_dir = tmp_path / "facility"
-    return facility_dir, import_list(_csv(tmp_path, text), facility_dir)
+    written, lines = import_list(_csv(tmp_path, text), facility_dir)
+    return facility_dir, written, lines
 
 
 def _channels(facility_dir: Path) -> list[dict[str, Any]]:
@@ -164,7 +171,7 @@ class TestDevices:
         facility_dir, _written = _import(tmp_path, "address,device\nG1:RB,L/G1\n")
         (tmp_path / "list.csv").write_text("address,unit\nG1:RB,A\n", encoding="utf-8")
 
-        written = import_list(tmp_path / "list.csv", facility_dir)
+        written, _lines = import_list(tmp_path / "list.csv", facility_dir)
 
         assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
         assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
@@ -183,18 +190,20 @@ class TestDevices:
         )
         listing = _csv(tmp_path, "address,device\nA,M1\nB,M2\nC,M3\nD,M4\nE,M4\n")
 
-        import_list(listing, facility_dir)
-        import_list(listing, facility_dir)
+        first = import_list(listing, facility_dir)[1]
+        second = import_list(listing, facility_dir)[1]
 
-        assert capsys.readouterr() == ("", 2 * "import list: declared by this list only: M3, M4\n")
+        assert first == second == ["import list: declared by this list only: M3, M4"]
+        assert capsys.readouterr() == ("", "")
         assert _devices(facility_dir) == [{"id": "M1"}, {"id": "M2"}, {"id": "M3"}, {"id": "M4"}]
 
     def test_a_list_that_is_the_only_source_of_devices_prints_nothing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         facility_dir, _written = _import(tmp_path, "address,device\nA,M1\n")
-        import_list(tmp_path / "list.csv", facility_dir)
+        _written, lines = import_list(tmp_path / "list.csv", facility_dir)
 
+        assert lines == []
         assert capsys.readouterr() == ("", "")
 
     def test_a_list_whose_devices_are_all_declared_elsewhere_prints_nothing(
@@ -204,8 +213,9 @@ class TestDevices:
 
         facility_dir = write_tree(tmp_path / "facility", {"records/devices.yaml": [{"id": "M1"}]})
 
-        import_list(_csv(tmp_path, "address,device\nA,M1\n"), facility_dir)
+        _written, lines = import_list(_csv(tmp_path, "address,device\nA,M1\n"), facility_dir)
 
+        assert lines == []
         assert capsys.readouterr() == ("", "")
 
 
@@ -285,12 +295,15 @@ class TestPositions:
     def test_a_model_without_an_s_is_imported_with_a_warning(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        facility_dir, written = _import(tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n")
+        facility_dir, written, lines = _import_lines(
+            tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n"
+        )
 
-        assert capsys.readouterr().err.splitlines() == [
+        assert lines == [
             "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
             "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
         ]
+        assert capsys.readouterr() == ("", "")
         assert written == [
             facility_dir / LAYER_DIR / "channels.yaml",
             facility_dir / LAYER_DIR / "devices.yaml",
@@ -301,9 +314,28 @@ class TestPositions:
     def test_a_plain_list_prints_nothing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        _import(tmp_path, "address,device\nG1:RB,L/G1\n")
+        _facility_dir, _written, lines = _import_lines(tmp_path, "address,device\nG1:RB,L/G1\n")
 
+        assert lines == []
         assert capsys.readouterr() == ("", "")
+
+    def test_a_refusal_carries_the_warnings_found_before_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(LayerSourceInvalid) as stop:
+            _import(tmp_path, "address,device,model,place\nG1:RB,L/G1,LINE,\nG2:RB,L/G2,,HALL\n")
+
+        warning = (
+            "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
+            "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
+        )
+        assert stop.value.warnings == (warning,)
+        assert capsys.readouterr() == ("", "")
+        stop.value.show()
+        err = capsys.readouterr().err.splitlines()
+        assert err[0] == warning
+        assert err[1:] == [error.format_message() for error in stop.value.errors]
+        assert len(err) == 2
 
     def test_a_listed_s_off_the_deck_of_a_wired_device_is_a_place_conflict(
         self, tmp_path: Path
@@ -317,7 +349,9 @@ class TestPositions:
         listing = _csv(tmp_path, "address,device,s,model\nLQ:RB,LINE/Q1,1.5,LINE\n")
         import_list(listing, facility_dir)
 
-        result = run_stages(facility_dir, project_name="p", later=LATER_STAGES)
+        result = run_stages(
+            facility_dir, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
 
         assert [error.format_message() for error in result.errors] == [
             "facility: place-conflict: device LINE/Q1 — layer list states s 1.5 in model LINE, "

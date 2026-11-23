@@ -300,10 +300,10 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """One call, on a render outside the repo that is gone once the verb returns."""
-    from osprey.facility import render
+    from osprey.facility.views import outputs as facility_outputs
 
     calls: list[tuple[Path, list[Path]]] = []
-    real = render.render_facility_outputs
+    real = facility_outputs.render_facility_outputs
 
     def spy(
         render_dir: Path, doc: Any, rendered_config: Any, facility_dir: Path, **kwargs: Any
@@ -313,7 +313,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
         calls.append((render_dir, written))
         return written
 
-    monkeypatch.setattr(render, "render_facility_outputs", spy)
+    monkeypatch.setattr(facility_outputs, "render_facility_outputs", spy)
 
     result = _validate(repo)
 

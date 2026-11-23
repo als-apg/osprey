@@ -105,7 +105,7 @@ the others ``{same_as: <it>}`` (a named family whose ids already agree keeps
 ``names``), each with a comment naming the families it shares its devices
 with. An address a family binds at several slots is a supply, not one device.
 
-The importer's stops are :class:`ImportStop`: one line each, prefixed
+The importer's stops are :class:`~osprey.facility.errors.ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
 """
 
@@ -120,9 +120,9 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from collections.abc import Mapping as Map
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any, Final, Literal, TypeGuard, overload
+from typing import Any, Final, Literal, TypeGuard, overload
 
-import click
+from osprey.facility.errors import ImportStop
 
 __all__ = [
     "CALIBRATION_KINDS",
@@ -148,7 +148,6 @@ __all__ = [
     "FieldAnswer",
     "FieldRole",
     "Identity",
-    "ImportStop",
     "Mapping",
     "MappingError",
     "Model",
@@ -216,34 +215,6 @@ READBACK_ROLE: Final = "readback"
 
 #: What a nominal's ``units`` reads when it is not a hardware value.
 PHYSICS_UNITS = "physics"
-
-
-class ImportStop(click.ClickException):
-    """An importer stop: ``import mml: <problem>: <what>``, one line per finding.
-
-    Args:
-        problem: The stop's word: ``mapping-draft``, ``mapping-undecided``,
-            ``mapping-invalid``, ``export-invalid`` or ``reference-missing``.
-        lines: What stopped the import, one entry per printed line.
-    """
-
-    exit_code = 1
-
-    def __init__(self, problem: str, lines: list[str]) -> None:
-        self.problem = problem
-        self.lines = tuple(lines)
-        super().__init__("\n".join(f"import mml: {problem}: {line}" for line in lines))
-
-    def show(self, file: IO[Any] | None = None) -> None:
-        """Write the stop's lines alone, with no ``Error: `` prefix.
-
-        Args:
-            file: The stream to write to; stderr when omitted.
-        """
-        if file is None:
-            click.echo(self.format_message(), err=True, color=self.show_color)
-        else:
-            click.echo(self.format_message(), file=file, color=self.show_color)
 
 
 class MappingError(ValueError):

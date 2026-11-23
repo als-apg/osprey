@@ -18,7 +18,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from osprey.facility.kinds import registered
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.mcp_server.python_executor.tools._pyaml_measure_args import (
     MeasureArgs,
     resolve_measure_args,

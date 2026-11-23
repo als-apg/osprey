@@ -32,10 +32,14 @@ from osprey.simulation.response import (
     RESULT_TAG,
     solve_and_print,
 )
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests.apps.test_sdk_model import RING, _ring_render
 from tests.mcp_server.conftest import assert_raises_error
 
 CORRECTOR = "COR_1:X:SP"
+
+#: How a reader's refusal of a facility file it cannot read ends.
+REBUILD = "-- rebuild with osprey build"
 
 
 @pytest.fixture
@@ -309,6 +313,69 @@ class TestTool:
         envelope = raised["envelope"]
         assert envelope["error_type"] == "validation_error"
         assert "answers only the orbit response" in envelope["error_message"]
+
+
+# ---------------------------------------------------------------------------
+# The facility file the step is read from
+# ---------------------------------------------------------------------------
+
+
+def _ring_document(ring: Path) -> dict[str, Any]:
+    document: dict[str, Any] = json.loads((ring / "facility.json").read_text(encoding="utf-8"))
+    document.pop("schema", None)
+    return document
+
+
+class TestFacilityFile:
+    @pytest.mark.foreign_header
+    def test_a_v3_facility_file_is_refused_naming_the_rebuild(self, ring):
+        path = write_facility_document(
+            ring, _ring_document(ring), schema="osprey.facility.facility/3"
+        )
+
+        with pytest.raises(model_request.ModelRequestRefused) as raised:
+            model_request.resolve_model_request(RING, None, render_root=ring)
+
+        assert raised.value.message == (
+            f"{path} is osprey.facility.facility/3; this reader reads "
+            f"osprey.facility.facility/4 {REBUILD}"
+        )
+        assert raised.value.message.count(str(path)) == 1
+        assert "osprey build" in raised.value.suggestion
+
+    @pytest.mark.foreign_header
+    def test_a_header_less_facility_file_is_refused(self, ring):
+        write_facility_document(ring, _ring_document(ring), schema=None)
+
+        with pytest.raises(model_request.ModelRequestRefused) as raised:
+            model_request.resolve_model_request(RING, None, render_root=ring)
+
+        assert "a document without a schema header" in raised.value.message
+        assert raised.value.message.endswith(REBUILD)
+
+    def test_a_v4_facility_file_reads_the_step_as_before(self, ring):
+        before = model_request.resolve_model_request(RING, None, render_root=ring)
+        write_facility_v4(ring, _ring_document(ring))
+
+        after = model_request.resolve_model_request(RING, None, render_root=ring)
+
+        assert after.corrector_delta == before.corrector_delta
+        assert after.steps == before.steps
+
+    @pytest.mark.foreign_header
+    def test_the_tool_answers_a_v3_facility_file_with_a_validation_error(self, ring, monkeypatch):
+        write_facility_document(ring, _ring_document(ring), schema="osprey.facility.facility/3")
+
+        async def execute_code(**_: Any) -> executor.ExecutionResult:
+            raise AssertionError("no child may start")
+
+        monkeypatch.setattr("osprey.utils.config_paths.resolve_config_dir", lambda: ring)
+        monkeypatch.setattr(executor, "execute_code", execute_code)
+
+        with assert_raises_error(error_type="validation_error") as raised:
+            asyncio.run(tool.model_response_matrix(model=RING))
+
+        assert raised["envelope"]["error_message"].endswith(REBUILD)
 
 
 @pytest.mark.parametrize("error_type", ["defect", "build"])

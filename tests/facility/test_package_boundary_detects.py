@@ -188,12 +188,6 @@ def test_an_import_of_a_public_description_module_breaks_nothing(shipped: Shippe
     ("importer", "imported", "contract"),
     [
         pytest.param(
-            "osprey.facility.render",
-            "osprey.facility.views",
-            "facility-description-standalone",
-            id="S1",
-        ),
-        pytest.param(
             "osprey.facility.panels.emit",
             "osprey_connectors.safety_file",
             "panels-standalone",
@@ -396,16 +390,6 @@ def test_a_third_party_import_inside_the_dependency_set_passes(tmp_path: Path) -
 
 #: Sources reproducing every scan-ratchet edge, by file.
 _RATCHET_SOURCES = {
-    "osprey/facility/errors.py": "import click\n",
-    "osprey/facility/layers/__init__.py": "import click\n",
-    "osprey/facility/layers/list.py": "import click\n",
-    "osprey/facility/layers/mml/importer.py": "import click\n",
-    "osprey/facility/layers/mml/loaders/json_any.py": "import click\n",
-    "osprey/facility/layers/mml/loaders/mat.py": "import click\n",
-    "osprey/facility/layers/mml/mapping.py": "import click\n",
-    "osprey/facility/layers/mml/systems.py": "import click\n",
-    "osprey/facility/validate.py": "import click\n",
-    "osprey/facility/kinds.py": "import pyaml_cs_osprey\n",
     "osprey/facility/panels/emit.py": (
         "from pathlib import Path\n"
         "THEME = Path(__file__).parents[2] / 'templates' / 'apps' / 'demo'\n"
@@ -432,9 +416,6 @@ def test_a_tree_with_every_scan_ratchet_edge_leaves_no_entry_stale(tmp_path: Pat
 @pytest.mark.parametrize(
     ("path", "key"),
     [
-        pytest.param(
-            "osprey/facility/validate.py", "osprey.facility.validate -> click", id="third-party"
-        ),
         pytest.param(
             "osprey/cli/facility_cmd.py",
             "osprey.cli.facility_cmd -> osprey.facility.layers.mml [files]",

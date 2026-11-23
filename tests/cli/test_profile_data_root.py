@@ -27,6 +27,7 @@ from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
+from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import copy_bundle_data
 
 
@@ -175,7 +176,11 @@ class TestFullReplacement:
         limits = json.loads((project_dir / "data" / "channel_limits.json").read_text())
         facility_dir = profile_dir / "data" / "facility"
         assert limits == limits_document(
-            FacilityRecords(build_facility(facility_dir, project_name=project_dir.name))
+            FacilityRecords(
+                build_facility(
+                    facility_dir, project_name=project_dir.name, extra_checks=FRAMEWORK_CHECKS
+                )
+            )
         ), "the limits database is not the view of the profile tree's limits.yaml"
 
     @pytest.mark.parametrize("bundle_data_at_top", [True, False])

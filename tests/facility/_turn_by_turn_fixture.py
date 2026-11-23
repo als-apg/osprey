@@ -25,6 +25,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from tests._builds import FRAMEWORK_CHECKS
+
 __all__ = [
     "ARMED",
     "ARMS",
@@ -135,14 +137,16 @@ def turn_by_turn_view(root: Path) -> Path:
         The render's simulator view, ``root/build/data/simulator``.
     """
     from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
     facility_dir = root / "data" / "facility"
     shutil.copytree(FIXTURE, facility_dir)
     render_dir = root / "build"
     render_dir.mkdir(parents=True)
-    document = build_facility(facility_dir, project_name="turn-by-turn")
+    document = build_facility(
+        facility_dir, project_name="turn-by-turn", extra_checks=FRAMEWORK_CHECKS
+    )
     render_facility_outputs(
         render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir, omitted_reported=_REPORTED
     )

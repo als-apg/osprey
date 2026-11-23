@@ -198,11 +198,14 @@ class RenderedTree:
 
         Returns:
             The render.
-        """
-        import json
 
+        Raises:
+            ValueError: The facility file cannot be read or carries a header
+                this reader does not read; the message names the rebuild.
+        """
         from osprey.apps.sdk import read_facts
         from osprey.deployment.web_terminals.render_naming import render_projection
+        from osprey.facility.reading import load_facility
         from osprey.facility.render import FACILITY_FILE
         from osprey_connectors.workspace import rendered_config_path
 
@@ -217,7 +220,7 @@ class RenderedTree:
             build_dir=build_dir,
             configs=configs,
             facts=read_facts(build_dir),
-            facility=json.loads((build_dir / FACILITY_FILE).read_text(encoding="utf-8")),
+            facility=load_facility(build_dir / FACILITY_FILE),
             output=output,
         )
 
