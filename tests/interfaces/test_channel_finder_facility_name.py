@@ -19,7 +19,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from osprey.facility.errors import FacilityFileError
+from osprey_facility.errors import FacilityFileError
 from tests._facility_file import write_facility_document, write_facility_v4
 
 # Distinct from any facility name under test, so a crossed wire is visible: this

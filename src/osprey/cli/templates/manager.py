@@ -21,7 +21,7 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import repo_root_for_config
 
 if TYPE_CHECKING:
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 

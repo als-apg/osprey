@@ -33,8 +33,6 @@ from osprey.agent_runner.build_artifacts.catalog import (
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.served import SIMULATION_MODELS_KEY
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
     PORT_BASE_CONFIG_KEY,
@@ -59,6 +57,8 @@ from osprey_connectors.types import (
     retired_type_message,
     talks_to_network,
 )
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.served import SIMULATION_MODELS_KEY
 
 from .build_profile_archiver import _expand_dotted, parse_va_archiver_block
 from .build_profile_deploy import _limits_block_leaf, _rendered_leaf_paths, parse_deploy_block

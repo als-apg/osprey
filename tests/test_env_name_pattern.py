@@ -21,7 +21,7 @@ MODULE_FLOOR = 500
 _NAME_CLASS = "[A-Za-z_][A-Za-z0-9_]*"
 #: Code generated from a schema, never edited by hand: its identifier patterns validate record
 #: names, not environment-variable names, and cannot import from the connectors package.
-GENERATED = ("src/osprey/facility/schema/_generated/",)
+GENERATED = ("packages/osprey-facility/src/osprey_facility/schema/_generated/",)
 WHOLE_NAME_PATTERNS = frozenset(
     start + _NAME_CLASS + end for start in ("^", "\\A") for end in ("$", "\\Z")
 )

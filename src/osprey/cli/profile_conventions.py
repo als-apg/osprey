@@ -61,8 +61,8 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.roots import FacilityRoots
 
 logger = get_logger("build")
 
@@ -1386,7 +1386,7 @@ def facility_mirror_violation(
         rel = path.relative_to(mirror_dir).as_posix()
         if not _is_facility_mirror_path(rel):
             continue
-        from osprey.facility.errors import FacilityBuildError
+        from osprey_facility.errors import FacilityBuildError
 
         mirrored = f"{PROJECT_MIRROR_DIR}/{rel}"
         return FacilityBuildError(
@@ -1420,7 +1420,7 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
     """The stop for a deployment file that restates a mounted machine's facts.
 
     While a profile mounts a machine root, the content root (``<data>/facility``)
-    holds only :data:`~osprey.facility.roots.DEPLOYMENT_CONTENT_DIRS`; every
+    holds only :data:`~osprey_facility.roots.DEPLOYMENT_CONTENT_DIRS`; every
     other entry is a machine fact and belongs to the machine repository. Only
     files are judged: stated settings (the probe and freshness channels, ARIEL
     vocabulary, the benchmark dataset) are deployment choices and stay legal,
@@ -1442,8 +1442,8 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
     """
     if not roots.mounted or not roots.content.is_dir():
         return None
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 
     found = _first_restated_file(roots.content, DEPLOYMENT_CONTENT_DIRS)
     if found is None:
@@ -1508,8 +1508,8 @@ def handwritten_limits_violation(
         writes in its place and the facility's ``limits.yaml`` as where its
         limits go, or ``None`` when the profile ships none.
     """
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.limits import LIMITS_FILE
+    from osprey_facility.errors import FacilityBuildError
 
     def shown(path: Path) -> str:
         return (

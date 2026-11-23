@@ -53,10 +53,10 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
     from psycopg_pool import AsyncConnectionPool
 
-    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.filters import EntryFilter, FilterDimension
+    from osprey_facility.records import FacilityRecords
 
 logger = get_logger("ariel")
 
@@ -945,7 +945,7 @@ class ARIELRepository:
         """The ids ``raw_text`` quotes as stored JSON; None without facility records."""
         if self.facility_records is None:
             return None
-        from osprey.facility.references import find_facility_references
+        from osprey_facility.references import find_facility_references
 
         return [ref.to_json() for ref in find_facility_references(raw_text, self.facility_records)]
 

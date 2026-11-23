@@ -13,8 +13,8 @@ import math
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.sources import read_yaml
 from osprey_connectors.simulation import topoff
+from osprey_facility.sources import read_yaml
 
 TREE = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"

@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 from lume_pyat.exceptions import OrbitSolveError
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_faults
 from osprey.simulation.engines.pyat_model import CHROMATICITY, TUNES
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 QUADRUPOLE = "SR:MAG:QF:01:CURRENT:SP"

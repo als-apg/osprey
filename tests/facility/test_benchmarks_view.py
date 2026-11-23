@@ -18,8 +18,6 @@ import pytest
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.facility import views
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.benchmarks import (
     BENCHMARK_DATASET_KEY,
     QUERY_SOURCES,
@@ -27,6 +25,8 @@ from osprey.facility.views.benchmarks import (
     write_benchmarks_view,
 )
 from osprey.facility.views.outputs import WrittenViews, render_facility_outputs
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import FACILITY_V4
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

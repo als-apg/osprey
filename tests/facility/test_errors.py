@@ -9,8 +9,9 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli, facility_errors_as_click
-from osprey.facility import PN_LOCAL, fold_code
-from osprey.facility.errors import (
+from osprey_connectors.simulation.engines import FacilityDefectError
+from osprey_facility import PN_LOCAL, fold_code
+from osprey_facility.errors import (
     KINDS,
     WARNING_KINDS,
     FacilityBuildError,
@@ -22,7 +23,6 @@ from osprey.facility.errors import (
     LayerSourceInvalid,
     MappingProblems,
 )
-from osprey_connectors.simulation.engines import FacilityDefectError
 
 
 def _error(**overrides: object) -> FacilityBuildError:
@@ -296,7 +296,7 @@ class TestRelationKinds:
         assert "relation-invalid" not in WARNING_KINDS
 
     def test_relation_invalid_prints_directly_after_reference_missing(self) -> None:
-        from osprey.facility.validate import _ROW, _TABLE_ROWS
+        from osprey_facility.validate import _ROW, _TABLE_ROWS
 
         row = _ROW["relation-invalid"]
         assert _TABLE_ROWS[row] == ("relation-invalid",)

@@ -40,7 +40,7 @@ Example structure:
 import json
 from typing import Any
 
-from osprey.facility.layers.mml.family import CHANNEL_KEYS
+from osprey_facility.layers.mml.family import CHANNEL_KEYS
 
 from ..core.base_database import BaseDatabase
 

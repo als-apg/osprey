@@ -35,9 +35,9 @@ import pytest
 import yaml
 from click.testing import Result
 
-from osprey.facility import kinds
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.view import VARIABLES_FILE
+from osprey_facility import kinds
+from osprey_facility.errors import FacilityBuildError
 from tests.facility._fixture_kind import (
     BLOCK,
     DISTRIBUTION,
@@ -73,7 +73,7 @@ MACHINE_DIR = "machine"
 
 #: The line of a listed kind nobody registers, where it stops the build.
 UNREGISTERED = (
-    f"kind {KIND} is not registered under osprey.facility.kinds by any installed package; "
+    f"kind {KIND} is not registered under osprey_facility.kinds by any installed package; "
     f"fix: install the kind's package, or remove {KIND} from `kinds`"
 )
 
@@ -259,7 +259,7 @@ def test_the_built_in_orm_goes_through_the_same_registry(built) -> None:
     (own,) = [e for e in entry_points(group=kinds.ENTRY_POINT_GROUP) if e.name == KIND]
 
     assert orm.dist is not None and own.dist is not None
-    assert (orm.dist.name, own.dist.name) == ("osprey-framework", DISTRIBUTION)
+    assert (orm.dist.name, own.dist.name) == ("osprey-facility", DISTRIBUTION)
     assert (kinds.kind_source("orm"), kinds.kind_source(KIND)) == (
         "built-in",
         f"package {DISTRIBUTION}",
@@ -281,7 +281,9 @@ def test_the_package_is_built_to_a_wheel_the_project_image_installs(built) -> No
     assert (wheel["name"], wheel["version"]) == (DISTRIBUTION, "0.1")
     with zipfile.ZipFile(packages / wheel["wheel"]) as archive:
         entry_points = archive.read("fixture_kind_deployment-0.1.dist-info/entry_points.txt")
-    assert f"{KIND} = fixture_kind_deployment:FIXTURE_KIND" in entry_points.decode()
+    group = entry_points.decode().split(f"[{kinds.ENTRY_POINT_GROUP}]", 1)
+    assert len(group) == 2, f"the wheel names no [{kinds.ENTRY_POINT_GROUP}] group"
+    assert f"{KIND} = fixture_kind_deployment:FIXTURE_KIND" in group[1].split("\n[", 1)[0]
     assert f"{DISTRIBUTION}==0.1" in (built.build_dir / "Dockerfile").read_text("utf-8")
     assert not list(built.build_dir.rglob("osprey-local-requirements.txt"))
 
@@ -641,6 +643,20 @@ def test_the_built_in_kinds_distribution_is_never_refused_by_the_install_check()
     refuse_unshipped_kinds([])
 
 
+@pytest.mark.usefixtures("installed")
+def test_a_kind_from_a_package_outside_the_image_is_refused_beside_the_built_ins() -> None:
+    from osprey.deployment.wheel_build import refuse_unshipped_kinds
+    from osprey_connectors.errors import BuildProfileError
+
+    with pytest.raises(BuildProfileError) as refused:
+        refuse_unshipped_kinds([])
+
+    message = str(refused.value)
+    assert f"'{KIND}' (package {DISTRIBUTION})" in message
+    assert not any(f"'{name}'" in message for name in BUILT_INS)
+    refuse_unshipped_kinds([f"{DISTRIBUTION}==0.1"])
+
+
 # --- no kind is dispatched on by name --------------------------------------------------
 
 #: The modules a kind passes through between the registry and the measure script.
@@ -651,8 +667,8 @@ KIND_HANDLING = (
     "src/osprey/mcp_server/python_executor/tools/_pyaml_measure_result.py",
     "src/osprey/mcp_server/python_executor/tools/pyaml_measure.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
-    "src/osprey/facility/validate.py",
-    "src/osprey/facility/layers/mml/seed.py",
+    "packages/osprey-facility/src/osprey_facility/validate.py",
+    "packages/osprey-facility/src/osprey_facility/layers/mml/seed.py",
 )
 
 #: Each (module, function, word) where a kind's name is spelled for another reason.

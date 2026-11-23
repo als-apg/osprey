@@ -20,10 +20,10 @@ import pytest
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta, transcript_map
 from osprey.simulation.apply import SCENARIO_SESSIONS_FILENAME
-from osprey.simulation.sessions import parse_sessions, resolve, to_dict
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import ArtifactStore, operator_visible, owner_of
 from osprey_connectors import control_context, posture_store
+from osprey_facility.sessions import parse_sessions, resolve, to_dict
 
 ANCHOR = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
 SCENARIO = "demo-history"

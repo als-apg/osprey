@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Route, expect
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.graph import graph_text
 from osprey.interfaces._serving import run_app_server
+from osprey_facility.records import FacilityRecords
 from tests.interfaces._browser import wait_for_page_ready
 from tests.interfaces.okf_panel.test_graph import BUNDLE, _doc
 

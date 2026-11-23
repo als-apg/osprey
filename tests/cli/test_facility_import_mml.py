@@ -20,15 +20,24 @@ from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE, _writes, import_group
 from osprey.cli.main import cli
 from osprey.facility.bundled import classify
-from osprey.facility.layers import FORMER_HEADER, HEADER
-from osprey.facility.layers.mml.importer import LAYER_DIR
-from osprey.facility.layers.mml.mapping import MAPPING_FILE
+from osprey_facility.layers import FORMER_HEADER, HEADER
+from osprey_facility.layers.mml.importer import LAYER_DIR
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
 from tests._builds import init_project
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TREE = REPO_ROOT / "tests" / "fixtures" / "mml" / "synthetic"
 EXPORT = TREE / "quokka.sr.ao.json"
-EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
+EXPORTER = (
+    REPO_ROOT
+    / "packages"
+    / "osprey-facility"
+    / "src"
+    / "osprey_facility"
+    / "layers"
+    / "mml"
+    / "mml_export.m"
+)
 
 TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"

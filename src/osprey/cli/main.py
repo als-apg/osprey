@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import click
 
 if TYPE_CHECKING:
-    from osprey.facility.errors import FacilityError
+    from osprey_facility.errors import FacilityError
 
     from .phase_reporter import PhaseReporter
 
@@ -52,7 +52,7 @@ class FacilityClickError(click.ClickException):
     It prints exactly what the original prints and exits 1.
 
     Attributes:
-        error: The :class:`~osprey.facility.errors.FacilityError` it carries.
+        error: The :class:`~osprey_facility.errors.FacilityError` it carries.
     """
 
     exit_code = 1
@@ -78,7 +78,7 @@ class FacilityClickError(click.ClickException):
 def facility_errors_as_click() -> Iterator[None]:
     """Turn a facility description error raised inside into a click error.
 
-    The description raises plain :class:`~osprey.facility.errors.FacilityError`
+    The description raises plain :class:`~osprey_facility.errors.FacilityError`
     exceptions; click prints and exits only on its own. Every command run
     through the root group runs inside this, as does anything else that
     invokes a command and wants the command line's output.
@@ -92,7 +92,7 @@ def facility_errors_as_click() -> Iterator[None]:
     except Exception as error:
         # Looked up rather than imported: `osprey --help` loads only this
         # module, and no facility error can exist before its module is loaded.
-        errors = sys.modules.get("osprey.facility.errors")
+        errors = sys.modules.get("osprey_facility.errors")
         if errors is None or not isinstance(error, errors.FacilityError):
             raise
         raise FacilityClickError(error) from error

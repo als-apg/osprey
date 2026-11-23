@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
-from osprey.facility.validate import FACILITY_HEADER
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -100,7 +100,7 @@ def test_every_written_file_carries_its_header(built_demo: BuiltProject) -> None
 def test_the_facility_file_is_written_in_every_render_with_its_header(
     built_demo: BuiltProject,
 ) -> None:
-    from osprey.facility.render import FACILITY_FILE
+    from osprey_facility.render import FACILITY_FILE
 
     for render in built_demo.outputs:
         assert json.loads(render.files[FACILITY_FILE])["schema"] == FACILITY_HEADER

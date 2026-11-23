@@ -49,10 +49,10 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.session_artifacts import ArtifactPayload
-    from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
     from osprey_connectors.simulation.view import SimulatorView
+    from osprey_facility.sessions import ResolvedSession
 
 logger = get_logger("simulation_apply")
 
@@ -558,7 +558,7 @@ def _seed_session(
     payloads: Mapping[tuple[str, str], ArtifactPayload],
 ) -> dict[str, Any]:
     """One seed-file session of *identity*: the resolved session, its ids and artifacts."""
-    from osprey.simulation.sessions import to_dict
+    from osprey_facility.sessions import to_dict
 
     slug = rs.session.slug
     plain = to_dict(rs)
@@ -609,8 +609,8 @@ def write_scenario_sessions(
 
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey.simulation.session_artifacts import render_session_artifacts
-    from osprey.simulation.sessions import parse_sessions, resolve
     from osprey_connectors.safety_file import atomic_replace
+    from osprey_facility.sessions import parse_sessions, resolve
 
     project_dir = Path(project_dir)
     if anchor.tzinfo is None or anchor.utcoffset() is None:
@@ -727,7 +727,7 @@ def _view_logbook(
         files: The view's scenario files directory; an entry's pictures resolve
             against ``files / <name>``.
     """
-    from osprey.facility.scenarios import scenario_logbook
+    from osprey_facility.scenarios import scenario_logbook
 
     return [
         entry
@@ -1214,7 +1214,7 @@ def _event_number(value: object) -> float:
     """``float(value)`` of an archiver event's number, read from an object-valued event.
 
     ``osprey build`` checks that every number an event states is an ``int`` or a
-    ``float`` (:func:`osprey.facility.scenarios.check_scenario_events`).
+    ``float`` (:func:`osprey_facility.scenarios.check_scenario_events`).
 
     Raises:
         TypeError: ``value`` is not a string, a bytes object or a real number,

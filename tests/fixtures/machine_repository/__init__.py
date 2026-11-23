@@ -19,8 +19,8 @@ import subprocess
 from pathlib import Path
 
 import osprey
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
 from osprey.utils.workspace import PROFILE_FILENAME
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 
 #: This package: the VA-only profile file sits here.
 FIXTURE_DIR = Path(__file__).parent

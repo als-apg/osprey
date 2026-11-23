@@ -18,11 +18,11 @@ from typing import Any
 
 import pytest
 
-from osprey.facility import kinds
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.scenarios import fault_roster
 from osprey.facility.views.simulator import write_simulator_view
 from osprey_connectors.simulation.view import VARIABLES_FILE
+from osprey_facility import kinds
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.scenarios import fault_roster
 from tests.facility._pyaml_trees import (
     built_document,
     measured_tree,

@@ -756,9 +756,9 @@ def _read_facility(project_dir: Path) -> dict[str, Any]:
         not an object or carries a header this reader does not read -- none of
         such a document is used.
     """
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import parsed_facility_file
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.errors import FacilityFileError
 
     path = project_dir / FACILITY_FILE
     try:
@@ -800,8 +800,8 @@ def _served_decks(facts: dict[str, Any], facility: dict[str, Any]) -> list[dict[
         deck to, relative to the deployment root, the directory
         ``mcp__python__execute`` runs in.
     """
-    from osprey.facility import TEXTURE
     from osprey.facility.views.simulator import served_deck_path
+    from osprey_facility import TEXTURE
 
     paths = {
         str(model.get("name")): served_deck_path(model)
@@ -832,8 +832,8 @@ def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str,
         Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
         cell does not name it; a class no family holds is absent.
     """
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.channel_finder import middle_layer_families
+    from osprey_facility.records import FacilityRecords
 
     out: dict[str, list[dict[str, str | None]]] = {}
     for name, pairs in middle_layer_families(FacilityRecords(facility)).items():

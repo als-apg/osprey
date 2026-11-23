@@ -290,9 +290,9 @@ state = Path(sys.argv[4])
 if source:
     shutil.copytree(Path(source) / "simulator", view)
 else:
-    from osprey.facility.build import build_facility
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
+    from osprey_facility.build import build_facility
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
     from osprey.registry.scenario_servers import check_scenario_servers

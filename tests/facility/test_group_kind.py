@@ -14,12 +14,12 @@ import pytest
 import yaml
 from rdflib import OWL, RDF, Graph, Literal, URIRef
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.records import FacilityRecords, is_family
-from osprey.facility.validate import run_stages
 from osprey.facility.views.channel_finder import middle_layer_families
 from osprey.facility.views.graph import graph_text
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.records import FacilityRecords, is_family
+from osprey_facility.validate import run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import appendix_a_tree, build_appendix_a

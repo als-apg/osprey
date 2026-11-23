@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from osprey.facility import PN_LOCAL
 from osprey.facility.views import graph_iri
+from osprey_facility import PN_LOCAL
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject

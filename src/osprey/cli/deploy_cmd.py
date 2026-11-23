@@ -20,9 +20,9 @@ import click
 from osprey.cli import output
 from osprey.cli.styles import Styles, console
 from osprey.deployment.errors import DeploymentPreconditionError, DeployStepFailedError
-from osprey.facility.errors import FacilityError
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
+from osprey_facility.errors import FacilityError
 
 from .repo_resolver import repo_option
 

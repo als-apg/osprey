@@ -25,8 +25,6 @@ from typing import Any
 import pytest
 from rdflib import OWL, RDF, Graph, URIRef
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.relations import end_identity
 from osprey.facility.views.graph import (
     CLAIM,
     CLAIM_OBJECT_PROPERTY_NAMES,
@@ -40,6 +38,8 @@ from osprey.facility.views.graph_iri import iri, namespace
 from osprey.interfaces.okf_panel.graph import graph_payload
 from osprey.services.channel_finder.graph_index.builder import parse_corpus
 from osprey.services.facility_knowledge.seeder.ttl_seeder import seed_from_ttl
+from osprey_facility.records import FacilityRecords
+from osprey_facility.relations import end_identity
 from tests.facility._appendix_a import (
     VARIANTS,
     appendix_a_tree,

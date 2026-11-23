@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import is_family
-from osprey.facility.validate import vocabulary
 from osprey.services.archiver_recorder.config import ChannelSet, resolve_channel_addresses
 from osprey_connectors.simulation.values import is_waveform
+from osprey_facility.records import is_family
+from osprey_facility.validate import vocabulary
 from tests.facility.test_cf_view_parity import addition_addresses, pre_line_queries
 
 if TYPE_CHECKING:

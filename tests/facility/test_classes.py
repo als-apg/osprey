@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 Build = Callable[..., tuple["BuiltProject", Result]]
 
 VOCABULARY_JSON = (
-    Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/_generated/vocabulary.json"
+    Path(__file__).resolve().parents[2]
+    / "packages/osprey-facility/src/osprey_facility/schema/_generated/vocabulary.json"
 )
 
 ELEMENTS_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/facility_demo/_elements.py"

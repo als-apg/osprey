@@ -109,8 +109,8 @@ def _guide_facility(path: Path) -> Mapping[str, Any] | None:
         ``None`` with a warning naming the cause when it cannot be read, is not
         JSON, is not an object or carries a header this reader does not read.
     """
-    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import parsed_facility_file
+    from osprey_facility.errors import FacilityFileError
 
     try:
         document: Mapping[str, Any] = parsed_facility_file(path)

@@ -15,7 +15,7 @@ import pytest
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import merge_layer_delta
 from osprey.cli.build_profile_resolve import apply_cli_edits
-from osprey.facility.errors import FacilityBuildError
+from osprey_facility.errors import FacilityBuildError
 
 WIDE = "control_system.limits_checking.database_path"
 PER_TYPE = "control_system.connector.epics.limits_checking.database_path"

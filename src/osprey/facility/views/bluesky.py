@@ -46,9 +46,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
+from osprey_facility import FACILITY_FILE
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "BLUESKY_DEVICES_FILE",
@@ -191,8 +191,8 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    from osprey.facility.validate import tolerance_warnings
     from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
+    from osprey_facility.validate import tolerance_warnings
 
     root.mkdir(parents=True, exist_ok=True)
     facility_file = root.parent / FACILITY_FILE

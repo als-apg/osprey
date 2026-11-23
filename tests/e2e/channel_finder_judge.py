@@ -26,12 +26,12 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from osprey.facility.records import ChannelSelection, FacilityRecords
-from osprey.facility.schema._generated.core import SignalRoleEnum
 from osprey.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
     UnselectedLevelError,
 )
+from osprey_facility.records import ChannelSelection, FacilityRecords
+from osprey_facility.schema._generated.core import SignalRoleEnum
 from tests.e2e.tool_errors import assert_no_tool_errors
 
 CHANNEL_FINDER_TOOLS = "mcp__channel-finder__"

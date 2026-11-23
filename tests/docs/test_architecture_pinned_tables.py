@@ -1,7 +1,7 @@
 """Three tables the docs retype from code state what the code holds.
 
 - The method table of ``architecture/facility-file.rst`` lists the public surface
-  of :class:`osprey.facility.records.FacilityRecords`, each row with the
+  of :class:`osprey_facility.records.FacilityRecords`, each row with the
   parameters of the member it names, and the ``RECORD_KINDS`` / ``LINK_KINDS``
   orders it quotes are the module's own.
 - The pin table of ``architecture/virtual-accelerator.rst`` lists every exact
@@ -24,8 +24,8 @@ from typing import Any
 
 import yaml
 
-from osprey.facility import records
-from osprey.facility.records import LINK_KINDS, RECORD_KINDS, FacilityRecords
+from osprey_facility import records
+from osprey_facility.records import LINK_KINDS, RECORD_KINDS, FacilityRecords
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DOCS = _REPO_ROOT / "docs" / "source"

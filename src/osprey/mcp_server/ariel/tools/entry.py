@@ -188,7 +188,7 @@ async def entry_get(
             result["entry_url"] = entry_url
         spans = entry.get("facility_refs")
         if isinstance(spans, list):
-            from osprey.facility.references import FacilityReference, resolved_references
+            from osprey_facility.references import FacilityReference, resolved_references
 
             result["facility_references"] = resolved_references(
                 [FacilityReference.from_json(span) for span in spans],

@@ -52,7 +52,7 @@ import pytest
 from tests.facility._reader_roster import CHANNELS, ROSTER
 
 REPO = Path(__file__).resolve().parents[2]
-SRC = REPO / "src"
+SRC = (REPO / "src", REPO / "packages" / "osprey-facility" / "src")
 
 #: The panel engine reads the document through its own chain; its modules are
 #: not scanned for names, and its chain is held by the entry-point check.
@@ -62,9 +62,9 @@ PANELS = "osprey.facility.panels"
 #: any other use. Handing them the document's path is always allowed.
 CHECKED_ENTRY_POINTS: frozenset[str] = frozenset(
     {
-        "osprey.facility.reading.load_facility",
+        "osprey_facility.reading.load_facility",
         "osprey.facility.views.facts.parsed_facility_file",
-        "osprey.facility.records.FacilityRecords.from_file",
+        "osprey_facility.records.FacilityRecords.from_file",
         "osprey.utils.facility.facility_identity",
         "osprey.utils.facility.facility_name",
         "osprey.facility.views.facts.read_facts",
@@ -74,7 +74,7 @@ CHECKED_ENTRY_POINTS: frozenset[str] = frozenset(
 
 #: The header checks an entry point's body must reach.
 HEADER_CHECKS: frozenset[str] = frozenset(
-    {"osprey.facility.reading.check_header", "osprey.facility.reading.load_facility"}
+    {"osprey_facility.reading.check_header", "osprey_facility.reading.load_facility"}
 )
 
 #: The panel engine's own chain: ``load_graph`` reaches the reader, the reader
@@ -86,8 +86,8 @@ PANELS_CHECK = "osprey.facility.panels.document._check_header"
 #: resolves to one of these; re-exports elsewhere are followed through the index.
 NAME_CONSTANTS: frozenset[str] = frozenset(
     {
-        "osprey.facility.FACILITY_FILE",
-        "osprey.facility.render.FACILITY_FILE",
+        "osprey_facility.FACILITY_FILE",
+        "osprey_facility.render.FACILITY_FILE",
         "osprey.facility.panels.document.FACILITY_FILE",
         "osprey.facility.panels.FACILITY_FILE",
     }
@@ -111,9 +111,9 @@ PATH_ONLY: frozenset[str] = frozenset(
         "osprey.facility.views.outputs.render_facility_outputs",
         # Writes the facility file the writer names, or copies an earlier render's
         # over it; reads nothing of it (plan deviation: split from the writer).
-        "osprey.facility.render.write_facility_file",
+        "osprey_facility.render.write_facility_file",
         # Hashes the file a block at a time against the build's own bytes; parses nothing.
-        "osprey.facility.render.serialised_file_document",
+        "osprey_facility.render.serialised_file_document",
         # Names the facility file as the roster source of the records it already holds.
         "osprey.facility.views.bluesky.write_bluesky_view",
         # Same, for the device document of records already read (plan deviation).
@@ -249,21 +249,23 @@ def _defs(node: ast.AST) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef | as
 class Index:
     """Every module of a source tree, its scopes and their bindings."""
 
-    def __init__(self, src: Path) -> None:
-        self.src = src
+    def __init__(self, src: Path | tuple[Path, ...]) -> None:
+        roots = (src,) if isinstance(src, Path) else tuple(src)
+        self.src = roots
         self.modules: dict[str, Scope] = {}
         self.scopes: dict[str, Scope] = {}
         #: Each node's parent, and each node's innermost enclosing scope.
         self.parent: dict[ast.AST, ast.AST] = {}
         self.scope_of: dict[ast.AST, Scope] = {}
-        for path in sorted(src.rglob("*.py")):
-            if "__pycache__" in path.parts:
-                continue
-            module = _module_of(src, path)
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            scope = Scope(module, module, tree, None, is_package=path.name == "__init__.py")
-            self.modules[module] = scope
-            self._add(scope)
+        for root in roots:
+            for path in sorted(root.rglob("*.py")):
+                if "__pycache__" in path.parts:
+                    continue
+                module = _module_of(root, path)
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                scope = Scope(module, module, tree, None, is_package=path.name == "__init__.py")
+                self.modules[module] = scope
+                self._add(scope)
 
     def _add(self, scope: Scope) -> None:
         self.scopes[scope.qualname] = scope
@@ -351,7 +353,7 @@ class Index:
 
 
 @functools.cache
-def index(src: Path) -> Index:
+def index(src: Path | tuple[Path, ...]) -> Index:
     return Index(src)
 
 
@@ -391,7 +393,7 @@ def _is_definition(node: ast.AST, idx: Index) -> bool:
     )
 
 
-def name_sites(src: Path) -> list[tuple[Scope, ast.AST, str]]:
+def name_sites(src: Path | tuple[Path, ...]) -> list[tuple[Scope, ast.AST, str]]:
     """Each expression in ``src`` naming the facility document, with its scope."""
     idx = index(src)
     sites = []
@@ -589,7 +591,7 @@ def _is_static(node: ast.AST) -> bool:
     )
 
 
-def flow_problems(src: Path) -> list[Problem]:
+def flow_problems(src: Path | tuple[Path, ...]) -> list[Problem]:
     """Every use of the facility document's name in ``src`` outside the whitelist."""
     flow = Flow(index(src))
     for scope, node, _ in name_sites(src):
@@ -600,7 +602,7 @@ def flow_problems(src: Path) -> list[Problem]:
 # --- entry points and callers ------------------------------------------------------------
 
 
-def calls(src: Path, qualname: str) -> Iterator[str]:
+def calls(src: Path | tuple[Path, ...], qualname: str) -> Iterator[str]:
     """Every callee ``qualname``'s body calls, nested functions included."""
     idx = index(src)
     scope = idx.scopes[qualname]
@@ -611,7 +613,7 @@ def calls(src: Path, qualname: str) -> Iterator[str]:
                 yield callee
 
 
-def reaches(src: Path, qualname: str, targets: frozenset[str]) -> bool:
+def reaches(src: Path | tuple[Path, ...], qualname: str, targets: frozenset[str]) -> bool:
     """Whether ``qualname`` calls one of ``targets``, through same-module helpers."""
     idx = index(src)
     seen: set[str] = set()
@@ -630,7 +632,7 @@ def reaches(src: Path, qualname: str, targets: frozenset[str]) -> bool:
     return False
 
 
-def callers(src: Path, targets: frozenset[str]) -> set[str]:
+def callers(src: Path | tuple[Path, ...], targets: frozenset[str]) -> set[str]:
     """Every function in ``src`` whose own body calls one of ``targets``."""
     idx = index(src)
     found = set()
@@ -652,7 +654,7 @@ def test_the_scan_finds_the_names_it_is_meant_to_find():
     assert "'facility.json'" in kinds
     assert "osprey.channel_roster.sources.facility_file_path()" in kinds
     assert ("osprey.apps.sdk._facts.facility_file", "FACILITY_FILE") in found
-    # Resolved through osprey.facility.render's re-export.
+    # Resolved through osprey_facility.render's re-export.
     assert ("osprey.apps.sdk.testing._deployment.RenderedTree.read", "FACILITY_FILE") in found
 
 
@@ -667,8 +669,8 @@ def test_path_only_is_the_ruled_list():
     assert PATH_ONLY == frozenset(
         {
             "osprey.facility.views.outputs.render_facility_outputs",
-            "osprey.facility.render.write_facility_file",
-            "osprey.facility.render.serialised_file_document",
+            "osprey_facility.render.write_facility_file",
+            "osprey_facility.render.serialised_file_document",
             "osprey.facility.views.bluesky.write_bluesky_view",
             "osprey.facility.views.bluesky.bluesky_document",
             "osprey.cli.facility_cmd._panel_graph",
@@ -686,7 +688,7 @@ def test_path_only_is_the_ruled_list():
 @pytest.mark.parametrize("entry", sorted(CHECKED_ENTRY_POINTS))
 def test_each_checked_entry_point_checks_the_header(entry: str):
     idx = index(SRC)
-    assert entry in idx.scopes, f"{entry} is not in src/ any more"
+    assert entry in idx.scopes, f"{entry} is not in the scanned source any more"
     targets = HEADER_CHECKS | CHECKED_ENTRY_POINTS | {PANELS_READER}
     assert reaches(SRC, entry, frozenset(targets)), f"{entry} reaches no header check"
 
@@ -709,7 +711,7 @@ def test_every_roster_entry_names_a_function_and_a_channel():
     idx = index(SRC)
     for entry in ROSTER:
         assert entry.channel in CHANNELS, entry
-        assert entry.function in idx.scopes, f"{entry.function} is not in src/"
+        assert entry.function in idx.scopes, f"{entry.function} is not in the scanned source"
 
 
 _COLLECT = """

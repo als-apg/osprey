@@ -16,7 +16,7 @@ import pytest
 
 from osprey.facility.panels import emit, load_graph
 from osprey.facility.panels.model import PanelGraph
-from osprey.facility.render import facility_bytes
+from osprey_facility.render import facility_bytes
 from tests.facility.panels._fixture import FIXTURE_DOCUMENT, PANELS_DIR, load_fixture_document
 
 #: The record kinds that each get one unknown key.

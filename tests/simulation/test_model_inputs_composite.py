@@ -28,13 +28,13 @@ import yaml
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.validate import run_stages
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation.engines import pyat as pyat_engine
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 PRODUCER_ENGINE = "fake_model_input_producer_engine"

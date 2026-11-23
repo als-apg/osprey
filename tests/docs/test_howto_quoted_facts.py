@@ -32,12 +32,12 @@ from osprey.cli.build_posture_check import CODE_REVIEW_HOOKS, check_code_review
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import load_profile
 from osprey.cli.build_profile_schema import McpServerDef
-from osprey.facility.layers import HEADER
 from osprey.port_layout import default_port
 from osprey.services.code_review.settings import DEFAULT_PROMPT
 from osprey_connectors.archiver._mya_archiver_connector import _REQUIRED_CLIENT
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import retired_type_message
+from osprey_facility.layers import HEADER
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"

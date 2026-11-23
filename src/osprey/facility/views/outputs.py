@@ -15,7 +15,7 @@ every render one record of the views it has written, so a view whose inputs a
 render shares with an earlier one is copied from that one's bytes rather than
 written again.
 
-The facility file itself is the description's (:mod:`osprey.facility.render`);
+The facility file itself is the description's (:mod:`osprey_facility.render`);
 this module is framework, and reaches the description only through it.
 """
 
@@ -28,9 +28,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.build import FacilityDocument
-from osprey.facility.render import copy_checked, write_facility_file
+from osprey_facility import FACILITY_FILE
+from osprey_facility.build import FacilityDocument
+from osprey_facility.render import copy_checked, write_facility_file
 
 if TYPE_CHECKING:
     from osprey.facility.views import View, ViewInputs
@@ -93,8 +93,8 @@ def render_facility_outputs(
             ``simulation.models`` does not resolve against the facility file.
     """
     from osprey.facility import views
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
 
     records = FacilityRecords(doc)
     inputs = views.ViewInputs(

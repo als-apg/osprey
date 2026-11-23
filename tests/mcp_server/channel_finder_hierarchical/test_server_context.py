@@ -5,12 +5,12 @@ import textwrap
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     get_cf_hier_context,
     initialize_cf_hier_context,
 )
 from osprey.utils.facility import facility_identity
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import write_facility_v4
 
 

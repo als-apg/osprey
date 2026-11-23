@@ -205,9 +205,9 @@ class RenderedTree:
         """
         from osprey.apps.sdk import read_facts
         from osprey.deployment.web_terminals.render_naming import render_projection
-        from osprey.facility.reading import load_facility
-        from osprey.facility.render import FACILITY_FILE
         from osprey_connectors.workspace import rendered_config_path
+        from osprey_facility.reading import load_facility
+        from osprey_facility.render import FACILITY_FILE
 
         build_dir = root / BUILD_DIR_NAME
         host = _load(rendered_config_path(root))

@@ -24,21 +24,21 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.errors import FacilityBuildError, ImportStop
-from osprey.facility.layers import HEADER
-from osprey.facility.layers.mml import seed as seed_module
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.errors import FacilityBuildError, ImportStop
+from osprey_facility.layers import HEADER
+from osprey_facility.layers.mml import seed as seed_module
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
     read_exports,
     write_records,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families
-from osprey.facility.validate import known_classes, run_stages
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+from osprey_facility.layers.mml.seed import READOUT_FILE, TUNING, band
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families
+from osprey_facility.validate import known_classes, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import (
     BUILT,
@@ -247,7 +247,7 @@ def test_an_existing_classes_file_gains_only_the_classes_it_lacks(
 def test_one_import_judges_each_export_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey.facility.layers.mml import judgments
+    from osprey_facility.layers.mml import judgments
 
     judged: list[str] = []
     judge = judgments.judged_family_views
@@ -609,7 +609,7 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
 def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
     imported: _Imported,
 ) -> None:
-    from osprey.facility.kinds import builtin_kinds
+    from osprey_facility.kinds import builtin_kinds
 
     periodic = {
         model["name"]: (model.get("settings") or {}).get(model["engine"], {}).get("solve")
@@ -635,7 +635,7 @@ def test_the_import_seeds_no_kind_a_deployment_package_registers(
     The SPEAR3 export names every member the fixture kind declares, so a seed
     that offered every registered kind would list it.
     """
-    from osprey.facility.kinds import registered
+    from osprey_facility.kinds import registered
     from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
     install(monkeypatch)

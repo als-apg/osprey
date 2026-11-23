@@ -90,13 +90,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, BinaryIO, NamedTuple
 
-from osprey.facility import DEFAULT_ROLE, PN_LOCAL
-from osprey.facility.records import FacilityRecords, group_kind, is_family
 from osprey.facility.views import GRAPH_BASIS_KEY, GRAPH_CLAIMS_KEY, ViewInputs
 from osprey.facility.views.graph_iri import iri
+from osprey_facility import DEFAULT_ROLE, PN_LOCAL
+from osprey_facility.records import FacilityRecords, group_kind, is_family
 
 if TYPE_CHECKING:
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
 __all__ = [
     "ATTRIBUTE_PREFIX",
@@ -412,7 +412,7 @@ def _family_descriptions(groups: Iterable[Mapping[str, Any]]) -> dict[str, str]:
 
 def _class_rows(records: FacilityRecords) -> dict[str, dict[str, Any]]:
     """Every class a device may carry: the vocabulary's and the facility-added ones."""
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     rows: dict[str, dict[str, Any]] = {
         row["name"]: {
@@ -457,7 +457,7 @@ def _inferred_projections(records: FacilityRecords) -> frozenset[str]:
     its place; a device keeps its place edge under ``basis: stated`` when any
     of them is stated.
     """
-    from osprey.facility.relations import ACCEPTED, end_identity
+    from osprey_facility.relations import ACCEPTED, end_identity
 
     projected = {
         str(device["id"]): str(device["place"])
@@ -616,8 +616,8 @@ def _written_claims(records: FacilityRecords, settings: GraphSettings) -> list[M
 
 def _relation_triples(subjects: _Subjects, code: str, claims: Iterable[Mapping[str, Any]]) -> None:
     """Add one edge per distinct (subject end, predicate, object end) of the claims."""
-    from osprey.facility.relations import ACCEPTED, CONTESTED, end_identity
-    from osprey.facility.validate import relation_types
+    from osprey_facility.relations import ACCEPTED, CONTESTED, end_identity
+    from osprey_facility.validate import relation_types
 
     types = relation_types()
     edges: set[tuple[str, str, str]] = set()
@@ -688,7 +688,7 @@ def _claim_node_triples(
     ``contests``, ``none`` no claim. A ``contests`` link is written only to a
     claim node that is itself written.
     """
-    from osprey.facility.relations import end_identity
+    from osprey_facility.relations import end_identity
 
     if settings.claims == "none":
         return
@@ -748,7 +748,7 @@ def _group_triples(
     setting, so a group keeps its node and members when its claims have no
     claim node or no edge.
     """
-    from osprey.facility.relations import end_identity
+    from osprey_facility.relations import end_identity
 
     group_ids: set[str] = set()
     for claim in claims:
@@ -833,8 +833,8 @@ _ALLOWED: dict[str, tuple[str, ...]] = {
 
 
 def _refusal(key: str, detail: str, remedy: str) -> FacilityBuildError:
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.served import CONFIG_SOURCE
 
     return FacilityBuildError(
         "profile-invalid", key, [CONFIG_SOURCE], remedy, record_kind="path", detail=detail
@@ -908,7 +908,7 @@ def _write_turtle(records: FacilityRecords, settings: GraphSettings, out: Binary
     A large facility's Turtle is the biggest file a build writes: the view
     streams it to its file rather than holding the text, the list of its lines
     or an encoded copy. A build writes it once and copies it to every other
-    render (:mod:`osprey.facility.render`).
+    render (:mod:`osprey_facility.render`).
     """
     code = str(records.document["identity"]["code"])
     classes = _class_rows(records)

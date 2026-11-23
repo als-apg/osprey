@@ -16,8 +16,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import VARIANTS, build_appendix_a
 from tests.facility._synthetic_trees import deck_tree, write_tree
@@ -213,7 +213,7 @@ class TestDisputes:
 
 
 def test_accepted_ends_at_two_levels_of_one_tree_agree_on_the_finer() -> None:
-    from osprey.facility.compute import _agreed_place
+    from osprey_facility.compute import _agreed_place
 
     assert _agreed_place({("place", "HALL"), ("place", "HALL/RK1")}) == "HALL/RK1"
     assert _agreed_place({("place", "HALL/RK1")}) == "HALL/RK1"

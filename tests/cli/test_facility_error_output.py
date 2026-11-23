@@ -255,7 +255,7 @@ _KIND_PACKAGE = "stepped_kind_pkg"
 _KIND_MODULE = """\
 import dataclasses
 
-from osprey.facility.kinds import ORM
+from osprey_facility.kinds import ORM
 
 STEPPED_KIND = dataclasses.replace(
     ORM,
@@ -284,7 +284,7 @@ def stepped_kind(tmp_path: Path) -> Iterator[None]:
         "Metadata-Version: 2.1\nName: stepped-kind-pkg\nVersion: 0.1\n", encoding="utf-8"
     )
     (info / "entry_points.txt").write_text(
-        f"[osprey.facility.kinds]\nstepped_kind = {_KIND_PACKAGE}:STEPPED_KIND\n",
+        f"[osprey_facility.kinds]\nstepped_kind = {_KIND_PACKAGE}:STEPPED_KIND\n",
         encoding="utf-8",
     )
     with pytest.MonkeyPatch.context() as patch:

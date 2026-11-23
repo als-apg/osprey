@@ -4,6 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 
-from osprey.facility.kinds import ORM
+from osprey_facility.kinds import ORM
 
 ORM_AGAIN = dataclasses.replace(ORM, description="a second orm")

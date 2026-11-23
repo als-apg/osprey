@@ -43,8 +43,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.records import FacilityRecords
 from tests._builds import BuiltProject
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
@@ -443,7 +443,7 @@ def _classes_with_alias(records: FacilityRecords, ttl: str, alias: str) -> set[s
     """
     from rdflib import Graph, URIRef
 
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     sem = "https://narad.example.org/schema/shared_semantics/"
     wanted = alias.lower()

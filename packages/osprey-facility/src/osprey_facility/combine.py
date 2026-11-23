@@ -1,0 +1,1187 @@
+"""Stage S2: combine every layer's records, apply fixes.yaml, fill the defaults.
+
+The merge works per (kind, id, field). Each layer states only the fields its
+source states; combine collects every layer's present value and stops on
+nothing while collecting. A field is a top-level slot of the record, and a
+map-valued slot (``settings``, ``engine``, ``calibration``, ``span``,
+``measurement``, ``attributes``) is one value, compared whole like a list. A
+channel's seed (``simulation``) is joined per key instead (``JOINED_MAPS``): one
+source may state ``follows`` and another the seed's values, and two sources that
+state one key differently conflict.
+
+Then the fixes apply as a set — ``set`` and ``add`` first, then ``drop`` — and
+the conflict check runs over what is left: two present unequal values on a
+field no ``set`` names stop the build (``layer-conflict``). Three set slots are
+joined instead (``UNIONED``): a group carries every member any source states
+(``members-disagree`` warns when the sources differ), and a place or device
+carries every ``scheme_names`` entry any source states, where one
+``(name, scheme)`` key two sources give different contents still stops the
+build. Last, the schema
+defaults are filled and recorded in each record's provenance: a channel that
+states no description but names a signal is given one composed from its
+owner, its signal and its unit, recorded as a default; a setpoint that
+states no ``pair`` is paired by the rule of ``pairing.py``, else with itself,
+recorded as a default.
+
+``fixes.yaml``::
+
+    schema: osprey.facility.fixes/1
+    fixes:
+      - op: set                      # set | add | drop
+        kind: channel                # place | device | channel | wiring | group | model | relation
+        id: SR:QF:SP
+        fields: {role: setpoint}     # set: the fields it replaces, each whole
+        was: {role: {mml: readback}} # set: per field, every layer's present value
+        why: The export lists the setpoint as a monitor.
+      - op: add
+        kind: device
+        id: SR/QF9
+        record: {class: Quadrupole}  # add: the record's slots
+        why: Missing from the export.
+
+Then each listed measurement kind's settings transform patches its model's
+engine settings (``settings.<engine>.<setting>``), once, so every later stage
+and view reads one settings map; a patched setting is recorded as a default.
+A patch of a setting a source states, or that another listed kind patches,
+stops the build naming both.
+
+Every list compares and emits in source order except the set-valued slots:
+a plain set compares and emits sorted by its string form, a keyed set
+(``scheme_names``, ``citations``) ordered by its key. Records emit sorted by id,
+models by name with ``texture`` last, wiring inside its model by id. The result
+does not depend on the order of fixes.yaml.
+"""
+
+from __future__ import annotations
+
+import copy
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any
+
+import yaml
+
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
+from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
+from osprey_facility.pairing import PAIR_RULE, derive_pairs
+from osprey_facility.provenance import Stating, add_defaults, build_provenance
+from osprey_facility.records import DEFAULT_GROUP_KIND
+from osprey_facility.sources import (
+    AUTHORED,
+    COMPUTED_SLOTS,
+    KEYED_SETS,
+    KIND_CLASS,
+    RECORD_FILES,
+    SET_VALUED_SLOTS,
+    Sources,
+    citation_dates,
+    group_families,
+    keyed_clashes,
+    keyed_order,
+)
+
+__all__ = [
+    "FIXES_FILE",
+    "FIXES_HEADER",
+    "SET_VALUED",
+    "JOINED_MAPS",
+    "UNIONED",
+    "CombineResult",
+    "combine",
+]
+
+FIXES_FILE = "fixes.yaml"
+
+#: The header fixes.yaml carries.
+FIXES_HEADER = "osprey.facility.fixes/1"
+
+#: The slots whose lists are sets, per record kind: the rows of ``SET_VALUED_SLOTS``
+#: a layer may state for that kind.
+SET_VALUED: dict[str, frozenset[str]] = {
+    kind: frozenset(slot for cls, slot in SET_VALUED_SLOTS if cls == KIND_CLASS[kind])
+    - COMPUTED_SLOTS[kind]
+    for kind in RECORD_FILES.values()
+}
+
+#: The set slots a layer adds to, per record kind: the record carries every
+#: entry any source states, where every other field must agree across sources.
+#: ``citations`` is not one: a layer stating a record's citations states them all.
+UNIONED: dict[str, frozenset[str]] = {
+    "group": frozenset({"members"}),
+    "place": frozenset({"scheme_names"}),
+    "device": frozenset({"scheme_names"}),
+}
+
+#: The map slots joined per key, per record kind: the record carries every key
+#: any source states, and only a key two sources state differently conflicts.
+JOINED_MAPS: dict[str, frozenset[str]] = {"channel": frozenset({"simulation"})}
+
+_OPS = ("set", "add", "drop")
+_KINDS = ("place", "device", "channel", "wiring", "group", "model", "relation")
+_FIX_KEYS = frozenset({"op", "kind", "id", "fields", "record", "why", "was"})
+
+_SLICE_WEIGHT = 1
+
+#: The file whose name the list of each kind emits under.
+_PLURAL = {
+    "place": "places",
+    "device": "devices",
+    "channel": "channels",
+    "group": "groups",
+    "model": "models",
+    "relation": "relations",
+}
+
+
+@dataclass(frozen=True)
+class _Fix:
+    position: int
+    op: str
+    kind: str
+    id: str
+    why: str
+    fields: dict[str, Any] = field(default_factory=dict)
+    record: dict[str, Any] = field(default_factory=dict)
+    was: dict[str, Any] | None = None
+
+    def entry(self) -> dict[str, Any]:
+        return {"op": self.op, "kind": self.kind, "id": self.id, "why": self.why}
+
+
+@dataclass(slots=True)
+class _Value:
+    layer: str | None
+    file: str | None
+    value: Any
+    filled: frozenset[int] = frozenset()
+
+
+@dataclass(slots=True)
+class _Record:
+    kind: str
+    id: str
+    values: dict[str, list[_Value]] = field(default_factory=dict)
+    sources: list[Stating] = field(default_factory=list)
+    set_fields: dict[str, _Value] = field(default_factory=dict)
+    fix: _Fix | None = None
+
+    def layers(self) -> set[str]:
+        return {stating.layer for stating in self.sources}
+
+    def files(self) -> list[str]:
+        return sorted({stating.file for stating in self.sources})
+
+    def current(self, name: str) -> list[Any]:
+        """Every value the field holds once the sets have applied."""
+        if name in self.set_fields:
+            return [self.set_fields[name].value]
+        return [v.value for v in self.values.get(name, ())]
+
+
+@dataclass
+class CombineResult:
+    """What stage S2 returns.
+
+    Attributes:
+        document: The combined records in facility-file shape: ``identity``
+            (when a source states one), ``classes``, ``signals`` (the effective
+            signal-role table: the vocabulary's roles and the facility's, by name),
+            ``relation_types`` (the vocabulary's relation types, by name), ``places``, ``devices``, ``channels``, ``groups`` (each with its
+            effective ``kind``), ``models`` (each with its ``wiring``),
+            ``limits`` (when a source states one), ``scenarios``, and
+            ``relations`` and ``documents`` (each when non-empty). Complete
+            only when ``errors`` is empty.
+        errors: Every stop found.
+        dropped: ``(kind, id)`` of each record a ``drop`` removed, to the fix
+            that removed it (a channel's or model's wiring records name the
+            channel's or model's fix).
+        warnings: One ``members-disagree`` per group whose sources state
+            different members, sorted by group id.
+    """
+
+    document: dict[str, Any]
+    errors: list[FacilityBuildError]
+    dropped: dict[tuple[str, str], dict[str, Any]]
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
+
+
+def combine(sources: Sources) -> CombineResult:
+    """Combine the layers and apply the fixes (stage S2).
+
+    Args:
+        sources: What stage S1 read, with no S1 stop.
+
+    Returns:
+        The combined document and every stop found: ``fix-missing``,
+        ``fix-stale``, ``fix-duplicate``, ``fix-computed``, ``fix-authored``,
+        ``fix-referenced``, ``layer-conflict``, ``source-invalid`` for a
+        fixes.yaml entry of the wrong shape, and ``value-invalid`` for a kind's
+        settings transform that fails or patches a setting already stated. A
+        group's ``members`` are the union of what its sources state; sources
+        that differ warn ``members-disagree`` unless a fix names the field.
+    """
+    return _Combiner(sources).run()
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Value equality in which a boolean never equals a number."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    return bool(a == b)
+
+
+def _show(value: Any) -> str:
+    """One-line YAML for a value in an error line."""
+    text = yaml.safe_dump(value, default_flow_style=True, sort_keys=True, width=1 << 30)
+    return text.strip().removesuffix("...").strip()
+
+
+def _was_dates(kind: str, was: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """A fix's ``was`` with its citation dates as text, as the layers hold them."""
+    out: dict[str, Any] = {}
+    for name, layers in was.items():
+        out[name] = {
+            layer: citation_dates(kind, {name: value})[name] for layer, value in layers.items()
+        }
+    return out
+
+
+def _group_list(value: Any) -> Any:
+    """A group role's ids as a sorted list; a value neither text nor a list stays for S3."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return sorted(value, key=str)
+    return value
+
+
+def _normalize(kind: str, name: str, value: Any) -> tuple[Any, frozenset[int]]:
+    """A value in the form it is compared and emitted in.
+
+    Set-valued lists are sorted by string form, a keyed set (``KEYED_SETS``)
+    collapsed and ordered by key, a measurement's ``kinds`` and
+    each of its group roles too (a role naming one group becomes a list of
+    one), and each slice without a ``weight`` gets the constant default.
+
+    Returns:
+        The value and the positions of the slices whose weight was filled.
+    """
+    value = copy.deepcopy(value)
+    if name in SET_VALUED.get(kind, ()) and isinstance(value, list):
+        if name in KEYED_SETS:
+            return keyed_order(name, value), frozenset()
+        return sorted(value, key=str), frozenset()
+    if kind == "model" and name == "measurement" and isinstance(value, dict):
+        kinds = value.get("kinds")
+        if isinstance(kinds, list):
+            value["kinds"] = sorted(kinds, key=str)
+        groups = value.get("groups")
+        if isinstance(groups, dict):
+            value["groups"] = {role: _group_list(named) for role, named in groups.items()}
+        return value, frozenset()
+    if kind == "wiring" and name == "slices" and isinstance(value, list):
+        filled = set()
+        for position, piece in enumerate(value):
+            if isinstance(piece, dict) and "weight" not in piece:
+                piece["weight"] = _SLICE_WEIGHT
+                filled.add(position)
+        return value, frozenset(filled)
+    return value, frozenset()
+
+
+def _unioned(kind: str, name: str, values: Sequence[_Value]) -> bool:
+    """Whether the sources' values of a field are joined: a ``UNIONED`` slot stated as lists."""
+    return name in UNIONED.get(kind, ()) and all(isinstance(v.value, list) for v in values)
+
+
+def _joined(kind: str, name: str, values: Sequence[_Value]) -> bool:
+    """Whether the sources' values of a field are joined per key: a ``JOINED_MAPS`` slot stated as maps."""
+    return name in JOINED_MAPS.get(kind, ()) and all(isinstance(v.value, dict) for v in values)
+
+
+def _join(values: Sequence[_Value]) -> dict[str, Any]:
+    """Every key any source states, in the order the sources first state them."""
+    joined: dict[str, Any] = {}
+    for stated in values:
+        for key, value in stated.value.items():
+            joined.setdefault(key, value)
+    return joined
+
+
+def _union(kind: str, name: str, values: Sequence[_Value]) -> Any:
+    """Every entry any source states, each once, in the slot's compared order."""
+    entries: dict[str, Any] = {}
+    for stated in values:
+        for entry in stated.value:
+            entries.setdefault(f"{type(entry).__name__}:{entry!r}", entry)
+    return _normalize(kind, name, list(entries.values()))[0]
+
+
+def _id_key(kind: str) -> str:
+    return "name" if kind == "model" else "id"
+
+
+class _Combiner:
+    def __init__(self, sources: Sources) -> None:
+        self.sources = sources
+        self.errors: list[FacilityBuildError] = []
+        self.records: dict[tuple[str, str], _Record] = {}
+        self.dropped: dict[tuple[str, str], dict[str, Any]] = {}
+        self.warnings: list[FacilityBuildWarning] = []
+
+    def run(self) -> CombineResult:
+        fixes = self._parse_fixes()
+        self._collect()
+        fixes = self._drop_duplicate_fixes(fixes)
+        for fix in sorted(fixes, key=lambda f: f.kind == "wiring"):
+            if fix.op == "add":
+                self._apply_add(fix)
+        self._attach_seeds_and_measurement()
+        drops: list[_Fix] = []
+        for fix in fixes:
+            if fix.op == "set":
+                self._apply_set(fix)
+            elif fix.op == "drop" and self._check_target(fix):
+                drops.append(fix)
+        self._apply_drops(drops)
+        self._check_conflicts()
+        document = self._emit()
+        if not self.errors:
+            self._patch_settings(document)
+        return CombineResult(document, self.errors, self.dropped, self.warnings)
+
+    # --- fixes.yaml shape -----------------------------------------------------
+
+    def _parse_fixes(self) -> list[_Fix]:
+        data = self.sources.fixes
+        if data is None:
+            return []
+        if not isinstance(data, dict):
+            self._shape_error(FIXES_FILE, "is not a mapping", "write it as a mapping")
+            return []
+        for key in sorted(set(data) - {"schema", "fixes"}, key=str):
+            self._shape_error(f"{FIXES_FILE}.{key}", "is an unknown key", f"remove `{key}`")
+        if data.get("schema") != FIXES_HEADER:
+            self._shape_error(
+                f"{FIXES_FILE}.schema",
+                f"header is {data.get('schema')!r}",
+                f"write `schema: {FIXES_HEADER}`",
+            )
+        entries = data.get("fixes") or []
+        if not isinstance(entries, list):
+            self._shape_error(f"{FIXES_FILE}.fixes", "is not a list", "write it as a list")
+            return []
+        fixes = []
+        for position, entry in enumerate(entries):
+            fix = self._parse_fix(position, entry)
+            if fix is not None:
+                fixes.append(fix)
+        return fixes
+
+    def _parse_fix(self, position: int, entry: Any) -> _Fix | None:
+        where = f"{FIXES_FILE}.fixes.{position}"
+        if not isinstance(entry, dict):
+            self._shape_error(where, "is not a mapping", "write the fix as a mapping")
+            return None
+        problems = [f"unknown key `{k}`" for k in sorted(set(entry) - _FIX_KEYS, key=str)]
+        op: Any = entry.get("op")
+        kind: Any = entry.get("kind")
+        rid: Any = entry.get("id")
+        why: Any = entry.get("why")
+        if op not in _OPS:
+            problems.append(f"`op` {op!r} is not one of {', '.join(_OPS)}")
+        if kind not in _KINDS:
+            problems.append(f"`kind` {kind!r} is not one of {', '.join(_KINDS)}")
+        if not isinstance(rid, str) or not rid:
+            problems.append("`id` is not a string")
+        if not isinstance(why, str) or not why.strip():
+            problems.append("`why` is missing")
+        present = {k for k in ("fields", "record", "was") if k in entry}
+        allowed = {"set": {"fields", "was"}, "add": {"record"}, "drop": set()}.get(op, present)
+        problems += [f"`{k}` does not belong on `{op}`" for k in sorted(present - allowed)]
+        fields: Any = entry.get("fields")
+        if op == "set" and not (isinstance(fields, dict) and fields):
+            problems.append("`fields` is not a non-empty mapping")
+        elif op == "set" and kind in _KINDS:
+            for name in (_id_key(kind), "wiring" if kind == "model" else None):
+                if name is not None and name in fields:
+                    problems.append(f"`fields` names `{name}`")
+        record = entry.get("record")
+        if op == "add" and not isinstance(record, dict):
+            problems.append("`record` is not a mapping")
+        was = entry.get("was")
+        if was is not None and not (
+            isinstance(was, dict) and all(isinstance(v, dict) for v in was.values())
+        ):
+            problems.append("`was` is not a mapping of field to {layer: value}")
+        if problems:
+            self._shape_error(where, "; ".join(problems), "fix the entry")
+            return None
+        return _Fix(
+            position,
+            op,
+            kind,
+            rid,
+            why,
+            fields=citation_dates(kind, fields or {}),
+            record=citation_dates(kind, record or {}),
+            was=None if "was" not in entry else _was_dates(kind, was or {}),
+        )
+
+    # --- collecting -----------------------------------------------------------
+
+    def _record(self, kind: str, rid: str) -> _Record:
+        key = (kind, rid)
+        if key not in self.records:
+            self.records[key] = _Record(kind, rid)
+        return self.records[key]
+
+    def _state(
+        self,
+        record: _Record,
+        layer: str | None,
+        file: str | None,
+        fields: dict[str, Any],
+        basis: str | None = None,
+        rule: str | None = None,
+    ) -> None:
+        for name, raw in fields.items():
+            value, filled = _normalize(record.kind, name, raw)
+            record.values.setdefault(name, []).append(_Value(layer, file, value, filled))
+        if layer is not None and file is not None:
+            record.sources.append(Stating(layer, file, tuple(fields), basis, rule))
+
+    def _collect(self) -> None:
+        for source in self.sources.records:
+            self._state(
+                self._record(source.kind, source.id),
+                source.layer,
+                source.file,
+                source.fields,
+                source.basis,
+                source.rule,
+            )
+
+    def _attach_seeds_and_measurement(self) -> None:
+        for address, seed in sorted(self.sources.seeds.items()):
+            target = self.records.get(("channel", address))
+            if target is not None:
+                self._state(target, AUTHORED, "seeds.yaml", {"simulation": seed})
+        for model, measurement in sorted(self.sources.measurement.items()):
+            target = self.records.get(("model", model))
+            if target is not None:
+                rel = f"measurement/{model}.yaml"
+                self._state(target, AUTHORED, rel, {"measurement": measurement})
+
+    # --- fixes ------------------------------------------------------------------
+
+    def _drop_duplicate_fixes(self, fixes: list[_Fix]) -> list[_Fix]:
+        by_target: dict[tuple[str, str], list[_Fix]] = {}
+        for fix in fixes:
+            by_target.setdefault((fix.kind, fix.id), []).append(fix)
+        kept = []
+        for fix in fixes:
+            group = by_target[(fix.kind, fix.id)]
+            if len(group) == 1:
+                kept.append(fix)
+            elif fix is group[0]:
+                ops = " and ".join(f"`{f.op}`" for f in group)
+                self._error(
+                    "fix-duplicate",
+                    fix,
+                    [FIXES_FILE],
+                    f"fixes.yaml has {ops} for it",
+                    "keep one fix per record in fixes.yaml",
+                )
+        return kept
+
+    def _apply_add(self, fix: _Fix) -> None:
+        key = (fix.kind, fix.id)
+        existing = self.records.get(key)
+        if existing is not None:
+            layers = ", ".join(sorted(existing.layers()))
+            self._error(
+                "fix-duplicate",
+                fix,
+                [FIXES_FILE, *existing.files()],
+                f"`add` of a record layer {layers} already produces",
+                "change the fix to `set`",
+            )
+            return
+        record = dict(fix.record)
+        id_key = _id_key(fix.kind)
+        if id_key in record and record.pop(id_key) != fix.id:
+            self._shape_error(
+                f"{FIXES_FILE}.fixes.{fix.position}.record.{id_key}",
+                f"`{id_key}` is not the fix's id {fix.id}",
+                f"remove `{id_key}` from `record`",
+            )
+            return
+        wiring = record.pop("wiring", None) if fix.kind == "model" else None
+        adds = [(fix.kind, fix.id, record)]
+        if fix.kind == "wiring":
+            model, _, address = fix.id.partition("/")
+            if record.setdefault("address", address) != address or not model:
+                self._shape_error(
+                    f"{FIXES_FILE}.fixes.{fix.position}.id",
+                    f"wiring id {fix.id} is not <model>/<address of the record>",
+                    "write the id as <model>/<address>",
+                )
+                return
+            if ("model", model) not in self.records:
+                self._error(
+                    "fix-missing",
+                    fix,
+                    [FIXES_FILE],
+                    f"model {model} does not exist",
+                    "add the model or remove the fix from fixes.yaml",
+                )
+                return
+        for entry in wiring if isinstance(wiring, list) else []:
+            wired = entry.get("address") if isinstance(entry, dict) else None
+            if not isinstance(wired, str):
+                self._shape_error(
+                    f"{FIXES_FILE}.fixes.{fix.position}.record.wiring",
+                    "has an entry without a string `address`",
+                    "add `address`",
+                )
+                return
+            adds.append(("wiring", f"{fix.id}/{wired}", dict(entry)))
+        for kind, rid, fields in adds:
+            computed = sorted(set(fields) & COMPUTED_SLOTS[kind])
+            if computed:
+                self._error(
+                    "fix-computed",
+                    fix,
+                    [FIXES_FILE],
+                    f"`add` writes {quoted_slots(computed)}, which the build computes",
+                    f"remove {quoted_slots(computed)} from the fix",
+                )
+                return
+            if self._keyed_clash(fix, kind, rid, fields, "record"):
+                return
+            if (kind, rid) in self.records:
+                self._error(
+                    "fix-duplicate",
+                    fix,
+                    [FIXES_FILE, *self.records[(kind, rid)].files()],
+                    f"`add` of {kind} {rid}, which a layer already produces",
+                    "change the fix to `set`",
+                )
+                return
+        for kind, rid, fields in adds:
+            target = self._record(kind, rid)
+            fields.pop("id", None)
+            self._state(target, None, None, fields)
+            target.fix = fix
+
+    def _check_target(self, fix: _Fix) -> _Record | None:
+        target = self.records.get((fix.kind, fix.id))
+        if target is None:
+            self._missing(fix)
+            return None
+        if target.layers() == {AUTHORED}:
+            files = target.files()
+            self._error(
+                "fix-authored",
+                fix,
+                [FIXES_FILE, *files],
+                f"`{fix.op}` targets a record only {AUTHORED} sources state",
+                f"edit data/facility/{files[0]}",
+            )
+            return None
+        return target
+
+    def _missing(self, fix: _Fix) -> None:
+        address = fix.id
+        prefix = ""
+        if fix.kind == "wiring":
+            model, _, address = fix.id.partition("/")
+            prefix = f"{model}/"
+        moved = None
+        if fix.kind in ("channel", "wiring"):
+            for (kind, rid), record in sorted(self.records.items()):
+                if kind != "channel":
+                    continue
+                if any(address in (v or []) for v in record.current("former_addresses")):
+                    moved = rid
+                    break
+        if moved is None:
+            self._error(
+                "fix-missing",
+                fix,
+                [FIXES_FILE],
+                f"no {fix.kind} {fix.id} exists",
+                "remove the fix from fixes.yaml",
+            )
+            return
+        self._error(
+            "fix-missing",
+            fix,
+            [FIXES_FILE],
+            f"no {fix.kind} {fix.id} exists; channel {moved} lists {address} in former_addresses",
+            f"point the fix at {fix.kind} {prefix}{moved}",
+        )
+
+    def _apply_set(self, fix: _Fix) -> None:
+        target = self._check_target(fix)
+        if target is None:
+            return
+        computed = sorted(set(fix.fields) & COMPUTED_SLOTS[fix.kind])
+        if computed:
+            self._error(
+                "fix-computed",
+                fix,
+                [FIXES_FILE],
+                f"`set` names {quoted_slots(computed)}, which the build computes",
+                f"remove {quoted_slots(computed)} from the fix",
+            )
+            return
+        if self._keyed_clash(fix, fix.kind, fix.id, fix.fields, "fields"):
+            return
+        current: dict[str, dict[str, Any]] = {}
+        for name in sorted(fix.fields):
+            values = target.values.get(name, [])
+            stated = {v.layer: v.value for v in values if v.layer is not None}
+            if stated:
+                current[name] = stated
+        if not self._was_matches(fix, current):
+            corrected = {
+                "op": "set",
+                "kind": fix.kind,
+                "id": fix.id,
+                "fields": fix.fields,
+                "was": current,
+                "why": fix.why,
+            }
+            if not current:
+                del corrected["was"]
+            state = "is missing" if fix.was is None else "does not match the layers"
+            self._error(
+                "fix-stale",
+                fix,
+                [FIXES_FILE, *target.files()],
+                f"`was` {state}",
+                f"replace the fix with {_show(corrected)}",
+            )
+            return
+        for name, raw in fix.fields.items():
+            value, filled = _normalize(fix.kind, name, raw)
+            target.set_fields[name] = _Value(None, None, value, filled)
+        target.fix = fix
+
+    def _keyed_clash(
+        self, fix: _Fix, kind: str, rid: str, fields: Mapping[str, Any], where: str
+    ) -> bool:
+        """Refuse a fix value that states one key of a keyed set with two contents."""
+        clashed = False
+        for name in sorted(set(fields) & SET_VALUED.get(kind, frozenset())):
+            for key in keyed_clashes(name, fields[name]):
+                self._shape_error(
+                    f"{FIXES_FILE}.fixes.{fix.position}.{where}.{name}",
+                    f"{kind} {rid} `{name}` states two contents for key {key}",
+                    f"keep one entry per key in `{name}`",
+                )
+                clashed = True
+        return clashed
+
+    def _was_matches(self, fix: _Fix, current: dict[str, dict[str, Any]]) -> bool:
+        if fix.was is None:
+            return not current
+        was = {
+            name: {layer: _normalize(fix.kind, name, value)[0] for layer, value in layers.items()}
+            for name, layers in fix.was.items()
+        }
+        return _same(was, current)
+
+    def _apply_drops(self, drops: list[_Fix]) -> None:
+        for fix in sorted(drops, key=lambda f: (f.kind, f.id)):
+            if (fix.kind, fix.id) not in self.records:
+                continue
+            self._remove((fix.kind, fix.id), fix)
+            if fix.kind in ("channel", "model"):
+                for kind, rid in sorted(self.records):
+                    if kind != "wiring":
+                        continue
+                    model, _, address = rid.partition("/")
+                    if (fix.kind == "channel" and address == fix.id) or (
+                        fix.kind == "model" and model == fix.id
+                    ):
+                        self._remove((kind, rid), fix)
+        for fix in drops:
+            referrers = sorted(set(self._referrers(fix.kind, fix.id)))
+            if referrers:
+                self._error(
+                    "fix-referenced",
+                    fix,
+                    [FIXES_FILE],
+                    f"`drop` leaves {len(referrers)} referrer(s): {'; '.join(referrers)}",
+                    "drop or re-point each referrer by a fix",
+                )
+
+    def _remove(self, key: tuple[str, str], fix: _Fix) -> None:
+        # A record's own drop names it; otherwise the first drop in (kind, id) order does.
+        self.records.pop(key, None)
+        if key == (fix.kind, fix.id) or key not in self.dropped:
+            self.dropped[key] = fix.entry()
+
+    def _live(self, kind: str) -> Iterator[_Record]:
+        return (record for (k, _rid), record in sorted(self.records.items()) if k == kind)
+
+    def _referrers(self, kind: str, rid: str) -> Iterator[str]:
+        if kind == "device":
+            yield from self._on_referrers("device", rid)
+            for channel in self._live("channel"):
+                if any(rid in (v or []) for v in channel.current("endpoint_of")):
+                    yield f"channel {channel.id} (endpoint_of)"
+            for group in self._live("group"):
+                if any(rid in (v or []) for v in group.current("members")):
+                    yield f"group {group.id} (members)"
+            for wiring in self._live("wiring"):
+                for slices in wiring.current("slices"):
+                    if any(isinstance(s, dict) and s.get("device") == rid for s in slices or []):
+                        yield f"wiring {wiring.id} (slices)"
+            yield from self._relation_referrers("device", rid)
+        elif kind == "place":
+            yield from self._on_referrers("place", rid)
+            for device in self._live("device"):
+                if rid in device.current("place"):
+                    yield f"device {device.id} (place)"
+            for place in self._live("place"):
+                if "/" in place.id and place.id.rsplit("/", 1)[0] == rid:
+                    yield f"place {place.id} (parent)"
+            yield from self._relation_referrers("place", rid)
+        elif kind == "model":
+            for place in self._live("place"):
+                if any(
+                    isinstance(s, dict) and s.get("model") == rid for s in place.current("span")
+                ):
+                    yield f"place {place.id} (span)"
+            for scenario in self.sources.scenarios:
+                faults = scenario.get("faults")
+                if isinstance(faults, dict) and rid in faults:
+                    yield f"scenarios/{scenario['name']}.yaml (faults)"
+            if rid in self.sources.measurement:
+                yield f"measurement/{rid}.yaml"
+        elif kind == "group":
+            for model, measurement in sorted(self.sources.measurement.items()):
+                groups = measurement.get("groups")
+                if (
+                    ("model", model) in self.records
+                    and isinstance(groups, dict)
+                    and any(rid in group_families(value) for value in groups.values())
+                ):
+                    yield f"measurement/{model}.yaml (groups)"
+            yield from self._relation_referrers("group", rid)
+
+    def _relation_referrers(self, kind: str, rid: str) -> Iterator[str]:
+        for relation in self._live("relation"):
+            for end in ("subject", "object"):
+                if any(isinstance(e, dict) and e.get(kind) == rid for e in relation.current(end)):
+                    yield f"relation {relation.id} ({end})"
+
+    def _on_referrers(self, kind: str, rid: str) -> Iterator[str]:
+        for channel in self._live("channel"):
+            if any(isinstance(on, dict) and on.get(kind) == rid for on in channel.current("on")):
+                yield f"channel {channel.id} (on)"
+
+    # --- conflicts --------------------------------------------------------------
+
+    def _check_conflicts(self) -> None:
+        for (_kind, _rid), record in sorted(self.records.items()):
+            for name in sorted(record.values):
+                if name in record.set_fields:
+                    continue
+                values = record.values[name]
+                if all(_same(values[0].value, v.value) for v in values[1:]):
+                    continue
+                if _joined(record.kind, name, values):
+                    self._keys_differ(record, name, values)
+                    continue
+                if _unioned(record.kind, name, values):
+                    if name in KEYED_SETS:
+                        self._keys_disagree(record, name, values)
+                    else:
+                        self._members_disagree(record, values)
+                    continue
+                shown = "; ".join(f"{v.layer}={_show(v.value)}" for v in values)
+                self.errors.append(
+                    FacilityBuildError(
+                        "layer-conflict",
+                        record.id,
+                        record.files(),
+                        f"add a `set` fix for `{name}` to fixes.yaml",
+                        record_kind=record.kind,
+                        detail=f"`{name}` differs: {shown}",
+                    )
+                )
+
+    def _keys_differ(self, record: _Record, name: str, values: list[_Value]) -> None:
+        """Stop on each key of a joined map that two sources state differently."""
+        for key in _join(values):
+            stated = [v for v in values if key in v.value]
+            if all(_same(stated[0].value[key], v.value[key]) for v in stated[1:]):
+                continue
+            shown = "; ".join(
+                f"{v.layer}={_show(v.value[key])}"
+                for v in sorted(stated, key=lambda v: str(v.layer))
+            )
+            self.errors.append(
+                FacilityBuildError(
+                    "layer-conflict",
+                    record.id,
+                    record.files(),
+                    f"state `{name}.{key}` alike in each source, or add a `set` fix for "
+                    f"`{name}` to fixes.yaml",
+                    record_kind=record.kind,
+                    detail=f"`{name}.{key}` differs: {shown}",
+                )
+            )
+
+    def _keys_disagree(self, record: _Record, name: str, values: list[_Value]) -> None:
+        """Stop on each key of a joined keyed set that two sources give different contents."""
+        entries = [entry for v in values for entry in v.value]
+        layers = ", ".join(sorted({str(v.layer) for v in values}))
+        for key in keyed_clashes(name, entries):
+            self.errors.append(
+                FacilityBuildError(
+                    "layer-conflict",
+                    record.id,
+                    record.files(),
+                    f"state the entry alike in each source, or add a `set` fix for `{name}` "
+                    "to fixes.yaml",
+                    record_kind=record.kind,
+                    detail=f"`{name}` states two contents for key {key}: {layers}",
+                )
+            )
+
+    def _members_disagree(self, record: _Record, values: list[_Value]) -> None:
+        """Warn that a group's sources state different members, naming who states which."""
+        stated = {v.file or FIXES_FILE: {str(member) for member in v.value} for v in values}
+        files = sorted(stated)
+        differing = []
+        for member in sorted(set().union(*stated.values())):
+            has = [file for file in files if member in stated[file]]
+            lacks = [file for file in files if member not in stated[file]]
+            if lacks:
+                differing.append(f"{member} in {', '.join(has)}, not in {', '.join(lacks)}")
+        total = len(set().union(*stated.values()))
+        self.warnings.append(
+            FacilityBuildWarning(
+                kind="members-disagree",
+                record_kind=record.kind,
+                record_id=record.id,
+                detail=(
+                    f"sources state different `members`: {'; '.join(differing)}; "
+                    f"the group carries all {total}"
+                ),
+                remedy=(
+                    "state the same members in each source, or add a `set` fix for "
+                    "`members` to fixes.yaml"
+                ),
+            )
+        )
+
+    # --- emission ---------------------------------------------------------------
+
+    def _merged(self, record: _Record) -> tuple[dict[str, Any], set[str]]:
+        fields: dict[str, Any] = {}
+        defaults: set[str] = set()
+        for name in sorted(set(record.values) | set(record.set_fields)):
+            chosen = record.set_fields.get(name)
+            candidates = [chosen] if chosen is not None else record.values[name]
+            if chosen is None and _unioned(record.kind, name, candidates):
+                fields[name] = _union(record.kind, name, candidates)
+            elif chosen is None and len(candidates) > 1 and _joined(record.kind, name, candidates):
+                fields[name] = _join(candidates)
+            else:
+                # The record's own copy, made by _normalize when it was stated
+                # and read by nothing once merged: a second copy here would
+                # double the field values of a large facility for nothing.
+                fields[name] = candidates[0].value
+            if name == "slices" and frozenset.intersection(*(c.filled for c in candidates)):
+                defaults.add("slices.weight")
+        return fields, defaults
+
+    def _emit_record(
+        self,
+        record: _Record,
+        fields: dict[str, Any],
+        defaults: Iterable[str],
+        rules: Iterable[tuple[str, Iterable[str]]] = (),
+    ) -> dict[str, Any]:
+        fixes = [(record.fix.op, record.fix.why)] if record.fix is not None else []
+        provenance = build_provenance(
+            sources=record.sources, fixes=fixes, defaults=defaults, rules=rules
+        )
+        return {_id_key(record.kind): record.id, **fields, "provenance": provenance}
+
+    def _emit(self) -> dict[str, Any]:
+        merged = {key: self._merged(record) for key, record in sorted(self.records.items())}
+        devices = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "device"}
+        for (kind, _rid), (fields, defaults) in merged.items():
+            if kind == "channel":
+                _channel_defaults(fields, defaults)
+                _channel_description(fields, defaults, devices)
+            elif kind == "group" and "kind" not in fields:
+                fields["kind"] = DEFAULT_GROUP_KIND
+                defaults.add("kind")
+        channels = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "channel"}
+        derived = derive_pairs(channels)
+        for (kind, rid), (fields, defaults) in merged.items():
+            if kind == "channel" and fields["role"] == "setpoint" and "pair" not in fields:
+                fields["pair"] = derived.get(rid, rid)
+                defaults.add("pair")
+        rules = {("channel", rid): [(PAIR_RULE, ("pair",))] for rid in derived}
+        for (kind, rid), (fields, defaults) in merged.items():
+            if kind == "wiring":
+                channel = merged.get(("channel", rid.partition("/")[2]))
+                on = channel[0].get("on") if channel is not None else None
+                device = on.get("device") if isinstance(on, dict) else None
+                _slice_devices(device, fields, defaults)
+        emitted = {
+            key: self._emit_record(self.records[key], fields, defaults, rules.get(key, ()))
+            for key, (fields, defaults) in merged.items()
+        }
+        document: dict[str, Any] = {}
+        if self.sources.identity is not None:
+            document["identity"] = copy.deepcopy(self.sources.identity)
+        document["classes"] = sorted(
+            copy.deepcopy(self.sources.classes), key=lambda row: str(row.get("class"))
+        )
+        # the effective signal-role table: a facility may not shadow a vocabulary
+        # role (stage S1 stops it), so the two are disjoint
+        document["signals"] = _by_name("signal_roles", self.sources.signals)
+        document["relation_types"] = _by_name("relations")
+        for kind in ("place", "device", "channel", "group"):
+            document[_PLURAL[kind]] = [rec for (k, _), rec in emitted.items() if k == kind]
+        models = []
+        for (kind, name), model in emitted.items():
+            if kind != "model":
+                continue
+            wiring = [
+                rec
+                for (k, rid), rec in emitted.items()
+                if k == "wiring" and rid.partition("/")[0] == name
+            ]
+            provenance = model.pop("provenance")
+            models.append({**model, "wiring": wiring, "provenance": provenance})
+        document["models"] = sorted(models, key=lambda m: (m["name"] == TEXTURE, m["name"]))
+        if self.sources.limits is not None:
+            document["limits"] = copy.deepcopy(self.sources.limits)
+        document["scenarios"] = copy.deepcopy(self.sources.scenarios)
+        relations = [rec for (k, _), rec in emitted.items() if k == "relation"]
+        if relations:
+            document["relations"] = relations
+        if self.sources.documents:
+            document["documents"] = sorted(
+                copy.deepcopy(self.sources.documents), key=lambda d: str(d["id"])
+            )
+        return document
+
+    # --- the measurement kinds' settings patches -------------------------------
+
+    def _patch_settings(self, document: dict[str, Any]) -> None:
+        """Apply each listed kind's settings patch to its model, in the registry's order.
+
+        A model whose ``settings`` or engine block is not a mapping is left for
+        the schema stage and the engine; an unregistered kind, or a registry the
+        build refuses, for the measurement stage.
+        """
+        measured = [
+            model
+            for model in document["models"]
+            if isinstance(model.get("measurement"), dict)
+            and isinstance(model["measurement"].get("kinds"), list)
+            and model["measurement"]["kinds"]
+        ]
+        if not measured:
+            return
+        from osprey_facility.kinds import KindRegistryError, registered
+
+        try:
+            declared = registered()
+        except KindRegistryError:
+            return
+        for model in measured:
+            self._patch_model(model, declared)
+
+    def _patch_model(self, model: dict[str, Any], declared: Mapping[str, Any]) -> None:
+        from osprey_facility.kinds import KindSettingsError, kind_source, settings_patch
+
+        name = str(model["name"])
+        engine = model.get("engine")
+        settings = model.get("settings")
+        if settings is not None and not isinstance(settings, dict):
+            return
+        hand = (settings or {}).get(engine)
+        if hand is not None and not isinstance(hand, dict):
+            return
+        hand = hand or {}
+        files = [f"measurement/{name}.yaml"]
+        listed = {str(kind) for kind in model["measurement"]["kinds"]}
+        patched: dict[str, tuple[str, Any]] = {}
+        stopped = False
+        for kind, declaration in declared.items():
+            if kind not in listed:
+                continue
+            try:
+                patch = settings_patch(declaration, model)
+            except KindSettingsError as failed:
+                self.errors.append(
+                    FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"make the settings transform of kind {kind} ({kind_source(kind)}) "
+                        "accept every block its measurement schema admits",
+                        record_kind="measurement",
+                        detail=(
+                            f"kind {kind}'s settings transform fails on this file's block: "
+                            f"{failed.cause}"
+                        ),
+                    )
+                )
+                return
+            for setting, value in patch.get(str(engine), {}).items():
+                slot = f"settings.{engine}.{setting}"
+                if setting in hand:
+                    stated = self._settings_files(name)
+                    self.errors.append(
+                        FacilityBuildError(
+                            "value-invalid",
+                            name,
+                            [*stated, *files],
+                            f"remove `{slot}` from {', '.join(stated)}, or remove {kind} "
+                            "from `kinds`",
+                            record_kind="model",
+                            detail=(
+                                f"kind {kind} ({kind_source(kind)}) sets `{slot}`, which "
+                                f"{', '.join(stated)} states by hand"
+                            ),
+                        )
+                    )
+                    stopped = True
+                elif setting in patched:
+                    first = patched[setting][0]
+                    self.errors.append(
+                        FacilityBuildError(
+                            "value-invalid",
+                            name,
+                            files,
+                            f"list one of {first} and {kind} in `kinds`",
+                            record_kind="measurement",
+                            detail=(
+                                f"kinds {first} ({kind_source(first)}) and {kind} "
+                                f"({kind_source(kind)}) both set `{slot}`"
+                            ),
+                        )
+                    )
+                    stopped = True
+                else:
+                    patched[setting] = (kind, copy.deepcopy(value))
+        if stopped or not patched:
+            return
+        values = {setting: value for setting, (_kind, value) in patched.items()}
+        model["settings"] = {**(settings or {}), str(engine): {**hand, **values}}
+        model["provenance"] = add_defaults(
+            model["provenance"], (f"settings.{engine}.{setting}" for setting in patched)
+        )
+
+    def _settings_files(self, model: str) -> list[str]:
+        """The files that state a model's ``settings``: fixes.yaml when a fix sets it."""
+        record = self.records[("model", model)]
+        if "settings" in record.set_fields:
+            return [FIXES_FILE]
+        stated = sorted({s.file for s in record.sources if "settings" in s.fields})
+        return stated or record.files()
+
+    # --- errors -----------------------------------------------------------------
+
+    def _shape_error(self, path: str, detail: str, remedy: str) -> None:
+        self.errors.append(
+            FacilityBuildError(
+                "source-invalid", path, [FIXES_FILE], remedy, record_kind="path", detail=detail
+            )
+        )
+
+    def _error(self, kind: str, fix: _Fix, files: list[str], detail: str, remedy: str) -> None:
+        self.errors.append(
+            FacilityBuildError(kind, fix.id, files, remedy, record_kind=fix.kind, detail=detail)
+        )
+
+
+def _by_name(table: str, added: Iterable[Mapping[str, Any]] = ()) -> list[dict[str, Any]]:
+    """The vocabulary's ``table`` rows and ``added``, copied and sorted by name.
+
+    Each row keeps only the fields its source states.
+    """
+    from osprey_facility.validate import vocabulary
+
+    rows = [*vocabulary()[table], *added]
+    return sorted(copy.deepcopy(rows), key=lambda row: str(row.get("name")))
+
+
+def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:
+    """Fill a channel's schema defaults, each recorded as a default."""
+    if "role" not in fields:
+        fields["role"] = DEFAULT_ROLE
+        defaults.add("role")
+    if "value_type" not in fields:
+        fields["value_type"] = DEFAULT_VALUE_TYPE
+        defaults.add("value_type")
+    if "on" not in fields:
+        defaults.add("on")
+    if fields["value_type"] == "bool" and "options" not in fields:
+        fields["options"] = list(DEFAULT_BOOL_OPTIONS)
+        defaults.add("options")
+
+
+def _owner_name(device_id: Any, devices: Mapping[str, Mapping[str, Any]]) -> str:
+    """A device's label, else its id."""
+    label = (devices.get(str(device_id)) or {}).get("label")
+    return str(label) if label else str(device_id)
+
+
+def _channel_description(
+    fields: dict[str, Any], defaults: set[str], devices: Mapping[str, Mapping[str, Any]]
+) -> None:
+    """Compose a description for a channel that states none but names a signal.
+
+    The description is ``<owner> <signal words> (<unit>)``: the owner is the
+    ``on`` device's label (else its id), else the ``endpoint_of`` devices'
+    names joined by ``", "``, else the ``on`` place's id, else nothing.
+    """
+    signal = fields.get("signal")
+    if "description" in fields or not signal:
+        return
+    stated_on = fields.get("on")
+    on: Mapping[str, Any] = stated_on if isinstance(stated_on, dict) else {}
+    endpoints = fields.get("endpoint_of") or []
+    owner: str | None = None
+    if on.get("device"):
+        owner = _owner_name(on["device"], devices)
+    elif endpoints:
+        owner = ", ".join(_owner_name(device, devices) for device in endpoints)
+    elif on.get("place"):
+        owner = str(on["place"])
+    unit = fields.get("unit")
+    parts = (owner, str(signal).replace("_", " "), f"({unit})" if unit else None)
+    fields["description"] = " ".join(part for part in parts if part)
+    defaults.add("description")
+
+
+def _slice_devices(device: Any, fields: dict[str, Any], defaults: set[str]) -> None:
+    """Give each slice without a ``device`` the channel's device."""
+    slices = fields.get("slices")
+    if device is None or not isinstance(slices, list):
+        return
+    for piece in slices:
+        if isinstance(piece, dict) and "device" not in piece:
+            piece["device"] = device
+            defaults.add("slices.device")

@@ -148,9 +148,9 @@ def _timeout(config: dict[str, Any]) -> object:
 
 def _facility(render_root: Path) -> dict[str, Any]:
     """The render's facility document, refused before any write when it cannot be read."""
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.errors import FacilityFileError
-    from osprey.facility.reading import load_facility
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.errors import FacilityFileError
+    from osprey_facility.reading import load_facility
 
     path = render_root / FACILITY_FILE
     remedy = "Run `osprey build`; the facility file is written by the build."
@@ -164,8 +164,8 @@ def _facility(render_root: Path) -> dict[str, Any]:
 
 def _script(args: MeasureArgs, approved_view_sha256: str | None) -> MeasureScript:
     """The script inputs: the request plus the names and waits the render states."""
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
+    from osprey_facility.records import FacilityRecords
     from pyaml_cs_osprey.names import UnmappedName
 
     document = _facility(args.render_root)

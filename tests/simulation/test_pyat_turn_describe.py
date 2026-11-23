@@ -8,9 +8,9 @@ from typing import Any
 import at
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_turn_settings as turn
+from osprey_facility.errors import FacilityBuildError
 
 TURNS = 20
 TRIGGER = 4

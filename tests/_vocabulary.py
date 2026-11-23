@@ -40,7 +40,7 @@ context the build fills from the facility, and every string leaf and key under
 them is replaced by ``FACILITY_MASK`` before the words are matched. Masks match
 whole words. Every facility-sourced string is masked whatever it is, a bare
 guarded word included, so a guarded word that survives masking is OSPREY's. OSPREY's vocabulary table
-(:func:`osprey.facility.validate.vocabulary`) is never masked and stays judged,
+(:func:`osprey_facility.validate.vocabulary`) is never masked and stays judged,
 except its ``relations`` table: its end kinds and key fields are words a
 facility string may also be, so they do not shrink what is masked.
 
@@ -260,7 +260,7 @@ def facility_strings(*values: Any) -> frozenset[str]:
 
     The table's ``relations`` rows are left out of what is subtracted.
     """
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     table = {key: value for key, value in vocabulary().items() if key not in NON_VOCABULARY_KEYS}
     return frozenset(_string_leaves(values)) - frozenset(_string_leaves(table))

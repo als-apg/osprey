@@ -14,9 +14,6 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views import VIEWS, ViewInputs, config_read
 from osprey.facility.views import graph as graph_module
 from osprey.facility.views.graph import (
@@ -26,6 +23,9 @@ from osprey.facility.views.graph import (
     graph_text,
     write_graph_view,
 )
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER
 
 CLAIMS_KEY = "facility_graph.claims"
 BASIS_KEY = "facility_graph.basis"

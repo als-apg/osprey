@@ -41,10 +41,10 @@ import yaml
 
 from osprey.cli.templates.claude_code import _middle_layer_families, build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility import FACILITY_FILE
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import hierarchical_document, middle_layer_families
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from osprey_facility import FACILITY_FILE
+from osprey_facility.records import FacilityRecords
 from tests._preset_data import bundle_data_root
 from tests._vocabulary import PROTOCOL_WORDS, facility_strings, mask_facility_text
 

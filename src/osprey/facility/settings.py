@@ -18,10 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.errors import FacilityBuildError, quoted_slots
-from osprey.facility.records import FacilityRecords
-from osprey.facility.served import SIMULATION_MODELS_KEY, _served_scope, resolve_served
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
@@ -29,6 +25,10 @@ from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility.errors import FacilityBuildError, quoted_slots
+from osprey_facility.records import FacilityRecords
+from osprey_facility.served import SIMULATION_MODELS_KEY, resolve_served, served_scope
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_archiver import VAArchiverConfig
@@ -150,7 +150,7 @@ class _Inputs:
         """The served simulator's readbacks by address; empty, and said once, when it holds none."""
         if not self.serves_simulator and self.va_archiver is None:
             return []
-        readbacks = _readback_channels(_served_scope(self.records, self.served))
+        readbacks = _readback_channels(served_scope(self.records, self.served))
         if not readbacks and (self.reported is None or NO_READBACK_WARNING not in self.reported):
             click.echo(NO_READBACK_WARNING, err=True)
             if self.reported is not None:

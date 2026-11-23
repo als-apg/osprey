@@ -40,7 +40,7 @@ WRITER = "src/osprey/facility/views/simulator.py"
 
 #: Where a token matches without opening a view, each with why.
 ZONES: dict[str, str] = {
-    "src/osprey/facility/layers/**": (
+    "packages/osprey-facility/src/osprey_facility/layers/**": (
         "the importers join their facility tree's own seeds.yaml as SEEDS_FILE, not the view"
     ),
     "src/osprey/interfaces/lattice_dashboard/catalog.py": (
@@ -55,6 +55,9 @@ ZONES: dict[str, str] = {
     ),
     "packages/osprey-connectors/tests/**": (
         "the package's unit fixtures write a view to read it back, as the framework's do"
+    ),
+    "packages/osprey-facility/tests/**": (
+        "the package's unit fixtures read a built view back, as the framework's do"
     ),
 }
 
@@ -104,7 +107,7 @@ def test_a_join_onto_a_view_file_under_the_connectors_is_flagged(tmp_path: Path)
             f"{_CONNECTORS}/control_system/docstring.py": '"""Reads ``addresses.json``."""\n',
             READER: 'ADDRESSES_FILE = "addresses.json"\n',
             WRITER: "target = root / VARIABLES_FILE\n",
-            "src/osprey/facility/layers/mml/seed.py": "seeds = facility_dir / SEEDS_FILE\n",
+            "packages/osprey-facility/src/osprey_facility/layers/mml/seed.py": "seeds = facility_dir / SEEDS_FILE\n",
             "tests/connectors/fixture.py": 'path = view / "variables.json"\n',
         },
     )

@@ -18,9 +18,6 @@ import at
 import numpy as np
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_faults import (
@@ -29,6 +26,9 @@ from osprey.simulation.engines.pyat_faults import (
     MAX_CIRCUMFERENCE_ERROR_M,
     fault_variables,
 )
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 

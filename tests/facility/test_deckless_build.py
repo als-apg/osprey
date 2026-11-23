@@ -19,8 +19,8 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 MODEL = "CHAIN"

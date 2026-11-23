@@ -20,8 +20,6 @@ import numpy as np
 import pytest
 from lume_pyat.exceptions import OrbitSolveError
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_single_pass
 from osprey.simulation.engines.pyat_model import (
@@ -31,6 +29,8 @@ from osprey.simulation.engines.pyat_model import (
     TUNES,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 
 MODEL = "LINE"
 CELLS = (1, 2, 3)

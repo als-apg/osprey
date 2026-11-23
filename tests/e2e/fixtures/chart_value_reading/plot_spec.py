@@ -31,8 +31,8 @@ from typing import Any
 import numpy as np
 
 import osprey
-from osprey.facility.sources import read_yaml
 from osprey_connectors.simulation import topoff
+from osprey_facility.sources import read_yaml
 
 SCENARIOS_DIR = Path(__file__).parent / "scenarios"
 RECENT_SCENARIO = "beam-dip-recent"

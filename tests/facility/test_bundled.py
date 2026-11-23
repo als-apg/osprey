@@ -9,9 +9,9 @@ import pytest
 
 from osprey.cli.build_profile_load import retired_spellings_window_open
 from osprey.facility.bundled import HEADER_CAPABLE, bundled_origin, classify, header_line
-from osprey.facility.layers import FORMER_HEADER, HEADER
-from osprey.facility.layers.mml.mapping import MAPPING_FILE
 from osprey.version import get_release_version
+from osprey_facility.layers import FORMER_HEADER, HEADER
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
 from tests._builds import init_project
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"

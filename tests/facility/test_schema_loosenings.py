@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility.sources import SET_VALUED_SLOTS
+from osprey_facility.sources import SET_VALUED_SLOTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SEEDS_DIR = REPO_ROOT / "scripts" / "facility_schema" / "seeds"
-SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
+TOOLS_DIR = REPO_ROOT / "packages" / "osprey-facility" / "tools" / "facility_schema"
+SEEDS_DIR = TOOLS_DIR / "seeds"
+SCHEMA_DIR = REPO_ROOT / "packages" / "osprey-facility" / "src" / "osprey_facility" / "schema"
 
 #: The upstream commit the seeds were copied from.
 SEED_COMMIT = "02f64d5"
@@ -280,7 +281,7 @@ def test_seed_declares_pulse_and_gate(core: dict) -> None:
 
 
 def _seed(**keys: object):
-    from osprey.facility.schema import core as model
+    from osprey_facility.schema import core as model
 
     return model.Seed.model_validate(keys)
 
@@ -369,7 +370,7 @@ def test_vocabulary_carries_aliases_and_property_names(vocabulary: dict) -> None
 
 # --- the loosenings table -----------------------------------------------------
 
-_SCRIPT = REPO_ROOT / "scripts" / "facility_schema" / "loosenings.py"
+_SCRIPT = TOOLS_DIR / "loosenings.py"
 _spec = importlib.util.spec_from_file_location("facility_schema_loosenings", _SCRIPT)
 assert _spec and _spec.loader
 loosenings = importlib.util.module_from_spec(_spec)

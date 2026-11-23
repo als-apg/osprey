@@ -1,7 +1,9 @@
 """The measurement-kind registry: one entry-point group, built-in and deployment kinds alike.
 
-The five built-in kinds are entry points of the ``osprey-framework``
-distribution; a deployment package registers its own kind the same way. The
+The five built-in kinds are entry points of the ``osprey-facility``
+distribution under ``osprey_facility.kinds``; a deployment package registers its
+own kind the same way. A kind named under the old ``osprey.facility.kinds`` group
+is not read. The
 fixture package under ``fixtures/registry_kind/`` is put on ``sys.path`` with
 its ``dist-info`` for each case that needs it, the shape an installed wheel
 leaves. Every case reads what the build wrote: the per-model kind block in the
@@ -21,10 +23,10 @@ from typing import Any
 
 import pytest
 
-from osprey.facility import kinds
-from osprey.facility.errors import FacilityBuildError
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.outputs import render_facility_outputs
+from osprey_facility import kinds
+from osprey_facility.errors import FacilityBuildError
 from tests.facility._fixture_kind import read_entry_points_afresh
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
@@ -32,7 +34,7 @@ from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 pytestmark = pytest.mark.usefixtures("entry_points_read_afresh")
 
 BUILT_INS = ("chromaticity_monitor", "crm", "dispersion", "orm", "trm")
-PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
+PYPROJECT = Path(__file__).resolve().parents[2] / "packages" / "osprey-facility" / "pyproject.toml"
 
 
 @pytest.fixture
@@ -81,14 +83,64 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> str:
 # --- the registry ------------------------------------------------------------------
 
 
-def test_the_built_in_kinds_are_entry_points_of_the_framework_distribution():
+def test_the_built_in_kinds_are_entry_points_of_the_facility_distribution():
+    from importlib.metadata import entry_points
+
     group = tomllib.loads(PYPROJECT.read_text("utf-8"))["project"]["entry-points"][
         kinds.ENTRY_POINT_GROUP
     ]
+    installed = {e.name: e for e in entry_points(group=kinds.ENTRY_POINT_GROUP)}
 
+    assert kinds.ENTRY_POINT_GROUP == "osprey_facility.kinds"
     assert sorted(group) == list(BUILT_INS)
     assert tuple(kinds.builtin_kinds()) == BUILT_INS
     assert all(kinds.kind_source(name) == "built-in" for name in BUILT_INS)
+    for name in BUILT_INS:
+        dist = installed[name].dist
+        assert dist is not None and dist.name == kinds.BUILTIN_DISTRIBUTION, name
+
+
+#: The distribution and the kind of the package written by :func:`_group_probe`.
+_PROBE_DISTRIBUTION = "group-probe-kind"
+_PROBE_KIND = "group_probe"
+
+
+def _group_probe(site: Path, group: str) -> None:
+    """An installed package declaring one kind under entry-point *group*, written into *site*."""
+    package = site / "group_probe_kind"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        "import dataclasses\n"
+        "from osprey_facility.kinds import ORM\n"
+        f"GROUP_PROBE = dataclasses.replace(ORM, name={_PROBE_KIND!r})\n",
+        encoding="utf-8",
+    )
+    info = site / "group_probe_kind-0.1.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(
+        f"Metadata-Version: 2.1\nName: {_PROBE_DISTRIBUTION}\nVersion: 0.1\n", encoding="utf-8"
+    )
+    (info / "entry_points.txt").write_text(
+        f"[{group}]\n{_PROBE_KIND} = group_probe_kind:GROUP_PROBE\n", encoding="utf-8"
+    )
+
+
+@pytest.mark.parametrize(
+    ("group", "found"),
+    [("osprey.facility.kinds", False), ("osprey_facility.kinds", True)],
+    ids=["old-group", "package-group"],
+)
+def test_only_the_package_entry_point_group_registers_a_kind(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, group: str, found: bool
+) -> None:
+    _group_probe(tmp_path, group)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "group_probe_kind", raising=False)
+    read_entry_points_afresh()
+
+    assert (_PROBE_KIND in kinds.registered()) is found
+    assert kinds.kind_source(_PROBE_KIND) == (f"package {_PROBE_DISTRIBUTION}" if found else None)
+    assert tuple(kinds.builtin_kinds()) == BUILT_INS
 
 
 def test_every_built_in_plan_is_one_the_script_runs():
@@ -186,7 +238,7 @@ def test_a_measurement_file_naming_an_unregistered_kind_stops_the_build(tmp_path
 
     assert message == (
         "facility: reference-missing: measurement SR — kind registry_kind is not registered "
-        "under osprey.facility.kinds by any installed package; fix: install the kind's "
+        "under osprey_facility.kinds by any installed package; fix: install the kind's "
         "package, or remove registry_kind from `kinds`"
     )
 
@@ -349,7 +401,7 @@ def _with_block(document: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.mark.usefixtures("registry_kind")
 def test_a_command_step_on_an_unmarked_address_stops_the_build(tmp_path):
-    from osprey.facility.validate import _measurement_stops
+    from osprey_facility.validate import _measurement_stops
 
     document, _ = built_document(tmp_path, _tree())
     _with_block(document)

@@ -18,11 +18,11 @@ import at
 import pytest
 
 from osprey.apps import sdk
-from osprey.facility.errors import FacilityFileError
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG
+from osprey_facility.errors import FacilityFileError
 from tests._facility_file import write_facility_document, write_facility_v4
 from tests._scoped_stdlib import scoped
 from tests._simulator_view import view_channel

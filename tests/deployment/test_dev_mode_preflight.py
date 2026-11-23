@@ -316,18 +316,24 @@ class TestMemberWheelsSatisfyTheFramework:
     """A member wheel the framework's requirement refuses stops staging, naming the tags."""
 
     CONNECTORS_GLOB = "osprey-connectors-v2[0-9][0-9][0-9].*"
+    FACILITY_GLOB = "osprey-facility-v2[0-9][0-9][0-9].*"
+    # Members on their own tag stream; the others follow the framework's `v*` tags.
+    OWN_STREAM_GLOBS = {"osprey-connectors": CONNECTORS_GLOB, "osprey-facility": FACILITY_GLOB}
+    # osprey-facility has no tag yet, so a checkout builds it as 0.0.postN.
+    FACILITY_UNTAGGED = "0.0.post12+g0123abc"
 
     @classmethod
     def _add_members(cls, checkout: Path) -> None:
         for member in WORKSPACE_MEMBERS:
             root = checkout / "packages" / member
             root.mkdir(parents=True)
-            # The same shapes the real members use: connectors' describe command
-            # sits in setuptools-scm's `scm.git` table, the others' in the flat key.
-            if member == "osprey-connectors":
+            # The same shapes the real members use: connectors' and facility's
+            # describe commands sit in setuptools-scm's `scm.git` table, the
+            # others' in the flat key.
+            if member in cls.OWN_STREAM_GLOBS:
                 options = (
                     "{ scm = { git = { describe_command = "
-                    f'"git describe --match {cls.CONNECTORS_GLOB}" }} }} }}'
+                    f'"git describe --match {cls.OWN_STREAM_GLOBS[member]}" }} }} }}'
                 )
             else:
                 options = '{ git_describe_command = "git describe --match v[0-9]*" }'
@@ -348,7 +354,14 @@ class TestMemberWheelsSatisfyTheFramework:
             whl.writestr(f"{stem}.dist-info/METADATA", metadata)
         return wheel
 
-    def _stage(self, editable_checkout, monkeypatch, tmp_path, connectors_version):
+    def _stage(
+        self,
+        editable_checkout,
+        monkeypatch,
+        tmp_path,
+        connectors_version,
+        facility_requirement="osprey-facility",
+    ):
         import osprey.deployment.wheel_build as wb
 
         self._add_members(editable_checkout)
@@ -356,13 +369,20 @@ class TestMemberWheelsSatisfyTheFramework:
         cache.mkdir()
         versions = {
             "osprey-connectors": connectors_version,
+            "osprey-facility": self.FACILITY_UNTAGGED,
             "osprey-optimizer": "2026.9.0b3.post7",
             "pyaml-cs-osprey": "2026.9.0b3.post7",
         }
+        assert set(versions) == set(WORKSPACE_MEMBERS), "every member needs a fake build"
 
         def _fake_build(root):
             if root == editable_checkout:
-                requires = [f"{m}>=2026.6.2" for m in WORKSPACE_MEMBERS] + ["aiohttp"]
+                # As the real root pyproject: floors on the members that are
+                # released, a bare requirement on osprey-facility, which is not.
+                requires = [
+                    facility_requirement if m == "osprey-facility" else f"{m}>=2026.6.2"
+                    for m in WORKSPACE_MEMBERS
+                ] + ["aiohttp"]
                 return self._wheel(cache, "osprey-framework", "2026.9.0b3.post7", requires)
             return self._wheel(cache, root.name, versions[root.name], [])
 
@@ -395,6 +415,36 @@ class TestMemberWheelsSatisfyTheFramework:
         assert _copy_local_framework_for_override(str(ctx)) is True
         assert len(list(ctx.glob("*.whl"))) == 1 + len(WORKSPACE_MEMBERS)
 
+    def test_an_untagged_osprey_facility_is_staged_from_the_checkout(
+        self, editable_checkout, monkeypatch, tmp_path
+    ):
+        """osprey-facility has no tag yet; with no floor on it, its 0.0.postN wheel stages."""
+        ctx = self._stage(editable_checkout, monkeypatch, tmp_path, "2026.9.0b3.post12+g0123abc")
+
+        assert _copy_local_framework_for_override(str(ctx)) is True
+        staged = sorted(p.name for p in ctx.glob("osprey_facility-*.whl"))
+        assert staged == [f"osprey_facility-{self.FACILITY_UNTAGGED}-py3-none-any.whl"]
+
+    def test_a_floor_on_osprey_facility_refuses_its_untagged_build(
+        self, editable_checkout, monkeypatch, tmp_path
+    ):
+        """Why the framework declares no floor on osprey-facility: one would refuse --dev."""
+        ctx = self._stage(
+            editable_checkout,
+            monkeypatch,
+            tmp_path,
+            "2026.9.0b3.post12+g0123abc",
+            facility_requirement="osprey-facility>=2026.6.2",
+        )
+
+        with pytest.raises(DevModeUnavailableError) as exc:
+            _copy_local_framework_for_override(str(ctx))
+
+        assert "osprey-facility" in str(exc.value)
+        assert self.FACILITY_UNTAGGED in str(exc.value)
+        assert self.FACILITY_GLOB in exc.value.remedy
+        assert not list(ctx.glob("*")), "nothing may be staged for a refused member"
+
 
 def test_the_refusal_names_each_real_members_describe_glob():
     """The remedy names the glob from the member's real pyproject, whichever key holds it."""
@@ -406,6 +456,10 @@ def test_the_refusal_names_each_real_members_describe_glob():
         == TestMemberWheelsSatisfyTheFramework.CONNECTORS_GLOB
     )
     assert _describe_glob(repo / "packages" / "pyaml-cs-osprey") == "v[0-9]*"
+    assert (
+        _describe_glob(repo / "packages" / "osprey-facility")
+        == TestMemberWheelsSatisfyTheFramework.FACILITY_GLOB
+    )
 
 
 class TestPrepareComposeFilesPreflight:

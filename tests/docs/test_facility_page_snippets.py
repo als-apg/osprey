@@ -299,8 +299,8 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
     import click
 
     from osprey.cli.facility_cmd import _replace_or_refuse
-    from osprey.facility.layers.list import import_list
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.layers.list import import_list
+    from osprey_facility.roots import FacilityRoots
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -316,7 +316,7 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
 @pytest.mark.slow  # validating the whole preset takes a few seconds
 def test_the_relation_tables_build_on_the_preset(tmp_path: Path) -> None:
     """``osprey facility import relations`` leaves the bundled preset in place."""
-    from osprey.facility.layers.relations import import_relations
+    from osprey_facility.layers.relations import import_relations
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -364,7 +364,7 @@ def test_an_included_preset_file_is_a_bundled_file(block: Block) -> None:
 
 
 def test_the_mapping_fragments_hold_keys_the_mapping_reads() -> None:
-    from osprey.facility.layers.mml import mapping
+    from osprey_facility.layers.mml import mapping
 
     blocks = [block for block in _blocks(MML_PAGE) if block.first == "families:"]
     assert blocks, f"{MML_PAGE.name}: no block opens with 'families:'"

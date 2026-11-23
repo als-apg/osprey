@@ -235,8 +235,8 @@ def build_appendix_a(
     Returns:
         The built facility document.
     """
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.validate import run_stages
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.validate import run_stages
 
     write_tree(root, appendix_a_tree(variant) if tree is None else tree)
     report = run_stages(root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS)

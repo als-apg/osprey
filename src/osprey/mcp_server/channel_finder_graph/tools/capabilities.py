@@ -273,8 +273,8 @@ def _relationships() -> tuple[dict[str, str], ...]:
     is undirected: the edge runs whichever way its claim was written. A row that
     repeats a fixed one (``LOCATEDIN`` device to place) is not listed twice.
     """
-    from osprey.facility.validate import relation_types
     from osprey.facility.views.graph import RELATION_PREDICATES
+    from osprey_facility.validate import relation_types
 
     rows = list(_RELATIONSHIPS)
     seen = {(row["type"], row["from"], row["to"]) for row in rows}
