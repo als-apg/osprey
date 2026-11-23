@@ -1205,9 +1205,39 @@ in mA as A.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">busy</span></code>: the cycle signal, high for <code class="docutils literal notranslate"><span class="pre">width_s</span></code> every <code class="docutils literal notranslate"><span class="pre">period_s</span></code> whether
 or not a shot runs.</p></li>
 </ul>
-<p>Shots run only in the container: in process the chain serves its start
-values and a request starts nothing. What scenarios and channel faults do to
-a chain is in <a class="reference internal" href="../../reference/configuration/scenario-files.html#scenario-channel-faults"><span class="std std-ref">Channel faults</span></a>.</p>
+<p>What scenarios and channel faults do to a chain is in
+<a class="reference internal" href="../../reference/configuration/scenario-files.html#scenario-channel-faults"><span class="std std-ref">Channel faults</span></a>.</p>
+<p id="va-in-process-evolve"><strong>Shots in process.</strong> Shots run in the container. The simulator in process
+holds every time-driven model still unless it is asked otherwise: the chain
+serves its start values and a request starts nothing. A connector block that
+states <code class="docutils literal notranslate"><span class="pre">evolve:</span> <span class="pre">true</span></code> runs those models in process too:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">virtual_accelerator</span>
+<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">virtual_accelerator</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">serving</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_process</span>
+<span class="w">      </span><span class="nt">evolve</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>A request write then takes a shot. Every read and write advances the models
+to the clock, and a subscription to a channel a shot steps fires when the
+step lands, between ticks too. Tracking a ring’s shot runs inside the read,
+write or tick that reaches it, and holds the process’s event loop for its
+length.</p>
+<p>The setting is for a test that drives one backend with no container
+(<a class="reference internal" href="../apps/build-your-own-app.html"><span class="doc">Build Your Own App</span></a>), and it has a limit the container
+does not have. What a shot changed lives in the one connector that took the
+request. Connectors on one render share the setpoints written, never a shot’s
+outcome:</p>
+<ul class="simple">
+<li><p>another connector, in the same process or another, does not see the shot;</p></li>
+<li><p>a connector that takes up another’s writes, at its connect or after the
+other writes, starts its models again from their start state and puts every
+written setpoint back as a held value. A request among them reads as
+written and starts no shot, so a shot is never taken twice.</p></li>
+</ul>
+<p>A deployment whose sessions span processes serves the simulator from its
+container.</p>
 </section>
 <section id="turn-by-turn-data-from-an-injection-chain">
 <span id="va-turn-by-turn"></span><h3>Turn-by-turn data from an injection chain<a class="headerlink" href="#turn-by-turn-data-from-an-injection-chain" title="Link to this heading">#</a></h3>
@@ -1788,9 +1818,10 @@ orbit response alone and refuses any other kind.</p>
 <p><strong>What is not modelled.</strong> The ring’s capture or loss does not feed back into
 the chain’s stored current; the stored current neither decays nor
 saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
-beam-based alignment or RF frequency correction. Shots run only in the
-container: in process every delivery is a baseline, so no shot is taken and
-the arrays stay zeros.</p>
+beam-based alignment or RF frequency correction. In process a ring takes a
+shot only on a connector that states <code class="docutils literal notranslate"><span class="pre">evolve:</span> <span class="pre">true</span></code>
+(<a class="reference internal" href="#va-in-process-evolve"><span class="std std-ref">Shots in process</span></a>); without it every delivery
+is a baseline, so no shot is taken and the arrays stay zeros.</p>
 </section>
 <section id="another-backend">
 <h3>Another backend<a class="headerlink" href="#another-backend" title="Link to this heading">#</a></h3>

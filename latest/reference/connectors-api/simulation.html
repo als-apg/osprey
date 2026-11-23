@@ -3668,6 +3668,17 @@ never calls it, so every channel holds its start state until written.</p></li>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.now">
+<span class="sig-name descname"><span class="pre">now</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.now"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.now" title="Link to this definition">#</a></dt>
+<dd><p>The clock’s reading, in epoch seconds: the instant deadlines are measured from.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.advance">
 <span class="sig-name descname"><span class="pre">advance</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.advance"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.advance" title="Link to this definition">#</a></dt>
 <dd><p>Advance every time-driven child to the clock; nothing unless built to evolve.</p>
@@ -4563,6 +4574,7 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.is_float_channel"><code class="docutils literal notranslate"><span class="pre">is_float_channel()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite"><code class="docutils literal notranslate"><span class="pre">Composite</span></code></a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.__init__"><code class="docutils literal notranslate"><span class="pre">Composite.__init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.now"><code class="docutils literal notranslate"><span class="pre">Composite.now()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.advance"><code class="docutils literal notranslate"><span class="pre">Composite.advance()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.next_deadline"><code class="docutils literal notranslate"><span class="pre">Composite.next_deadline()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.emitted"><code class="docutils literal notranslate"><span class="pre">Composite.emitted()</span></code></a></li>

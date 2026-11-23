@@ -659,7 +659,13 @@ that reach it. Only a client write starts what a write triggers; a restore, a
 scenario’s start state and a write a <code class="docutils literal notranslate"><span class="pre">stuck</span></code> or <code class="docutils literal notranslate"><span class="pre">disconnected</span></code> setpoint
 holds start nothing. A rebuild, which a scenario change makes, discards what
 a model had pending. In process nothing advances the model: it serves its
-start values and a write starts nothing.</p>
+start values and a write starts nothing. A connector that states
+<code class="docutils literal notranslate"><span class="pre">evolve:</span> <span class="pre">true</span></code> is the exception: its composite is built to evolve, advances
+on every read, write and tick, and wakes its tick at the next deadline.
+Connectors share the setpoints written and nothing a model reached in time,
+so that state is the one connector’s, and a connector taking up another’s
+writes restores them without a client write: a request among them starts
+nothing (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-in-process-evolve"><span class="std std-ref">Shots in process</span></a>).</p>
 <p>The shipped <code class="docutils literal notranslate"><span class="pre">injection</span></code> engine (<code class="docutils literal notranslate"><span class="pre">osprey.simulation.engines.injection</span></code>) is
 time-driven. A model naming it names no deck: its wiring
 records and settings are the whole chain. A client write of its request
@@ -707,9 +713,10 @@ input across a rebuild triggers nothing.</p></li>
 <li><p><strong>A failed producer.</strong> Its inputs are left out of the delivery; when none
 remain, no call is made. A <code class="docutils literal notranslate"><span class="pre">take_inputs</span></code> that raises fails the consumer.</p></li>
 </ul>
-<p>Only the served Virtual Accelerator advances time. In process the composite
-does not evolve: it delivers at build, at reset and after every write, each
-delivery a baseline, so an input never starts anything there.</p>
+<p>The served Virtual Accelerator advances time. In process the composite does
+not evolve unless the connector states <code class="docutils literal notranslate"><span class="pre">evolve:</span> <span class="pre">true</span></code>: it delivers at
+build, at reset and after every write, each delivery a baseline, so an input
+never starts anything there.</p>
 </section>
 <section id="the-lume-stack-and-its-pins">
 <h2>The LUME stack and its pins<a class="headerlink" href="#the-lume-stack-and-its-pins" title="Link to this heading">#</a></h2>

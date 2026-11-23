@@ -1259,6 +1259,17 @@ an owner whose tier is not known.</p>
 <p>The build behind <code class="docutils literal notranslate"><span class="pre">serve</span></code> is real, so what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses fails the
 test with the build’s own message. Run pytest with the app’s directory
 on the import path, so the test can import the app’s package.</p>
+<p>The simulator in process holds its time-driven models still: an injection
+chain serves its start values and a request takes no shot. A test of an app
+that asks for shots states <code class="docutils literal notranslate"><span class="pre">evolve</span></code> in the <code class="docutils literal notranslate"><span class="pre">config:</span></code> of the <code class="docutils literal notranslate"><span class="pre">profile</span></code>
+it hands the fixture, and the backend’s connector then runs them, with no
+container:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">profile</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;control_system.connector.virtual_accelerator.evolve&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">}}</span>
+</pre></div>
+</div>
+<p>A shot lives in the connector that took the request, so read its outcome
+through the same backend; <a class="reference internal" href="../control-systems/use-virtual-accelerator.html#va-in-process-evolve"><span class="std std-ref">Shots in process</span></a> says
+what a second connector sees.</p>
 </section>
 <section id="dependencies">
 <h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading">#</a></h2>
