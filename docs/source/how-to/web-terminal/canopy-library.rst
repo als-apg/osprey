@@ -43,6 +43,11 @@ The library and its report
   write, the commands it can run, and the displays and web addresses it can
   open. It is what a reviewer reads: the diff of ``LIBRARY-REPORT.md`` shows
   what a change lets people do to the machine.
+- ``navigation.json``, optional: the order and grouping of the screens in the
+  viewer's sidebar (see :ref:`canopy-library-navigation`).
+
+Nothing else belongs in that directory, and ``osprey build`` refuses any other
+entry by name.
 
 One rule keeps the two honest: **every change to the screens is one commit
 together with the regenerated report**. ``osprey build`` checks that the report
@@ -254,6 +259,38 @@ screen file means a later commit changed that screen: decide what it should
 hold and ``git add`` it before the next revert. Going back to an older image
 is not a rollback: the next build ships what git holds.
 
+.. _canopy-library-navigation:
+
+Order the sidebar
+-----------------
+
+Without further input the viewer's sidebar shows the library as its folder
+tree. To choose the order, the names and the grouping yourself, write
+``data/canopy/library/navigation.json``, beside ``screens/``:
+
+.. code-block:: json
+
+   [
+     {"screen": "library/overview", "label": "Start here"},
+     {"label": "Magnets", "screen": "library/magnets/all", "children": [
+       {"screen": "library/magnets/sector-1", "label": "Sector 1"},
+       {"screen": "library/magnets/sector-2", "label": "Sector 2"}
+     ]}
+   ]
+
+The file is a list of entries. A leaf names a screen as ``library/<id>``, with
+an optional ``label``. A group has a ``label`` and ``children``, and may name a
+``screen`` of its own, which its name then opens. An entry takes no other key.
+Commit the file like any other change to the deployment; it is not part of the
+report, so changing it alone needs no regenerated report.
+
+``osprey build`` reads the file and refuses a library whose navigation the
+viewer would not draw as written: a file that is not a JSON list of such
+entries, one over 256 KiB, nested deeper than 8 levels or holding more than
+2000 entries, a label over 120 characters, or a ``screen`` the library does not
+hold. The file has to be a regular file; a symlink or a directory of that name
+is refused.
+
 Facility collections
 --------------------
 
@@ -276,10 +313,14 @@ when:
 - the report is missing, or no longer matches the files (the line lists every
   file added, changed or missing);
 - the report was written in a format this OSPREY release does not read;
-- the library holds something other than screens, images and the report: a
+- the library holds something other than screens, images, the report and
+  ``navigation.json``: a
   symlink, a dotfile, a leftover ``.*.tmp`` file, two names that differ only
   in case, or an SVG (SVG is markup a browser runs; convert it to a raster
   image);
+- ``navigation.json`` is not a navigation the viewer draws as written, or
+  names a screen the library does not hold (see
+  :ref:`canopy-library-navigation`);
 - a file is not readable by other users, or is writable by them. The refusal
   prints the ``chmod -R o+rX,o-w`` command that fixes it.
 

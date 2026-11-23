@@ -20,6 +20,20 @@ the texture and one physics child per served model whose engine is not
   write a subscription fires for its channel when the held value changed or
   the channel moves under the active scenarios.
 
+**Evolution.** The composite is built without evolution: a time-driven model
+serves its start values and a write starts nothing. The ``evolve`` setting,
+``true``, builds it to evolve instead (see
+:class:`~osprey_connectors.simulation.composite.Composite`): a write is a
+client write, every read and write advances the models to the clock, and the
+tick also wakes at the composite's next deadline, advances it and fires the
+subscriptions of the channels a model emitted, a repeated value included. What
+the models reached this way lives in this connector's composite alone. No
+other connector sees it, and the journal does not carry it: a connector that
+replays the journal starts its models again from their start state and puts
+the journalled values back without a client write, so a replayed request
+starts no model again; a command's responses alone run on, from the instant
+its entry was journalled at.
+
 **Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
 the limits validator and a successful put it appends ``[seq, address, value,
 t_s]``, ``t_s`` the instant the composite wrote it at
@@ -97,6 +111,7 @@ if TYPE_CHECKING:
 logger = get_logger("va_in_process_connector")
 
 __all__ = [
+    "EVOLVE_SETTING",
     "JOURNAL_DIR",
     "JOURNAL_FILE",
     "JOURNAL_NOT_UPDATED",
@@ -112,6 +127,13 @@ __all__ = [
 
 #: The ``connect()`` setting naming the simulator view directory to serve.
 SIMULATOR_VIEW_SETTING = "simulator_view"
+
+#: The ``connect()`` setting that builds the composite to evolve; absent is ``False``.
+EVOLVE_SETTING = "evolve"
+
+#: The shortest wait between two looks at an evolving composite, in seconds: a
+#: deadline already past is met on the next look, never in a busy loop.
+_MIN_TICK_S = 0.01
 
 #: Why the in-process simulator refuses to connect without a built simulator view.
 NO_VIEW_MESSAGE = "the in-process simulator needs a built simulator view: run osprey build"
@@ -372,6 +394,7 @@ class VAInProcessConnector(ControlSystemConnector):
         self._last_held: dict[str, object] = {}
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
+        self._evolve = False
         self._channels: frozenset[str] = frozenset()
         self._journal: _Journal | None = None
         self._active_sha: str | None = None
@@ -391,18 +414,24 @@ class VAInProcessConnector(ControlSystemConnector):
                 - response_delay_ms: Simulated response delay (default: 10)
                 - simulator_view: The view directory to serve; absent serves
                   ``data/simulator/`` beside the loaded config.
+                - evolve: ``True`` builds the composite to evolve, so its
+                  time-driven models run in this connector (default: ``False``)
 
         Raises:
             RuntimeError: There is no built simulator view, or it is from an
                 older build.
             ValueError: ``simulation.tick_s`` in the rendered config is not a
-                number greater than zero.
+                number greater than zero, or ``evolve`` is not a boolean.
         """
         from osprey_connectors.simulation import resolve_tick_s
         from osprey_connectors.simulation.composite import Composite
 
         delay_ms: float = config.get("response_delay_ms", 10)
         self._response_delay = delay_ms / 1000.0
+        evolve = config.get(EVOLVE_SETTING, False)
+        if not isinstance(evolve, bool):
+            raise ValueError(f"{EVOLVE_SETTING} is {evolve!r}; use true or false")
+        self._evolve = evolve
 
         from osprey_connectors.control_system._limits_validator import LimitsValidator
 
@@ -428,7 +457,9 @@ class VAInProcessConnector(ControlSystemConnector):
                     for address in signals.values()
                 }
             )
-            self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
+            self._composite = Composite(
+                view, state_dir=state_dir, instance="inprocess", evolve=self._evolve
+            )
         except ViewSchemaError as error:
             raise RuntimeError(str(error)) from None
         self._journal = _Journal(state_dir)
@@ -514,7 +545,11 @@ class VAInProcessConnector(ControlSystemConnector):
             return None
 
     def _replay(self, document: _JournalDocument | None, text: str) -> None:
-        """Reset the composite and replay the journal in order, when it is well formed."""
+        """Reset the composite and replay the journal in order, when it is well formed.
+
+        The values are put back, not written: a journalled write was a client
+        write once, in the connector that took it, and is none here.
+        """
         assert self._composite is not None
         if self._holds_writes:
             self._composite.reset()
@@ -1060,8 +1095,14 @@ class VAInProcessConnector(ControlSystemConnector):
         }
 
     async def _notify(self, before: Mapping[str, object] | None = None) -> None:
-        """Fire each subscription whose held value changed or whose channel moves under the active scenarios."""
-        if not self._subscriptions or self._composite is None:
+        """Fire each subscription whose held value changed, whose channel moves under the
+        active scenarios, or whose channel a time-driven model emitted since the last call."""
+        if self._composite is None:
+            return
+        # Drained with or without a subscriber, so one that subscribes later is
+        # not told of what was emitted before it did.
+        emitted = self._composite.emitted() if self._evolve else frozenset()
+        if not self._subscriptions:
             return
         previous = self._last_held if before is None else before
         now = self._subscribed_held()
@@ -1078,7 +1119,9 @@ class VAInProcessConnector(ControlSystemConnector):
         due = {
             address
             for address, value in now.items()
-            if address in moving or not values_match(previous.get(address), value)
+            if address in moving
+            or address in emitted
+            or not values_match(previous.get(address), value)
         }
         self._last_held.update(now)
         for subscription in list(self._subscriptions.values()):
@@ -1086,12 +1129,30 @@ class VAInProcessConnector(ControlSystemConnector):
             if address in due:
                 await _deliver(address, callback, self._reading(address, held=False))
 
+    def _wait_s(self) -> float:
+        """How long the tick sleeps: ``tick_s``, or less when a time-driven model's
+        deadline falls sooner, and never under :data:`_MIN_TICK_S`."""
+        if not self._evolve or self._composite is None:
+            return self._tick_s
+        deadline = self._composite.next_deadline()
+        if deadline is None:
+            return self._tick_s
+        return min(self._tick_s, max(deadline - self._composite.now(), _MIN_TICK_S))
+
     async def _tick(self) -> None:
-        """Every ``tick_s``: fire the subscriptions that are due."""
+        """Every ``tick_s``, and at each deadline of an evolving composite: advance
+        it and fire the subscriptions that are due."""
         while True:
-            await asyncio.sleep(self._tick_s)
+            try:
+                wait_s = self._wait_s()
+            except Exception as exc:
+                logger.warning(f"In-process tick failed: {exc}")
+                wait_s = self._tick_s
+            await asyncio.sleep(wait_s)
             try:
                 self._sync()
+                if self._evolve and self._composite is not None:
+                    self._composite.advance()
                 await self._notify()
             except Exception as exc:
                 logger.warning(f"In-process tick failed: {exc}")

@@ -524,7 +524,8 @@ def test_a_listing_refusal_is_refused_though_the_digest_matches(fresh: Path) -> 
     (fresh / "README.md").write_bytes(b"r")
     assert _refused(fresh) == [
         "outside_screens: README.md: "
-        "a library root holds only screens/ and the LIBRARY-REPORT files; delete it",
+        "a library root holds only screens/, the LIBRARY-REPORT files and navigation.json; "
+        "delete it",
         "suffix: screens/notes.txt: neither a *.screen.json file nor an image; delete it",
     ]
 
