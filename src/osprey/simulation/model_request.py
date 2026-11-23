@@ -167,9 +167,9 @@ def _model(view: Any, model: object) -> Any:
 
 
 def _corrector_delta(render_root: Path, model: str) -> float:
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.errors import FacilityFileError
-    from osprey.facility.reading import load_facility
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.errors import FacilityFileError
+    from osprey_facility.reading import load_facility
 
     path = render_root / FACILITY_FILE
     try:

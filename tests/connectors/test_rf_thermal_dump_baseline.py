@@ -16,12 +16,12 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.facility.sources import read_yaml
 from osprey_connectors.archiver._field_names import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation import topoff
 from osprey_connectors.simulation.archive import ArchiveComposite, _synthesize_documents, build
 from osprey_connectors.simulation.series import anchored_instant, step_end
+from osprey_facility.sources import read_yaml
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 LIFETIME = "SR:DIAG:DCCT:01:LIFETIME:RB"

@@ -2,7 +2,7 @@
 
 A scenario's ``sessions`` block replays agent turns whose tool steps name the
 MCP server that answered them. The facility description checks the rest of
-the block (:func:`osprey.facility.scenarios.check_scenario_sessions`) and knows
+the block (:func:`osprey_facility.scenarios.check_scenario_sessions`) and knows
 no server names; the framework holds them in
 :data:`osprey.registry.mcp.FRAMEWORK_SERVERS` and supplies this check to the
 build through its ``extra_checks`` keyword, so its stops join the scenario
@@ -15,8 +15,8 @@ from collections.abc import Mapping, Set
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.validate import Validated
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.validate import Validated
 
 __all__ = ["check_scenario_servers", "scenario_server_errors"]
 
@@ -31,8 +31,8 @@ def check_scenario_servers(validated: Validated) -> list[FacilityBuildError]:
         One ``reference-missing`` per unknown server, in scenario, session,
         part, turn and step order.
     """
-    from osprey.facility.validate import need
     from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey_facility.validate import need
 
     return scenario_server_errors(need(validated.document), FRAMEWORK_SERVERS)
 
@@ -52,8 +52,8 @@ def scenario_server_errors(
     Returns:
         One ``reference-missing`` per unknown server.
     """
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.simulation.sessions import ToolStep, parse_sessions
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.sessions import ToolStep, parse_sessions
 
     known = ", ".join(sorted(servers))
     errors: list[FacilityBuildError] = []

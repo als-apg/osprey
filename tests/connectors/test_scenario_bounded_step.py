@@ -17,9 +17,9 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pytest
 
-from osprey.facility.scenarios import check_scenario_events
 from osprey.simulation.apply import event_subwindows, event_window
 from osprey_connectors.simulation.series import apply_events, step_end
+from osprey_facility.scenarios import check_scenario_events
 
 UTC_ZONE = ZoneInfo("UTC")
 T0 = datetime(2026, 6, 10, 12, 0, 0, tzinfo=UTC)

@@ -1163,15 +1163,15 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
         FileNotFoundError: No deployment config is found, or the render has no facility file.
         FacilityFileError: The facility file cannot be read, is not a JSON
             object, or carries a header this reader does not read; the message
-            names the rebuild (:class:`osprey.facility.errors.FacilityFileError`,
+            names the rebuild (:class:`osprey_facility.errors.FacilityFileError`,
             a ``ValueError``).
         ValueError: The facility file holds no ``channels`` list.
     """
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
-    from osprey.facility.reading import load_facility
     from osprey_connectors.config import get_full_configuration
+    from osprey_facility.reading import load_facility
 
     config = get_full_configuration()
     path = facility_file_path(config)
