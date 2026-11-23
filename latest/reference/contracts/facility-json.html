@@ -512,7 +512,7 @@ the build for it.</p>
 </div>
 <p>The header is <code class="docutils literal notranslate"><span class="pre">osprey.facility.facility/N</span></code>, where <code class="docutils literal notranslate"><span class="pre">N</span></code> is a positive integer
 with no leading zero. The current version is <code class="docutils literal notranslate"><span class="pre">4</span></code>; the build takes it from
-<code class="docutils literal notranslate"><span class="pre">osprey.facility.validate.FACILITY_HEADER</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.validate.FACILITY_HEADER</span></code>.</p>
 </section>
 <section id="tables-a-reader-needs-besides-the-records">
 <h2>Tables a reader needs besides the records<a class="headerlink" href="#tables-a-reader-needs-besides-the-records" title="Link to this heading">#</a></h2>
@@ -557,7 +557,7 @@ build at the same <code class="docutils literal notranslate"><span class="pre">N
 strings, and compares the document’s <code class="docutils literal notranslate"><span class="pre">schema</span></code> value against that set exactly.
 A document whose header is missing, malformed or not in the set is one the
 reader cannot read. The framework’s readers share this check in
-<code class="docutils literal notranslate"><span class="pre">osprey.facility.reading</span></code>, and its message names the rebuild:</p>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.reading</span></code>, and its message names the rebuild:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>build/facility.json is osprey.facility.facility/3; this reader reads
 osprey.facility.facility/4 -- rebuild with osprey build
 </pre></div>
@@ -587,7 +587,8 @@ new <code class="docutils literal notranslate"><span class="pre">N</span></code>
 <section id="the-published-schema">
 <h2>The published schema<a class="headerlink" href="#the-published-schema" title="Link to this heading">#</a></h2>
 <p>The document’s shape is published as a JSON Schema generated from the
-description’s schema model, in <code class="docutils literal notranslate"><span class="pre">src/osprey/facility/schema/_generated/</span></code>:</p>
+description’s schema model, in <code class="docutils literal notranslate"><span class="pre">osprey_facility/schema/_generated/</span></code> of the
+<code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> package:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">facility.schema.json</span></code> is the current shape. It is open: it does not
 refuse a key it does not name, so a document with an added key validates.</p></li>
@@ -595,16 +596,26 @@ refuse a key it does not name, so a document with an added key validates.</p></l
 when <code class="docutils literal notranslate"><span class="pre">N</span></code> first appears and never rewritten. <code class="docutils literal notranslate"><span class="pre">facility-4.schema.json</span></code> is
 today’s floor.</p></li>
 </ul>
-<p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/facility_schema/json_schema.py</span></code> regenerates them, and
+<p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_facility.schema._generate</span></code> regenerates them, and
 its <code class="docutils literal notranslate"><span class="pre">--check</span></code> fails when the current file is stale or a floor is missing. A
 test compares the current schema with the floor of the current <code class="docutils literal notranslate"><span class="pre">N</span></code>: a change
 that is not additive – a removed, renamed or retyped key, a newly required
 key, a removed enum value – fails until its author bumps <code class="docutils literal notranslate"><span class="pre">N</span></code>. The test
 sees shape only; a key that keeps its shape and changes its meaning is held by
 review.</p>
-<p>The schema files ship inside the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> wheel today, so forks and readers
-outside Python can validate a document without OSPREY’s source tree. In
-phase 4 they ship in the description’s own package.</p>
+<p>The schema files ship inside the <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> wheel, at
+<code class="docutils literal notranslate"><span class="pre">osprey_facility/schema/_generated/</span></code>, so forks and readers outside Python can
+validate a document without OSPREY’s source tree or the framework.
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.schema.published_schema()</span></code> returns the current file;
+<code class="docutils literal notranslate"><span class="pre">published_schema(N)</span></code> returns the floor for version <code class="docutils literal notranslate"><span class="pre">N</span></code> and raises
+<code class="docutils literal notranslate"><span class="pre">LookupError</span></code> for a version the package ships no floor for:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_facility.schema</span><span class="w"> </span><span class="kn">import</span> <span class="n">published_schema</span>
+
+<span class="n">schema</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">published_schema</span><span class="p">()</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">&quot;utf-8&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
 </section>
 <section id="what-holds-today">
 <h2>What holds today<a class="headerlink" href="#what-holds-today" title="Link to this heading">#</a></h2>
@@ -632,8 +643,8 @@ names its header, and <code class="docutils literal notranslate"><span class="pr
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">N</span></code> bumps on a change of shape, not on an added key</p></td>
 <td><p>Enforced</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the current schema
-must be additive over the floor of the current <code class="docutils literal notranslate"><span class="pre">N</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py</span></code>:
+the current schema must be additive over the floor of the current <code class="docutils literal notranslate"><span class="pre">N</span></code></p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">N</span></code> bumps on a change of meaning that keeps the shape</p></td>
 <td><p>Holds, not checked</p></td>
@@ -641,16 +652,18 @@ must be additive over the floor of the current <code class="docutils literal not
 </tr>
 <tr class="row-even"><td><p>The generated JSON Schema is pinned by a test</p></td>
 <td><p>Enforced</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_facility_json_schema.py</span></code>: the committed current
-schema equals the generator’s output, a floor exists for the current
-<code class="docutils literal notranslate"><span class="pre">N</span></code>, and the schema’s header is <code class="docutils literal notranslate"><span class="pre">FACILITY_HEADER</span></code>. A floor is not
-compared with the generator: it is written once and parts from the
-current schema at the first additive change</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/tests/osprey_facility_tests/test_facility_json_schema.py</span></code>:
+the committed current schema equals the generator’s output, a floor
+exists for the current <code class="docutils literal notranslate"><span class="pre">N</span></code>, and the schema’s header is
+<code class="docutils literal notranslate"><span class="pre">FACILITY_HEADER</span></code>. A floor is not compared with the generator: it is
+written once and parts from the current schema at the first additive
+change</p></td>
 </tr>
 <tr class="row-odd"><td><p>The schema ships in the description’s package</p></td>
-<td><p>Target</p></td>
-<td><p>Phase 4, when the description becomes its own package; today it ships
-in the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> wheel</p></td>
+<td><p>Enforced</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/tests/osprey_facility_tests/test_wheel_contents.py</span></code>:
+the built <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> wheel holds both schema files where
+<code class="docutils literal notranslate"><span class="pre">published_schema</span></code> resolves them, and the compat module</p></td>
 </tr>
 <tr class="row-even"><td><p>Readers ignore unknown keys</p></td>
 <td><p>Enforced for the panel engine</p></td>
@@ -689,10 +702,10 @@ holds this table equal to it.</p>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.reading.load_facility</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_facility.reading.load_facility</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.reading.check_header</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_facility.reading.check_header</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.runtime.guarded_run._facility_commands</span></code></p></td>
@@ -710,7 +723,7 @@ holds this table equal to it.</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.testing._deployment.RenderedTree.read</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.facility.records.FacilityRecords.from_file</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_facility.records.FacilityRecords.from_file</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk._model.model_members</span></code></p></td>

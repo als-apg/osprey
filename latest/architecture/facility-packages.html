@@ -475,8 +475,9 @@ holds the description and its build: it reads the sources under
 engine: it reads <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> and writes Canopy screens. The framework
 keeps the views, the settings and the command line, and reaches the
 description through its public modules only.</p>
-<p>Today all of this is one tree, <code class="docutils literal notranslate"><span class="pre">src/osprey/facility</span></code>, with an import cycle
-through the views, the scenarios and the renderer. This page states the end
+<p>Today the description is the <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> package under
+<code class="docutils literal notranslate"><span class="pre">packages/osprey-facility</span></code>, and the panel engine is still
+<code class="docutils literal notranslate"><span class="pre">src/osprey/facility/panels</span></code> in the framework. This page states the end
 state, why each part of it is the way it is, which phase of the split realises
 it, and how a check holds the code to it while the split is under way. What the
 build writes is in <a class="reference internal" href="facility-file.html"><span class="doc">Facility File and Its Views</span></a>; the version rules of the document are
@@ -628,8 +629,8 @@ reader has to compare.</p>
 <p><em>Phase:</em> the panel engine checks the version in phase 2, the framework readers
 in phase 3 with the write guard first, and the schema ships in the package in
 phase 4. <em>Today:</em> the build writes <code class="docutils literal notranslate"><span class="pre">/4</span></code>, a test pins the schema against the
-floor of each <code class="docutils literal notranslate"><span class="pre">N</span></code>, and the panel engine refuses any other version; the
-framework readers do not compare it yet. The exact rules and the reader table
+floor of each <code class="docutils literal notranslate"><span class="pre">N</span></code>, the schema ships in the <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> wheel, and
+every reader refuses any other version. The exact rules and the reader table
 are in <a class="reference internal" href="../reference/contracts/facility-json.html#reference-facility-json"><span class="std std-ref">The facility.json Contract</span></a>.</p>
 </section>
 <section id="the-description-and-the-framework-split-as-the-code-reads">
@@ -637,8 +638,8 @@ are in <a class="reference internal" href="../reference/contracts/facility-json.
 <p>osprey-facility gets the records, relations, combine, sources, compute, build,
 wiring and validate (without its command-line reporting), the serialisation half
 of the renderer, the scenario rosters and checks, the scenario session model
-(today <code class="docutils literal notranslate"><span class="pre">osprey.simulation.sessions</span></code>), the layers, the schema and vocabulary,
-the kinds with the five built-in kinds, the pure helpers now in the simulator
+(<code class="docutils literal notranslate"><span class="pre">osprey_facility.sessions</span></code>), the layers, the schema and vocabulary,
+the kinds with the five built-in kinds, the pure helpers from the simulator
 and pyAML views, and its errors as plain exceptions without click.</p>
 <p>The framework keeps the views, the settings, the bundled facility, the step that
 renders the facility outputs, the check of scenario sessions against MCP server
@@ -653,9 +654,9 @@ files atomically itself.</p>
 pyaml-cs-osprey imports the framework’s runtime, so a dependency on it would
 bring the framework back into the description.</p>
 <p><em>Phase:</em> 3 untangles the description from the framework, 4 makes it a package,
-5 makes the panel engine a package. <em>Today:</em> one package; the description
-imports the framework in the records, the scenarios, the engine contract and
-the relations layer, and imports click in nine modules.</p>
+5 makes the panel engine a package. <em>Today:</em> the description is
+osprey-facility and imports neither the framework nor click; the panel engine
+is still framework code.</p>
 </section>
 <section id="the-simulation-engine-contract-lives-in-osprey-connectors">
 <h2>4. The simulation-engine contract lives in osprey-connectors<a class="headerlink" href="#the-simulation-engine-contract-lives-in-osprey-connectors" title="Link to this heading">#</a></h2>
@@ -684,9 +685,11 @@ under <code class="docutils literal notranslate"><span class="pre">osprey</span>
 and which distribution owns a module would blur. A framework command over the
 engine would mean the framework imports it, and a fork would have to be wired
 into the framework’s command line too.</p>
-<p><em>Phase:</em> 4 for osprey-facility, 5 for osprey-panels. <em>Today:</em> the framework
-reaches no description module outside the declared public set, and the
-framework’s command line imports the panel engine.</p>
+<p><em>Phase:</em> 4 for osprey-facility, 5 for osprey-panels. <em>Today:</em> osprey-facility
+declares its public modules, the framework and apps reach no description module
+outside them, and the kinds group is <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code>. The panel engine
+is still <code class="docutils literal notranslate"><span class="pre">osprey.facility.panels</span></code>, and the framework’s command line imports
+it.</p>
 </section>
 <section id="both-packages-have-their-own-tag-streams">
 <h2>6. Both packages have their own tag streams<a class="headerlink" href="#both-packages-have-their-own-tag-streams" title="Link to this heading">#</a></h2>
@@ -697,7 +700,8 @@ depends on osprey-facility with a floor. osprey-panels declares the
 osprey-facility floor.</p>
 <p><em>Why:</em> each package gets its own version and cadence. One parameterised workflow
 generalises the connectors’ release stream instead of copying it twice.</p>
-<p><em>Phase:</em> 6. <em>Today:</em> both are released with the framework.</p>
+<p><em>Phase:</em> 6. <em>Today:</em> osprey-facility is built from the checkout only and no
+release publishes it; the panel engine ships in the framework.</p>
 </section>
 <section id="a-fork-is-a-separate-distribution-that-replaces-osprey-panels">
 <h2>7. A fork is a separate distribution that replaces osprey-panels<a class="headerlink" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels" title="Link to this heading">#</a></h2>
@@ -734,25 +738,27 @@ framework tests use move into <code class="docutils literal notranslate"><span c
 and preset fixtures stay in the framework.</p>
 <p><em>Why:</em> only a test run without the framework proves a package works without it.
 Test helpers in the wheel would become public API.</p>
-<p><em>Phase:</em> the byte-for-byte rebuild test lives in the root suite until phase 4;
-the package suites start in phases 4 and 5. <em>Today:</em> every test is in the root
-<code class="docutils literal notranslate"><span class="pre">tests/</span></code>; the panel tests read <code class="docutils literal notranslate"><span class="pre">tests/facility/panels/fixture/facility.json</span></code>,
-and <code class="docutils literal notranslate"><span class="pre">tests/facility/test_panel_fixture_rebuild.py</span></code> rebuilds it.</p>
+<p><em>Phase:</em> 4 for osprey-facility, 5 for osprey-panels. <em>Today:</em> osprey-facility
+tests itself in <code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/tests/osprey_facility_tests/</span></code>,
+which the <code class="docutils literal notranslate"><span class="pre">osprey-facility-standalone</span></code> job runs without the framework. The
+panel tests are still in the root <code class="docutils literal notranslate"><span class="pre">tests/</span></code>; they read
+<code class="docutils literal notranslate"><span class="pre">tests/facility/panels/fixture/facility.json</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/tests/osprey_facility_tests/test_panel_fixture_rebuild.py</span></code>
+rebuilds it.</p>
 </section>
 </section>
 <section id="the-boundary-check">
 <h1>The boundary check<a class="headerlink" href="#the-boundary-check" title="Link to this heading">#</a></h1>
 <p>Two tools hold the code to the end state, and both read one classification.</p>
 <p>The classification is the module lists of six import-linter contracts in
-<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. Every module under <code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> sits on one side:
-description, panel engine, engine contract or framework. The side follows the
-end state, not today’s directory, so <code class="docutils literal notranslate"><span class="pre">osprey.simulation.sessions</span></code> is
-description while the views, settings, bundled facility, <code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code>
-and the engine implementations are framework. The renderer, scenarios, validate
-and compute are description modules whose framework imports are listed edge by
-edge.</p>
+<code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. Every module under <code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_facility</span></code>
+sits on one side: description, panel engine, engine contract or framework. The
+side follows the end state, not today’s directory, so <code class="docutils literal notranslate"><span class="pre">osprey.facility.panels</span></code>
+is the panel engine while the views, settings, bundled facility,
+<code class="docutils literal notranslate"><span class="pre">osprey.utils.facility</span></code> and the engine implementations are framework.</p>
 <p><code class="docutils literal notranslate"><span class="pre">lint-imports</span></code>, run by the <code class="docutils literal notranslate"><span class="pre">import-contracts</span></code> check, follows every static
-import between <code class="docutils literal notranslate"><span class="pre">osprey</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code>. Its contracts forbid:</p>
+import between <code class="docutils literal notranslate"><span class="pre">osprey</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey_facility</span></code>. Its
+contracts forbid:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 30.0%" />
@@ -802,68 +808,68 @@ a <code class="docutils literal notranslate"><span class="pre">#</span> <span cl
 removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fpt-title fpt-desc">
-  <title id="fpt-title">Today versus target: the one facility package with its import cycle, and the edges the boundary ratchet lists, grouped by the phase that removes them</title>
-  <desc id="fpt-desc">Two halves. The left half is today. src/osprey/facility is one package. Its description, some 22 modules such as records, combine, build, validate, render, scenarios, compute, layers and kinds, imports itself in one cycle, and the cycle runs through the framework's views, scenarios and render: the description reaches into the framework, and the framework imports description modules that are not its public API. The panels code lives inside it, at facility/panels: it reads facility.json only and imports no description module, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. Beside it, third-party reaches: click in nine description modules, and kinds into pyaml_cs_osprey. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle: every description edge into the framework, the views helpers, utils.facility, registry.mcp, the CLI, deployment, config paths, the osprey.simulation root and the engine implementations such as pyat; the edges to click and to pyaml_cs_osprey; the engine contract's osprey.simulation.engines spelling, which moves to osprey_connectors; and any description edge to the panels; this breaks the import cycle. Phase 4, the facility package: framework edges into description modules outside the public API, such as the CLI's read of the MML layer data, after which the public API is protected. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
+  <title id="fpt-title">Today versus target: the description as its own package, the panels still inside the framework, and the edges the boundary ratchet lists, grouped by the phase that removes them</title>
+  <desc id="fpt-desc">Two halves. The left half is today. The description is its own package, packages/osprey-facility, import root osprey_facility: some 25 modules such as records, combine, build, validate, render, scenarios, compute, layers, kinds, sessions and the schema. It imports no framework code, no click and no pyaml_cs_osprey, and the framework imports it through its public modules only. The panels code still lives in the framework, at src/osprey/facility/panels: it reads facility.json only and imports no description module, and emit climbs its own file path to reach the framework's theme and imports osprey_connectors.safety_file. The framework's facility CLI imports the panels. No third-party reach is listed. Warn edges are the ones the ratchet lists; each is an allowed entry today and fails the check once its phase has passed. The right half is the ratchet, drawn by edge class and the phase that removes it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle, is done and lists no edge: it removed every description edge into the framework, the edges to click and to pyaml_cs_osprey, and the engine contract's osprey.simulation.engines spelling, and broke the import cycle. Phase 4, the facility package, is done and lists no edge: it removed the framework's reaches into description modules outside the public API, such as the CLI's read of the MML layer data. Phase 5, the panels package: the framework CLI's import of the panels, the panels' climb to the framework theme, which becomes a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet only shrinks; an edge of none of these classes fails the boundary check today.</desc>
   <defs>
     <marker id="fpt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fpt-arr-warn" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-warn)"/></marker>
   </defs>
 
   <!-- half labels -->
-  <text class="te" x="20" y="32">TODAY · ONE PACKAGE, ONE CYCLE</text>
+  <text class="te" x="20" y="32">TODAY · DESCRIPTION PACKAGED, PANELS IN THE FRAMEWORK</text>
   <text class="te" x="520" y="32">TARGET · THE RATCHET BY EDGE CLASS AND REMOVING PHASE</text>
   <line class="divider" x1="500" y1="44" x2="500" y2="556"/>
 
-  <!-- today: the one package -->
-  <rect class="zone" x="20" y="50" width="290" height="312" rx="6"/>
-  <text class="te" x="32" y="68">SRC/OSPREY/FACILITY/</text>
+  <!-- today: the description package -->
+  <rect class="zone" x="20" y="50" width="290" height="164" rx="6"/>
+  <text class="te" x="32" y="68">PACKAGES/OSPREY-FACILITY/</text>
 
-  <rect class="nb-warn" x="32" y="80" width="266" height="124" rx="6"/>
-  <text class="ta ta-warn" x="44" y="98">DESCRIPTION · ONE IMPORT CYCLE</text>
-  <text class="ts" x="44" y="116">~22 modules import one another:</text>
-  <text class="ts" x="44" y="130">records combine build validate</text>
-  <text class="ts" x="44" y="144">render scenarios compute layers</text>
-  <text class="ts" x="44" y="158">kinds relations pairing …</text>
-  <text class="ts" x="44" y="176">the cycle runs through the</text>
-  <text class="ts" x="44" y="190">framework's views, scenarios, render</text>
+  <rect class="nb-st" x="32" y="80" width="266" height="124" rx="6"/>
+  <text class="ta" x="44" y="98">DESCRIPTION · OSPREY_FACILITY</text>
+  <text class="ts" x="44" y="116">~25 modules: records combine build</text>
+  <text class="ts" x="44" y="130">validate render scenarios compute</text>
+  <text class="ts" x="44" y="144">layers kinds sessions schema …</text>
+  <text class="ts t-acc" x="44" y="176">imports no framework, no click,</text>
+  <text class="ts t-acc" x="44" y="190">no pyaml_cs_osprey; no cycle</text>
 
-  <rect class="nb-warn" x="32" y="240" width="266" height="110" rx="6"/>
-  <text class="ta ta-warn" x="44" y="258">PANELS · FACILITY/PANELS/</text>
-  <text class="ts" x="44" y="276">reads facility.json only,</text>
-  <text class="ts" x="44" y="290">  no description import</text>
-  <text class="ts" x="44" y="318">emit → framework theme (path climb)</text>
-  <text class="ts" x="44" y="332">emit → osprey_connectors.safety_file</text>
+  <!-- today: the panels, still in the framework tree -->
+  <rect class="zone" x="20" y="222" width="290" height="140" rx="6"/>
+  <text class="te" x="32" y="240">SRC/OSPREY/FACILITY/PANELS/</text>
+
+  <rect class="nb-warn" x="32" y="250" width="266" height="100" rx="6"/>
+  <text class="ta ta-warn" x="44" y="268">PANELS · FACILITY/PANELS/</text>
+  <text class="ts" x="44" y="286">reads facility.json only,</text>
+  <text class="ts" x="44" y="300">  no description import</text>
+  <text class="ts" x="44" y="324">emit → framework theme (path climb)</text>
+  <text class="ts" x="44" y="338">emit → osprey_connectors.safety_file</text>
 
   <!-- today: framework -->
   <rect class="nb" x="350" y="80" width="130" height="270" rx="6"/>
   <text class="ta" x="362" y="98">OSPREY</text>
   <text class="ta" x="362" y="110">FRAMEWORK</text>
   <text class="ts" x="362" y="130">views</text>
-  <text class="ts" x="362" y="144">utils.facility</text>
-  <text class="ts" x="362" y="158">registry.mcp</text>
-  <text class="ts" x="362" y="172">cli · deployment</text>
-  <text class="ts" x="362" y="186">config paths</text>
+  <text class="ts" x="362" y="144">settings</text>
+  <text class="ts" x="362" y="158">bundled</text>
+  <text class="ts" x="362" y="172">utils.facility</text>
+  <text class="ts" x="362" y="186">cli · deployment</text>
   <text class="ts" x="362" y="200">simulation</text>
   <text class="ts" x="362" y="214">  engines (pyat …)</text>
-  <text class="ts" x="362" y="228">bundled</text>
-  <text class="ts" x="362" y="282">cli facility</text>
-  <text class="ts" x="362" y="296">theme</text>
+  <text class="ts" x="362" y="292">cli facility</text>
+  <text class="ts" x="362" y="324">theme</text>
 
   <!-- today: edges -->
-  <line class="e-warn" x1="298" y1="118" x2="348" y2="118" marker-end="url(#fpt-arr-warn)"/>
-  <text class="ta ta-warn" x="303" y="112">reaches</text>
-  <line class="e" x1="350" y1="180" x2="300" y2="180" marker-end="url(#fpt-arr)"/>
-  <text class="ta" x="303" y="174">imports</text>
-  <line class="e-warn" x1="350" y1="278" x2="300" y2="278" marker-end="url(#fpt-arr-warn)"/>
-  <text class="ta ta-warn" x="303" y="272">imports</text>
-  <line class="e-warn" x1="298" y1="314" x2="348" y2="314" marker-end="url(#fpt-arr-warn)"/>
-  <text class="ta ta-warn" x="303" y="308">climbs</text>
+  <line class="e" x1="350" y1="150" x2="300" y2="150" marker-end="url(#fpt-arr)"/>
+  <text class="ta" x="303" y="144">imports</text>
+  <line class="e-warn" x1="350" y1="288" x2="300" y2="288" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="282">imports</text>
+  <line class="e-warn" x1="298" y1="320" x2="348" y2="320" marker-end="url(#fpt-arr-warn)"/>
+  <text class="ta ta-warn" x="303" y="314">climbs</text>
 
   <!-- today: third-party reaches -->
   <rect class="nb-st" x="20" y="390" width="460" height="62" rx="6"/>
   <text class="ta" x="32" y="408">THIRD-PARTY REACHES</text>
-  <text class="ts" x="32" y="424">click in nine description modules</text>
-  <text class="ts" x="32" y="438">kinds → pyaml_cs_osprey (step measurement)</text>
+  <text class="ts" x="32" y="424">none listed: each side imports only its</text>
+  <text class="ts" x="32" y="438">declared dependencies</text>
 
   <!-- legend -->
   <line class="e-warn" x1="20" y1="486" x2="60" y2="486" marker-end="url(#fpt-arr-warn)"/>
@@ -877,21 +883,21 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
   <text class="ts" x="532" y="86">lists no edge</text>
   <text class="ts t-acc" x="532" y="104">the panels read facility.json only</text>
 
-  <rect class="nb-bnd" x="520" y="148" width="460" height="130" rx="6"/>
-  <text class="ta ta-warn" x="532" y="166">PHASE 3 · FACILITY UNTANGLE</text>
-  <text class="ts" x="532" y="184">description → framework: views helpers, utils.facility,</text>
+  <rect class="nb-st" x="520" y="148" width="460" height="130" rx="6"/>
+  <text class="ta" x="532" y="166">PHASE 3 · FACILITY UNTANGLE · DONE</text>
+  <text class="ts" x="532" y="184">removed description → framework: views helpers, utils.facility,</text>
   <text class="ts" x="532" y="198">  registry.mcp, CLI, deployment, config paths, the</text>
   <text class="ts" x="532" y="212">  osprey.simulation root, engine implementations (pyat …)</text>
-  <text class="ts" x="532" y="226">description → click, → pyaml_cs_osprey</text>
+  <text class="ts" x="532" y="226">removed description → click, → pyaml_cs_osprey</text>
   <text class="ts" x="532" y="240">the engine contract's osprey. spelling → osprey_connectors</text>
-  <text class="ts" x="532" y="254">description → panels (none today)</text>
-  <text class="ts t-acc" x="532" y="268">after it, the import cycle is gone</text>
+  <text class="ts" x="532" y="254">lists no edge</text>
+  <text class="ts t-acc" x="532" y="268">the import cycle is gone</text>
 
-  <rect class="nb-bnd" x="520" y="288" width="460" height="74" rx="6"/>
-  <text class="ta ta-warn" x="532" y="306">PHASE 4 · FACILITY PACKAGE</text>
-  <text class="ts" x="532" y="324">framework → description modules outside the public API,</text>
-  <text class="ts" x="532" y="338">  such as the CLI's read of the MML layer data</text>
-  <text class="ts t-acc" x="532" y="352">after it, the public API is protected</text>
+  <rect class="nb-st" x="520" y="288" width="460" height="74" rx="6"/>
+  <text class="ta" x="532" y="306">PHASE 4 · FACILITY PACKAGE · DONE</text>
+  <text class="ts" x="532" y="324">removed framework → description modules outside the public</text>
+  <text class="ts" x="532" y="338">  API, such as the CLI's read of the MML layer data</text>
+  <text class="ts t-acc" x="532" y="352">lists no edge; the public API is protected</text>
 
   <rect class="nb-bnd" x="520" y="372" width="460" height="88" rx="6"/>
   <text class="ta ta-warn" x="532" y="390">PHASE 5 · PANELS PACKAGE</text>
@@ -917,9 +923,9 @@ helpers, <code class="docutils literal notranslate"><span class="pre">osprey.uti
 engine implementations), its click imports in nine modules, its import of
 pyaml-cs-osprey and the <code class="docutils literal notranslate"><span class="pre">osprey.</span></code> spelling of the engine contract; its
 header is empty.</p></li>
-<li><p><strong>Phase 4</strong> removes framework reaches into private description modules: none
-by static import today, one resource read of the MML layer by the command
-line.</p></li>
+<li><p><strong>Phase 4</strong> removed the framework’s reaches into private description
+modules, one resource read of the MML layer by the command line among them;
+its header is empty.</p></li>
 <li><p><strong>Phase 5</strong> removes the framework command line’s imports of the panel engine,
 the engine’s climb to the framework theme and its atomic writes through
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors.safety_file</span></code>.</p></li>

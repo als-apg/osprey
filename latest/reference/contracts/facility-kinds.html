@@ -501,10 +501,10 @@ scenario stops. Writing the measurement file itself is in
 engine <code class="docutils literal notranslate"><span class="pre">fixture_ring</span></code>, proven by <code class="docutils literal notranslate"><span class="pre">tests/facility/test_fixture_kind_deployment.py</span></code>.</p>
 <section id="registering-a-kind">
 <h2>Registering a kind<a class="headerlink" href="#registering-a-kind" title="Link to this heading">#</a></h2>
-<p>A kind is one <code class="xref py py-class docutils literal notranslate"><span class="pre">osprey.facility.kinds.KindDeclaration</span></code>, named by an entry
-point of the group <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> in its package’s
+<p>A kind is one <code class="xref py py-class docutils literal notranslate"><span class="pre">osprey_facility.kinds.KindDeclaration</span></code>, named by an entry
+point of the group <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> in its package’s
 <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>. The entry point’s name is the kind’s name and loads to the
-declaration (or a mapping of its fields). The kinds the <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code>
+declaration (or a mapping of its fields). The kinds the <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code>
 distribution declares are the <em>built-in</em> kinds: <code class="docutils literal notranslate"><span class="pre">orm</span></code>, <code class="docutils literal notranslate"><span class="pre">dispersion</span></code>,
 <code class="docutils literal notranslate"><span class="pre">trm</span></code>, <code class="docutils literal notranslate"><span class="pre">crm</span></code> and <code class="docutils literal notranslate"><span class="pre">chromaticity_monitor</span></code>.</p>
 <p>The package must be installed in two places: the venv <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs
@@ -514,7 +514,7 @@ turns a local path into a wheel the project image installs. A kind is read by
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> alone; the approval hook, the MCP servers and the measure
 script read what the build wrote and import neither the registry nor the
 kind’s package. A kind’s package should import OSPREY only through
-<code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> (<a class="reference internal" href="#stability">Stability</a>).</p>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> (<a class="reference internal" href="#stability">Stability</a>).</p>
 <p>The build stops on:</p>
 <ul class="simple">
 <li><p>a measurement file listing a kind no installed package registers, in a
@@ -594,7 +594,7 @@ writer <code class="docutils literal notranslate"><span class="pre">(ViewContext
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">measure_plan</span></code></p></td>
 <td><p>What the measure script does for the kind, as data;
-<code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.plan_problems</span></code> states the vocabulary.</p></td>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds.plan_problems</span></code> states the vocabulary.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
 <td><p>The one line the agent is told about the kind.</p></td>
@@ -753,7 +753,7 @@ no command. The engine contract is in <a class="reference internal" href="../../
 </section>
 <section id="stability">
 <h2>Stability<a class="headerlink" href="#stability" title="Link to this heading">#</a></h2>
-<p>Every name in <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.__all__</span></code> keeps its name, its import
+<p>Every name in <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds.__all__</span></code> keeps its name, its import
 path and its meaning across releases, as do the measurement-file and facts
 keys this page names; a change to one is a breaking change of the kind
 contract, announced in the changelog.</p>

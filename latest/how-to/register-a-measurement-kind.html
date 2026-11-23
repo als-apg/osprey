@@ -547,7 +547,7 @@ and what the build writes, is <a class="reference internal" href="../reference/c
 <code class="docutils literal notranslate"><span class="pre">fixture_kind</span></code> and the engine <code class="docutils literal notranslate"><span class="pre">fixture_ring</span></code> it runs on.</p>
 <section id="declare-the-kind">
 <h2>1. Declare the kind<a class="headerlink" href="#declare-the-kind" title="Link to this heading">#</a></h2>
-<p>A kind is one <code class="docutils literal notranslate"><span class="pre">KindDeclaration</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code>, the only
+<p>A kind is one <code class="docutils literal notranslate"><span class="pre">KindDeclaration</span></code> from <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code>, the only
 OSPREY module the package should import:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">FIXTURE_KIND</span> <span class="o">=</span> <span class="n">KindDeclaration</span><span class="p">(</span>
     <span class="n">name</span><span class="o">=</span><span class="n">KIND</span><span class="p">,</span>
@@ -625,9 +625,9 @@ stops and the engine settings it needs (below).</p></li>
 <section id="register-it">
 <h2>2. Register it<a class="headerlink" href="#register-it" title="Link to this heading">#</a></h2>
 <p>The package names the declaration under the entry-point group
-<code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code>, and an engine of its own, when it has one, under
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code>, and an engine of its own, when it has one, under
 <code class="docutils literal notranslate"><span class="pre">osprey_connectors.simulation.engines</span></code>:</p>
-<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[osprey.facility.kinds]</span>
+<div class="highlight-ini notranslate"><div class="highlight"><pre><span></span><span class="k">[osprey_facility.kinds]</span>
 <span class="na">fixture_kind</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">fixture_kind_deployment:FIXTURE_KIND</span>
 
 <span class="k">[osprey_connectors.simulation.engines]</span>
@@ -635,7 +635,7 @@ stops and the engine settings it needs (below).</p></li>
 </pre></div>
 </div>
 <p>In the package’s <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> these are the
-<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey.facility.kinds&quot;]</span></code> and
+<code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey_facility.kinds&quot;]</span></code> and
 <code class="docutils literal notranslate"><span class="pre">[project.entry-points.&quot;osprey_connectors.simulation.engines&quot;]</span></code> tables.</p>
 </section>
 <section id="install-it-in-both-places">
@@ -725,7 +725,7 @@ call that leads to it is its caller’s to check
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span> <span class="pre">fixture_kind</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">registered</span> <span class="pre">under</span> <span class="pre">osprey.facility.kinds</span> <span class="pre">by</span> <span class="pre">any</span>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">kind</span> <span class="pre">fixture_kind</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">registered</span> <span class="pre">under</span> <span class="pre">osprey_facility.kinds</span> <span class="pre">by</span> <span class="pre">any</span>
 <span class="pre">installed</span> <span class="pre">package</span></code></p></td>
 <td><p>A measurement file lists the kind, and no package installed where
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs declares it. A tree that mounts no machine root

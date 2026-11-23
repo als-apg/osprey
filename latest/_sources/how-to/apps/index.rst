@@ -210,7 +210,7 @@ and Markdown. What OSPREY supplies, so the app does not have to:
   login.
 
 App code imports OSPREY only through ``osprey.apps.sdk`` (plus
-``osprey.facility.kinds`` and the public ``osprey_connectors`` modules). Every
+``osprey_facility.kinds`` and the public ``osprey_connectors`` modules). Every
 name in the SDK keeps its meaning across releases; ``osprey app check`` reports
 any other import, so an app built today still builds on the next OSPREY.
 

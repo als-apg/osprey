@@ -837,8 +837,8 @@ refuses. How to deploy a plug-in is in <a class="reference internal" href="../ho
 </section>
 <section id="measurement-kind">
 <span id="extending-measurement-kind"></span><h2>Measurement kind<a class="headerlink" href="#measurement-kind" title="Link to this heading">#</a></h2>
-<p>A measurement kind is an <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds.KindDeclaration</span></code> registered
-under the <code class="docutils literal notranslate"><span class="pre">osprey.facility.kinds</span></code> entry-point group in its package’s
+<p>A measurement kind is an <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds.KindDeclaration</span></code> registered
+under the <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> entry-point group in its package’s
 <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>; OSPREY’s shipped kinds are entry points of the same group.
 The package is installed where <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> runs and in the project image,
 through the profile’s <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>. Pinning test:
