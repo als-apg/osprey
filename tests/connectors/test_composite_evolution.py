@@ -247,6 +247,7 @@ def test_the_fast_channel_is_served_as_the_test_clock_advances_it(tmp_path: Path
     assert _calls("advance")[-1] == T0 + 2.5
 
 
+@pytest.mark.skipif(not hasattr(Composite, "now"), reason="connectors floor has no Composite.now")
 def test_now_reads_the_clock_a_deadline_is_measured_from(tmp_path: Path) -> None:
     clock = _Clock()
     composite = _composite(tmp_path, clock)

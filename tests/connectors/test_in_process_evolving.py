@@ -20,11 +20,9 @@ import numpy as np
 import pytest
 
 import osprey_connectors.simulation.composite as composite_module
+from osprey_connectors.control_system import _va_in_process_connector as in_process
 from osprey_connectors.control_system._base import ChannelValue, WriteOutcome
-from osprey_connectors.control_system._va_in_process_connector import (
-    EVOLVE_SETTING,
-    VAInProcessConnector,
-)
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from tests.facility import _turn_by_turn_fixture as ring
 from tests.facility._injection_fixture import (
@@ -36,6 +34,11 @@ from tests.facility._injection_fixture import (
     injection_view,
 )
 from tests.facility.served_tree import in_process_config
+
+#: The connector setting under test; a connectors release without it has no evolution to test.
+EVOLVE_SETTING: str = getattr(in_process, "EVOLVE_SETTING", "")
+
+pytestmark = pytest.mark.skipif(not EVOLVE_SETTING, reason="connectors floor has no evolve setting")
 
 #: The instant the fake clock starts at, epoch seconds.
 T0 = 1_760_000_000.0
