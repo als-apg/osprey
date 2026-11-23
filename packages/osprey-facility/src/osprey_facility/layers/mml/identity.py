@@ -51,8 +51,8 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.mapping import (
     ENGINE_AXES,
     Coordinates,
     DeviceIdentity,
@@ -62,7 +62,7 @@ from osprey.facility.layers.mml.mapping import (
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.facility.layers.mml.family import FamilyView
+    from osprey_facility.layers.mml.family import FamilyView
 
 __all__ = [
     "axis_twins",

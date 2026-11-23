@@ -4,7 +4,7 @@ The mapping states only family words: the field a family is wired through
 (``element_field``), the engine block in pyAT's words and the shape of its
 calibration. Everything per address comes from the export: the element each
 device drives from the deck the export saved, addressed and renamed by
-:mod:`~osprey.facility.layers.mml.decks`, and the numbers of each conversion
+:mod:`~osprey_facility.layers.mml.decks`, and the numbers of each conversion
 from the model facts sampled beside it (``<stem>.va.json``).
 
 :func:`wire_model` takes one model of the mapping and returns the deck the
@@ -68,7 +68,7 @@ Lines the import prints, one per family, on stdout and never stopping it:
 ``import mml: curves trimmed: <model>: family <family> (<n>)`` and
 ``import mml: supplies folded: <model>: family <family> (<n>)``.
 
-Stops, each an :class:`~osprey.facility.layers.mml.mapping.ImportStop`:
+Stops, each an :class:`~osprey_facility.layers.mml.mapping.ImportStop`:
 
 * ``export-invalid``: the export and the mapping or the deck disagree -- the
   mapping wires families and the export saved no deck; a wired family the
@@ -93,9 +93,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers.mml import decks
-from osprey.facility.layers.mml.mapping import (
+from osprey_connectors.simulation.engines import Calibration, Linear, Table, evaluate, shifted
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml import decks
+from osprey_facility.layers.mml.mapping import (
     MONITOR_FIELD,
     PHYSICS_UNITS,
     TUNE_PLANES,
@@ -108,10 +109,9 @@ from osprey.facility.layers.mml.mapping import (
     exported_number,
     exported_word,
 )
-from osprey_connectors.simulation.engines import Calibration, Linear, Table, evaluate, shifted
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.facility.layers.mml.family import FamilyView, FieldView
+    from osprey_facility.layers.mml.family import FamilyView, FieldView
 
 __all__ = [
     "ENERGY_SCALINGS",
@@ -158,7 +158,7 @@ class Wired:
 
     Attributes:
         deck: The deck the model is served, as
-            :func:`~osprey.facility.layers.mml.decks.served_deck` returns it;
+            :func:`~osprey_facility.layers.mml.decks.served_deck` returns it;
             every element a record names carries that name exactly once.
         records: The wiring records, sorted by address.
         lines: What the import prints about the wiring, one line each.
@@ -236,7 +236,7 @@ def wire_model(
         MappingError: The mapping answers a voltage for a deck that holds its
             cavity.
     """
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     name = model.name
     if deck_path is None:
@@ -305,7 +305,7 @@ def _records(
         ValueError: Two records claim one address or one element field, or
             whatever :func:`_family_records` refuses.
     """
-    from osprey.facility.layers.mml.judgments import judged_va_block
+    from osprey_facility.layers.mml.judgments import judged_va_block
 
     wired: dict[str, tuple[str, dict[str, Any]]] = {}
     written: dict[tuple[str, str], str] = {}
@@ -861,7 +861,7 @@ def _require_devices(family: str, view: FamilyView, block: Map[str, Any]) -> Non
         ValueError: The block's ``device_list`` states another device count
             than the judged family has.
     """
-    from osprey.facility.layers.mml.family import device_rows
+    from osprey_facility.layers.mml.family import device_rows
 
     rows = device_rows(block.get("device_list"))
     if rows is not None and len(rows) != view.n_devices:

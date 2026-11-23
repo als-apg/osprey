@@ -88,8 +88,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.mapping import (
     KICK,
     LAYER_DIR,
     EngineBlock,
@@ -521,7 +521,7 @@ def _with_devices(
     stated: list[tuple[int, tuple[tuple[int, int], ...]]],
 ) -> tuple[_Row, ...]:
     """Pair each stated row with the device the export lists it under."""
-    from osprey.facility.layers.mml.family import device_rows
+    from osprey_facility.layers.mml.family import device_rows
 
     devices = device_rows(block.get("DeviceList"))
     if devices is None:

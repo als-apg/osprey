@@ -28,7 +28,7 @@ the model.
 **Rows are matched through the import's row table.** A response export states
 a ``DeviceList`` per side; each row is matched to the device the import
 recorded for that family's row in ``imported/mml/rows.json``
-(:mod:`~osprey.facility.layers.mml.rows`) and to that device's wiring record
+(:mod:`~osprey_facility.layers.mml.rows`) and to that device's wiring record
 of the family's engine words. A row the export
 marks ``Status`` 0 is the export's own exclusion and is not compared. A row no
 wired device answers to, a column whose record names no deck element (it drives
@@ -74,15 +74,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Any
 
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
     exported_number,
     exported_word,
     read_mapping,
 )
-from osprey.facility.layers.mml.rows import read_rows
-from osprey.facility.records import FacilityRecords
+from osprey_facility.layers.mml.rows import read_rows
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "FLOOR_FRACTION",

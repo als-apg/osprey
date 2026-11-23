@@ -2,7 +2,7 @@
 
 Three extraction shapes are not decidable by rule, so the mapping asks a
 reviewer instead of guessing. This module finds them, and only them, from a
-raw :class:`~osprey.facility.layers.mml.family.FamilyView`, per (system, family):
+raw :class:`~osprey_facility.layers.mml.family.FamilyView`, per (system, family):
 
 * **rows beyond devices** -- a non-blank slot at an index at or past
   ``n_devices`` of a channel list longer than ``n_devices``. Per field, the
@@ -37,7 +37,7 @@ pending in the system it is handed is ignored, because the same family may be
 judged differently in another system; an answer the mapping check would
 refuse is an internal ``AssertionError`` rather than a second refusal path.
 :func:`judged_family_views` is that half over a whole system, standing in for
-:func:`~osprey.facility.layers.mml.family.family_views` wherever a consumer reads the
+:func:`~osprey_facility.layers.mml.family.family_views` wherever a consumer reads the
 grain the reviewer settled on, and :func:`judged_va_block` is the same answers
 over the virtual-accelerator block the export wrote beside the family, so both
 documents are read in one device order.
@@ -53,14 +53,14 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from osprey.facility.layers.mml.family import (
+from osprey_facility.layers.mml.family import (
     CHANNEL_KEYS,
     FAMILY_ARRAYS,
     FamilyView,
     family_views,
     system_bodies,
 )
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     FamilyJudgments,
     FieldAnswer,
     Mapping,

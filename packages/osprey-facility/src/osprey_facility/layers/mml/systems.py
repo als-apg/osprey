@@ -22,10 +22,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from osprey.facility.errors import FacilityUsageError
-from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.facility.layers.mml.mapping import exported_text
-from osprey.facility.layers.mml.normalize import normalize_family
+from osprey_facility.errors import FacilityUsageError
+from osprey_facility.layers.mml.loaders import LoadedInput
+from osprey_facility.layers.mml.mapping import exported_text
+from osprey_facility.layers.mml.normalize import normalize_family
 
 __all__ = ["EXPORTS_KEY", "IMPORT_ORDER_KEY", "input_systems", "merge_inputs", "resolve_system"]
 

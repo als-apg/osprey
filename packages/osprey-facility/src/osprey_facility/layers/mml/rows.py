@@ -26,7 +26,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.layers.mml.mapping import LAYER_DIR
+from osprey_facility.layers.mml.mapping import LAYER_DIR
 
 __all__ = ["ROWS_FILE", "ROWS_SCHEMA", "read_rows", "write_rows"]
 

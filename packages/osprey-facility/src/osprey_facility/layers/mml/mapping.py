@@ -59,7 +59,7 @@ A family without the key is identified by ``names``; the import stops
 slots, and (``mapping-invalid``) where an answer does not fit the export.
 
 A model's ``places`` turns its devices' ``DeviceList`` rows into places
-(:mod:`~osprey.facility.layers.mml.places`): the model is a place, and each
+(:mod:`~osprey_facility.layers.mml.places`): the model is a place, and each
 of the ``count`` sectors ``sectors`` states is a place under it, named by
 ``token`` formatted with the sector number (``SR{sector:02d}`` names
 ``SR/SR03``). ``model_wide`` lists the families whose devices sit on the model
@@ -105,7 +105,7 @@ the others ``{same_as: <it>}`` (a named family whose ids already agree keeps
 ``names``), each with a comment naming the families it shares its devices
 with. An address a family binds at several slots is a supply, not one device.
 
-The importer's stops are :class:`~osprey.facility.errors.ImportStop`: one line each, prefixed
+The importer's stops are :class:`~osprey_facility.errors.ImportStop`: one line each, prefixed
 ``import mml: <problem>:``, exit status 1.
 """
 
@@ -122,7 +122,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, TypeGuard, overload
 
-from osprey.facility.errors import ImportStop
+from osprey_facility.errors import ImportStop
 
 __all__ = [
     "CALIBRATION_KINDS",
@@ -1113,7 +1113,7 @@ def vocabulary_parents() -> dict[str, str | None]:
     import json
     from importlib import resources
 
-    table = resources.files("osprey.facility.schema._generated") / "vocabulary.json"
+    table = resources.files("osprey_facility.schema._generated") / "vocabulary.json"
     classes = json.loads(table.read_text(encoding="utf-8"))["classes"]
     return {row["name"]: row["parent"] for row in classes}
 
@@ -1228,7 +1228,7 @@ class Problem:
 
 
 def _pn_local(token: str) -> bool:
-    from osprey.facility import PN_LOCAL
+    from osprey_facility import PN_LOCAL
 
     return PN_LOCAL.fullmatch(token) is not None
 
@@ -1365,7 +1365,7 @@ def _family_field(mapping: Mapping, family: str, name: str) -> str | None:
 
 def _field_signals(mapping: Mapping, roles: frozenset[str] | None = None) -> Iterator[Problem]:
     """A field's signal names a vocabulary role or one of ``roles``."""
-    from osprey.facility.validate import signal_roles
+    from osprey_facility.validate import signal_roles
 
     if roles is None:
         roles = signal_roles()
@@ -1468,8 +1468,8 @@ def _against_export(mapping: Mapping, ao: dict) -> Iterator[Problem]:
     lacking no family or direction is listed as absent from the export; those
     of the systems that are exported are listed once every mapped system is.
     """
-    from osprey.facility.layers.mml.directions import vote_directions
-    from osprey.facility.layers.mml.family import family_views, system_bodies
+    from osprey_facility.layers.mml.directions import vote_directions
+    from osprey_facility.layers.mml.family import family_views, system_bodies
 
     systems = dict(system_bodies(ao))
     views = {
@@ -1570,7 +1570,7 @@ def _unit_contradictions(mapping: Mapping, views: dict[str, dict[str, Any]]) -> 
 
 def _is_current(signal: str) -> bool:
     """Whether *signal* names a current, of any qualifier (``current_x``)."""
-    from osprey.facility.pairing import signal_quantity
+    from osprey_facility.pairing import signal_quantity
 
     found = signal_quantity(signal, "setpoint") or signal_quantity(signal, "readback")
     return found is not None and found.split("_")[0] == "current"
@@ -1585,7 +1585,7 @@ def _pending_by_family(ao: dict) -> dict[str, list[Any]]:
     The judgments are read off the raw export, before any answer is applied,
     in export order; a family pending nothing is listed too.
     """
-    from osprey.facility.layers.mml.judgments import all_pending_judgments
+    from osprey_facility.layers.mml.judgments import all_pending_judgments
 
     found: dict[str, list[Any]] = {}
     for judged in all_pending_judgments(ao).values():
@@ -1840,7 +1840,7 @@ def check_mapping(
     Returns:
         Every problem, in rule order and document order within a rule.
     """
-    from osprey.facility.validate import signal_roles
+    from osprey_facility.validate import signal_roles
 
     field_signals = functools.partial(_field_signals, roles=signal_roles(signals))
     rules = [field_signals if rule is _field_signals else rule for rule in _RULES]
@@ -1932,7 +1932,7 @@ def _one_unit(value: Any) -> str | None:
 
 def _system_order(ao: dict) -> list[str]:
     """The export's systems: ``_import_order`` first, then the rest sorted."""
-    from osprey.facility.layers.mml.family import system_bodies
+    from osprey_facility.layers.mml.family import system_bodies
 
     present = sorted(raw for raw, _ in system_bodies(ao))
     order = ao.get("_import_order")
@@ -1946,7 +1946,7 @@ def _block(blocks: dict | None, system: str) -> dict:
 
 
 def _draft_identity(ad: dict | None, systems: list[str]) -> dict | None:
-    from osprey.facility import fold_code
+    from osprey_facility import fold_code
 
     machine = next(
         (found for raw in systems if (found := exported_text(_block(ad, raw).get("Machine")))), None
@@ -2192,7 +2192,7 @@ def _draft_devices(
         ``address`` answer yields, and the families each family shares its
         devices with, all keyed by raw family.
     """
-    from osprey.facility.layers.mml.identity import (
+    from osprey_facility.layers.mml.identity import (
         axis_twins,
         device_ids,
         lent_rows,
@@ -2261,7 +2261,7 @@ def _device_sets(views: Sequence[Any]) -> list[tuple[list[str], list[tuple[Any, 
         Each set's raw families in import order, with its evidence as
         ``(address, (view index, field, slot), (view index, field, slot))``.
     """
-    from osprey.facility.layers.mml.identity import row_coordinate
+    from osprey_facility.layers.mml.identity import row_coordinate
 
     bound: dict[tuple[str, str], dict[int, list[tuple[str, int]]]] = {}
     for at, view in enumerate(views):
@@ -2340,7 +2340,7 @@ def _one_identity(
     Returns:
         The other families of each set that stepped in, keyed by raw family.
     """
-    from osprey.facility.layers.mml.identity import id_token, row_coordinate
+    from osprey_facility.layers.mml.identity import id_token, row_coordinate
 
     shared: dict[str, list[str]] = {}
     for members, evidence in _device_sets(views):
@@ -2407,7 +2407,7 @@ def _one_identity(
 
 def _draft_judgments(views: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
     """Every family's pending judgment slots, unioned over the systems carrying it."""
-    from osprey.facility.layers.mml.judgments import pending_judgments
+    from osprey_facility.layers.mml.judgments import pending_judgments
 
     block: dict[str, dict[str, Any]] = {}
     for raw, carried in views.items():
@@ -2589,9 +2589,9 @@ def _draft(
     ao: dict, ad: dict | None, va: dict | None
 ) -> tuple[dict[str, Any], dict[str, list[str]], dict[str, list[str]]]:
     """The draft document, the ids each ``address`` answer yields, and each shared identity."""
-    from osprey.facility import fold_code
-    from osprey.facility.layers.mml.directions import vote_directions
-    from osprey.facility.layers.mml.family import family_views
+    from osprey_facility import fold_code
+    from osprey_facility.layers.mml.directions import vote_directions
+    from osprey_facility.layers.mml.family import family_views
 
     order = _system_order(ao)
     views: dict[str, list[Any]] = {}

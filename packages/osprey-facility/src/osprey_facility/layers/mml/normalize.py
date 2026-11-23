@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 from scipy.io.matlab import MatlabFunction, mat_struct
 
-from osprey.facility.layers.mml.family import CHANNEL_KEYS, FAMILY_ARRAYS
+from osprey_facility.layers.mml.family import CHANNEL_KEYS, FAMILY_ARRAYS
 
 __all__ = ["normalize_family"]
 

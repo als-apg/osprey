@@ -23,8 +23,8 @@ import numpy as np
 from scipy.io import loadmat, whosmat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
-from osprey.facility.errors import FacilityInputError
-from osprey.facility.layers.mml.loaders import LoadedInput
+from osprey_facility.errors import FacilityInputError
+from osprey_facility.layers.mml.loaders import LoadedInput
 
 if TYPE_CHECKING:
     import at

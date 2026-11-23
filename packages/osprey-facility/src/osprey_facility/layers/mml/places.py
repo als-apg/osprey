@@ -1,6 +1,6 @@
 """The mml layer's places: each imported device's place, from its export's ``DeviceList``.
 
-A model whose mapping answers ``places`` (:class:`~osprey.facility.layers.mml.mapping.PlaceRules`)
+A model whose mapping answers ``places`` (:class:`~osprey_facility.layers.mml.mapping.PlaceRules`)
 is a place, ``<model>``; a model whose ``places`` states ``sectors`` also has
 one place per sector under it, ``<model>/<token>``, written from that list
 alone, whether or not a device sits there. A model without ``places`` gets no
@@ -27,7 +27,7 @@ is written:
   one of its families settles it.
 
 The build records such a place as ``place_from: imported``
-(:mod:`~osprey.facility.compute`).
+(:mod:`~osprey_facility.compute`).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from osprey.facility.layers.mml.mapping import Model, Problem
+from osprey_facility.layers.mml.mapping import Model, Problem
 
 __all__ = ["Placed", "Slot", "place_devices"]
 

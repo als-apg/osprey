@@ -51,9 +51,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
-from osprey.facility.sources import load_sources
 from osprey_connectors import yaml_loader
+from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
+from osprey_facility.sources import load_sources
 
 __all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
 

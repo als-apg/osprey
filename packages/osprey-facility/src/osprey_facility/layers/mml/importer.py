@@ -3,9 +3,9 @@
 :func:`import_mml` reads one or more exports, holds each export's deck to the
 lattice fingerprint the export states (:func:`check_decks`; a deck of another
 lattice stops the import, an energy that differs alone is said), loads the
-layer's mapping (or writes a draft and stops, :func:`~osprey.facility.layers.mml.mapping.load_or_draft`)
+layer's mapping (or writes a draft and stops, :func:`~osprey_facility.layers.mml.mapping.load_or_draft`)
 checks it against the exports
-(:func:`~osprey.facility.layers.mml.mapping.check_mapping`; a mapping with a
+(:func:`~osprey_facility.layers.mml.mapping.check_mapping`; a mapping with a
 problem stops the import before anything is written) and writes the layer's
 record files. It writes sources, never a view: the
 build merges them with every other layer.
@@ -14,7 +14,7 @@ What is written, relative to ``data/facility/``:
 
 * ``imported/mml/devices.yaml``: one device per device of a family that
   carries a channel, its id and the slots it stands for resolved by the
-  identity model (:mod:`~osprey.facility.layers.mml.identity`): the export's
+  identity model (:mod:`~osprey_facility.layers.mml.identity`): the export's
   ``CommonNames`` entry at the slot's position, or what the mapping's
   ``devices`` answer says where the export names none, slots naming one
   device being one record; typed by the mapping's family ``class`` (the nearest class
@@ -25,12 +25,12 @@ What is written, relative to ``data/facility/``:
 * ``imported/mml/places.yaml``: for each model whose mapping answers
   ``places``, the model and each sector its ``sectors`` lists, and on each
   of the model's devices the ``place`` its ``DeviceList`` rows give
-  (:mod:`~osprey.facility.layers.mml.places`); a placement the mapping does
+  (:mod:`~osprey_facility.layers.mml.places`); a placement the mapping does
   not settle stops the import. No model answering ``places``, no file.
 * ``imported/mml/channels.yaml``: one channel per address, ``on`` the one
   device that binds it, or, bound by several, naming each in ``endpoint_of``
   and ``on`` none; its ``role`` follows the field's direction
-  (:func:`~osprey.facility.layers.mml.mapping.field_roles`): an address any
+  (:func:`~osprey_facility.layers.mml.mapping.field_roles`): an address any
   ``write`` field names is a setpoint, whichever field named it first. No
   channel carries a ``pair``: the build pairs each setpoint. A field the
   mapping gives a ``signal`` role writes it on each of its channels. A channel's
@@ -46,7 +46,7 @@ What is written, relative to ``data/facility/``:
   block's address is ``value_type: waveform`` with ``shape`` its number of
   planes.
 * ``imported/mml/rows.json``: the device each export ``DeviceList`` row
-  became, per model and family (:mod:`~osprey.facility.layers.mml.rows`),
+  became, per model and family (:mod:`~osprey_facility.layers.mml.rows`),
   which the response check reads.
 * ``imported/mml/models.yaml``: one ``pyat`` model per imported system, named
   by the mapping. A transport line (``state.is_transport`` of the export's
@@ -55,10 +55,10 @@ What is written, relative to ``data/facility/``:
   deck that carries ``TwissData``; a transport line without one stops the
   import (``mapping-undecided``). A model whose export saved a deck names it
   as its ``deck`` and carries the ``wiring`` the wiring pass derives
-  (:mod:`~osprey.facility.layers.mml.wiring`), one record per wired address.
+  (:mod:`~osprey_facility.layers.mml.wiring`), one record per wired address.
 * ``imported/mml/decks/<model>.json``: the deck each such model is served,
   its wired elements renamed so every wiring record's element is in it
-  exactly once (:mod:`~osprey.facility.layers.mml.decks`).
+  exactly once (:mod:`~osprey_facility.layers.mml.decks`).
 * ``imported/mml/<model>.response.json``: the export's ``<stem>.response.json``
   copied byte for byte.
 
@@ -72,10 +72,10 @@ Nothing is written until every record and every model's wiring is derived, so
 a stop leaves the layer directory as it was.
 
 The wiring pass's lines are printed once the records are written
-(:mod:`~osprey.facility.layers.mml.wiring` lists them). After the records,
+(:mod:`~osprey_facility.layers.mml.wiring` lists them). After the records,
 :func:`import_mml` seeds the authored files that do not
 exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
-``classes.yaml`` and ``identity.yaml``; :mod:`~osprey.facility.layers.mml.seed`)
+``classes.yaml`` and ``identity.yaml``; :mod:`~osprey_facility.layers.mml.seed`)
 and prints what the seeding reports.
 
 The export loaders pull numpy and scipy and the deck reader pulls pyAT, so
@@ -88,18 +88,19 @@ import shutil
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import FacilityUsageError, ImportStop, MappingProblems
-from osprey.facility.layers.mml.decks import DECKS_DIR, write_deck
-from osprey.facility.layers.mml.identity import (
+from osprey_facility.errors import FacilityUsageError, ImportStop, MappingProblems
+from osprey_facility.layers.mml.decks import DECKS_DIR, write_deck
+from osprey_facility.layers.mml.identity import (
     common_class,
     device_ids,
     endpoints,
     split_identities,
 )
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
     READBACK_ROLE,
@@ -113,13 +114,13 @@ from osprey.facility.layers.mml.mapping import (
     field_roles,
     load_or_draft,
 )
-from osprey.facility.layers.mml.places import Placed, Slot, place_devices
-from osprey.facility.layers.mml.response_check import RESPONSE_SUFFIX
-from osprey.facility.layers.mml.rows import write_rows
-from osprey.facility.sources import facility_signals
+from osprey_facility.layers.mml.places import Placed, Slot, place_devices
+from osprey_facility.layers.mml.response_check import RESPONSE_SUFFIX
+from osprey_facility.layers.mml.rows import write_rows
+from osprey_facility.sources import facility_signals
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.facility.layers.mml.family import FamilyView, FieldView
+    from osprey_facility.layers.mml.family import FamilyView, FieldView
 
 __all__ = [
     "ENGINE",
@@ -128,6 +129,7 @@ __all__ = [
     "TRANSPORT",
     "Exports",
     "check_decks",
+    "exporter_script",
     "import_mml",
     "read_exports",
     "write_records",
@@ -141,6 +143,19 @@ MODEL_SUFFIX = ".model.json"
 
 #: The AD ``MachineType`` of a transport line.
 TRANSPORT = "Transport"
+
+#: The MATLAB exporter that writes the exports this layer reads, shipped beside it.
+_EXPORTER = "mml_export.m"
+
+
+def exporter_script() -> str:
+    """The text of the MATLAB exporter ``mml_export.m`` that writes an MML export.
+
+    A Middle Layer host runs it to write the ``<stem>.ao.json`` export and its
+    sibling files that :func:`import_mml` reads.
+    """
+    return files("osprey_facility.layers.mml").joinpath(_EXPORTER).read_text(encoding="utf-8")
+
 
 #: The ``twiss_in`` keys pyAT reads, each from its ``TwissData`` spelling.
 _TWISS_KEYS: tuple[tuple[str, str], ...] = (
@@ -197,7 +212,7 @@ class Exports:
     @property
     def systems(self) -> list[str]:
         """The imported systems, in import order."""
-        from osprey.facility.layers.mml.systems import IMPORT_ORDER_KEY
+        from osprey_facility.layers.mml.systems import IMPORT_ORDER_KEY
 
         return list(self.ao[IMPORT_ORDER_KEY])
 
@@ -221,7 +236,7 @@ def read_exports(paths: Sequence[Path]) -> Exports:
         FacilityUsageError: An input names no system or names one twice, or
             a deck is named in place of an export's AO file.
     """
-    from osprey.facility.layers.mml.loaders.json_any import (
+    from osprey_facility.layers.mml.loaders.json_any import (
         AO_SUFFIX,
         LATTICE_SUFFIX,
         RESPONSE_SUFFIX,
@@ -230,12 +245,12 @@ def read_exports(paths: Sequence[Path]) -> Exports:
         load_sibling,
         paired_sibling,
     )
-    from osprey.facility.layers.mml.systems import input_systems, merge_inputs, resolve_system
+    from osprey_facility.layers.mml.systems import input_systems, merge_inputs, resolve_system
 
     pairs = []
     for path in paths:
         if path.suffix.lower() == ".mat":
-            from osprey.facility.layers.mml.loaders.mat import load_mat
+            from osprey_facility.layers.mml.loaders.mat import load_mat
 
             loaded = load_mat(path)
             if loaded.lattice is not None:
@@ -317,8 +332,8 @@ def check_decks(exports: Exports) -> list[str]:
             lattice than its export states, naming the first fact the two
             disagree on.
     """
-    from osprey.facility.layers.mml.fingerprint import check_fingerprint, lattice_fingerprint
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.fingerprint import check_fingerprint, lattice_fingerprint
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     refused: list[str] = []
     lines: list[str] = []
@@ -379,7 +394,7 @@ def import_mml(
         MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
-    from osprey.facility.layers.mml.seed import seed_once
+    from osprey_facility.layers.mml.seed import seed_once
 
     exports = read_exports(paths)
     for line in check_decks(exports):
@@ -437,7 +452,7 @@ def write_records(
 
 def _unnamed(exports: Exports, mapping: Mapping) -> list[Problem]:
     """The exported systems and families the mapping leaves out, as its check words them."""
-    from osprey.facility.layers.mml.family import family_views
+    from osprey_facility.layers.mml.family import family_views
 
     problems = [
         Problem("models", f"leaves out the exported system {system}")
@@ -559,7 +574,7 @@ def _place(
     """Place each device of a model that answers ``places``, recording it on the device.
 
     Returns:
-        What :func:`~osprey.facility.layers.mml.places.place_devices` placed.
+        What :func:`~osprey_facility.layers.mml.places.place_devices` placed.
     """
     slots = [
         Slot(view.system, view.raw_name, device_id, None if row is None else tuple(row))
@@ -587,7 +602,7 @@ def _carried(
         ``{system: {raw family: view}}`` of every judged family, and the views
         of the families the mapping gives channels, in import order.
     """
-    from osprey.facility.layers.mml.judgments import judged_family_views
+    from osprey_facility.layers.mml.judgments import judged_family_views
 
     judged: dict[str, dict[str, FamilyView]] = {}
     views: list[FamilyView] = []
@@ -922,7 +937,7 @@ def _wire(
         ImportStop: ``export-invalid``, ``reference-missing`` or
             ``mapping-undecided``, as the wiring pass states them.
     """
-    from osprey.facility.layers.mml.wiring import wire_model
+    from osprey_facility.layers.mml.wiring import wire_model
 
     served: list[tuple[str, Any]] = []
     lines: list[str] = []
@@ -967,7 +982,7 @@ def _twiss_in(deck: Path) -> dict[str, list[float]] | None:
     """pyAT's ``twiss_in`` from the first deck element carrying ``TwissData``."""
     import numpy as np
 
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     for element in load_lattice(deck):
         data = getattr(element, "TwissData", None)

@@ -3,7 +3,7 @@
 Every loader decodes one container format (a ``.mat`` file or any
 family-keyed JSON) and returns a :class:`LoadedInput`. A loader only decodes:
 family bodies in ``ao`` are raw, and
-:func:`osprey.facility.layers.mml.normalize.normalize_family` is applied to
+:func:`osprey_facility.layers.mml.normalize.normalize_family` is applied to
 them afterwards.
 
 One ``.mat`` shape carries no families at all: a lattice deck. It reaches the

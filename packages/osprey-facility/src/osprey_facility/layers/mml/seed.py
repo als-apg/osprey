@@ -3,7 +3,7 @@
 The layer's records under ``imported/mml/`` are rewritten by every import. The
 files here are authored: a person owns them, and the import only writes one
 that does not exist yet, opening it with the facility import's header
-(:data:`osprey.facility.layers.HEADER`). A file that exists is never rewritten,
+(:data:`osprey_facility.layers.HEADER`). A file that exists is never rewritten,
 whoever wrote it.
 
 What :func:`seed_once` writes, relative to ``data/facility/``:
@@ -21,7 +21,7 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   and the import says how many it skipped.
 * ``measurement/<model>.yaml``: for each model that carries wiring, the groups
   and instruments its wiring names, every measurement kind they allow
-  (:func:`osprey.facility.kinds.builtin_kinds`) and pyAML's step and
+  (:func:`osprey_facility.kinds.builtin_kinds`) and pyAML's step and
   settle keys (:data:`TUNING`). ``quad`` and ``sext`` list the families the
   export tags as tune and chromaticity correctors; the import names the
   wired families each leaves out, and a role it does not write.
@@ -52,10 +52,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers import HEADER
-from osprey.facility.layers.mml.decks import FREQUENCY, KICK
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers import HEADER
+from osprey_facility.layers.mml.decks import FREQUENCY, KICK
+from osprey_facility.layers.mml.mapping import (
     LAYER_DIR,
     MAPPING_FILE,
     MONITOR_FIELD,
@@ -70,8 +70,8 @@ from osprey.facility.layers.mml.mapping import (
 )
 
 if TYPE_CHECKING:  # the export services stay out of the import graph
-    from osprey.facility.layers.mml.family import FamilyView, FieldView
-    from osprey.facility.layers.mml.importer import Exports
+    from osprey_facility.layers.mml.family import FamilyView, FieldView
+    from osprey_facility.layers.mml.importer import Exports
 
 __all__ = [
     "CLASSES_FILE",
@@ -527,13 +527,13 @@ def _measurement(
     so. ``rf`` is the first setpoint wired to the engine's frequency, and
     ``tune`` the tune readback the model's ``tune`` block wires: its ``x``
     plane's address, or its one waveform address. ``kinds`` lists every
-    built-in kind (:func:`osprey.facility.kinds.builtin_kinds`) whose members
+    built-in kind (:func:`osprey_facility.kinds.builtin_kinds`) whose members
     the file names, those a single-pass model allows only; an import never
     seeds a kind a deployment package registers. A group role names the
     group that holds the family, which is a fold of plane twins where the
     import folded them.
     """
-    from osprey.facility.kinds import builtin_kinds
+    from osprey_facility.kinds import builtin_kinds
 
     groups: dict[str, Any] = {}
     monitors: dict[str, str] = {}
@@ -620,8 +620,8 @@ def _roster(entry: dict[str, Any]) -> set[tuple[str, str]]:
         ImportStop: ``reference-missing`` when no plug-in is registered under
             the model's engine.
     """
-    from osprey.facility.scenarios import engine_plugin
     from osprey_connectors.simulation.engines import ENGINE_GROUP
+    from osprey_facility.scenarios import engine_plugin
 
     engine = str(entry.get("engine"))
     plugin = engine_plugin(engine)
@@ -659,7 +659,7 @@ def _readout(
     Every other value is carried on the readback address of its device's
     ``Monitor`` field where the model's engine declares that field as a fault
     of that address (its plug-in's ``fault_variables``, resolved through
-    :func:`~osprey.facility.scenarios.engine_plugin`): a monitor reading takes
+    :func:`~osprey_facility.scenarios.engine_plugin`): a monitor reading takes
     its polarity, and its element's roll sits on the x-axis reading only.
 
     Returns:
@@ -766,7 +766,7 @@ def _device_address(fld: FieldView, device: int) -> str | None:
 
 def _class_rows(mapping: Mapping) -> list[dict[str, str]]:
     """A row per class the vocabulary lacks, every parent ahead of its children."""
-    from osprey.facility.validate import known_classes
+    from osprey_facility.validate import known_classes
 
     known = set(known_classes())
     rows: list[dict[str, str]] = []

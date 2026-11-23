@@ -26,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from osprey.facility.layers.mml.family import family_views, system_bodies
+from osprey_facility.layers.mml.family import family_views, system_bodies
 
 __all__ = [
     "GRAMMAR_SUFFIXES",
