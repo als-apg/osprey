@@ -254,11 +254,11 @@ The headers name these phases:
 
 - **Phase 2** removed the panel engine's imports of facility code and its read
   of the vocabulary files; its header is empty.
-- **Phase 3** removes the description's imports of the framework (views helpers,
-  ``osprey.utils.facility``, the MCP registry, the command line, deployment and
-  config paths, the engine implementations), its click imports in nine modules,
-  its import of pyaml-cs-osprey and the ``osprey.`` spelling of the engine
-  contract.
+- **Phase 3** removed the description's imports of the framework (views
+  helpers, ``osprey.utils.facility``, the MCP registry, the bundled kinds, the
+  engine implementations), its click imports in nine modules, its import of
+  pyaml-cs-osprey and the ``osprey.`` spelling of the engine contract; its
+  header is empty.
 - **Phase 4** removes framework reaches into private description modules: none
   by static import today, one resource read of the MML layer by the command
   line.
