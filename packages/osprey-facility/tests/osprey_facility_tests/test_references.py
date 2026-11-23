@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.records import LINK_KINDS, FacilityRecords
-from osprey.facility.references import (
+from osprey_facility.records import LINK_KINDS, FacilityRecords
+from osprey_facility.references import (
     LINK_SCHEME,
     FacilityReference,
     find_facility_links,

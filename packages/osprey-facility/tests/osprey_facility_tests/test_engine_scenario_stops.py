@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.scenarios import check_scenario_engines
 from osprey_connectors.simulation.engines import ENGINE_GROUP, EnginePlugin
+from osprey_facility.scenarios import check_scenario_engines
 
 FAKE = "fake_scenario_stops_engine"
 

@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from osprey.facility.places import resolve_place_name
+from osprey_facility.places import resolve_place_name
 
 IDS = {"SR", "SR/S01", "BR", "BR/S01", "SR/S01/RACK1"}
 
@@ -56,9 +56,9 @@ def test_does_not_mutate_the_ids():
 
 def test_module_does_not_import_the_importer():
     code = (
-        "import sys, osprey.facility.places; "
-        "bad = [m for m in sys.modules if m.startswith(('osprey.facility.layers', "
-        "'osprey.facility.sources', 'osprey.facility.build'))]; "
+        "import sys, osprey_facility.places; "
+        "bad = [m for m in sys.modules if m.startswith(('osprey_facility.layers', "
+        "'osprey_facility.sources', 'osprey_facility.build'))]; "
         "print(bad); sys.exit(1 if bad else 0)"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

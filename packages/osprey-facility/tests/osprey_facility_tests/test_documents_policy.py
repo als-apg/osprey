@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.combine import combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.sources import load_sources
-from osprey.facility.validate import relation_types, run_stages
-from tests._builds import FRAMEWORK_CHECKS
+from osprey_facility.combine import combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.sources import load_sources
+from osprey_facility.validate import relation_types, run_stages
+from osprey_facility_tests._harness import NO_EXTRA_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -92,7 +92,7 @@ class TestDocuments:
 
     def test_schema_errors_name_documents_yaml(self, tmp_path: Path) -> None:
         _write(tmp_path, {"documents.yaml": [{"id": "d", "title": ["not", "a", "string"]}]})
-        report = run_stages(tmp_path, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
+        report = run_stages(tmp_path, project_name="demo", extra_checks=NO_EXTRA_CHECKS)
         assert report.failed == "schema"
         assert report.errors
         for error in report.errors:
@@ -118,7 +118,7 @@ class TestPolicy:
     def test_policy_is_never_emitted(self, tmp_path: Path) -> None:
         document = _document(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": _POLICY})
         assert "policy" not in document
-        assert run_stages(tmp_path, project_name="demo", extra_checks=FRAMEWORK_CHECKS).ok
+        assert run_stages(tmp_path, project_name="demo", extra_checks=NO_EXTRA_CHECKS).ok
 
     @pytest.mark.parametrize("text", ["", "# nothing yet\n", "schema: osprey.facility.policy/1\n"])
     def test_empty_policy_emits_no_key(self, tmp_path: Path, text: str) -> None:
@@ -202,7 +202,7 @@ class TestPolicyValues:
 
     def test_build_with_valid_policy_passes(self, tmp_path: Path) -> None:
         _write(tmp_path, {"documents.yaml": _DOCS, "policy.yaml": _POLICY})
-        assert run_stages(tmp_path, project_name="demo", extra_checks=FRAMEWORK_CHECKS).ok
+        assert run_stages(tmp_path, project_name="demo", extra_checks=NO_EXTRA_CHECKS).ok
 
     @pytest.mark.parametrize(
         ("precedence", "where", "detail"),
@@ -281,6 +281,6 @@ class TestPolicyValues:
 
     def test_bad_value_stops_the_build_at_load(self, tmp_path: Path) -> None:
         _write(tmp_path, {"policy.yaml": {"relations": {"precedence": {"default": ["spec"]}}}})
-        report = run_stages(tmp_path, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
+        report = run_stages(tmp_path, project_name="demo", extra_checks=NO_EXTRA_CHECKS)
         assert report.failed == "load"
         assert [e.kind for e in report.errors] == ["source-invalid"]

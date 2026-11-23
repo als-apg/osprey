@@ -10,10 +10,10 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.schema import core
-from osprey.facility.wiring import _check_description
 from osprey_connectors.simulation.view import REFRESH
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.schema import core
+from osprey_facility.wiring import _check_description
 
 MODEL: dict[str, Any] = {"name": "ring", "engine": "test"}
 RECORD: dict[str, Any] = {"address": "SR:DCCT", "direction": "read", "element": "dcct"}

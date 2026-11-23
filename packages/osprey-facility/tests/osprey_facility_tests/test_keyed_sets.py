@@ -14,12 +14,12 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import build_facility
-from osprey.facility.combine import FIXES_HEADER, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.render import facility_bytes
-from osprey.facility.sources import load_sources
-from tests._builds import FRAMEWORK_CHECKS
+from osprey_facility.build import build_facility
+from osprey_facility.combine import FIXES_HEADER, CombineResult, combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.render import facility_bytes
+from osprey_facility.sources import load_sources
+from osprey_facility_tests._harness import NO_EXTRA_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -95,14 +95,14 @@ class TestNormalization:
         first = build_facility(
             _write(tmp_path / "a", _tree(_ALIASES, _CITATIONS)),
             project_name="p",
-            extra_checks=FRAMEWORK_CHECKS,
+            extra_checks=NO_EXTRA_CHECKS,
         )
         permuted = _tree(
             _reversed_keys(list(reversed(_ALIASES))),
             _reversed_keys([_CITATIONS[2], _CITATIONS[0], _CITATIONS[3], _CITATIONS[1]]),
         )
         second = build_facility(
-            _write(tmp_path / "b", permuted), project_name="p", extra_checks=FRAMEWORK_CHECKS
+            _write(tmp_path / "b", permuted), project_name="p", extra_checks=NO_EXTRA_CHECKS
         )
         assert facility_bytes(first) == facility_bytes(second)
 
@@ -389,7 +389,7 @@ class TestFixValues:
 def _build_error(tmp_path: Path, files: dict[str, Any]) -> FacilityBuildError:
     """The stop a build reports; a crash fails the test instead."""
     with pytest.raises(FacilityBuildError) as raised:
-        build_facility(_write(tmp_path, files), project_name="p", extra_checks=FRAMEWORK_CHECKS)
+        build_facility(_write(tmp_path, files), project_name="p", extra_checks=NO_EXTRA_CHECKS)
     return raised.value
 
 
@@ -443,11 +443,11 @@ class TestNullKeyFields:
         second = _tree([], [_CITATIONS[2], {"document": "spec-1"}])
         assert facility_bytes(
             build_facility(
-                _write(tmp_path / "a", first), project_name="p", extra_checks=FRAMEWORK_CHECKS
+                _write(tmp_path / "a", first), project_name="p", extra_checks=NO_EXTRA_CHECKS
             )
         ) == facility_bytes(
             build_facility(
-                _write(tmp_path / "b", second), project_name="p", extra_checks=FRAMEWORK_CHECKS
+                _write(tmp_path / "b", second), project_name="p", extra_checks=NO_EXTRA_CHECKS
             )
         )
 
@@ -488,7 +488,7 @@ class TestImportedDates:
         dated = build_facility(
             _write(tmp_path / "a", {"documents.yaml": _DOCS, "records/devices.yaml": _DATED}),
             project_name="p",
-            extra_checks=FRAMEWORK_CHECKS,
+            extra_checks=NO_EXTRA_CHECKS,
         )
         quoted = build_facility(
             _write(
@@ -501,7 +501,7 @@ class TestImportedDates:
                 },
             ),
             project_name="p",
-            extra_checks=FRAMEWORK_CHECKS,
+            extra_checks=NO_EXTRA_CHECKS,
         )
         assert b"2026-03-04" in facility_bytes(dated)
         assert facility_bytes(dated) == facility_bytes(quoted)

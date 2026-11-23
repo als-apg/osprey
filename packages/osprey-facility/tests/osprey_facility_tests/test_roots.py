@@ -2,7 +2,7 @@
 
 A deployment either has one facility tree playing both roles, or mounts a
 machine root beside its content root. These tests pin the path arithmetic in
-``osprey.facility.roots``: which relative paths are version-control metadata,
+``osprey_facility.roots``: which relative paths are version-control metadata,
 and which are machine entries, single-tree and mounted.
 """
 
@@ -13,7 +13,7 @@ from pathlib import Path, PurePath, PurePosixPath
 
 import pytest
 
-from osprey.facility.roots import (
+from osprey_facility.roots import (
     DEPLOYMENT_CONTENT_DIRS,
     FacilityRoots,
     is_machine_entry,

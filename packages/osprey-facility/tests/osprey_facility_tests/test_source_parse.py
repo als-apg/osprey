@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility import sources
-from osprey.facility.sources import load_sources, read_yaml
 from osprey_connectors import yaml_loader
+from osprey_facility import sources
+from osprey_facility.sources import load_sources, read_yaml
 
 _SOURCE = """\
 on: off

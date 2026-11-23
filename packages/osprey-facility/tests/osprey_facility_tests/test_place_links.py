@@ -7,15 +7,15 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.knowledge_links import DanglingLink, check_knowledge_links, dangling_links
-from osprey.facility.records import LINK_KINDS, FacilityRecord, FacilityRecords
-from osprey.facility.references import (
+from osprey_facility.knowledge_links import DanglingLink, check_knowledge_links, dangling_links
+from osprey_facility.records import LINK_KINDS, FacilityRecord, FacilityRecords
+from osprey_facility.references import (
     FacilityReference,
     find_facility_links,
     find_facility_references,
     resolved_references,
 )
-from osprey.facility.validate import Validated
+from osprey_facility.validate import Validated
 
 DOC: dict[str, Any] = {
     "places": [

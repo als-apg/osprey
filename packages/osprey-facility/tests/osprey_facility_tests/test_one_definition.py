@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-from osprey.facility import DEFAULT_ROLE
-from osprey.facility.combine import SET_VALUED
-from osprey.facility.schema import core
-from osprey.facility.sources import COMPUTED_SLOTS, KIND_CLASS, RECORD_FILES, SET_VALUED_SLOTS
+from osprey_facility import DEFAULT_ROLE
+from osprey_facility.combine import SET_VALUED
+from osprey_facility.schema import core
+from osprey_facility.sources import COMPUTED_SLOTS, KIND_CLASS, RECORD_FILES, SET_VALUED_SLOTS
+from osprey_facility_tests._harness import PACKAGE_SRC, REPO_ROOT
 
-FACILITY_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "facility"
+#: The description's source: the package every check below walks.
+FACILITY_DIR = PACKAGE_SRC / "osprey_facility"
 
 #: Spellings of the default role a module would write instead of reading
 #: ``DEFAULT_ROLE``. An empty default (a raw cell read as ``""``) names no role.
@@ -40,6 +41,11 @@ def test_the_default_role_is_a_role_the_schema_knows() -> None:
     assert DEFAULT_ROLE in {member.value for member in core.RoleEnum}
 
 
+def test_the_walked_sources_hold_the_modules_they_check() -> None:
+    assert (FACILITY_DIR / "sources.py").is_file()
+    assert (_SIMULATION_DIR / "simulation" / "values.py").is_file()
+
+
 def test_no_facility_module_spells_the_default_role_itself() -> None:
     hits = []
     for path in sorted(FACILITY_DIR.rglob("*.py")):
@@ -54,7 +60,7 @@ def test_no_facility_module_spells_the_default_role_itself() -> None:
 
 
 #: The modules whose value-type checks read ``LABELLED_TYPES``.
-_SIMULATION_DIR = FACILITY_DIR.parents[2] / "packages/osprey-connectors/src/osprey_connectors"
+_SIMULATION_DIR = REPO_ROOT / "packages/osprey-connectors/src/osprey_connectors"
 _LABELLED_SPELLING = re.compile(r"""\(\s*['"]bool['"]\s*,\s*['"]enum['"]\s*\)""")
 
 

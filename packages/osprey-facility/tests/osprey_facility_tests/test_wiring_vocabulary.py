@@ -7,8 +7,8 @@ states the same four slots as enums. The two are one vocabulary.
 
 from __future__ import annotations
 
-from osprey.facility.schema import core
 from osprey_connectors.simulation.view import ENGINE_ROLES, MARKS, PLANES, REFRESH
+from osprey_facility.schema import core
 
 
 def test_the_engine_roles_are_the_schemas_engine_roles() -> None:

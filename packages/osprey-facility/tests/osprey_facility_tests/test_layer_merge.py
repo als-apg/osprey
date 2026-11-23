@@ -8,10 +8,10 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.combine import CombineResult, combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.provenance import add_defaults, build_provenance, set_place_from
-from osprey.facility.sources import load_sources
+from osprey_facility.combine import CombineResult, combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.provenance import add_defaults, build_provenance, set_place_from
+from osprey_facility.sources import load_sources
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -537,7 +537,7 @@ class TestClaimBasis:
         assert "pair" not in channel["provenance"]["defaults"]
 
     def test_a_pair_the_build_derives_names_the_build_s_rule(self, tmp_path: Path) -> None:
-        from osprey.facility.pairing import PAIR_RULE
+        from osprey_facility.pairing import PAIR_RULE
 
         result = _build(
             tmp_path,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from osprey.facility.scenarios import check_scenario_events, check_scenario_sessions
+from osprey_facility.scenarios import check_scenario_events, check_scenario_sessions
 
 CHANNELS = [{"id": "SR:DCCT"}, {"id": "SR:RF:VOLT"}]
 

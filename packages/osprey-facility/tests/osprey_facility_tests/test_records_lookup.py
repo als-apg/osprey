@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from osprey.facility.records import FacilityRecord, FacilityRecords
+from osprey_facility.records import FacilityRecord, FacilityRecords
 
 DOC = {
     "places": [

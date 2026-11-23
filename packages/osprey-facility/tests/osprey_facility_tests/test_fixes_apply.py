@@ -10,9 +10,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.combine import FIXES_HEADER, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.sources import load_sources
+from osprey_facility.combine import FIXES_HEADER, CombineResult, combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.sources import load_sources
 
 #: A small tree with one authored-only device and records two layers state.
 _TREE: dict[str, Any] = {

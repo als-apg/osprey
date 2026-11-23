@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
+from osprey_facility_tests._harness import REPO_ROOT
+
 VOCABULARY_JSON = (
-    Path(__file__).resolve().parents[2] / "src/osprey/facility/schema/_generated/vocabulary.json"
+    REPO_ROOT / "packages/osprey-facility/src/osprey_facility/schema/_generated/vocabulary.json"
 )
 
 LIFETIME_AND_MODE_ROLES = {
@@ -56,6 +57,6 @@ def test_no_alias_of_these_roles_is_claimed_by_another_role() -> None:
 
 
 def test_the_validator_accepts_these_roles() -> None:
-    from osprey.facility.validate import signal_roles
+    from osprey_facility.validate import signal_roles
 
     assert set(LIFETIME_AND_MODE_ROLES) <= signal_roles()
