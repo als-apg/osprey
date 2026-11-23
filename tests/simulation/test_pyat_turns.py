@@ -279,6 +279,105 @@ def test_an_aperture_half_axis_must_be_positive(ring: Any) -> None:
         turns.write_apertures(copy.deepcopy(ring), elliptical=(0.0, 0.01))
 
 
+def test_a_rectangle_may_state_its_limits_per_plane(ring: Any) -> None:
+    lattice = copy.deepcopy(ring)
+    turns.write_apertures(lattice, rectangular=((-0.03, 0.006), 0.01))
+    lengthy = next(element for element in lattice if float(element.Length) > 0.0)
+    np.testing.assert_array_equal(lengthy.RApertures, [-0.03, 0.006, -0.01, 0.01])
+
+
+def test_a_rectangles_limits_must_rise(ring: Any) -> None:
+    with pytest.raises(ValueError, match="limits"):
+        turns.write_apertures(copy.deepcopy(ring), rectangular=((0.006, -0.03), 0.01))
+
+
+def test_named_indexes_take_the_aperture_whatever_their_length(ring: Any, injection: int) -> None:
+    lattice = copy.deepcopy(ring)
+    turns.write_apertures(lattice, elliptical=(0.01, 0.005), indexes=(injection,))
+    np.testing.assert_array_equal(lattice[injection].EApertures, [0.01, 0.005])
+    assert sum(hasattr(element, "EApertures") for element in lattice) == 1
+
+
+def test_a_later_aperture_replaces_the_one_an_element_holds(ring: Any) -> None:
+    lattice = copy.deepcopy(ring)
+    bends = tuple(int(i) for i in lattice.get_uint32_index(at.Dipole))
+    turns.write_apertures(lattice, elliptical=(0.01, 0.01))
+    turns.write_apertures(lattice, rectangular=(0.02, 0.003), indexes=bends)
+    for index, element in enumerate(lattice):
+        if index in bends:
+            np.testing.assert_array_equal(element.RApertures, [-0.02, 0.02, -0.003, 0.003])
+            assert not hasattr(element, "EApertures")
+        elif float(getattr(element, "Length", 0.0)) > 0.0:
+            np.testing.assert_array_equal(element.EApertures, [0.01, 0.01])
+            assert not hasattr(element, "RApertures")
+
+
+def test_declared_apertures_are_the_rings_then_each_item_in_order(ring: Any) -> None:
+    from osprey.simulation.engines.pyat_turn_settings import Aperture, ElementAperture
+
+    lattice = copy.deepcopy(ring)
+    bends = tuple(int(i) for i in lattice.get_uint32_index(at.Dipole))
+    turns.write_declared_apertures(
+        lattice,
+        Aperture("elliptical", 0.01, 0.01),
+        (
+            ElementAperture(Aperture("elliptical", 0.02, 0.004), bends),
+            ElementAperture(Aperture("rectangular", (-0.03, 0.006), 0.02), bends[:1]),
+        ),
+    )
+    np.testing.assert_array_equal(lattice[bends[0]].RApertures, [-0.03, 0.006, -0.02, 0.02])
+    assert not hasattr(lattice[bends[0]], "EApertures")
+    np.testing.assert_array_equal(lattice[bends[1]].EApertures, [0.02, 0.004])
+    drift = next(e for e in lattice if isinstance(e, at.Drift) and float(e.Length) > 0.0)
+    np.testing.assert_array_equal(drift.EApertures, [0.01, 0.01])
+
+
+def test_no_declared_aperture_leaves_the_decks_own(ring: Any) -> None:
+    lattice = copy.deepcopy(ring)
+    turns.write_declared_apertures(lattice, None, ())
+    assert not any(hasattr(e, "EApertures") or hasattr(e, "RApertures") for e in lattice)
+
+
+def test_a_tight_aperture_on_one_class_loses_the_beam_there(
+    ring: Any, injection: int, monitors: np.ndarray
+) -> None:
+    """A vertical offset the ring-wide aperture passes is lost at the bends' own aperture."""
+    launch = (0.0, 0.0, 1.0e-3, 0.0, 0.0, 0.0)
+    wide = copy.deepcopy(ring)
+    turns.write_apertures(wide, elliptical=(0.01, 0.01))
+    kept = turns.single_particle(wide, injection, monitors, launch)
+    np.testing.assert_array_equal(kept.alive, 1.0)
+
+    tight = copy.deepcopy(wide)
+    bends = np.asarray(tight.get_uint32_index(at.Dipole), dtype=np.int64)
+    turns.write_apertures(tight, elliptical=(0.01, 1.0e-4), indexes=tuple(int(i) for i in bends))
+    lost = turns.single_particle(tight, injection, monitors, launch)
+    first_bend = int(np.min((bends - injection) % len(ring)))
+    before = (monitors - injection) % len(ring) < first_bend
+    assert before.any() and (~before).any()
+    np.testing.assert_array_equal(lost.alive[before, 0], 1.0)
+    np.testing.assert_array_equal(lost.alive[~before, 0], 0.0)
+
+
+def test_an_aperture_moves_with_its_elements_misalignment() -> None:
+    """pyAT checks an aperture in the element's own frame, behind its entrance transform."""
+
+    def lost(shift: float, x: float) -> bool:
+        quadrupole = at.Quadrupole("Q", 0.2, 0.0)
+        quadrupole.T1 = np.array([-shift, 0.0, 0.0, 0.0, 0.0, 0.0])
+        quadrupole.T2 = -quadrupole.T1
+        lattice = at.Lattice(
+            [at.Marker("INJ"), quadrupole, at.Monitor("BPM")], energy=1e9, periodicity=1
+        )
+        turns.write_apertures(lattice, elliptical=(0.010, 0.010))
+        reading = turns.single_particle(lattice, 0, [2], (x, 0.0, 0.0, 0.0, 0.0, 0.0))
+        return bool(reading.alive[0, 0] == 0.0)
+
+    assert not lost(0.0, 0.009) and lost(0.0, 0.011)
+    # Moved by +2 mm, the opening is [-8, 12] mm in the ring's frame.
+    assert not lost(0.002, 0.011) and lost(0.002, -0.009)
+
+
 # -- tracking ----------------------------------------------------------------
 
 
@@ -527,3 +626,64 @@ def test_an_element_that_applies_no_kick_angle_is_named(ring: Any) -> None:
     quadrupole = at.Quadrupole("K", 0.3, 0.0)
     assert turns.applies_kick_angle(quadrupole) is True
     assert not hasattr(quadrupole, "KickAngle")
+
+
+# -- how far the beam got -------------------------------------------------------
+
+
+def _reading_of(ring: Any, injection: int, monitors: np.ndarray, alive: list[list[float]], mp):
+    """A shot's reading with the alive shares given per monitor, in ring order from the injection."""
+    shares = np.array(alive, dtype=np.float64)
+    centroid = np.where(shares > 0.0, 0.0, np.nan)
+    mp.setattr(turns, "track_particles", lambda *args: (shares, centroid, centroid))
+    return turns.track_shot(ring, injection, monitors[: len(alive)], LAUNCH, shares.shape[1])
+
+
+@pytest.mark.parametrize(
+    ("alive", "survived", "reached"),
+    [
+        ([[1.0, 1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0]], 3, 3),
+        ([[1.0, 1.0, 0.5], [1.0, 0.5, 0.0], [1.0, 0.5, 0.0]], 2, 3),
+        ([[1.0, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 0.0]], 0, 2),
+        ([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], 0, 0),
+    ],
+    ids=["kept", "lost on turn 3", "lost on turn 1", "lost at once"],
+)
+def test_a_reading_says_how_far_the_beam_got(
+    ring: Any,
+    injection: int,
+    monitors: np.ndarray,
+    monkeypatch: pytest.MonkeyPatch,
+    alive: list[list[float]],
+    survived: int,
+    reached: int,
+) -> None:
+    reading = _reading_of(ring, injection, monitors, alive, monkeypatch)
+    assert reading.turns_survived == survived
+    assert reading.monitors_reached == reached
+
+
+def test_the_last_monitor_is_the_last_one_from_the_injection(
+    ring: Any, injection: int, monitors: np.ndarray, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The caller's order does not matter: the beam's does."""
+    alive = [[1.0, 1.0], [1.0, 0.0]]
+    two = monitors[:2]
+    forward = _reading_of(ring, injection, two, alive, monkeypatch)
+    backward = _reading_of(ring, injection, two[::-1], alive, monkeypatch)
+    assert forward.turns_survived == backward.turns_survived == 1
+    np.testing.assert_array_equal(forward.alive, backward.alive[::-1])
+
+
+def test_a_tracked_beam_that_is_kept_survives_every_turn(
+    ring: Any, injection: int, monitors: np.ndarray
+) -> None:
+    reading = turns.track_shot(ring, injection, monitors, LAUNCH, 3)
+    assert reading.turns_survived == 3
+    assert reading.monitors_reached == len(monitors)
+
+
+def test_the_bunch_set_up_error_is_a_value_error(ring: Any, injection: int) -> None:
+    assert issubclass(turns.ShotSetupError, ValueError)
+    with pytest.raises(turns.ShotSetupError, match="mismatch factor"):
+        turns.declared_bunch(ring, injection, 4, mismatch=(0.0, 1.0))

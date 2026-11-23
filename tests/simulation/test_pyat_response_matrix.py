@@ -592,6 +592,23 @@ class TestTrajectory:
         (text,) = texts
         assert "lost on the first turn at element" in text
 
+    def test_an_elements_own_aperture_loses_the_particle_the_rings_passes(self, demo):
+        ring = {"x": 0.05, "y": 0.05}
+        passed = _trajectory(demo, _turn_settings(demo, launch={"x": 0.002}, aperture=ring), {})
+        tight = _turn_settings(
+            demo,
+            launch={"x": 0.002},
+            aperture=ring,
+            apertures=[
+                {"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}
+            ],
+        )
+
+        result = _trajectory(demo, tight, {CORRECTOR_X: 0.01})
+
+        assert passed.unsolved == {}
+        assert "lost on the first turn at element" in result.unsolved[CORRECTOR_X]
+
     def test_a_rectangular_aperture_also_loses_the_particle(self, demo):
         settings = _turn_settings(
             demo, launch={"x": 0.02}, aperture={"x": 0.005, "y": 0.005, "shape": "rectangular"}

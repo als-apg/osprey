@@ -93,6 +93,9 @@
 - {id: SR:DIAG:BPM:71:ARM, role: setpoint}
 - {id: SR:DIAG:BPM:72:ARM, role: setpoint}
 - {id: SR:DIAG:TBT:TURNS}
+- {id: SR:DIAG:TBT:SURVIVED}
+- {id: SR:DIAG:TBT:REACHED}
+- {id: SR:DIAG:TBT:STATUS}
 - {id: SR:DIAG:BPM:01:ARMED}
 - {id: SR:DIAG:BPM:01:TBT:X, value_type: waveform, shape: [260]}
 - {id: SR:DIAG:BPM:01:TBT:Y, value_type: waveform, shape: [260]}

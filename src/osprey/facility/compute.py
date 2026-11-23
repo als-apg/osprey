@@ -23,10 +23,11 @@ computed device slots in place on the document:
   place or inside it, and stands under a span that holds it or where none
   holds the device.
   A device still without a place after that takes it from its ``located_in``
-  claims (``relation``) when no claim on its key is ``contested`` and the
-  accepted claims that are not coarse all name one place; a claim's unit is
-  not copied. A disputed key projects nothing: the ``relation-contested``
-  warning of the relations stage is the report.
+  claims (``relation``): a ``contested`` claim removes only itself, and the
+  accepted claims that are not coarse among the accepted ones must agree on
+  one place (of a place and a place inside it, the finer); a claim's unit is
+  not copied. A key with no accepted claim projects nothing: the
+  ``relation-contested`` warning of the relations stage is the report.
 * ``ordinalInPlace``, ``ordinalInModel``: per (class, place) and per
   (class, model), in s order with ties by id, a periodic model's s read
   modulo its length; a device with an ``s`` and no ``model`` is numbered in
@@ -68,7 +69,6 @@ from osprey.facility.pairing import simulated_pairs
 from osprey.facility.provenance import add_defaults, set_place_from
 from osprey.facility.relations import (
     ACCEPTED,
-    CONTESTED,
     claim_keys,
     coarse_reasons,
     end_identity,
@@ -962,11 +962,12 @@ def _place_from(device: dict[str, Any], place_from: str) -> None:
 def _project_places(document: Mapping[str, Any]) -> None:
     """Give each unplaced device the place its ``located_in`` claims agree on.
 
-    Per ``located_in`` key (one per subject device): nothing when the device
-    already has a place or any claim on the key is ``contested``; otherwise the
-    accepted claims that are not coarse there must name exactly one place, which
-    becomes the device's place with ``place_from: relation``. Stated and
-    inferred claims count alike; the claims' order does not matter.
+    Per ``located_in`` key (one per subject device), for a device with no place
+    yet: a ``contested`` or ``superseded`` claim removes only itself; the
+    ``accepted`` claims that are not coarse among the accepted ones name the
+    place (:func:`_agreed_place`), which becomes the device's place with
+    ``place_from: relation``. Stated and inferred claims count alike; the
+    claims' order does not matter, and no claim's unit is copied.
     """
     claims = [c for c in document.get("relations") or [] if c.get("type") == "located_in"]
     if not claims:
@@ -984,20 +985,30 @@ def _project_places(document: Mapping[str, Any]) -> None:
         device = devices.get(subject[1])
         if device is None or device.get("place") is not None:
             continue
-        if any(claim.get("standing") == CONTESTED for claim in on_key):
-            continue
+        accepted = [claim for claim in on_key if claim.get("standing") == ACCEPTED]
         named = {
             end_identity(claim.get("object") or {})
-            for claim in on_key
-            if claim.get("standing") == ACCEPTED and not coarse_reasons(claim, on_key, types)
+            for claim in accepted
+            if not coarse_reasons(claim, accepted, types)
         }
-        if len(named) != 1:
+        place = _agreed_place(named)
+        if place is None:
             continue
-        [target] = named
-        if target is None or target[0] != "place":
-            continue
-        device["place"] = target[1]
+        device["place"] = place
         _place_from(device, "relation")
+
+
+def _agreed_place(named: set[tuple[str, str] | None]) -> str | None:
+    """The one place every end of *named* agrees with: the finest of them when
+    each other one holds it (``A`` and ``A/B`` agree on ``A/B``); ``None`` with
+    none, with an end that is no place, or with two places neither holds."""
+    if not named or any(end is None or end[0] != "place" for end in named):
+        return None
+    places = sorted((end[1] for end in named if end is not None), key=lambda p: p.count("/"))
+    finest = places[-1]
+    if all(finest == place or finest.startswith(f"{place}/") for place in places):
+        return finest
+    return None
 
 
 # --- nominal band --------------------------------------------------------------------

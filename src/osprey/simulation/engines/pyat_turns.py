@@ -23,6 +23,7 @@ import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import at
 import numpy as np
@@ -31,6 +32,7 @@ __all__ = [
     "SHAPE_BASES",
     "SLICE_S",
     "TRACK_FLOATS",
+    "ShotSetupError",
     "TurnReading",
     "bunch_shape",
     "declared_bunch",
@@ -40,6 +42,7 @@ __all__ = [
     "track_particles",
     "track_shot",
     "write_apertures",
+    "write_declared_apertures",
 ]
 
 #: The prime bases of the six low-discrepancy sequences a bunch's shape is
@@ -70,6 +73,15 @@ BUNCH_SUBKEY = b":bunch"
 JITTER_DRAWS: tuple[int, ...] = (0, 2, 1, 3, 4, 5)
 
 
+class ShotSetupError(ValueError):
+    """A shot's bunch cannot be set up from what the ring and its settings state.
+
+    An outcome of the machine's state, not a defect of the code: a mismatch
+    factor that is not above 0, or a bunch to match to the ring's optics on
+    a ring that has no periodic optics.
+    """
+
+
 @dataclass(frozen=True)
 class TurnReading:
     """One tracked shot, per monitor (rows, in the caller's order) and turn (columns).
@@ -78,11 +90,21 @@ class TurnReading:
         x: The survivors' horizontal centroid in metres, NaN where none is alive.
         y: The survivors' vertical centroid in metres, NaN where none is alive.
         alive: The share of the launched particles alive, from 0 to 1.
+        turns_survived: The last turn on which a particle was alive at the
+            last monitor, the one the beam meets last on its way round from
+            the injection; turns count from 1, and 0 is a beam that never
+            reached that monitor. A lost particle stays lost, so every turn
+            up to this one reached it too.
+        monitors_reached: How many of the monitors saw a particle alive on
+            the first turn. The beam meets them in ring order from the
+            injection, so these are the first that many of them.
     """
 
     x: np.ndarray
     y: np.ndarray
     alive: np.ndarray
+    turns_survived: int = 0
+    monitors_reached: int = 0
 
 
 def shot_key(model: str, shot: int) -> bytes:
@@ -224,22 +246,23 @@ def declared_bunch(
         ``(6, particles)`` float64 offsets from the launch.
 
     Raises:
-        ValueError: ``particles`` is below 1, a mismatch factor is not a
-            finite number above 0, or an optics function is left out and the
-            ring has no periodic optics at ``injection``.
+        ValueError: ``particles`` is below 1.
+        ShotSetupError: a mismatch factor is not a finite number above 0, or
+            an optics function is left out and the ring has no periodic
+            optics at ``injection``.
     """
     if int(particles) < 1:
         raise ValueError(f"a bunch takes 1 or more particles, not {int(particles)}")
     factors = np.asarray(mismatch, dtype=np.float64)
     if factors.shape != (2,) or not np.all(np.isfinite(factors) & (factors > 0.0)):
-        raise ValueError(
+        raise ShotSetupError(
             f"a mismatch factor is a finite number above 0 per plane, not {tuple(mismatch)}"
         )
     if beta is None or alpha is None or dispersion is None:
         try:
             _, _, optics = lattice.disable_6d(copy=True).get_optics(refpts=[int(injection)])
         except Exception as error:
-            raise ValueError(
+            raise ShotSetupError(
                 f"the lattice has no periodic optics at element {int(injection)} to match "
                 f"the bunch to: {error}"
             ) from error
@@ -293,44 +316,105 @@ def launched_bunch(
     return np.asarray(start.reshape(6, 1) + np.asarray(shape, dtype=np.float64), dtype=np.float64)
 
 
+#: pyAT's aperture attribute per shape; an element holds at most one of them here.
+_APERTURE_ATTRIBUTES: dict[str, str] = {"elliptical": "EApertures", "rectangular": "RApertures"}
+
+
+def _aperture_values(shape: str, extents: tuple[Any, Any]) -> np.ndarray:
+    """The values of pyAT's aperture attribute for one shape and its two planes."""
+    edges: list[float] = []
+    for extent in extents:
+        if isinstance(extent, tuple | list):
+            if shape != "rectangular":
+                raise ValueError("only a rectangular aperture states limits per plane")
+            low, high = (float(limit) for limit in extent)
+            if not (math.isfinite(low) and math.isfinite(high) and low < high):
+                raise ValueError(
+                    f"a rectangle's limits are finite metres, low below high, not ({low:g}, {high:g})"
+                )
+        else:
+            high = float(extent)
+            if not 0.0 < high < math.inf:
+                raise ValueError(
+                    f"an aperture half-axis is a finite number of metres above 0, not {high:g}"
+                )
+            low = -high
+        edges.extend((high,) if shape == "elliptical" else (low, high))
+    return np.array(edges, dtype=np.float64)
+
+
 def write_apertures(
     lattice: at.Lattice,
     *,
     elliptical: tuple[float, float] | None = None,
-    rectangular: tuple[float, float] | None = None,
+    rectangular: tuple[Any, Any] | None = None,
+    indexes: Sequence[int] | None = None,
 ) -> None:
-    """Write the stated apertures on every element of ``lattice`` that has a length.
+    """Write one aperture on elements of ``lattice``, in place of any they hold.
 
     An elliptical aperture is pyAT's ``EApertures``, its two half-axes; a
-    rectangular one is ``RApertures``, the four edges of a rectangle centred
-    on the axis. ``lattice`` is changed in place: pass a copy to keep the
+    rectangular one is ``RApertures``, the four edges of a rectangle, centred
+    on the axis in a plane stated by its half-width. An element written here
+    loses the aperture of the other shape, so it holds the one stated last.
+    pyAT checks an aperture in the element's own frame, behind its entrance
+    transformation, so the opening moves and rolls with an element that is
+    misaligned. ``lattice`` is changed in place: pass a copy to keep the
     original.
 
     Args:
         lattice: The lattice to write on.
         elliptical: The ellipse's half-axes ``(x, y)`` in metres.
-        rectangular: The rectangle's half-widths ``(x, y)`` in metres.
+        rectangular: The rectangle's planes ``(x, y)`` in metres, each a
+            half-width or a ``(low, high)`` pair of limits.
+        indexes: The elements to write on, whatever their length; every
+            element with a length when omitted.
 
     Raises:
-        ValueError: a half-axis is not a finite number above 0.
+        ValueError: both shapes are stated; a half-axis is not a finite
+            number above 0; limits are not finite and rising.
     """
-    apertures: dict[str, np.ndarray] = {}
-    for attribute, half_axes in (("EApertures", elliptical), ("RApertures", rectangular)):
-        if half_axes is None:
-            continue
-        x, y = (float(value) for value in half_axes)
-        if not (0.0 < x < math.inf and 0.0 < y < math.inf):
-            raise ValueError(
-                f"an aperture half-axis is a finite number of metres above 0, not ({x:g}, {y:g})"
-            )
-        edges = (x, y) if attribute == "EApertures" else (-x, x, -y, y)
-        apertures[attribute] = np.array(edges, dtype=np.float64)
-    if not apertures:
+    stated = {
+        shape: extents
+        for shape, extents in (("elliptical", elliptical), ("rectangular", rectangular))
+        if extents is not None
+    }
+    if not stated:
         return
-    for element in lattice:
-        if float(getattr(element, "Length", 0.0)) > 0.0:
-            for attribute, values in apertures.items():
-                setattr(element, attribute, values.copy())
+    if len(stated) > 1:
+        raise ValueError("an element holds one aperture: state elliptical or rectangular")
+    ((shape, extents),) = stated.items()
+    values = _aperture_values(shape, (extents[0], extents[1]))
+    if indexes is None:
+        indexes = [
+            index
+            for index, element in enumerate(lattice)
+            if float(getattr(element, "Length", 0.0)) > 0.0
+        ]
+    for index in indexes:
+        element = lattice[index]
+        for attribute in _APERTURE_ATTRIBUTES.values():
+            if hasattr(element, attribute):
+                delattr(element, attribute)
+        setattr(element, _APERTURE_ATTRIBUTES[shape], values.copy())
+
+
+def write_declared_apertures(lattice: at.Lattice, ring: Any, elements: Sequence[Any]) -> None:
+    """Write a turn-by-turn block's apertures: the ring's, then each element item in order.
+
+    Args:
+        lattice: The lattice to write on, changed in place.
+        ring: The block's ``aperture``
+            (:class:`~osprey.simulation.engines.pyat_turn_settings.Aperture`),
+            or ``None`` to leave the elements no item selects as the deck
+            states them.
+        elements: The block's ``apertures``
+            (:class:`~osprey.simulation.engines.pyat_turn_settings.ElementAperture`);
+            a later item replaces an earlier one on an element both select.
+    """
+    if ring is not None:
+        write_apertures(lattice, **ring.keywords)
+    for item in elements:
+        write_apertures(lattice, **item.aperture.keywords, indexes=item.indexes)
 
 
 @dataclass(frozen=True)
@@ -524,8 +608,15 @@ def track_shot(
     ]
     first = pulsed_lattices(rotated, kicks, turns)
     alive, x, y = track_particles(rotated, particles, refpts, turns, first)
+    seen = alive > 0.0  # per monitor in ring order from the injection, and turn
     rows = np.argsort(order)  # each caller's monitor's row in ring order
-    return TurnReading(x=x[rows], y=y[rows], alive=alive[rows])
+    return TurnReading(
+        x=x[rows],
+        y=y[rows],
+        alive=alive[rows],
+        turns_survived=int(np.count_nonzero(seen[-1])) if len(seen) else 0,
+        monitors_reached=int(np.count_nonzero(seen[:, 0])),
+    )
 
 
 def single_particle(

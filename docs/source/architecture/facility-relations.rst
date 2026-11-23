@@ -57,10 +57,12 @@ ranking. Standing raises warnings and the build goes on:
 type.
 
 **Projection.** Accepted ``located_in`` claims fill ``Device.place`` when the
-device has no place yet, no claim on its key is contested, and the accepted
-claims that are not coarse name exactly one place. The device then carries
-``provenance.place_from: relation``; the claim's unit is not copied. A disputed
-key projects nothing, and its warning is the report.
+device has no place yet. A contested claim removes only itself: the accepted
+claims that are not coarse among the accepted ones must agree on one place (of
+a place and a place inside it, the finer), so a dispute over a unit leaves the
+rack the other claims agree on. The device then carries
+``provenance.place_from: relation``; no claim's unit is copied. A key with no
+accepted claim projects nothing, and its warning is the report.
 
 **Views.** The graph view reads every standing: an accepted claim is an edge,
 a contested claim is an edge under the contested twin of its predicate, a

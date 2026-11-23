@@ -50,7 +50,7 @@ _MIRROR = "https://github.com/als-apg/canopy-osprey-mirror-"
 #: it. Recorded so the payload can be rebuilt, never judged: the stage check
 #: reads :data:`PROVEN_COMMITS` alone.
 PAYLOAD_COMMITS: dict[str, str] = {
-    "canopy-screen-runtime": "4038c445193e241fc28c92716247b81a31ec6334",
+    "canopy-screen-runtime": "b79bb351fc65cb53769e7e3a112cdc033eac2744",
     "react-trace": "cb9d19b5cb4b4ecab9fe290d059481debf1dfc7c",
     "canopy-sdk-js": "d07d7f4c23ce52347cca312268b8078cdd87282f",
     "builder": "7a6c250cdf344016cf09bd65c66e241a12097b08",

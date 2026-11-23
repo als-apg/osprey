@@ -29,8 +29,8 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   ``offset_<coordinate>`` and ``mismatch_<plane>``) that holds what is
   written and touches no element. :func:`pilot_tone_on` reads the tone as a boolean.
 * :class:`TurnStateVariable` and :class:`TurnArrayVariable` -- a turn-by-turn
-  ring's model state (``armed``, ``turns_tracked``; ``turn_x``, ``turn_y``,
-  ``turn_sum``), read-only, each reading the turn state its model binds it to.
+  ring's model state (``armed`` and the last shot's read-outs; ``turn_x``,
+  ``turn_y``, ``turn_sum``), read-only, each reading the turn state its model binds it to.
 
 :func:`variable_from_wiring` picks the class from the engine block; the
 engine's build constructs the RF switch itself, from the model's lattice.
@@ -98,6 +98,7 @@ from osprey.simulation.engines.pyat_turn_settings import (
     ARRAY_SIGNALS,
     PULSED_KICK,
     SETTING_SIGNALS,
+    SHOT_SIGNALS,
     SIGNALS,
     kick_words,
 )
@@ -1280,24 +1281,31 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
         raise NotImplementedError(f"{self.name!r} holds what is written; read it from the model")
 
 
+#: The signals a :class:`TurnStateVariable` reads: ``armed`` and the shot read-outs.
+_TurnStateSignal = Literal[
+    "armed", "turns_tracked", "turns_survived", "monitors_reached", "shot_status"
+]
+
+
 class TurnStateVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
-    """A scalar of a turn-by-turn ring's turn state: ``armed`` or ``turns_tracked``.
+    """A scalar of a turn-by-turn ring's turn state: ``armed`` or a read-out of the last shot.
 
     Model state, not a setting: it is read-only, so a write is refused and
     neither ``reset`` nor a restore touches it. It reads the turn state the
     model binds it to (:meth:`bind`) on every read, never a solve: ``armed``
-    is ``1.0`` while its monitor is armed, ``turns_tracked`` the turns of the
-    last tracked shot.
+    is ``1.0`` while its monitor is armed; each of the shot read-outs
+    (:data:`~osprey.simulation.engines.pyat_turn_settings.SHOT_SIGNALS`) is
+    the turn state's field of that name.
 
     Attributes:
         signal: The engine block's signal.
-        monitor: The monitor element, for ``armed``; ``None`` for
-            ``turns_tracked``.
+        monitor: The monitor element, for ``armed``; ``None`` for a shot
+            read-out.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    signal: Literal["armed", "turns_tracked"]
+    signal: _TurnStateSignal
     monitor: str | None = None
     read_only: bool = True
 
@@ -1314,9 +1322,9 @@ class TurnStateVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
             RuntimeError: no turn state is bound.
         """
         state = _bound(self.name, self._state)
-        if self.signal == "turns_tracked":
-            return float(state.turns_tracked)
-        return 1.0 if state.monitors[str(self.monitor)].armed else 0.0
+        if self.signal == "armed":
+            return 1.0 if state.monitors[str(self.monitor)].armed else 0.0
+        return float(getattr(state, self.signal))
 
 
 class TurnArrayVariable(PyATReadOnlyNDVariable):
@@ -1397,12 +1405,12 @@ def turn_variable_from_wiring(record: Any, *, samples: int, **scalar_fields: Any
             shape=(samples,),
             unit=field(record, "unit"),
         )
-    if signal in ("armed", "turns_tracked"):
+    if signal == "armed" or signal in SHOT_SIGNALS:
         if signal == "armed" and monitor is None:
             raise ValueError(f"wiring {_record_id(record)}: signal armed names no monitor")
         return TurnStateVariable(
             name=address,
-            signal=cast("Literal['armed', 'turns_tracked']", signal),
+            signal=cast("_TurnStateSignal", signal),
             monitor=monitor,
             unit=field(record, "unit"),
         )

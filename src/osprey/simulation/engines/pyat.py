@@ -687,7 +687,41 @@ def _turn_block(
             )
         return found[0]
 
-    return turn_settings.normalise(settings, str(deck), model_id, index_of)
+    def select(selector: str, value: Any) -> tuple[int, ...]:
+        import at
+
+        lattice = loaded.lattice
+        lengths = [float(getattr(element, "Length", 0.0)) for element in lattice]
+        if selector == "element":
+            found: tuple[int, ...] = loaded.indices.get(value, ())
+            what = f"element {value}"
+        elif selector == "class":
+            kind = getattr(at, value, None)
+            if not (isinstance(kind, type) and issubclass(kind, at.Element)):
+                raise ValueError(f"class {value} is no element class of pyAT")
+            found = tuple(
+                index
+                for index, element in enumerate(lattice)
+                if isinstance(element, kind) and lengths[index] > 0.0
+            )
+            what = f"class {value}"
+        else:
+            start, end = value
+            if end > loaded.length_m:
+                raise ValueError(
+                    f"s range [{start:g}, {end:g}] ends beyond the deck's {loaded.length_m:g} m"
+                )
+            found = tuple(
+                index
+                for index, length in enumerate(lengths)
+                if length > 0.0 and start <= loaded.s_pos[index] + length / 2.0 <= end
+            )
+            what = f"s range [{start:g}, {end:g}]"
+        if not found:
+            raise ValueError(f"{what} selects no element of the deck")
+        return found
+
+    return turn_settings.normalise(settings, str(deck), model_id, index_of, select)
 
 
 def _check_error_elements(loaded: _Loaded, deck: Deck, settings: Any, model_id: str) -> None:
@@ -1123,8 +1157,9 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     described by :func:`pyat_turn_settings.describe_signal`: ``arm``,
     ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
     ``offset_<coordinate>`` and ``mismatch_<plane>`` are setpoints refreshing
-    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and
-    ``turns_tracked`` are outputs refreshing ``event``; none has a plane, and
+    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and the shot
+    read-outs (``turns_tracked``, ``turns_survived``, ``monitors_reached``,
+    ``shot_status``) are outputs refreshing ``event``; none has a plane, and
     the kind is the signal.
 
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
@@ -1446,8 +1481,8 @@ def build(
       it starts on;
     * every other turn-by-turn record (an engine ``signal``, on a turn-by-turn
       ring only): ``arm``, ``pilot_tone`` and ``stored`` are settings that
-      hold what is written; ``armed``, the turn arrays and ``turns_tracked``
-      are read-only model state, read from the ring's turn state
+      hold what is written; ``armed``, the turn arrays and the shot
+      read-outs are read-only model state, read from the ring's turn state
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnState`), which
       a turn-by-turn ring is built to hold
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnByTurnModel`).
@@ -1931,10 +1966,9 @@ def response_matrix(
     ]
 
     if trajectory and turns is not None:
-        if turns.aperture is not None:
-            from osprey.simulation.engines.pyat_turns import write_apertures
+        from osprey.simulation.engines.pyat_turns import write_declared_apertures
 
-            write_apertures(lattice, **turns.aperture.keywords)
+        write_declared_apertures(lattice, turns.aperture, turns.apertures)
         simulator = PyATSimulator(lattice)
         turn_places = [(place + origin) % len(lattice) for place, _, _ in turn_rows]
         turn_axes = [axis for _, axis, _ in turn_rows]
