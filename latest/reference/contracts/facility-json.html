@@ -383,7 +383,10 @@
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="../cli.html">CLI Reference</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../cli.html">CLI Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../osprey-panels.html">osprey-panels</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
@@ -667,7 +670,7 @@ the built <code class="docutils literal notranslate"><span class="pre">osprey-fa
 </tr>
 <tr class="row-even"><td><p>Readers ignore unknown keys</p></td>
 <td><p>Enforced for the panel engine</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_unknown_keys.py</span></code>; the framework’s readers
+<td><p><code class="docutils literal notranslate"><span class="pre">packages/osprey-panels/tests/osprey_panels_tests/test_unknown_keys.py</span></code>; the framework’s readers
 look up the keys they use and pass over the rest, not checked</p></td>
 </tr>
 <tr class="row-odd"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and act on others through their channel</p></td>
@@ -675,7 +678,8 @@ look up the keys they use and pass over the rest, not checked</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_reader_coverage.py</span></code>: every function that reads
 the document reaches the header check and is on the reader roster
 with its channel and a test that hands it a <code class="docutils literal notranslate"><span class="pre">/3</span></code> document; the
-panel engine in <code class="docutils literal notranslate"><span class="pre">tests/facility/panels/test_document.py</span></code></p></td>
+panel engine in
+<code class="docutils literal notranslate"><span class="pre">packages/osprey-panels/tests/osprey_panels_tests/test_document.py</span></code></p></td>
 </tr>
 </tbody>
 </table>
@@ -684,10 +688,11 @@ panel engine in <code class="docutils literal notranslate"><span class="pre">tes
 <section id="the-readers">
 <h2>The readers<a class="headerlink" href="#the-readers" title="Link to this heading">#</a></h2>
 <p>The contract binds every reader of <code class="docutils literal notranslate"><span class="pre">facility.json</span></code>, and every reader checks
-the header today. The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey.facility.panels.document</span></code>)
+the header today. The panel engine (<code class="docutils literal notranslate"><span class="pre">osprey_panels.document</span></code>)
 refuses: it reads <code class="docutils literal notranslate"><span class="pre">/4</span></code> and imports no facility code, because it is the
 reader a fork replaces.</p>
-<p>Each framework reader is on the reader roster with its channel, below. The
+<p>Each framework reader, and the <code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> command’s, is on the reader
+roster with its channel, below. The
 roster is <code class="docutils literal notranslate"><span class="pre">tests/facility/_reader_roster.py</span></code>;
 <code class="docutils literal notranslate"><span class="pre">tests/facility/test_reader_coverage.py</span></code> holds it complete, and a docs test
 holds this table equal to it.</p>
@@ -795,7 +800,7 @@ holds this table equal to it.</p>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.build_injectors._inject_dispatch</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey.cli.facility_cmd._panel_graph</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">osprey_panels.cli._graph</span></code></p></td>
 <td><p>refuse</p></td>
 </tr>
 </tbody>
