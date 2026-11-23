@@ -309,6 +309,9 @@ class TestDescribe:
             (_record("turn_y", "B1:TBT:Y", element="BPM1"), ("output", "event", "turn_y")),
             (_record("turn_sum", "B1:TBT:S", element="BPM1"), ("output", "event", "turn_sum")),
             (_record("turns_tracked", "SR:TURNS"), ("output", "event", "turns_tracked")),
+            (_record("turns_survived", "SR:SURVIVED"), ("output", "event", "turns_survived")),
+            (_record("monitors_reached", "SR:REACHED"), ("output", "event", "monitors_reached")),
+            (_record("shot_status", "SR:STATUS"), ("output", "event", "shot_status")),
             (_record("rf_switch", "SR:RF", write=True), ("setpoint", "pass", "rf_switch")),
             (_record("offset_x", "SR:INJ:DX", write=True), ("setpoint", "pass", "offset_x")),
             (_record("offset_ct", "SR:INJ:DCT", write=True), ("setpoint", "pass", "offset_ct")),
@@ -346,6 +349,9 @@ class TestDescribe:
             "turn_y",
             "turn_sum",
             "turns_tracked",
+            "turns_survived",
+            "monitors_reached",
+            "shot_status",
             "rf_switch",
             "pilot_tone",
             "stored",
@@ -355,6 +361,7 @@ class TestDescribe:
             "pulsed_kick",
         }
         assert turn.BEAM_SIGNALS <= turn.SETTING_SIGNALS & turn.RING_SIGNALS
+        assert set(turn.SHOT_SIGNALS) <= turn.RING_SIGNALS - turn.SETTING_SIGNALS
 
     @pytest.mark.parametrize(
         ("record", "text"),
@@ -372,6 +379,10 @@ class TestDescribe:
             (_record("armed", "B1:ARMED"), "names no monitor element"),
             (_record("turn_sum", "B1:TBT:S"), "names no monitor element"),
             (_record("turns_tracked", "SR:TURNS", element="BPM1"), "names an element"),
+            (_record("turns_survived", "SR:SURVIVED", element="BPM1"), "names an element"),
+            (_record("monitors_reached", "SR:REACHED", element="BPM1"), "names an element"),
+            (_record("shot_status", "SR:STATUS", element="BPM1"), "names an element"),
+            (_record("shot_status", "SR:STATUS", write=True), "is read only"),
             (_record("rf_switch", "SR:RF", element="Q", write=True), "names an element"),
             (_record("pilot_tone", "SR:TONE", element="Q", write=True), "names an element"),
             (_record("offset_px", "SR:INJ:DPX", element="Q", write=True), "names an element"),

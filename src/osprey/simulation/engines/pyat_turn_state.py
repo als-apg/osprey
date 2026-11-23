@@ -6,12 +6,14 @@ model holds for them, beside the block's launch, optics and jitter.
 
 One :class:`TurnState` per turn-by-turn ring model: per monitor element an
 armed flag and its three turn arrays (``x``, ``y``, ``sum``, each
-``trigger_sample + turns`` samples), the turns of the last tracked shot, the
-inputs last delivered and the ones before them, and the "arrays emitted, not
+``trigger_sample + turns`` samples), the read-outs of the last shot (the
+turns it was tracked for, the turns the beam survived, the monitors it
+reached on the first turn, and how the shot ended, a :class:`ShotStatus`),
+the inputs last delivered and the ones before them, and the "arrays emitted, not
 yet drained" flag. It is model state, not settings: ``set``, restore and
 replay never reach it, and a ``reset`` returns it to its start values.
 
-The variables of the ``armed``, ``turns_tracked`` and turn-array records
+The variables of the ``armed``, shot read-out and turn-array records
 read it live (:class:`~osprey.simulation.engines.pyat_variables.TurnStateVariable`,
 :class:`~osprey.simulation.engines.pyat_variables.TurnArrayVariable`); the
 shot handling of the engine's time-contract functions writes it.
@@ -23,6 +25,7 @@ and serves them from it; :func:`turn_state_of` finds the state of any model.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
+from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -39,6 +42,7 @@ from osprey.simulation.engines.pyat_variables import (
     TurnSetpointVariable,
     TurnStateVariable,
 )
+from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Callable, Iterable, Mapping
@@ -47,9 +51,33 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.variables import Variable
 
     from osprey.simulation.engines.pyat_turn_settings import TurnSettings
+    from osprey.simulation.engines.pyat_turns import TurnReading
+
+logger = get_logger("simulation_turn_by_turn")
 
 #: The signal of a monitor's arm setting.
 _ARM = "arm"
+
+
+class ShotStatus(IntEnum):
+    """How a ring's last shot ended: the value of its ``shot_status`` record.
+
+    Attributes:
+        NONE: No shot was taken since the start or the last reset.
+        TRACKED: The shot was tracked and read out, whatever became of the
+            beam: ``turns_survived`` and ``monitors_reached`` say how far it
+            got.
+        NOT_SET_UP: The shot's bunch could not be set up from the ring's
+            state and settings
+            (:class:`~osprey.simulation.engines.pyat_turns.ShotSetupError`),
+            so nothing was tracked.
+        ERROR: The tracking or the read-out raised an error nobody expects.
+    """
+
+    NONE = 0
+    TRACKED = 1
+    NOT_SET_UP = 2
+    ERROR = 3
 
 
 def _zeros(samples: int) -> np.ndarray:
@@ -90,7 +118,18 @@ class TurnState:
         settings: The ring's turn-by-turn settings block.
         monitors: Each wired monitor element's armed flag and arrays, keyed by
             the element's name.
-        turns_tracked: The turns of the last tracked shot; ``0`` at start.
+        turns_tracked: The turns the last shot was tracked for, whatever
+            became of the beam; ``0`` at start and for a shot that was not
+            tracked.
+        turns_survived: The last turn of the last shot on which a particle
+            was alive at the last of the monitors that read the shot, in
+            ring order from the injection
+            (:attr:`~osprey.simulation.engines.pyat_turns.TurnReading.turns_survived`);
+            ``0`` at start and for a shot that was not tracked.
+        monitors_reached: How many of the monitors that read the last shot
+            saw a particle alive on its first turn; ``0`` at start and for a
+            shot that was not tracked.
+        shot_status: How the last shot ended, a :class:`ShotStatus`.
         inputs: The inputs last delivered, input signal -> value; ``None``
             before the first delivery.
         previous_inputs: The delivery before that; ``None`` until there is
@@ -115,6 +154,9 @@ class TurnState:
     settings: TurnSettings
     monitors: dict[str, MonitorTurns] = field(default_factory=dict)
     turns_tracked: int = 0
+    turns_survived: int = 0
+    monitors_reached: int = 0
+    shot_status: int = ShotStatus.NONE
     inputs: Mapping[str, float] | None = None
     previous_inputs: Mapping[str, float] | None = None
     emitted_pending: bool = False
@@ -266,7 +308,7 @@ class TurnByTurnModel(PyATLatticeModel):
         self._arm_names: dict[str, str] = {}
         self._armed_names: dict[str, list[str]] = {}
         self._array_names: dict[str, dict[str, str]] = {}
-        self._turns_names: list[str] = []
+        self._shot_names: list[str] = []
         self._beam_names: dict[str, str] = {
             variable.signal: variable.name
             for variable in channels
@@ -285,7 +327,7 @@ class TurnByTurnModel(PyATLatticeModel):
             elif isinstance(variable, TurnStateVariable) and variable.signal == "armed":
                 self._armed_names.setdefault(str(variable.monitor), []).append(variable.name)
             elif isinstance(variable, TurnStateVariable):
-                self._turns_names.append(variable.name)
+                self._shot_names.append(variable.name)
             elif isinstance(variable, TurnArrayVariable):
                 self._array_names.setdefault(variable.monitor, {})[variable.signal] = variable.name
         kwargs["tolerant"] = True
@@ -353,22 +395,35 @@ class TurnByTurnModel(PyATLatticeModel):
         return self.turn_state.drain()
 
     def _take_shot(self, monitors: list[str], shot: int) -> None:
-        """Track ``shot``, write the monitors' arrays and the turns tracked, and emit them.
+        """Track ``shot``, write the monitors' arrays and the shot's read-outs, and emit them.
 
-        A tracking or readout that raises leaves the monitors' arrays at their
-        start values and the turns tracked at 0; the handshake completes either way.
+        The handshake completes whatever happens (CF-10), and the shot's
+        status says what did. A bunch that cannot be set up is the ring's
+        state, logged as a warning with its reason; any other error is a
+        defect, logged as an error with its traceback. Either leaves the
+        monitors' arrays at their start values and the other read-outs at 0.
         """
+        from osprey.simulation.engines.pyat_turns import ShotSetupError
+
         state = self.turn_state
         settings = state.settings
+        samples = settings.samples
+        arrays = {name: (_zeros(samples), _zeros(samples), _zeros(samples)) for name in monitors}
+        turns = survived = reached = 0
         try:
-            arrays = self._track(monitors, shot)
+            arrays, reading = self._track(monitors, shot)
+        except ShotSetupError as error:
+            status = ShotStatus.NOT_SET_UP
+            logger.warning(f"{self.model_id}: shot {shot} could not be set up: {error}")
+        except Exception:
+            status = ShotStatus.ERROR
+            logger.error(
+                f"{self.model_id}: shot {shot} failed on an unexpected error", exc_info=True
+            )
+        else:
+            status = ShotStatus.TRACKED
             turns = settings.turns
-        except Exception:  # CF-10: a physics outcome never hangs the handshake
-            samples = settings.samples
-            arrays = {
-                name: (_zeros(samples), _zeros(samples), _zeros(samples)) for name in monitors
-            }
-            turns = 0
+            survived, reached = reading.turns_survived, reading.monitors_reached
         for name in monitors:
             turns_of = state.monitors[name]
             turns_of.x, turns_of.y, turns_of.sum = arrays[name]
@@ -377,17 +432,19 @@ class TurnByTurnModel(PyATLatticeModel):
                 wired[signal] for signal in ("turn_x", "turn_y", "turn_sum") if signal in wired
             )
         state.turns_tracked = turns
-        state.emit(self._turns_names)
+        state.turns_survived = survived
+        state.monitors_reached = reached
+        state.shot_status = status
+        state.emit(self._shot_names)
         state.spent.update(monitors)
         state.emitted_pending = True
         state.shot_time = state.now
 
     def _track(
         self, monitors: list[str], shot: int
-    ) -> dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        """Each monitor's ``(x, y, sum)`` arrays for one tracked shot."""
-        from osprey.simulation.engines import pyat_turns
-        from osprey.simulation.engines.pyat_turn_readout import monitor_turn_arrays
+    ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]], TurnReading]:
+        """Each monitor's ``(x, y, sum)`` arrays for one tracked shot, and the shot's reading."""
+        from osprey.simulation.engines import pyat_turn_readout, pyat_turns
         from osprey.simulation.engines.pyat_variables import pilot_tone_on, rf_on
 
         state = self.turn_state
@@ -455,7 +512,7 @@ class TurnByTurnModel(PyATLatticeModel):
                 for signal in ("turn_x", "turn_y", "turn_sum")
             )
             addresses = (x_address, y_address, sum_address)
-            arrays[name] = monitor_turn_arrays(
+            arrays[name] = pyat_turn_readout.monitor_turn_arrays(
                 alive=reading.alive[row],
                 centroid_x=reading.x[row],
                 centroid_y=reading.y[row],
@@ -469,7 +526,7 @@ class TurnByTurnModel(PyATLatticeModel):
                 readout=settings.readout,
                 faults=self._faults(name, x_address, y_address, shot),
             )
-        return arrays
+        return arrays, reading
 
     def _faults(
         self, monitor: str, x_address: str, y_address: str, shot: int
@@ -528,6 +585,7 @@ def turn_state_of(model: Any) -> TurnState | None:
 
 __all__ = [
     "MonitorTurns",
+    "ShotStatus",
     "TurnByTurnModel",
     "TurnState",
     "turn_state_of",

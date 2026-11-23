@@ -477,7 +477,7 @@ are an injection chain's records with ``engine: {signal: shot}``,
 ``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
 records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
 ``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
-``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
+``turns_survived``, ``monitors_reached``, ``shot_status``, ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
 ``offset_<coordinate>`` and ``mismatch_<plane>``, and a ``pulsed_kick`` record
 per pulsed magnet, naming its ``element`` and stating ``plane`` and optionally
 ``scale`` and ``pulse``. Each array channel is declared

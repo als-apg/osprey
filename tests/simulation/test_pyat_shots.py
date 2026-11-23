@@ -11,6 +11,7 @@ out of a time-contract call, and ``reset`` returns everything to its start.
 from __future__ import annotations
 
 import copy
+import logging
 from typing import Any
 
 import numpy as np
@@ -20,7 +21,7 @@ from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_turns
-from osprey.simulation.engines.pyat_turn_state import turn_state_of
+from osprey.simulation.engines.pyat_turn_state import ShotStatus, turn_state_of
 
 MODEL = "SR"
 INJECTION = "INJ"
@@ -37,13 +38,18 @@ ARM_2 = "SR:DIAG:BPM:02:TBT:ARM"
 ARMED_2 = "SR:DIAG:BPM:02:TBT:ARMED"
 X_2 = "SR:DIAG:BPM:02:TBT:X"
 TURNS_TRACKED = "SR:DIAG:TBT:TURNS"
+TURNS_SURVIVED = "SR:DIAG:TBT:SURVIVED"
+MONITORS_REACHED = "SR:DIAG:TBT:REACHED"
+SHOT_STATUS = "SR:DIAG:TBT:STATUS"
+#: The ring's read-outs of the last shot.
+OUTCOME = {TURNS_TRACKED, TURNS_SURVIVED, MONITORS_REACHED, SHOT_STATUS}
 
 SHOT = "INJ:SHOT:COUNTER"
 CHARGE = "INJ:CHARGE"
 STORED = "SR:DCCT:CURRENT"
 
 ARRAYS_1 = {X_1, Y_1, SUM_1}
-SHOT_NAMES_1 = {X_1, Y_1, SUM_1, TURNS_TRACKED}
+SHOT_NAMES_1 = {X_1, Y_1, SUM_1} | OUTCOME
 
 
 @pytest.fixture(scope="module")
@@ -94,6 +100,9 @@ def _turn_records() -> list[dict[str, Any]]:
         _record("armed", ARMED_2, element="BPM02"),
         _record("turn_x", X_2, element="BPM02"),
         _record("turns_tracked", TURNS_TRACKED),
+        _record("turns_survived", TURNS_SURVIVED),
+        _record("monitors_reached", MONITORS_REACHED),
+        _record("shot_status", SHOT_STATUS),
     ]
 
 
@@ -408,6 +417,136 @@ class TestTheInjectedBeam:
         quiet = _beam_ring(demo, jitter={"x": 0, "y": 0})
         kicked = _beam_ring(demo, jitter={"x": 0, "y": 0, "px": 1.0e-4})
         assert np.abs(_first_shot(quiet)[0] - _first_shot(kicked)[0]).max() > 1.0e-5
+
+
+def _outcome(model: Any) -> dict[str, float]:
+    return {name: float(_value(model, name)) for name in sorted(OUTCOME)}
+
+
+class TestTheShotsOutcome:
+    """What the ring reads of its last shot: how it ended, and how far the beam got."""
+
+    def test_before_a_shot_every_read_out_is_zero(self, ring):
+        assert set(_outcome(ring).values()) == {0.0}
+        assert ShotStatus.NONE == 0
+
+    def test_a_tracked_shot_reads_tracked_and_how_far_the_beam_got(self, ring):
+        _baselined(ring)
+        _arm(ring, ARM_1)
+        _arm(ring, ARM_2)
+        _deliver(ring, 11.0)
+        assert _outcome(ring) == {
+            TURNS_TRACKED: TURNS,
+            TURNS_SURVIVED: TURNS,
+            MONITORS_REACHED: 2.0,
+            SHOT_STATUS: ShotStatus.TRACKED,
+        }
+
+    def test_the_monitors_reached_are_counted_among_those_that_read_the_shot(self, ring):
+        _baselined(ring)
+        _arm(ring, ARM_2)
+        _deliver(ring, 11.0)
+        assert _value(ring, MONITORS_REACHED) == 1.0
+
+    def test_a_beam_lost_on_the_first_turn_is_tracked_and_survives_no_turn(self, demo, caplog):
+        model = _beam_ring(demo, launch={"x": 0.03}, aperture={"x": 0.01, "y": 0.01})
+        _baselined(model)
+        _arm(model, ARM_1)
+        _arm(model, ARM_2)
+        with caplog.at_level(logging.WARNING):
+            _deliver(model, 11.0)
+        assert _value(model, SHOT_STATUS) == ShotStatus.TRACKED
+        assert _value(model, TURNS_TRACKED) == TURNS
+        assert _value(model, TURNS_SURVIVED) == 0.0
+        assert _value(model, MONITORS_REACHED) < 2.0
+        assert not caplog.records
+
+    def test_a_beam_cut_after_the_first_monitor_reaches_that_one_alone(self, demo):
+        cut = {"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.0005], "y": 0.01}
+        model = _beam_ring(
+            demo, launch={"x": 2.0e-3}, aperture={"x": 0.05, "y": 0.05}, apertures=[cut]
+        )
+        _baselined(model)
+        _arm(model, ARM_1)
+        _arm(model, ARM_2)
+        _deliver(model, 11.0)
+        assert _value(model, SHOT_STATUS) == ShotStatus.TRACKED
+        assert _value(model, TURNS_SURVIVED) == 0.0
+        assert _value(model, MONITORS_REACHED) == 1.0
+        total = np.asarray(_value(model, SUM_1))
+        assert total[TRIGGER] > 0.5 and total[TRIGGER + 1] == 0.0
+
+    def test_a_shot_that_cannot_be_set_up_says_so_and_logs_why(self, demo, caplog):
+        """With no arriving optics stated, the bunch is matched to the ring's, which are gone."""
+        model = _beam_ring(demo, emittance_x=2.0e-8, particles=4, aperture={"x": 0.03, "y": 0.03})
+        model.set({STEERER: 3000.0})
+        with caplog.at_level(logging.WARNING):
+            _first_shot(model)
+        assert _outcome(model) == {
+            TURNS_TRACKED: 0.0,
+            TURNS_SURVIVED: 0.0,
+            MONITORS_REACHED: 0.0,
+            SHOT_STATUS: ShotStatus.NOT_SET_UP,
+        }
+        (record,) = caplog.records
+        assert record.levelno == logging.WARNING
+        assert "no periodic optics" in record.getMessage()
+        assert f"{MODEL}: shot 11" in record.getMessage()
+        assert not record.exc_info
+
+    def test_a_mismatch_written_as_zero_is_a_shot_not_set_up(self, demo):
+        model = _beam_ring(demo, emittance_x=2.0e-8, particles=4)
+        model.set({MISMATCH_X: 0.0})
+        _first_shot(model)
+        assert _value(model, SHOT_STATUS) == ShotStatus.NOT_SET_UP
+
+    @pytest.mark.parametrize("broken", ["track_shot", "monitor_turn_arrays"])
+    def test_an_unexpected_error_says_so_and_logs_its_traceback(
+        self, ring, monkeypatch, caplog, broken
+    ):
+        from osprey.simulation.engines import pyat_turn_readout
+
+        def raising(*args, **kwargs):
+            raise RuntimeError("the code broke")
+
+        module = pyat_turns if broken == "track_shot" else pyat_turn_readout
+        monkeypatch.setattr(module, broken, raising)
+        _baselined(ring)
+        _arm(ring, ARM_1)
+        with caplog.at_level(logging.WARNING):
+            _deliver(ring, 11.0)
+        assert _outcome(ring) == {
+            TURNS_TRACKED: 0.0,
+            TURNS_SURVIVED: 0.0,
+            MONITORS_REACHED: 0.0,
+            SHOT_STATUS: ShotStatus.ERROR,
+        }
+        assert set(engine.emitted(ring)) == SHOT_NAMES_1
+        (record,) = caplog.records
+        assert record.levelno == logging.ERROR
+        assert f"{MODEL}: shot 11" in record.getMessage()
+        assert record.exc_info and record.exc_info[0] is RuntimeError
+
+    def test_a_tracked_shot_after_a_failed_one_reads_tracked_again(self, ring, monkeypatch):
+        with monkeypatch.context() as patch:
+            patch.setattr(pyat_turns, "track_shot", lambda *a, **k: 1 / 0)
+            _baselined(ring)
+            _arm(ring, ARM_1)
+            _deliver(ring, 11.0)
+        assert _value(ring, SHOT_STATUS) == ShotStatus.ERROR
+        engine.emitted(ring)
+        engine.advance(ring, 1.5)
+        _arm(ring, ARM_1, t_s=1.6)
+        _deliver(ring, 12.0, t_s=2.0)
+        assert _value(ring, SHOT_STATUS) == ShotStatus.TRACKED
+        assert _value(ring, TURNS_SURVIVED) == TURNS
+
+    def test_reset_returns_every_read_out_to_zero(self, ring):
+        _baselined(ring)
+        _arm(ring, ARM_1)
+        _deliver(ring, 11.0)
+        ring.reset()
+        assert set(_outcome(ring).values()) == {0.0}
 
 
 KICK = "SR:INJ:KICKER:SP"

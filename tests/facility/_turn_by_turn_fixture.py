@@ -36,14 +36,17 @@ __all__ = [
     "FIXTURE",
     "INPUTS",
     "MONITORS",
+    "MONITORS_REACHED",
     "PILOT_TONE",
     "REQUEST",
     "RF_SWITCH",
     "RING",
     "SAMPLES",
     "SHOT",
+    "SHOT_STATUS",
     "STORED",
     "TURNS",
+    "TURNS_SURVIVED",
     "TURNS_TRACKED",
     "TURN_SUM",
     "TURN_X",
@@ -102,10 +105,13 @@ TURN_X = _per_monitor("TBT:X")
 TURN_Y = _per_monitor("TBT:Y")
 TURN_SUM = _per_monitor("TBT:SUM")
 
-#: The ring's RF switch, pilot tone and turns tracked.
+#: The ring's RF switch, pilot tone and read-outs of the last shot.
 RF_SWITCH = "SR:RF:SWITCH"
 PILOT_TONE = "SR:DIAG:TBT:PILOT"
 TURNS_TRACKED = "SR:DIAG:TBT:TURNS"
+TURNS_SURVIVED = "SR:DIAG:TBT:SURVIVED"
+MONITORS_REACHED = "SR:DIAG:TBT:REACHED"
+SHOT_STATUS = "SR:DIAG:TBT:STATUS"
 
 #: The two records that hold what is written.
 STORED = ("SR:DIAG:TBT:STORED:01", "SR:DIAG:TBT:STORED:02")
