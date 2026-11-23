@@ -247,6 +247,18 @@ def test_the_fast_channel_is_served_as_the_test_clock_advances_it(tmp_path: Path
     assert _calls("advance")[-1] == T0 + 2.5
 
 
+def test_now_reads_the_clock_a_deadline_is_measured_from(tmp_path: Path) -> None:
+    clock = _Clock()
+    composite = _composite(tmp_path, clock)
+
+    composite.set({"M:REQ": 1.0})
+    clock.t_s = T0 + 0.2
+
+    assert composite.now() == T0 + 0.2
+    assert composite.next_deadline() - composite.now() == pytest.approx(STEP_S - 0.2)
+    assert _calls("advance")[-1] == T0
+
+
 def test_advance_alone_moves_the_child_to_the_clock(tmp_path: Path) -> None:
     clock = _Clock()
     composite = _composite(tmp_path, clock)
