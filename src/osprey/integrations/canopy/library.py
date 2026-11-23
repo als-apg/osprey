@@ -1,9 +1,10 @@
 """The files of a deployment's CANOPY screen library, and whether its report still covers them.
 
 A screen library (``data/canopy/library`` in a deployment) holds ``screens/``
-and, beside it, the report CANOPY generates:
-``LIBRARY-REPORT.json`` and ``LIBRARY-REPORT.md``. This module answers two
-questions about one, with the standard library alone: it runs under the
+and, beside it, the report CANOPY generates (``LIBRARY-REPORT.json`` and
+``LIBRARY-REPORT.md``) and, when the deployment writes one, ``navigation.json``:
+the library's own ordering of its screens for the viewer's sidebar. This module
+answers three questions about one, with the standard library alone: it runs under the
 interpreter that runs ``osprey build`` and on the host that reviews a push,
 where CANOPY is not installed.
 
@@ -31,8 +32,11 @@ no segment of its path is refused.
 Every other entry is refused by path and code, and the text of a refusal
 (:func:`refusal_text`) says what to do with it:
 
-- ``outside_screens``: an entry of the root other than ``screens/`` and the two
-  report files (reported once, by its top-level name).
+- ``outside_screens``: an entry of the root other than ``screens/``, the two
+  report files and ``navigation.json`` (reported once, by its top-level name).
+  Each of the three files is admitted as a regular file only: a symlink of
+  that name is a ``symlink`` refusal and a directory of that name is refused
+  with this code. None of them is on the list, so none moves the digest.
 - ``symlink``, ``not_regular``: a symlink anywhere; a socket, pipe or device.
 - ``bad_name``: a name holding a control, format or surrogate character, which
   the list could not carry on one line.
@@ -51,6 +55,20 @@ shortest path that breaks it, so a directory named ``img.log`` is one refusal,
 whatever it holds. One exception: a regular file named exactly ``.DS_Store``
 is skipped, neither listed nor refused, since git ignores it and the image
 context drops it.
+
+**Whether the navigation is one the viewer will draw** —
+:func:`navigation_faults`. ``navigation.json`` is a JSON list of entries. A
+leaf is ``{"screen": "library/<id>", "label": "..."}``, the label optional. A
+group is ``{"label": "...", "children": [...]}`` and may name a ``screen`` of
+its own. CANOPY reads the file when it serves the library and hands a valid one
+to the viewer; an invalid one it ignores with a line in the server's log, and
+the viewer leaves out an entry whose screen the library does not hold. Neither
+is seen by whoever builds the deployment, so the check here refuses both
+before anything is built: the shape and the limits CANOPY states (the file's
+size, the nesting depth, the number of entries, the length of a label and of
+a screen name, no other key), and every ``screen`` naming a screen on the
+library's list. CANOPY's listing admits the file as this one does, and its
+report does not read it: the file is in no row and no digest.
 
 **Whether the report is stale** — :func:`library_is_fresh`. The report names
 the digest of the files it was computed over (``files.digest``), so a library
@@ -79,6 +97,12 @@ __all__ = [
     "IGNORED_NAMES_ENV",
     "IMAGE_SUFFIXES",
     "KNOWN_SCHEMAS",
+    "MAX_NAVIGATION_BYTES",
+    "MAX_NAVIGATION_DEPTH",
+    "MAX_NAVIGATION_ENTRIES",
+    "MAX_NAVIGATION_LABEL",
+    "MAX_NAVIGATION_SCREEN",
+    "NAVIGATION_NAME",
     "REPORT_JSON",
     "REPORT_MD",
     "REPORT_NAMES",
@@ -96,6 +120,7 @@ __all__ = [
     "library_digest",
     "library_is_fresh",
     "library_list",
+    "navigation_faults",
     "refusal_text",
     "regeneration_command",
     "scan",
@@ -108,8 +133,23 @@ SCREEN_SUFFIX = ".screen.json"
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico"})
 REPORT_JSON = "LIBRARY-REPORT.json"
 REPORT_MD = "LIBRARY-REPORT.md"
-#: The only entries a library root may hold beside ``screens/``.
+#: The report files a library root holds beside ``screens/``.
 REPORT_NAMES = (REPORT_JSON, REPORT_MD)
+#: The one other file a library root may hold: the library's own ordering of its
+#: screens for the viewer's sidebar. Optional; a library without it is drawn as
+#: its folder tree.
+NAVIGATION_NAME = "navigation.json"
+#: Every file a library root may hold beside ``screens/``, each as a regular file.
+_ROOT_FILE_NAMES = (*REPORT_NAMES, NAVIGATION_NAME)
+#: The limits CANOPY states for ``navigation.json``; a file past one is ignored by
+#: the server, so it is refused here.
+MAX_NAVIGATION_BYTES = 256 * 2**10
+MAX_NAVIGATION_DEPTH = 8
+MAX_NAVIGATION_ENTRIES = 2000
+MAX_NAVIGATION_LABEL = 120
+MAX_NAVIGATION_SCREEN = 512
+#: The keys an entry of ``navigation.json`` may carry.
+_NAVIGATION_KEYS = frozenset({"screen", "label", "children"})
 #: The one name that is skipped: neither listed nor refused.
 SKIPPED_NAME = ".DS_Store"
 #: The ``generator.schema`` values this release can tell stale from fresh.
@@ -127,7 +167,10 @@ _IGNORED_ENDINGS = (".swp", ".swo", ".pyc", ".pyo", ".pyd", ".log", ".pid")
 
 _NAME_CATEGORIES = frozenset({"Cc", "Cf", "Cs"})
 _REASONS = {
-    "outside_screens": "a library root holds only screens/ and the LIBRARY-REPORT files; delete it",
+    "outside_screens": (
+        "a library root holds only screens/, the LIBRARY-REPORT files and navigation.json; "
+        "delete it"
+    ),
     "symlink": "a symlink; delete it, or replace it with the file it points at",
     "not_regular": "not a regular file; delete it",
     "bad_name": "its name holds a control or format character; delete or rename it",
@@ -323,7 +366,7 @@ def judge(entries: Iterable[Entry]) -> Judged:
             if path == SCREENS_DIRNAME:
                 if kind != "dir":
                     refused.add((path, "symlink" if kind == "symlink" else "outside_screens"))
-            elif path in REPORT_NAMES and kind in ("file", "symlink"):
+            elif path in _ROOT_FILE_NAMES and kind in ("file", "symlink"):
                 if kind == "symlink":
                     refused.add((path, "symlink"))
             elif len(parts) == 1 and _name_code(path) == "leftover_tmp":
@@ -505,6 +548,114 @@ def find_home_screen(library: Path | str, screen_id: Any) -> HomeScreen:
     return answer(None, None, store_path)
 
 
+# --- navigation -----------------------------------------------------------------------
+
+#: The prefix a screen of the library carries where the viewer names it.
+_NAVIGATION_SCREEN_PREFIX = "library/"
+
+
+class _NavigationFault(ValueError):
+    """The first place a navigation breaks the shape or a limit."""
+
+
+def _navigation_text(entry: dict[str, Any], key: str, longest: int, here: str) -> None:
+    if key not in entry:
+        return
+    value = entry[key]
+    if not isinstance(value, str) or not value.strip():
+        raise _NavigationFault(f"{here}.{key}: expected non-empty text")
+    if len(value) > longest:
+        raise _NavigationFault(f"{here}.{key}: longer than {longest} characters")
+
+
+def _navigation_screens(document: Any) -> list[tuple[str, str]]:
+    """``(where, screen)`` for every ``screen`` of a well-formed navigation, in file order.
+
+    :raises _NavigationFault: naming the first entry that breaks the shape or a limit.
+    """
+    named: list[tuple[str, str]] = []
+    count = 0
+
+    def walk(items: Any, where: str, depth: int) -> None:
+        nonlocal count
+        if not isinstance(items, list):
+            raise _NavigationFault(f"{where}: expected a list of entries")
+        if depth > MAX_NAVIGATION_DEPTH:
+            raise _NavigationFault(f"{where}: nested deeper than {MAX_NAVIGATION_DEPTH} levels")
+        for index, entry in enumerate(items):
+            here = f"{where}[{index}]"
+            count += 1
+            if count > MAX_NAVIGATION_ENTRIES:
+                raise _NavigationFault(f"more than {MAX_NAVIGATION_ENTRIES} entries")
+            if not isinstance(entry, dict):
+                raise _NavigationFault(f"{here}: expected an object")
+            unknown = sorted(set(entry) - _NAVIGATION_KEYS)
+            if unknown:
+                raise _NavigationFault(f"{here}: unknown key {unknown[0]!r}")
+            _navigation_text(entry, "screen", MAX_NAVIGATION_SCREEN, here)
+            _navigation_text(entry, "label", MAX_NAVIGATION_LABEL, here)
+            if "screen" in entry:
+                named.append((f"{here}.screen", entry["screen"]))
+            if "children" in entry:
+                if "label" not in entry:
+                    raise _NavigationFault(f"{here}: a group needs a label")
+                walk(entry["children"], f"{here}.children", depth + 1)
+            elif "screen" not in entry:
+                raise _NavigationFault(f"{here}: needs a screen or children")
+
+    walk(document, "navigation", 1)
+    return named
+
+
+def navigation_faults(document: Any, screens: Iterable[str]) -> list[str]:
+    """What is wrong with the parsed ``navigation.json`` *document*; empty when nothing is.
+
+    *screens* are the ids of the library's screens (:func:`screen_ids`). The
+    shape and the limits are judged as CANOPY judges them, and the first fault
+    is the answer: the server ignores the whole file for it. A well-formed
+    document is then held to the library: every ``screen`` has to be
+    ``library/<id>`` for an id among *screens*, and each one that is not is a
+    fault of its own, since the viewer would leave that entry out. Each fault
+    starts with where it is, as ``navigation[1].children[0]``.
+    """
+    try:
+        named = _navigation_screens(document)
+    except _NavigationFault as fault:
+        return [str(fault)]
+    held = frozenset(screens)
+    faults = []
+    for where, screen in named:
+        if not screen.startswith(_NAVIGATION_SCREEN_PREFIX):
+            faults.append(
+                f"{where}: {screen!r} is not a screen of the library; "
+                f"write it as {_NAVIGATION_SCREEN_PREFIX}<id>"
+            )
+        elif screen[len(_NAVIGATION_SCREEN_PREFIX) :] not in held:
+            faults.append(f"{where}: the library holds no screen {screen!r}")
+    return faults
+
+
+def _navigation_refusals(root: Path, entries: Iterable[Entry], judged: Judged) -> list[str]:
+    """One line per fault of the root's ``navigation.json``; empty without the file.
+
+    A name the listing refuses (a symlink, a directory) is left to that refusal.
+    """
+    if not any(e["path"] == NAVIGATION_NAME and e["kind"] == "file" for e in entries):
+        return []
+    with (root / NAVIGATION_NAME).open("rb") as handle:
+        data = handle.read(MAX_NAVIGATION_BYTES + 1)
+    if len(data) > MAX_NAVIGATION_BYTES:
+        faults = [f"larger than the {MAX_NAVIGATION_BYTES}-byte limit"]
+    else:
+        try:
+            document = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+            faults = [f"not JSON ({exc})"]
+        else:
+            faults = navigation_faults(document, screen_ids(path for path, _sha in judged.files))
+    return [_printable(f"navigation: {NAVIGATION_NAME}: {fault}") for fault in faults]
+
+
 # --- freshness ------------------------------------------------------------------------
 
 
@@ -655,12 +806,15 @@ def library_is_fresh(library: Path | str) -> Freshness:
     - the report's ``generator.schema`` is not one of :data:`KNOWN_SCHEMAS`;
     - the listing has a refusal (:func:`refusal_text`);
     - any ``.svg`` is present: markup a browser runs;
+    - ``navigation.json`` is there and :func:`navigation_faults` finds a fault
+      in it, or it is not JSON or is larger than CANOPY reads;
     - an entry lacks the other-read bit (other-execute for a directory) or
       carries the other-write bit.
 
     Every refusal is collected, not only the first. A refusal about the report
-    ends with the command that regenerates it, and a mode refusal with the
-    ``chmod`` command. Raises :class:`OSError` when an entry cannot be read.
+    ends with the command that regenerates it, a mode refusal with the
+    ``chmod`` command, and a navigation refusal with what to do about the
+    file. Raises :class:`OSError` when an entry cannot be read.
     """
     root = Path(library)
     try:
@@ -682,6 +836,12 @@ def library_is_fresh(library: Path | str) -> Freshness:
         for path, _sha in judged.files
         if path.lower().endswith(".svg")
     ]
+    navigation = _navigation_refusals(root, entries, judged)
+    if navigation:
+        lines += [
+            *navigation,
+            f"correct {NAVIGATION_NAME}, or delete it and the sidebar shows the folder tree",
+        ]
     modes = _mode_refusals(stat.S_IMODE(root_status.st_mode), entries, judged)
     if modes:
         lines += [*modes, f"fix the modes with: {chmod_command(root)}"]

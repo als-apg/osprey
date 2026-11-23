@@ -213,6 +213,17 @@ tiles, which you drag and split much as you do the terminal's
 **☰** menu at the right end of the top-right tile's bar resets the layout,
 saves the open tabs as a collection and reopens recently closed tabs.
 
+A screen opens at **fit width**: as wide as its tile, with the rest reached by
+scrolling down. The switch at the end of the screen header's zoom group
+changes that to **Fit page** (the whole screen in view) or **100%**, and the
+choice holds for every screen and every later visit. A zoom stepped to with
+**-** and **+** stays with its screen.
+
+The sidebar lists the library's screens by folder. A library that ships a
+``navigation.json`` is listed in the order and under the names that file
+gives, followed by one collapsed group, **All screens**, with the folder tree
+(:ref:`canopy-library-navigation`).
+
 **Which machine.** A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a
 moment and return with the new machine's values. A click made on a screen
