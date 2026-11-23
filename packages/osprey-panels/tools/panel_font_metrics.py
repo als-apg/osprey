@@ -1,20 +1,21 @@
-"""Write ``src/osprey/facility/panels/metrics.py`` from the viewer's text font.
+"""Write ``packages/osprey-panels/src/osprey_panels/metrics.py`` from the viewer's text font.
 
 The panel layout measures text in the font the viewer draws it with. This
 script reads that font's advance widths, in thousandths of an em, for the
-characters a panel writes, and prints the module:
+characters a panel writes, and prints the module (from the repository root):
 
-    uv run python scripts/panel_font_metrics.py \\
-        > src/osprey/facility/panels/metrics.py
-    uv run ruff format src/osprey/facility/panels/metrics.py
+    uv run python packages/osprey-panels/tools/panel_font_metrics.py \\
+        > packages/osprey-panels/src/osprey_panels/metrics.py
+    uv run ruff format packages/osprey-panels/src/osprey_panels/metrics.py
 
 The font file is :data:`FONT_FILE`: the regular face of IBM Plex Sans, as the
 npm package ``@ibm/plex-sans`` 1.1.0 ships it (``fonts/complete/woff``), which
 is the package the viewer loads its text font from. The font is IBM's
 (https://github.com/ibm/plex), under the SIL Open Font License 1.1; the licence
-is beside it in ``scripts/panel_font/OFL.txt``. A test holds ``metrics.py`` to
-this file, so when the viewer's font changes, replace the file (and its
-licence), run the two lines above, and commit the three together.
+is beside it in ``packages/osprey-panels/tools/panel_font/OFL.txt``. A test
+holds ``metrics.py`` to this file, so when the viewer's font changes, replace
+the file (and its licence), run the two lines above, and commit the three
+together.
 """
 
 from __future__ import annotations
@@ -51,7 +52,7 @@ def main(path: Path | str = FONT_FILE) -> str:
     rows = "\n".join(f"    {c!r}: {w}," for c, w in widths.items())
     return f'''"""Advance widths of the viewer's text font, for measuring text in a panel.
 
-Written by ``scripts/panel_font_metrics.py`` from {family}, {version}; do not edit.
+Written by ``packages/osprey-panels/tools/panel_font_metrics.py`` from {family}, {version}; do not edit.
 Each width is in thousandths of an em; a character not listed is measured as
 :data:`UNLISTED`, the widest listed one, so an estimate never falls short.
 """
