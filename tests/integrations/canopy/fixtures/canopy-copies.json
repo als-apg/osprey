@@ -1,5 +1,5 @@
 {
-  "canopy": "8f4d7dd055b7321ee2687df06793e2cbc43c6f6b",
+  "canopy": "bd91137da9f2edcf2546cc60bd0dd3b24f712755",
   "copies": [
     {
       "canopy_path": "tests/canopy_mcp/fixtures/ir-map.json",
@@ -14,7 +14,7 @@
     {
       "canopy_path": "tests/canopy_mcp/fixtures/listing-vectors.json",
       "osprey_path": "tests/integrations/canopy/fixtures/listing-vectors.json",
-      "blob": "95318eb3f99305d25ccb1a7156f3fadcee5811c0"
+      "blob": "b1b7898980478427bc13f582a5ab15610c8ee18c"
     },
     {
       "canopy_path": "tests/canopy_mcp/fixtures/collections/match-vectors.json",

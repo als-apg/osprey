@@ -38,7 +38,7 @@ from dataclasses import dataclass
 #: The canopy-contract check runs against exactly these; a payload and the shipped
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
-    "canopy": "8f4d7dd055b7321ee2687df06793e2cbc43c6f6b",  # osprey:not-a-port (a sha)
+    "canopy": "bd91137da9f2edcf2546cc60bd0dd3b24f712755",  # osprey:not-a-port (a sha)
     "PyDMConverter": "4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f",
 }
 
@@ -80,7 +80,7 @@ PAYLOAD_BUILD: dict[str, str] = {
     "builder.branch": "als/payload-sdk-release",
     "SDK_PACKS": _MIRROR + "sdk-js/releases/download/v0.3.1-als.2",
     "pnpm": "11.1.1",
-    "canopy.version": "0.0.2.dev317+g8f4d7dd05",
+    "canopy.version": "0.0.2.dev319+gbd91137da",
     "PyDMConverter.version": "1.0.9.dev10+g4b8183f39",
 }
 

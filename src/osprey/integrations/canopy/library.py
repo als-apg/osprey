@@ -67,7 +67,8 @@ is seen by whoever builds the deployment, so the check here refuses both
 before anything is built: the shape and the limits CANOPY states (the file's
 size, the nesting depth, the number of entries, the length of a label and of
 a screen name, no other key), and every ``screen`` naming a screen on the
-library's list. The report check below does not read the file.
+library's list. CANOPY's listing admits the file as this one does, and its
+report does not read it: the file is in no row and no digest.
 
 **Whether the report is stale** — :func:`library_is_fresh`. The report names
 the digest of the files it was computed over (``files.digest``), so a library
