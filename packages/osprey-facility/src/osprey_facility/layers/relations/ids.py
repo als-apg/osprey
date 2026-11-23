@@ -72,7 +72,7 @@ def claim_id(layer: str, claim: Mapping[str, Any], types: Mapping[str, Mapping[s
         claim: One relation claim: ``type``, ``subject``, ``object``,
             ``attributes`` and ``source``.
         types: The relation type rows keyed by name, as
-            :func:`osprey.facility.validate.relation_types` returns them. A type
+            :func:`osprey_facility.validate.relation_types` returns them. A type
             missing from it is read as directed with no key attributes.
 
     Returns:

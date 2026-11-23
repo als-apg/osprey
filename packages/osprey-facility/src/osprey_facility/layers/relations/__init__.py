@@ -56,14 +56,15 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid
-from osprey.facility.layers import LAYER_ROOT
-from osprey.facility.layers.relations import claims as _claims
-from osprey.facility.layers.relations import members as _members
-from osprey.facility.layers.relations import names as _names
-from osprey.facility.layers.relations import places as _places
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.tables import (
+from osprey_connectors import yaml_loader
+from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid
+from osprey_facility.layers import LAYER_ROOT
+from osprey_facility.layers.relations import claims as _claims
+from osprey_facility.layers.relations import members as _members
+from osprey_facility.layers.relations import names as _names
+from osprey_facility.layers.relations import places as _places
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.tables import (
     MEMBERS,
     NAMES,
     PLACES,
@@ -71,8 +72,7 @@ from osprey.facility.layers.relations.tables import (
     Refusals,
     read_table,
 )
-from osprey.facility.sources import AUTHORED, RELATIONS_MARK
-from osprey_connectors import yaml_loader
+from osprey_facility.sources import AUTHORED, RELATIONS_MARK
 
 __all__ = ["LAYER_FILES", "RECORD_FILES", "RESERVED_LAYERS", "TABLE_FILES", "import_relations"]
 

@@ -19,9 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid
-from osprey.facility.places import resolve_place_name
-from osprey.facility.sources import AUTHORED, load_sources
+from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid
+from osprey_facility.places import resolve_place_name
+from osprey_facility.sources import AUTHORED, load_sources
 
 __all__ = ["FacilityIndex"]
 
@@ -67,7 +67,7 @@ class FacilityIndex:
             LayerSourceInvalid: One ``source-invalid`` error naming the first
                 load error outside ``imported/<layer>/``.
         """
-        from osprey.facility.validate import known_classes
+        from osprey_facility.validate import known_classes
 
         result = load_sources(facility_dir)
         errors = [
@@ -114,7 +114,7 @@ class FacilityIndex:
 
         A cell holding ``/`` is a path and must equal an id. A flat cell matches
         every id equal to it or ending in ``/<cell>``
-        (:func:`~osprey.facility.places.resolve_place_name`).
+        (:func:`~osprey_facility.places.resolve_place_name`).
 
         Args:
             cell: The cell's text.

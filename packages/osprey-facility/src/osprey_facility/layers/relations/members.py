@@ -29,8 +29,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.tables import Refusals, Row, citation
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.tables import Refusals, Row, citation
 
 __all__ = ["TABLE", "group_ids", "groups"]
 

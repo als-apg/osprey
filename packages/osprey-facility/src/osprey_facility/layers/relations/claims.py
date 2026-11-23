@@ -27,7 +27,7 @@ cell, against every place of the facility (bar the replaced layer) and the
 places the layer creates; a flat name matching several is refused listing them.
 A group end names a group of the facility or one the layer creates.
 
-A claim's id is :func:`~osprey.facility.layers.relations.ids.claim_id` (p5-r5).
+A claim's id is :func:`~osprey_facility.layers.relations.ids.claim_id` (p5-r5).
 Rows with one id and equal content (a symmetric row written reversed included)
 are one claim; rows with one id and different content are refused. A refused
 row contributes nothing. The importer never stamps the clock.
@@ -40,11 +40,11 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.ids import claim_id
-from osprey.facility.layers.relations.places import BASES
-from osprey.facility.layers.relations.tables import Refusals, Row, citation, parse_attrs
-from osprey.facility.relations import END_KINDS, STUB_CLASS, shape_problems
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.ids import claim_id
+from osprey_facility.layers.relations.places import BASES
+from osprey_facility.layers.relations.tables import Refusals, Row, citation, parse_attrs
+from osprey_facility.relations import END_KINDS, STUB_CLASS, shape_problems
 
 __all__ = ["TABLE", "claims"]
 
@@ -116,7 +116,7 @@ def claims(
         records are fresh dicts the caller may extend in place.
     """
     if types is None:
-        from osprey.facility.validate import relation_types
+        from osprey_facility.validate import relation_types
 
         types = relation_types()
     parsed = [p for p in (_parse(row, index, refusals, types, table) for row in rows) if p]

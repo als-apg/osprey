@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
-from osprey.facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
+from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
 
 __all__ = [
     "CITATION_COLUMNS",

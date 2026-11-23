@@ -26,10 +26,10 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.places import BASES
-from osprey.facility.layers.relations.tables import Refusals, Row, citation
-from osprey.facility.sources import keyed_order
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.places import BASES
+from osprey_facility.layers.relations.tables import Refusals, Row, citation
+from osprey_facility.sources import keyed_order
 
 __all__ = ["TABLE", "names"]
 

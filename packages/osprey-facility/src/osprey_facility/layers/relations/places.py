@@ -26,8 +26,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.tables import Refusals, Row, citation
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.tables import Refusals, Row, citation
 
 __all__ = ["BASES", "places"]
 
