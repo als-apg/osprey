@@ -6,6 +6,8 @@ functionality that is used throughout the codebase to suppress verbose output.
 
 import logging
 
+import pytest
+
 from osprey_connectors.log_filter import quiet_logger
 
 
@@ -85,15 +87,17 @@ class TestQuietLogger:
         with caplog.at_level(logging.INFO):
             logger.info("Before exception")
 
-            try:
-                with quiet_logger("TEST_LOGGER"):
-                    logger.info("During context - suppressed")
-                    raise ValueError("Test exception")
-            except ValueError:
-                pass
+            # The exception propagates out of the context, it is not swallowed.
+            with pytest.raises(ValueError, match="Test exception"), quiet_logger("TEST_LOGGER"):
+                logger.info("During context - suppressed")
+                raise ValueError("Test exception")
 
             logger.info("After exception")
 
         # Should have 2 messages (before and after exception context)
-        info_messages = [r.message for r in caplog.records if r.levelno == logging.INFO]
-        assert len(info_messages) == 2
+        info_messages = [
+            r.message
+            for r in caplog.records
+            if r.levelno == logging.INFO and r.name == "TEST_LOGGER"
+        ]
+        assert info_messages == ["Before exception", "After exception"]
