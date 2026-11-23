@@ -96,7 +96,7 @@ def render_facility_outputs(
     from osprey_facility.records import FacilityRecords
     from osprey_facility.served import resolve_served
 
-    records = FacilityRecords(doc)
+    records = FacilityRecords.of(doc)
     inputs = views.ViewInputs(
         records=records,
         rendered_config=rendered_config,

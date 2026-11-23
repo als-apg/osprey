@@ -81,6 +81,10 @@ filters the file's own channel records and names a model or a place.
      - The read model of a render's ``facility.json``.
      -
      - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON, is not an object or does not declare a ``schema`` header this reader reads, naming the rebuild (``osprey build``).
+   * - ``of(document)``
+     - The read model of ``document``, built once while callers ask for the same document: every render of one build reads one index.
+     -
+     - A document not asked for lately is indexed again.
    * - ``document``
      - The mapping it was built from, read-only.
      -
