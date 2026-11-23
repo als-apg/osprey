@@ -49,7 +49,7 @@ PLANTED = "osprey/planted/reader.py"
 UNCHECKED = [
     pytest.param(
         "import json\n"
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def f(p):\n"
         "    return json.loads(p.read_text())\n"
         "def g(root):\n"
@@ -59,8 +59,8 @@ UNCHECKED = [
     ),
     pytest.param(
         "import json\n"
-        "from osprey.facility import FACILITY_FILE\n"
-        "from osprey.facility.reading import load_facility\n"
+        "from osprey_facility import FACILITY_FILE\n"
+        "from osprey_facility.reading import load_facility\n"
         "def g(root):\n"
         "    p = root / FACILITY_FILE\n"
         "    load_facility(p)\n"
@@ -70,7 +70,7 @@ UNCHECKED = [
     ),
     pytest.param(
         "import json\n"
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def load_facility(p):\n"
         "    return json.loads(p.read_text())\n"
         "def g(root):\n"
@@ -79,7 +79,7 @@ UNCHECKED = [
         id="a-local-load_facility-is-no-entry-point",
     ),
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def load_facility(p):\n"
         "    return p\n"
         "def g(root):\n"
@@ -103,14 +103,14 @@ UNCHECKED = [
         id="the-literal-through-open",
     ),
     pytest.param(
-        "from osprey.facility.render import FACILITY_FILE as NAME\n"
+        "from osprey_facility.render import FACILITY_FILE as NAME\n"
         "def g(root):\n"
         "    return (root / NAME).read_bytes()\n",
         ".read_bytes",
         id="an-aliased-re-export",
     ),
     pytest.param(
-        "import osprey.facility as facility\n"
+        "import osprey_facility as facility\n"
         "def g(root):\n"
         "    return (root / facility.FACILITY_FILE).open()\n",
         ".open",
@@ -140,21 +140,21 @@ UNCHECKED = [
     ),
     pytest.param(
         "import shutil\n"
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def g(root, out):\n"
         "    shutil.copy(root / FACILITY_FILE, out)\n",
         "passed to shutil.copy",
         id="handed-to-another-module",
     ),
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def g(root):\n"
         "    return root / FACILITY_FILE\n",
         "returned",
         id="returned-outside-path-only",
     ),
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def g(root):\n"
         "    paths = [root / FACILITY_FILE]\n"
         "    return [p.read_text() for p in paths]\n",
@@ -162,7 +162,7 @@ UNCHECKED = [
         id="stored-in-a-container",
     ),
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
+        "from osprey_facility import FACILITY_FILE\n"
         "def g(root):\n"
         "    path = root / FACILITY_FILE\n"
         "    def inner():\n"
@@ -172,8 +172,8 @@ UNCHECKED = [
         id="read-in-a-closure",
     ),
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
-        "from osprey.facility.records import FacilityRecords\n"
+        "from osprey_facility import FACILITY_FILE\n"
+        "from osprey_facility.records import FacilityRecords\n"
         "class Holder:\n"
         "    def make(self, root):\n"
         "        return self.parse(root / FACILITY_FILE)\n"
@@ -199,8 +199,8 @@ def test_an_unchecked_reader_fails_the_scan(tmp_path: Path, source: str, named: 
 #: Allowed uses: none of these is a problem.
 CHECKED = [
     pytest.param(
-        "from osprey.facility import FACILITY_FILE\n"
-        "from osprey.facility.reading import load_facility\n"
+        "from osprey_facility import FACILITY_FILE\n"
+        "from osprey_facility.reading import load_facility\n"
         "def g(root):\n"
         "    return load_facility(root / FACILITY_FILE)\n",
         id="load_facility",
@@ -220,8 +220,8 @@ CHECKED = [
     ),
     pytest.param(
         "from pathlib import Path\n"
-        "from osprey.facility import FACILITY_FILE\n"
-        "from osprey.facility.records import FacilityRecords\n"
+        "from osprey_facility import FACILITY_FILE\n"
+        "from osprey_facility.records import FacilityRecords\n"
         "def _read(path):\n"
         "    return FacilityRecords.from_file(path)\n"
         "def g(root):\n"
@@ -273,7 +273,7 @@ READING = (
             id="parses-raw",
         ),
         pytest.param(
-            "from osprey.facility.reading import load_facility\n"
+            "from osprey_facility.reading import load_facility\n"
             "def _recorded(root):\n"
             "    return load_facility(root)\n"
             "def facility_name(root, name):\n"
@@ -296,7 +296,7 @@ def test_an_entry_point_that_skips_the_header_check_is_caught(
 ):
     src = tree(
         tmp_path,
-        {"osprey/facility/reading.py": READING, "osprey/utils/facility.py": utils},
+        {"osprey_facility/reading.py": READING, "osprey/utils/facility.py": utils},
     )
     targets = HEADER_CHECKS | CHECKED_ENTRY_POINTS
     assert reaches(src, "osprey.utils.facility.facility_name", targets) is checks
@@ -306,8 +306,8 @@ def test_a_new_caller_of_an_entry_point_is_found(tmp_path: Path):
     src = tree(
         tmp_path,
         {
-            "osprey/facility/reading.py": READING,
-            PLANTED: "from osprey.facility import reading\n"
+            "osprey_facility/reading.py": READING,
+            PLANTED: "from osprey_facility import reading\n"
             "def g(path):\n"
             "    return reading.load_facility(path)\n",
         },

@@ -122,8 +122,8 @@ class Wiring:
     """
 
     def __init__(self, built: BuiltModel) -> None:
-        from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-        from osprey.facility.layers.mml.rows import read_rows
+        from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+        from osprey_facility.layers.mml.rows import read_rows
 
         self.built = built
         self.mapping = read_mapping(built.facility / MAPPING_FILE)

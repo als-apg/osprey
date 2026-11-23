@@ -249,10 +249,10 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
             :func:`~osprey.apps.sdk.facility_file`); with no facility file the
             members carry no golden address and no tolerance.
     """
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.records import FacilityRecords
     from osprey.simulation.model_request import device_of
     from osprey_connectors.simulation.view import SimulatorView
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.records import FacilityRecords
 
     root = _render_root() if render_root is None else Path(render_root)
     view = SimulatorView.of_render(root)

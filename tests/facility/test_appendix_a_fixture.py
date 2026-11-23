@@ -203,8 +203,8 @@ class TestReadsTheExample:
         assert devices["SR/VALVE04"]["place"] == "SR/SECT4"
 
     def test_the_example_without_appendix_a_builds_with_no_claim(self, tmp_path: Path) -> None:
-        from osprey.facility.build import LATER_STAGES
-        from osprey.facility.validate import run_stages
+        from osprey_facility.build import LATER_STAGES
+        from osprey_facility.validate import run_stages
 
         facility = example_without_appendix_a(tmp_path / "facility")
         assert facility == tmp_path / "facility"

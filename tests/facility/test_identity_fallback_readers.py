@@ -16,8 +16,8 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from osprey.apps import sdk
-from osprey.facility.errors import FacilityFileError
 from osprey.facility.views.facts import read_facts
+from osprey_facility.errors import FacilityFileError
 from tests._facility_file import write_facility_document
 
 pytestmark = pytest.mark.foreign_header

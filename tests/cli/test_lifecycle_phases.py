@@ -264,7 +264,7 @@ class TestBuildPhases:
         from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
-        from osprey.facility.roots import FacilityRoots
+        from osprey_facility.roots import FacilityRoots
 
         class _Lifecycle:
             pre_build = None

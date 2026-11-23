@@ -25,9 +25,9 @@ from osprey.cli.build_profile_load import ROOT_ONLY_KEYS, TIER_KIND_KEYS
 from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import check_profile_file
-from osprey.facility.errors import KINDS, FacilityBuildError
-from osprey.facility.roots import FacilityRoots
 from osprey_connectors.errors import BuildProfileError
+from osprey_facility.errors import KINDS, FacilityBuildError
+from osprey_facility.roots import FacilityRoots
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:

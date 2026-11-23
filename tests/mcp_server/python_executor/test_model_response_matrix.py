@@ -28,7 +28,6 @@ import yaml
 from fastmcp.exceptions import ToolError
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.mcp_server.errors import MISSING_KEY
 from osprey.mcp_server.python_executor import executor
@@ -39,6 +38,7 @@ from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG, solve_and_print
 from osprey_connectors.simulation.view import VARIABLES_SCHEMA
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import write_facility_v4
 from tests._simulator_view import view_channel
 from tests.mcp_server.conftest import assert_raises_error
@@ -447,7 +447,7 @@ INTERNAL_ENGINE = textwrap.dedent(
 #: A plug-in whose solve stops on a defect of the facility file.
 BROKEN_FACILITY_ENGINE = textwrap.dedent(
     """
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
 
     def response_matrix(deck, wiring, settings, correctors, step):

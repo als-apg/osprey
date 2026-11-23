@@ -12,10 +12,10 @@ import pytest
 import yaml
 
 from osprey.cli.facility_report import validate_facility
-from osprey.facility.build import LATER_STAGES, build_facility_with_warnings
-from osprey.facility.relations import fill_relation_slots
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES, build_facility_with_warnings
+from osprey_facility.relations import fill_relation_slots
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 

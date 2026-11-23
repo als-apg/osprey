@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -27,13 +27,14 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-accelerator-middle-layer-apg = "2026-10-18T00:00:00Z"
-lume-pva-apg = "2026-11-11T00:00:00Z"
 lume-pyat = "2026-09-18T00:00:00Z"
+lume-pva-apg = "2026-11-11T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-18T00:00:00Z"
 
 [manifest]
 members = [
     "osprey-connectors",
+    "osprey-facility",
     "osprey-framework",
     "osprey-optimizer",
     "pyaml-cs-osprey",
@@ -5475,6 +5476,54 @@ dev = [
 ]
 
 [[package]]
+name = "osprey-facility"
+source = { editable = "packages/osprey-facility" }
+dependencies = [
+    { name = "numpy" },
+    { name = "osprey-connectors" },
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+mml = [
+    { name = "accelerator-toolbox" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "jsonschema" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerator-toolbox", marker = "extra == 'mml'", specifier = ">=0.8.0" },
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "packaging", specifier = ">=26.3" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "scipy", marker = "extra == 'mml'", specifier = ">=1.17.1" },
+]
+provides-extras = ["mml"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "jsonschema", specifier = ">=4.26,<5" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[[package]]
 name = "osprey-framework"
 source = { editable = "." }
 dependencies = [
@@ -5520,6 +5569,7 @@ dependencies = [
     { name = "opentelemetry-proto" },
     { name = "ophyd-async", extra = ["ca"] },
     { name = "osprey-connectors" },
+    { name = "osprey-facility" },
     { name = "packaging" },
     { name = "pandas" },
     { name = "pillow" },
@@ -5756,6 +5806,7 @@ requires-dist = [
     { name = "opentelemetry-proto", specifier = ">=1.44.0,<2" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "osprey-facility", editable = "packages/osprey-facility" },
     { name = "osprey-optimizer", marker = "extra == 'all'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'dev'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'optimizer'", editable = "packages/osprey-optimizer" },

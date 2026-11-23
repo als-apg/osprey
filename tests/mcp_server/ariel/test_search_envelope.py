@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.tools.search_envelope import (
     ResultWindow,
     advanced_params,
     serialize_entries,
 )
 from osprey.services.ariel_search.models import DEFAULT_LISTING_TEXT_CHARS
+from osprey_facility.records import FacilityRecords
 from tests.mcp_server.ariel.conftest import make_mock_entry, patch_ariel_service
 
 _PNG = {"url": "https://elog.example/f/plot.png", "type": "image/png", "filename": "plot.png"}

@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
-from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "GRAPH_BASIS_KEY",
@@ -160,7 +160,7 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
     Returns:
         Its UTF-8 bytes.
     """
-    from osprey.facility.render import json_bytes
+    from osprey_facility.render import json_bytes
 
     return json_bytes(document)
 

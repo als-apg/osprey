@@ -9,8 +9,9 @@ runs it in a deployment repository.
 Every import statement counts, including ones inside functions and under
 ``if TYPE_CHECKING:``; an ``importlib.import_module("...")`` string does not. A package's
 own modules and third-party imports are outside the rule. No application package lives
-under ``osprey`` or ``osprey_connectors``: an import under either is OSPREY's, whatever
-package holds it.
+under ``osprey``, ``osprey_facility`` or ``osprey_connectors``: an import under any of them
+is OSPREY's, whatever package holds it. Of ``osprey_facility`` only ``kinds`` is open to an
+application; its records, readers and every other module are refused.
 """
 
 from __future__ import annotations
@@ -21,12 +22,12 @@ from pathlib import Path
 
 from osprey.apps.errors import Violation
 
-ALLOWED_MODULES = ("osprey.apps.sdk", "osprey.facility.kinds", "osprey_connectors")
+ALLOWED_MODULES = ("osprey.apps.sdk", "osprey_facility.kinds", "osprey_connectors")
 """The modules application code may import, with their public submodules."""
 
 _FRAMEWORK_ROOTS = frozenset(module.split(".")[0] for module in ALLOWED_MODULES)
 _RULE_MESSAGE = (
-    "application code imports OSPREY only through osprey.apps.sdk, osprey.facility.kinds "
+    "application code imports OSPREY only through osprey.apps.sdk, osprey_facility.kinds "
     "and public osprey_connectors modules"
 )
 

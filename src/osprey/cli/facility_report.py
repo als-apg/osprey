@@ -13,9 +13,9 @@ from typing import IO, Any
 
 import click
 
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
-from osprey.facility.validate import Stage
-from osprey.facility.validate import validate as validate_lines
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey_facility.validate import Stage
+from osprey_facility.validate import validate as validate_lines
 
 __all__ = ["report_errors", "report_lines", "report_warnings", "validate_facility"]
 
@@ -69,7 +69,7 @@ def validate_facility(
         facility_dir: The ``data/facility`` directory.
         project_name: The project's name.
         extra_checks: Checks the caller supplies
-            (:func:`osprey.facility.validate.run_stages`).
+            (:func:`osprey_facility.validate.run_stages`).
         file: The stream the lines go to; stderr when omitted.
 
     Returns:

@@ -12,8 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.build import build_facility
-from osprey.facility.combine import FIXES_HEADER
+from osprey_facility.build import build_facility
+from osprey_facility.combine import FIXES_HEADER
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import write_tree
 

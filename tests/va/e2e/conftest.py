@@ -62,10 +62,10 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
@@ -144,10 +144,10 @@ def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, Simu
     Returns:
         The built facility document and the rendered view.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
     if doc is None:
         doc = build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
@@ -345,8 +345,8 @@ def _monitor_addresses(facility: Path) -> list[str]:
     """
     from importlib import metadata
 
-    from osprey.facility import TEXTURE
     from osprey_connectors.simulation.engines import ENGINE_GROUP
+    from osprey_facility import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()

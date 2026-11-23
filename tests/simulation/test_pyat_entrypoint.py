@@ -14,9 +14,9 @@ import at
 import numpy as np
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat as engine
 from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility.errors import FacilityBuildError
 
 GAIN = 0.37
 OFFSET = -0.012

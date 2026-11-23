@@ -22,10 +22,10 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from osprey.facility import kinds
-from osprey.facility.errors import FacilityBuildError
 from osprey.facility.views.facts import FACTS_FILE, hook_measurement
 from osprey.facility.views.outputs import render_facility_outputs
+from osprey_facility import kinds
+from osprey_facility.errors import FacilityBuildError
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 KIND = "turn_kind"
@@ -266,7 +266,7 @@ def test_the_sub_block_reaches_the_build_stops_hook_and_the_per_model_block(tmp_
 
 @_with_kind
 def test_a_block_the_kinds_schema_refuses_stops_the_build_before_its_hook(tmp_path):
-    from osprey.facility.validate import _measurement_stops
+    from osprey_facility.validate import _measurement_stops
 
     document, _ = built_document(tmp_path / "tree", _tree())
     HANDED.clear()

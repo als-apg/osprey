@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat
+from osprey_facility.errors import FacilityBuildError
 from tests.facility._pyaml_trees import built_document, measured_tree
 
 #: An unwired setpoint whose signal is a command word.

@@ -19,8 +19,8 @@ import pydantic
 import pytest
 import yaml
 
-from osprey.facility.schema import core
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.schema import core
+from osprey_facility.validate import StageReport, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

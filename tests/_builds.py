@@ -54,13 +54,13 @@ def build(facility_dir: Path, **kw: Any) -> dict[str, Any]:
 
     Args:
         facility_dir: The ``data/facility`` directory.
-        **kw: The keywords of :func:`osprey.facility.build.build_facility`;
+        **kw: The keywords of :func:`osprey_facility.build.build_facility`;
             ``extra_checks`` defaults to :data:`FRAMEWORK_CHECKS`.
 
     Returns:
         The facility file.
     """
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
 
     kw.setdefault("extra_checks", FRAMEWORK_CHECKS)
     return build_facility(facility_dir, **kw)
@@ -189,7 +189,7 @@ class BuiltProject:
     @cached_property
     def facility_raw(self) -> bytes:
         """The bytes of ``build/facility.json``."""
-        from osprey.facility.render import FACILITY_FILE
+        from osprey_facility.render import FACILITY_FILE
 
         return (self.build_dir / FACILITY_FILE).read_bytes()
 

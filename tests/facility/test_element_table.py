@@ -24,7 +24,7 @@ from types import ModuleType
 
 import pytest
 
-from osprey.facility.sources import read_yaml
+from osprey_facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ELEMENTS_SOURCE = REPO_ROOT / "scripts/facility_demo/_elements.py"

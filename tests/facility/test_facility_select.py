@@ -14,10 +14,10 @@ from typing import Any
 
 import pytest
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.build import build_facility
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_facility import FACILITY_FILE
+from osprey_facility.build import build_facility
 from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e._facility_select import (
     bounded_corrector_of,

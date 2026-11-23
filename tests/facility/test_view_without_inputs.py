@@ -40,9 +40,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import build_facility
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.facility.views.simulator import FOLLOWS_FILE, VARIABLES_SCHEMA
+from osprey_facility.build import build_facility
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import BUILT, BuiltModel
 from tests.facility._mml_built import TREES as MML_TREES

@@ -39,7 +39,7 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.sources import read_yaml
+from osprey_facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TREE = REPO_ROOT / "src/osprey/templates/facilities/example"

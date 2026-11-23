@@ -27,7 +27,6 @@ from typing import Any
 import psycopg
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.imaging.formats import CAPTION_NOT_DONE_SQL, image_table_not_done_sql, viewable_sql
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database import repository as repository_module
@@ -54,6 +53,7 @@ from osprey.services.ariel_search.filters import (
     EntryFilter,
     FilterDimension,
 )
+from osprey_facility.records import FacilityRecords
 
 # ---------------------------------------------------------------------------
 # Helpers

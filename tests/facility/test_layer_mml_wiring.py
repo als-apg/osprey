@@ -19,14 +19,14 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers.mml import decks
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
 from osprey_connectors.simulation.engines import Linear, Table
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml import decks
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+from osprey_facility.layers.mml.wiring import _Derived, _kept, _one_way
+from osprey_facility_tests._mml_trees import SUPPORTED
 from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
-from tests.fixtures.mml._trees import SUPPORTED
 
 #: The module's transfer-line fixture is made once per module, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_wiring")
@@ -172,8 +172,8 @@ def test_every_entry_names_its_deck_between_engine_and_settings(imported: _Impor
 def test_every_written_deck_is_the_served_deck_of_its_export(
     tree: str, imported: _Imported
 ) -> None:
-    from osprey.facility.layers.mml.importer import read_exports
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.importer import read_exports
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     for stem in TREES[tree]:

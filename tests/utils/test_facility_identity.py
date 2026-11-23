@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.facility import facility_identity, facility_name
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.validate import FACILITY_HEADER
 from tests._facility_file import write_facility_document
 
 
@@ -158,7 +158,7 @@ def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Pat
         "from pathlib import Path\n"
         "from osprey.utils.facility import facility_identity\n"
         f"facility_identity(Path({str(tmp_path)!r}), 'demo')\n"
-        "print('osprey.facility.build' in sys.modules)\n"
+        "print('osprey_facility.build' in sys.modules)\n"
     )
 
     result = subprocess.run(
@@ -172,5 +172,5 @@ def test_the_facility_file_error_lives_with_the_facility_errors() -> None:
     import osprey.utils.facility as identity_module
 
     assert issubclass(FacilityFileError, ValueError)
-    assert FacilityFileError.__module__ == "osprey.facility.errors"
+    assert FacilityFileError.__module__ == "osprey_facility.errors"
     assert "FacilityFileError" not in identity_module.__all__

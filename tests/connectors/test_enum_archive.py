@@ -70,10 +70,10 @@ MODE_CHANGE = {
 @pytest.fixture(scope="module")
 def view_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The example facility's simulator view, as a build writes it, plus one mode scenario."""
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
 
     root = tmp_path_factory.mktemp("project")
     view = root / "data" / "simulator"

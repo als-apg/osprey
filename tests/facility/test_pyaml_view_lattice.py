@@ -19,9 +19,9 @@ import pytest
 import yaml
 
 from osprey.apps.sdk.testing import calibrated_setting, measured_sr_deck, model
-from osprey.facility.measurement_groups import measurement_groups
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import CONFIGURATION_FILE, LATTICE_FILE
+from osprey_facility.measurement_groups import measurement_groups
+from osprey_facility.records import FacilityRecords
 from tests.facility._pyaml_trees import (
     measured_tree,
     view_inputs,
@@ -240,10 +240,10 @@ def test_an_engine_without_polynomial_kicks_stops_the_build_naming_engine_and_mo
     import types
     from importlib import metadata
 
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views.pyaml import write_pyaml_view
     from osprey.simulation.engines import pyat as real
     from osprey_connectors.simulation.engines import ENGINE_GROUP
+    from osprey_facility.errors import FacilityBuildError
 
     tree = with_correctors(with_rf(measured_tree()))
     tree["measurement/SR.yaml"] |= {"kinds": ["orm"], "corrector_delta": 1.0e-5}

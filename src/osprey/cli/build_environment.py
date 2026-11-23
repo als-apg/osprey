@@ -1010,7 +1010,7 @@ def _plan_project_venv(
 
     ``listed_kinds`` is what a caller that builds no wheel hands in for
     ``deployment_packages``: the kinds the listed packages' project files
-    declare (:func:`osprey.facility.kinds.listed_kinds`).
+    declare (:func:`osprey_facility.kinds.listed_kinds`).
     """
     import sys
 

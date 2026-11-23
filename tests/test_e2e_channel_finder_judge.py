@@ -18,7 +18,6 @@ from unittest.mock import PropertyMock, patch
 import pytest
 from fastmcp.exceptions import ToolError
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import hierarchical_document
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
@@ -28,6 +27,7 @@ from osprey.services.channel_finder.databases.hierarchical import (
     HierarchicalChannelDatabase,
     UnselectedLevelError,
 )
+from osprey_facility.records import FacilityRecords
 from tests.e2e.channel_finder_judge import (
     BUILD_CHANNELS,
     GET_OPTIONS,

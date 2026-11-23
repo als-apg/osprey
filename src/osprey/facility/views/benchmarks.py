@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 from osprey.facility.views import PIPELINE_MODE_KEY
 
 if TYPE_CHECKING:
-    from osprey.facility.errors import FacilityBuildError
     from osprey.facility.views import ViewInputs
+    from osprey_facility.errors import FacilityBuildError
 
 __all__ = [
     "BENCHMARK_DATASET_KEY",
@@ -86,8 +86,8 @@ def benchmarks_wanted(inputs: ViewInputs) -> tuple[bool, str]:
 
 
 def _refusal(kind: str, record_id: str, detail: str, remedy: str) -> FacilityBuildError:
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.served import CONFIG_SOURCE
 
     return FacilityBuildError(
         kind, record_id, [CONFIG_SOURCE], remedy, record_kind="path", detail=detail

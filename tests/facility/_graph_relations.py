@@ -29,11 +29,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.relations import end_identity
-from osprey.facility.validate import relation_types
 from osprey.facility.views.graph import GraphSettings
 from osprey.facility.views.graph_iri import iri, namespace
+from osprey_facility.records import FacilityRecords
+from osprey_facility.relations import end_identity
+from osprey_facility.validate import relation_types
 
 if TYPE_CHECKING:
     from rdflib import Graph

@@ -57,8 +57,8 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.engines import field
+from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout

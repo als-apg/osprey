@@ -12,11 +12,11 @@ import pytest
 import yaml
 
 from osprey.cli.facility_report import validate_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import ChannelSelection
-from osprey.facility.schema import core
-from osprey.facility.sources import SET_VALUED_SLOTS, load_sources
-from osprey.facility.validate import (
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import ChannelSelection
+from osprey_facility.schema import core
+from osprey_facility.sources import SET_VALUED_SLOTS, load_sources
+from osprey_facility.validate import (
     FACILITY_HEADER,
     STAGES,
     StageReport,
@@ -30,7 +30,15 @@ from osprey.facility.validate import (
 )
 from tests._builds import FRAMEWORK_CHECKS
 
-CORE_YAML = Path(__file__).parents[2] / "src" / "osprey" / "facility" / "schema" / "core.yaml"
+CORE_YAML = (
+    Path(__file__).parents[2]
+    / "packages"
+    / "osprey-facility"
+    / "src"
+    / "osprey_facility"
+    / "schema"
+    / "core.yaml"
+)
 
 QUAD = {"id": "SR/Q1", "class": "Quadrupole"}
 BPM = {"id": "SR/BPM1", "class": "BeamPositionMonitor"}

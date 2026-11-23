@@ -11,6 +11,7 @@ from __future__ import annotations
 
 WORKSPACE_MEMBERS: tuple[str, ...] = (
     "osprey-connectors",
+    "osprey-facility",
     "osprey-optimizer",
     "pyaml-cs-osprey",
 )

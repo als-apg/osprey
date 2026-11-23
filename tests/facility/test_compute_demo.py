@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
+from osprey_facility.records import FacilityRecords
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject

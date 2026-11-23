@@ -58,8 +58,8 @@ def _journal(view: Path) -> Path:
 
 def _rebuild(view: Path) -> Path:
     """Build and render again the facility tree the view was rendered from."""
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
 
     root = view.parent.parent.parent
     facility_dir = root / "data" / "facility"

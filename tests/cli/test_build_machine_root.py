@@ -24,8 +24,8 @@ import yaml
 
 from osprey.cli.build_persistence import _profile_known_root_entries
 from osprey.cli.build_profile_model import BuildProfile
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project, run_build
 
 pytestmark = [pytest.mark.slow]

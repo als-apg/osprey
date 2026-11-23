@@ -16,7 +16,6 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityFileError
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     RESULT_TAG,
@@ -25,6 +24,7 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     measure_labels,
     parse_measure_result,
 )
+from osprey_facility.errors import FacilityFileError
 from tests._facility_file import write_facility_document, write_facility_v4
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 

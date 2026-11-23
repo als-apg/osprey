@@ -21,17 +21,17 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.errors import ImportStop
-from osprey.facility.layers.mml.family import FamilyView
-from osprey.facility.layers.mml.identity import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.family import FamilyView
+from osprey_facility.layers.mml.identity import (
     axis_twins,
     common_class,
     device_ids,
     endpoints,
 )
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, Coordinates, SameAs
-from osprey.facility.validate import run_stages
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, Coordinates, SameAs
+from osprey_facility.validate import run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
 

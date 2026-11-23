@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 from lume.exceptions import ReadOnlyError
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_turn_state import TurnState, turn_state_of
@@ -27,6 +26,7 @@ from osprey.simulation.engines.pyat_variables import (
     TurnStateVariable,
     pilot_tone_on,
 )
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 INJECTION = "INJ"

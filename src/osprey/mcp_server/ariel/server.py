@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     import mcp.types as mt
     from fastmcp.tools import Tool
 
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
 logger = logging.getLogger("osprey.mcp_server.ariel")
 
@@ -258,10 +258,10 @@ def serialize_entry(
     Returns:
         Serialized dict suitable for JSON response.
     """
-    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.services.ariel_search.attachments.summaries import build_attachment_summaries
     from osprey.services.ariel_search.models import entry_text_fields
     from osprey.utils.facility import to_facility_iso
+    from osprey_facility.references import FacilityReference, resolved_references
 
     ts = to_facility_iso(entry["timestamp"])
 

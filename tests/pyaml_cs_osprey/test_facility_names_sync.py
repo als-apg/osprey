@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from osprey.facility import kinds
+from osprey_facility import kinds
 from pyaml_cs_osprey.measure import StepMeasurement
 from pyaml_cs_osprey.names import CHROMATICITY_MONITOR_NAME
 

@@ -17,7 +17,6 @@ from typing import Any
 import at
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_variables import (
@@ -25,6 +24,7 @@ from osprey.simulation.engines.pyat_variables import (
     RFSwitchVariable,
     rf_on,
 )
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 INJECTION = "INJ"

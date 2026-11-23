@@ -62,7 +62,6 @@ from osprey.deployment.wheel_build import (
     build_deployment_packages,
     is_secret_file,
 )
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -74,6 +73,7 @@ from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DI
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
 
 from .build_environment import (
     _create_project_venv,
@@ -128,9 +128,9 @@ if TYPE_CHECKING:
     from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
-    from osprey.facility.build import FacilityDocument
-    from osprey.facility.roots import FacilityRoots
     from osprey.facility.views.outputs import WrittenViews
+    from osprey_facility.build import FacilityDocument
+    from osprey_facility.roots import FacilityRoots
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -2311,7 +2311,7 @@ def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
     local-path ``dependencies`` entry; nothing is built or imported.
     """
     from osprey.apps.rules import deployment_packages
-    from osprey.facility.kinds import listed_kinds
+    from osprey_facility.kinds import listed_kinds
 
     return listed_kinds(
         deployment_packages(
@@ -2322,7 +2322,7 @@ def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
 
 def _judges_kinds(build_profile: Any, content_dir: Path | None) -> bool:
     """Whether this tree is where its listed measurement kinds are judged."""
-    from osprey.facility.kinds import judged_here
+    from osprey_facility.kinds import judged_here
 
     return judged_here(
         mounted=content_dir is not None,
@@ -2547,7 +2547,7 @@ def _render_project(
     assert data_root is not None  # `data:` required; narrows for type-checkers
     # The facility roots the build resolved once. A render outside a build
     # (no roots handed over) reads the single tree, as before `machine:`.
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.roots import FacilityRoots
 
     facility_roots = shared.facility_roots or FacilityRoots.single(data_root / "facility")
 
@@ -2624,8 +2624,8 @@ def _render_project(
         # profile leaves unstated and refuses a stated one the facility
         # contradicts.
         from osprey.deployment.web_terminals.render_naming import derived_renders
-        from osprey.facility.records import FacilityRecords
         from osprey.facility.settings import fill_facility_settings
+        from osprey_facility.records import FacilityRecords
 
         # Written for what the profile leaves unstated. The stand-in copies the
         # simulator's probe, so it reads the filled value.
@@ -3363,7 +3363,7 @@ def _stage_source_zone(
 
     Version-control metadata never enters the image: git's own directory at the
     root, and a ``.git`` file or directory at any depth below it
-    (:func:`~osprey.facility.roots.is_vcs_metadata`), such as a submodule's.
+    (:func:`~osprey_facility.roots.is_vcs_metadata`), such as a submodule's.
 
     A mounted machine root (``machine``) may live inside a mounted repository
     of its own, a submodule or a nested clone carrying its own profile,
@@ -3383,7 +3383,7 @@ def _stage_source_zone(
         input.
     """
 
-    from osprey.facility.roots import is_vcs_metadata
+    from osprey_facility.roots import is_vcs_metadata
 
     from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES, REPO_DOCKERIGNORE_FILENAME
 
@@ -4305,9 +4305,9 @@ def _build_repo(
 
         # The facility file, before the venv and every render: a facility stop
         # is the author's to fix, and nothing is installed or rendered first.
-        from osprey.facility.build import build_facility_with_warnings
-        from osprey.facility.render import facility_digest
         from osprey.registry.scenario_servers import check_scenario_servers
+        from osprey_facility.build import build_facility_with_warnings
+        from osprey_facility.render import facility_digest
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers

@@ -25,8 +25,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "LIMITS_FILE",
@@ -148,7 +148,7 @@ def write_limits_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    from osprey.facility.render import json_bytes
+    from osprey_facility.render import json_bytes
 
     root.mkdir(parents=True, exist_ok=True)
     target = root / LIMITS_FILE

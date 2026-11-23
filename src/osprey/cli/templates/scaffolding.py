@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 from osprey.cli.templates._rendering import render_template
 from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
-from osprey.facility.roots import is_vcs_metadata
+from osprey_facility.roots import is_vcs_metadata
 
 if TYPE_CHECKING:
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -415,7 +415,7 @@ def copy_template_data(
             at any depth.
         facility_roots: The deployment's resolved facility roots. When
             mounted, every machine entry of the machine root
-            (:func:`~osprey.facility.roots.is_machine_entry`) is copied into
+            (:func:`~osprey_facility.roots.is_machine_entry`) is copied into
             ``data/facility`` after the data tree, so the render carries one
             facility tree: the machine's facts beside the deployment's own
             ``knowledge/``, ``ariel/`` and ``benchmarks/``. The two never
@@ -490,7 +490,7 @@ def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
     ``data/facility/identity.yaml`` and ``limits.yaml`` all expect it. A
     mounted deployment's tree is therefore assembled in the render: its own
     content is already there from the data copy, and the machine's facts land
-    beside it. Only :func:`~osprey.facility.roots.is_machine_entry` entries are
+    beside it. Only :func:`~osprey_facility.roots.is_machine_entry` entries are
     copied, so the machine repository's ``.git`` and its own copies of the
     deployment content directories stay out. Symlinks are dereferenced, as for
     the data tree.
@@ -499,7 +499,7 @@ def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
         roots: The deployment's resolved, mounted facility roots.
         dst_facility: The render's ``data/facility`` directory.
     """
-    from osprey.facility.roots import is_machine_entry
+    from osprey_facility.roots import is_machine_entry
 
     machine = roots.machine
 

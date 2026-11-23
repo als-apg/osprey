@@ -433,8 +433,8 @@ refuses. How to deploy a plug-in is in :ref:`va-serving-your-own-model`.
 Measurement kind
 ----------------
 
-A measurement kind is an ``osprey.facility.kinds.KindDeclaration`` registered
-under the ``osprey.facility.kinds`` entry-point group in its package's
+A measurement kind is an ``osprey_facility.kinds.KindDeclaration`` registered
+under the ``osprey_facility.kinds`` entry-point group in its package's
 ``pyproject.toml``; OSPREY's shipped kinds are entry points of the same group.
 The package is installed where ``osprey build`` runs and in the project image,
 through the profile's ``dependencies``. Pinning test:

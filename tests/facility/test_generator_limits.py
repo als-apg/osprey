@@ -14,10 +14,10 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families, read_yaml, slot_names
 from osprey.facility.views.limits import limits_document
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families, read_yaml, slot_names
 from tests._builds import FRAMEWORK_CHECKS, BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
 

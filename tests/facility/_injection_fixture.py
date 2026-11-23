@@ -107,8 +107,8 @@ def injection_view(root: Path) -> Path:
     Returns:
         The render's simulator view, ``root/build/data/simulator``.
     """
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
     facility_dir = root / "data" / "facility"

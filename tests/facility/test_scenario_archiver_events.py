@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.scenarios import check_scenario_events
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.scenarios import check_scenario_events
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 

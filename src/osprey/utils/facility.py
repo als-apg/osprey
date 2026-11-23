@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any, TypedDict
 from zoneinfo import available_timezones
 
-from osprey.facility import FACILITY_FILE, fold_code
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.reading import load_facility
 from osprey_connectors import config as connector_config
+from osprey_facility import FACILITY_FILE, fold_code
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.reading import load_facility
 
 __all__ = [
     "DEFAULT_FACILITY_ZONE",

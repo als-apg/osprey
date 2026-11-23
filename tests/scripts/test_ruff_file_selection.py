@@ -189,8 +189,8 @@ def test_extend_exclude_hides_only_the_generated_schema_modules() -> None:
         and any(path == entry or path.startswith(entry.rstrip("/") + "/") for entry in excluded)
     }
     assert hidden == {
-        "src/osprey/facility/schema/_generated/__init__.py",
-        "src/osprey/facility/schema/_generated/core.py",
+        "packages/osprey-facility/src/osprey_facility/schema/_generated/__init__.py",
+        "packages/osprey-facility/src/osprey_facility/schema/_generated/core.py",
     }, "extend-exclude hides tracked Python files ruff should lint, or the generated set moved"
 
 

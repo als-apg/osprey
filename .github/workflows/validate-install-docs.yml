@@ -46,6 +46,7 @@ jobs:
         run: |
           uv tool install --find-links dist ./dist/osprey_framework-*.whl \
             --with ./dist/osprey_connectors-*.whl \
+            --with ./dist/osprey_facility-*.whl \
             --with ./dist/pyaml_cs_osprey-*.whl
 
       - name: Verify osprey on PATH

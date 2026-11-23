@@ -35,10 +35,10 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.channel_finder import HIERARCHICAL_FILE
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
+from osprey_facility import FACILITY_FILE
+from osprey_facility.records import FacilityRecords
 from tests.e2e.ariel_picture import absent_qmd_sidecar
 from tests.e2e.channel_finder_judge import expected_horizontal_bpms, judge_channel_finder_run
 from tests.e2e.sdk_helpers import (

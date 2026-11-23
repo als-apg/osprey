@@ -58,7 +58,7 @@ model.
 ## How the export was made
 
 - **Exporter:** `mml_export 2.1.0`, the script shipped at
-  `src/osprey/facility/layers/mml/mml_export.m`.
+  `packages/osprey-facility/src/osprey_facility/layers/mml/mml_export.m`.
 - **MATLAB:** 26.1.0.3276743 (R2026a) Update 3, Linux x86_64, on the host `appsdev2`.
 - **Middle Layer:** the `MML-prod` tree as synced 2026-05-28. It is a plain synced
   folder with no version history, so there is no commit id to quote.

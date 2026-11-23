@@ -1,4 +1,4 @@
-"""Tests for the mml layer's mapping loader (``osprey.facility.layers.mml.mapping``)."""
+"""Tests for the mml layer's mapping loader (``osprey_facility.layers.mml.mapping``)."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import facility_errors_as_click
-from osprey.facility.errors import FacilityError, ImportStop
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.errors import FacilityError, ImportStop
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     Coordinates,
     EngineBlock,
@@ -1193,7 +1193,7 @@ class TestDraft:
         )
 
     def test_the_nsls2_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("nsls2")
         drafted = draft_mapping(ao, ad, va)["families"]
@@ -1210,7 +1210,7 @@ class TestDraft:
         }
 
     def test_the_spear3_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("spear3")
         drafted = parse_mapping(draft_mapping(ao, ad, va)).families
@@ -1426,7 +1426,7 @@ class TestPhysicsUnits:
         assert families["HC"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
 
     def test_the_vocabulary_titles_strength_and_kick(self) -> None:
-        from osprey.facility.validate import vocabulary
+        from osprey_facility.validate import vocabulary
 
         titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
         assert {n: titles[n] for n in (

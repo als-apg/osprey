@@ -4,9 +4,9 @@ import inspect
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server import serialize_entry
+from osprey_facility.records import FacilityRecords
 
 
 def _no_template(path, default=None, _config_path=None):

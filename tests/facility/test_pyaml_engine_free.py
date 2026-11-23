@@ -7,8 +7,8 @@ from typing import Any, NoReturn
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import view_names
+from osprey_facility.records import FacilityRecords
 
 
 def _raiser(*_args: Any, **_kwargs: Any) -> NoReturn:

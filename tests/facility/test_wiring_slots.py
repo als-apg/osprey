@@ -10,10 +10,10 @@ import at
 import pytest
 import yaml
 
-from osprey.facility import wiring as wiring_module
-from osprey.facility.validate import StageReport, run_stages
-from osprey.facility.wiring import fill_wiring_slots
 from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility import wiring as wiring_module
+from osprey_facility.validate import StageReport, run_stages
+from osprey_facility.wiring import fill_wiring_slots
 from tests._builds import FRAMEWORK_CHECKS
 
 GAIN = 0.37

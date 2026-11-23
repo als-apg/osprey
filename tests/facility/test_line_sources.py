@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from osprey.facility.bundled import header_line
-from osprey.facility.sources import read_yaml
+from osprey_facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = REPO_ROOT / "scripts/facility_demo/generate.py"

@@ -22,11 +22,11 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
-from osprey.facility.build import build_facility
-from osprey.facility.layers.mml import response_check
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE
-from osprey.facility.layers.mml.response_check import (
+from osprey_facility.build import build_facility
+from osprey_facility.layers.mml import response_check
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
+from osprey_facility.layers.mml.response_check import (
     Block,
     Entry,
     LeftOut,
@@ -38,7 +38,7 @@ from osprey.facility.layers.mml.response_check import (
     judge,
     report,
 )
-from osprey.facility.layers.mml.rows import read_rows
+from osprey_facility.layers.mml.rows import read_rows
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._limits_render import without_limits_findings
 from tests.facility._mml_built import WIDENED, widen
