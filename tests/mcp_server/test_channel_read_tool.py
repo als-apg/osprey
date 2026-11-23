@@ -314,7 +314,7 @@ async def test_channel_read_empty_list(tmp_path, monkeypatch):
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=[])
 
-    _exc_ctx["envelope"]
+    assert "No channels provided" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):

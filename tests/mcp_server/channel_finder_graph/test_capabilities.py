@@ -407,9 +407,7 @@ class TestLimits:
         assert GRAPHDB_REBUILD_HINT in " ".join(payload["notes"])
 
     def test_notes_state_that_this_is_not_a_health_check(self, payload):
-        notes = " ".join(payload["notes"]).lower()
-
-        assert "reachable" in notes or "health" in notes
+        assert "it is not a health check" in " ".join(payload["notes"])
 
 
 class TestAnswersWithoutAStore:

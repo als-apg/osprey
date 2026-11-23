@@ -114,7 +114,7 @@ async def test_dunder_import_flagged(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    _exc_ctx["envelope"]
+    assert any("Dynamic import usage" in s for s in _exc_ctx["envelope"]["suggestions"])
 
 
 def test_quick_safety_check_standalone():

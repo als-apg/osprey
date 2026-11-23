@@ -36,28 +36,37 @@ def _write_config(tmp_path, config_dict):
 # ---------------------------------------------------------------------------
 
 
-def test_bridge_url_from_env(tmp_path, monkeypatch):
-    """BLUESKY_BRIDGE_URL env var wins outright over config.yml."""
+@pytest.mark.parametrize(
+    ("attr", "env", "env_val", "cfg_val", "expected"),
+    [
+        pytest.param(
+            "bridge_url",
+            "BLUESKY_BRIDGE_URL",
+            "http://127.0.0.1:8123/",
+            "http://10.0.0.5:9000",
+            "http://127.0.0.1:8123",
+            id="bridge_url",
+        ),
+        pytest.param(
+            "launch_token",
+            "BLUESKY_LAUNCH_TOKEN",
+            "env-token",
+            "config-token",
+            "env-token",
+            id="launch_token",
+        ),
+    ],
+)
+def test_env_wins_over_config(tmp_path, monkeypatch, attr, env, env_val, cfg_val, expected):
+    """The BLUESKY_* env var wins outright over config.yml."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://10.0.0.5:9000"}})
-    monkeypatch.setenv("BLUESKY_BRIDGE_URL", "http://127.0.0.1:8123/")
+    _write_config(tmp_path, {"bluesky": {attr: cfg_val}})
+    monkeypatch.setenv(env, env_val)
 
     context = BridgeContext()
     context.initialize()
 
-    assert context.bridge_url == "http://127.0.0.1:8123"
-
-
-def test_launch_token_from_env(tmp_path, monkeypatch):
-    """BLUESKY_LAUNCH_TOKEN env var wins outright over config.yml."""
-    monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"launch_token": "config-token"}})
-    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "env-token")
-
-    context = BridgeContext()
-    context.initialize()
-
-    assert context.launch_token == "env-token"
+    assert getattr(context, attr) == expected
 
 
 def test_env_absent_no_config_uses_defaults(tmp_path, monkeypatch):
@@ -79,28 +88,31 @@ def test_env_absent_no_config_uses_defaults(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_bridge_url_config_fallback(tmp_path, monkeypatch):
-    """bluesky.bridge_url in config.yml is used when the env var is unset."""
+@pytest.mark.parametrize(
+    ("attr", "env", "cfg_val", "expected"),
+    [
+        pytest.param(
+            "bridge_url",
+            "BLUESKY_BRIDGE_URL",
+            "http://192.168.1.10:8600/",
+            "http://192.168.1.10:8600",
+            id="bridge_url",
+        ),
+        pytest.param(
+            "launch_token", "BLUESKY_LAUNCH_TOKEN", "dev-token", "dev-token", id="launch_token"
+        ),
+    ],
+)
+def test_config_fallback(tmp_path, monkeypatch, attr, env, cfg_val, expected):
+    """bluesky.<attr> in config.yml is used when the env var is unset."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    _write_config(tmp_path, {"bluesky": {"bridge_url": "http://192.168.1.10:8600/"}})
+    monkeypatch.delenv(env, raising=False)
+    _write_config(tmp_path, {"bluesky": {attr: cfg_val}})
 
     context = BridgeContext()
     context.initialize()
 
-    assert context.bridge_url == "http://192.168.1.10:8600"
-
-
-def test_launch_token_config_fallback(tmp_path, monkeypatch):
-    """bluesky.launch_token in config.yml is used when the env var is unset."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
-    _write_config(tmp_path, {"bluesky": {"launch_token": "dev-token"}})
-
-    context = BridgeContext()
-    context.initialize()
-
-    assert context.launch_token == "dev-token"
+    assert getattr(context, attr) == expected
 
 
 # ---------------------------------------------------------------------------

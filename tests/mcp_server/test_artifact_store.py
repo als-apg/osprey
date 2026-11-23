@@ -60,23 +60,22 @@ class TestArtifactStore:
         assert index["entry_count"] == 1
         assert index["entries"][0]["id"] == entry.id
 
-    def test_save_object_string_markdown(self, tmp_path):
+    @pytest.mark.parametrize(
+        ("obj", "artifact_type", "mime_type"),
+        [
+            pytest.param("# Hello World", "markdown", "text/markdown", id="string_markdown"),
+            pytest.param("<h1>Title</h1><p>Body</p>", "html", "text/html", id="string_html"),
+            pytest.param([1, 2, 3], "json", "application/json", id="list"),
+            pytest.param(b"\x89PNG\r\n", "binary", "application/octet-stream", id="bytes"),
+        ],
+    )
+    def test_save_object_types_it_by_content(self, tmp_path, obj, artifact_type, mime_type):
         from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
-        entry = store.save_object("# Hello World", title="Markdown Test")
+        entry = store.save_object(obj, title="Typed Object")
 
-        assert entry.artifact_type == "markdown"
-        assert entry.mime_type == "text/markdown"
-
-    def test_save_object_string_html(self, tmp_path):
-        from osprey.stores.artifact_store import ArtifactStore
-
-        store = ArtifactStore(workspace_root=tmp_path)
-        entry = store.save_object("<h1>Title</h1><p>Body</p>", title="HTML Test")
-
-        assert entry.artifact_type == "html"
-        assert entry.mime_type == "text/html"
+        assert (entry.artifact_type, entry.mime_type) == (artifact_type, mime_type)
 
     def test_save_object_dict(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
@@ -88,22 +87,6 @@ class TestArtifactStore:
         filepath = store.get_file_path(entry.id)
         content = json.loads(filepath.read_text())
         assert content["key"] == "value"
-
-    def test_save_object_list(self, tmp_path):
-        from osprey.stores.artifact_store import ArtifactStore
-
-        store = ArtifactStore(workspace_root=tmp_path)
-        entry = store.save_object([1, 2, 3], title="List Data")
-
-        assert entry.artifact_type == "json"
-
-    def test_save_object_bytes(self, tmp_path):
-        from osprey.stores.artifact_store import ArtifactStore
-
-        store = ArtifactStore(workspace_root=tmp_path)
-        entry = store.save_object(b"\x89PNG\r\n", title="Binary Data")
-
-        assert entry.artifact_type == "binary"
 
     def test_save_from_path(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
@@ -833,7 +816,7 @@ class TestArtifactRegisterTool:
                 content="some content",
             )
 
-        _exc_ctx["envelope"]
+        assert "not both" in _exc_ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
     async def test_neither_file_nor_content_error(self, tmp_path, monkeypatch):
@@ -843,7 +826,7 @@ class TestArtifactRegisterTool:
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await fn(title="Empty")
 
-        _exc_ctx["envelope"]
+        assert "Provide either file_path or content" in _exc_ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
     async def test_inline_content_requires_content_type(self, tmp_path, monkeypatch):
@@ -876,13 +859,11 @@ class TestArtifactRegisterTool:
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_register()
-        with assert_raises_error(error_type="file_not_found") as _exc_ctx:
+        with assert_raises_error(error_type="file_not_found"):
             await fn(
                 title="Missing",
                 file_path="/nonexistent/file.txt",
             )
-
-        _exc_ctx["envelope"]
 
 
 # ---------------------------------------------------------------------------
