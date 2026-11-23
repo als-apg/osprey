@@ -7,9 +7,9 @@ from collections.abc import Iterator
 from dataclasses import fields, is_dataclass
 from typing import Any
 
-from osprey.facility.panels.describe import describe, targets
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import (
+from osprey_panels.describe import describe, targets
+from osprey_panels.model import PanelGraph
+from osprey_panels.view import (
     Fact,
     Light,
     Link,
@@ -49,7 +49,7 @@ def stub_render(
     view: View, graph: PanelGraph, screens: Screens | None = None, colours: dict | None = None
 ) -> dict:
     """A view drawn with the stub ``screens``, its document named the stub's way."""
-    from osprey.facility.panels.layout import render
+    from osprey_panels.layout import render
 
     screens = Screens() if screens is None else screens
     return render(
@@ -68,7 +68,7 @@ def with_symbols(
     lane off the beam when the symbol is in *above*, else on the beam."""
     import copy
 
-    from osprey.facility.panels.tables import StripSymbol
+    from osprey_panels.tables import StripSymbol
 
     out = copy.copy(graph)
     out._symbols = {  # type: ignore[attr-defined]

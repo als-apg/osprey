@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.facility.panels._fixture import FIXTURE_DOCUMENT, PANELS_DIR, write_fixture_facility
+from osprey_panels_tests._fixture import FIXTURE_DOCUMENT, PANELS_DIR, write_fixture_facility
 
 
 @pytest.fixture(scope="session")
@@ -24,7 +24,7 @@ def panel_tables() -> Path:
 @pytest.fixture(scope="session")
 def panel_graph(panel_facility: Path, panel_tables: Path):
     """The graph over the fixture; read-only, so one per session."""
-    from osprey.facility.panels import load_graph
+    from osprey_panels import load_graph
 
     return load_graph(panel_facility, panel_tables)
 
@@ -33,7 +33,7 @@ def panel_graph(panel_facility: Path, panel_tables: Path):
 def ring_graph(tmp_path_factory: pytest.TempPathFactory, panel_tables: Path):
     """The fixture graph with its ring a periodic model ``XRM`` 20 m long: every
     XR01/XR02 device belongs to it, so ``XR``'s roll-up draws its sectors as arcs."""
-    from osprey.facility.panels import load_graph
+    from osprey_panels import load_graph
 
     def change(document) -> None:
         document["models"] = [

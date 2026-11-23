@@ -1,9 +1,8 @@
 """The panels fixture: an invented two-sector ring and its rule tables.
 
-The ``data/facility`` tree is a description, so it lives in the package suite
-(``packages/osprey-facility/tests/osprey_facility_tests/panel_fixture/``, read
-here as :data:`FACILITY_TREE`); ``fixture/facility.json`` is that tree built,
-checked in, so the panel tests read a document without running the build (the
+The ``data/facility`` tree is a description, so it lives in the facility
+package suite (``packages/osprey-facility/tests/osprey_facility_tests/panel_fixture/``);
+``fixture/facility.json`` is that tree built, checked in, so the panel tests read a document without running the build (the
 package suite's ``rebuild_panel_fixture.py`` regenerates it, and a package test
 holds it to the build byte for byte); ``fixture/panels/`` holds the rule tables
 beside it. Every name, number
@@ -41,23 +40,22 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from osprey.facility.panels.tables import PanelTables
+from osprey_panels_tests._harness import FIXTURE_DIR
 
-FIXTURE_DIR = Path(__file__).parent / "fixture"
-#: The fixture's ``data/facility`` tree, in the package suite.
-FACILITY_TREE = (
-    Path(__file__).resolve().parents[3]
-    / "packages"
-    / "osprey-facility"
-    / "tests"
-    / "osprey_facility_tests"
-    / "panel_fixture"
-)
+if TYPE_CHECKING:
+    from osprey_panels.tables import PanelTables
+
 PANELS_DIR = FIXTURE_DIR / "panels"
 #: The fixture tree built into its facility file, checked in.
 FIXTURE_DOCUMENT = FIXTURE_DIR / "facility.json"
 RING_FRAME = "XR-RING"
+
+
+def facility_bytes(document: Any) -> bytes:
+    """*document* as the facility build writes ``facility.json``: sorted keys,
+    two-space indent, non-ASCII as itself, NaN refused, one final newline, UTF-8."""
+    text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
+    return (text + "\n").encode("utf-8")
 
 
 def load_fixture_document() -> dict[str, Any]:
@@ -73,7 +71,7 @@ def fixture_relation_types() -> tuple[Mapping[str, Any], ...]:
 
 def read_fixture_tables(directory: Path) -> PanelTables:
     """Read the rule tables in *directory* against the fixture's relation types."""
-    from osprey.facility.panels.tables import read_tables
+    from osprey_panels.tables import read_tables
 
     return read_tables(directory, relation_types=fixture_relation_types())
 
@@ -91,8 +89,6 @@ def write_fixture_facility(
     Returns:
         *target*.
     """
-    from osprey_facility.render import facility_bytes
-
     document = load_fixture_document()
     if change is not None:
         change(document)
@@ -133,7 +129,7 @@ def graph_with_part(tmp_path: Path, *changes: Callable[[dict[str, Any]], None]):
     The card has the rule channel ``XR01-CARD1:Fault-Sts`` (``1`` is bad);
     *changes* run on the built document after the card is added.
     """
-    from osprey.facility.panels import load_graph
+    from osprey_panels import load_graph
 
     def change(document: dict[str, Any]) -> None:
         add_part(document, "XR01:CARD1", "XR01:CH1", "XR01-CARD1:Fault-Sts")
@@ -152,7 +148,7 @@ def graph_with_wide(tmp_path: Path, channels: int):
     Each ``XR01-WIDE1:Sig<i>-Sts`` has ``0`` normal (from two sources), ``1``
     bad, ``2`` warn and ``>=5`` bad.
     """
-    from osprey.facility.panels import load_graph
+    from osprey_panels import load_graph
 
     def wide(document: dict[str, Any]) -> None:
         document["devices"].append(
@@ -235,7 +231,7 @@ def add_bpm(document: dict[str, Any], device: str, place: str) -> None:
 def graph_with_bpms(tmp_path: Path, tables: Path | None = None):
     """The fixture graph with the pickups ``XR01:BPM1`` in ``XR/XR01`` and ``XR02:BPM1``
     in ``XR/XR02`` (:func:`add_bpm`), read with *tables* (the fixture's by default)."""
-    from osprey.facility.panels import load_graph
+    from osprey_panels import load_graph
 
     def change(document: dict[str, Any]) -> None:
         add_bpm(document, "XR01:BPM1", "XR/XR01")
