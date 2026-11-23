@@ -430,17 +430,15 @@ class TestPrepareComposeFilesPreflight:
         """A production deploy must not require an editable checkout."""
         import osprey.deployment.compose_generator as cg
 
-        def _must_not_run():
-            raise AssertionError("preflight ran without --dev")
+        reached: list[str] = []
+        monkeypatch.setattr(cg, "preflight_dev_mode", lambda: reached.append("preflight"))
 
-        monkeypatch.setattr(cg, "preflight_dev_mode", _must_not_run)
-
-        # Fails later on the missing config, which is fine — it proves the
-        # preflight was not reached.
-        with pytest.raises(Exception) as exc:
+        # Fails later, on the missing config — the step after the preflight —
+        # which is fine: it proves the call got past where the preflight sits.
+        with pytest.raises(RuntimeError, match="Could not load config file"):
             cg.prepare_compose_files(str(tmp_path / "missing.yml"), dev_mode=False)
 
-        assert not isinstance(exc.value, AssertionError)
+        assert reached == [], "preflight ran without --dev"
 
 
 class TestPureImageContextsAreQuiet:
