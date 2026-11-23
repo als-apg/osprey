@@ -156,7 +156,7 @@ jobs:
       # match (test_ci_workflow_wiring.py). --dist loadgroup relies on FileOrGroupScheduling in tests/conftest.py.
       run: |
         if [ "$PYTHON_VERSION" = "3.12" ] && [ "$MATRIX_OS" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-facility/src/osprey_facility --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-facility/src/osprey_facility --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/osprey-panels/src/osprey_panels --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
         else
           COV_ARGS=""
         fi
@@ -423,6 +423,54 @@ jobs:
 
     - *capture-diagnostics
 
+  osprey-panels-standalone:
+    # The panels package with none of the framework, the facility package or the connectors installed.
+    name: Panels Standalone Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - *checkout-full-history
+
+    - *install-uv
+
+    - name: Install the panels package alone
+      run: uv sync --locked --package osprey-panels
+
+    - name: Refuse an environment that holds another OSPREY package
+      run: >-
+        uv run --no-sync python -c "import importlib.metadata as m, importlib.util as u, sys;
+        held = [n for n in ('osprey', 'osprey_facility', 'osprey_connectors') if u.find_spec(n)]
+        + [d.name for d in m.distributions()
+        if d.name in ('osprey', 'osprey-framework', 'osprey-facility', 'osprey-connectors')];
+        sys.exit(f'installed: {held}' if held else 0)"
+
+    - name: Smoke the panels CLI on the fixture with the demo theme
+      run: |
+        out="$(mktemp -d)"
+        args=(--facility packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json
+          --tables packages/osprey-panels/tests/osprey_panels_tests/fixture/panels
+          --theme src/osprey/templates/apps/demo/data/canopy/theme/osprey.json --out "$out")
+        uv run --no-sync osprey-panels write "${args[@]}"
+        uv run --no-sync osprey-panels check "${args[@]}"
+
+    - name: Run the panels suite
+      # `-c` makes the package the rootdir, so the framework's conftest never loads.
+      run: >-
+        uv run --no-sync pytest -c packages/osprey-panels/pyproject.toml
+        packages/osprey-panels/tests -m "not wheel_build" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+    - name: Build the panels wheel
+      run: uv build --package osprey-panels --wheel --out-dir dist/
+
+    - name: Run the wheel-contents tests against the built wheel
+      run: |
+        OSPREY_PANELS_WHEEL="$(ls dist/osprey_panels-*.whl)"
+        export OSPREY_PANELS_WHEEL
+        uv run --no-sync pytest -c packages/osprey-panels/pyproject.toml packages/osprey-panels/tests -m wheel_build --timeout=600 --timeout-method=signal
+
+    - *capture-diagnostics
+
   # Lane A holds HEAD connectors to every supported framework release; Lane B holds HEAD framework to
   # its connectors floor. Both stand down until data lifts them (scripts/ci/connectors_compat_matrix.py).
   connectors-compat-plan:
@@ -567,7 +615,7 @@ jobs:
 
     - name: Run ruff, import boundaries, tracked-ignored, mypy and actionlint
       # One call: check.py runs every check it names, whatever the earlier ones did.
-      run: uv run python scripts/check.py run ruff ruff-format import-contracts private-imports tracked-ignored mypy actionlint facility-public-names
+      run: uv run python scripts/check.py run ruff ruff-format import-contracts private-imports tracked-ignored mypy actionlint facility-public-names panels-public-names
 
     - name: Run changelog-fragment guard
       # `!cancelled()` here and below: an earlier failure must not hide this one. The base reaches the
@@ -2535,7 +2583,7 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, osprey-facility-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, stack-e2e, orm-roundtrip-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, osprey-facility-standalone, osprey-panels-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, stack-e2e, orm-roundtrip-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Not on cancel: a superseded run must not leave a red gate on the same sha.
