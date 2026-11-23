@@ -166,16 +166,15 @@ def test_give_up_due(age, attempts, gate_ever_open, expected):
     assert give_up_due(entry, NOW, gate_ever_open, _cfg()) is expected
 
 
-def test_give_up_due_retried_flag_triggers():
+@pytest.mark.parametrize(
+    ("retried", "expected"),
+    [pytest.param(True, True, id="triggers"), pytest.param(False, False, id="false-extends")],
+)
+def test_give_up_due_retried_flag(retried, expected):
     # The drain stamps a boolean `retried` flag (not a count) on redispatch;
     # give_up_due honors it the same as attempts > 0.
-    entry = _queued(172800.0, retried=True)
-    assert give_up_due(entry, NOW, False, _cfg()) is True
-
-
-def test_give_up_due_retried_flag_false_extends():
-    entry = _queued(172800.0, retried=False)
-    assert give_up_due(entry, NOW, False, _cfg()) is False
+    entry = _queued(172800.0, retried=retried)
+    assert give_up_due(entry, NOW, False, _cfg()) is expected
 
 
 def test_give_up_due_missing_queued_at_never_gives_up():

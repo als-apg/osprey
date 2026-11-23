@@ -100,23 +100,15 @@ def test_every_conversation_shape_resolves_the_empty_context(wire: dict[str, Any
 
     context = ops.resolve_reply_context(event_for(wire))
 
+    # A ReplyContext, never None: ``None`` would also read as "no quote" today, so the
+    # distinction is about the seam — one shape for every entry, and a place for a
+    # future quote source to fill in.
     assert context == EMPTY
     assert context.reply_to == {}
     assert context.meta == {}
     # Resolution is free: no Connector leg, so the member cannot delay the dispatch it
     # sits in front of, and cannot fail it either.
     assert connector.calls == []
-
-
-def test_the_context_is_returned_rather_than_none() -> None:
-    """``None`` would also read as "no quote" today, so the distinction is about the seam:
-    one shape for every entry, and a place for a future quote source to fill in."""
-    ops, _ = make_ops()
-
-    context = ops.resolve_reply_context(event_for(channel_reply()))
-
-    assert context is not None
-    assert isinstance(context, ReplyContext)
 
 
 def test_the_class_delegates_to_the_events_module() -> None:

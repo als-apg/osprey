@@ -30,38 +30,30 @@ class SampleOutput(BaseModel):
 class TestArgoMetadata:
     """Test ARGO provider metadata."""
 
-    def test_provider_name(self):
-        """Test provider name is set correctly."""
-        assert ArgoProviderAdapter.name == "argo"
-
-    def test_provider_description(self):
-        """Test provider has description."""
-        assert "ANL" in ArgoProviderAdapter.description or "Argo" in ArgoProviderAdapter.description
-
-    def test_requires_api_key(self):
-        """Test provider requires API key."""
-        assert ArgoProviderAdapter.requires_api_key is True
-
-    def test_requires_base_url(self):
-        """Test provider requires base URL."""
-        assert ArgoProviderAdapter.requires_base_url is True
-
-    def test_supports_proxy(self):
-        """Test provider supports HTTP proxy."""
-        assert ArgoProviderAdapter.supports_proxy is True
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("name", "argo", id="provider_name"),
+            pytest.param(
+                "description",
+                "ANL Argo proxy (supports multiple models)",
+                id="provider_description",
+            ),
+            pytest.param("requires_api_key", True, id="requires_api_key"),
+            pytest.param("requires_base_url", True, id="requires_base_url"),
+            # Supports an HTTP proxy.
+            pytest.param("supports_proxy", True, id="supports_proxy"),
+        ],
+    )
+    def test_declared_metadata(self, attr, expected):
+        value = getattr(ArgoProviderAdapter, attr)
+        assert value == expected
+        assert type(value) is type(expected)
 
     def test_has_default_base_url(self):
         """Test provider has default base URL."""
         assert ArgoProviderAdapter.default_base_url is not None
         assert "argo" in ArgoProviderAdapter.default_base_url.lower()
-
-    def test_has_default_model_id(self):
-        """Test provider has default model."""
-        assert ArgoProviderAdapter.default_model_id is not None
-
-    def test_has_health_check_model(self):
-        """Test provider has health check model."""
-        assert ArgoProviderAdapter.health_check_model_id is not None
 
     def test_has_available_models(self):
         """Test provider lists available models."""
@@ -95,20 +87,21 @@ class TestArgoGetAvailableModels:
     def test_get_available_models_force_refresh(self):
         """Test force refresh bypasses cache."""
         ArgoProviderAdapter._models_cache = ["old_model"]
-        with patch("httpx.Client") as mock_client:
-            mock_resp = Mock()
-            mock_resp.json.return_value = {"data": []}
-            mock_resp.raise_for_status = Mock()
-            mock_client.return_value.__enter__.return_value.get.return_value = mock_resp
+        try:
+            with patch("httpx.Client") as mock_client:
+                mock_resp = Mock()
+                mock_resp.json.return_value = {"data": []}
+                mock_resp.raise_for_status = Mock()
+                mock_client.return_value.__enter__.return_value.get.return_value = mock_resp
 
-            models = ArgoProviderAdapter.get_available_models(
-                api_key="test", base_url="https://test", force_refresh=True
-            )
-            # Should have attempted refresh (even if failed)
-            assert isinstance(models, list)
-
-        # Clean up
-        ArgoProviderAdapter._models_cache = None
+                models = ArgoProviderAdapter.get_available_models(
+                    api_key="test", base_url="https://test", force_refresh=True
+                )
+                # The refresh was attempted; its empty answer falls back to the static defaults.
+                mock_client.return_value.__enter__.return_value.get.assert_called_once()
+                assert models == ArgoProviderAdapter.available_models
+        finally:
+            ArgoProviderAdapter._models_cache = None
 
     def test_get_available_models_with_valid_response(self):
         """Test parsing valid API response."""
@@ -154,11 +147,16 @@ class TestArgoHealthCheck:
         assert success is False
         assert reason in message.lower()
 
-    def test_health_check_uses_default_model(self):
+    @patch("osprey.models.providers.litellm_adapter.litellm.completion")
+    def test_health_check_uses_default_model(self, mock_completion):
         """Test health check uses default model when none provided."""
         provider = ArgoProviderAdapter()
+        mock_completion.return_value = MagicMock()
         # When model_id=None, provider uses health_check_model_id
-        assert provider.health_check_model_id is not None
+        provider.check_health(api_key="k", base_url="https://t")
+        assert mock_completion.call_args.kwargs["model"].endswith(
+            ArgoProviderAdapter.health_check_model_id
+        )
 
     @patch("osprey.models.providers.litellm_adapter.litellm.completion")
     def test_health_check_successful_with_model(self, mock_completion):

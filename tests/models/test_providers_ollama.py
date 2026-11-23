@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel
 
 from osprey.models.providers.ollama import OllamaProviderAdapter
+from osprey.profiles.providers import load_provider_catalog
 
 
 class SampleOutput(BaseModel):
@@ -18,25 +19,25 @@ class SampleOutput(BaseModel):
 class TestOllamaMetadata:
     """Test Ollama provider metadata."""
 
-    def test_provider_name(self):
-        """Test provider name is set correctly."""
-        assert OllamaProviderAdapter.name == "ollama"
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("name", "ollama", id="provider_name"),
+            # Does not require an API key.
+            pytest.param("requires_api_key", False, id="requires_api_key"),
+            pytest.param("requires_base_url", True, id="requires_base_url"),
+            # Does not support an HTTP proxy.
+            pytest.param("supports_proxy", False, id="supports_proxy"),
+        ],
+    )
+    def test_declared_metadata(self, attr, expected):
+        value = getattr(OllamaProviderAdapter, attr)
+        assert value == expected
+        assert type(value) is type(expected)
 
     def test_provider_description(self):
         """Test provider has description."""
         assert "ollama" in OllamaProviderAdapter.description.lower()
-
-    def test_requires_api_key(self):
-        """Test provider does not require API key."""
-        assert OllamaProviderAdapter.requires_api_key is False
-
-    def test_requires_base_url(self):
-        """Test provider requires base URL."""
-        assert OllamaProviderAdapter.requires_base_url is True
-
-    def test_supports_proxy(self):
-        """Test provider does not support HTTP proxy."""
-        assert OllamaProviderAdapter.supports_proxy is False
 
     def test_has_default_base_url(self):
         """Test provider has localhost default."""
@@ -44,12 +45,19 @@ class TestOllamaMetadata:
         assert "localhost" in OllamaProviderAdapter.default_base_url
 
     def test_has_default_model_id(self):
-        """Test provider has default model."""
-        assert OllamaProviderAdapter.default_model_id is not None
+        """Test provider has a default model the packaged catalog lists.
+
+        Ollama declares no static ``available_models`` (the served list is
+        whatever was pulled locally), so the catalog's model list is the one to
+        hold the default against.
+        """
+        models = load_provider_catalog(None).entries["ollama"]["models"]
+        assert OllamaProviderAdapter.default_model_id in models
 
     def test_has_health_check_model(self):
-        """Test provider has health check model."""
-        assert OllamaProviderAdapter.health_check_model_id is not None
+        """Test provider has a health-check model the packaged catalog lists."""
+        models = load_provider_catalog(None).entries["ollama"]["models"]
+        assert OllamaProviderAdapter.health_check_model_id in models
 
     def test_api_key_note(self):
         """Test provider notes no API key needed."""
@@ -60,46 +68,53 @@ class TestOllamaMetadata:
 class TestOllamaFallbackUrls:
     """Test Ollama URL fallback logic."""
 
-    def test_get_fallback_urls_from_container(self):
-        """Test fallback URLs when running in container."""
-        urls = OllamaProviderAdapter._get_fallback_urls("http://host.containers.internal:11434")
-        assert "localhost" in str(urls)
-        assert "http://localhost:11434" in urls
-
-    def test_get_fallback_urls_from_localhost(self):
-        """Test fallback URLs when running on localhost."""
-        urls = OllamaProviderAdapter._get_fallback_urls("http://localhost:11434")
-        assert "host.containers.internal" in str(urls)
-
-    def test_get_fallback_urls_generic(self):
-        """Test fallback URLs for generic base URL."""
-        urls = OllamaProviderAdapter._get_fallback_urls("http://custom.server:11434")
-        assert len(urls) > 0
-        assert "localhost" in str(urls) or "host.containers.internal" in str(urls)
+    @pytest.mark.parametrize(
+        ("base_url", "expected"),
+        [
+            # Running in a container: the same port on localhost, then the well-known port.
+            # (A non-default port keeps the two entries apart; on :11434 they coincide.)
+            pytest.param(
+                "http://host.containers.internal:11435",
+                ["http://localhost:11435", "http://localhost:11434"],
+                id="from_container",
+            ),
+            # Running on localhost: the same port on the container host, then the well-known port.
+            pytest.param(
+                "http://localhost:11435",
+                ["http://host.containers.internal:11435", "http://host.containers.internal:11434"],
+                id="from_localhost",
+            ),
+            # Any other base URL: the generic pair.
+            pytest.param(
+                "http://custom.server:11434",
+                ["http://localhost:11434", "http://host.containers.internal:11434"],
+                id="generic",
+            ),
+        ],
+    )
+    def test_get_fallback_urls(self, base_url, expected):
+        assert OllamaProviderAdapter._get_fallback_urls(base_url) == expected
 
 
 class TestOllamaTestConnection:
     """Test Ollama connection testing."""
 
-    def test_test_connection_success(self):
-        """Test successful connection test."""
+    @pytest.mark.parametrize(
+        ("status_code", "expected"),
+        [
+            pytest.param(200, True, id="success"),
+            pytest.param(404, False, id="failure"),
+        ],
+    )
+    def test_test_connection_status(self, status_code, expected):
+        """A 200 from the models endpoint is a working connection; anything else is not."""
         with patch("requests.get") as mock_get:
             mock_response = Mock()
-            mock_response.status_code = 200
+            mock_response.status_code = status_code
             mock_get.return_value = mock_response
 
             result = OllamaProviderAdapter._test_connection("http://localhost:11434")
-            assert result is True
-
-    def test_test_connection_failure(self):
-        """Test failed connection test."""
-        with patch("requests.get") as mock_get:
-            mock_response = Mock()
-            mock_response.status_code = 404
-            mock_get.return_value = mock_response
-
-            result = OllamaProviderAdapter._test_connection("http://localhost:11434")
-            assert result is False
+            assert result is expected
 
     def test_test_connection_exception(self):
         """Test connection test handles exceptions."""

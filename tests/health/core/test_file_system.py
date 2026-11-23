@@ -60,9 +60,12 @@ class TestRegistryAndContract:
         assert all(r.category == "file_system" for r in results)
 
     def test_context_argument_is_accepted_and_ignored(self, tmp_path: Path) -> None:
-        sentinel = object()
-        results = _run({}, tmp_path, context=sentinel)
-        assert results  # a non-connector category simply ignores the context
+        # A non-connector category simply ignores the context: same rows either way.
+        # Compared by (name, status) — disk_space's message samples live free space.
+        def rows(context: Any) -> list[tuple[str, Status]]:
+            return [(r.name, r.status) for r in _run({}, tmp_path, context=context)]
+
+        assert rows(object()) == rows(None)
 
     def test_none_config_degrades_gracefully(self, tmp_path: Path) -> None:
         by_name = _by_name(_run(None, tmp_path))

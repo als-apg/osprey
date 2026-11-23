@@ -155,20 +155,38 @@ class _TextEmbeddingOnly(BaseProvider):
 class TestDerivedCapabilities:
     """What a provider serves is read from which endpoint methods it overrides."""
 
-    def test_a_litellm_delegating_subclass_counts_as_chat(self):
-        assert _ChatViaDelegation.supports_chat()
-        assert not _ChatViaDelegation.supports_embeddings()
-        assert not _ChatViaDelegation.supports_image_embeddings()
-
-    def test_overriding_only_image_embedding_is_not_chat_or_text_embedding(self):
-        assert _ImageEmbeddingOnly.supports_image_embeddings()
-        assert not _ImageEmbeddingOnly.supports_chat()
-        assert not _ImageEmbeddingOnly.supports_embeddings()
-
-    def test_overriding_only_text_embedding_is_text_embedding_only(self):
-        assert _TextEmbeddingOnly.supports_embeddings()
-        assert not _TextEmbeddingOnly.supports_chat()
-        assert not _TextEmbeddingOnly.supports_image_embeddings()
+    @pytest.mark.parametrize(
+        ("cls", "chat", "text_embeddings", "image_embeddings"),
+        [
+            pytest.param(
+                _ChatViaDelegation,
+                True,
+                False,
+                False,
+                id="a_litellm_delegating_subclass_counts_as_chat",
+            ),
+            pytest.param(
+                _ImageEmbeddingOnly,
+                False,
+                False,
+                True,
+                id="overriding_only_image_embedding_is_not_chat_or_text_embedding",
+            ),
+            pytest.param(
+                _TextEmbeddingOnly,
+                False,
+                True,
+                False,
+                id="overriding_only_text_embedding_is_text_embedding_only",
+            ),
+        ],
+    )
+    def test_served_endpoints_follow_the_overrides(
+        self, cls, chat, text_embeddings, image_embeddings
+    ):
+        assert cls.supports_chat() is chat
+        assert cls.supports_embeddings() is text_embeddings
+        assert cls.supports_image_embeddings() is image_embeddings
 
     def test_the_base_itself_serves_nothing(self):
         assert not BaseProvider.supports_chat()

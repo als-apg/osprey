@@ -38,37 +38,26 @@ def _clear_models_cache():
 class TestAskSageMetadata:
     """Test AskSage provider metadata."""
 
-    def test_provider_name(self):
-        """Test provider name is set correctly."""
-        assert AskSageProviderAdapter.name == "asksage"
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("name", "asksage", id="provider_name"),
+            pytest.param("requires_api_key", True, id="requires_api_key"),
+            pytest.param("requires_base_url", True, id="requires_base_url"),
+            # Supports an HTTP proxy.
+            pytest.param("supports_proxy", True, id="supports_proxy"),
+            # No default base URL: the endpoint is deployment-specific.
+            pytest.param("default_base_url", None, id="has_no_default_base_url"),
+        ],
+    )
+    def test_declared_metadata(self, attr, expected):
+        value = getattr(AskSageProviderAdapter, attr)
+        assert value == expected
+        assert type(value) is type(expected)
 
     def test_provider_description(self):
         """Test provider has description."""
         assert "AskSage" in AskSageProviderAdapter.description
-
-    def test_requires_api_key(self):
-        """Test provider requires API key."""
-        assert AskSageProviderAdapter.requires_api_key is True
-
-    def test_requires_base_url(self):
-        """Test provider requires base URL."""
-        assert AskSageProviderAdapter.requires_base_url is True
-
-    def test_supports_proxy(self):
-        """Test provider supports HTTP proxy."""
-        assert AskSageProviderAdapter.supports_proxy is True
-
-    def test_has_no_default_base_url(self):
-        """Test provider has no default base URL (deployment-specific)."""
-        assert AskSageProviderAdapter.default_base_url is None
-
-    def test_has_default_model_id(self):
-        """Test provider has default model."""
-        assert AskSageProviderAdapter.default_model_id is not None
-
-    def test_has_health_check_model(self):
-        """Test provider has health check model."""
-        assert AskSageProviderAdapter.health_check_model_id is not None
 
     def test_available_models_includes_defaults(self):
         """Test available models includes the default and health-check models."""
@@ -76,10 +65,6 @@ class TestAskSageMetadata:
         assert len(models) > 0
         assert AskSageProviderAdapter.default_model_id in models
         assert AskSageProviderAdapter.health_check_model_id in models
-
-    def test_is_instantiable(self):
-        """Test adapter instantiates despite inheriting from an ABC."""
-        assert isinstance(AskSageProviderAdapter(), AskSageProviderAdapter)
 
 
 class TestAskSageGetAvailableModels:
@@ -534,15 +519,30 @@ class TestAskSageCheckHealth:
         assert ok is False
         assert expected_message in message
 
-    def test_successful(self):
-        """Test a 200 reports the API as accessible."""
+    @pytest.mark.parametrize(
+        ("api_key", "status_code", "ok", "message"),
+        [
+            # A 200 reports the API as accessible.
+            pytest.param("key", 200, True, "API accessible and authenticated", id="successful"),
+            # A bad key gets a 401, reported as an authentication failure.
+            pytest.param(
+                "bad",
+                401,
+                False,
+                "Authentication failed (invalid API key?)",
+                id="authentication_failure",
+            ),
+            # Any other status reports the status code.
+            pytest.param("key", 503, False, "API returned status 503", id="unexpected_status"),
+        ],
+    )
+    def test_the_probe_status_decides_the_result(self, api_key, status_code, ok, message):
         provider = AskSageProviderAdapter()
         with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=200)
-            ok, message = provider.check_health(api_key="key", base_url="https://test")
+            mock_get.return_value = Mock(status_code=status_code)
+            result = provider.check_health(api_key=api_key, base_url="https://test")
 
-        assert ok is True
-        assert "accessible" in message.lower()
+        assert result == (ok, message)
 
     def test_requests_models_endpoint_with_bearer_token(self):
         """Test the health probe targets /models with an Authorization header."""
@@ -555,26 +555,6 @@ class TestAskSageCheckHealth:
         assert args[0] == "https://test/models"
         assert kwargs["headers"] == {"Authorization": "Bearer key"}
         assert kwargs["timeout"] == 3.0
-
-    def test_authentication_failure(self):
-        """Test a 401 reports an authentication failure."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=401)
-            ok, message = provider.check_health(api_key="bad", base_url="https://test")
-
-        assert ok is False
-        assert "authentication failed" in message.lower()
-
-    def test_unexpected_status(self):
-        """Test a non-200/401 status reports the status code."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=503)
-            ok, message = provider.check_health(api_key="key", base_url="https://test")
-
-        assert ok is False
-        assert "503" in message
 
     def test_timeout(self):
         """Test a timeout is reported as a connection timeout."""

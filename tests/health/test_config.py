@@ -106,20 +106,22 @@ def test_on_demand_timeout_explicit_value() -> None:
 # --- plugins ----------------------------------------------------------------
 
 
-def test_plugins_parsed() -> None:
-    s = parse_health_config({"plugins": ["my.mod", "other.mod"]})
-    assert s.plugins == ["my.mod", "other.mod"]
-
-
 def test_plugins_non_string_items_raise() -> None:
     with pytest.raises(ConfigurationError):
         parse_health_config({"plugins": ["ok", 3]})
 
 
-def test_plugins_accepts_file_path_entries() -> None:
-    """A ``.py`` entry is a file path; the list stays a plain list of strings."""
-    s = parse_health_config({"plugins": ["./health/facility_checks.py", "my.mod"]})
-    assert s.plugins == ["./health/facility_checks.py", "my.mod"]
+@pytest.mark.parametrize(
+    "plugins",
+    [
+        pytest.param(["my.mod", "other.mod"], id="dotted_modules"),
+        # A ``.py`` entry is a file path; the list stays a plain list of strings.
+        pytest.param(["./health/facility_checks.py", "my.mod"], id="file_path_entries"),
+    ],
+)
+def test_plugins_parsed(plugins) -> None:
+    s = parse_health_config({"plugins": plugins})
+    assert s.plugins == plugins
 
 
 def test_plugins_error_names_both_accepted_forms() -> None:
@@ -225,29 +227,67 @@ def test_default_timeout_per_probe_type() -> None:
         assert check.timeout_s == expected
 
 
-def test_unknown_probe_type_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"name": "n", "type": "smtp"}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
+def _checks(*checks: dict, **category: object) -> dict:
+    """A health config with one category ``c`` holding ``checks``."""
+    return {"categories": {"c": {**category, "checks": list(checks)}}}
 
 
-def test_missing_check_name_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"type": "http"}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_missing_check_type_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"name": "n"}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_invalid_timeout_status_raises() -> None:
-    cfg = {
-        "categories": {"c": {"checks": [{"name": "n", "type": "http", "timeout_status": "boom"}]}}
-    }
-    with pytest.raises(ConfigurationError):
+@pytest.mark.parametrize(
+    ("cfg", "match"),
+    [
+        pytest.param(
+            _checks({"name": "n", "type": "smtp"}),
+            r"checks\[0\]\.type 'smtp' is not a known probe type",
+            id="unknown_probe_type",
+        ),
+        pytest.param(
+            _checks({"type": "http"}), r"checks\[0\]\.name is required", id="missing_check_name"
+        ),
+        pytest.param(
+            _checks({"name": "n"}), r"checks\[0\]\.type is required", id="missing_check_type"
+        ),
+        pytest.param(
+            _checks({"name": "n", "type": "http", "timeout_status": "boom"}),
+            r"timeout_status must be 'error' or 'warning', got 'boom'",
+            id="invalid_timeout_status",
+        ),
+        pytest.param(
+            _checks({"name": "n", "type": "http"}, cost="sometimes"),
+            r"c\.cost must be 'poll' or 'on_demand', got 'sometimes'",
+            id="invalid_cost",
+        ),
+        pytest.param(
+            _checks(
+                {"name": "a", "type": "http", "requires": ["b"]}, {"name": "b", "type": "http"}
+            ),
+            r"requires 'b', which is not an earlier check",
+            id="requires_forward_reference",
+        ),
+        pytest.param(
+            _checks({"name": "a", "type": "http", "requires": ["ghost"]}),
+            r"requires 'ghost', which is not an earlier check",
+            id="requires_unknown_target",
+        ),
+        pytest.param(
+            _checks({"name": "a", "type": "http", "requires": ["a"]}),
+            r"check cannot require itself",
+            id="requires_self_reference",
+        ),
+        pytest.param(
+            _checks({"name": "a", "type": "http"}, {"name": "a", "type": "http"}),
+            r"duplicate check name 'a'",
+            id="duplicate_check_names",
+        ),
+        pytest.param(
+            _checks({"name": "a", "type": "http", "requires": "b"}),
+            r"requires must be a list of check names",
+            id="requires_not_a_list",
+        ),
+    ],
+)
+def test_invalid_category_raises(cfg, match) -> None:
+    """Each malformed category is rejected for its own reason, not an earlier one."""
+    with pytest.raises(ConfigurationError, match=match):
         parse_health_config(cfg)
 
 
@@ -268,12 +308,6 @@ def test_yaml_category_explicit_category_timeout() -> None:
     assert rec.timeout_s == 9.0
 
 
-def test_invalid_cost_raises() -> None:
-    cfg = {"categories": {"c": {"cost": "sometimes", "checks": [{"name": "n", "type": "http"}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
 # --- requires validation ----------------------------------------------------
 
 
@@ -290,49 +324,6 @@ def test_requires_valid_backward_reference() -> None:
     }
     rec = parse_health_config(cfg).categories["c"]
     assert rec.checks[1].requires == ("a",)  # type: ignore[index]
-
-
-def test_requires_forward_reference_raises() -> None:
-    cfg = {
-        "categories": {
-            "c": {
-                "checks": [
-                    {"name": "a", "type": "http", "requires": ["b"]},
-                    {"name": "b", "type": "http"},
-                ]
-            }
-        }
-    }
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_requires_unknown_target_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"name": "a", "type": "http", "requires": ["ghost"]}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_requires_self_reference_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"name": "a", "type": "http", "requires": ["a"]}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_duplicate_check_names_raise() -> None:
-    cfg = {
-        "categories": {
-            "c": {"checks": [{"name": "a", "type": "http"}, {"name": "a", "type": "http"}]}
-        }
-    }
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
-
-
-def test_requires_not_a_list_raises() -> None:
-    cfg = {"categories": {"c": {"checks": [{"name": "a", "type": "http", "requires": "b"}]}}}
-    with pytest.raises(ConfigurationError):
-        parse_health_config(cfg)
 
 
 # --- core-name collisions & metadata overrides ------------------------------
