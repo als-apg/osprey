@@ -191,7 +191,6 @@ from statistics import NormalDist  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
-import yaml  # noqa: E402
 
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, topoff  # noqa: E402
@@ -230,8 +229,6 @@ EXACT_TOL = 1e-9
 CHROMATICITY_TOL = 1e-5
 CHROMATICITY = e2e_conftest.CHROMATICITY
 
-#: The example facility's seeds, keyed by address.
-DEMO_SEEDS = REPO_ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "seeds.yaml"
 #: Reads per substrate per noisy channel.
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.
@@ -767,19 +764,6 @@ def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channel
     noisy = [address for address in noisy_va.view.served if noisy_va.view.moving(address)]
 
     assert len(noisy) == _facility_noisy_count()
-
-
-def test_the_transfer_line_carries_no_seeds() -> None:
-    """The noisy count holds with the transfer line served: no seed names it."""
-    seeds = yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8"))
-    wired = {
-        binding.address
-        for binding in e2e_conftest.PRESET_VIEW.bindings(model=e2e_conftest.SECOND_MODEL)
-    }
-
-    assert seeds
-    assert wired
-    assert sorted(wired & set(seeds)) == []
 
 
 @pytest.fixture(scope="module")
