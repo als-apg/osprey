@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 from scipy.io.matlab import MatlabFunction
 
-from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.facility.layers.mml.normalize import normalize_family
+from osprey_facility.layers.mml.loaders import LoadedInput
+from osprey_facility.layers.mml.normalize import normalize_family
 
 
 class TestChannelKeysAndFamilyArrays:

@@ -1,13 +1,15 @@
 """The MML trees OSPREY supports, and the proof each one is held to.
 
-One row per fixture tree under this directory that carries a whole export (a
-deck, its sampled facts and a reviewed ``imported/mml/mapping.yaml``). A row
+One row per fixture tree under ``tests/fixtures/mml/`` that carries a whole
+export (a deck, its sampled facts and a reviewed ``imported/mml/mapping.yaml``).
+The trees stay there; this registry is framework-free and lives in the package
+suite, and the root tests import it from there. A row
 states what is claimed of the tree, and every lane that proves a claim
 parametrises from the rows instead of naming trees of its own:
 
 * ``imports`` -- ``osprey facility import mml`` writes the tree's records
-  under its committed mapping (``tests/facility/_mml_built.py`` and the layer
-  tests that read it).
+  under its committed mapping (``osprey_facility_tests/_mml_built.py`` and the
+  layer tests that read it).
 * ``builds`` -- ``osprey build`` accepts the imported tree once the limits
   records its stops name are widened (``tests/cli/test_mml_build_recipes.py``).
 * ``golden`` -- the in-memory build of the imported tree is held to a

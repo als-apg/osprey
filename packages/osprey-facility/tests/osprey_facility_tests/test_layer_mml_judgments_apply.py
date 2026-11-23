@@ -16,25 +16,25 @@ from __future__ import annotations
 
 import copy
 import json
-from pathlib import Path
 
 import pytest
 
-from osprey.facility.layers.mml.family import FamilyView, family_views
-from osprey.facility.layers.mml.judgments import (
+from osprey_facility.layers.mml.family import FamilyView, family_views
+from osprey_facility.layers.mml.judgments import (
     apply_judgments,
     judged_family_views,
     judged_va_block,
     pending_judgments,
 )
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.mapping import (
     FamilyJudgments,
     FieldAnswer,
     Mapping,
     OwnerMap,
     SharedAnswer,
 )
-from osprey.facility.layers.mml.normalize import normalize_family
+from osprey_facility.layers.mml.normalize import normalize_family
+from osprey_facility_tests._harness import REPO_ROOT
 
 FAMILY = "QM"
 SYSTEM = "SR"
@@ -630,7 +630,7 @@ class TestJudgedFamilyViews:
         assert system_body == before
 
 
-SYNTHETIC = Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "synthetic"
+SYNTHETIC = REPO_ROOT / "tests" / "fixtures" / "mml" / "synthetic"
 
 
 def _synthetic(suffix: str) -> dict:

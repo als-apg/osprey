@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.layers.mml.directions import (
+from osprey_facility.layers.mml.directions import (
     GRAMMAR_SUFFIXES,
     MEMBEROF_WORDS,
     Vote,

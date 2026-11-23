@@ -13,11 +13,12 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.errors import FacilityInputError
-from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.facility.layers.mml.loaders.json_any import load_json
+from osprey_facility.errors import FacilityInputError
+from osprey_facility.layers.mml.loaders import LoadedInput
+from osprey_facility.layers.mml.loaders.json_any import load_json
+from osprey_facility_tests._harness import REPO_ROOT
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
+FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
 _BPM = {
     "FamilyName": "BPM",

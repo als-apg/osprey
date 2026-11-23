@@ -11,19 +11,20 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.errors import FacilityUsageError
-from osprey.facility.layers.mml.loaders import LoadedInput
-from osprey.facility.layers.mml.loaders.json_any import load_json
-from osprey.facility.layers.mml.loaders.mat import load_mat
-from osprey.facility.layers.mml.systems import (
+from osprey_facility.errors import FacilityUsageError
+from osprey_facility.layers.mml.loaders import LoadedInput
+from osprey_facility.layers.mml.loaders.json_any import load_json
+from osprey_facility.layers.mml.loaders.mat import load_mat
+from osprey_facility.layers.mml.systems import (
     EXPORTS_KEY,
     IMPORT_ORDER_KEY,
     input_systems,
     merge_inputs,
     resolve_system,
 )
+from osprey_facility_tests._harness import REPO_ROOT
 
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
+FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
 
 _BPM = {
     "FamilyName": "BPM",

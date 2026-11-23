@@ -15,7 +15,7 @@ import sys
 
 import pytest
 
-from osprey.facility.layers.mml.family import CHANNEL_KEYS, FamilyView, FieldView, is_family_dict
+from osprey_facility.layers.mml.family import CHANNEL_KEYS, FamilyView, FieldView, is_family_dict
 
 
 def _view(body: dict, system: str = "SR", name: str = "BPM") -> FamilyView:
@@ -393,7 +393,7 @@ def test_the_json_loader_does_not_import_channel_finder():
     """The MML JSON loader reads the family rule from the facility layer alone."""
     code = (
         "import sys\n"
-        "import osprey.facility.layers.mml.loaders.json_any\n"
+        "import osprey_facility.layers.mml.loaders.json_any\n"
         "assert not any(m.startswith('osprey.services.channel_finder') for m in sys.modules)\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

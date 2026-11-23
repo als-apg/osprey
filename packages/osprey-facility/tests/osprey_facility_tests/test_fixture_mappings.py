@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from osprey.facility.layers.mml.family import family_views, system_bodies
-from osprey.facility.layers.mml.loaders.json_any import VA_SUFFIX, load_json, load_sibling
-from osprey.facility.layers.mml.mapping import (
+from osprey_facility.layers.mml.family import family_views, system_bodies
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     EngineBlock,
     Mapping,
@@ -28,25 +26,8 @@ from osprey.facility.layers.mml.mapping import (
     read_mapping,
     require_decided,
 )
-from osprey.facility.layers.mml.systems import merge_inputs
-from tests.fixtures.mml._trees import SUPPORTED
-
-FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
-
-#: Each tree's exports, by the stem every file of one export is named after.
-TREES = {tree.name: tree.exports for tree in SUPPORTED}
-
-
-def _export(tree: str) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    """The tree's merged export: ``(ao, ad, va)``, each keyed by system."""
-    loaded = [load_json(FIXTURES / tree / f"{stem}.ao.json") for stem in TREES[tree]]
-    ao, ad = merge_inputs([(one, None) for one in loaded])
-    va = {
-        one.export["submachine"]: load_sibling(FIXTURES / tree / f"{stem}{VA_SUFFIX}")
-        for stem, one in zip(TREES[tree], loaded, strict=True)
-        if one.export is not None
-    }
-    return ao, ad, va
+from osprey_facility_tests._fixture_exports import FIXTURES, TREES
+from osprey_facility_tests._fixture_exports import fixture_export as _export
 
 
 def _mapping(tree: str) -> Mapping:

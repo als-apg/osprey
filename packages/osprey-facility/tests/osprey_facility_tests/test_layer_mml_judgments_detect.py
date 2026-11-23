@@ -15,8 +15,8 @@ import dataclasses
 
 import pytest
 
-from osprey.facility.layers.mml.family import FamilyView
-from osprey.facility.layers.mml.judgments import (
+from osprey_facility.layers.mml.family import FamilyView
+from osprey_facility.layers.mml.judgments import (
     PendingJudgments,
     PendingRow,
     SupplyGroup,
