@@ -108,8 +108,8 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
     from osprey.facility.bundled import Classification
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.roots import FacilityRoots
 
     from .build_profile_load import LoadedProfile
 
@@ -162,9 +162,9 @@ def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
     with ``, X superseded`` appended when any claim is superseded; a facility
     without claims prints no such line.
     """
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.limits import limits_findings
     from osprey.facility.views.simulator import unlisted_setpoints_writable
+    from osprey_facility.records import FacilityRecords
 
     built = _build_in_memory(ctx, repo, read_config=True)
     records = FacilityRecords(built.document)
@@ -187,7 +187,7 @@ def _relation_summary(document: dict[str, Any]) -> str | None:
         with ``, X superseded`` appended when X is nonzero, or ``None`` when
         the file holds no claims. A claim without ``basis`` counts as stated.
     """
-    from osprey.facility.relations import ACCEPTED, CONTESTED, SUPERSEDED
+    from osprey_facility.relations import ACCEPTED, CONTESTED, SUPERSEDED
 
     claims = document.get("relations") or []
     if not claims:
@@ -238,13 +238,13 @@ def _build_in_memory(
     """
     import tempfile
 
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.layers.mml.response_check import check_responses
-    from osprey.facility.layers.mml.response_check import report as report_responses
-    from osprey.facility.render import facility_digest
-    from osprey.facility.validate import run_stages
     from osprey.registry.scenario_servers import check_scenario_servers
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.layers.mml.response_check import check_responses
+    from osprey_facility.layers.mml.response_check import report as report_responses
+    from osprey_facility.render import facility_digest
+    from osprey_facility.validate import run_stages
 
     from .build_cmd import (
         _content_dir,
@@ -382,7 +382,7 @@ def _build_in_memory(
 
 def _counts(records: FacilityRecords) -> dict[str, Any]:
     """The records per kind, the relation claims, and the wiring records per model."""
-    from osprey.facility.records import RECORD_KINDS
+    from osprey_facility.records import RECORD_KINDS
 
     counts: dict[str, Any] = {
         key: len(records.of_kind(kind)) for kind, key, _id in RECORD_KINDS[:4]
@@ -401,7 +401,7 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
     ``reason`` is present only on a view the render does not carry.
     """
     from osprey.facility import views
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
     inputs = views.ViewInputs(
         records=FacilityRecords(built.document),
@@ -426,9 +426,9 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
 
 def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     """The ``facility show`` document of the whole facility."""
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
     from osprey.facility.views.facts import facts_document
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
 
     records = FacilityRecords(built.document)
     served = resolve_served(built.rendered_config, records)
@@ -462,7 +462,7 @@ def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dic
     claim names it at both ends (``other`` is then the record itself). ``unit``
     is the unit given on the claim's place end, the object's first.
     """
-    from osprey.facility.relations import end_identity
+    from osprey_facility.relations import end_identity
 
     listed = []
     for claim in claims:
@@ -502,12 +502,12 @@ def _record(document: dict[str, Any], text: str) -> list[dict[str, Any]] | str:
 
     ``text`` is tried as a record id (every kind, ``RECORD_KINDS`` order), then
     as a relation claim id, then as a place or device name
-    (:meth:`~osprey.facility.records.FacilityRecords.lookup`); the first that
+    (:meth:`~osprey_facility.records.FacilityRecords.lookup`); the first that
     finds anything answers. Each entry's ``match`` says how it matched (``id``,
     ``claim``, ``name``, ``segment``); a place or device entry lists in
     ``claims`` the claims it is an end of.
     """
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
     records = FacilityRecords(document)
     claims = [claim for claim in document.get("relations") or [] if isinstance(claim, Mapping)]
@@ -725,7 +725,7 @@ KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page p
 
 def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
     """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
-    from osprey.facility.layers.mml.seed import (
+    from osprey_facility.layers.mml.seed import (
         IDENTITY_FILE,
         LIMITS_FILE,
         MEASUREMENT_DIR,
@@ -765,7 +765,7 @@ def _root_of(roots: FacilityRoots, relative: str) -> Path:
     The deployment's content directories are the content root's; everything
     else is the machine root's. For a single tree both are the same directory.
     """
-    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+    from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 
     if relative.split("/", 1)[0] in DEPLOYMENT_CONTENT_DIRS:
         return roots.content
@@ -784,7 +784,7 @@ def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
     import tempfile
 
     from osprey.facility.bundled import classify
-    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
+    from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
 
     if not roots.mounted:
         return classify(roots.machine, template_root)
@@ -822,7 +822,7 @@ def _prune_empty(facility_dir: Path) -> None:
     Version-control metadata is left as it is: a machine root that is a clone
     keeps its ``.git``.
     """
-    from osprey.facility.roots import is_vcs_metadata
+    from osprey_facility.roots import is_vcs_metadata
 
     directories = (
         path
@@ -840,7 +840,7 @@ def _holds_a_layer(facility_dir: Path) -> bool:
     Every format's layer holds a ``channels.yaml``. A mapping or a source file
     waiting in the layer directory for a first import is no layer.
     """
-    from osprey.facility.layers import LAYER_ROOT
+    from osprey_facility.layers import LAYER_ROOT
 
     return any((facility_dir / LAYER_ROOT).glob("*/channels.yaml"))
 
@@ -864,8 +864,8 @@ def _replace_or_refuse(
     are classified together; each bundled file is removed under its own root,
     and the knowledge indexes settled are the content root's.
     """
-    from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
+    from osprey_facility.layers import HEADER
 
     from .templates.manager import TemplateManager
 
@@ -921,10 +921,9 @@ def _replace_or_refuse(
 def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
-    from importlib.resources import files
+    from osprey_facility.layers.mml.importer import exporter_script
 
-    exporter = files("osprey.facility.layers.mml").joinpath("mml_export.m")
-    click.echo(exporter.read_text(encoding="utf-8"), nl=False)
+    click.echo(exporter_script(), nl=False)
     ctx.exit(0)
 
 
@@ -996,10 +995,10 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
-    from osprey.facility.errors import FacilityUsageError, MappingProblems
-    from osprey.facility.layers.mml.importer import import_mml as run_import
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.errors import FacilityUsageError, MappingProblems
+    from osprey_facility.layers.mml.importer import import_mml as run_import
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE, MappingError
 
     repo_root = find_repo_root(repo)
     try:
@@ -1064,8 +1063,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     device, when the header names an unknown column, or while the profile does
     not resolve.
     """
-    from osprey.facility.layers.list import import_list as run_import
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.layers.list import import_list as run_import
 
     from .facility_report import report_lines
 
@@ -1135,8 +1134,8 @@ def import_relations(
     name is refused, when any table has a row the layer refuses, or while the
     profile does not resolve.
     """
-    from osprey.facility.layers.relations import import_relations as run_import
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.layers.relations import import_relations as run_import
 
     repo_root = find_repo_root(repo)
     try:
@@ -1184,8 +1183,8 @@ def _panel_graph(
     ctx: click.Context, repo: Path | None, facility_file: Path | None, tables: Path | None
 ):
     """The panel graph of the built facility; exits 1 with the cause when it cannot load."""
-    from osprey.facility import FACILITY_FILE
     from osprey.facility.panels import FacilityDocumentError, PanelTableError, load_graph
+    from osprey_facility import FACILITY_FILE
 
     try:
         if facility_file is None or tables is None:
