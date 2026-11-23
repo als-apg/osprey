@@ -435,7 +435,7 @@ def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
     approval = _approval_section(rendered)
     if "enabled" not in approval or isinstance(approval["enabled"], bool):
         return
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     raise FacilityBuildError(
         "profile-invalid",
@@ -449,7 +449,7 @@ def check_approval_enabled(rendered: Mapping[str, Any]) -> None:
 
 def _no_hook_error(detail: str) -> Exception:
     """The build stop for a render that asks with no approval hook selected."""
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     return FacilityBuildError(
         "profile-invalid",
@@ -533,12 +533,12 @@ def check_code_review(
     """
     if "code_review" not in rendered:
         return
-    from osprey.facility.errors import FacilityBuildError
     from osprey.services.code_review.settings import (
         ReviewConfigError,
         parse_review_section,
         resolve_prompt,
     )
+    from osprey_facility.errors import FacilityBuildError
 
     try:
         settings = parse_review_section(rendered["code_review"])

@@ -33,8 +33,6 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.roots import FacilityRoots
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
@@ -44,6 +42,8 @@ from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.roots import FacilityRoots
 
 from .build_profile_archiver import (
     VAArchiverConfig,

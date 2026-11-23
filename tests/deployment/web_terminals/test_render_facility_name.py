@@ -17,9 +17,9 @@ import yaml
 
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.render import render_web_terminals
-from osprey.facility.errors import FacilityFileError
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.services.auth_sidecar.app import ENV_WEB_APP_NAME
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.validate import FACILITY_HEADER
 from tests._facility_file import write_facility_document
 from tests._renders import tier_render
 

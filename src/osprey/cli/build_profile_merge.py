@@ -1910,7 +1910,7 @@ def resolve_profile_document(
         )
 
     if "data" in normalized:
-        from osprey.facility.errors import FacilityBuildError
+        from osprey_facility.errors import FacilityBuildError
 
         raise FacilityBuildError(
             "profile-invalid",
@@ -1925,7 +1925,7 @@ def resolve_profile_document(
         )
 
     if "machine" in normalized:
-        from osprey.facility.errors import FacilityBuildError
+        from osprey_facility.errors import FacilityBuildError
 
         raise FacilityBuildError(
             "profile-invalid",
@@ -2029,10 +2029,10 @@ def _fold_source_tree(
     invent a marker for it.
 
     Version-control metadata (a ``.git`` file or directory at any depth,
-    :func:`~osprey.facility.roots.is_vcs_metadata`) is never folded: a submodule
+    :func:`~osprey_facility.roots.is_vcs_metadata`) is never folded: a submodule
     or nested clone's own bookkeeping is not build input. The ``machine`` input
     (:data:`MACHINE_INPUT_LABEL`) folds only what
-    :func:`~osprey.facility.roots.is_machine_entry` admits, so the machine
+    :func:`~osprey_facility.roots.is_machine_entry` admits, so the machine
     root's own copies of the deployment content directories do not move the hash.
 
     Two limits of the walk, both deliberate:
@@ -2056,8 +2056,8 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
     from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey_facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
 
     # The machine input is listed only when mounted, so its tree folds as the
     # machine root of a mounted pair: the content root is never walked here and
