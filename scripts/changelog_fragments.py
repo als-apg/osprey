@@ -86,23 +86,23 @@ change removes — may also go, when a commit message in the range names it in a
 
 Trees
 -----
-The repository keeps two changelogs, because it releases on two tag streams.
-The framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released
-on ``v*`` tags. ``osprey-connectors`` keeps its own beside its code,
-``packages/osprey-connectors/CHANGELOG.md`` with
-``packages/osprey-connectors/changelog.d/``, released on its own
-``osprey-connectors-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
+The repository keeps one changelog per tag stream it releases on. The
+framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released on
+``v*`` tags. ``osprey-connectors`` and ``osprey-facility`` each keep their own
+beside their code (``packages/<package>/CHANGELOG.md`` with
+``packages/<package>/changelog.d/``), released on their own
+``<package>-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
 above holds per tree, over the paths inside it:
 
-* a change to the connectors package's ``src/``, ``pyproject.toml`` or
-  ``README.md`` (what ships in its wheel and on its PyPI page) needs a fragment
-  in **its** ``changelog.d/``; a root fragment does not count for it, nor does
-  one of its fragments count for a framework change. A pull request touching
-  both brings one of each;
-* the connectors tree is carved out of the framework's: the root gate's
-  ``packages/`` prefix no longer reaches ``packages/osprey-connectors/``;
+* a change to a package's ``src/``, ``pyproject.toml`` or ``README.md`` (what
+  ships in its wheel and on its PyPI page) needs a fragment in **its**
+  ``changelog.d/``; a root fragment does not count for it, nor does one of its
+  fragments count for a framework change. A pull request touching both brings
+  one of each;
+* a package tree is carved out of the framework's: the root gate's
+  ``packages/`` prefix no longer reaches ``packages/<package>/``;
 * the pre-tag top-up asks the remote for the tree's own tag
-  (``osprey-connectors-v<version>``).
+  (``<package>-v<version>``).
 
 ``check`` runs every tree; a tree the diff does not touch is only validated.
 ``apply`` folds one tree, the framework's unless ``--root`` names another.
@@ -175,7 +175,14 @@ CONNECTORS_TREE = Tree(
     gated=("src/", "pyproject.toml", "README.md"),
     tag_prefix="osprey-connectors-v",
 )
-TREES = (FRAMEWORK_TREE, CONNECTORS_TREE)
+#: What ships in the facility wheel and on its PyPI page, gated as the
+#: connectors' is.
+FACILITY_TREE = Tree(
+    root="packages/osprey-facility",
+    gated=("src/", "pyproject.toml", "README.md"),
+    tag_prefix="osprey-facility-v",
+)
+TREES = (FRAMEWORK_TREE, CONNECTORS_TREE, FACILITY_TREE)
 
 
 def tree_paths(tree: Tree, paths: Iterable[str], trees: Sequence[Tree] = TREES) -> list[str]:
