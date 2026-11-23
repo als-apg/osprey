@@ -857,14 +857,20 @@ def test_checkout_has_one_row_per_device_channel_and_totals(panel_graph):
     assert (totals.channels, totals.has_rule) == (13, 2) and 0 < totals.typed < 13
 
 
-def test_describe_refuses_a_rollup_with_no_grouping(panel_graph):
-    with pytest.raises(ValueError, match="by"):
-        describe(panel_graph, Target("rollup", "place", "XR"))
-
-
-def test_describe_refuses_a_view_kind_it_does_not_know(panel_graph):
-    with pytest.raises(ValueError, match="view"):
-        describe(panel_graph, Target("map", "place", "XR"))  # type: ignore[arg-type]
+@pytest.mark.parametrize(
+    ("target", "match"),
+    [
+        pytest.param(Target("rollup", "place", "XR"), "by", id="a_rollup_with_no_grouping"),
+        pytest.param(
+            Target("map", "place", "XR"),  # type: ignore[arg-type]
+            "view",
+            id="a_view_kind_it_does_not_know",
+        ),
+    ],
+)
+def test_describe_refuses(panel_graph, target, match):
+    with pytest.raises(ValueError, match=match):
+        describe(panel_graph, target)
 
 
 # -- scale --------------------------------------------------------------------------

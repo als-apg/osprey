@@ -268,15 +268,23 @@ def test_an_unknown_section_is_refused() -> None:
         mml.parse("", "SR")
 
 
-def test_a_missing_array_is_refused() -> None:
-    text = "Energy = 1e9;\nSTART = marker('START', 'IdentityPass');\n"
-    with pytest.raises(ValueError, match="BTS"):
-        mml.parse(text, "BTS")
-
-
-def test_an_undefined_array_token_is_refused() -> None:
-    text = "Energy = 1e9;\nSTART = marker('START', 'IdentityPass');\nBTS = [START NOPE];\n"
-    with pytest.raises(ValueError, match="line 3: array token NOPE"):
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        pytest.param(
+            "Energy = 1e9;\nSTART = marker('START', 'IdentityPass');\n",
+            "BTS",
+            id="a_missing_array",
+        ),
+        pytest.param(
+            "Energy = 1e9;\nSTART = marker('START', 'IdentityPass');\nBTS = [START NOPE];\n",
+            "line 3: array token NOPE",
+            id="an_undefined_array_token",
+        ),
+    ],
+)
+def test_an_array_that_does_not_resolve_is_refused(text: str, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
         mml.parse(text, "BTS")
 
 

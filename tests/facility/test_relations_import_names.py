@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from osprey.facility.layers.relations.facility import FacilityIndex
@@ -90,15 +91,26 @@ class TestNamesLand:
             }
         ]
 
-    def test_a_name_lands_on_a_created_place(self, tmp_path: Path) -> None:
-        _, places, refusals = _run(tmp_path, "RACK1,Rack 1,drawings,,,,,\n")
+    @pytest.mark.parametrize(
+        ("row", "place_id", "name"),
+        [
+            pytest.param(
+                "RACK1,Rack 1,drawings,,,,,\n",
+                "SR/S01/RACK1",
+                "Rack 1",
+                id="a_name_lands_on_a_created_place",
+            ),
+            pytest.param(
+                "TUNNEL,T,drawings,,,,,\n", "TUNNEL", "T", id="a_path_names_a_created_place"
+            ),
+        ],
+    )
+    def test_a_created_place_is_named(
+        self, tmp_path: Path, row: str, place_id: str, name: str
+    ) -> None:
+        _, places, refusals = _run(tmp_path, row)
         assert not refusals
-        assert places["SR/S01/RACK1"]["scheme_names"] == [{"name": "Rack 1", "scheme": "drawings"}]
-
-    def test_a_path_names_a_created_place(self, tmp_path: Path) -> None:
-        _, places, refusals = _run(tmp_path, "TUNNEL,T,drawings,,,,,\n")
-        assert not refusals
-        assert places["TUNNEL"]["scheme_names"] == [{"name": "T", "scheme": "drawings"}]
+        assert places[place_id]["scheme_names"] == [{"name": name, "scheme": "drawings"}]
 
     def test_stated_basis_is_not_written_and_inferred_keeps_its_rule(self, tmp_path: Path) -> None:
         stubs, _, refusals = _run(
@@ -201,10 +213,23 @@ class TestAnotherSourcesRecord:
 
 
 class TestRefused:
-    def test_a_device_of_the_replaced_layer_is_unknown(self, tmp_path: Path) -> None:
-        _, _, refusals = _run(tmp_path, "OLD,O,s,,,,,\n")
+    @pytest.mark.parametrize(
+        ("row", "fragment"),
+        [
+            pytest.param(
+                "OLD,O,s,,,,,\n", "unknown thing", id="a_device_of_the_replaced_layer_is_unknown"
+            ),
+            pytest.param(
+                "S01,X,s,,,,,\n",
+                "matches several places: SR/S01, TUNNEL/S01",
+                id="a_flat_name_matching_several_places",
+            ),
+        ],
+    )
+    def test_a_row_is_refused(self, tmp_path: Path, row: str, fragment: str) -> None:
+        _, _, refusals = _run(tmp_path, row)
         (message,) = _messages(refusals)
-        assert "unknown thing" in message
+        assert fragment in message
 
     def test_a_group_is_refused(self, tmp_path: Path) -> None:
         _, _, refusals = _run(tmp_path, "QUADS,Q,s,,,,,\nRACKED,R,s,,,,,\n", groups={"RACKED"})
@@ -218,19 +243,15 @@ class TestRefused:
         assert "NOBODY" in message and "unknown thing" in message
         assert "scheme_names" not in stubs["PS1"]
 
-    def test_a_flat_name_matching_several_places_is_refused(self, tmp_path: Path) -> None:
-        _, _, refusals = _run(tmp_path, "S01,X,s,,,,,\n")
+    @pytest.mark.parametrize(
+        ("row", "fragment"),
+        [
+            pytest.param("PS1,A,s,guessed,,,,\n", "not a basis", id="a_bad_basis"),
+            pytest.param("PS1,A,s,inferred,,,,\n", "`rule` is missing", id="inferred_without_rule"),
+        ],
+    )
+    def test_a_refused_row_names_nothing(self, tmp_path: Path, row: str, fragment: str) -> None:
+        stubs, _, refusals = _run(tmp_path, row)
         (message,) = _messages(refusals)
-        assert "matches several places: SR/S01, TUNNEL/S01" in message
-
-    def test_a_bad_basis_is_refused(self, tmp_path: Path) -> None:
-        stubs, _, refusals = _run(tmp_path, "PS1,A,s,guessed,,,,\n")
-        (message,) = _messages(refusals)
-        assert "not a basis" in message
-        assert "scheme_names" not in stubs["PS1"]
-
-    def test_inferred_without_rule_is_refused(self, tmp_path: Path) -> None:
-        stubs, _, refusals = _run(tmp_path, "PS1,A,s,inferred,,,,\n")
-        (message,) = _messages(refusals)
-        assert "`rule` is missing" in message
+        assert fragment in message
         assert "scheme_names" not in stubs["PS1"]

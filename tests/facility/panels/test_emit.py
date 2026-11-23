@@ -301,6 +301,7 @@ def test_write_into_an_empty_or_new_directory_is_fine(panel_graph, tmp_path):
     (tmp_path / "empty").mkdir()
     write(panel_graph, tmp_path / "empty")
     write(panel_graph, tmp_path / "new" / "deep")
+    assert _files(tmp_path / "empty") == _files(tmp_path / "new" / "deep") != {}
 
 
 def test_no_temporary_file_stays_behind(panel_graph, tmp_path):

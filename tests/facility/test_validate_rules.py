@@ -28,6 +28,7 @@ from osprey.facility.validate import (
     sort_errors,
     validate,
 )
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS
 from tests._builds import FRAMEWORK_CHECKS
 
 CORE_YAML = Path(__file__).parents[2] / "src" / "osprey" / "facility" / "schema" / "core.yaml"
@@ -839,7 +840,10 @@ class TestValueRules:
 
     def test_a_bool_gets_its_default_labels(self, tmp_path: Path) -> None:
         result = _run(tmp_path, _with_channels({"id": "T", "value_type": "bool"}))
-        assert result.ok
+        assert result.ok, _lines(result)
+        [channel] = [c for c in result.validated.document["channels"] if c["id"] == "T"]
+        assert channel["options"] == list(DEFAULT_BOOL_OPTIONS)
+        assert "options" in channel["provenance"]["defaults"]
 
     @pytest.mark.parametrize(
         "seed", [{"noise": {"absolute": 0.1}}, {"drift": {"amplitude": 1, "period_s": 5}}]

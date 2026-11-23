@@ -217,19 +217,6 @@ def test_a_relation_type_of_an_unknown_end_kind_fails_validation() -> None:
     assert [error["type"] for error in caught.value.errors()] == ["enum"]
 
 
-def test_unknown_key_fails_validation() -> None:
-    from pydantic import ValidationError
-
-    from osprey.facility.schema import Facility
-
-    document = _two_channel()
-    document["channels"][0]["kind"] = "magnet"
-    with pytest.raises(ValidationError) as caught:
-        Facility.model_validate(document)
-    assert [error["type"] for error in caught.value.errors()] == ["extra_forbidden"]
-    assert caught.value.errors()[0]["loc"] == ("channels", 0, "kind")
-
-
 def test_unknown_top_level_key_fails_validation() -> None:
     from pydantic import ValidationError
 
@@ -267,30 +254,40 @@ def test_a_relation_and_its_document_validate() -> None:
     assert facility.documents[0].id == "PS-LIST"
 
 
-def test_a_relation_with_an_unknown_key_fails_validation() -> None:
+@pytest.mark.parametrize(
+    ("builder", "loc", "value", "error_type"),
+    [
+        pytest.param(
+            _two_channel, ("channels", 0, "kind"), "magnet", "extra_forbidden", id="unknown_key"
+        ),
+        pytest.param(
+            _one_relation,
+            ("relations", 0, "weight"),
+            3,
+            "extra_forbidden",
+            id="a_relation_with_an_unknown_key",
+        ),
+        pytest.param(
+            _one_relation,
+            ("relations", 0, "type"),
+            "not_a_type",
+            "enum",
+            id="a_relation_of_an_unknown_type",
+        ),
+    ],
+)
+def test_a_bad_record_field_fails_validation(builder, loc, value, error_type) -> None:
     from pydantic import ValidationError
 
     from osprey.facility.schema import Facility
 
-    document = _one_relation()
-    document["relations"][0]["weight"] = 3
+    document = builder()
+    collection, index, key = loc
+    document[collection][index][key] = value
     with pytest.raises(ValidationError) as caught:
         Facility.model_validate(document)
-    assert [error["type"] for error in caught.value.errors()] == ["extra_forbidden"]
-    assert caught.value.errors()[0]["loc"] == ("relations", 0, "weight")
-
-
-def test_a_relation_of_an_unknown_type_fails_validation() -> None:
-    from pydantic import ValidationError
-
-    from osprey.facility.schema import Facility
-
-    document = _one_relation()
-    document["relations"][0]["type"] = "not_a_type"
-    with pytest.raises(ValidationError) as caught:
-        Facility.model_validate(document)
-    assert [error["type"] for error in caught.value.errors()] == ["enum"]
-    assert caught.value.errors()[0]["loc"] == ("relations", 0, "type")
+    assert [error["type"] for error in caught.value.errors()] == [error_type]
+    assert caught.value.errors()[0]["loc"] == loc
 
 
 def test_a_device_carries_scheme_names_and_citations() -> None:

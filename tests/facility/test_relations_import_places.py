@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from osprey.facility.layers.relations.facility import FacilityIndex
@@ -172,25 +173,27 @@ class TestRefusals:
         assert out == []
         assert len(refused) == 1 and "matches several places: BR/S01, SR/S01" in refused[0]
 
-    def test_a_path_whose_within_names_another_parent(self, tmp_path: Path) -> None:
-        out, refused = _run(tmp_path, "place,within\nSR/S01/RACK1,BR\n")
+    @pytest.mark.parametrize(
+        ("text", "fragment"),
+        [
+            pytest.param(
+                "place,within\nSR/S01/RACK1,BR\n",
+                "is not the path's parent",
+                id="a_path_whose_within_names_another_parent",
+            ),
+            pytest.param("place\nXX/RACK1\n", "unknown place", id="a_path_with_an_unknown_parent"),
+            pytest.param("place,within,basis\nRACK1,SR,guessed\n", "not a basis", id="a_bad_basis"),
+            pytest.param(
+                "place,within,basis\nRACK1,SR,inferred\n",
+                "`basis` is inferred and `rule` is missing",
+                id="inferred_without_rule",
+            ),
+        ],
+    )
+    def test_a_row_is_refused(self, tmp_path: Path, text: str, fragment: str) -> None:
+        out, refused = _run(tmp_path, text)
         assert out == []
-        assert len(refused) == 1 and "is not the path's parent" in refused[0]
-
-    def test_a_path_with_an_unknown_parent(self, tmp_path: Path) -> None:
-        out, refused = _run(tmp_path, "place\nXX/RACK1\n")
-        assert out == []
-        assert len(refused) == 1 and "unknown place" in refused[0]
-
-    def test_a_bad_basis(self, tmp_path: Path) -> None:
-        out, refused = _run(tmp_path, "place,within,basis\nRACK1,SR,guessed\n")
-        assert out == []
-        assert len(refused) == 1 and "not a basis" in refused[0]
-
-    def test_inferred_without_rule(self, tmp_path: Path) -> None:
-        out, refused = _run(tmp_path, "place,within,basis\nRACK1,SR,inferred\n")
-        assert out == []
-        assert len(refused) == 1 and "`basis` is inferred and `rule` is missing" in refused[0]
+        assert len(refused) == 1 and fragment in refused[0]
 
     def test_a_refused_row_places_nothing_below_it(self, tmp_path: Path) -> None:
         out, refused = _run(tmp_path, "place,within,basis\nRACK1,SR,guessed\nSHELF,RACK1,\n")

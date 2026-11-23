@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from osprey.interfaces.okf_panel.validation import (
@@ -186,16 +187,19 @@ def test_validation_warning_is_frozen():
     assert (w.concept_id, w.kind, w.detail) == ("x", "frontmatter", "d")
 
 
-def test_facility_links_are_not_broken_concept_links(tmp_path):
-    _write_concept(
-        tmp_path,
-        "devices/bpm",
-        frontmatter=_clean_fm("BPM"),
-        body=(
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
             "Read [X](facility:SR:DIAG:BPM:01:POSITION:X), [gauge](<facility:SR GAUGE 1>) "
-            "and [pump](facility:SR/ION-PUMP01)."
+            "and [pump](facility:SR/ION-PUMP01).",
+            id="facility_links_are_not_broken_concept_links",
         ),
-    )
+        pytest.param("![Logo](https://example.org/logo.png)", id="external_images_are_not_flagged"),
+    ],
+)
+def test_a_link_outside_the_bundle_is_not_flagged(tmp_path, body):
+    _write_concept(tmp_path, "devices/bpm", frontmatter=_clean_fm("BPM"), body=body)
 
     assert validate_bundle(OKFBundle(tmp_path)) == []
 
@@ -309,17 +313,6 @@ def test_a_link_wrapping_a_present_image_checks_only_the_link(tmp_path):
         "devices/bpm",
         frontmatter=_clean_fm("BPM"),
         body="[![alt](a.png)](page.md)",
-    )
-
-    assert validate_bundle(OKFBundle(tmp_path)) == []
-
-
-def test_external_images_are_not_flagged(tmp_path):
-    _write_concept(
-        tmp_path,
-        "devices/bpm",
-        frontmatter=_clean_fm("BPM"),
-        body="![Logo](https://example.org/logo.png)",
     )
 
     assert validate_bundle(OKFBundle(tmp_path)) == []

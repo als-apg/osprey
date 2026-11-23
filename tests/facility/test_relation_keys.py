@@ -108,13 +108,35 @@ class TestCoarse:
         claim = _claim("a", "powered_by", {"device": "Q1"}, {"device": "PS1", "port": "OUT1"})
         assert coarse_reasons(claim, [claim], types) == []
 
-    def test_place_where_device_allowed(self, types) -> None:
-        claim = _claim("a", "powered_by", {"device": "Q1"}, {"place": "SR/S01"})
-        assert coarse_reasons(claim, [], types) == [COARSE_PLACE]
-
-    def test_place_on_subject_end_where_device_allowed(self, types) -> None:
-        claim = _claim("a", "triggered_by", {"place": "SR/S01"}, {"device": "EVR1"})
-        assert coarse_reasons(claim, [], types) == [COARSE_PLACE]
+    @pytest.mark.parametrize(
+        ("rtype", "subject", "object_", "reason"),
+        [
+            pytest.param(
+                "powered_by",
+                {"device": "Q1"},
+                {"place": "SR/S01"},
+                COARSE_PLACE,
+                id="place_where_device_allowed",
+            ),
+            pytest.param(
+                "triggered_by",
+                {"place": "SR/S01"},
+                {"device": "EVR1"},
+                COARSE_PLACE,
+                id="place_on_subject_end_where_device_allowed",
+            ),
+            pytest.param(
+                "cabled_to",
+                {"device": "A"},
+                {"device": "B"},
+                COARSE_KEY_ATTRIBUTE,
+                id="missing_key_attribute",
+            ),
+        ],
+    )
+    def test_a_lone_claim_is_coarse(self, types, rtype, subject, object_, reason) -> None:
+        claim = _claim("a", rtype, subject, object_)
+        assert coarse_reasons(claim, [], types) == [reason]
 
     def test_place_where_only_place_allowed_is_not_coarse(self, types) -> None:
         claim = _claim("a", "located_in", {"device": "Q1"}, {"place": "R1", "unit": 5})
@@ -143,10 +165,6 @@ class TestCoarse:
             "b", "networked_to", {"device": "SW1", "port": "p7"}, {"device": "H1", "port": "eth0"}
         )
         assert coarse_reasons(bare, [bare, ported], types) == [COARSE_PORT]
-
-    def test_missing_key_attribute(self, types) -> None:
-        claim = _claim("a", "cabled_to", {"device": "A"}, {"device": "B"})
-        assert coarse_reasons(claim, [], types) == [COARSE_KEY_ATTRIBUTE]
 
     def test_located_in_without_unit_beside_one_with(self, types) -> None:
         bare = _claim("a", "located_in", {"device": "Q1"}, {"place": "R1"})
@@ -186,8 +204,37 @@ def _details(claim: dict[str, Any], types: dict[str, dict[str, Any]]) -> list[st
 
 
 class TestShapeProblems:
-    def test_sound_claim_has_none(self, types) -> None:
-        claim = _claim("a", "powered_by", {"device": "Q1"}, {"device": "PS1", "port": "OUT1"})
+    @pytest.mark.parametrize(
+        ("rtype", "subject", "object_"),
+        [
+            pytest.param(
+                "powered_by",
+                {"device": "Q1"},
+                {"device": "PS1", "port": "OUT1"},
+                id="sound_claim_has_none",
+            ),
+            pytest.param(
+                "located_in",
+                {"device": "Q1"},
+                {"place": "R1", "unit": 3},
+                id="unit_on_a_place_end_is_sound",
+            ),
+            pytest.param(
+                "cabled_to",
+                {"device": "A"},
+                {"device": "B"},
+                id="cabled_to_without_cable_is_not_a_shape_problem",
+            ),
+            pytest.param(
+                "networked_to",
+                {"device": "SW1", "port": "p1"},
+                {"device": "SW1", "port": "p2"},
+                id="same_device_on_two_ports_is_sound",
+            ),
+        ],
+    )
+    def test_a_sound_claim_has_no_shape_problem(self, types, rtype, subject, object_) -> None:
+        claim = _claim("a", rtype, subject, object_)
         assert shape_problems(claim, types) == []
 
     def test_end_naming_no_kind(self, types) -> None:
@@ -206,10 +253,6 @@ class TestShapeProblems:
     def test_unit_on_a_device_end(self, types) -> None:
         claim = _claim("a", "powered_by", {"device": "Q1", "unit": 3}, {"device": "PS1"})
         assert _details(claim, types) == ["`subject` gives `unit` on an end that names no place"]
-
-    def test_unit_on_a_place_end_is_sound(self, types) -> None:
-        claim = _claim("a", "located_in", {"device": "Q1"}, {"place": "R1", "unit": 3})
-        assert shape_problems(claim, types) == []
 
     def test_end_kind_outside_the_type(self, types) -> None:
         claim = _claim("a", "powered_by", {"group": "SR/QUAD"}, {"device": "PS1"})
@@ -237,21 +280,11 @@ class TestShapeProblems:
             ("supplied_by gives no `attributes.medium`", "state the medium in `attributes.medium`")
         ]
 
-    def test_cabled_to_without_cable_is_not_a_shape_problem(self, types) -> None:
-        claim = _claim("a", "cabled_to", {"device": "A"}, {"device": "B"})
-        assert shape_problems(claim, types) == []
-
     def test_subject_equal_to_object(self, types) -> None:
         claim = _claim(
             "a", "networked_to", {"device": "SW1", "port": "p1"}, {"device": "SW1", "port": "p1"}
         )
         assert _details(claim, types) == ["`subject` and `object` name the same end"]
-
-    def test_same_device_on_two_ports_is_sound(self, types) -> None:
-        claim = _claim(
-            "a", "networked_to", {"device": "SW1", "port": "p1"}, {"device": "SW1", "port": "p2"}
-        )
-        assert shape_problems(claim, types) == []
 
     def test_problems_come_in_fixed_order(self, types) -> None:
         claim = _claim("a", "supplied_by", {"group": "G", "unit": 1}, {}, basis="inferred")

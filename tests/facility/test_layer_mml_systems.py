@@ -66,25 +66,48 @@ class TestResolveSystem:
         with pytest.raises(FacilityUsageError, match="keyed.json"):
             resolve_system(_keyed({"SR": {"BPM": _BPM}}), "SR")
 
-    def test_explicit_system_wins_over_export_and_ad(self):
-        """Rule 2 precedes rule 3."""
-        loaded = _flat(export={"submachine": "EXP"}, ad={"SubMachine": "ADS"})
-        assert resolve_system(loaded, "LTB") == "LTB"
-
-    def test_export_submachine_wins_over_ad(self):
-        """Rule 3 reads _export.submachine before AD.SubMachine."""
-        loaded = _flat(export={"submachine": "EXP"}, ad={"SubMachine": "ADS"})
-        assert resolve_system(loaded, None) == "EXP"
-
-    def test_ad_submachine_when_export_names_none(self):
-        """An _export block without submachine falls through to the AD."""
-        loaded = _flat(export={"exporter": "mml_export 1.0.0"}, ad={"SubMachine": "ADS"})
-        assert resolve_system(loaded, None) == "ADS"
-
-    def test_blank_submachine_is_not_a_token(self):
-        """A blank _export.submachine falls through to AD.SubMachine."""
-        loaded = _flat(export={"submachine": "  "}, ad={"SubMachine": "ADS"})
-        assert resolve_system(loaded, None) == "ADS"
+    @pytest.mark.parametrize(
+        ("export", "ad", "explicit", "expected"),
+        [
+            # Rule 2 precedes rule 3.
+            pytest.param(
+                {"submachine": "EXP"},
+                {"SubMachine": "ADS"},
+                "LTB",
+                "LTB",
+                id="explicit_system_wins_over_export_and_ad",
+            ),
+            # Rule 3 reads _export.submachine before AD.SubMachine.
+            pytest.param(
+                {"submachine": "EXP"},
+                {"SubMachine": "ADS"},
+                None,
+                "EXP",
+                id="export_submachine_wins_over_ad",
+            ),
+            # An _export block without submachine falls through to the AD.
+            pytest.param(
+                {"exporter": "mml_export 1.0.0"},
+                {"SubMachine": "ADS"},
+                None,
+                "ADS",
+                id="ad_submachine_when_export_names_none",
+            ),
+            # A blank _export.submachine falls through to AD.SubMachine.
+            pytest.param(
+                {"submachine": "  "},
+                {"SubMachine": "ADS"},
+                None,
+                "ADS",
+                id="blank_submachine_is_not_a_token",
+            ),
+        ],
+    )
+    def test_the_token_comes_from_the_first_rule_that_yields_one(
+        self, export, ad, explicit, expected
+    ):
+        """Rules 2 and 3 in order: --system, then _export.submachine, then AD.SubMachine."""
+        assert resolve_system(_flat(export=export, ad=ad), explicit) == expected
 
     def test_no_rule_applies_is_usage_error_naming_file(self):
         """Rule 4: nothing yields a token."""

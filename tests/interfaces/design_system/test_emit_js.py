@@ -378,7 +378,14 @@ def test_render_tokens_js_carries_no_color_palettes() -> None:
         assert forbidden not in content
 
 
-def test_render_tokens_js_is_hook_clean() -> None:
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(render_tokens_js, id="render_tokens_js"),
+        pytest.param(render_theme_boot_js, id="render_theme_boot_js"),
+    ],
+)
+def test_is_hook_clean(render) -> None:
     tree = _tree(
         {
             "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
@@ -386,18 +393,7 @@ def test_render_tokens_js_is_hook_clean() -> None:
         }
     )
 
-    _assert_hook_clean(render_tokens_js(tree))
-
-
-def test_render_tokens_js_is_deterministic() -> None:
-    tree = _tree(
-        {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
-        }
-    )
-
-    assert render_tokens_js(tree) == render_tokens_js(tree)
+    _assert_hook_clean(render(tree))
 
 
 def test_render_tokens_js_escapes_label_safely() -> None:
@@ -713,28 +709,6 @@ def test_render_theme_boot_js_does_not_unconditionally_clobber_server_attr() -> 
     assert unconditional_write is not None
     guarded_line_start = content.index("if (resolved && resolved !== serverTheme)")
     assert unconditional_write.start() > guarded_line_start
-
-
-def test_render_theme_boot_js_is_hook_clean() -> None:
-    tree = _tree(
-        {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
-        }
-    )
-
-    _assert_hook_clean(render_theme_boot_js(tree))
-
-
-def test_render_theme_boot_js_is_deterministic() -> None:
-    tree = _tree(
-        {
-            "dark": {"id": "dark", "label": "Dark", "mode": "dark", "family": "main"},
-            "light": {"id": "light", "label": "Light", "mode": "light", "family": "main"},
-        }
-    )
-
-    assert render_theme_boot_js(tree) == render_theme_boot_js(tree)
 
 
 # --- Full pipeline: a tiny, valid tokens/ tree on disk -----------------------------

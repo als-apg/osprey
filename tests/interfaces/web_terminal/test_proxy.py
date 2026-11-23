@@ -448,20 +448,19 @@ class TestSecretInjection:
     of relay.
     """
 
-    def test_config_defined_loopback_panel_gets_secret(self, panels_app):
+    @pytest.mark.parametrize(
+        "panel_path",
+        [
+            pytest.param("/panel/trusted/api/status", id="config_defined_loopback_panel"),
+            # A framework sidecar's URL comes from app.state, so it is declared.
+            pytest.param(f"/panel/{FRAMEWORK_PANEL_ID}/api/status", id="framework_panel"),
+        ],
+    )
+    def test_a_declared_loopback_panel_gets_secret(self, panels_app, panel_path):
         app, _client = panels_app
         captured = _capture_request(app)
 
-        _cookie_client(app).get("/panel/trusted/api/status")
-
-        assert _lower(captured).get("x-osprey-terminal-secret") == OPERATOR_SECRET
-
-    def test_framework_panel_gets_secret(self, panels_app):
-        """A framework sidecar's URL comes from app.state, so it is declared."""
-        app, _client = panels_app
-        captured = _capture_request(app)
-
-        _cookie_client(app).get(f"/panel/{FRAMEWORK_PANEL_ID}/api/status")
+        _cookie_client(app).get(panel_path)
 
         assert _lower(captured).get("x-osprey-terminal-secret") == OPERATOR_SECRET
 
@@ -1453,12 +1452,15 @@ class TestRedirectPrefixIdempotence:
     def test_naive_root_absolute_location_still_gains_the_prefix(self):
         assert self._rewrite("/day/2026-08-31") == self.PREFIX + "/day/2026-08-31"
 
-    def test_prefix_aware_root_absolute_location_is_relayed_unchanged(self):
-        aware = self.PREFIX + "/day/2026-08-31"
-        assert self._rewrite(aware) == aware
-
-    def test_prefix_aware_location_with_query_is_relayed_unchanged(self):
-        aware = self.PREFIX + "?experiment=Undulator"
+    @pytest.mark.parametrize(
+        "suffix",
+        [
+            pytest.param("/day/2026-08-31", id="prefix_aware_root_absolute_location"),
+            pytest.param("?experiment=Undulator", id="prefix_aware_location_with_query"),
+        ],
+    )
+    def test_is_relayed_unchanged(self, suffix):
+        aware = self.PREFIX + suffix
         assert self._rewrite(aware) == aware
 
     def test_bare_prefix_location_is_relayed_unchanged(self):
