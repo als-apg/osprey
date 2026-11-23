@@ -650,6 +650,20 @@ The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
 test with the build's own message. Run pytest with the app's directory
 on the import path, so the test can import the app's package.
 
+The simulator in process holds its time-driven models still: an injection
+chain serves its start values and a request takes no shot. A test of an app
+that asks for shots states ``evolve`` in the ``config:`` of the ``profile``
+it hands the fixture, and the backend's connector then runs them, with no
+container:
+
+.. code-block:: python
+
+   profile = {"config": {"control_system.connector.virtual_accelerator.evolve": True}}
+
+A shot lives in the connector that took the request, so read its outcome
+through the same backend; :ref:`Shots in process <va-in-process-evolve>` says
+what a second connector sees.
+
 Dependencies
 ============
 
