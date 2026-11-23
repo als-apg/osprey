@@ -313,6 +313,41 @@ def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
     }
 
 
+def test_a_device_counts_under_every_place_above_it_and_under_no_other() -> None:
+    document = {
+        "identity": {"code": "lab"},
+        "places": [
+            {"id": "A"},
+            {"id": "A/1"},
+            {"id": "A/1/x"},
+            {"id": "A/10"},
+            {"id": "B"},
+            {"id": "EMPTY"},
+        ],
+        "devices": [
+            {"id": "d1", "class": QUAD, "place": "A/1/x"},
+            {"id": "d2", "class": BPM, "place": "A/10"},
+            {"id": "d3", "place": "A/1"},
+            {"id": "d4", "class": QUAD, "place": "B/unlisted/deep"},
+            {"id": "d5", "class": BPM, "place": "AB"},
+        ],
+        "channels": [],
+    }
+
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
+
+    assert {place["id"]: place["devices"] for place in facts["places"]} == {
+        "A": {"-": 1, BPM: 1, QUAD: 1},
+        "A/1": {"-": 1, QUAD: 1},
+        "A/1/x": {QUAD: 1},
+        "A/10": {BPM: 1},
+        "B": {QUAD: 1},
+        "EMPTY": {},
+    }
+    for place in facts["places"]:
+        assert list(place["devices"]) == sorted(place["devices"])
+
+
 def test_two_renders_differing_in_served_models_write_different_facts(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
