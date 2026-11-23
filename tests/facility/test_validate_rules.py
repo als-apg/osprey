@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from osprey.cli.facility_report import validate_facility
+from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import ChannelSelection
 from osprey_facility.schema import core
@@ -28,7 +29,6 @@ from osprey_facility.validate import (
     sort_errors,
     validate,
 )
-from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS
 from tests._builds import FRAMEWORK_CHECKS
 
 CORE_YAML = (
