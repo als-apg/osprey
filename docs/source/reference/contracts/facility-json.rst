@@ -189,24 +189,26 @@ What holds today
        ``published_schema`` resolves them, and the compat module
    * - Readers ignore unknown keys
      - Enforced for the panel engine
-     - ``tests/facility/panels/test_unknown_keys.py``; the framework's readers
+     - ``packages/osprey-panels/tests/osprey_panels_tests/test_unknown_keys.py``; the framework's readers
        look up the keys they use and pass over the rest, not checked
    * - Readers check ``N`` and act on others through their channel
      - Enforced
      - ``tests/facility/test_reader_coverage.py``: every function that reads
        the document reaches the header check and is on the reader roster
        with its channel and a test that hands it a ``/3`` document; the
-       panel engine in ``tests/facility/panels/test_document.py``
+       panel engine in
+       ``packages/osprey-panels/tests/osprey_panels_tests/test_document.py``
 
 The readers
 ===========
 
 The contract binds every reader of ``facility.json``, and every reader checks
-the header today. The panel engine (``osprey.facility.panels.document``)
+the header today. The panel engine (``osprey_panels.document``)
 refuses: it reads ``/4`` and imports no facility code, because it is the
 reader a fork replaces.
 
-Each framework reader is on the reader roster with its channel, below. The
+Each framework reader, and the ``osprey-panels`` command's, is on the reader
+roster with its channel, below. The
 roster is ``tests/facility/_reader_roster.py``;
 ``tests/facility/test_reader_coverage.py`` holds it complete, and a docs test
 holds this table equal to it.
@@ -279,7 +281,7 @@ holds this table equal to it.
      - refuse
    * - ``osprey.cli.build_injectors._inject_dispatch``
      - refuse
-   * - ``osprey.cli.facility_cmd._panel_graph``
+   * - ``osprey_panels.cli._graph``
      - refuse
 
 The write guard (``osprey.runtime.guarded_run``) refuses, because a write must
