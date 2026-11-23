@@ -214,7 +214,7 @@ def test_the_first_line_is_the_facility_file_sha256() -> None:
 
 _GRAPH_DIGEST = """
 import hashlib, json, sys
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
 from osprey.facility.views.graph import graph_text
 print(hashlib.sha256(graph_text(FacilityRecords(json.load(sys.stdin))).encode()).hexdigest())
 """
