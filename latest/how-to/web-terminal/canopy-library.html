@@ -641,7 +641,11 @@ generates it from the screens. It lists, per screen, the channels it can
 write, the commands it can run, and the displays and web addresses it can
 open. It is what a reviewer reads: the diff of <code class="docutils literal notranslate"><span class="pre">LIBRARY-REPORT.md</span></code> shows
 what a change lets people do to the machine.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">navigation.json</span></code>, optional: the order and grouping of the screens in the
+viewer’s sidebar (see <a class="reference internal" href="#canopy-library-navigation"><span class="std std-ref">Order the sidebar</span></a>).</p></li>
 </ul>
+<p>Nothing else belongs in that directory, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses any other
+entry by name.</p>
 <p>One rule keeps the two honest: <strong>every change to the screens is one commit
 together with the regenerated report</strong>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks that the report
 still matches the files before it builds anything, and the image build has
@@ -822,6 +826,32 @@ screen file means a later commit changed that screen: decide what it should
 hold and <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">add</span></code> it before the next revert. Going back to an older image
 is not a rollback: the next build ships what git holds.</p>
 </section>
+<section id="order-the-sidebar">
+<span id="canopy-library-navigation"></span><h2>Order the sidebar<a class="headerlink" href="#order-the-sidebar" title="Link to this heading">#</a></h2>
+<p>Without further input the viewer’s sidebar shows the library as its folder
+tree. To choose the order, the names and the grouping yourself, write
+<code class="docutils literal notranslate"><span class="pre">data/canopy/library/navigation.json</span></code>, beside <code class="docutils literal notranslate"><span class="pre">screens/</span></code>:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">[</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/overview&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Start here&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="p">{</span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Magnets&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/magnets/all&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;children&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/magnets/sector-1&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 1&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;screen&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;library/magnets/sector-2&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Sector 2&quot;</span><span class="p">}</span>
+<span class="w">  </span><span class="p">]}</span>
+<span class="p">]</span>
+</pre></div>
+</div>
+<p>The file is a list of entries. A leaf names a screen as <code class="docutils literal notranslate"><span class="pre">library/&lt;id&gt;</span></code>, with
+an optional <code class="docutils literal notranslate"><span class="pre">label</span></code>. A group has a <code class="docutils literal notranslate"><span class="pre">label</span></code> and <code class="docutils literal notranslate"><span class="pre">children</span></code>, and may name a
+<code class="docutils literal notranslate"><span class="pre">screen</span></code> of its own, which its name then opens. An entry takes no other key.
+Commit the file like any other change to the deployment; it is not part of the
+report, so changing it alone needs no regenerated report.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the file and refuses a library whose navigation the
+viewer would not draw as written: a file that is not a JSON list of such
+entries, one over 256 KiB, nested deeper than 8 levels or holding more than
+2000 entries, a label over 120 characters, or a <code class="docutils literal notranslate"><span class="pre">screen</span></code> the library does not
+hold. The file has to be a regular file; a symlink or a directory of that name
+is refused.</p>
+</section>
 <section id="facility-collections">
 <h2>Facility collections<a class="headerlink" href="#facility-collections" title="Link to this heading">#</a></h2>
 <p>A <strong>collection</strong> opens several screens and tools together in one view. The
@@ -842,10 +872,14 @@ when:</p>
 <li><p>the report is missing, or no longer matches the files (the line lists every
 file added, changed or missing);</p></li>
 <li><p>the report was written in a format this OSPREY release does not read;</p></li>
-<li><p>the library holds something other than screens, images and the report: a
+<li><p>the library holds something other than screens, images, the report and
+<code class="docutils literal notranslate"><span class="pre">navigation.json</span></code>: a
 symlink, a dotfile, a leftover <code class="docutils literal notranslate"><span class="pre">.*.tmp</span></code> file, two names that differ only
 in case, or an SVG (SVG is markup a browser runs; convert it to a raster
 image);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">navigation.json</span></code> is not a navigation the viewer draws as written, or
+names a screen the library does not hold (see
+<a class="reference internal" href="#canopy-library-navigation"><span class="std std-ref">Order the sidebar</span></a>);</p></li>
 <li><p>a file is not readable by other users, or is writable by them. The refusal
 prints the <code class="docutils literal notranslate"><span class="pre">chmod</span> <span class="pre">-R</span> <span class="pre">o+rX,o-w</span></code> command that fixes it.</p></li>
 </ul>
@@ -913,6 +947,7 @@ prints the <code class="docutils literal notranslate"><span class="pre">chmod</s
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-screens-on-your-own-machine">Build screens on your own machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#regenerate-the-report">Regenerate the report</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#remove-restore-or-undo-a-screen">Remove, restore or undo a screen</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#order-the-sidebar">Order the sidebar</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-collections">Facility collections</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#when-the-build-refuses-the-library">When the build refuses the library</a></li>
 </ul>
