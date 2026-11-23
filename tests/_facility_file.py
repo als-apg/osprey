@@ -29,7 +29,7 @@ _DEMO_BYTES: bytes | None = None
 
 #: The header of the facility document the readers read, spelled here so this
 #: module imports nothing of osprey; ``tests/facility/test_reading.py`` holds it
-#: in ``osprey.facility.reading.READS``.
+#: in ``osprey_facility.reading.READS``.
 FACILITY_V4 = "osprey.facility.facility/4"
 
 #: The name of the facility file at the root of a render.
@@ -44,7 +44,7 @@ def write_facility_document(
     The raw form: no build runs and nothing is checked, so a test can write a
     document a reader must refuse -- a foreign header, a header-less document,
     a non-object. A test that writes a header outside
-    ``osprey.facility.reading.READS`` carries the ``foreign_header`` marker.
+    ``osprey_facility.reading.READS`` carries the ``foreign_header`` marker.
 
     Args:
         root: The directory that holds ``facility.json``, normally a render root.
@@ -138,8 +138,8 @@ def write_facility_file(
     Returns:
         The path of the facility file that now exists on disk.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import FACILITY_FILE, facility_bytes
+    from osprey_facility.build import build_facility
+    from osprey_facility.render import FACILITY_FILE, facility_bytes
     from tests.facility._synthetic_trees import write_tree
 
     with tempfile.TemporaryDirectory() as scratch:
@@ -155,7 +155,7 @@ def write_facility_file(
 
 @functools.cache
 def _demo_document() -> dict[str, Any]:
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
     from tests._preset_data import packaged_facility_dir
 
     return build_facility(
@@ -190,10 +190,10 @@ def write_demo_facility_file(render: Path | str) -> Path:
         The path of the facility file that now exists on disk.
     """
     global _DEMO_BYTES
-    from osprey.facility.render import FACILITY_FILE
+    from osprey_facility.render import FACILITY_FILE
 
     if _DEMO_BYTES is None:
-        from osprey.facility.render import facility_bytes
+        from osprey_facility.render import facility_bytes
 
         _DEMO_BYTES = facility_bytes(_demo_document())
     target = Path(render) / FACILITY_FILE
@@ -219,8 +219,8 @@ def write_facility_views(render: Path | str, bundle: str = "demo") -> list[Path]
     """
     import yaml
 
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
     from tests._preset_data import packaged_facility_dir
 
     render = Path(render)
