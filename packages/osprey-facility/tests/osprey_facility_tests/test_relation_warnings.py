@@ -10,9 +10,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.validate import StageReport, run_stages
-from tests._builds import FRAMEWORK_CHECKS
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import StageReport, run_stages
+from osprey_facility_tests._harness import NO_EXTRA_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -26,7 +26,7 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 def _run(root: Path, files: dict[str, Any]) -> StageReport:
     report = run_stages(
-        _write(root, files), project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        _write(root, files), project_name="p", later=LATER_STAGES, extra_checks=NO_EXTRA_CHECKS
     )
     assert report.failed is None, [e.format_message() for e in report.errors]
     return report
@@ -342,7 +342,7 @@ class TestRepeatedPlaceNames:
         assert _place_lines(_run(tmp_path, files)) == []
 
     def test_the_kind_is_not_registered(self) -> None:
-        from osprey.facility.errors import WARNING_KINDS
+        from osprey_facility.errors import WARNING_KINDS
 
         assert "place-parents-disagree" not in WARNING_KINDS
 
@@ -406,17 +406,8 @@ class TestPlaceUnplaced:
         assert _place_lines(_run(tmp_path, files)) == []
 
 
-def test_the_bundled_example_raises_no_place_warning() -> None:
-    example = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-    report = run_stages(
-        example, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
-    )
-    assert report.failed is None, [e.format_message() for e in report.errors]
-    assert _place_lines(report) == []
-
-
 def test_the_relations_layers_are_the_marked_ones(tmp_path: Path) -> None:
-    from osprey.facility.sources import load_sources
+    from osprey_facility.sources import load_sources
 
     files = _place_tree(
         **_relations_layer("cab", [{"id": "HUT"}]),
@@ -438,6 +429,6 @@ def test_the_relations_layers_are_the_marked_ones(tmp_path: Path) -> None:
     ],
 )
 def test_kinds_are_registered(kind: str) -> None:
-    from osprey.facility.errors import WARNING_KINDS
+    from osprey_facility.errors import WARNING_KINDS
 
     assert kind in WARNING_KINDS

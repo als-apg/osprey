@@ -7,9 +7,9 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.places import places
-from osprey.facility.layers.relations.tables import PLACES, Refusals, read_table
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.places import places
+from osprey_facility.layers.relations.tables import PLACES, Refusals, read_table
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:

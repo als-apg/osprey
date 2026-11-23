@@ -8,11 +8,11 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.combine import combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.sources import load_sources
-from osprey.facility.validate import StageReport, check_references, run_stages
-from tests._builds import FRAMEWORK_CHECKS
+from osprey_facility.combine import combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.sources import load_sources
+from osprey_facility.validate import StageReport, check_references, run_stages
+from osprey_facility_tests._harness import NO_EXTRA_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -25,7 +25,7 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path, files), project_name="p", extra_checks=FRAMEWORK_CHECKS)
+    return run_stages(_write(tmp_path, files), project_name="p", extra_checks=NO_EXTRA_CHECKS)
 
 
 def _one(report: StageReport) -> FacilityBuildError:

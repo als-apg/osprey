@@ -7,10 +7,10 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.names import names
-from osprey.facility.layers.relations.tables import NAMES, Refusals, Row, read_table
-from osprey.facility.sources import keyed_clashes
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.names import names
+from osprey_facility.layers.relations.tables import NAMES, Refusals, Row, read_table
+from osprey_facility.sources import keyed_clashes
 
 HEADER = "thing,name,scheme,basis,rule,document,version,locator\n"
 

@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.relations import compute_standing
-from osprey.facility.validate import relation_types
+from osprey_facility.relations import compute_standing
+from osprey_facility.validate import relation_types
 
 _DOCUMENTS = [
     {"id": "spec-1", "title": "Spec", "kind": "spec", "system": "s"},

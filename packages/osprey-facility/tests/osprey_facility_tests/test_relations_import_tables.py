@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.errors import LayerSourceInvalid
-from osprey.facility.layers.relations.tables import (
+from osprey_facility.errors import LayerSourceInvalid
+from osprey_facility.layers.relations.tables import (
     CITATION_COLUMNS,
     FOLD_LIMIT,
     MEMBERS,

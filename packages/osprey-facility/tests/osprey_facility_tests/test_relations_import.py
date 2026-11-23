@@ -8,9 +8,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.errors import LayerSourceInvalid
-from osprey.facility.layers import relations as relations_layer
-from osprey.facility.layers.relations import import_relations
+from osprey_facility.errors import LayerSourceInvalid
+from osprey_facility.layers import relations as relations_layer
+from osprey_facility.layers.relations import import_relations
 
 HEADER = "type,subject,object,subject_kind,object_kind,subject_class,document,version,imported\n"
 
@@ -118,7 +118,7 @@ class TestWrite:
         assert sorted(p.name for p in facility.iterdir()) == ["imported", "records"]
 
     def test_the_build_loader_reads_the_layer(self, tmp_path: Path) -> None:
-        from osprey.facility.sources import load_sources
+        from osprey_facility.sources import load_sources
 
         facility = _tree(tmp_path)
         import_relations(_relations(tmp_path, *ROWS), facility, "cables")
@@ -135,8 +135,8 @@ class TestMemberOfAnotherSourcesGroup:
         import_relations(_relations(tmp_path, ROWS[0]), facility, "cables", members=members)
         written = yaml.safe_load((facility / "imported/cables/groups.yaml").read_text())
         assert written == [{"id": "QUADS", "members": ["PS1"]}]
-        from osprey.facility.combine import combine
-        from osprey.facility.sources import load_sources
+        from osprey_facility.combine import combine
+        from osprey_facility.sources import load_sources
 
         loaded = load_sources(facility)
         assert loaded.errors == []
@@ -148,8 +148,8 @@ class TestMemberOfAnotherSourcesGroup:
 
 class TestNameOfAnotherSourcesRecord:
     def test_the_layer_states_the_name_and_the_build_carries_both(self, tmp_path: Path) -> None:
-        from osprey.facility.combine import combine
-        from osprey.facility.sources import load_sources
+        from osprey_facility.combine import combine
+        from osprey_facility.sources import load_sources
 
         facility = _tree(
             tmp_path,

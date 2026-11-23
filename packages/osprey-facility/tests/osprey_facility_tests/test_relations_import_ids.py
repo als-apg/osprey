@@ -7,8 +7,8 @@ import re
 
 import pytest
 
-from osprey.facility.layers.relations.ids import claim_id
-from osprey.facility.validate import relation_types
+from osprey_facility.layers.relations.ids import claim_id
+from osprey_facility.validate import relation_types
 
 TYPES = relation_types()
 

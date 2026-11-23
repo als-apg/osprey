@@ -7,9 +7,9 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.layers.relations.claims import claims
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.tables import RELATIONS, Refusals, Row, read_table
+from osprey_facility.layers.relations.claims import claims
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.tables import RELATIONS, Refusals, Row, read_table
 
 HEADER = (
     "type,subject,object,subject_kind,object_kind,subject_port,object_port,object_unit,"

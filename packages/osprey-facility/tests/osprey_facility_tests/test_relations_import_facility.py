@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.errors import LayerSourceInvalid
-from osprey.facility.layers.relations.facility import FacilityIndex
+from osprey_facility.errors import LayerSourceInvalid
+from osprey_facility.layers.relations.facility import FacilityIndex
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:

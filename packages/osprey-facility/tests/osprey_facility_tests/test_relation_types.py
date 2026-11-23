@@ -3,14 +3,14 @@
 ``vocabulary.yaml`` states the thirteen relation types as one closed enum whose
 values carry their ends, symmetry and single-valued key as annotations;
 ``vocabulary.json`` carries them as the ``relations`` table, and
-:func:`osprey.facility.validate.relation_types` reads it without LinkML.
+:func:`osprey_facility.validate.relation_types` reads it without LinkML.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from osprey.facility.validate import relation_types, vocabulary
+from osprey_facility.validate import relation_types, vocabulary
 
 D = ["device"]
 DP = ["device", "place"]

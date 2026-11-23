@@ -7,12 +7,12 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.combine import FIXES_HEADER, CombineResult, combine
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.provenance import build_provenance
-from osprey.facility.sources import load_sources
-from osprey.facility.validate import run_stages
-from tests._builds import FRAMEWORK_CHECKS
+from osprey_facility.combine import FIXES_HEADER, CombineResult, combine
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.provenance import build_provenance
+from osprey_facility.sources import load_sources
+from osprey_facility.validate import run_stages
+from osprey_facility_tests._harness import NO_EXTRA_CHECKS
 
 
 def _write(root: Path, files: dict[str, Any]) -> Path:
@@ -214,7 +214,7 @@ class TestSchema:
                 ]
             },
         )
-        report = run_stages(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
+        report = run_stages(root, project_name="p", extra_checks=NO_EXTRA_CHECKS)
         err = _one(report.errors)
         assert (err.kind, err.record_kind, err.record_id) == (
             "source-invalid",
@@ -229,7 +229,7 @@ class TestSchema:
             tmp_path / "facility",
             {"imported/mml/relations.yaml": [{**_claim("q1-power"), "type": "not_a_type"}]},
         )
-        err = _one(run_stages(root, project_name="p", extra_checks=FRAMEWORK_CHECKS).errors)
+        err = _one(run_stages(root, project_name="p", extra_checks=NO_EXTRA_CHECKS).errors)
         assert err.record_id == "relations.0.type"
         assert list(err.sources) == ["imported/mml/relations.yaml"]
 
@@ -406,7 +406,7 @@ class TestGroupMembership:
 
     def test_the_warning_reaches_the_stage_report(self, tmp_path: Path) -> None:
         report = run_stages(
-            _write(tmp_path, _TWO_STATEMENTS), project_name="p", extra_checks=FRAMEWORK_CHECKS
+            _write(tmp_path, _TWO_STATEMENTS), project_name="p", extra_checks=NO_EXTRA_CHECKS
         )
         assert report.failed is None, [e.format_message() for e in report.errors]
         assert [w.kind for w in report.validated.warnings] == ["members-disagree"]
@@ -416,9 +416,7 @@ class TestThroughTheStages:
     def test_a_group_subject_on_powered_by_stops_at_records(self, tmp_path: Path) -> None:
         # B-8: powered_by allows a device or place subject, so `quads-power`
         # resolves at S4 and stops at S5 with relation-invalid.
-        report = run_stages(
-            _write(tmp_path, _TREE), project_name="p", extra_checks=FRAMEWORK_CHECKS
-        )
+        report = run_stages(_write(tmp_path, _TREE), project_name="p", extra_checks=NO_EXTRA_CHECKS)
         assert report.failed == "records", [e.format_message() for e in report.errors]
         err = _one(report.errors)
         assert (err.kind, err.record_kind, err.record_id) == (

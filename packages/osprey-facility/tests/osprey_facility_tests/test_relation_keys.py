@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.relations import (
+from osprey_facility.relations import (
     COARSE_KEY_ATTRIBUTE,
     COARSE_PLACE,
     COARSE_PORT,
@@ -16,7 +16,7 @@ from osprey.facility.relations import (
     shape_problems,
     spell_key,
 )
-from osprey.facility.validate import relation_types
+from osprey_facility.validate import relation_types
 
 
 @pytest.fixture(scope="module")

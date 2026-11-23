@@ -7,9 +7,9 @@ from typing import Any
 
 import yaml
 
-from osprey.facility.layers.relations.facility import FacilityIndex
-from osprey.facility.layers.relations.members import group_ids, groups
-from osprey.facility.layers.relations.tables import MEMBERS, Refusals, Row, read_table
+from osprey_facility.layers.relations.facility import FacilityIndex
+from osprey_facility.layers.relations.members import group_ids, groups
+from osprey_facility.layers.relations.tables import MEMBERS, Refusals, Row, read_table
 
 HEADER = "group,member,member_kind,document,version,locator\n"
 
