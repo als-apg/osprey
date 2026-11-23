@@ -17,7 +17,7 @@ the ``/3`` build byte for byte, before that removal, run from the repo root::
     (cd .claude/scratch/role-views && uv run python - <<'PY'
     import json, tempfile
     from pathlib import Path
-    from osprey_facility.records import FacilityRecords
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.channel_finder import _signal_descriptions
     from tests._builds import build_demo
     golden = Path("golden.json")

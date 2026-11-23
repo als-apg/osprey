@@ -204,6 +204,8 @@ def test_the_check_ids_are_the_public_names() -> None:
         "connectors-public-names",
         "facility-public-names",
         "facility-wheel-build",
+        "panels-public-names",
+        "panels-wheel-build",
         "canopy-marker",
         "canopy-contract",
     ]
@@ -218,6 +220,7 @@ def test_the_check_ids_are_the_public_names() -> None:
         "linkcheck",
         "package",
         "facility-wheel-build",
+        "panels-wheel-build",
     ]
 
 
@@ -1118,6 +1121,7 @@ SHARD_SELECTIONS = {
         "tests/",
         "packages/osprey-connectors/tests",
         "packages/osprey-facility/tests",
+        "packages/osprey-panels/tests",
         "--ignore=tests/cli",
         "--ignore=tests/facility",
         "--ignore=tests/deployment",
@@ -1575,6 +1579,7 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
         {path.as_posix() for path in (REPO_ROOT / "tests").iterdir() if path.is_dir()}
         | {(REPO_ROOT / "packages/osprey-connectors/tests").as_posix()}
         | {(REPO_ROOT / "packages/osprey-facility/tests").as_posix()}
+        | {(REPO_ROOT / "packages/osprey-panels/tests").as_posix()}
     )
 
     def owners(top: str) -> list[str]:
@@ -1876,7 +1881,7 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
     assert bounds("quick") == ["1800", "1800"]
-    assert bounds("full") == ["5400", "600", "900", "900", "900", "600", "600", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "900", "600", "600", "600", "1800"]
 
 
 def test_both_tiers_deselect_the_canopy_contract() -> None:
@@ -2762,16 +2767,19 @@ class Recorder:
 #: ``ROOT``, not ``kit.ROOT``.
 _connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
 _facility_checks = check.DECLARED.modules["packages/osprey-facility/repo_checks.py"]
+_panels_checks = check.DECLARED.modules["packages/osprey-panels/repo_checks.py"]
 #: The sweeps, run once per worker for each root: every ``check.main`` here
 #: is about the runner, and the real tree does not change during a session.
 _cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
 _cached_facility_stray_exports = functools.cache(_facility_checks.stray_exports)
+_cached_panels_stray_exports = functools.cache(_panels_checks.stray_exports)
 
 
 @pytest.fixture(autouse=True)
 def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
     monkeypatch.setattr(_facility_checks, "stray_exports", _cached_facility_stray_exports)
+    monkeypatch.setattr(_panels_checks, "stray_exports", _cached_panels_stray_exports)
 
 
 @pytest.fixture
@@ -4919,10 +4927,12 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     declared beside it and collected after the framework's."""
     connectors = "packages/osprey-connectors/repo_checks.py"
     facility = "packages/osprey-facility/repo_checks.py"
+    panels = "packages/osprey-panels/repo_checks.py"
     assert list(check.DECLARED.modules) == [
         check.FRAMEWORK_MODULE,
         connectors,
         facility,
+        panels,
         CANOPY_MODULE,
     ]
     own = {lane.job for lane in check.DECLARED.modules[connectors].LANES}
@@ -4938,6 +4948,17 @@ def test_the_facility_package_declares_its_own_lane() -> None:
         lane.job for lane in check.DECLARED.modules["packages/osprey-facility/repo_checks.py"].LANES
     }
     assert own == {"osprey-facility-standalone"}
+    assert own <= {lane.job for lane in check.LANES}
+    assert not own & {lane.job for lane in fw.LANES}
+
+
+def test_the_panels_package_declares_its_own_lane() -> None:
+    """The lane that installs the panels package alone is the package's,
+    declared beside it and collected with the others."""
+    own = {
+        lane.job for lane in check.DECLARED.modules["packages/osprey-panels/repo_checks.py"].LANES
+    }
+    assert own == {"osprey-panels-standalone"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
 
@@ -5122,6 +5143,20 @@ def test_a_dependency_only_range_touches_the_contract(dependency: str) -> None:
     """The contract proves the code and the environment it runs in: a range
     that changes only what gets installed selects it."""
     plan = check.select("quick", [dependency], (), check.repository_files())
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/osprey-panels/src/osprey_panels/emit.py",
+        "packages/osprey-panels/src/osprey_panels/screen-ir.schema.json",
+    ],
+)
+def test_a_panels_emitter_change_touches_the_contract(path: str) -> None:
+    """The panels package writes the screens CANOPY loads: a change to its
+    emitter or to the schema those screens follow selects the contract."""
+    plan = check.select("quick", [path], (), check.repository_files())
     assert plan.selections["canopy-contract"].state == check.WHOLE
 
 

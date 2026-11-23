@@ -65,6 +65,8 @@ coverage.json
 # Environment directories
 .env
 .venv
+# Side environments, e.g. UV_PROJECT_ENVIRONMENT=.venv-panels for a package synced alone
+.venv-*/
 env/
 venv/
 ENV/
@@ -213,6 +215,7 @@ src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
 packages/osprey-facility/src/osprey_facility/_version.py
 packages/osprey-optimizer/src/osprey_optimizer/_version.py
+packages/osprey-panels/src/osprey_panels/_version.py
 packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
 
 # feature-scaffolding logs (not committed)

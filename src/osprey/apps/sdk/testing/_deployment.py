@@ -8,6 +8,12 @@ hands back a :class:`ServedTree`: the environment the build gave the
 application's container, with its mounts read as the host paths they bind and
 its configuration pointed at the one login's render.
 
+A container that drives the target judges an owner's write by the build's
+login-to-tier map, ``control_system.login_tiers``, which no login's render
+carries. The served configuration carries it: each owner the panel's grant
+admits, at the served login's write ceiling, or at the tier the test states
+(``serve(login, tiers={owner: "never"})``).
+
 Every login is a ``tiers/`` file stating its write ceiling, and every session
 runs on the simulator served in process (``va``): a build renders logins, access
 and writes are judged per login, and the machine an owner acts on is that
@@ -18,6 +24,8 @@ another machine writes that owner's record into :attr:`ServedTree.control_tree`.
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -152,19 +160,27 @@ class Deployment:
         self._rendered = RenderedTree.read(self.root, result.output)
         return self._rendered
 
-    def serve(self, login: str, container: str | None = None) -> ServedTree:
+    def serve(
+        self,
+        login: str,
+        container: str | None = None,
+        *,
+        tiers: Mapping[str, str | None] | None = None,
+    ) -> ServedTree:
         """One application container's environment on *login*'s render, built first if need be.
 
         Args:
             login: The login whose render the backend is given.
             container: The application container, by its ``app.yml`` key; may be
                 omitted when the deployment runs one.
+            tiers: The tier an owner is served at, in place of the login's
+                ceiling, as in :meth:`RenderedTree.serve`.
 
         Returns:
             The served tree.
         """
         rendered = self._rendered if self._rendered is not None else self.build()
-        return rendered.serve(login, container)
+        return rendered.serve(login, container, tiers=tiers)
 
 
 @dataclass(frozen=True)
@@ -233,7 +249,13 @@ class RenderedTree:
         skills = self._config_path(login).parent / ".claude" / "skills"
         return {path.parent.name: path for path in sorted(skills.glob("*/SKILL.md"))}
 
-    def serve(self, login: str, container: str | None = None) -> ServedTree:
+    def serve(
+        self,
+        login: str,
+        container: str | None = None,
+        *,
+        tiers: Mapping[str, str | None] | None = None,
+    ) -> ServedTree:
         """One application container's environment on *login*'s render.
 
         The environment is the one the build wrote into the container's compose
@@ -241,16 +263,31 @@ class RenderedTree:
         interpolated secret given a test value, and the configuration the
         login's render.
 
+        A container the build staged the login-to-tier map for (one that
+        drives the target) is served that map as well, in a copy of the render
+        written beside it: each owner the panel's grant admits, at the login's
+        write ceiling. *tiers* states another tier for an owner, so a test
+        reaches the refusals a backend answers for an owner it may not write
+        for.
+
         Args:
             login: The login whose render the backend is given.
             container: The application container, by its ``app.yml`` key; may be
                 omitted when the deployment runs one.
+            tiers: Each owner served at another tier than the login's ceiling:
+                ``never``, ``asked`` or ``allowed``, or ``None`` to leave the
+                owner out of the map, as the build leaves out an owner whose
+                tier it cannot read.
 
         Returns:
             The served tree.
 
         Raises:
-            KeyError: The deployment has no such login, or no such application container.
+            KeyError: The deployment has no such login, or no such application
+                container, or *tiers* names an owner the panel's grant does
+                not admit.
+            ValueError: *tiers* holds a word that is no tier, or the container
+                reads no login tiers.
         """
         from osprey.apps.manifest import launch_token_env
         from osprey.deployment.compose_generator import control_target_tree_dir
@@ -259,14 +296,12 @@ class RenderedTree:
             roster_owners,
         )
 
-        config_path = self._config_path(login)
-        key, service = self._container(container)
+        render_path = self._config_path(login)
+        key, service, staged = self._container(container)
         mounts = _mounts(self.root, service.get("volumes") or [])
         env: dict[str, str] = {}
         for name, raw in _environment(service).items():
             env[name] = _host_value(_INTERPOLATION.sub(_test_value, raw), mounts)
-        for name in _CONFIG_ENV:
-            env[name] = str(config_path)
 
         # The terminal's own reading of the roster, on this environment's value.
         owners = roster_owners(env)
@@ -275,6 +310,12 @@ class RenderedTree:
             for suffix, owner in owners.items()
         }
         secrets = {owner: secret for owner, secret in harvested.items() if secret}
+        served_tiers = self._tiers(login, key, staged, secrets, tiers or {})
+        config_path = render_path
+        if served_tiers is not None:
+            config_path = _write_served_config(render_path, key, served_tiers)
+        for name in _CONFIG_ENV:
+            env[name] = str(config_path)
         app = env.get("OSPREY_APP_NAME", "")
         token_env = launch_token_env(app) if app else None
         return ServedTree(
@@ -282,6 +323,7 @@ class RenderedTree:
             container=key,
             app=app,
             config_path=config_path,
+            tiers=served_tiers or {},
             control_tree=Path(control_target_tree_dir(self.config(login), self.root)),
             env=env,
             secrets=secrets,
@@ -294,18 +336,57 @@ class RenderedTree:
             raise KeyError(f"no login {login!r}; the logins are {named}")
         return self.configs[login]
 
-    def _container(self, container: str | None) -> tuple[str, dict[str, Any]]:
+    def _tiers(
+        self,
+        login: str,
+        container: str,
+        staged: Path,
+        owners: Mapping[str, str],
+        stated: Mapping[str, str | None],
+    ) -> dict[str, str] | None:
+        """The login-to-tier map *container* is served, ``None`` when it reads none.
+
+        The build decides which containers read the map: it stages one into the
+        ``config.yml`` of each that drives the target, and into no other.
+        """
+        from osprey.deployment.web_terminals.login_tiers import LOGIN_TIERS_KEY
+        from osprey_connectors.types import TIER_WORDS, tier_writes
+
+        section = _load(staged).get("control_system") if staged.is_file() else None
+        if not (isinstance(section, dict) and LOGIN_TIERS_KEY in section):
+            if stated:
+                raise ValueError(
+                    f"container {container!r} reads no login tiers: "
+                    "its app.yml does not declare drives_target"
+                )
+            return None
+        ceiling = tier_writes(self.config(login).get("control_system"))
+        served: dict[str, str] = dict.fromkeys(owners, ceiling)
+        for owner, tier in stated.items():
+            if owner not in owners:
+                named = ", ".join(owners) or "none"
+                raise KeyError(f"the panel's grant admits no owner {owner!r}; it admits {named}")
+            if tier is None:
+                del served[owner]
+            elif tier in TIER_WORDS:
+                served[owner] = tier
+            else:
+                raise ValueError(f"{tier!r} is not a tier: {', '.join(TIER_WORDS)}")
+        return served
+
+    def _container(self, container: str | None) -> tuple[str, dict[str, Any], Path]:
+        """The container's key, its compose service and the ``config.yml`` the build staged it."""
         composes = sorted((self.build_dir / "services").glob("*/docker-compose.yml"))
-        services: dict[str, dict[str, Any]] = {
-            key: service
+        services: dict[str, tuple[dict[str, Any], Path]] = {
+            key: (service, compose.parent / "config.yml")
             for compose in composes
             for key, service in (_load(compose).get("services") or {}).items()
             if "OSPREY_APP_NAME" in _environment(service)
         }
         if container is None and len(services) == 1:
-            return next(iter(services.items()))
+            container = next(iter(services))
         if container in services:
-            return container, services[container]
+            return container, *services[container]
         named = ", ".join(services) or "none"
         raise KeyError(f"no application container {container!r}; the containers are {named}")
 
@@ -326,7 +407,11 @@ class ServedTree:
         login: The login whose render the backend is given.
         container: The application container's key.
         app: The application's name.
-        config_path: The login's rendered ``config.yml``.
+        config_path: The configuration the backend reads: the login's rendered
+            ``config.yml``, or a copy beside it carrying :attr:`tiers`.
+        tiers: The tier each owner's write is judged at,
+            ``control_system.login_tiers`` of the served configuration; empty
+            for a container that reads no login tiers.
         control_tree: The control tree every owner's record is written in.
         env: The container's environment, as host paths and test secrets.
         secrets: Each owner the panel's grant admits, and the secret that names them.
@@ -339,6 +424,7 @@ class ServedTree:
     config_path: Path
     control_tree: Path
     env: Mapping[str, str]
+    tiers: Mapping[str, str] = field(default_factory=dict)
     secrets: Mapping[str, str] = field(default_factory=dict)
     launch_token_env: str | None = None
 
@@ -414,6 +500,21 @@ def _put(name: str, value: str | None) -> None:
 def _load(path: Path) -> dict[str, Any]:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     return document if isinstance(document, dict) else {}
+
+
+def _write_served_config(render: Path, container: str, tiers: Mapping[str, str]) -> Path:
+    """Write *render* with *tiers* laid in, beside it, and answer the copy's path.
+
+    The copy is named for the container and the map, so two serves of one
+    login at different tiers each keep their own file.
+    """
+    from osprey.deployment.compose_generator import with_login_tiers
+
+    digest = hashlib.sha256(json.dumps([container, sorted(tiers.items())]).encode()).hexdigest()
+    path = render.with_name(f"config.served-{digest[:12]}.yml")
+    document = with_login_tiers(_load(render), tiers)
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    return path
 
 
 def _environment(service: Mapping[str, Any]) -> dict[str, str]:

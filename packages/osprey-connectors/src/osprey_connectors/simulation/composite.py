@@ -706,6 +706,10 @@ class Composite(LUMEModel):
         for child in self._children.values():
             self._advance_child(child, t_s)
 
+    def now(self) -> float:
+        """The clock's reading, in epoch seconds: the instant deadlines are measured from."""
+        return float(self._clock())
+
     def advance(self) -> None:
         """Advance every time-driven child to the clock; nothing unless built to evolve."""
         self._refresh()

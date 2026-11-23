@@ -712,9 +712,45 @@ its channel:
 - ``busy``: the cycle signal, high for ``width_s`` every ``period_s`` whether
   or not a shot runs.
 
-Shots run only in the container: in process the chain serves its start
-values and a request starts nothing. What scenarios and channel faults do to
-a chain is in :ref:`scenario-channel-faults`.
+What scenarios and channel faults do to a chain is in
+:ref:`scenario-channel-faults`.
+
+.. _va-in-process-evolve:
+
+**Shots in process.** Shots run in the container. The simulator in process
+holds every time-driven model still unless it is asked otherwise: the chain
+serves its start values and a request starts nothing. A connector block that
+states ``evolve: true`` runs those models in process too:
+
+.. code-block:: yaml
+
+   control_system:
+     type: virtual_accelerator
+     connector:
+       virtual_accelerator:
+         serving: in_process
+         evolve: true
+
+A request write then takes a shot. Every read and write advances the models
+to the clock, and a subscription to a channel a shot steps fires when the
+step lands, between ticks too. Tracking a ring's shot runs inside the read,
+write or tick that reaches it, and holds the process's event loop for its
+length.
+
+The setting is for a test that drives one backend with no container
+(:doc:`/how-to/apps/build-your-own-app`), and it has a limit the container
+does not have. What a shot changed lives in the one connector that took the
+request. Connectors on one render share the setpoints written, never a shot's
+outcome:
+
+- another connector, in the same process or another, does not see the shot;
+- a connector that takes up another's writes, at its connect or after the
+  other writes, starts its models again from their start state and puts every
+  written setpoint back as a held value. A request among them reads as
+  written and starts no shot, so a shot is never taken twice.
+
+A deployment whose sessions span processes serves the simulator from its
+container.
 
 .. _va-turn-by-turn:
 
@@ -1210,9 +1246,10 @@ orbit response alone and refuses any other kind.
 **What is not modelled.** The ring's capture or loss does not feed back into
 the chain's stored current; the stored current neither decays nor
 saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
-beam-based alignment or RF frequency correction. Shots run only in the
-container: in process every delivery is a baseline, so no shot is taken and
-the arrays stay zeros.
+beam-based alignment or RF frequency correction. In process a ring takes a
+shot only on a connector that states ``evolve: true``
+(:ref:`Shots in process <va-in-process-evolve>`); without it every delivery
+is a baseline, so no shot is taken and the arrays stay zeros.
 
 Another backend
 ---------------

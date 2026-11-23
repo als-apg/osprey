@@ -1,12 +1,12 @@
 """The panel tests' checked-in facility document is what the build writes.
 
-``tests/facility/panels/fixture/facility.json`` stands in for building the
-fixture tree (``panel_fixture/``) in every panel session. These tests rebuild it
-from the tree with the description's own checks only and compare byte for byte,
-so a change to the tree or to the build that leaves the document behind fails
-here, naming the regeneration command. The rebuild needs neither the panels nor
-the framework, so it is a package test; the document stays beside the panel
-tests that read it.
+``packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json``
+stands in for building the fixture tree (``panel_fixture/``) in every panel
+session. These tests rebuild it from the tree with the description's own checks
+only and compare byte for byte, so a change to the tree or to the build that
+leaves the document behind fails here, naming the regeneration command. The
+rebuild needs neither the panels nor the framework, so it is a package test; the
+document stays beside the panel tests that read it.
 """
 
 from __future__ import annotations
@@ -24,7 +24,9 @@ SCRIPT = Path(script.__file__).resolve()
 COMMAND = (
     "uv run python packages/osprey-facility/tests/osprey_facility_tests/rebuild_panel_fixture.py"
 )
-FIXTURE_DOCUMENT = REPO_ROOT / "tests" / "facility" / "panels" / "fixture" / "facility.json"
+FIXTURE_DOCUMENT = (
+    REPO_ROOT / "packages" / "osprey-panels" / "tests" / "osprey_panels_tests" / "fixture"
+) / "facility.json"
 
 
 def test_the_command_names_the_script_where_it_is() -> None:
