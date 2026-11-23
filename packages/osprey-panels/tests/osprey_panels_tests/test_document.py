@@ -9,8 +9,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import document as document_module
-from osprey.facility.panels.document import (
+from osprey_panels import document as document_module
+from osprey_panels.document import (
     END_KINDS,
     FACILITY_FILE,
     READS,
@@ -67,8 +67,8 @@ def test_stdlib_only_and_no_description_import() -> None:
             modules.add(node.module)
     for module in modules:
         root = module.split(".")[0]
-        if root == "osprey":
-            assert module.startswith("osprey.facility.panels"), module
+        if root in ("osprey", "osprey_panels"):
+            assert module.startswith("osprey_panels"), module
         else:
             assert root in {"__future__", "json", "collections", "pathlib", "types", "typing"}, (
                 module

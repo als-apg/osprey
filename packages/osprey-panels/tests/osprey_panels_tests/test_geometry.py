@@ -14,21 +14,23 @@ the layout measures it. Every screen of the fixture facility is checked:
 
 from __future__ import annotations
 
+import importlib.util
 import itertools
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
 
-from osprey.facility.panels import layout, load_graph, metrics, symbols
-from osprey.facility.panels.emit import load_draw, write
-from tests._by_path import load_module
-from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+from osprey_panels import layout, load_graph, metrics, symbols
+from osprey_panels.emit import load_draw, write
+from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
+from osprey_panels_tests._harness import PACKAGE_ROOT
 
 #: The script that writes :mod:`metrics` from the viewer's font file.
-FONT_METRICS = Path(__file__).parents[3] / "scripts" / "panel_font_metrics.py"
+FONT_METRICS = PACKAGE_ROOT / "tools" / "panel_font_metrics.py"
 
 #: Below this many px of shared width or height, two texts only touch.
 TOUCH = 2
@@ -307,8 +309,18 @@ def test_the_metrics_measure_the_font_the_layout_names():
     assert layout.text_width("ab", 10, caps=True) == layout.text_width("AB", 10)
 
 
+def _load_script(path: Path) -> ModuleType:
+    """The generator script at *path*, loaded by path and not registered in
+    ``sys.modules``: it is a tool, not an importable module."""
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    assert spec is not None and spec.loader is not None, path
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_the_metrics_table_is_the_font_file_it_names():
-    script = load_module("panel_font_metrics", FONT_METRICS)
+    script = _load_script(FONT_METRICS)
     family, version, widths, line = script.measure()
     # regenerate the module from the font file: it is the module in the tree
     assert metrics.FONT == family
@@ -332,7 +344,7 @@ def test_a_cut_text_fits_and_is_counted():
 
 
 def test_a_checkout_s_name_columns_take_their_longest_names_and_stay_on_the_page():
-    from osprey.facility.panels.view import CheckRow
+    from osprey_panels.view import CheckRow
 
     def row(channel: str, thing: str | None) -> CheckRow:
         return CheckRow(channel, thing, True, True, True, True)
@@ -398,8 +410,8 @@ def test_every_cut_label_carries_its_whole_text_as_a_tooltip(screens):
 
 
 def test_a_fact_s_long_note_wraps_beside_it_and_the_row_grows(panel_graph):
-    from osprey.facility.panels.view import Fact, Section, Target, View
-    from tests.facility.panels._views import stub_render
+    from osprey_panels.view import Fact, Section, Target, View
+    from osprey_panels_tests._views import stub_render
 
     caveat = "read from the drawing's own frame, " * 8 + "the rest of what it assumes"
     here = Target("card", "device", "XR01:PS1")
@@ -418,8 +430,8 @@ def test_a_fact_s_long_note_wraps_beside_it_and_the_row_grows(panel_graph):
 
 
 def test_conditions_several_calibration_rows_share_are_stated_once_under_them(panel_graph):
-    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
-    from tests.facility.panels._views import stub_render
+    from osprey_panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from osprey_panels_tests._views import stub_render
 
     frame = "in the support frame; x across, y up, z along the beam, angles seen from upstream"
 
@@ -449,8 +461,8 @@ def test_shared_conditions_stand_apart_under_a_rule_tied_to_their_rows_by_a_mark
     a thin rule set it off, and a reference mark, readable at the card's small size,
     follows the title of every row it holds for and starts the line; a second shared
     text gets the next mark."""
-    from osprey.facility.panels.view import CalibrationRow, Calibrations, Section, Target, View
-    from tests.facility.panels._views import stub_render
+    from osprey_panels.view import CalibrationRow, Calibrations, Section, Target, View
+    from osprey_panels_tests._views import stub_render
 
     def row(title: str, conditions: str | None) -> CalibrationRow:
         return CalibrationRow(
@@ -567,9 +579,9 @@ def _grouped_frames(panel_graph, sizes: tuple[int, ...]) -> list[dict[str, Any]]
     rows each, in order."""
     import dataclasses
 
-    from osprey.facility.panels.describe import channel_list
-    from osprey.facility.panels.view import Section, ValueRow
-    from tests.facility.panels._views import stub_render
+    from osprey_panels.describe import channel_list
+    from osprey_panels.view import Section, ValueRow
+    from osprey_panels_tests._views import stub_render
 
     def group(k: int, n: int) -> Section:
         rows = tuple(
@@ -646,8 +658,8 @@ def test_frames_pair_only_with_their_own_role(screens, panel_graph):
     """An action block never stands beside a reference list; on a channel list two
     groups pair only as stated groups of one grouping, and a group of no stated
     kind (the not stated, the leftovers) stands alone."""
-    from osprey.facility.panels.describe import channel_list
-    from osprey.facility.panels.view import Link, Section, Target, ValueRow
+    from osprey_panels.describe import channel_list
+    from osprey_panels.view import Link, Section, Target, ValueRow
 
     pairs = [p for doc in screens.values() for p in _paired_titles(doc)]
     assert pairs  # some do pair
@@ -715,8 +727,8 @@ def test_a_one_line_legend_sits_on_the_line_it_explains(screens):
 
 
 def test_a_strip_with_nothing_placed_draws_no_legend_of_looks(panel_graph):
-    from osprey.facility.panels.view import TrayEntry
-    from tests.facility.panels._views import strip_view, stub_render
+    from osprey_panels.view import TrayEntry
+    from osprey_panels_tests._views import strip_view, stub_render
 
     doc = stub_render(
         strip_view([], (TrayEntry("XR01:QF1", None, "no position", None),)), panel_graph
@@ -787,7 +799,7 @@ def test_items_read_in_the_order_their_view_states(screens):
 
 
 def test_item_tags_are_no_part_of_a_drawing():
-    from osprey.facility.panels.emit import _without_meta
+    from osprey_panels.emit import _without_meta
 
     plain = {"root": {"children": [{"id": "w-0001", "props": {}}]}, "metadata": {}}
     tagged = {"root": {"children": [{"id": "w-0001", "props": {}, "meta": {"comment": "item: x"}}]},

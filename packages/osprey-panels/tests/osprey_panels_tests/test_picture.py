@@ -12,17 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import device_card
-from osprey.facility.panels.model import load_graph
-from osprey.facility.panels.tables import COLUMNS, PanelTableError
-from tests.facility.panels._fixture import (
+from osprey_panels import layout, symbols
+from osprey_panels.describe import device_card
+from osprey_panels.model import load_graph
+from osprey_panels.tables import COLUMNS, PanelTableError
+from osprey_panels_tests._fixture import (
     add_part,
     copy_tables,
     read_fixture_tables,
     write_fixture_facility,
 )
-from tests.facility.panels._views import bound, nodes, stub_render, with_symbols
+from osprey_panels_tests._views import bound, nodes, stub_render, with_symbols
 
 PICTURES = "pictures.csv"
 HEADER = ",".join(c for c in COLUMNS[PICTURES] if c not in ("under", "devices"))  # reads
@@ -413,7 +413,7 @@ def test_a_stated_yoke_sets_the_proportions_however_small_the_bore(
 ) -> None:
     """A yoke twelve times the bore: the coils keep the mockup's proportion to the
     yoke, the bore is drawn as stated, and the pole tips reach for it apart."""
-    from osprey.facility.panels.picture import COIL_FROM, COIL_TO, YOKE, body
+    from osprey_panels.picture import COIL_FROM, COIL_TO, YOKE, body
 
     rows = [_row("yoke", "yoke", "", "", w=420, h=420), *_unsized(poles, first, gap=35)]
     pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
@@ -437,7 +437,7 @@ def test_a_stated_yoke_sets_the_proportions_however_small_the_bore(
 def test_poles_with_an_angle_and_no_size_draw_from_the_bore_and_say_so(
     tmp_path, poles: int, first: float
 ) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     rows = _unsized(poles, first, bore="gap" if poles == 2 else "bore")
     pictures = read_fixture_tables(_tables(tmp_path, rows)).pictures
@@ -499,7 +499,7 @@ def _overlap(p: tuple, q: tuple) -> bool:
 
 
 def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_path) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     hexagon = [
         _row(
@@ -528,7 +528,7 @@ def test_a_yoke_stated_as_a_polygon_is_drawn_filled_and_bounds_the_poles(tmp_pat
 
 
 def test_two_poles_put_each_winding_band_between_its_coil_and_the_gap(tmp_path) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     rows = [*_unsized(2, 90, bore="gap")]
     rows += [
@@ -577,7 +577,7 @@ def test_a_row_may_leave_its_position_empty_and_old_positions_read_unchanged(tmp
 
 
 def test_a_yoke_and_a_bore_with_no_position_are_centred(tmp_path) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     rows = [
         "Quadrupole,end,yoke,yoke,,,,X,A,s,l,300,,,",
@@ -641,7 +641,7 @@ def test_parts_not_placed_with_no_body_stand_in_the_frames_corner(tmp_path) -> N
 
 
 def test_a_picture_with_no_part_placed_is_a_row_of_blocks_not_an_empty_frame(tmp_path) -> None:
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     rows = [
         "Quadrupole,end,thermal switch 1,thermal_switch,,,,X,A,s,l,,,,",
@@ -661,7 +661,7 @@ def test_a_picture_with_no_part_placed_is_a_row_of_blocks_not_an_empty_frame(tmp
 
 
 def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) -> None:
-    from osprey.facility.panels.emit import check, unplaced_parts, write
+    from osprey_panels.emit import check, unplaced_parts, write
 
     rows = [
         *_unsized(4, 45),
@@ -677,7 +677,7 @@ def test_check_counts_the_parts_not_placed_per_class_as_information(tmp_path) ->
 
 
 def test_parts_not_placed_stand_above_the_yoke_on_no_side(tmp_path) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     rows = [
         *_unsized(2, 90, bore="gap"),
@@ -697,7 +697,7 @@ def test_parts_not_placed_stand_above_the_yoke_on_no_side(tmp_path) -> None:
 
 
 def test_a_terminal_not_placed_is_a_terminal_block_clear_of_the_rows_beside(tmp_path) -> None:
-    from osprey.facility.panels.picture import TERMINAL_BLOCK, WATER_BLOCK, body
+    from osprey_panels.picture import TERMINAL_BLOCK, WATER_BLOCK, body
 
     rows = [
         *_six_poles(),
@@ -726,7 +726,7 @@ def test_a_terminal_not_placed_is_a_terminal_block_clear_of_the_rows_beside(tmp_
 
 
 def test_a_water_or_terminal_part_with_only_an_angle_stands_on_that_side(tmp_path) -> None:
-    from osprey.facility.panels.picture import body
+    from osprey_panels.picture import body
 
     rows = [
         *_six_poles(),
@@ -772,7 +772,7 @@ def test_a_row_under_a_place_draws_only_the_devices_there(tmp_path) -> None:
 def test_a_device_outside_the_rows_place_gets_no_note_and_the_class_still_counts(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels.emit import check, picture_classes, write
+    from osprey_panels.emit import check, picture_classes, write
 
     tables = copy_tables(tmp_path / "panels")
     rows = [*_under_rows("XR/XR01"), _row("switch 1", "thermal_switch", "", "", signal="ghost") + ",XR/XR01"]  # fmt: skip
@@ -798,7 +798,7 @@ def test_a_file_without_the_under_column_applies_to_every_device(tmp_path) -> No
 def test_check_notes_a_signal_that_resolves_to_no_channel_and_sorts_the_classes(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels.emit import check, picture_classes, write
+    from osprey_panels.emit import check, picture_classes, write
 
     rows = [
         *_six_poles(),
@@ -818,7 +818,7 @@ def test_check_notes_a_signal_that_resolves_to_no_channel_and_sorts_the_classes(
 
 
 def test_check_notes_a_signal_that_matches_two_part_devices(tmp_path) -> None:
-    from osprey.facility.panels.emit import check, write
+    from osprey_panels.emit import check, write
 
     rows = [_row("switch 1", "thermal_switch", 90, 90, signal="*:Open-Sts")]
     graph = _graph(tmp_path, rows, change=_switches)

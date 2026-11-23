@@ -7,11 +7,11 @@ import math
 
 import pytest
 
-from osprey.facility.panels import layout
-from osprey.facility.panels.describe import device_card, place_view
-from osprey.facility.panels.view import StripElement
-from tests.facility.panels._fixture import PANELS_DIR, copy_tables
-from tests.facility.panels._views import SYMBOLS, nodes, strip_view, stub_render, with_symbols
+from osprey_panels import layout
+from osprey_panels.describe import device_card, place_view
+from osprey_panels.view import StripElement
+from osprey_panels_tests._fixture import PANELS_DIR, copy_tables
+from osprey_panels_tests._views import SYMBOLS, nodes, strip_view, stub_render, with_symbols
 
 # -- the precision rule ------------------------------------------------------------
 
@@ -59,7 +59,7 @@ def _formula(doc: dict, rule: dict) -> dict:
 
 @pytest.fixture(scope="module")
 def bpm_graph(tmp_path_factory):
-    from tests.facility.panels._fixture import graph_with_bpms
+    from osprey_panels_tests._fixture import graph_with_bpms
 
     return graph_with_bpms(tmp_path_factory.mktemp("bpm"))
 
@@ -137,8 +137,8 @@ def test_a_key_number_is_printed_to_three_significant_digits_and_a_count_whole(
 
 
 def test_a_stated_precision_wins_and_needs_no_rule(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     path = tables / "metrics.csv"
@@ -161,15 +161,15 @@ CROWD = 30  # pickups on one strip: more value blocks than two lanes hold
 
 
 def _crowd(document) -> None:
-    from tests.facility.panels._fixture import add_bpm
+    from osprey_panels_tests._fixture import add_bpm
 
     for i in range(CROWD):
         add_bpm(document, f"XR01:BPM{i}", "XR/XR01")
 
 
 def _crowded_strip(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _crowd), PANELS_DIR)
     elements = []
@@ -302,8 +302,8 @@ def test_value_lanes_keep_a_kind_in_its_lane_and_alternate_only_on_a_collision()
 
 
 def test_values_in_card_columns_have_room_for_the_number_and_its_unit(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     def crowd_with_knobs(document) -> None:
         _crowd(document)
@@ -355,8 +355,8 @@ def _overlap(a: dict, b: dict) -> bool:
 
 
 def test_a_value_box_holds_the_number_and_the_whole_unit(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:UNITS1"), graph)
@@ -375,8 +375,8 @@ def test_a_value_box_holds_the_number_and_the_whole_unit(tmp_path) -> None:
 
 
 def test_a_key_number_with_a_long_unit_fits_its_tile_whole(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "metrics.csv").open("a") as handle:
@@ -428,8 +428,8 @@ def test_the_channel_access_unit_limit_is_a_named_constant() -> None:
 def test_a_unit_longer_than_channel_access_carries_is_printed_whole_beside_a_formula_number(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _units_device), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:UNITS1"), graph)
@@ -462,8 +462,8 @@ def test_a_unit_longer_than_channel_access_carries_is_printed_whole_beside_a_for
 def test_a_key_number_with_a_unit_channel_access_cuts_prints_the_unit_whole_beside_it(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "metrics.csv").open("a") as handle:
@@ -508,8 +508,8 @@ def test_no_value_field_on_a_card_overlaps_another(bpm_graph, panel_graph) -> No
 def test_a_channel_compared_by_equality_with_whole_values_is_a_state_a_threshold_is_not(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a") as handle:
@@ -618,15 +618,15 @@ def _stated(document) -> None:
 
 @pytest.fixture(scope="module")
 def stated_graph(tmp_path_factory):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tmp = tmp_path_factory.mktemp("stated")
     return load_graph(write_fixture_facility(tmp / "facility.json", _stated), PANELS_DIR)
 
 
 def _displays(graph, device: str, channel: str) -> list[dict]:
-    from osprey.facility.panels.describe import channel_list
+    from osprey_panels.describe import channel_list
 
     doc = stub_render(channel_list(graph, device), graph)
     return [n for n in nodes(doc) if n["type"] == "pv-label" and n["props"]["pv"] == channel]

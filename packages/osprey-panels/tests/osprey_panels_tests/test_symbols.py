@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels import symbols
-from osprey.facility.panels.symbols import (
+from osprey_panels import symbols
+from osprey_panels.symbols import (
     ALARM_ROLES,
     APPEARANCES,
     KINDS,
@@ -20,6 +20,7 @@ from osprey.facility.panels.symbols import (
     light,
     look,
 )
+from osprey_panels_tests._harness import REPO_ROOT
 
 PANELS = Path(symbols.__file__).parent
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -357,7 +358,7 @@ def test_every_closed_symbol_is_a_polygon_so_its_outline_can_be_dashed(kind) -> 
 
 # --------------------------------------------------------------------------- contrast
 
-THEME_FILE = Path(symbols.__file__).parents[2] / "templates/apps/demo/data/canopy/theme/osprey.json"
+THEME_FILE = REPO_ROOT / "src/osprey/templates/apps/demo/data/canopy/theme/osprey.json"
 
 
 def _resolved(colour: dict, theme: str) -> str:

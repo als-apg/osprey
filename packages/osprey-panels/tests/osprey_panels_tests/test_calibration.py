@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from osprey.facility.panels import layout, symbols, targets
-from osprey.facility.panels.describe import (
+from osprey_panels import layout, symbols, targets
+from osprey_panels.describe import (
     calibration_overview,
     device_card,
     set_overview,
 )
-from osprey.facility.panels.view import Calibrations, CalibrationTallies, Grid, Link, Target
-from tests.facility.panels._views import nodes, stub_render
-from tests.facility.panels.test_symbols import _resolved, contrast
+from osprey_panels.view import Calibrations, CalibrationTallies, Grid, Link, Target
+from osprey_panels_tests._views import nodes, stub_render
+from osprey_panels_tests.test_symbols import _resolved, contrast
 
 
 def _cells(view):
@@ -107,7 +107,7 @@ def _tallies(view):
 
 
 def test_a_place_tallies_each_kind_once_and_folds_those_not_started(panel_graph) -> None:
-    from osprey.facility.panels.describe import health_rollup, place_view
+    from osprey_panels.describe import health_rollup, place_view
 
     view = place_view(panel_graph, "XR/XR01")
     titles = [s.title for s in view.sections]
@@ -131,9 +131,9 @@ def test_a_place_tallies_each_kind_once_and_folds_those_not_started(panel_graph)
 
 
 def test_kinds_of_one_short_title_are_summed_over_their_classes(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.describe import place_view
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.describe import place_view
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     rows = (tables / "calibration_kinds.csv").read_text().splitlines()
@@ -151,8 +151,8 @@ def test_kinds_of_one_short_title_are_summed_over_their_classes(tmp_path) -> Non
 
 def _many_kinds(tmp_path):
     """Twelve kinds of six classes, each with one bench value, under XR."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     devices = ["XR01:QF1", "XR01:QD1", "XR02:QF1", "XR02:QD1", "XR01:BEND1", "XR02:BEND1"]
 
@@ -175,7 +175,7 @@ def _many_kinds(tmp_path):
 
 
 def test_the_chips_take_one_line_and_fold_the_rest_into_more(tmp_path) -> None:
-    from osprey.facility.panels.describe import place_view
+    from osprey_panels.describe import place_view
 
     graph = _many_kinds(tmp_path)
     view = place_view(graph, "XR")
@@ -208,8 +208,8 @@ def _second_holder(document) -> None:
 
 
 def test_a_value_held_in_several_channels_shows_them_all_in_channel_order(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _second_holder), PANELS_DIR)
     names = tuple(
@@ -244,7 +244,7 @@ def test_a_kind_shows_only_on_the_devices_under_its_place(panel_graph) -> None:
     assert [r.title for r in calibrations.rows] == ["Field centre"]
     assert calibrations.rows[0].link is None  # no set of dipoles
     assert block("XR01:BEND1") == []
-    from osprey.facility.panels.describe import place_view
+    from osprey_panels.describe import place_view
 
     there = _tallies(place_view(panel_graph, "XR/XR02"))
     assert "Field centre" not in [t.title for t in there.tallies]  # no value: folded
@@ -282,8 +282,8 @@ def test_the_count_line_names_the_states_in_the_legends_order(panel_graph) -> No
 
 
 def _claims(tmp_path, rows: str):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "calibrations.csv").open("a") as handle:
@@ -292,7 +292,7 @@ def _claims(tmp_path, rows: str):
 
 
 def test_a_contested_claim_alone_is_shown_contested_and_is_no_base_value(tmp_path) -> None:
-    from osprey.facility.panels.describe import calibration_cell, calibration_row
+    from osprey_panels.describe import calibration_cell, calibration_row
 
     graph = _claims(
         tmp_path,
@@ -309,7 +309,7 @@ def test_a_contested_claim_alone_is_shown_contested_and_is_no_base_value(tmp_pat
 
 
 def test_beside_an_accepted_claim_a_contested_one_is_named_not_used(tmp_path) -> None:
-    from osprey.facility.panels.describe import calibration_row
+    from osprey_panels.describe import calibration_row
 
     graph = _claims(
         tmp_path,

@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import load_graph
-from osprey.facility.panels.classes import (
+from osprey_panels import load_graph
+from osprey_panels.classes import (
     FLAGS,
     GAP_PARTS,
     SIZE_PARTS,
@@ -28,10 +28,10 @@ from osprey.facility.panels.classes import (
     summary,
     summary_line,
 )
-from osprey.facility.panels.describe import targets
-from osprey.facility.panels.emit import Draw, check, load_draw, write
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import (
+from osprey_panels.describe import targets
+from osprey_panels.emit import Draw, check, load_draw, write
+from osprey_panels.model import PanelGraph
+from osprey_panels.view import (
     ChainBlock,
     Fact,
     Link,
@@ -40,7 +40,7 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
 PUMP_CARDS = ("card-xr01-ip2", "card-xr02-ip1", "card-xr02-ip2")
 #: Of the four pumps, XR01:IP1 also states a status (XR02:IP2's interlock is excluded).
@@ -407,8 +407,8 @@ def test_check_finds_what_the_index_states_and_the_model_does_not_give(tmp_path)
 
 
 def test_a_device_screen_names_what_it_shows_of_other_things():
-    from osprey.facility.panels.describe import others
-    from osprey.facility.panels.view import (
+    from osprey_panels.describe import others
+    from osprey_panels.view import (
         BlockRow,
         CardStrip,
         Chain,
@@ -460,7 +460,7 @@ def test_the_check_holds_what_the_index_states_of_other_things(tmp_path):
 
 
 def test_a_row_that_names_no_thing_is_named_by_its_channels_owner(tmp_path):
-    from osprey.facility.panels.describe import others
+    from osprey_panels.describe import others
 
     graph = _graph(tmp_path)
     here = Target("channels", "device", "XR01:QD1")
@@ -485,7 +485,7 @@ def test_a_class_names_its_standard_s_drawing_apart_from_its_layout(tmp_path, mo
     )
     assert {c: r["drawing"] for c, r in again["classes"].items()} == drawings
     # the engine drawing a screen otherwise moves it, and leaves `layout` alone
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     monkeypatch.setattr(layout, "PANEL_PAD", layout.PANEL_PAD + 1)
     moved = _written(_graph(tmp_path, name="h"), tmp_path / "p")
@@ -513,7 +513,7 @@ def test_a_device_with_no_channel_is_not_classed_with_one_whose_channels_play_no
 
 
 def test_a_long_class_name_loses_the_end_of_its_stem_not_what_tells_classes_apart():
-    from osprey.facility.panels import classes
+    from osprey_panels import classes
 
     long = "a-device-class-whose-name-runs-well-past-the-slug-length-limit"
     key = {"view": "card", "device_class": long, "recipe": "default", "roles": []}

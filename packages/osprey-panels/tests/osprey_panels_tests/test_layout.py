@@ -15,15 +15,15 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import (
+from osprey_panels import layout, symbols
+from osprey_panels.describe import (
     health_rollup,
     light,
     place_view,
     rack_elevation,
 )
-from osprey.facility.panels.health import channel_state, worst
-from osprey.facility.panels.layout import (
+from osprey_panels.health import channel_state, worst
+from osprey_panels.layout import (
     FORMAT_REQUESTS,
     MIN_STRIP_SCALE,
     SYMBOL_UNIT,
@@ -35,8 +35,8 @@ from osprey.facility.panels.layout import (
     text_width,
     unexpressed,
 )
-from osprey.facility.panels.model import load_graph
-from osprey.facility.panels.view import (
+from osprey_panels.model import load_graph
+from osprey_panels.view import (
     Fact,
     Light,
     Link,
@@ -47,13 +47,13 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from tests.facility.panels._fixture import (
+from osprey_panels_tests._fixture import (
     copy_tables,
     graph_with_part,
     graph_with_wide,
     write_fixture_facility,
 )
-from tests.facility.panels._views import (
+from osprey_panels_tests._views import (
     ABOVE,
     RULED,
     SYMBOLS,
@@ -269,7 +269,7 @@ def _bound(doc: dict) -> set[str]:
 
 
 def test_a_roll_up_spends_its_budget_on_single_lights_then_opens(tmp_path, monkeypatch):
-    from osprey.facility.panels.describe import health_rollup
+    from osprey_panels.describe import health_rollup
 
     graph = graph_with_wide(tmp_path, 40)
     view = health_rollup(graph, "XR/XR01")
@@ -582,7 +582,7 @@ def test_a_picture_part_is_a_marker_unless_its_row_names_a_channel(tmp_path) -> 
     with (tables / "health.csv").open("a") as rows:
         rows.write("XR01-QF1:Current-RB,1,bad,screen,stated,xr-screens,4d5e6f7,m.screen:1\n")
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", describe_switch), tables)
-    from osprey.facility.panels.describe import device_card
+    from osprey_panels.describe import device_card
 
     view = device_card(graph, "XR01:QF1")
     (section,) = [s for s in view.sections if s.title == "picture"]
@@ -840,7 +840,7 @@ def test_the_document_is_a_screen_of_the_targets_id(panel_graph) -> None:
 
 
 def test_an_empty_strip_with_only_a_tray_renders(panel_graph) -> None:
-    from osprey.facility.panels.view import TrayEntry
+    from osprey_panels.view import TrayEntry
 
     doc, _ = draw(strip_view([], (TrayEntry("T", None, "no position", None),)), panel_graph)
     assert "T" in _texts(doc) and "T · no position" not in _texts(doc)
@@ -880,7 +880,7 @@ def test_a_node_light_reads_its_channels(panel_graph) -> None:
 
 
 def test_a_long_table_is_cut_and_its_remaining_rows_counted(panel_graph) -> None:
-    from osprey.facility.panels.view import CheckRow
+    from osprey_panels.view import CheckRow
 
     extra = 7
     rows = tuple(
@@ -1002,7 +1002,7 @@ def test_a_device_in_no_place_turns_the_root_roll_up_bad(panel_graph) -> None:
 
 
 def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_graph) -> None:
-    from osprey.facility.panels.describe import set_overview
+    from osprey_panels.describe import set_overview
 
     doc, _ = draw(set_overview(panel_graph, "XR-QUAD"), panel_graph)
     assert not _by_type(doc, "pv-text-input")  # nothing writable in a grid
@@ -1019,7 +1019,7 @@ def test_a_set_grid_draws_each_member_once_with_its_light_and_no_input(panel_gra
 
 
 def test_a_rack_unit_and_a_grid_cell_with_no_rule_are_in_the_none_look(panel_graph) -> None:
-    from osprey.facility.panels.describe import set_overview
+    from osprey_panels.describe import set_overview
 
     none = symbols.look("none")
     for view, count in (
@@ -1213,7 +1213,7 @@ def test_every_locator_mark_and_line_has_extent_and_a_visible_stroke(panel_graph
 
 
 def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(panel_graph):
-    from osprey.facility.panels.layout import strip_labels
+    from osprey_panels.layout import strip_labels
 
     doc, _ = draw(invented_views()[0], panel_graph)  # 300 symbols in rows
     (axis, *_rest) = _axes(doc)
@@ -1235,7 +1235,7 @@ def test_each_strip_symbol_has_its_short_name_under_it_and_no_two_names_collide(
     doc, _ = draw(view, panel_graph)
     assert {"F1", "D1"} <= set(_texts(doc))  # the stated short names
     assert "IP1" in _texts(doc)  # a badge's name stands right of it, not under the axis
-    from osprey.facility.panels.strip import Placed
+    from osprey_panels.strip import Placed
 
     wide = [
         Placed(f"X:LONGNAME{i}", "bpm", "beam", float(i), 10.0 * i, 8.0, 0, None) for i in range(4)
@@ -1254,7 +1254,7 @@ def test_the_devices_off_the_beamline_are_one_line_that_opens_the_place_card(pan
 
 
 def test_a_cards_grid_prints_a_value_with_its_unit_beside_its_short_name(panel_graph) -> None:
-    from osprey.facility.panels.describe import device_card
+    from osprey_panels.describe import device_card
 
     doc, _ = draw(device_card(panel_graph, "XR01:QF1"), panel_graph)
     labels = {n["props"]["pv"]: n for n in _by_type(doc, "pv-label")}
@@ -1267,8 +1267,8 @@ def test_a_cards_grid_prints_a_value_with_its_unit_beside_its_short_name(panel_g
 def _picture_view(parts, *, signal: str | None = None) -> View:
     """A card of one picture whose rows are parts at points, as a file of the first
     eleven columns states them; with *signal*, each part names it (and is named)."""
-    from osprey.facility.panels.tables import PicturePart
-    from osprey.facility.panels.view import Picture
+    from osprey_panels.tables import PicturePart
+    from osprey_panels.view import Picture
 
     rows = tuple(
         PicturePart(
@@ -1302,7 +1302,7 @@ _CORNERS = [
 def test_no_two_picture_labels_overlap_and_no_two_leaders_cross(tall: bool) -> None:
     """The probe picture's label columns (:func:`layout.picture_labels`), with slots of
     one row, and of one or two rows."""
-    from osprey.facility.panels.layout import ROW, ROW_GAP, _crossing, picture_labels
+    from osprey_panels.layout import ROW, ROW_GAP, _crossing, picture_labels
 
     centre, top, bottom, anchors = 300.0, 0.0, 300.0, (100.0, 500.0)
     crowded = [(f"part {i}", centre + (-1) ** i * (100 - 10 * i), 150 - 9 * i) for i in range(12)]
@@ -1421,7 +1421,7 @@ def test_the_bound_is_the_longest_expression_the_light_writes(panel_graph) -> No
 
 
 def test_no_drawn_rule_is_longer_than_the_engine_takes_even_for_forty_channels(tmp_path):
-    from osprey.facility.panels.describe import describe, health_rollup
+    from osprey_panels.describe import describe, health_rollup
 
     graph = graph_with_wide(tmp_path, 40)
     for view in [
@@ -1436,7 +1436,7 @@ def test_no_drawn_rule_is_longer_than_the_engine_takes_even_for_forty_channels(t
 
 
 def layout_target(thing: str):
-    from osprey.facility.panels.view import Target
+    from osprey_panels.view import Target
 
     return Target("card", "device", thing)
 
@@ -1523,7 +1523,7 @@ def test_a_channel_bad_above_its_last_value_writes_an_open_bound(tmp_path) -> No
 
 
 def test_a_rack_unit_draws_one_light_over_its_channels_and_its_parts(tmp_path):
-    from tests.facility.panels._fixture import add_part
+    from osprey_panels_tests._fixture import add_part
 
     second = "XR01-CARD2:Fault-Sts,1,bad,database-severity,stated,xr-ioc,0a1b2c3,card.db:2\n"
     graph_with_part(tmp_path, lambda d: add_part(d, "XR01:CARD2", "XR01:CH1", second[:20]))
@@ -1539,7 +1539,7 @@ def test_a_rack_unit_draws_one_light_over_its_channels_and_its_parts(tmp_path):
 
 
 def test_a_tray_chip_names_a_reason_only_when_it_says_more_than_the_heading(panel_graph):
-    from osprey.facility.panels.view import TrayEntry
+    from osprey_panels.view import TrayEntry
 
     tray = (TrayEntry("T1", None, "no position", None), TrayEntry("T2", None, "frame odd", None))
     doc, _ = draw(strip_view([], tray), panel_graph)
@@ -1547,7 +1547,7 @@ def test_a_tray_chip_names_a_reason_only_when_it_says_more_than_the_heading(pane
 
 
 def test_the_upper_lane_is_reserved_only_when_something_stands_in_it(panel_graph) -> None:
-    from tests.facility.panels._views import element
+    from osprey_panels_tests._views import element
 
     flat = [element(f"E{i}", float(i), "bpm") for i in range(3)]
     lifted = [*flat, element("UP", 1.5, "ion_pump", lane="above")]
@@ -1579,7 +1579,7 @@ def test_a_strip_label_is_the_stated_short_name_and_the_link_keeps_the_id(panel_
 
 
 def test_a_card_header_shows_the_short_name_as_an_alias(panel_graph) -> None:
-    from osprey.facility.panels.describe import device_card
+    from osprey_panels.describe import device_card
 
     view = device_card(panel_graph, "XR01:QF1")
     assert view.alias == "F1"
@@ -1745,7 +1745,7 @@ def test_an_arrow_word_and_a_block_title_are_never_cut() -> None:
 
 
 def test_a_long_tile_name_breaks_at_its_separators_and_is_whole() -> None:
-    from osprey.facility.panels.layout import _wrap_label, text_width
+    from osprey_panels.layout import _wrap_label, text_width
 
     name = "XR01:Vacuum-Controller"
     width = text_width("XR01:Vacuum-", layout.SMALL_SIZE) + 1
@@ -1813,7 +1813,7 @@ def test_a_roll_up_row_that_fits_keeps_its_outside_tile_and_counts_on_its_headin
     """Width before height: tiles that fit one row at their content's width share
     it, the tile outside the sum included, behind its wider gap; the counts are
     one muted line on the heading's line, said once."""
-    from osprey.facility.panels.describe import health_rollup
+    from osprey_panels.describe import health_rollup
 
     view = health_rollup(panel_graph, "XR/XR01")
     (root,) = view.sections[-1].items
@@ -1841,7 +1841,7 @@ def test_a_roll_up_row_that_fits_keeps_its_outside_tile_and_counts_on_its_headin
 def test_a_screen_shows_what_it_is_for_before_its_ways_to_other_screens(panel_graph) -> None:
     """On a set's screen the members come first; the sections of nothing but links
     (its group, its calibration views) follow, each in its own order."""
-    from osprey.facility.panels.describe import set_overview
+    from osprey_panels.describe import set_overview
 
     view = set_overview(panel_graph, "XR-QUAD")
     assert [s.title for s in view.sections] == ["group", "calibration", "members"]
@@ -1860,7 +1860,7 @@ def test_a_screen_shows_what_it_is_for_before_its_ways_to_other_screens(panel_gr
 def test_a_ring_word_moved_in_from_the_page_edge_keeps_to_its_symbol(panel_graph) -> None:
     """A word over a ring near the page's edge stays on the page; its box moves
     in, and the word keeps to the side of its own symbol, not over the next one."""
-    from osprey.facility.panels.describe import place_view
+    from osprey_panels.describe import place_view
 
     doc, _ = draw(place_view(panel_graph, "XR/XR01"), panel_graph)
     rings = [

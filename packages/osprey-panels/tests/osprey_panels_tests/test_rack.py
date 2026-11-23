@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import rack_elevation
-from tests.facility.panels._views import nodes, stub_render
+from osprey_panels import layout, symbols
+from osprey_panels.describe import rack_elevation
+from osprey_panels_tests._views import nodes, stub_render
 
 
 def _doc(panel_graph):
@@ -99,7 +99,7 @@ def test_every_unit_is_numbered_and_a_free_one_is_a_slot(panel_graph) -> None:
     """The units from the rack's floor to its highest stated one are numbered, those
     a device is stated at in the page's text and the rest muted; a unit no device
     takes is a faint slot; the rack's height, which nothing states, is said once."""
-    from osprey.facility.panels.view import Elevation
+    from osprey_panels.view import Elevation
 
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
@@ -132,8 +132,8 @@ def test_the_right_column_counts_the_classes_and_names_the_sources(panel_graph) 
 
 
 def test_half_width_units_stand_on_their_stated_side() -> None:
-    from osprey.facility.panels.layout import rack_lanes
-    from osprey.facility.panels.view import Fact, RackUnit
+    from osprey_panels.layout import rack_lanes
+    from osprey_panels.view import Fact, RackUnit
 
     def unit(position, side=None):
         return RackUnit(position, Fact("x", "x"), (), None, side=side)
@@ -144,10 +144,10 @@ def test_half_width_units_stand_on_their_stated_side() -> None:
 
 
 def test_a_located_in_side_attribute_makes_a_unit_half_width(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.describe import rack_elevation
-    from osprey.facility.panels.view import Elevation
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.describe import rack_elevation
+    from osprey_panels.view import Elevation
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     def sided(document) -> None:
         for claim in document["relations"]:
@@ -176,8 +176,8 @@ def test_a_located_in_side_attribute_makes_a_unit_half_width(tmp_path) -> None:
 
 
 def test_chassis_whose_units_overlap_stand_side_by_side() -> None:
-    from osprey.facility.panels.layout import rack_lanes
-    from osprey.facility.panels.view import Fact, RackUnit
+    from osprey_panels.layout import rack_lanes
+    from osprey_panels.view import Fact, RackUnit
 
     def unit(position, size=None):
         return RackUnit(position, Fact("x", "x"), (), size)
@@ -195,7 +195,7 @@ def test_a_list_longer_than_the_rack_continues_under_it_at_the_full_width(panel_
     sources stay beside it."""
     import dataclasses
 
-    from osprey.facility.panels.view import Elevation, Fact
+    from osprey_panels.view import Elevation, Fact
 
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
@@ -259,7 +259,7 @@ def test_a_list_longer_than_the_rack_continues_under_it_at_the_full_width(panel_
 
 
 def test_a_long_list_fills_balanced_columns_downward_in_bands_with_a_gap_every_fourth_row():
-    from osprey.facility.panels.layout import list_cells, list_height, list_offset
+    from osprey_panels.layout import list_cells, list_height, list_offset
 
     # ten in three columns: four, three, three, read down then across; the columns
     # of a band differ by one row at most
@@ -291,7 +291,7 @@ def _rack(panel_graph, unpositioned: int, crowded: int, prefix: str = "XR01:SPAR
     at one unit, drawn: the document, the rack's frame and the column's left edge."""
     import dataclasses
 
-    from osprey.facility.panels.view import Elevation, Fact
+    from osprey_panels.view import Elevation, Fact
 
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
@@ -345,7 +345,7 @@ def test_numbered_names_in_a_rack_list_stand_in_number_order(panel_graph) -> Non
     SPARE97 before SPARE100."""
     import dataclasses
 
-    from osprey.facility.panels.view import Elevation, Fact
+    from osprey_panels.view import Elevation, Fact
 
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     (elevation,) = [i for s in view.sections for i in s.items if isinstance(i, Elevation)]
@@ -400,7 +400,7 @@ def test_a_cut_rack_label_under_its_link_shows_its_whole_text_on_the_link(panel_
     the contested standing the label adds to the link's name included."""
     import dataclasses
 
-    from osprey.facility.panels.view import Elevation, Link
+    from osprey_panels.view import Elevation, Link
 
     view = rack_elevation(panel_graph, "XR/XR01/RK1")
     long = "XR01:CH1 " + "chassis with a stated name longer than its bar " * 2

@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels import emit, targets
-from osprey.facility.panels.emit import Draw, EmitError, check, screen_ids, write
-from tests.facility.panels.test_emit import _drop, _files, _graph, _kinds, _walk
+from osprey_panels import emit, targets
+from osprey_panels.emit import Draw, EmitError, check, screen_ids, write
+from osprey_panels_tests.test_emit import _drop, _files, _graph, _kinds, _walk
 
 
 def _smaller(tmp_path: Path, panel_tables: Path):
@@ -361,9 +361,9 @@ def test_colours_and_annotations_are_part_of_the_draw_digest(tmp_path) -> None:
 
 
 def test_the_fixture_colours_stand_out_on_both_themes_and_from_every_state() -> None:
-    from osprey.facility.panels import symbols
-    from tests.facility.panels._fixture import PANELS_DIR
-    from tests.facility.panels.test_symbols import _resolved, contrast
+    from osprey_panels import symbols
+    from osprey_panels_tests._fixture import PANELS_DIR
+    from osprey_panels_tests.test_symbols import _resolved, contrast
 
     draw = emit.load_draw(PANELS_DIR / "draw.json")
     assert draw.colours

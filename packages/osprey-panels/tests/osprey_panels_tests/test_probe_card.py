@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.panels import layout
-from osprey.facility.panels.describe import device_card
-from osprey.facility.panels.view import Probe
-from tests.facility.panels._fixture import copy_tables, graph_with_bpms
-from tests.facility.panels._views import nodes, stub_render
+from osprey_panels import layout
+from osprey_panels.describe import device_card
+from osprey_panels.view import Probe
+from osprey_panels_tests._fixture import copy_tables, graph_with_bpms
+from osprey_panels_tests._views import nodes, stub_render
 
 PROBE = "probe_pictures.csv"
 TITLE = "pickup, looking downstream"
@@ -139,7 +139,7 @@ def test_inferred_buttons_are_muted_with_a_note_and_an_empty_label_has_no_letter
     block = _block(stub_render(device_card(graph, "XR01:BPM1"), graph))
     letters = {n["props"]["text"]: n for n in block if n["type"] == "text-label"}
     assert "D" not in letters
-    from osprey.facility.panels import symbols
+    from osprey_panels import symbols
 
     assert letters["A"]["props"]["foregroundColor"] == symbols.MUTED_TEXT
     assert letters["B"]["props"]["foregroundColor"] == symbols.PAGE_TEXT
@@ -149,7 +149,7 @@ def test_inferred_buttons_are_muted_with_a_note_and_an_empty_label_has_no_letter
 def test_the_probe_block_keeps_the_looks_rules(bpm_graph) -> None:
     from itertools import combinations
 
-    from tests.facility.panels.test_looks import ALLOWED, _box
+    from osprey_panels_tests.test_looks import ALLOWED, _box
 
     for device in ("XR01:BPM1", "XR02:BPM1"):
         doc = _doc(bpm_graph, device)
@@ -197,7 +197,7 @@ def _head_y(doc: dict, word: str) -> float:
 
 
 def _many_signals(document) -> None:
-    from tests.facility.panels._fixture import add_bpm
+    from osprey_panels_tests._fixture import add_bpm
 
     add_bpm(document, "XR01:BPM1", "XR/XR01")
     for n in range(30):
@@ -211,8 +211,8 @@ def _many_signals(document) -> None:
 
 
 def test_many_channels_fill_the_grid_column_by_column_inside_the_page(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
@@ -238,8 +238,8 @@ def test_a_card_of_few_rows_has_no_signal_table(panel_graph) -> None:
 
 
 def test_where_stands_full_width_after_the_channels(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _many_signals), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
@@ -256,7 +256,7 @@ def test_where_stands_full_width_after_the_channels(tmp_path) -> None:
 
 
 def _long_signals(document) -> None:
-    from tests.facility.panels._fixture import add_bpm
+    from osprey_panels_tests._fixture import add_bpm
 
     add_bpm(document, "XR01:BPM1", "XR/XR01")
     for n in range(14):
@@ -270,8 +270,8 @@ def _long_signals(document) -> None:
 
 
 def test_a_long_channel_name_in_the_grid_is_cut_and_whole_on_hover(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "f.json", _raw_channels), PANELS_DIR)
     doc = stub_render(device_card(graph, "XR01:BPM1"), graph)
@@ -290,7 +290,7 @@ def test_a_long_channel_name_in_the_grid_is_cut_and_whole_on_hover(tmp_path) -> 
 
 
 def _raw_channels(document) -> None:
-    from tests.facility.panels._fixture import add_bpm
+    from osprey_panels_tests._fixture import add_bpm
 
     add_bpm(document, "XR01:BPM1", "XR/XR01")
     for n in range(14):

@@ -5,15 +5,16 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from osprey.facility.panels import emit, load_graph, targets
-from osprey.facility.panels.classes import DRAWING_RULE
-from osprey.facility.panels.emit import (
+from osprey_panels import emit, load_graph, targets
+from osprey_panels.classes import DRAWING_RULE
+from osprey_panels.emit import (
     FORMAT_VERSION,
     SCREEN_SUFFIX,
     EmitError,
@@ -24,9 +25,10 @@ from osprey.facility.panels.emit import (
     under,
     write,
 )
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.view import Target
-from tests.facility.panels._fixture import graph_with_part, graph_with_wide, write_fixture_facility
+from osprey_panels.model import PanelGraph
+from osprey_panels.view import Target
+from osprey_panels_tests._fixture import graph_with_part, graph_with_wide, write_fixture_facility
+from osprey_panels_tests._harness import REPO_ROOT
 
 
 def _drop(*device_ids: str):
@@ -332,7 +334,7 @@ def test_under_a_place_writes_what_is_within_it(panel_graph, tmp_path):
 
 
 def test_write_under_keeps_a_write_to_places_and_check_agrees(tmp_path):
-    from osprey.facility.panels.emit import Draw, write_scope
+    from osprey_panels.emit import Draw, write_scope
 
     graph = graph_with_part(tmp_path)  # XR01:CARD1, in no place, part of a racked chassis
     draw = Draw(write_under=("XR/XR01",))
@@ -356,7 +358,7 @@ def test_write_under_keeps_a_write_to_places_and_check_agrees(tmp_path):
 
 
 def test_write_under_a_place_that_is_not_there_is_refused(panel_graph, tmp_path):
-    from osprey.facility.panels.emit import Draw, load_draw
+    from osprey_panels.emit import Draw, load_draw
 
     path = tmp_path / "draw.json"
     path.write_text(json.dumps({"write_under": ["XR/XR01"]}))
@@ -515,7 +517,7 @@ def test_no_written_button_can_write_a_value_no_one_stated_or_typed(panel_graph,
     """Every button of every written screen: a press with a stated number and no rule
     that changes it, or an entry's Apply that is off the canvas, with text as its
     press value and its rule's default, until its local holds a finite number."""
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     out = tmp_path / "out"
     write(panel_graph, out)
@@ -627,7 +629,7 @@ def test_the_digest_of_a_screen_name_is_eight_hex_digits():
 
 
 def _big_graph(devices: int) -> PanelGraph:
-    from tests.facility.panels.test_describe import _big_graph as build
+    from osprey_panels_tests.test_describe import _big_graph as build
 
     return build(devices)
 
@@ -659,7 +661,7 @@ def test_write_and_check_scale_near_linearly(tmp_path):
 
 
 def test_the_content_hash_moves_with_a_rule_table(panel_facility, panel_graph, tmp_path):
-    from tests.facility.panels._fixture import copy_tables
+    from osprey_panels_tests._fixture import copy_tables
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "health.csv").open("a", encoding="utf-8") as handle:
@@ -672,7 +674,7 @@ def test_a_rule_channel_no_roll_up_reads_is_unrolled(
 ):
     import importlib
 
-    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    describe_module = importlib.import_module("osprey_panels.describe")
 
     clean = load_graph(panel_facility, panel_tables)
     emit.write(clean, tmp_path / "clean")
@@ -718,7 +720,7 @@ def test_a_roll_up_with_no_live_light_is_static_only_when_a_child_has_no_screen(
 
 
 def test_a_roll_up_or_rack_over_its_budget_fails_and_a_card_over_it_is_noted(tmp_path, monkeypatch):
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     panel_graph = graph_with_part(tmp_path / "part")  # the rack has a light
 
@@ -736,8 +738,8 @@ def test_a_roll_up_or_rack_over_its_budget_fails_and_a_card_over_it_is_noted(tmp
 
 
 def test_no_fixture_roll_up_is_static_even_over_the_rule_limit(tmp_path, monkeypatch):
-    from osprey.facility.panels import layout
-    from osprey.facility.panels.describe import light
+    from osprey_panels import layout
+    from osprey_panels.describe import light
 
     panel_graph = graph_with_wide(tmp_path / "wide", 8)
     # a long node is open: a drill-down to its own screen, which has the lights
@@ -766,7 +768,7 @@ def test_a_rule_the_engine_would_refuse_as_too_long_is_a_long_formula(tmp_path, 
 
 
 def test_a_part_of_an_excluded_thing_has_no_screen_link_or_bound_channel(tmp_path) -> None:
-    from tests.facility.panels.test_model import _withheld
+    from osprey_panels_tests.test_model import _withheld
 
     graph = _withheld(tmp_path)
     out = tmp_path / "out"
@@ -777,7 +779,7 @@ def test_a_part_of_an_excluded_thing_has_no_screen_link_or_bound_channel(tmp_pat
 
 
 def test_a_channel_a_roll_up_row_opens_is_not_unrolled(panel_graph, tmp_path, monkeypatch):
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     monkeypatch.setattr(layout, "SCREEN_RULE_BUDGET", 0)  # every row opens its screen
     out = tmp_path / "out"
@@ -805,10 +807,10 @@ def test_a_device_whose_card_lists_counts_has_a_paged_roll_up_that_reads_each_ru
 ):
     import importlib
 
-    from osprey.facility.panels.describe import device_rollup
-    from osprey.facility.panels.view import Node
+    from osprey_panels.describe import device_rollup
+    from osprey_panels.view import Node
 
-    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    describe_module = importlib.import_module("osprey_panels.describe")
     monkeypatch.setattr(describe_module, "DEVICE_PAGE", 50)
     graph = graph_with_wide(tmp_path / "wide", 120)  # over the card's 60: counts only
     pages = [t for t in targets(graph) if t.view == "rollup" and t.kind == "device"]
@@ -828,9 +830,9 @@ def test_a_device_whose_card_lists_counts_has_a_paged_roll_up_that_reads_each_ru
 
 
 def test_a_scoped_home_lists_only_the_scope_and_says_so(tmp_path):
-    from osprey.facility.panels.describe import home
-    from osprey.facility.panels.emit import scoped, write_scope
-    from osprey.facility.panels.view import Fact, Group
+    from osprey_panels.describe import home
+    from osprey_panels.emit import scoped, write_scope
+    from osprey_panels.view import Fact, Group
 
     graph = graph_with_part(tmp_path)
     view = home(scoped(graph, write_scope(graph, ("XR/XR01",))))
@@ -842,8 +844,8 @@ def test_a_scoped_home_lists_only_the_scope_and_says_so(tmp_path):
 
 
 def test_a_scope_cuts_a_group_to_its_kept_members_and_writes_a_duplicate_once(tmp_path):
-    from osprey.facility.panels.describe import set_overview
-    from osprey.facility.panels.emit import scoped, write_scope
+    from osprey_panels.describe import set_overview
+    from osprey_panels.emit import scoped, write_scope
 
     def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
         document["groups"].append(
@@ -866,7 +868,7 @@ def test_no_written_screen_links_to_a_duplicate_the_scope_writes_once(tmp_path):
     names the kept one, so no link leaves the write for it."""
     import posixpath
 
-    from osprey.facility.panels.emit import Draw, _links
+    from osprey_panels.emit import Draw, _links
 
     def per_sector(document) -> None:  # the facility's own set of XR01's quadrupoles
         document["groups"].append(
@@ -896,8 +898,8 @@ def test_a_scoped_write_names_what_it_does_not_write_and_links_only_to_its_files
     place above the scope is named as text, and check notes each such name."""
     import posixpath
 
-    from osprey.facility.panels.emit import Draw, _links
-    from tests.facility.panels._views import nodes
+    from osprey_panels.emit import Draw, _links
+    from osprey_panels_tests._views import nodes
 
     graph = graph_with_part(tmp_path)
     out = tmp_path / "out"
@@ -926,11 +928,11 @@ def test_a_paged_roll_up_s_header_ends_its_way_out_without_a_mark(tmp_path, monk
     the page text go with the name, and a mark stands only between two steps."""
     import importlib
 
-    from osprey.facility.panels import layout
-    from osprey.facility.panels.describe import device_rollup
-    from tests.facility.panels._views import stub_render
+    from osprey_panels import layout
+    from osprey_panels.describe import device_rollup
+    from osprey_panels_tests._views import stub_render
 
-    describe_module = importlib.import_module("osprey.facility.panels.describe")
+    describe_module = importlib.import_module("osprey_panels.describe")
     monkeypatch.setattr(describe_module, "DEVICE_PAGE", 50)
     graph = graph_with_wide(tmp_path / "wide", 120)
     view = device_rollup(graph, "XR01:WIDE1", 2)
@@ -951,3 +953,66 @@ def test_a_paged_roll_up_s_header_ends_its_way_out_without_a_mark(tmp_path, monk
     marks = [i for i, w in enumerate(words) if w == "›"]
     assert marks and all(0 < i and words[i + 1] not in ("›", "page 2 of 3 health") for i in marks)
     assert not [w for w in words if w.startswith("·")]
+
+
+# --------------------------------------------------------------------------- theme input
+
+#: The demo theme, read by its path in the checkout (a file, not an import).
+DEMO_THEME = REPO_ROOT / "src/osprey/templates/apps/demo/data/canopy/theme/osprey.json"
+#: The demo theme's MINOR light colour: far from the fallback MINOR shades.
+THEME_ONLY_MINOR = "#b5710d"
+
+
+def _draw_file(tmp_path: Path, colour: str) -> Path:
+    path = tmp_path / "draw.json"
+    path.write_text(json.dumps({"colours": {"quadrupole": colour}}))
+    return path
+
+
+def test_load_theme_returns_the_roles_of_the_theme() -> None:
+    roles = emit.load_theme(DEMO_THEME)
+    assert roles == json.loads(DEMO_THEME.read_text(encoding="utf-8"))["roles"]
+    assert roles["MINOR"]["light"] == THEME_ONLY_MINOR
+
+
+def test_a_colour_near_a_theme_state_colour_is_refused_with_the_theme(tmp_path: Path) -> None:
+    path = _draw_file(tmp_path, THEME_ONLY_MINOR)
+    with pytest.raises(EmitError, match="too near the state colour MINOR"):
+        emit.load_draw(path, theme_roles=emit.load_theme(DEMO_THEME))
+
+
+def test_without_a_theme_only_the_fallback_state_colours_are_the_reference(
+    tmp_path: Path,
+) -> None:
+    path = _draw_file(tmp_path, THEME_ONLY_MINOR)
+    assert emit.load_draw(path).colours == {"quadrupole": THEME_ONLY_MINOR}
+    with pytest.raises(EmitError, match="too near the state colour MAJOR"):
+        emit.load_draw(_draw_file(tmp_path, "#c4162a"))
+
+
+def test_the_engine_names_no_theme_file_of_its_own() -> None:
+    assert not hasattr(emit, "THEME_FILE")
+    assert not hasattr(emit, "_theme_roles")
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,  # missing
+        "{not json",
+        "[]",
+        '{"id": "x"}',
+        '{"roles": []}',
+        '{"roles": {"MINOR": "#b5710d"}}',
+        '{"roles": {"MINOR": {"light": 7}}}',
+    ],
+    ids=["missing", "not-json", "not-object", "no-roles", "roles-list", "role-str", "shade-int"],
+)
+def test_an_unreadable_or_malformed_theme_raises_naming_the_path(
+    tmp_path: Path, content: str | None
+) -> None:
+    path = tmp_path / "theme.json"
+    if content is not None:
+        path.write_text(content)
+    with pytest.raises(EmitError, match=re.escape(str(path))):
+        emit.load_theme(path)

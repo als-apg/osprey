@@ -7,10 +7,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import PanelGraph, load_graph
-from osprey_facility.pairing import PAIR_RULE
-from tests._builds import FRAMEWORK_CHECKS
-from tests.facility.panels._fixture import (
+from osprey_panels import PanelGraph, load_graph
+from osprey_panels_tests._fixture import (
     PANELS_DIR,
     RING_FRAME,
     add_part,
@@ -18,6 +16,9 @@ from tests.facility.panels._fixture import (
     graph_with_part,
     write_fixture_facility,
 )
+
+#: The rule the facility build names when it derives a pair itself.
+PAIR_RULE = "the one readback of the same quantity where the setpoint sits"
 
 EXCLUDED_THING = "XR02:SAF1"
 EXCLUDED_PLACE = "XR/XR02/SAFE"
@@ -116,41 +117,39 @@ def test_a_pair_the_build_derives_is_inferred_by_the_build_s_rule(
 
 
 def test_a_pair_a_layer_infers_by_a_rule_is_inferred_by_that_rule(tmp_path: Path) -> None:
-    import shutil
+    layer = "imported/names/channels.yaml"
 
-    from osprey_facility.build import build_facility
-    from osprey_facility.render import facility_bytes
-    from tests.facility.panels._fixture import FACILITY_TREE
+    def inferred(document: dict[str, Any]) -> None:
+        # What the build writes when an imported layer infers both pairs by a rule.
+        records = {record["id"]: record for record in document["channels"]}
+        for channel, rule in (
+            ("XR01-PS1:On-Cmd", "a -Cmd pairs with the -Sts of its name"),
+            ("XR01-QF1:Current-SP", "a -SP pairs with the -RB of its name"),
+        ):
+            provenance = records[channel]["provenance"]
+            provenance.pop("rules", None)
+            provenance["defaults"] = [f for f in provenance["defaults"] if f != "pair"]
+            provenance["sources"].append(
+                {
+                    "layer": "names",
+                    "file": layer,
+                    "fields": ["pair"],
+                    "basis": "inferred",
+                    "rule": rule,
+                }
+            )
 
-    tree = tmp_path / "facility"
-    shutil.copytree(FACILITY_TREE, tree)
-    layer = tree / "imported" / "names" / "channels.yaml"
-    layer.parent.mkdir(parents=True)
-    layer.write_text(
-        "- id: XR01-PS1:On-Cmd\n"
-        "  pair: XR01-PS1:On-Sts\n"
-        "  basis: inferred\n"
-        "  rule: a -Cmd pairs with the -Sts of its name\n"
-        "- id: XR01-QF1:Current-SP\n"
-        "  pair: XR01-QF1:Current-RB\n"
-        "  basis: inferred\n"
-        "  rule: a -SP pairs with the -RB of its name\n",
-        encoding="utf-8",
-    )
-    facility = tmp_path / "facility.json"
-    facility.write_bytes(
-        facility_bytes(build_facility(tree, project_name="xr", extra_checks=FRAMEWORK_CHECKS))
-    )
-    graph = load_graph(facility, PANELS_DIR)
+    graph = load_graph(write_fixture_facility(tmp_path / "facility.json", inferred), PANELS_DIR)
     stated = graph.pair("XR01-QF1:Current-SP")  # records/channels.yaml states it outright
     assert stated is not None and (stated.basis, stated.rule) == ("stated", None)
+    assert stated.source == "records/channels.yaml"
     pair = graph.pair("XR01-PS1:On-Cmd")
     assert pair is not None
     assert (pair.readback, pair.basis, pair.rule, pair.source) == (
         "XR01-PS1:On-Sts",
         "inferred",
         "a -Cmd pairs with the -Sts of its name",
-        "imported/names/channels.yaml",
+        layer,
     )
 
 
@@ -666,8 +665,8 @@ def test_a_curve_claim_carries_its_points_and_kinds_go_by_order(panel_graph) -> 
 
 
 def test_a_claim_from_an_excluded_document_is_dropped(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "excluded.csv").open("a") as rows:

@@ -10,9 +10,9 @@ from itertools import combinations
 
 import pytest
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import place_view
-from tests.facility.panels._views import (
+from osprey_panels import layout, symbols
+from osprey_panels.describe import place_view
+from osprey_panels_tests._views import (
     ABOVE,
     SYMBOLS,
     element,

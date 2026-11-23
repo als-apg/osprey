@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import health_rollup
-from osprey.facility.panels.view import Group
-from tests.facility.panels._views import nodes, rollup_view, stub_render
+from osprey_panels import layout, symbols
+from osprey_panels.describe import health_rollup
+from osprey_panels.view import Group
+from osprey_panels_tests._views import nodes, rollup_view, stub_render
 
 
 def _section(view, title):
@@ -69,7 +69,7 @@ def test_the_by_system_rows_stand_right_of_the_tiles(panel_graph) -> None:
 def test_a_child_over_the_limit_is_an_open_tile_and_all_tiles_have_one_height(
     panel_graph, monkeypatch
 ) -> None:
-    from tests.facility.panels.test_layout import _limit_between_one_channel_and_three
+    from osprey_panels_tests.test_layout import _limit_between_one_channel_and_three
 
     limit = _limit_between_one_channel_and_three(panel_graph)
     monkeypatch.setattr(layout, "RULE_EXPRESSION_LIMIT", limit)  # "three" is over it
@@ -101,8 +101,8 @@ def test_the_title_stands_in_the_header_bar_after_the_id(panel_graph) -> None:
 def test_a_metrics_row_applies_only_where_the_place_level_matches(panel_graph, monkeypatch) -> None:
     from dataclasses import replace
 
-    from osprey.facility.panels.tables import Metric
-    from osprey.facility.panels.view import Band
+    from osprey_panels.tables import Metric
+    from osprey_panels.view import Band
 
     ring = Metric(
         view="rollup", level="ring", order=1.0, title="Ring number", measure="count",
@@ -125,12 +125,12 @@ class _Ringed:
     spans = {"R/A": [10.0, 20.0], "R/B": [40.0, 55.0], "R/C": [0.5, 80.0, 99.0]}
 
     def within(self, _place_id):
-        from osprey.facility.panels.model import Thing
+        from osprey_panels.model import Thing
 
         return [Thing(c, "place", None, "R") for c in ("R/C", "R/A", "R/B")]
 
     def contents(self, place_id):
-        from osprey.facility.panels.model import Thing
+        from osprey_panels.model import Thing
 
         return [
             Thing(f"{place_id}#{i}", "device", None, place_id)
@@ -146,7 +146,7 @@ class _Ringed:
 
 
 def test_the_ring_orders_children_by_where_their_span_starts() -> None:
-    from osprey.facility.panels.describe import ring_arcs
+    from osprey_panels.describe import ring_arcs
 
     assert ring_arcs(_Ringed(), "R") == ["R/A", "R/B", "R/C"]  # C starts at 80 m, not 0.5 m
 
@@ -196,10 +196,10 @@ def test_children_are_arcs_only_when_they_go_round_the_ring(tmp_path, length, ri
     """The sectors at 1-2 m and 11-12.5 m go round a 20 m ring; on a 14 m or a 40 m
     ring they leave a gap of half of it or more, a part of the ring, as one sector's
     places are: no arcs."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.describe import on_a_ring
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
-    from tests.facility.panels.test_describe import ring_model
+    from osprey_panels import load_graph
+    from osprey_panels.describe import on_a_ring
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
+    from osprey_panels_tests.test_describe import ring_model
 
     facility = write_fixture_facility(tmp_path / "f.json", ring_model(length))
     graph = load_graph(facility, copy_tables(tmp_path / "panels"))

@@ -10,12 +10,12 @@ import re
 
 import pytest
 
-from osprey.facility.panels import layout, symbols
-from osprey.facility.panels.describe import health_rollup, place_view
-from osprey.facility.panels.tables import PanelTableError
-from osprey.facility.panels.view import Band
-from tests.facility.panels._fixture import copy_tables, read_fixture_tables
-from tests.facility.panels._views import ABOVE, SYMBOLS, nodes, stub_render, with_symbols
+from osprey_panels import layout, symbols
+from osprey_panels.describe import health_rollup, place_view
+from osprey_panels.tables import PanelTableError
+from osprey_panels.view import Band
+from osprey_panels_tests._fixture import copy_tables, read_fixture_tables
+from osprey_panels_tests._views import ABOVE, SYMBOLS, nodes, stub_render, with_symbols
 
 #: The formula engine's grammar (canopy formula_engine/language/grammar.py) and the
 #: functions the band uses from its namespace.
@@ -189,7 +189,7 @@ def test_a_roll_up_root_carries_the_rollup_rows_of_the_band(panel_graph) -> None
 
 
 def _band_doc(panel_graph, tiles):
-    from osprey.facility.panels.view import Section, Target, View
+    from osprey_panels.view import Section, Target, View
 
     view = View(
         Target("place", "place", "XR/TEST"),
@@ -207,7 +207,7 @@ def _frames(doc: dict) -> list[dict]:
 
 @pytest.mark.parametrize(("count", "rows"), [(12, [6, 6]), (7, [7]), (9, [5, 4]), (3, [3])])
 def test_the_band_is_an_even_grid_whose_rows_span_the_content_width(panel_graph, count, rows):
-    from osprey.facility.panels.view import Tile
+    from osprey_panels.view import Tile
 
     tiles = tuple(
         Tile(f"T{i}", "value", None, None, ("XR01-QF1:Current-RB",)) for i in range(count)
@@ -242,7 +242,7 @@ def test_the_number_is_the_biggest_text_and_the_count_sits_on_its_baseline(xr01)
 
 
 def test_a_tile_text_never_needs_shrinking_and_a_long_caption_wraps(panel_graph) -> None:
-    from osprey.facility.panels.view import Tile
+    from osprey_panels.view import Tile
 
     long = "circuits without cooling-water flow and then some more words"
     tiles = tuple(

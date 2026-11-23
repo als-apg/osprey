@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels.tables import COLUMNS, PanelTableError
-from tests.facility.panels._fixture import (
+from osprey_panels.tables import COLUMNS, PanelTableError
+from osprey_panels_tests._fixture import (
     PANELS_DIR,
     copy_tables,
     graph_with_bpms,
@@ -109,8 +109,8 @@ def test_a_signal_is_found_at_the_port_then_the_device_then_what_reads_it_out(bp
 
 
 def test_a_port_that_names_no_device_is_passed_over(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import add_bpm, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import add_bpm, write_fixture_facility
 
     def change(document) -> None:
         add_bpm(document, "XR01:BPM1", "XR/XR01")
@@ -121,7 +121,7 @@ def test_a_port_that_names_no_device_is_passed_over(tmp_path) -> None:
 
 
 def test_a_value_held_in_the_control_system_is_found_the_same_way(tmp_path) -> None:
-    from osprey.facility.panels.describe import calibration_row
+    from osprey_panels.describe import calibration_row
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "calibration_kinds.csv").open("a") as handle:
@@ -132,7 +132,7 @@ def test_a_value_held_in_the_control_system_is_found_the_same_way(tmp_path) -> N
 
 
 def test_check_notes_a_probe_row_whose_signal_no_channel_states(tmp_path) -> None:
-    from osprey.facility.panels.emit import check, write
+    from osprey_panels.emit import check, write
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / PROBE).open("a") as handle:

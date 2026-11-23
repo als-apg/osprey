@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import FacilityDocument, load_graph
-from osprey.facility.panels.describe import (
+from osprey_panels import FacilityDocument, load_graph
+from osprey_panels.describe import (
     HOME,
     HOME_LINK,
     HOME_TARGET,
@@ -30,9 +30,10 @@ from osprey.facility.panels.describe import (
     set_overview,
     targets,
 )
-from osprey.facility.panels.model import PanelGraph
-from osprey.facility.panels.tables import HealthRule, PanelTables, Pose, RecordType
-from osprey.facility.panels.view import (
+from osprey_panels.document import READS
+from osprey_panels.model import PanelGraph
+from osprey_panels.tables import HealthRule, PanelTables, Pose, RecordType
+from osprey_panels.view import (
     CardHead,
     CheckRow,
     Elevation,
@@ -50,15 +51,14 @@ from osprey.facility.panels.view import (
     ValueRow,
     View,
 )
-from osprey_facility.validate import FACILITY_HEADER
-from tests.facility.panels._fixture import (
+from osprey_panels_tests._fixture import (
     PANELS_DIR,
     RING_FRAME,
     copy_tables,
     graph_with_part,
     write_fixture_facility,
 )
-from tests.facility.panels._views import with_symbols
+from osprey_panels_tests._views import with_symbols
 
 EXCLUDED = ("XR02:SAF1", "XR/XR02/SAFE", "XR/XR02/SAFE/CAB1", "XR02:SAF2")
 
@@ -161,7 +161,7 @@ def test_the_channels_grid_keeps_the_channel_order(panel_graph):
 
 
 def test_a_light_per_rule_bearing_channel_marks_inferred_and_disagree(panel_graph):
-    from osprey.facility.panels.describe import light
+    from osprey_panels.describe import light
 
     assert light(panel_graph, "XR01-PS1:On-Sts") == Light("XR01-PS1:On-Sts", inferred=True)
     # one stated row and one inferred row: not all inferred; they disagree on 0
@@ -170,7 +170,7 @@ def test_a_light_per_rule_bearing_channel_marks_inferred_and_disagree(panel_grap
 
 
 def test_a_light_whose_rules_the_engine_cannot_evaluate_says_so(panel_graph):
-    from osprey.facility.panels.describe import light
+    from osprey_panels.describe import light
 
     lit = {
         c.name: light(panel_graph, c.name)
@@ -874,7 +874,7 @@ def _big_graph(devices: int) -> PanelGraph:
     sectors = 500
     places = [{"id": "R"}] + [{"id": f"R/S{n}"} for n in range(sectors)]
     document: dict[str, Any] = {
-        "schema": FACILITY_HEADER,
+        "schema": min(READS),  # the one header the panels read
         "signals": [],
         "relation_types": [
             {"name": "cabled_to", "subject": ["device", "place"], "object": ["device", "place"]}
@@ -1249,7 +1249,7 @@ def test_the_default_network_hop_takes_a_device_and_one_thing_is_not_contested(t
 
 
 def test_grid_names_lose_the_segments_they_share_when_no_device_id_cuts_them():
-    from osprey.facility.panels.describe import _shared_cut
+    from osprey_panels.describe import _shared_cut
 
     rows = [
         ("PLC:IN2:Relay_Sts", "PLC:IN2:Relay_Sts"),
@@ -1269,7 +1269,7 @@ def test_grid_names_lose_the_segments_they_share_when_no_device_id_cuts_them():
 
 def _reached(graph, start):
     """Every target a walk over the links of the described views reaches from *start*."""
-    from tests.facility.panels._views import links
+    from osprey_panels_tests._views import links
 
     seen, todo = {start}, [start]
     while todo:
@@ -1340,8 +1340,8 @@ def test_a_place_view_and_a_system_roll_up_open_the_sets_in_them(panel_graph):
 
 
 def test_a_place_card_draws_its_own_lights_up_to_the_cap_and_counts_the_rest(tmp_path, monkeypatch):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def faults(document) -> None:
         for n in range(3):
@@ -1362,10 +1362,10 @@ def test_a_place_card_draws_its_own_lights_up_to_the_cap_and_counts_the_rest(tmp
 
 
 def test_a_part_stands_where_its_whole_is(tmp_path):
-    from osprey.facility.panels.describe import _where_on_strip
-    from osprey.facility.panels.layout import _BY_WHOLE
-    from tests.facility.panels._fixture import add_part
-    from tests.facility.panels._views import nodes, stub_render
+    from osprey_panels.describe import _where_on_strip
+    from osprey_panels.layout import _BY_WHOLE
+    from osprey_panels_tests._fixture import add_part
+    from osprey_panels_tests._views import nodes, stub_render
 
     def coil(document: dict[str, Any]) -> None:
         add_part(document, "XR01:QF1:PUMP", "XR01:QF1")
@@ -1424,7 +1424,7 @@ def test_a_rack_row_with_no_unit_takes_the_unit_another_row_of_the_device_states
 
 
 def test_a_stretch_across_a_rings_start_is_read_on_in_one_piece():
-    from osprey.facility.panels.describe import _unwrapped
+    from osprey_panels.describe import _unwrapped
 
     last_sector = {"a": 171.6, "b": 175.0, "c": 181.9, "valve": 0.07}
     assert _unwrapped(last_sector, 181.9) == {**last_sector, "valve": 0.07 + 181.9}

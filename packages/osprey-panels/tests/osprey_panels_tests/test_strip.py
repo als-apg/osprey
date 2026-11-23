@@ -7,8 +7,8 @@ import time
 
 import pytest
 
-from osprey.facility.panels.strip import arrange, arrange_scaled, locator
-from osprey.facility.panels.view import StripElement
+from osprey_panels.strip import arrange, arrange_scaled, locator
+from osprey_panels.view import StripElement
 
 WIDTHS = {"quad": 20.0, "bpm": 10.0, "dipole": 40.0}
 

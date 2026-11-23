@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.panels.tables import (
+from osprey_panels.tables import (
     COLUMNS,
     OPTIONAL_FILES,
     TABLE_FILES,
     PanelTableError,
 )
-from tests.facility.panels._fixture import copy_tables, read_fixture_tables
+from osprey_panels_tests._fixture import copy_tables, read_fixture_tables
 
 
 def _edit(directory: Path, name: str, lines: list[str]) -> Path:
@@ -200,7 +200,7 @@ def test_a_second_row_for_one_key_is_refused(tmp_path: Path, name: str, row: str
 
 
 def test_a_picture_part_may_be_of_any_kind_the_facility_names(tmp_path: Path) -> None:
-    from tests.facility.panels._fixture import copy_tables
+    from osprey_panels_tests._fixture import copy_tables
 
     tables = copy_tables(tmp_path / "panels")
     with (tables / "pictures.csv").open("a") as rows:
@@ -300,7 +300,7 @@ def test_the_under_column_may_be_left_out_of_the_header(tmp_path: Path) -> None:
 
 
 def test_a_metric_may_state_its_decimals_and_nothing_else_there(tmp_path) -> None:
-    from osprey.facility.panels.tables import PanelTableError
+    from osprey_panels.tables import PanelTableError
 
     tables = copy_tables(tmp_path / "ok")
     path = tables / "metrics.csv"
@@ -314,7 +314,7 @@ def test_a_metric_may_state_its_decimals_and_nothing_else_there(tmp_path) -> Non
 
 
 def test_state_labels_read_one_word_per_channel_and_value(tmp_path) -> None:
-    from osprey.facility.panels.tables import STATE_LABELS
+    from osprey_panels.tables import STATE_LABELS
 
     tables = copy_tables(tmp_path / "panels")
     assert read_fixture_tables(tables).state_labels == ()  # absent: no words
@@ -330,8 +330,8 @@ def test_state_labels_read_one_word_per_channel_and_value(tmp_path) -> None:
 
 
 def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path) -> None:
-    from osprey.facility.panels.model import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels.model import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "state_labels.csv").write_text(
@@ -353,7 +353,7 @@ def test_the_graph_finds_a_state_word_for_a_value_however_it_is_written(tmp_path
     ],
 )
 def test_a_channel_role_row_that_cannot_be_drawn_is_refused(tmp_path, row: str, why: str):
-    from osprey.facility.panels.tables import CHANNEL_ROLES
+    from osprey_panels.tables import CHANNEL_ROLES
 
     tables = copy_tables(tmp_path / "panels")
     (tables / CHANNEL_ROLES).write_text(",".join(COLUMNS[CHANNEL_ROLES]) + "\n" + row + "\n")
@@ -362,20 +362,24 @@ def test_a_channel_role_row_that_cannot_be_drawn_is_refused(tmp_path, row: str, 
 
 
 def test_walked_relations_are_the_device_to_device_types_sorted_by_name():
-    from osprey.facility.panels.tables import walked_relations
+    from osprey_panels.tables import walked_relations
 
     rows = [
         {"name": "read_out_by", "subject": ["device"], "object": ["device"]},
         {"name": "located_in", "subject": ["device"], "object": ["place"]},
         {"name": "cabled_to", "subject": ["device", "place"], "object": ["device", "place"]},
         {"name": "member_of", "subject": ["device"]},  # no object: never walked
+        # A kind is matched whole: neither a string nor a longer kind is ``device``.
+        {"name": "string_subject", "subject": "devices", "object": ["device"]},
+        {"name": "string_object", "subject": ["device"], "object": "device"},
+        {"name": "longer_kind", "subject": ["devices"], "object": ["device_group"]},
     ]
     assert walked_relations(rows) == ("cabled_to", "read_out_by")
     assert walked_relations([]) == ()
 
 
 def _one_role(tmp_path, scope: str):
-    from osprey.facility.panels.tables import CHANNEL_ROLES
+    from osprey_panels.tables import CHANNEL_ROLES
 
     tables = copy_tables(tmp_path / "panels")
     row = f"Pump,p,*:P,{scope},value,,,,,stated,S,1,l"
@@ -384,7 +388,7 @@ def _one_role(tmp_path, scope: str):
 
 
 def test_a_role_scope_is_a_relation_type_of_the_document_it_is_read_against(tmp_path):
-    from osprey.facility.panels.tables import read_tables
+    from osprey_panels.tables import read_tables
 
     tables = _one_role(tmp_path, "fed_by")
     own = [{"name": "fed_by", "subject": ["device"], "object": ["device"]}]
@@ -397,7 +401,7 @@ def test_a_role_scope_is_a_relation_type_of_the_document_it_is_read_against(tmp_
 
 
 def test_a_role_scope_of_a_type_that_ends_at_a_place_is_refused(tmp_path):
-    from osprey.facility.panels.tables import read_tables
+    from osprey_panels.tables import read_tables
 
     tables = _one_role(tmp_path, "located_in")
     place = [{"name": "located_in", "subject": ["device"], "object": ["place"]}]
@@ -406,7 +410,7 @@ def test_a_role_scope_of_a_type_that_ends_at_a_place_is_refused(tmp_path):
 
 
 def test_the_built_in_scopes_need_no_relation_type(tmp_path):
-    from osprey.facility.panels.tables import read_tables
+    from osprey_panels.tables import read_tables
 
     for scope in ("device", "parts"):
         (role,) = read_tables(_one_role(tmp_path / scope, scope), relation_types=()).channel_roles

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from osprey.facility.panels.health import (
+from osprey_panels.health import (
     channel_state,
     rollup,
     row_matches,
@@ -232,7 +232,7 @@ def test_a_roll_up_does_not_read_values_outside_its_channels(panel_graph):
 def test_a_roll_up_over_a_large_place_is_linear():
     from types import SimpleNamespace
 
-    from osprey.facility.panels.tables import HealthRule
+    from osprey_panels.tables import HealthRule
 
     count = 20_000
     rule = [HealthRule("c", "1", "normal", None, "stated", None, None, None)]
@@ -337,7 +337,7 @@ def test_the_bit_form_tolerates_the_spaces_the_comparisons_do():
     ],
 )
 def test_supported_says_whether_the_engine_can_evaluate_a_row(row_value, expected):
-    from osprey.facility.panels.health import supported
+    from osprey_panels.health import supported
 
     assert supported(row_value) is expected
 
@@ -358,7 +358,7 @@ def test_supported_says_whether_the_engine_can_evaluate_a_row(row_value, expecte
     ],
 )
 def test_form_names_the_grammar_the_engine_evaluates(row_value, expected):
-    from osprey.facility.panels.health import form, supported
+    from osprey_panels.health import form, supported
 
     found = form(row_value)
     assert (found is not None) is supported(row_value)
@@ -373,9 +373,9 @@ def test_disagree_has_one_definition_the_others_call(panel_graph):
     import importlib
     from pathlib import Path
 
-    from osprey.facility.panels import health, layout
+    from osprey_panels import health, layout
 
-    describe = importlib.import_module("osprey.facility.panels.describe")
+    describe = importlib.import_module("osprey_panels.describe")
 
     assert health.disagree({"bad", "normal"}) and not health.disagree(["bad", "bad"])
     assert health.disagrees(panel_graph, "XR01-IP1:State-Sts")  # value 0: bad and normal

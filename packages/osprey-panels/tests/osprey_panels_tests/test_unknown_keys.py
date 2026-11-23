@@ -14,13 +14,18 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.panels import emit, load_graph
-from osprey.facility.panels.model import PanelGraph
-from osprey_facility.render import facility_bytes
-from tests.facility.panels._fixture import FIXTURE_DOCUMENT, PANELS_DIR, load_fixture_document
+from osprey_panels import emit, load_graph
+from osprey_panels.model import PanelGraph
+from osprey_panels_tests._fixture import (
+    FIXTURE_DOCUMENT,
+    PANELS_DIR,
+    facility_bytes,
+    load_fixture_document,
+)
 
-#: The record kinds that each get one unknown key.
-RECORD_KINDS = ("places", "devices", "channels", "groups")
+#: The tables whose first row gets one unknown key: the record kinds, and the
+#: ``signals`` and ``relation_types`` vocabularies.
+RECORD_KINDS = ("signals", "relation_types", "places", "devices", "channels", "groups")
 
 
 def _files(root: Path) -> dict[str, bytes]:
@@ -102,6 +107,13 @@ def test_the_mask_hides_only_the_content_hash(emitted) -> None:
         name for name, data in _files(plain_out).items() if data != _files(widened_out)[name]
     }
     assert emit.INDEX in raw_differing  # the hash really differs before the mask
+
+    # Negative control: a difference that is not the hash survives the mask.
+    files = _files(plain_out)
+    name = next(n for n in sorted(files) if n.endswith(emit.SCREEN_SUFFIX))
+    changed = {**files, name: files[name] + b"\n<!-- not the hash -->"}
+    assert _masked(changed, plain) != _masked(files, plain)
+    assert _masked(changed, plain)[name].endswith(b"<!-- not the hash -->")
 
 
 def test_a_widened_document_checks_clean_against_its_own_screens(emitted) -> None:

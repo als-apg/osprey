@@ -7,10 +7,10 @@ import json
 
 import pytest
 
-from osprey.facility.panels import layout
-from osprey.facility.panels.describe import device_card
-from osprey.facility.panels.view import Section, ValueRow
-from tests.facility.panels._views import nodes, stub_render
+from osprey_panels import layout
+from osprey_panels.describe import device_card
+from osprey_panels.view import Section, ValueRow
+from osprey_panels_tests._views import nodes, stub_render
 
 
 def _by_type(doc: dict, kind: str) -> list[dict]:
@@ -40,8 +40,8 @@ ROLES_HEADER = (
 
 def _roles_graph(tmp_path, roles: str, labels: str = "", metrics: str = ""):
     """The fixture with a channel_roles.csv (and state words, card key numbers)."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "channel_roles.csv").write_text(ROLES_HEADER + roles)
@@ -91,7 +91,7 @@ def test_a_drawn_card_has_its_title_line_numbered_sections_and_no_signal_table(p
 
 
 def test_the_relations_are_blocks_with_arrows_the_device_in_focus(panel_graph) -> None:
-    from osprey.facility.panels import symbols
+    from osprey_panels import symbols
 
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     arrows = [n for n in _by_type(doc, "line") if n["props"].get("arrowEnd")]
@@ -148,8 +148,8 @@ def test_written_apply_shows_what_it_writes_from_the_same_local(panel_graph, tmp
     field's text stops being a number, both keep the last number."""
     import json
 
-    from osprey.facility.panels import layout
-    from osprey.facility.panels.emit import write
+    from osprey_panels import layout
+    from osprey_panels.emit import write
 
     out = tmp_path / "out"
     write(panel_graph, out)
@@ -173,7 +173,7 @@ def test_written_apply_shows_what_it_writes_from_the_same_local(panel_graph, tmp
 
 
 def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) -> None:
-    from osprey.facility.panels.describe import PressCount, press_counts
+    from osprey_panels.describe import PressCount, press_counts
 
     roles = (  # "Bypass" is no state word of the channel: what it writes is not stated
         "PowerSupply,on-command,*:On-Cmd,device,action,,,,Bypass,stated,S,1,l\n"
@@ -190,7 +190,7 @@ def test_a_press_whose_value_no_source_states_is_left_out_and_counted(tmp_path) 
 
 
 def test_an_inferred_press_value_is_said_so_wherever_its_value_is_named(tmp_path) -> None:
-    from osprey.facility.panels.describe import INFERRED_NOTE, press_counts
+    from osprey_panels.describe import INFERRED_NOTE, press_counts
 
     roles = (  # the database runs a sequence on any write: 1 is inferred
         "PowerSupply,reset,*:On-Cmd,device,action,,,1,Reset,inferred,S,1,l\n"
@@ -277,8 +277,8 @@ def test_card_key_numbers_name_their_roles_and_a_missing_one_is_not_served(tmp_p
 def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_path) -> None:
     """count_true reads "k of N", max and sum one formula over all members; while any
     member has no value the figure is a dash and a line says so."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def outlets(document) -> None:
         for n in (1, 2, 3):
@@ -340,7 +340,7 @@ def test_card_key_numbers_over_every_channel_of_a_role_count_max_and_sum(tmp_pat
 def test_a_row_named_by_its_raw_channel_shows_the_last_part_and_the_name_muted(
     panel_graph,
 ) -> None:
-    from osprey.facility.panels.view import Target, View
+    from osprey_panels.view import Target, View
 
     raw = ValueRow("XR01-QF1:Current-RB", "XR01-QF1:Current-RB", None, None, False)
     named = ValueRow("current readback", "XR01-QF1:Current-RB", None, None, False)
@@ -378,7 +378,7 @@ def _calibration(doc: dict) -> list[dict]:
 
 
 def test_the_calibration_block_is_full_width_under_the_columns_and_read_only(panel_graph):
-    from osprey.facility.panels import symbols
+    from osprey_panels import symbols
 
     doc = stub_render(device_card(panel_graph, "XR01:QF1"), panel_graph)
     block = _calibration(doc)
@@ -408,8 +408,8 @@ def test_the_calibration_block_is_full_width_under_the_columns_and_read_only(pan
 
 
 def test_the_basis_colours_stay_clear_of_the_state_colours_and_read_on_every_ground():
-    from osprey.facility.panels import symbols
-    from tests.facility.panels.test_symbols import GROUNDS, _resolved, contrast
+    from osprey_panels import symbols
+    from osprey_panels_tests.test_symbols import GROUNDS, _resolved, contrast
 
     for basis, colour in symbols.BASIS_ROLES.items():
         for theme in ("light", "dark"):
@@ -429,8 +429,8 @@ _LONG_CONDITIONS = (
 
 
 def test_a_parameter_title_wraps_and_is_never_cut_and_long_conditions_wrap(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     kinds = (tables / "calibration_kinds.csv").read_text()
@@ -477,9 +477,9 @@ def _ported(document) -> None:
 
 
 def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tmp_path):
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.model import substitute
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.model import substitute
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     assert substitute("*:IP{n}:P", "CH2") == "*:IP2:P"
     assert substitute("*:{port}:P", "A[1]") == "*:A[[]1]:P"  # the port matched literally
@@ -498,7 +498,7 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
         ("state", "XR01-IP1:State-Sts", "XR01:IP1", None),
         ("vacuum_readback", "XR01-IP1:Pressure-RB", "XR01:IP1", None),  # its signal, by default
     ]
-    from osprey.facility.panels.view import ChannelGrid
+    from osprey_panels.view import ChannelGrid
 
     view = device_card(graph, "XR01:IP1")
     grid = next(i for s in view.sections for i in s.items if isinstance(i, ChannelGrid))
@@ -508,16 +508,16 @@ def test_a_walked_role_takes_the_channel_of_its_port_and_a_contested_one_none(tm
         "XR01-IP1:State-Sts",
         "XR01-CH2:IP2:P",
     ]
-    from osprey.facility.panels.describe import channel_list
+    from osprey_panels.describe import channel_list
 
     listed = {i.channel for s in channel_list(graph, "XR01:IP1").sections for i in s.items}
     assert listed == {c for _s, c in grid.rows}  # the full list holds what the grid does
 
 
 def test_a_recipe_names_the_card_fills_its_sentence_and_sets_the_grid_columns(tmp_path):
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import CardHead, ChannelGrid
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import CardHead, ChannelGrid
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -563,8 +563,8 @@ def test_where_and_sources_are_one_muted_line_each_a_contested_claim_says_so(pan
 
 
 def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -592,8 +592,8 @@ def test_a_recipe_for_some_devices_of_a_class_wins_and_keys_its_own_tiles(tmp_pa
 def _chained(tmp_path, change=None):
     """A pump recipe whose chain walks its read-out (a chassis, its temperature),
     its power (none stated) and what it is read out by in turn."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -618,14 +618,14 @@ def _chained(tmp_path, change=None):
 
 
 def _chain_of(view):
-    from osprey.facility.panels.view import Chain
+    from osprey_panels.view import Chain
 
     return next(i for s in view.sections for i in s.items if isinstance(i, Chain))
 
 
 def test_the_device_s_block_shows_no_role_several_of_its_channels_play(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     def statuses(document) -> None:
         _ported(document)
@@ -647,7 +647,7 @@ def test_the_device_s_block_shows_no_role_several_of_its_channels_play(tmp_path)
 
 
 def test_a_recipe_chain_walks_its_hops_and_says_where_one_is_not_stated(tmp_path):
-    from osprey.facility.panels.describe import chain_states
+    from osprey_panels.describe import chain_states
 
     graph = _chained(tmp_path, _ported)
     view = device_card(graph, "XR01:IP1")
@@ -708,9 +708,9 @@ def test_a_claim_contested_over_something_else_is_still_one_target(tmp_path):
 
 
 def test_a_hop_from_a_many_step_walks_from_each_and_unites_the_targets(tmp_path):
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.describe import chain_states
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.describe import chain_states
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -734,8 +734,8 @@ def test_a_hop_from_a_many_step_walks_from_each_and_unites_the_targets(tmp_path)
 
 
 def test_a_hop_to_many_draws_every_thing_it_reaches_in_one_column(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -793,8 +793,8 @@ def test_a_word_with_no_stated_meaning_keeps_inside_its_block(tmp_path):
 
 def _stripped(tmp_path, *, place_pose: bool = False, change=None):
     """A pump recipe whose first section is a strip of pumps and quadrupoles."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -819,7 +819,7 @@ def _stripped(tmp_path, *, place_pose: bool = False, change=None):
 
 
 def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
-    from osprey.facility.panels.view import CardStrip
+    from osprey_panels.view import CardStrip
 
     graph = _stripped(tmp_path)
     view = device_card(graph, "XR01:IP1")
@@ -840,8 +840,8 @@ def test_a_strip_draws_the_members_round_the_device_to_scale(tmp_path) -> None:
 
 
 def test_a_strip_window_reads_on_across_a_rings_start(tmp_path) -> None:
-    from osprey.facility.panels.view import CardStrip
-    from tests.facility.panels.test_describe import ring_model
+    from osprey_panels.view import CardStrip
+    from osprey_panels_tests.test_describe import ring_model
 
     graph = _stripped(tmp_path, change=ring_model(12.0))
     view = device_card(graph, "XR01:IP1")  # at 1.25; XR02:QF1 at 11.0 is 2.25 m before it
@@ -858,7 +858,7 @@ def test_a_strip_window_reads_on_across_a_rings_start(tmp_path) -> None:
 
 
 def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None:
-    from osprey.facility.panels.view import CardStrip, StripMember
+    from osprey_panels.view import CardStrip, StripMember
 
     graph = _stripped(tmp_path)
     view = device_card(graph, "XR01:IP1")
@@ -897,8 +897,8 @@ def test_close_strip_members_keep_their_names_and_values_apart(tmp_path) -> None
 def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by_none_says_so(
     tmp_path,
 ) -> None:
-    from osprey.facility.panels.describe import STRIP_BY_PLACE, STRIP_NOWHERE, strip_state
-    from osprey.facility.panels.view import CardHead, CardStrip
+    from osprey_panels.describe import STRIP_BY_PLACE, STRIP_NOWHERE, strip_state
+    from osprey_panels.view import CardHead, CardStrip
 
     graph = _stripped(tmp_path, place_pose=True)
     view = device_card(graph, "XR01:IP2")
@@ -926,7 +926,7 @@ def test_a_device_placed_only_by_its_place_is_a_dashed_bracket_and_one_placed_by
 
 
 def test_strip_states_count_the_devices_of_a_recipe_by_how_they_are_placed(tmp_path):
-    from osprey.facility.panels.describe import strip_states
+    from osprey_panels.describe import strip_states
 
     graph = _stripped(tmp_path, place_pose=True)
     assert strip_states(graph, ["XR01:IP1", "XR01:IP2", "XR01:QF1"]) == {
@@ -967,7 +967,7 @@ def test_written_screens_offer_no_press_nor_entry_on_an_internal_record(tmp_path
     lists it, read only, and the card links there."""
     import json
 
-    from osprey.facility.panels.emit import write
+    from osprey_panels.emit import write
 
     roles = "PowerSupply,internal,*:On-Cmd,device,value,,,,,stated,S,1,l\n"
     graph = _roles_graph(tmp_path, roles)
@@ -1003,9 +1003,9 @@ def test_written_screens_offer_no_press_nor_entry_on_an_internal_record(tmp_path
 def test_a_device_over_the_cap_shows_counts_and_opens_its_channels_view(tmp_path, monkeypatch):
     import importlib
 
-    describing = importlib.import_module("osprey.facility.panels.describe")
-    from osprey.facility.panels.describe import describe, targets
-    from osprey.facility.panels.view import ChannelCount, Target, ValueRow
+    describing = importlib.import_module("osprey_panels.describe")
+    from osprey_panels.describe import describe, targets
+    from osprey_panels.view import ChannelCount, Target, ValueRow
 
     monkeypatch.setattr(describing, "GRID_CAP", 1)
     roles = (
@@ -1106,8 +1106,8 @@ FRONTS_HEADER = (
 
 def _fronted(tmp_path, change=None, fronts: str = "", roles: str = ""):
     """A supply recipe with a front whose outputs are the loads powered by it on a port."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -1140,7 +1140,7 @@ def _ports(*pairs):
 
 
 def _front_of(view):
-    from osprey.facility.panels.view import Front
+    from osprey_panels.view import Front
 
     return next(i for s in view.sections for i in s.items if isinstance(i, Front))
 
@@ -1162,7 +1162,7 @@ def test_a_front_numbers_its_connectors_and_names_what_is_on_each(tmp_path):
 
 
 def test_two_things_on_one_connector_are_both_drawn_contested(tmp_path):
-    from osprey.facility.panels.describe import FRONT_CONTESTED, front_state
+    from osprey_panels.describe import FRONT_CONTESTED, front_state
 
     graph = _fronted(tmp_path, _ports(("xr01-qf1-power", "1"), ("xr01-qd1-power", "1")))
     front = _front_of(device_card(graph, "XR01:PS1"))
@@ -1174,7 +1174,7 @@ def test_two_things_on_one_connector_are_both_drawn_contested(tmp_path):
 
 
 def test_a_range_is_numbered_by_its_served_channels_in_number_order(tmp_path):
-    from osprey.facility.panels.describe import front_numbers
+    from osprey_panels.describe import front_numbers
 
     def outlets(document) -> None:
         for n in (10, 2, 1):
@@ -1291,8 +1291,8 @@ def _two_groups(tmp_path, phases: bool, roles_column: bool = True):
         for name in names:
             document["channels"].append({"id": f"XR01-PS1:{name}", "on": {"device": "XR01:PS1"}})
 
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     _fronted(tmp_path, channels, roles=_GROUP_ROLES)  # its tables, then this front's rows
     tables = tmp_path / "panels"
@@ -1365,8 +1365,8 @@ def test_a_literal_connector_takes_its_listed_role_s_channel_carrying_its_name(t
         + "supply,rear,supplies,1,PSUA,power,,,powered_by,in,,PSU A,S,state\n"
         + "supply,rear,supplies,2,PSUB,power,,,powered_by,in,,PSU B,S,state\n"
     )
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "g.json", channels), tables)
     assert _carried(_front_of(device_card(graph, "XR01:PS1"))) == {
@@ -1386,7 +1386,7 @@ _NAME_ROLE = "PowerSupply,name,*:Out[0-9]-Name,device,entry,,,,Name,stated,S,1,l
 
 
 def test_many_entries_of_one_role_are_a_grid_whose_line_names_no_channel(tmp_path):
-    from osprey.facility.panels import layout
+    from osprey_panels import layout
 
     graph = _fronted(tmp_path, _named_outlets, roles=_NAME_ROLE)  # name is no front role
     view = device_card(graph, "XR01:PS1")
@@ -1417,8 +1417,8 @@ def test_a_connector_s_typed_value_is_set_under_the_front_named_by_its_connector
         "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
         "supply,1,front,Outputs,,front,,name,,S\n"
     )
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(
         write_fixture_facility(tmp_path / "g.json", _named_outlets), tmp_path / "panels"
@@ -1441,8 +1441,8 @@ def test_tables_without_fronts_still_build(panel_graph):
 
 def _sectioned(tmp_path, sections: str, roles: str = "", change=None):
     """A pump recipe with the given card sections."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -1477,8 +1477,8 @@ def test_a_ring_strip_draws_its_group_in_number_order_when_a_position_is_missing
 
 
 def test_a_ring_strip_of_placed_members_runs_by_place_under_a_count_of_ok_lamps(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     def permit(document) -> None:
         document["channels"].append({"id": "XR01-IP2:Permit-Sts", "on": {"device": "XR01:IP2"}})
@@ -1514,7 +1514,7 @@ def test_a_ring_strip_of_placed_members_runs_by_place_under_a_count_of_ok_lamps(
 
 
 def test_ring_members_group_at_the_finest_level_with_few_places(panel_graph) -> None:
-    from osprey.facility.panels.describe import _ring_places
+    from osprey_panels.describe import _ring_places
 
     members = [panel_graph.thing(d, "device") for d in ("XR01:QF1", "XR01:QD1", "XR02:QF1")]
     held = _ring_places(panel_graph, members)
@@ -1551,7 +1551,7 @@ def _both(*changes):
 
 
 def test_an_inferred_relation_says_so_on_a_hop_a_connector_and_a_member(tmp_path):
-    from osprey.facility.panels.describe import RULE_NOT_STATED, inferred_rule
+    from osprey_panels.describe import RULE_NOT_STATED, inferred_rule
 
     # a hop
     graph = _chained(tmp_path / "a", _both(_ported, _inferred("xr01-ip1-readout")))
@@ -1652,15 +1652,15 @@ def test_a_group_wrapping_onto_a_second_line_names_it_continued(tmp_path):
 
 
 def test_inside_a_place_a_member_shows_its_short_name_and_two_alike_keep_what_differs():
-    from osprey.facility.panels.describe import _short_labels
-    from osprey.facility.panels.model import Thing
+    from osprey_panels.describe import _short_labels
+    from osprey_panels.model import Thing
 
     members = [Thing(i, "device", None, None) for i in ("XR05A:G1", "XR05A:P1", "XR05B:P1")]
     assert _short_labels(members) == {"XR05A:G1": "G1", "XR05A:P1": "A:P1", "XR05B:P1": "B:P1"}
 
 
 def test_number_order_compares_numbers_as_numbers() -> None:
-    from osprey.facility.panels.order import name_order
+    from osprey_panels.order import name_order
 
     names = ["XR03:T10", "XR03:T9", "XR03:T30"]
     assert sorted(names, key=name_order) == ["XR03:T9", "XR03:T10", "XR03:T30"]
@@ -1699,9 +1699,9 @@ def test_a_ladder_marks_the_set_points_in_order_and_names_those_not_served(tmp_p
 
 
 def test_entries_of_one_role_are_each_named_by_their_channel(tmp_path):
-    from osprey.facility.panels.describe import _operate
-    from osprey.facility.panels.model import RoleHit
-    from osprey.facility.panels.tables import ChannelRole
+    from osprey_panels.describe import _operate
+    from osprey_panels.model import RoleHit
+    from osprey_panels.tables import ChannelRole
 
     role = ChannelRole(
         "PowerSupply", "set-point", "*", "device", "entry", None, None, None, None, "stated",
@@ -1718,8 +1718,8 @@ def test_entries_of_one_role_are_each_named_by_their_channel(tmp_path):
 def _switch(tmp_path, signal: str | None = "*:TSW1-Sts"):
     """A thermal switch XR01:QF1:TSW1, part of the quadrupole XR01:QF1, whose drawing
     holds one switch row reading *signal*."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import add_part, copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import add_part, copy_tables, write_fixture_facility
 
     def part(document) -> None:
         add_part(document, "XR01:QF1:TSW1", "XR01:QF1", "XR01:QF1:TSW1-Sts")
@@ -1778,8 +1778,8 @@ def test_a_part_whose_place_on_the_drawing_is_not_stated_says_so(tmp_path):
 
 
 def _curved(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "card_recipes.csv").write_text(
@@ -1824,8 +1824,8 @@ def _carded(tmp_path, rows: str | None, attributes: dict | None = None):
     racked ``XR01:CH1``, with a rule channel and *attributes*) and ``XR01:CARD2``
     (only cabled to it, no channel); *rows* is the ``cards.csv`` body (``None``: no
     file)."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import (
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import (
         PART_RULE,
         add_part,
         copy_tables,
@@ -1849,7 +1849,7 @@ def _carded(tmp_path, rows: str | None, attributes: dict | None = None):
 
 
 def test_by_default_a_device_gets_a_card_only_with_a_channel_or_a_drawing(tmp_path):
-    from osprey.facility.panels.describe import (
+    from osprey_panels.describe import (
         _index,
         _ref,
         card_counts,
@@ -1857,7 +1857,7 @@ def test_by_default_a_device_gets_a_card_only_with_a_channel_or_a_drawing(tmp_pa
         drawn_on,
         targets,
     )
-    from osprey.facility.panels.view import Fact, Target
+    from osprey_panels.view import Fact, Target
 
     graph = _carded(tmp_path, None)
     found = targets(graph)
@@ -1877,9 +1877,9 @@ def test_by_default_a_device_gets_a_card_only_with_a_channel_or_a_drawing(tmp_pa
 def test_a_drop_row_with_an_owner_draws_the_device_on_its_owners_card(tmp_path):
     import json
 
-    from osprey.facility.panels.describe import _index, _ref, card_rule_counts, targets
-    from osprey.facility.panels.emit import write
-    from osprey.facility.panels.view import Target
+    from osprey_panels.describe import _index, _ref, card_rule_counts, targets
+    from osprey_panels.emit import write
+    from osprey_panels.view import Target
 
     graph = _carded(tmp_path, "drop,ElectronicsModule,,,,,part_of,out,device,in its chassis,S\n")
     assert Target("card", "device", "XR01:CARD1") not in targets(graph)
@@ -1894,8 +1894,8 @@ def test_a_drop_row_with_an_owner_draws_the_device_on_its_owners_card(tmp_path):
 
 
 def test_a_keep_row_gives_a_card_the_default_would_not(tmp_path):
-    from osprey.facility.panels.describe import card_counts, targets
-    from osprey.facility.panels.view import Target
+    from osprey_panels.describe import card_counts, targets
+    from osprey_panels.view import Target
 
     bare = card_counts(_carded(tmp_path / "a", None))
     graph = _carded(tmp_path / "b", "keep,*,,XR01:CARD2,,,,,,a passive part worth a card,S\n")
@@ -1904,8 +1904,8 @@ def test_a_keep_row_gives_a_card_the_default_would_not(tmp_path):
 
 
 def test_a_row_with_an_attribute_selects_only_the_devices_that_carry_it(tmp_path):
-    from osprey.facility.panels.describe import card_rule_counts, targets
-    from osprey.facility.panels.view import Target
+    from osprey_panels.describe import card_rule_counts, targets
+    from osprey_panels.view import Target
 
     graph = _carded(
         tmp_path,
@@ -1922,7 +1922,7 @@ def test_a_row_with_an_attribute_selects_only_the_devices_that_carry_it(tmp_path
 
 
 def test_a_row_under_a_place_selects_a_part_by_its_wholes_place(tmp_path):
-    from osprey.facility.panels.describe import card_rule_counts
+    from osprey_panels.describe import card_rule_counts
 
     graph = _carded(tmp_path, "drop,*,XR,XR01:CARD*,,,,,,parts in the ring,S\n")
     assert graph.card_rule("XR01:CARD1") is not None  # part of a racked chassis in XR
@@ -1951,8 +1951,8 @@ def test_when_conditions_select_by_channel_and_by_drawing(tmp_path):
     ],
 )
 def test_a_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
-    from osprey.facility.panels.tables import CARDS, PanelTableError
-    from tests.facility.panels._fixture import copy_tables, read_fixture_tables
+    from osprey_panels.tables import CARDS, PanelTableError
+    from osprey_panels_tests._fixture import copy_tables, read_fixture_tables
 
     tables = copy_tables(tmp_path / "panels")
     (tables / CARDS).write_text(CARDS_HEADER + row)
@@ -1961,8 +1961,8 @@ def test_a_cards_row_that_cannot_be_read_says_why(tmp_path, row, said):
 
 
 def test_choice_segments_that_share_a_word_carry_their_value() -> None:
-    from osprey.facility.panels.describe import _distinct
-    from osprey.facility.panels.view import Control
+    from osprey_panels.describe import _distinct
+    from osprey_panels.view import Control
 
     both = [Control("Reboot", "X:REBOOT", 0.0), Control("Reboot", "X:REBOOT", 1.0)]
     assert [c.label for c in _distinct(both)] == ["Reboot = 0", "Reboot = 1"]
@@ -1971,8 +1971,8 @@ def test_choice_segments_that_share_a_word_carry_their_value() -> None:
 
 
 def test_a_segment_carrying_its_value_is_not_given_it_twice_in_the_writes_line() -> None:
-    from osprey.facility.panels.describe import _distinct, _writes
-    from osprey.facility.panels.view import Control
+    from osprey_panels.describe import _distinct, _writes
+    from osprey_panels.view import Control
 
     both = _distinct([Control("Reboot", "X:REBOOT", 0.0), Control("Reboot", "X:REBOOT", 1.0)])
     assert (
@@ -1981,7 +1981,7 @@ def test_a_segment_carrying_its_value_is_not_given_it_twice_in_the_writes_line()
 
 
 def test_a_front_row_with_no_far_relation_is_a_reading_with_no_far_end(tmp_path):
-    from osprey.facility.panels.describe import FRONT_READING, front_state, front_states
+    from osprey_panels.describe import FRONT_READING, front_state, front_states
 
     graph = _two_groups(tmp_path, phases=True)  # its phases row names no far relation
     front = _front_of(device_card(graph, "XR01:PS1"))
@@ -1997,7 +1997,7 @@ def test_a_front_row_with_no_far_relation_is_a_reading_with_no_far_end(tmp_path)
 
 
 def test_a_device_whose_front_is_readings_only_is_counted_so(tmp_path):
-    from osprey.facility.panels.describe import FRONT_READING, front_states
+    from osprey_panels.describe import FRONT_READING, front_states
 
     graph = _literal(tmp_path, ("PSUA-Sts",))  # no row names a far relation
     (states,) = front_states(graph, ["XR01:PS1"]).values()
@@ -2024,8 +2024,8 @@ def _literal(tmp_path, served: tuple[str, ...]):
         + "supply,rear,supplies,2,PSUB,power,,,,,,PSU B,S,state\n"
         + "supply,front,outputs,3,Out{n},power,2,,,,,Out {n},S,\n"
     )
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     return load_graph(write_fixture_facility(tmp_path / "g.json", channels), tables)
 
@@ -2072,8 +2072,8 @@ def test_a_front_s_values_under_its_sockets_are_one_band_labelled_with_role_and_
         "recipe,order,kind,title,focus,members,window_m,roles,caption,source\n"
         "supply,1,front,Outputs,,front,,current,,S\n"
     )
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(write_fixture_facility(tmp_path / "g.json", currents), tmp_path / "panels")
     doc = stub_render(device_card(graph, "XR01:PS1"), graph)
@@ -2090,8 +2090,8 @@ def test_a_front_row_apart_no_draws_only_clients_on_a_stated_port(tmp_path):
         + ",roles,apart\n"
         + "supply,front,outputs,1,Out{n},power,,,powered_by,in,{n},,S,,no\n"
     )
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     graph = load_graph(
         write_fixture_facility(tmp_path / "g.json", _ports(("xr01-qf1-power", "1"))),
@@ -2108,8 +2108,8 @@ def test_a_front_row_apart_no_draws_only_clients_on_a_stated_port(tmp_path):
 def _joined(tmp_path, inferred: bool):
     """Two pumps each read out by a chassis point, one join stated and the other
     inferred when *inferred*; the pump's open command is the point's channel."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def change(document) -> None:
         for n in (1, 2):
@@ -2150,7 +2150,7 @@ def _writers(doc: dict) -> set[str]:
 
 
 def test_a_command_reached_through_an_inferred_join_is_never_offered(tmp_path):
-    from osprey.facility.panels.describe import JOIN_WITHHELD, press_counts
+    from osprey_panels.describe import JOIN_WITHHELD, press_counts
 
     graph = _joined(tmp_path, inferred=True)
     stated = stub_render(device_card(graph, "XR01:IP1"), graph)
@@ -2173,8 +2173,8 @@ def test_the_same_join_stated_offers_the_command(tmp_path):
 
 
 def test_a_band_of_rows_alike_in_place_is_labelled_with_the_words_they_end_in():
-    from osprey.facility.panels.layout import _band_label, _bands
-    from osprey.facility.panels.view import BlockRow, Connector
+    from osprey_panels.layout import _band_label, _bands
+    from osprey_panels.view import BlockRow, Connector
 
     def rows(*labels):
         return tuple(BlockRow(label, f"X:{label}", shown_as="value") for label in labels)
@@ -2197,9 +2197,9 @@ def test_a_band_of_rows_alike_in_place_is_labelled_with_the_words_they_end_in():
 
 
 def test_a_text_set_record_is_never_an_entry_on_a_card(tmp_path):
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.describe import channel_list
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.describe import channel_list
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def named(document) -> None:
         document["channels"].append(
@@ -2242,9 +2242,9 @@ def test_a_device_whose_presses_all_stand_on_its_front_has_no_operate_block(tmp_
 
 
 def test_presses_that_share_a_word_are_each_named_by_what_tells_their_channel_apart(tmp_path):
-    from osprey.facility.panels.describe import _operate
-    from osprey.facility.panels.model import RoleHit
-    from osprey.facility.panels.tables import ChannelRole
+    from osprey_panels.describe import _operate
+    from osprey_panels.model import RoleHit
+    from osprey_panels.tables import ChannelRole
 
     role = ChannelRole(
         "PowerSupply", "enable", "*", "device", "action", None, None, 1.0, "Enable", "stated",
@@ -2259,7 +2259,7 @@ def test_presses_that_share_a_word_are_each_named_by_what_tells_their_channel_ap
 
 
 def test_what_tells_names_apart_drops_the_segments_they_share():
-    from osprey.facility.panels.describe import _apart
+    from osprey_panels.describe import _apart
 
     assert _apart(["CH1:ENABLE", "CH2:ENABLE"]) == ["CH1", "CH2"]
     assert _apart(["R1:CH1_Flt", "R1:CH2_Flt"]) == ["CH1", "CH2"]
@@ -2294,7 +2294,7 @@ def test_a_key_tile_s_note_goes_under_its_number_when_beside_it_would_cut_the_nu
 
 
 def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
-    from osprey.facility.panels.view import BlockRow, CardHead, Chain, ChainBlock, Target, View
+    from osprey_panels.view import BlockRow, CardHead, Chain, ChainBlock, Target, View
 
     def width(unit: str | None) -> float:
         row = BlockRow("current", "XR01-QF1:Current-SP", shown_as="value", unit=unit)
@@ -2322,8 +2322,8 @@ def test_a_chain_block_is_wide_enough_for_a_value_with_its_unit(panel_graph):
 def _family_supply_graph(tmp_path):
     """The fixture with one family supply whose two channels have the ring's first
     quadrupoles as endpoints."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def supply(document) -> None:
         document["devices"].append({"id": "XR:FAMILY-PS", "class": "FamilySupply"})
@@ -2346,7 +2346,7 @@ def _family_supply_graph(tmp_path):
 
 
 def test_a_member_card_shows_its_shared_supply_read_only_and_links_to_it(tmp_path) -> None:
-    from osprey.facility.panels.view import Link, Target, ValueRow
+    from osprey_panels.view import Link, Target, ValueRow
 
     graph = _family_supply_graph(tmp_path)
     view = device_card(graph, "XR01:QF1")
@@ -2376,8 +2376,8 @@ def test_a_shared_supply_on_a_member_card_links_to_no_unwritten_channels_list(
 ) -> None:
     """A channel drawn under its supply is shown, not hidden: the member card offers
     the full list only when the list is a screen, in a whole write or a scoped one."""
-    from osprey.facility.panels.emit import Draw, check, write
-    from osprey.facility.panels.view import ChannelGrid
+    from osprey_panels.emit import Draw, check, write
+    from osprey_panels.view import ChannelGrid
 
     graph = _family_supply_graph(tmp_path)
     view = device_card(graph, "XR01:QF1")
@@ -2407,10 +2407,10 @@ def _interlocked(document) -> None:
 
 
 def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.tables import walked_relations
-    from osprey.facility.panels.view import Chain
-    from tests.facility.panels._fixture import (
+    from osprey_panels import load_graph
+    from osprey_panels.tables import walked_relations
+    from osprey_panels.view import Chain
+    from osprey_panels_tests._fixture import (
         copy_tables,
         fixture_relation_types,
         write_fixture_facility,
@@ -2456,9 +2456,9 @@ def test_a_role_walks_any_relation_type_from_a_device_to_a_device(tmp_path):
 def test_a_role_rows_stated_label_names_its_tile_value_and_entries(tmp_path) -> None:
     """A stated label is the word on a lamp's and a value's tile, over the entries'
     group and in front of what tells two entries of one role apart."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import ControlGroup, KeyTile
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import ControlGroup, KeyTile
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def sizes(document) -> None:
         for name in ("XR01-IP1:Size_A", "XR01-IP1:Size_B"):
@@ -2489,9 +2489,9 @@ def test_a_role_rows_stated_label_names_its_tile_value_and_entries(tmp_path) -> 
 def test_a_channels_signal_never_turns_its_stated_words_into_a_typed_entry(tmp_path) -> None:
     """A writable channel that only states a signal plays it as a role, and the card
     still offers it as the choice of its stated words, a plain setpoint as an entry."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import Operate
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import Operate
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def modes(document) -> None:
         for name, signal in (("XR01-IP1:Mode-Sel", "mode"), ("XR01-IP1:Size-SP", "size")):
@@ -2519,8 +2519,8 @@ def test_a_channels_signal_never_turns_its_stated_words_into_a_typed_entry(tmp_p
 def test_a_state_its_health_rows_rule_is_a_lamp_by_default(tmp_path) -> None:
     """With no role row, a state channel's signal plays its role as a lamp when
     health rows say what its states mean, else as a word; a row overrides."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def shown(tables) -> str:
         graph = load_graph(write_fixture_facility(tmp_path / "f.json"), tables)
@@ -2543,9 +2543,9 @@ def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -
     """A role of a signal the facility marks ``nameplate`` (it names the unit, as a
     bootloader version does) is never a key tile; unmarked, the same channel is one;
     a row that gives the channel another role word overrides the mark."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import KeyTile
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import KeyTile
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     firmware = "XR01-IP1:Bootloader-RB"
 
@@ -2580,9 +2580,9 @@ def test_a_nameplate_signal_says_what_a_device_is_and_is_no_key_tile(tmp_path) -
 def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tmp_path) -> None:
     """The shipped vocabulary marks its model, serial number and firmware version
     signals nameplate: a channel stating one is never a key tile, with no row."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import KeyTile
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import KeyTile
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     signals = ("model_readback", "serial_number_readback", "firmware_version_readback")
 
@@ -2600,7 +2600,7 @@ def test_the_vocabularys_nameplate_signals_say_what_a_device_is_with_no_table(tm
     view = device_card(graph, "XR01:IP1")
     tiles = {i.channel for s in view.sections for i in s.items if isinstance(i, KeyTile)}
     assert not {c for c in tiles if ":Plate" in c}
-    from osprey.facility.panels.view import Chain
+    from osprey_panels.view import Chain
 
     (chain,) = [i for s in view.sections for i in s.items if isinstance(i, Chain)]
     (own,) = [b for b in chain.blocks if b.focus]
@@ -2612,9 +2612,9 @@ def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> No
     """A channel whose signal states a ``title`` (the vocabulary's alarm-limit word,
     or one the facility gives its own signal) is called by it; a row's ``label``
     still decides."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import KeyTile
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import KeyTile
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     limit, trip = "XR01-IP1:TempHi-RB", "XR01-IP1:Trip-RB"
 
@@ -2648,31 +2648,16 @@ def test_a_signal_s_title_names_its_channel_and_a_row_label_wins(tmp_path) -> No
     assert titles(load_graph(facility, tables))[limit] == "High limit"
 
 
-def test_the_vocabulary_titles_its_general_signals_with_the_operator_s_word() -> None:
-    from osprey_facility.validate import vocabulary
-
-    titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
-    assert {name: titles[name] for name in (
-        "current_readback", "current_setpoint", "voltage_readback", "ramp_rate_setpoint",
-        "power_on_command", "temperature_lolo_limit_readback", "temperature_hihi_limit_setpoint",
-    )} == {
-        "current_readback": "Current", "current_setpoint": "Setpoint",
-        "voltage_readback": "Voltage", "ramp_rate_setpoint": "Ramp rate",
-        "power_on_command": "On command", "temperature_lolo_limit_readback": "Lolo",
-        "temperature_hihi_limit_setpoint": "Hihi",
-    }  # fmt: skip
-
-
 def _default_tiles(graph, device: str) -> list[tuple[str, str | None]]:
-    from osprey.facility.panels.view import KeyTile
+    from osprey_panels.view import KeyTile
 
     view = device_card(graph, device)
     return [(i.title, i.channel) for s in view.sections for i in s.items if isinstance(i, KeyTile)]
 
 
 def test_a_default_tile_counts_only_the_device_s_own_channels_of_its_role(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     tables = copy_tables(tmp_path / "panels")
     (tables / "channel_roles.csv").write_text(
@@ -2688,8 +2673,8 @@ def test_a_default_tile_counts_only_the_device_s_own_channels_of_its_role(tmp_pa
 
 
 def test_a_device_with_two_own_channels_of_a_role_gets_no_default_tile_for_it(tmp_path):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def second(document) -> None:
         document["channels"].append({"id": "XR01-IP1:Pressure2-RB", "on": {"device": "XR01:IP1"}})
@@ -2714,7 +2699,7 @@ def test_short_control_rows_use_the_width_in_columns(panel_graph) -> None:
     entry's rows stand one under the other."""
     from dataclasses import replace
 
-    from osprey.facility.panels.view import Control, ControlGroup, Operate
+    from osprey_panels.view import Control, ControlGroup, Operate
 
     presses = tuple(
         Control(f"Reset {i}", f"XR01-PS1:Reset{i}-Cmd", press_value=1.0) for i in range(1, 7)
@@ -2747,7 +2732,7 @@ def test_choices_in_a_row_stand_side_by_side_in_cells(panel_graph) -> None:
     run is less tall than one choice to a row."""
     from dataclasses import replace
 
-    from osprey.facility.panels.view import Control, ControlGroup, Operate
+    from osprey_panels.view import Control, ControlGroup, Operate
 
     def choice(i: int) -> ControlGroup:
         segments = tuple(
@@ -2779,7 +2764,7 @@ def test_a_choice_too_long_for_its_line_reads_downward(panel_graph) -> None:
     as an action group's rows do: the second segment under the first."""
     from dataclasses import replace
 
-    from osprey.facility.panels.view import Control, ControlGroup, Operate
+    from osprey_panels.view import Control, ControlGroup, Operate
 
     segments = tuple(
         Control(f"S{v}", "XR01-PS1:Mode-Sel", press_value=float(v), status="XR01-PS1:Mode-Sts")
@@ -2800,8 +2785,8 @@ def test_a_choice_too_long_for_its_line_reads_downward(panel_graph) -> None:
 
 def test_numbered_actions_stand_in_number_order(tmp_path) -> None:
     """Outputs named 0, 1, 2, 10, 11 stand in that order, never 0, 1, 10, 11, 2."""
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def outputs(document) -> None:
         for k in (11, 1, 10, 2, 0):
@@ -2823,9 +2808,9 @@ def test_numbered_actions_stand_in_number_order(tmp_path) -> None:
 def test_a_device_s_channels_and_its_card_rows_stand_in_number_order(tmp_path) -> None:
     """The channels of a thing come by name, numbers by value, so every list drawn
     from them (the channel grid, a role's rows, a block's lines) reads 2 before 10."""
-    from osprey.facility.panels import load_graph
-    from osprey.facility.panels.view import ChannelGrid
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels.view import ChannelGrid
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def words(document) -> None:
         for k in (1, 10, 11, 2, 3):
@@ -2848,7 +2833,7 @@ def test_groups_of_one_kind_that_follow_each_other_carry_one_tag(panel_graph) ->
     kind's tag stands once, at its head; each group keeps its own rows."""
     from dataclasses import replace
 
-    from osprey.facility.panels.view import Control, ControlGroup, Operate
+    from osprey_panels.view import Control, ControlGroup, Operate
 
     groups = tuple(
         ControlGroup("entry", role, (Control(role, f"XR01-PS1:{role}-SP"),), f"writes {role}")

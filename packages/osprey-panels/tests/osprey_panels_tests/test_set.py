@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from osprey.facility.panels import layout
-from osprey.facility.panels.describe import set_overview
-from osprey.facility.panels.view import (
+from osprey_panels import layout
+from osprey_panels.describe import set_overview
+from osprey_panels.view import (
     Fact,
     Grid,
     GridCell,
@@ -14,8 +14,8 @@ from osprey.facility.panels.view import (
     Target,
     View,
 )
-from tests.facility.panels._fixture import PANELS_DIR
-from tests.facility.panels._views import nodes, printed, stub_render
+from osprey_panels_tests._fixture import PANELS_DIR
+from osprey_panels_tests._views import nodes, printed, stub_render
 
 
 def _texts(doc: dict) -> dict[str, list[dict]]:
@@ -59,8 +59,8 @@ def test_the_set_is_an_equal_grid_under_column_heads_beside_row_heads(panel_grap
 
 def _unpaired_qd1(tmp_path):
     """The fixture with no pair on XR01:QD1's setpoint (the build pairs it by signal)."""
-    from osprey.facility.panels.model import load_graph
-    from tests.facility.panels._fixture import PANELS_DIR, write_fixture_facility
+    from osprey_panels.model import load_graph
+    from osprey_panels_tests._fixture import PANELS_DIR, write_fixture_facility
 
     def change(document) -> None:
         for channel in document["channels"]:
@@ -275,8 +275,8 @@ def test_each_group_is_headed_by_the_short_names_its_own_members_share(panel_gra
 
 def _set_with_units(tmp_path, units: dict[str, str]):
     """The fixture's quadrupole set, its readbacks given *units* (channel to unit)."""
-    from osprey.facility.panels.model import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
+    from osprey_panels.model import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
 
     def change(document) -> None:
         for channel in document["channels"]:
@@ -393,9 +393,9 @@ def test_a_group_whose_members_share_a_unit_states_it_after_its_heading(tmp_path
 
 
 def test_a_member_with_no_light_shows_the_value_its_card_shows_first(tmp_path) -> None:
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import copy_tables, write_fixture_facility
-    from tests.facility.panels.test_card import ROLES_HEADER
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import copy_tables, write_fixture_facility
+    from osprey_panels_tests.test_card import ROLES_HEADER
 
     def unpaired(document) -> None:
         for record in document["channels"]:
@@ -421,8 +421,8 @@ def test_a_member_with_no_light_shows_the_value_its_card_shows_first(tmp_path) -
 
 
 def _grouped(tmp_path, *groups):
-    from osprey.facility.panels import load_graph
-    from tests.facility.panels._fixture import write_fixture_facility
+    from osprey_panels import load_graph
+    from osprey_panels_tests._fixture import write_fixture_facility
 
     def change(document) -> None:
         document["devices"].append({"id": "XR01:ODD1", "place": "XR/XR01"})  # no class
@@ -432,7 +432,7 @@ def _grouped(tmp_path, *groups):
 
 
 def test_a_section_is_never_a_set_and_a_family_needs_one_class(tmp_path) -> None:
-    from osprey.facility.panels.describe import targets
+    from osprey_panels.describe import targets
 
     graph = _grouped(
         tmp_path,
@@ -444,7 +444,7 @@ def test_a_section_is_never_a_set_and_a_family_needs_one_class(tmp_path) -> None
 
 
 def test_check_names_a_family_that_is_no_set_for_want_of_a_members_class(tmp_path) -> None:
-    from osprey.facility.panels import emit
+    from osprey_panels import emit
 
     graph = _grouped(
         tmp_path,
@@ -460,11 +460,11 @@ def test_a_set_over_one_page_is_paged_by_whole_rows_and_each_page_links_the_othe
 ) -> None:
     import importlib
 
-    from osprey.facility.panels import emit, load_graph
-    from osprey.facility.panels.describe import targets
-    from osprey.facility.panels.view import Grid, Target
+    from osprey_panels import emit, load_graph
+    from osprey_panels.describe import targets
+    from osprey_panels.view import Grid, Target
 
-    described = importlib.import_module("osprey.facility.panels.describe")
+    described = importlib.import_module("osprey_panels.describe")
     monkeypatch.setattr(described, "SET_PAGE", 3)  # two sector rows of two: one a page
     graph = load_graph(panel_facility, PANELS_DIR)  # a fresh graph: its index is built now
     pages = [t for t in targets(graph) if t.view == "set" and t.id == "XR-QUAD"]
