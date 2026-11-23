@@ -102,3 +102,42 @@ def test_a_command_mark_on_a_readback_stops_the_build(
         "facility: engine-invalid: model SR — the engine marks BPM1:X command; its direction "
         "is read; fix: make the engine's describe() mark write records alone command"
     )
+
+
+def test_the_write_guard_reads_the_marks_of_a_built_document(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The guard reads a built ``/4`` document through the checked loader and finds its marks."""
+    import osprey.channel_roster.sources as sources
+    import osprey_connectors.workspace as workspace
+    from osprey.runtime.guarded_run import _facility_commands
+    from tests._facility_file import write_facility_v4
+
+    _marking(monkeypatch, "QD:SP")
+    document = built_document(tmp_path, _tree())[0]
+    path = write_facility_v4(tmp_path / "build", document)
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr(sources, "facility_file_path", lambda config: path)
+
+    assert _facility_commands() == frozenset({FIRE, "QD:SP"})
+
+
+@pytest.mark.foreign_header
+def test_the_write_guard_refuses_a_built_document_of_another_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same marks under a ``/3`` header fire nothing: the guard names the rebuild."""
+    import osprey.channel_roster.sources as sources
+    import osprey_connectors.workspace as workspace
+    from osprey.runtime.guarded_run import OspreyWriteRefused, _facility_commands
+    from tests._facility_file import write_facility_document
+
+    document = built_document(tmp_path, _tree())[0]
+    path = write_facility_document(
+        tmp_path / "build", document, schema="osprey.facility.facility/3"
+    )
+    monkeypatch.setattr(workspace, "load_osprey_config", lambda: {})
+    monkeypatch.setattr(sources, "facility_file_path", lambda config: path)
+
+    with pytest.raises(OspreyWriteRefused, match="rebuild with osprey build"):
+        _facility_commands()

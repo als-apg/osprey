@@ -29,7 +29,13 @@ from osprey.channel_roster.sources import (
     facility_file_path,
     read_facility_roster,
 )
-from tests._facility_file import channel_tree, write_facility_file
+from tests._facility_file import (
+    FACILITY_V4,
+    channel_tree,
+    write_facility_document,
+    write_facility_file,
+    write_facility_v4,
+)
 from tests.facility._synthetic_trees import deck_tree, plain_tree
 
 
@@ -266,11 +272,14 @@ class TestAbsence:
         ("payload", "detail"),
         [
             ("{not json", "Expecting property name"),
-            (json.dumps({"schema": "x"}), "'channels'"),
-            (json.dumps({"channels": [{"role": "readback"}]}), "'id'"),
-            (json.dumps({"channels": [{"id": "A"}]}), "'role'"),
-            (json.dumps({"channels": [{"id": "A", "role": "both"}]}), "'both'"),
-            (json.dumps({"channels": ["A"]}), "str"),
+            (json.dumps({"schema": FACILITY_V4}), "'channels'"),
+            (json.dumps({"schema": FACILITY_V4, "channels": [{"role": "readback"}]}), "'id'"),
+            (json.dumps({"schema": FACILITY_V4, "channels": [{"id": "A"}]}), "'role'"),
+            (
+                json.dumps({"schema": FACILITY_V4, "channels": [{"id": "A", "role": "both"}]}),
+                "'both'",
+            ),
+            (json.dumps({"schema": FACILITY_V4, "channels": ["A"]}), "str"),
             (json.dumps([1, 2]), "list"),
         ],
         ids=["not-json", "no-channels", "no-id", "no-role", "bad-role", "bare-string", "a-list"],
@@ -299,3 +308,50 @@ class TestAbsence:
 
         assert roster.absence is not None
         assert roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE
+
+
+class TestTheHeader:
+    """The reader reads only a document whose ``schema`` header it declares."""
+
+    _CHANNELS = {"channels": [{"id": "A:SP", "role": "setpoint"}]}
+
+    @pytest.mark.foreign_header
+    def test_a_v3_document_is_a_corrupt_source_naming_the_rebuild(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        path = write_facility_document(
+            tmp_path, self._CHANNELS, schema="osprey.facility.facility/3"
+        )
+
+        with caplog.at_level(logging.WARNING, logger="osprey.channel_roster.sources"):
+            roster = registered_channels(_config(tmp_path))
+
+        assert roster.records == ()
+        assert roster.absence is not None
+        assert roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE
+        assert roster.absence.detail == (
+            f"{path} is osprey.facility.facility/3; this reader reads {FACILITY_V4} "
+            "-- rebuild with osprey build"
+        )
+        assert roster.absence.message().startswith(
+            "The channel roster source at facility.json could not be read: "
+        )
+        assert any("rebuild with osprey build" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.foreign_header
+    def test_a_header_less_document_is_a_corrupt_source(self, tmp_path: Path) -> None:
+        write_facility_document(tmp_path, self._CHANNELS, schema=None)
+
+        roster = registered_channels(_config(tmp_path))
+
+        assert roster.absence is not None
+        assert roster.absence.reason is RosterAbsenceReason.CORRUPT_SOURCE
+        assert "rebuild with osprey build" in (roster.absence.detail or "")
+
+    def test_a_v4_document_reads_as_before(self, tmp_path: Path) -> None:
+        write_facility_v4(tmp_path, self._CHANNELS)
+
+        roster = registered_channels(_config(tmp_path))
+
+        assert roster.absence is None
+        assert roster.addresses == ("A:SP",)

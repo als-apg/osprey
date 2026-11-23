@@ -20,7 +20,6 @@ was asked to write.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +49,7 @@ from osprey_connectors.errors import (
     ChannelWriteFailedError,
 )
 from osprey_connectors.workspace import reset_config_cache
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests._guarded_run import LIVE_BASELINE, reset_run_state
 
 #: Commands of the facility definition: the setpoints the build marked ``command``.
@@ -62,6 +62,9 @@ CORRECTOR = "SYN:COR:SP"
 ECHO = "SYN:INJ:ECHO"
 #: A channel the facility definition does not name at all.
 STRANGER = "SYN:NOT:THERE"
+
+#: The sentence every refusal of an unreadable facility definition ends with.
+REBUILD = "-- rebuild with osprey build"
 
 #: The rendered facility definition's channels.
 FACILITY_CHANNELS: list[dict[str, Any]] = [
@@ -97,7 +100,7 @@ def _deploy(root: Path, limits_checking: Any = None) -> None:
 def _facility(root: Path, channels: list[dict[str, Any]]) -> None:
     """Render ``build/facility.json`` holding *channels*."""
     document = {"identity": {"code": "SYN", "name": "Synthetic"}, "channels": channels}
-    (root / "build" / "facility.json").write_text(json.dumps(document), encoding="utf-8")
+    write_facility_v4(root / "build", document)
 
 
 @pytest.fixture(autouse=True)
@@ -404,15 +407,108 @@ async def test_command_ness_is_the_facility_definitions_and_never_the_callers() 
 
 
 async def test_no_rendered_facility_definition_means_no_command_fires(repo: Path) -> None:
-    (repo / "build" / "facility.json").unlink()
+    path = repo / "build" / "facility.json"
+    path.unlink()
 
-    assert "facility definition" in (await _refused(_Connector(), [ARM])).reason
+    reason = (await _refused(_Connector(), [ARM])).reason
+
+    assert reason == (
+        f"no command fires without the rendered facility definition ({path} is missing) {REBUILD}"
+    )
 
 
 async def test_an_unreadable_facility_definition_means_no_command_fires(repo: Path) -> None:
-    (repo / "build" / "facility.json").write_text("{not json", encoding="utf-8")
+    path = repo / "build" / "facility.json"
+    path.write_text("{not json", encoding="utf-8")
 
-    assert "facility definition" in (await _refused(_Connector(), [ARM])).reason
+    reason = (await _refused(_Connector(), [ARM])).reason
+
+    assert reason.startswith(f"{path} is not JSON: ")
+    assert reason.endswith(REBUILD)
+
+
+async def test_a_facility_definition_that_cannot_be_read_means_no_command_fires(
+    repo: Path,
+) -> None:
+    path = repo / "build" / "facility.json"
+    path.unlink()
+    path.mkdir()
+
+    reason = (await _refused(_Connector(), [ARM])).reason
+
+    assert reason.startswith(f"{path} cannot be read: ")
+    assert reason.endswith(REBUILD)
+
+
+@pytest.mark.foreign_header
+async def test_a_v3_facility_definition_means_no_command_fires(repo: Path) -> None:
+    path = write_facility_document(
+        repo / "build", {"channels": FACILITY_CHANNELS}, schema="osprey.facility.facility/3"
+    )
+
+    refusal = await _refused(_Connector(), [ARM])
+
+    assert refusal.reason == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        f"osprey.facility.facility/4 {REBUILD}"
+    )
+    assert refusal.reason.count(str(path)) == 1, "the path is named once, not re-wrapped"
+    assert "cannot be read" not in refusal.reason
+
+
+@pytest.mark.foreign_header
+async def test_a_header_less_facility_definition_means_no_command_fires(repo: Path) -> None:
+    write_facility_document(repo / "build", {"channels": FACILITY_CHANNELS}, schema=None)
+
+    reason = (await _refused(_Connector(), [ARM])).reason
+
+    assert "a document without a schema header" in reason
+    assert reason.endswith(REBUILD)
+
+
+@pytest.mark.parametrize(
+    ("payload", "word"),
+    [(FACILITY_CHANNELS, "a list"), (4, "a number"), (None, "null")],
+    ids=["list", "number", "null"],
+)
+async def test_a_facility_definition_that_is_no_object_means_no_command_fires(
+    repo: Path, payload: object, word: str
+) -> None:
+    path = write_facility_document(repo / "build", payload)
+
+    reason = (await _refused(_Connector(), [ARM])).reason
+
+    assert reason == f"{path} is {word}, not a JSON object {REBUILD}"
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"identity": {"code": "SYN"}},
+        {"identity": {"code": "SYN"}, "channels": {ARM: {"command": True}}},
+        {"identity": {"code": "SYN"}, "channels": None},
+    ],
+    ids=["channel-less", "channels-an-object", "channels-null"],
+)
+async def test_a_facility_definition_with_no_channel_list_means_no_command_fires(
+    repo: Path, document: dict[str, Any]
+) -> None:
+    path = write_facility_v4(repo / "build", document)
+
+    refusal = await _refused(_Connector(), [ARM])
+
+    assert refusal.channel_address is None, "the whole document is refused, not one address"
+    assert refusal.reason == f"{path} holds no channel list {REBUILD}"
+
+
+async def test_an_empty_channel_list_refuses_each_write_as_no_command(repo: Path) -> None:
+    _facility(repo, [])
+
+    refusal = await _refused(_Connector(), [ARM])
+
+    assert refusal.channel_address == ARM
+    assert "not a command of the facility definition" in refusal.reason
+    assert REBUILD not in refusal.reason
 
 
 async def test_a_connector_with_no_limits_validator_is_refused_while_limits_are_on() -> None:

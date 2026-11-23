@@ -23,8 +23,8 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
+from osprey.facility.errors import FacilityFileError
 from osprey.facility.records import FacilityRecords
-from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
     FACTS_FILE,
@@ -33,10 +33,14 @@ from osprey.facility.views.facts import (
     FACTS_TEMPLATE,
     facts_document,
     hook_measurement,
+    parsed_facility_file,
     read_facts,
     render_facts_page,
     zero_source_facts,
 )
+from osprey.facility.views.outputs import render_facility_outputs
+from tests._builds import FRAMEWORK_CHECKS
+from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
@@ -348,7 +352,9 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     quad = next(device for device in devices if device["class"] == QUAD)
     quad["class"] = "SkewQuad"
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
     classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert declared in document["classes"]
@@ -366,7 +372,9 @@ def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
         {"id": "SR/MAG", "members": ["SR/Q1"]},
     ]
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
     classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG", "SR/QF"]
@@ -377,7 +385,9 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
     tree = plain_tree()
     tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
     classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG"]
@@ -387,7 +397,9 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
 
 
 def test_a_facility_with_no_sources_has_the_zero_source_facts(tmp_path: Path) -> None:
-    document = build_facility(tmp_path / "absent", project_name="my proj")
+    document = build_facility(
+        tmp_path / "absent", project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+    )
 
     facts = facts_document(FacilityRecords(document), [TEXTURE], "my proj")
 
@@ -509,7 +521,7 @@ def test_a_dry_run_regeneration_after_the_build_changes_no_file(
 
 
 def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) -> None:
-    from osprey.facility.views.pyaml import measurement_groups
+    from osprey.facility.measurement_groups import measurement_groups
     from tests.facility._pyaml_trees import built_document
 
     document, facility = built_document(tmp_path / "tree", measured_tree())
@@ -575,3 +587,76 @@ def test_hierarchy_levels_count_only_channel_holding_places_and_never_stop() -> 
 
 def test_zero_source_facts_carry_no_hierarchy_level() -> None:
     assert zero_source_facts({"code": "lab"})["hierarchy_levels"] == []
+
+
+# --- the shared parse of the facility file -------------------------------------------
+
+V3 = "osprey.facility.facility/3"
+
+
+@pytest.mark.foreign_header
+def test_the_shared_parse_refuses_a_v3_document(tmp_path: Path) -> None:
+    path = write_facility_document(tmp_path, {"channels": []}, schema=V3)
+
+    with pytest.raises(FacilityFileError) as raised:
+        parsed_facility_file(path)
+
+    assert str(raised.value) == (
+        f"{path} is {V3}; this reader reads {FACILITY_V4} -- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_the_shared_parse_refuses_a_v3_document_it_has_parsed_before(tmp_path: Path) -> None:
+    # The digest memo hands back the document it parsed last; the check runs
+    # after it, so a second read of the same bytes is refused all the same.
+    path = write_facility_document(tmp_path, {"channels": []}, schema=V3)
+    for _ in range(2):
+        with pytest.raises(FacilityFileError, match="rebuild with osprey build"):
+            parsed_facility_file(path)
+
+
+@pytest.mark.foreign_header
+def test_the_shared_parse_refuses_a_header_less_document(tmp_path: Path) -> None:
+    path = write_facility_document(tmp_path, {"channels": []}, schema=None)
+
+    with pytest.raises(FacilityFileError) as raised:
+        parsed_facility_file(path)
+
+    assert str(raised.value) == (
+        f"{path} is a document without a schema header; this reader reads "
+        f"{FACILITY_V4} -- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_the_shared_parse_refuses_a_non_object(tmp_path: Path) -> None:
+    path = write_facility_document(tmp_path, [1, 2])
+
+    with pytest.raises(FacilityFileError) as raised:
+        parsed_facility_file(path)
+
+    assert str(raised.value) == (
+        f"{path} is a list, not a JSON object -- rebuild with osprey build"
+    )
+
+
+def test_the_shared_parse_reads_a_v4_document_as_before(tmp_path: Path) -> None:
+    document = {"identity": {"code": "lab"}, "channels": [{"id": "A:SP"}]}
+    path = write_facility_v4(tmp_path, document)
+
+    assert parsed_facility_file(path) == {**document, "schema": FACILITY_V4}
+
+
+def test_the_shared_parse_lets_absence_through(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        parsed_facility_file(tmp_path / "facility.json")
+
+
+def test_read_facts_without_a_facts_file_refuses_an_unreadable_facility_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "facility.json").write_text("{", encoding="utf-8")
+
+    with pytest.raises(FacilityFileError, match="is not JSON"):
+        read_facts(tmp_path, "lab")

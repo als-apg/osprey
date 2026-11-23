@@ -18,10 +18,12 @@ import at
 import pytest
 
 from osprey.apps import sdk
+from osprey.facility.errors import FacilityFileError
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests._scoped_stdlib import scoped
 from tests._simulator_view import view_channel
 
@@ -157,7 +159,7 @@ def _ring_render(root: Path) -> Path:
             },
         ],
     }
-    (root / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(root, facility)
     facts = zero_source_facts({"code": "TEST", "name": "Test", "description": None})
     facts["models"] = [
         _facts_model("LINE", "pyat", True, "single_pass"),
@@ -284,6 +286,35 @@ class TestModelMembers:
 
         with pytest.raises(ValueError, match="element_index"):
             sdk.model_members(RING, ring)
+
+    @pytest.mark.foreign_header
+    def test_a_v3_facility_file_is_refused(self, ring):
+        path = ring / "facility.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        write_facility_document(ring, document, schema="osprey.facility.facility/3")
+
+        with pytest.raises(FacilityFileError) as raised:
+            sdk.model_members(RING, ring)
+
+        assert str(raised.value) == (
+            f"{path} is osprey.facility.facility/3; this reader reads "
+            "osprey.facility.facility/4 -- rebuild with osprey build"
+        )
+
+    def test_a_corrupt_facility_file_is_refused(self, ring):
+        (ring / "facility.json").write_text("{not json", encoding="utf-8")
+
+        with pytest.raises(FacilityFileError, match="is not JSON"):
+            sdk.model_members(RING, ring)
+
+    def test_without_a_facility_file_no_member_carries_golden_or_tolerance(self, ring):
+        (ring / "facility.json").unlink()
+
+        members = sdk.model_members(RING, ring)
+
+        assert [m.element for m in members.correctors] == ["COR_1", "COR_2"]
+        assert all(m.golden_addr is None for m in members.bpms)
+        assert all(m.tolerance is None for m in members.correctors)
 
     def test_the_example_ring_orders_co_located_members_by_index(self, example_render):
         members = sdk.model_members("SR", example_render)

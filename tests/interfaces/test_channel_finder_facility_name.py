@@ -19,6 +19,9 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from osprey.facility.errors import FacilityFileError
+from tests._facility_file import write_facility_document, write_facility_v4
+
 # Distinct from any facility name under test, so a crossed wire is visible: this
 # is the per-pipeline name the registry reports into `app.state.facility_names`
 # (plural), which is a different attribute than the config-derived singular.
@@ -63,9 +66,7 @@ def _launch(config: dict):
 
 
 def _write_facility_file(render_root, name: str) -> None:
-    (render_root / "facility.json").write_text(
-        json.dumps({"identity": {"code": "demo", "name": name}}), encoding="utf-8"
-    )
+    write_facility_v4(render_root, {"identity": {"code": "demo", "name": name}})
 
 
 # (config keys, the facility file's name or None for no file). Every reader
@@ -91,6 +92,22 @@ def test_app_state_facility_name_resolution(tmp_path, monkeypatch, config_keys, 
     app = _launch({**_base_config(), **config_keys})
 
     assert app.state.facility_name == _expected(config_keys, file_name, "")
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_refuses_the_app_start_naming_the_rebuild(tmp_path, monkeypatch):
+    monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
+    path = write_facility_document(
+        tmp_path, {"identity": {"code": "demo"}}, schema="osprey.facility.facility/3"
+    )
+
+    with pytest.raises(FacilityFileError) as raised:
+        _launch(_base_config())
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
 
 
 def test_identity_name_is_not_the_registry_reported_name(tmp_path, monkeypatch):
@@ -173,3 +190,29 @@ def test_pipeline_context_facility_name(
         assert registry.facility_name == _expected(config_keys, file_name, _CONTEXT_DEFAULT)
     finally:
         reset()
+
+
+@pytest.mark.foreign_header
+@pytest.mark.parametrize(("module_name", "init_name", "reset_name"), _PIPELINE_CONTEXTS)
+def test_a_v3_facility_file_refuses_the_pipeline_context_naming_the_rebuild(
+    tmp_path, monkeypatch, module_name, init_name, reset_name
+):
+    """A ``/3`` facility file is a startup refusal of each pipeline server context."""
+    _write_config(tmp_path, _base_config(), monkeypatch)
+    path = write_facility_document(
+        tmp_path, {"identity": {"code": "demo"}}, schema="osprey.facility.facility/3"
+    )
+
+    module = importlib.import_module(module_name)
+    reset = getattr(module, reset_name)
+    reset()
+    try:
+        with pytest.raises(FacilityFileError) as raised:
+            getattr(module, init_name)()
+    finally:
+        reset()
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )

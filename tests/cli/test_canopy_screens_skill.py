@@ -8,17 +8,20 @@ renders none.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
 import pytest
 
 from osprey.integrations.canopy.screen_guide import (
+    _guide_facility,
     build_screen_guide,
     compress,
     screen_guide_context,
 )
 from tests._builds import BuiltProject
+from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 
 ROOT = Path(__file__).resolve().parents[2]
 LIBRARY = ROOT / "src/osprey/templates/apps/demo/data/canopy/library"
@@ -131,3 +134,71 @@ def test_a_project_without_the_canopy_panel_gets_no_guide(tmp_path: Path) -> Non
     assert (
         screen_guide_context({"web": {"panels": {"canopy": {"enabled": False}}}}, tmp_path) is None
     )
+
+
+# --- the facility file the guide labels devices from --------------------------------
+
+_GUIDE_LOGGER = "osprey.integrations.canopy.screen_guide"
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_is_not_used_and_the_warning_names_the_rebuild(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = write_facility_document(
+        tmp_path, {"devices": [{"id": "SR/BPM1"}]}, schema="osprey.facility.facility/3"
+    )
+
+    with caplog.at_level(logging.WARNING, logger=_GUIDE_LOGGER):
+        assert _guide_facility(path) is None
+
+    [record] = [r for r in caplog.records if r.name == _GUIDE_LOGGER]
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        "canopy screen guide: the facility file is not used: "
+        f"{path} is osprey.facility.facility/3; this reader reads {FACILITY_V4} "
+        "-- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_a_header_less_or_non_object_facility_file_is_not_used(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    for payload, schema in (({"devices": []}, None), ([1, 2], FACILITY_V4)):
+        path = write_facility_document(tmp_path, payload, schema=schema)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger=_GUIDE_LOGGER):
+            assert _guide_facility(path) is None
+        assert ["rebuild with osprey build" in r.getMessage() for r in caplog.records] == [True]
+
+
+def test_an_unparsable_facility_file_is_not_used_and_the_warning_names_it(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "facility.json"
+    path.write_text("{", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger=_GUIDE_LOGGER):
+        assert _guide_facility(path) is None
+
+    [record] = [r for r in caplog.records if r.name == _GUIDE_LOGGER]
+    assert record.getMessage().startswith(
+        f"canopy screen guide: the facility file is not used: {path}: "
+    )
+
+
+def test_a_missing_facility_file_is_none_without_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger=_GUIDE_LOGGER):
+        assert _guide_facility(tmp_path / "facility.json") is None
+
+    assert [r for r in caplog.records if r.name == _GUIDE_LOGGER] == []
+
+
+def test_a_v4_facility_file_is_read_as_before(tmp_path: Path) -> None:
+    document = {"devices": [{"id": "SR/BPM1"}]}
+    path = write_facility_v4(tmp_path, document)
+
+    assert _guide_facility(path) == {**document, "schema": FACILITY_V4}
