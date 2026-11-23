@@ -124,7 +124,14 @@ its ``model``. A device a model wires takes its position from the deck.
 
 **Channels** are the control-system addresses. A channel's id is its full
 address, written exactly as the control system serves it; no part of the
-address means anything to OSPREY. What a channel is comes from its fields:
+address means anything to OSPREY. A setpoint may be a command: a channel
+written to start something, such as a reset, rather than to hold a value. The
+build marks it ``command: true`` when its ``signal`` is a command word or a
+model's engine marks it (:doc:`/reference/contracts/facility-kinds`). Its
+readback is its status, the channel that reports when what the command started,
+its act, is over; the fields ``idle`` and ``timeout_s`` say what the status reads
+while nothing runs and how long an act may take, so a write of the command can
+wait until the act is over. What a channel is comes from its fields:
 
 .. list-table::
    :header-rows: 1
@@ -559,15 +566,19 @@ demo preset ships this one:
    :caption: limits.yaml
    :start-after: Delete this line to make the file yours.
 
-A setpoint record with both ``min_value`` and ``max_value`` is writable within
-them; ``max_step`` bounds a single change; ``writable: false`` blocks every
-write; ``confirm: false`` turns off the re-read after a write.
-``confirm: true`` is refused on a command that states ``timeout_s``.
-``writable: true`` on a float or int setpoint without both bounds stops the
+A float or int setpoint record with both ``min_value`` and ``max_value`` is
+writable within them; ``writable: true`` on one without both bounds stops the
 build. A bool, enum, string or waveform setpoint carries no bounds and is
 writable when its record says ``writable: true``. For such a channel the limits
 check decides only whether it may be written; which values it takes is decided
-by the control system.
+by the control system. ``max_step`` bounds a single change; ``writable: false``
+blocks every write; ``confirm: false`` turns off the re-read after a write. A
+record that does not state ``confirm`` is written ``confirm: true``, also on a
+command. On a command that states ``timeout_s``, stating ``confirm: true``
+stops the build: ``osprey_connectors.command.fire`` writes such a command with
+the re-read off and confirms it by waiting for its status
+(:doc:`/reference/contracts/connectors`), and any other write of it is re-read
+as its record says.
 
 ``osprey build`` renders the records into ``build/data/channel_limits.json``,
 the file the connector's reference monitor and the runtime's limits check
@@ -864,8 +875,8 @@ Each address under ``also`` is a channel of ``records/channels.yaml`` with the
 and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
 write to it is a write to ``address``. It reads back the ``pair`` of
-``address`` and settles within its ``tolerance``, and a command fired under it waits as one fired under
-``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
+``address`` and settles within its ``tolerance``, and on a command it has the
+time bound and the status of ``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
 carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records' ``address`` names: the build stops when an address under ``also``
 states a ``pair``, and when a setpoint's ``pair`` names an address under

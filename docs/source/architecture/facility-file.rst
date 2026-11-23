@@ -122,7 +122,7 @@ filters the file's own channel records and names a model or a place.
      -
      - ``None`` for an address no model wires.
    * - ``record_address(address)``
-     - The address of the wiring record naming an address under ``also``; the address itself otherwise.
+     - The address of the wiring record naming an address under ``also``.
      -
      - The address itself for an address no record names under ``also``.
    * - ``resolve(target)``
@@ -190,8 +190,9 @@ stages and a stage runs only when every earlier one is clean:
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
        value from its model's engine, and marks each command channel; then
-       holds each command's ``timeout_s`` and its status's ``idle`` to the
-       command rules and stops with ``command-invalid``.
+       checks each command's ``timeout_s`` and its status's ``idle`` as
+       :doc:`/how-to/describe-your-facility` states them, and stops with
+       ``command-invalid`` when one is wrong.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
