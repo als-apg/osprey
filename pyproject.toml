@@ -1359,9 +1359,6 @@ ignore_imports = [
     # engine implementations, which are framework.
     "osprey.facility.layers.mml.seed -> osprey.simulation.engines.pyat_faults",
     "osprey.facility.records -> osprey.utils.facility",
-    "osprey.facility.validate -> osprey.facility.views.pyaml",
-    "osprey.facility.validate -> osprey.facility.views.simulator",
-    "osprey.facility.validate -> osprey.simulation.engines.pyat",
 ]
 
 [[tool.importlinter.contracts]]

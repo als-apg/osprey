@@ -310,6 +310,16 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "`users list --json` document, which scripts parse. In both the bytes "
         "are the contract.",
     ),
+    "cli/facility_report.py": (
+        2,
+        "report_lines' two writes: the facility error, warning and validation "
+        "lines, unstyled, one per line, to stderr or the stream the caller hands "
+        "in. They moved here verbatim from osprey.facility.validate when the "
+        "description stopped printing; `osprey facility validate`, the build and "
+        "import stops print them byte-for-byte as before "
+        "(tests/cli/test_facility_error_output.py), and callers passing a stream "
+        "read the lines back from it.",
+    ),
     "cli/config_cmd.py": (
         1,
         "config_cmd._emit, the module's own single byte seam.",

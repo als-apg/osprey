@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.cli.facility_report import validate_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import ChannelSelection
 from osprey.facility.schema import core
@@ -27,6 +28,7 @@ from osprey.facility.validate import (
     sort_errors,
     validate,
 )
+from tests._builds import FRAMEWORK_CHECKS
 
 CORE_YAML = Path(__file__).parents[2] / "src" / "osprey" / "facility" / "schema" / "core.yaml"
 
@@ -61,7 +63,9 @@ def _with_channels(*channels: dict[str, Any], **extra: Any) -> dict[str, Any]:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", files), project_name="my proj")
+    return run_stages(
+        _write(tmp_path / "facility", files), project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def _lines(result: StageReport) -> list[str]:
@@ -100,7 +104,9 @@ class TestStageRunner:
         assert result.ok and result.failed is None and result.errors == []
 
     def test_a_missing_directory_passes_every_stage(self, tmp_path: Path) -> None:
-        result = run_stages(tmp_path / "absent", project_name="my proj")
+        result = run_stages(
+            tmp_path / "absent", project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+        )
         assert result.ok
         assert result.validated.document is not None
         assert result.validated.document["identity"] == {"code": "my_proj", "name": "my proj"}
@@ -149,14 +155,21 @@ class TestStageRunner:
             return []
 
         root = _write(tmp_path / "facility", _tree())
-        result = run_stages(root, project_name="p", later=[("compute", compute), ("views", views)])
+        result = run_stages(
+            root,
+            project_name="p",
+            later=[("compute", compute), ("views", views)],
+            extra_checks=FRAMEWORK_CHECKS,
+        )
         assert result.failed == "compute" and seen == ["compute"]
 
         bad = _write(
             tmp_path / "bad", _tree(**{"seeds.yaml": {"NOPE": {"noise": {"absolute": 1.0}}}})
         )
         seen.clear()
-        result = run_stages(bad, project_name="p", later=[("compute", compute)])
+        result = run_stages(
+            bad, project_name="p", later=[("compute", compute)], extra_checks=FRAMEWORK_CHECKS
+        )
         assert result.failed == "references" and seen == []
 
     def test_raise_first_raises_the_first_sorted_error(self, tmp_path: Path) -> None:
@@ -209,7 +222,12 @@ class TestGather:
             }
         )
         stream = io.StringIO()
-        code = validate(_write(tmp_path / "facility", files), project_name="p", file=stream)
+        code = validate_facility(
+            _write(tmp_path / "facility", files),
+            project_name="p",
+            file=stream,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
         assert code == 1
         assert stream.getvalue().splitlines() == [
             "facility: reference-missing: seed A:GONE — seeds.yaml `address` names channel "
@@ -222,8 +240,30 @@ class TestGather:
 
     def test_validate_of_a_clean_tree_prints_nothing(self, tmp_path: Path) -> None:
         stream = io.StringIO()
-        assert validate(_write(tmp_path / "f", _tree()), project_name="p", file=stream) == 0
+        assert (
+            validate_facility(
+                _write(tmp_path / "f", _tree()),
+                project_name="p",
+                file=stream,
+                extra_checks=FRAMEWORK_CHECKS,
+            )
+            == 0
+        )
         assert stream.getvalue() == ""
+
+    def test_the_description_validate_returns_its_lines_and_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        files = _tree(**{"records/devices.yaml": [QUAD, {**BPM, "class": "NoSuchClass"}]})
+        code, lines = validate(
+            _write(tmp_path / "facility", files), project_name="p", extra_checks=FRAMEWORK_CHECKS
+        )
+        assert code == 1
+        assert lines == [
+            "facility: class-unknown: device SR/BPM1 — class NoSuchClass is in neither the "
+            "vocabulary nor classes.yaml; fix: use a vocabulary class or add it to classes.yaml",
+        ]
+        assert capsys.readouterr() == ("", "")
 
     def test_load_stops_keep_pn_local_and_case_rules(self, tmp_path: Path) -> None:
         files = _tree(
@@ -1657,7 +1697,7 @@ class TestRefusedArchiverEvents:
         )
         stepped = {entry["channel"] for entry in scenario["archiver"]}
         assert "SR:RF:CAVITY:01:POWER:REV" in stepped
-        result = run_stages(EXAMPLE_TREE, project_name="example")
+        result = run_stages(EXAMPLE_TREE, project_name="example", extra_checks=FRAMEWORK_CHECKS)
         assert result.ok, _lines(result)
 
 
