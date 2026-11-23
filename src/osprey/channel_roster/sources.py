@@ -163,7 +163,8 @@ def read_facility_roster(source: RosterSource) -> RosterResult:
         absence when the file is not there, a
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.CORRUPT_SOURCE`
         one when it is there and is not a facility file this reader can turn
-        into records, or an
+        into records (a document whose ``schema`` header it does not read among
+        them, the detail naming the rebuild), or an
         :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_EMPTY`
         one when it holds no channel.
     """

@@ -1243,6 +1243,7 @@ source_modules = [
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
+    "osprey.facility.reading",
     "osprey.facility.records",
     "osprey.facility.references",
     "osprey.facility.relations",
@@ -1357,7 +1358,6 @@ ignore_imports = [
     # phase 3 — the framework half of the description: views helpers, the
     # shared FacilityFileError, the MCP registry, the bundled kinds, and the
     # engine implementations, which are framework.
-    "osprey.facility.records -> osprey.utils.facility",
 ]
 
 [[tool.importlinter.contracts]]
@@ -1381,6 +1381,7 @@ source_modules = [
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
+    "osprey.facility.reading",
     "osprey.facility.records",
     "osprey.facility.references",
     "osprey.facility.relations",
@@ -1431,6 +1432,7 @@ forbidden_modules = [
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
+    "osprey.facility.reading",
     "osprey.facility.records",
     "osprey.facility.references",
     "osprey.facility.relations",
@@ -1733,6 +1735,7 @@ allowed_importers = [
     "osprey.facility.pairing",
     "osprey.facility.places",
     "osprey.facility.provenance",
+    "osprey.facility.reading",
     "osprey.facility.records",
     "osprey.facility.references",
     "osprey.facility.relations",

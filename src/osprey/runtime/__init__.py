@@ -1097,7 +1097,10 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
     Raises:
         FileNotFoundError: No deployment config is found, or the render has no
             facility file; nothing was read.
-        ValueError: An address is no setpoint in the facility file; nothing was read.
+        ValueError: An address is no setpoint in the facility file, or the
+            facility file cannot be read or carries a header this reader does
+            not read (the message names the rebuild, ``osprey build``); nothing
+            was read.
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
         SettleReadError: A readback that cannot be reached, is not a channel,
@@ -1158,11 +1161,16 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
 
     Raises:
         FileNotFoundError: No deployment config is found, or the render has no facility file.
+        FacilityFileError: The facility file cannot be read, is not a JSON
+            object, or carries a header this reader does not read; the message
+            names the rebuild (:class:`osprey.facility.errors.FacilityFileError`,
+            a ``ValueError``).
         ValueError: The facility file holds no ``channels`` list.
     """
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
+    from osprey.facility.reading import load_facility
     from osprey_connectors.config import get_full_configuration
 
     config = get_full_configuration()
@@ -1177,8 +1185,8 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
         parsed = _facility_parsed
     if parsed is not None and parsed[0] == path and parsed[1] == mtime_ns:
         return path, parsed[2]
-    document = json.loads(path.read_text(encoding="utf-8"))
-    records = document.get("channels") if isinstance(document, dict) else None
+    document = load_facility(path)
+    records = document.get("channels")
     if not isinstance(records, list):
         raise ValueError(f"{path} holds no 'channels' list")
     channels: dict[str, Mapping[str, Any]] = {

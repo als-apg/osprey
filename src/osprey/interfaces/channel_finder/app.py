@@ -327,6 +327,11 @@ def _create_lifespan(
         config: The config ``create_app`` loaded.
         channel_directory: The checked ``channel_directory`` section, ``None`` when unconfigured.
         project_cwd: Project directory path for agent session use.
+
+    The lifespan refuses to start the app when the render's facility file cannot
+    be read or carries a header this reader does not read: the
+    ``FacilityFileError`` of :func:`osprey.utils.facility.facility_identity`
+    propagates, its message naming the rebuild.
     """
 
     @asynccontextmanager

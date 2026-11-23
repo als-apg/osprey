@@ -156,9 +156,14 @@ def _timeout(timeout: object) -> float:
 
 
 def _facts(render_root: Path) -> Mapping[str, Any]:
+    """The render's facts; a facility file the facts fall back to and cannot use is refused."""
+    from osprey.facility.errors import FacilityFileError
     from osprey.facility.views.facts import read_facts
 
-    return read_facts(render_root, "")
+    try:
+        return read_facts(render_root, "")
+    except FacilityFileError as exc:
+        _refuse(str(exc), "Run `osprey build`; the facility file is written by the build.")
 
 
 def kinds(facts: Mapping[str, Any]) -> tuple[str, ...]:
@@ -338,7 +343,9 @@ def resolve_measure_args(
 
     Raises:
         fastmcp.exceptions.ToolError: A ``validation_error`` envelope naming the
-            argument, the model or the file at fault.
+            argument, the model or the file at fault; a facility file the facts
+            fall back to that cannot be read or carries a header this reader
+            does not read is refused with the rebuild named.
     """
     render_root = Path(config_path).parent
     facts = _facts(render_root)

@@ -57,6 +57,12 @@ class ChannelFinderICContext:
         """Load config and the in_context index.
 
         Called once, on a fresh instance, by the module's ``initialize_*`` function.
+
+        Raises:
+            FacilityFileError: The render's facility file cannot be read or
+                carries a header this reader does not read; the server refuses
+                to start, and the message names the rebuild
+                (:func:`osprey.utils.facility.facility_identity`).
         """
         raw_config = load_cf_config(logger)
 

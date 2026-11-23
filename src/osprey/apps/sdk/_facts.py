@@ -25,6 +25,12 @@ def _render_root() -> Path:
 def facility_file() -> Path:
     """The path of the render's facility file, beside its ``config.yml``.
 
+    The file is a JSON object whose ``schema`` key is its header, naming the
+    document format it was built in. A reader uses none of a document whose
+    ``schema`` it does not declare, a missing one included: it refuses the
+    document, naming the rebuild (``osprey build``), and never reads the rest of
+    it as if the format matched.
+
     Stable: part of the application SDK's public surface.
     """
     return _render_root() / FACILITY_FILE
@@ -45,6 +51,11 @@ def read_facts(
 
     Returns:
         The facts document, or the zero-source facts when the render holds none.
+
+    Raises:
+        ValueError: The render holds no usable facts document and its facility
+            file cannot be read or carries a header this reader does not read;
+            the message names the rebuild (``osprey build``).
     """
     from osprey.facility.views.facts import read_facts as read
 
