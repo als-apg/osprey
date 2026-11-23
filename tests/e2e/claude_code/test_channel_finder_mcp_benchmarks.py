@@ -81,7 +81,7 @@ JUDGE_MODEL = "claude-haiku-5-5"
 #: the store and what the graph lane's census must find. It equals
 #: ``EXPECTED_BINDINGS`` in ``tests/templates/test_demo_ttl.py``,
 #: which owns the corpus-side pin; this is the benchmark-side one.
-GRAPH_CHANNEL_COUNT = 4731
+GRAPH_CHANNEL_COUNT = 4691
 
 
 def perfect_match_rate(run: BenchmarkRun) -> float:

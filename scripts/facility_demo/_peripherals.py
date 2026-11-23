@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-import _line
+import _tree
 
 SECTORS = range(1, 13)
 
@@ -1163,21 +1163,21 @@ def write_sources(tree: Path) -> None:
     records = tree / "records"
     devices, channels, seeds = emitted()
     seeds.update(radiation_seeds())
-    committed_devices = _line._load(records / "devices.yaml")
+    committed_devices = _tree.load(records / "devices.yaml")
     moved = radiation_places()
     placed = [{**d, "place": moved[d["id"]]} for d in committed_devices if d["id"] in moved]
     placed += superbends(committed_devices)
-    _line._merge(records / "devices.yaml", devices + placed, "id", ordered=True)
-    tagged = {c["id"]: c["tags"] for c in _line._load(records / "channels.yaml") if "tags" in c}
+    _tree.merge(records / "devices.yaml", devices + placed, "id", ordered=True)
+    tagged = {c["id"]: c["tags"] for c in _tree.load(records / "channels.yaml") if "tags" in c}
     channels = [{**c, "tags": tagged[c["id"]]} if c["id"] in tagged else c for c in channels]
-    _line._merge(records / "channels.yaml", channels, "id", ordered=True)
-    _line._merge(
+    _tree.merge(records / "channels.yaml", channels, "id", ordered=True)
+    _tree.merge(
         records / "groups.yaml",
-        groups(devices, _line._load(records / "groups.yaml")),
+        groups(devices, _tree.load(records / "groups.yaml")),
         "id",
         ordered=True,
     )
-    (tree / "classes.yaml").write_text(_line._dump(list(CLASSES)), encoding="utf-8")
+    (tree / "classes.yaml").write_text(_tree.dump(list(CLASSES)), encoding="utf-8")
     committed = _injector.reseed.load(tree / "seeds.yaml")
     for address, entry in seeds.items():
         kept = {k: v for k, v in committed.get(address, {}).items() if k not in entry}

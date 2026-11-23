@@ -54,8 +54,8 @@ from tests.va.test_lume_pva_seam import (  # the seam's harness and its held CA 
 MIN_COLLECTED_TESTS = 5
 
 #: The demo's stop-an-IOC scenario and the IOC it stops.
-STOP_SCENARIO = "line-server-stopped"
-STOPPED_SERVER = "sim-LINE"
+STOP_SCENARIO = "bts-server-stopped"
+STOPPED_SERVER = "sim-BTS"
 
 #: How many panel backends and tool readers read during the loaded window.
 PANELS = 3

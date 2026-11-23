@@ -6,8 +6,11 @@ The facts view and the channel-finder role descriptions read the document's
 themselves are the description's, and are held in the package suite
 (``packages/osprey-facility/tests/osprey_facility_tests/test_facility_document_tables.py``).
 
-The golden is never rewritten to make a test pass. To re-capture it byte for
-byte from the ``/3`` build, run from the repo root::
+The golden is never rewritten to make a test pass. It is the ``/3`` capture
+less the records of the synthetic transfer line the example facility has
+since dropped: that model's entries are taken out and the counts that
+included its 20 devices and 40 channels are lowered by them. To re-capture
+the ``/3`` build byte for byte, before that removal, run from the repo root::
 
     git worktree add --detach .claude/scratch/role-views 8f22637c06
     cp tests/facility/golden/demo_role_views.json .claude/scratch/role-views/golden.json

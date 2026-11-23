@@ -20,9 +20,7 @@ fewer benchmark queries answerable by whole index cells than the copies answer. 
 called the same way, holds the in_context golden's address set plus the
 declared in_context additions, and every
 in_context benchmark target is one of its rows. Each query file is checked
-against the indexes its pipeline scores. The transfer line, which has no copy,
-is held to the Families and the ``DeviceList`` and ``PlaceList`` entries its
-records derive.
+against the indexes its pipeline scores.
 """
 
 from __future__ import annotations
@@ -59,10 +57,10 @@ IN_CONTEXT_QUERIES = QUERY_DIR / "in_context_queries.json"
 #: The channel-finder pipelines with an index file, keyed by their index name.
 PRE_LINE_INDEXES = ("hierarchical", "in_context", "middle_layer")
 
-#: The tree queries whose targets all sit in one injector section or the
-#: transfer line, by section: about one query per 49 channels a section
+#: The tree queries whose targets all sit in one injector section, by
+#: section: about one query per 49 channels a section
 #: adds, and the booster-to-storage line keeps its three earlier queries.
-INJECTOR_QUERIES = {"GTL": 2, "LN": 2, "LTB": 3, "BTS": 5, "LINE": 1}
+INJECTOR_QUERIES = {"GTL": 2, "LN": 2, "LTB": 3, "BTS": 5}
 
 #: The machines whose description grows with the channels the injector adds
 #: to them; each keeps the name its pre-LINE description opens with.
@@ -102,9 +100,6 @@ FAMILY_AGGREGATES: dict[str, tuple[tuple[str, str], ...]] = {
     "What are the linac solenoid current setpoints?": (("LN:MAG:SOL", "CURRENT:SP"),),
     "What are the linac-to-booster transfer line bend setpoints?": (
         ("LTB:MAG:DIPOLE", "CURRENT:SP"),
-    ),
-    "What are the horizontal corrector setpoints in the four-cell LINE transfer line?": (
-        ("LINE:MAG:HCM", "CURRENT:SP"),
     ),
 }
 
@@ -462,7 +457,7 @@ def test_limits_name_only_setpoints_of_the_fingerprint() -> None:
     golden = load_golden("limits.json")
     channels = golden["channels"]
     assert "defaults" not in golden
-    assert golden["count"] == len(channels) == 193
+    assert golden["count"] == len(channels) == 185
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = {row["address"] for row in rows if row["role"] == "setpoint"}
     assert set(channels) <= setpoints
@@ -487,7 +482,7 @@ def test_pre_line_in_context_index_holds_the_fingerprint_addresses() -> None:
 
 def test_pre_line_queries_target_fingerprint_or_addition_addresses() -> None:
     queries = pre_line_queries()
-    assert len(queries) == 71
+    assert len(queries) == 70
     addresses = fingerprint_addresses() | addition_addresses()
     for query in queries:
         assert query["targeted_pv"], query["user_query"]
@@ -797,34 +792,6 @@ def _derived_device_lists(
     return out
 
 
-def _line_families(facility: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
-    """Each Family of System ``LINE`` derived from the records, with its members in order.
-
-    A group with a member placed in ``LINE`` is a Family named by its id less
-    ``LINE/``; a classed ``LINE`` device that no single-class such group holds
-    files into the Family named by its class.
-    """
-    devices = {
-        device["id"]: device
-        for device in facility["devices"]
-        if str(device.get("place") or "").split("/")[0] == "LINE"
-    }
-    families: dict[str, list[dict[str, Any]]] = {}
-    covered: set[str] = set()
-    for group in facility["groups"]:
-        members = [devices[member] for member in group["members"] if member in devices]
-        if not members:
-            continue
-        families[group["id"].removeprefix("LINE/")] = members
-        classes = {member.get("class") for member in members}
-        if len(classes) == 1 and None not in classes:
-            covered.update(member["id"] for member in members)
-    for device_id, device in devices.items():
-        if device.get("class") and device_id not in covered:
-            families.setdefault(device["class"], []).append(device)
-    return {name: sorted(members, key=_member_order) for name, members in families.items()}
-
-
 @pytest.mark.slow
 def test_every_pre_line_family_s_device_list_is_derived_from_places(
     built_demo: BuiltProject, middle_layer_view: dict[str, Any]
@@ -847,27 +814,6 @@ def test_the_views_answer_no_fewer_tree_queries_than_the_pre_line_copies(
     golden = answerable_count(pre_line_index("hierarchical"), pre_line_index("middle_layer"))
     assert golden > 0
     assert answerable_count(hierarchical_view, middle_layer_view) >= golden
-
-
-@pytest.mark.slow
-def test_every_line_device_sits_in_each_family_derived_from_its_records(
-    built_demo: BuiltProject, middle_layer_view: dict[str, Any]
-) -> None:
-    facility = built_demo.facility
-    families = _line_families(facility)
-    line_devices = {
-        device["id"]
-        for device in facility["devices"]
-        if str(device.get("place") or "").split("/")[0] == "LINE"
-    }
-    assert line_devices
-    assert {device["id"] for members in families.values() for device in members} == line_devices
-    index = _sibling_indices(facility)
-    for name, members in families.items():
-        setup = middle_layer_view["LINE"][name]["_setup"]
-        assert setup["CommonNames"] == [d.get("label") or d["id"] for d in members], name
-        assert setup["DeviceList"] == _derived_rows(members, index), name
-        assert setup["PlaceList"] == _derived_places(members), name
 
 
 #: The demo's served waveform channel: the SEK injection septum's current pulse.
