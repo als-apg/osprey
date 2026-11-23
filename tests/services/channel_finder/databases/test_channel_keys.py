@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.layers.mml.family import is_family_dict
 from osprey.services.channel_finder.databases.middle_layer import (
     CHANNEL_KEYS,
     MiddleLayerDatabase,
@@ -19,6 +18,7 @@ from osprey.services.channel_finder.tools.preview_database import (
     _looks_like_middle_layer,
     _reaches_channel_names,
 )
+from osprey_facility.layers.mml.family import is_family_dict
 
 
 def _write(tmp_path: Path, body: dict) -> Path:

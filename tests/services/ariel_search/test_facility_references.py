@@ -7,10 +7,10 @@ import logging
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.references import find_facility_references
 from osprey.services.ariel_search.ingestion import facility_references
 from osprey.simulation.apply import active_logbook_entries
+from osprey_facility.records import FacilityRecords
+from osprey_facility.references import find_facility_references
 from tests._facility_file import write_facility_document, write_facility_v4
 
 _IDENTIFIER_EDGE = "_"

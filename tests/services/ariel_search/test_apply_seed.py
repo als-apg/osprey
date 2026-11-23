@@ -213,10 +213,10 @@ async def _original(database_url: str, attachment_id: str) -> bytes:
 
 def _drawn(entry_id: str) -> bytes:
     """The PNG seeding draws for ``entry_id``'s plot spec when applied at :data:`T0`."""
-    from osprey.facility.scenarios import scenario_logbook
     from osprey.simulation.plots import render_plot_spec
     from osprey_connectors.relative_time import resolve_relative_timestamp
     from osprey_connectors.simulation.logbook import PlotSpec
+    from osprey_facility.scenarios import scenario_logbook
 
     scenarios = TEMPLATE_FACILITY / "scenarios"
     for name, scenario in facility_scenarios(scenarios).items():
