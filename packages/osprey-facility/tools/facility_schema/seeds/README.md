@@ -1,11 +1,11 @@
 # NARAD seed schemas
 
-The facility schema (`src/osprey/facility/schema/core.yaml` and `vocabulary.yaml`)
+The facility schema (`src/osprey_facility/schema/core.yaml` and `vocabulary.yaml` of this package)
 starts from the NARAD LinkML schemas of the `narad-uitf` repository. The four files
 here are copied byte for byte from its `schemas/` directory at commit `02f64d5`
 (`git show 02f64d5:schemas/<file>`) and are never edited.
 
-`../loosenings.py` reads them to write `src/osprey/facility/schema/loosenings.yaml`,
+`../loosenings.py` reads them to write `src/osprey_facility/schema/loosenings.yaml`,
 which says what became of every slot they require. `tests/facility/test_schema_loosenings.py`
 pins the digests below.
 

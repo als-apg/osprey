@@ -1,6 +1,7 @@
+# ruff: noqa: T201 -- the --check mode reports a stale file on stdout
 """Write the vocabulary table of the facility schema.
 
-``src/osprey/facility/schema/_generated/vocabulary.json`` carries what
+``packages/osprey-facility/src/osprey_facility/schema/_generated/vocabulary.json`` carries what
 ``vocabulary.yaml`` declares, in a form the standard library reads without
 LinkML: the device-class tree (each class with its parent, whether it is
 abstract, its aliases and IRI), the signal roles and the property names, each
@@ -13,8 +14,8 @@ The script needs LinkML (the ``dev`` extra); nothing at runtime does.
 
 Usage (from the repository root)::
 
-    uv run python scripts/facility_schema/vocabulary.py           # write
-    uv run python scripts/facility_schema/vocabulary.py --check   # compare
+    uv run python packages/osprey-facility/tools/facility_schema/vocabulary.py           # write
+    uv run python packages/osprey-facility/tools/facility_schema/vocabulary.py --check   # compare
 """
 
 from __future__ import annotations
@@ -25,8 +26,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_DIR = PACKAGE_ROOT / "src" / "osprey_facility" / "schema"
 OUTPUT = SCHEMA_DIR / "_generated" / "vocabulary.json"
 
 #: The enum holding the signal roles a channel's ``signal`` names.

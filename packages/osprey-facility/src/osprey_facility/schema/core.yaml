@@ -915,7 +915,7 @@ classes:
       kinds:
         description: >-
           The measurement kinds the model allows, each a kind registered under
-          the osprey.facility.kinds entry points; the build refuses any other.
+          the osprey_facility.kinds entry points; the build refuses any other.
         multivalued: true
       groups:
         range: Any

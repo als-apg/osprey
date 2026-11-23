@@ -1389,7 +1389,7 @@
             }
           ],
           "default": null,
-          "description": "The measurement kinds the model allows, each a kind registered under the osprey.facility.kinds entry points; the build refuses any other.",
+          "description": "The measurement kinds the model allows, each a kind registered under the osprey_facility.kinds entry points; the build refuses any other.",
           "title": "Kinds"
         },
         "n_avg_meas": {

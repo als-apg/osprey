@@ -273,7 +273,7 @@ DENIED: tuple[Denied, ...] = (
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",
                 # A byte-for-byte vendored upstream seed schema whose digest is pinned.
-                "scripts/facility_schema/seeds/shared_semantics.yaml",
+                "packages/osprey-facility/tools/facility_schema/seeds/shared_semantics.yaml",
             }
         ),
     ),
