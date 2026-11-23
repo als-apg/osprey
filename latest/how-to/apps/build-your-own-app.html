@@ -1222,6 +1222,40 @@ inside it and call it with the header the terminal sends:</p>
     <span class="k">assert</span> <span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="s2">&quot;channel&quot;</span><span class="p">],</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">])</span> <span class="o">==</span> <span class="p">(</span><span class="s2">&quot;Q1:RB&quot;</span><span class="p">,</span> <span class="s2">&quot;va&quot;</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>A backend whose container declares <code class="docutils literal notranslate"><span class="pre">drives_target</span></code> judges a write by the
+tier of the owner the request names. <code class="docutils literal notranslate"><span class="pre">serve</span></code> gives it that tier the way a
+build does, as <code class="docutils literal notranslate"><span class="pre">control_system.login_tiers</span></code> of the served configuration:
+each owner the panel’s grant admits (<code class="docutils literal notranslate"><span class="pre">served.secrets</span></code>), at the login’s write
+ceiling. So the owner of a backend served on a login at <code class="docutils literal notranslate"><span class="pre">asked</span></code> or
+<code class="docutils literal notranslate"><span class="pre">allowed</span></code> may write, with no configuration written by the test;
+<code class="docutils literal notranslate"><span class="pre">served.tiers</span></code> is the map. A write also needs the owner’s switch for the
+target at <code class="docutils literal notranslate"><span class="pre">asked</span></code> or <code class="docutils literal notranslate"><span class="pre">allowed</span></code>. The position is in the owner’s record,
+<code class="docutils literal notranslate"><span class="pre">served.record_path(owner)</span></code>; with no record there it is <code class="docutils literal notranslate"><span class="pre">off</span></code>, as in a
+deployment.</p>
+<p>To test what the backend answers for an owner it may not write for, state
+that owner’s tier: <code class="docutils literal notranslate"><span class="pre">tiers={owner:</span> <span class="pre">&quot;never&quot;}</span></code>, or <code class="docutils literal notranslate"><span class="pre">tiers={owner:</span> <span class="pre">None}</span></code> for
+an owner whose tier is not known.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.apps.sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">LAUNCH_TOKEN_HEADER</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">test_a_write_is_refused_for_an_owner_at_never</span><span class="p">(</span><span class="n">synthetic_deployment</span><span class="p">):</span>
+    <span class="n">deployment</span> <span class="o">=</span> <span class="n">synthetic_deployment</span><span class="p">(</span>
+        <span class="n">apps</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;corrector-trim&quot;</span><span class="p">:</span> <span class="n">APP_DIR</span><span class="p">},</span>
+        <span class="n">profile</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;apps&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;corrector-trim&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;config&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;channel&quot;</span><span class="p">:</span> <span class="s2">&quot;Q1:SP&quot;</span><span class="p">}}}},</span>
+    <span class="p">)</span>
+    <span class="p">(</span><span class="n">owner</span><span class="p">,)</span> <span class="o">=</span> <span class="n">deployment</span><span class="o">.</span><span class="n">serve</span><span class="p">(</span><span class="s2">&quot;operator&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">secrets</span>
+    <span class="n">served</span> <span class="o">=</span> <span class="n">deployment</span><span class="o">.</span><span class="n">serve</span><span class="p">(</span><span class="s2">&quot;operator&quot;</span><span class="p">,</span> <span class="n">tiers</span><span class="o">=</span><span class="p">{</span><span class="n">owner</span><span class="p">:</span> <span class="s2">&quot;never&quot;</span><span class="p">})</span>
+    <span class="k">with</span> <span class="n">served</span><span class="o">.</span><span class="n">environment</span><span class="p">(),</span> <span class="n">TestClient</span><span class="p">(</span><span class="n">create_app</span><span class="p">())</span> <span class="k">as</span> <span class="n">client</span><span class="p">:</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;/api/state&quot;</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">served</span><span class="o">.</span><span class="n">headers</span><span class="p">())</span><span class="o">.</span><span class="n">json</span><span class="p">()</span>
+        <span class="n">refused</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">post</span><span class="p">(</span>
+            <span class="s2">&quot;/api/write&quot;</span><span class="p">,</span>
+            <span class="n">json</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;target&quot;</span><span class="p">],</span> <span class="s2">&quot;readback&quot;</span><span class="p">:</span> <span class="n">state</span><span class="p">[</span><span class="s2">&quot;readback&quot;</span><span class="p">]},</span>
+            <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="o">**</span><span class="n">served</span><span class="o">.</span><span class="n">headers</span><span class="p">(),</span> <span class="n">LAUNCH_TOKEN_HEADER</span><span class="p">:</span> <span class="n">served</span><span class="o">.</span><span class="n">launch_token</span><span class="p">},</span>
+        <span class="p">)</span>
+    <span class="k">assert</span> <span class="n">refused</span><span class="o">.</span><span class="n">status_code</span> <span class="o">==</span> <span class="mi">403</span>
+    <span class="k">assert</span> <span class="s2">&quot;write tier does not allow&quot;</span> <span class="ow">in</span> <span class="n">refused</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s2">&quot;detail&quot;</span><span class="p">]</span>
+</pre></div>
+</div>
 <p>The build behind <code class="docutils literal notranslate"><span class="pre">serve</span></code> is real, so what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses fails the
 test with the build’s own message. Run pytest with the app’s directory
 on the import path, so the test can import the app’s package.</p>
