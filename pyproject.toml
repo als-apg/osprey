@@ -1357,7 +1357,6 @@ ignore_imports = [
     # phase 3 — the framework half of the description: views helpers, the
     # shared FacilityFileError, the MCP registry, the bundled kinds, and the
     # engine implementations, which are framework.
-    "osprey.facility.layers.mml.seed -> osprey.simulation.engines.pyat_faults",
     "osprey.facility.records -> osprey.utils.facility",
 ]
 
