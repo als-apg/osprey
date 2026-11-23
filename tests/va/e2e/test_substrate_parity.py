@@ -5,9 +5,10 @@ over Channel Access from the container.
 This module holds the container to the in-process composite over the same
 rendered view, on every served channel:
 
-* **at a written operating point**, every channel without declared motion --
-  the held values and the model-solved ones alike -- reads the same on the
-  wire as in process, to 1e-9;
+* **at a written operating point**, every channel served without motion --
+  the held values and the model-solved ones alike, the monitors the suite
+  scenario stills among them -- reads the same on the wire as in process, to
+  1e-9;
 * **over the noisy channels**, N reads per substrate agree in mean and in
   spread, drift-detrended, within the bounds a z chosen for K channels at a
   family-wise false-alarm rate of 1e-4 allows;
@@ -274,13 +275,20 @@ NOISE_CONTAINER = f"osprey-va-e2e-noise-{os.getpid()}"
 
 @dataclass(frozen=True)
 class View:
-    """A rendered simulator view, opened once through its reader."""
+    """A rendered simulator view, opened once through its reader.
+
+    Attributes:
+        reader: The view's reader.
+        active: The scenarios active in the container serving the view beside
+            ``nominal``: a channel one of them stills serves without motion.
+    """
 
     reader: SimulatorView
+    active: tuple[str, ...] = ()
 
     @classmethod
-    def read(cls, path: Path) -> View:
-        return cls(reader=SimulatorView.open(path))
+    def read(cls, path: Path, *, active: tuple[str, ...] = ()) -> View:
+        return cls(reader=SimulatorView.open(path), active=active)
 
     @property
     def path(self) -> Path:
@@ -308,7 +316,11 @@ class View:
         return self.reader.seed(address) or {}
 
     def moving(self, address: str) -> bool:
-        return declares_motion(self.seed(address))
+        """Whether ``address`` serves with motion under the active set."""
+        return (
+            declares_motion(self.seed(address))
+            and self.reader.motion_envelope(address, active=self.active) != 0.0
+        )
 
     def motion_band(self, address: str, z: float) -> float:
         """How far a served read may sit from the held value.
@@ -478,7 +490,7 @@ def _to_nominal(project: e2e_conftest.VaProject) -> None:
 @pytest.fixture(scope="module")
 def session_view(va_container: e2e_conftest.VaProject) -> View:
     """The view the session container serves, monitors stilled."""
-    return View.read(va_container.data_dir / VIEW_RELPATH.name)
+    return View.read(va_container.data_dir / VIEW_RELPATH.name, active=e2e_conftest.SUITE_SCENARIOS)
 
 
 @pytest.fixture(scope="module")
