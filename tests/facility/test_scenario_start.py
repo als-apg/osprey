@@ -15,13 +15,13 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.schema._generated.core import Scenario
 from osprey.facility.settings import fill_facility_settings
-from osprey.facility.sources import slot_names
 from osprey.facility.views.simulator import _scenarios_document
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.schema._generated.core import Scenario
+from osprey_facility.sources import slot_names
 
 CHANNELS: list[dict[str, Any]] = [{"id": "B:SP", "role": "setpoint"}, {"id": "A:RB"}]
 

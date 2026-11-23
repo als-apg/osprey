@@ -18,10 +18,10 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, FacilityDocument
-from osprey.facility.combine import FIXES_HEADER
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import need, run_stages
+from osprey_facility.build import LATER_STAGES, FacilityDocument
+from osprey_facility.combine import FIXES_HEADER
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import need, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 
 pytestmark = pytest.mark.slow

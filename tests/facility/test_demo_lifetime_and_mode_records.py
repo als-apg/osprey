@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.validate import run_stages, signal_roles
+from osprey_facility.validate import run_stages, signal_roles
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

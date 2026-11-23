@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.scenarios import ScenarioLogEntry, scenario_logbook
 from osprey_connectors.relative_time import RelativeTimestamp
+from osprey_facility.scenarios import ScenarioLogEntry, scenario_logbook
 
 FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 
