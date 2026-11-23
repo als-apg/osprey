@@ -251,7 +251,7 @@ holds this table equal to it.
      - refuse
    * - ``osprey.utils.facility.facility_name``
      - refuse
-   * - ``osprey.runtime._facility_channels``
+   * - ``osprey.runtime._facility_records``
      - refuse
    * - ``osprey.mcp_server.channel_finder_hierarchical.server_context.ChannelFinderHierContext.initialize``
      - refuse
