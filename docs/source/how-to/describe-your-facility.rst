@@ -578,8 +578,7 @@ record that does not state ``confirm`` is written ``confirm: true``, and
 the write. On such a command, stating ``confirm: true`` stops the build:
 ``osprey_connectors.command.fire`` writes such a command with
 the re-read off and confirms it by waiting for its status
-(:doc:`/reference/contracts/connectors`), and any other write of it is re-read
-as its record says.
+(:doc:`/reference/contracts/connectors`).
 
 ``osprey build`` renders the records into ``build/data/channel_limits.json``,
 the file the connector's reference monitor and the runtime's limits check
