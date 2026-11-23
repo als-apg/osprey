@@ -237,7 +237,15 @@ switch for the machine decides how:
 - **off** --- the write is refused.
 - **asked** --- a dialog asks you to confirm each write. A slider asks once,
   when you let go. Declining sends nothing.
-- **allowed** --- the write is sent at once, without a dialog.
+- **allowed** --- the write is sent at once, without a dialog, unless the
+  screen asks for one on that widget
+  (:ref:`canopy-write-dialog-wording`).
+
+The dialog reads from top to bottom: the control target the write goes to,
+a question that says what happens, and every channel of the click with the
+value it holds now and the value about to be written. *Now* is read live
+while the dialog is open. Focus starts on **Cancel**, the Enter that opened
+the dialog does not answer it, and **Escape** cancels.
 
 Your tier, the channel limits and the safety watchdogs apply as well. While a
 watchdog has flagged one of the terminal's agent sessions, the panel says
@@ -260,6 +268,63 @@ path step by step.
 After the agent changes the panel, the write buttons in that window pause for
 750 ms with a visible notice, so a tab that moves under your pointer cannot
 catch a click meant for something else.
+
+.. _canopy-write-dialog-wording:
+
+Word the dialog from a screen
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Without help from the screen, the dialog builds its question and its button
+word from the widget's label and the write (*Set <label> to <value>?*,
+**Set**). A screen author can word it instead, with optional props on the
+node that writes: a button, entry field, slider, toggle, dropdown, checkbox
+or radio group, or a node whose click carries the write actions.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it sets
+   * - ``confirmWrites``
+     - ``true`` asks for the dialog on this node also where the switch is
+       *allowed*. A screen cannot turn the dialog off.
+   * - ``confirmTitle``
+     - The title, a question: *Reboot the controller?*
+   * - ``confirmText``
+     - One sentence under the title: what happens, or what is not known.
+   * - ``confirmVerb``
+     - The word on the confirm button: *Reboot*.
+   * - ``confirmKind``
+     - ``"consequence"`` draws the sentence as a warning and the confirm
+       button in the danger style.
+
+.. code-block:: json
+
+   {
+     "id": "reboot",
+     "type": "pv-button",
+     "geometry": { "x": 20, "y": 20, "width": 120, "height": 32 },
+     "props": {
+       "pv": "DEMO:CTRL1:Reboot",
+       "label": "Reboot",
+       "pressValue": 0,
+       "confirmWrites": true,
+       "confirmTitle": "Reboot controller DEMO:CTRL1?",
+       "confirmText": "Its outputs are off until it is back.",
+       "confirmVerb": "Reboot",
+       "confirmKind": "consequence"
+     }
+   }
+
+The four wording props only word a dialog that opens; none of them opens
+one. Macros are substituted in them. ``confirmMessage``, an older prop of the
+entry field, is read as ``confirmText`` where ``confirmText`` is not set.
+Give a ``confirmTitle`` and a ``confirmVerb`` to a button whose label is not
+an action, such as one that carries a device name. The screen viewer's
+repository documents the dialog in full, in
+``docs/confirmed-and-staged-writes.md`` at the commit ``--pins`` names for
+``canopy-screen-runtime``.
 
 What the agent can do in the panel
 ----------------------------------

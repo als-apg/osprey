@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 22, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
   </head>
   
   
@@ -812,8 +812,15 @@ switch for the machine decides how:</p>
 <li><p><strong>off</strong> — the write is refused.</p></li>
 <li><p><strong>asked</strong> — a dialog asks you to confirm each write. A slider asks once,
 when you let go. Declining sends nothing.</p></li>
-<li><p><strong>allowed</strong> — the write is sent at once, without a dialog.</p></li>
+<li><p><strong>allowed</strong> — the write is sent at once, without a dialog, unless the
+screen asks for one on that widget
+(<a class="reference internal" href="#canopy-write-dialog-wording"><span class="std std-ref">Word the dialog from a screen</span></a>).</p></li>
 </ul>
+<p>The dialog reads from top to bottom: the control target the write goes to,
+a question that says what happens, and every channel of the click with the
+value it holds now and the value about to be written. <em>Now</em> is read live
+while the dialog is open. Focus starts on <strong>Cancel</strong>, the Enter that opened
+the dialog does not answer it, and <strong>Escape</strong> cancels.</p>
 <p>Your tier, the channel limits and the safety watchdogs apply as well. While a
 watchdog has flagged one of the terminal’s agent sessions, the panel says
 <em>writes held</em> with the reason and refuses every click, because the agent
@@ -833,6 +840,70 @@ it opened and how.</p>
 <p>After the agent changes the panel, the write buttons in that window pause for
 750 ms with a visible notice, so a tab that moves under your pointer cannot
 catch a click meant for something else.</p>
+<section id="word-the-dialog-from-a-screen">
+<span id="canopy-write-dialog-wording"></span><h3>Word the dialog from a screen<a class="headerlink" href="#word-the-dialog-from-a-screen" title="Link to this heading">#</a></h3>
+<p>Without help from the screen, the dialog builds its question and its button
+word from the widget’s label and the write (<em>Set &lt;label&gt; to &lt;value&gt;?</em>,
+<strong>Set</strong>). A screen author can word it instead, with optional props on the
+node that writes: a button, entry field, slider, toggle, dropdown, checkbox
+or radio group, or a node whose click carries the write actions.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Prop</p></th>
+<th class="head"><p>What it sets</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">confirmWrites</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> asks for the dialog on this node also where the switch is
+<em>allowed</em>. A screen cannot turn the dialog off.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">confirmTitle</span></code></p></td>
+<td><p>The title, a question: <em>Reboot the controller?</em></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">confirmText</span></code></p></td>
+<td><p>One sentence under the title: what happens, or what is not known.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">confirmVerb</span></code></p></td>
+<td><p>The word on the confirm button: <em>Reboot</em>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">confirmKind</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;consequence&quot;</span></code> draws the sentence as a warning and the confirm
+button in the danger style.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;reboot&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pv-button&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;geometry&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;x&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;y&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">20</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;width&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">120</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;height&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;props&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;pv&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;DEMO:CTRL1:Reboot&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Reboot&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;pressValue&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirmWrites&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirmTitle&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Reboot controller DEMO:CTRL1?&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirmText&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Its outputs are off until it is back.&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirmVerb&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Reboot&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;confirmKind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;consequence&quot;</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The four wording props only word a dialog that opens; none of them opens
+one. Macros are substituted in them. <code class="docutils literal notranslate"><span class="pre">confirmMessage</span></code>, an older prop of the
+entry field, is read as <code class="docutils literal notranslate"><span class="pre">confirmText</span></code> where <code class="docutils literal notranslate"><span class="pre">confirmText</span></code> is not set.
+Give a <code class="docutils literal notranslate"><span class="pre">confirmTitle</span></code> and a <code class="docutils literal notranslate"><span class="pre">confirmVerb</span></code> to a button whose label is not
+an action, such as one that carries a device name. The screen viewer’s
+repository documents the dialog in full, in
+<code class="docutils literal notranslate"><span class="pre">docs/confirmed-and-staged-writes.md</span></code> at the commit <code class="docutils literal notranslate"><span class="pre">--pins</span></code> names for
+<code class="docutils literal notranslate"><span class="pre">canopy-screen-runtime</span></code>.</p>
+</section>
 </section>
 <section id="what-the-agent-can-do-in-the-panel">
 <h2>What the agent can do in the panel<a class="headerlink" href="#what-the-agent-can-do-in-the-panel" title="Link to this heading">#</a></h2>
@@ -958,7 +1029,10 @@ commit of step 3, and rebuild.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#use-the-panel">Use the panel</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-to-the-machine-from-a-screen">Write to the machine from a screen</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#word-the-dialog-from-a-screen">Word the dialog from a screen</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#size-the-host">Size the host</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-canopy">Upgrade CANOPY</a></li>
