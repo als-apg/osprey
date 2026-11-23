@@ -20,7 +20,6 @@ import pytest
 from lume_pyat.exceptions import OrbitSolveError
 from lume_pyat.simulator import PyATSimulator
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_model import (
@@ -33,6 +32,7 @@ from osprey.simulation.engines.pyat_tolerant import (
     NoClosedOrbit,
     TolerantPeriodicSimulator,
 )
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 INJECTION = "INJ"
