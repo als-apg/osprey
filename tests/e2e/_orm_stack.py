@@ -635,8 +635,8 @@ def channel_limits(project_dir: Path) -> dict[str, Any]:
     the records the tree authors and enumerates no other channel, so a lane
     reads a channel's limit VALUES here and its devices from the staged view.
     """
-    from osprey.facility.build import build_facility
     from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
 
     render = project_dir.parent / f"{project_dir.name}.limits"
     if render.exists():

@@ -86,10 +86,10 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
-from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
+from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
@@ -304,11 +304,11 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     view are built in memory from the repo's tree, because the pairs are
     chosen before the build.
     """
-    from osprey.facility import TEXTURE
-    from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_facility import TEXTURE
+    from osprey_facility.build import build_facility
 
     facility = build_facility(
         repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
@@ -352,12 +352,12 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     that same model wires, and which a limits record gives a range to write
     inside. The first by setpoint address is taken.
     """
-    from osprey.facility import TEXTURE
-    from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
     from osprey_connectors.simulation.view import Binding
+    from osprey_facility import TEXTURE
+    from osprey_facility.build import build_facility
 
     facility = build_facility(
         repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS

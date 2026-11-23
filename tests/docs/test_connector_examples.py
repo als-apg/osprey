@@ -405,10 +405,10 @@ def test_scripts_leave_nothing_behind(quickstart_ioc, tmp_path):
 @pytest.fixture(scope="module")
 def simulator_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A project holding the example facility's built simulator view and its config."""
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
     from tests._simulator_view import write_scenarios_view
 
     config = {"control_system": {"type": "virtual_accelerator"}}
