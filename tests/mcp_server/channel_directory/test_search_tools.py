@@ -34,6 +34,7 @@ from osprey_connectors import control_context
 from osprey_connectors.alarm_state import AlarmStateRecord, AlarmStateRow, AlarmStates
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source, Unavailable
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -133,7 +134,7 @@ def no_context() -> Iterator[None]:
 
 def _config(tmp_path: Path, section: dict[str, Any] | None, *curated: str) -> dict[str, Any]:
     channels = [{"id": address, "role": "none"} for address in curated]
-    (tmp_path / "facility.json").write_text(json.dumps({"channels": channels}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": channels})
     config: dict[str, Any] = {"config_dir": str(tmp_path), "control_system": LIVE_BUILD}
     if section is not None:
         config["channel_directory"] = section

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -18,6 +17,7 @@ import pytest
 
 from osprey.health.core.channel_directory import channel_directory, channel_directory_alarm_feed
 from osprey.health.models import Status
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 
 LIVE_BUILD = {"type": "epics"}
@@ -42,7 +42,7 @@ def no_record(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _config(tmp_path: Path, control_system: dict[str, Any], section: Any) -> dict[str, Any]:
-    (tmp_path / "facility.json").write_text(json.dumps({"channels": []}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": []})
     config: dict[str, Any] = {"config_dir": str(tmp_path), "control_system": control_system}
     if control_system == VA_BUILD:
         config["services"] = {"virtual_accelerator": {"port": 5064}}

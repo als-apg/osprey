@@ -11,6 +11,7 @@ from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
 from osprey.utils.facility import facility_identity
+from tests._facility_file import write_facility_v4
 
 
 def test_registry_not_initialized():
@@ -45,9 +46,7 @@ def test_registry_facility_name_is_the_project_name_without_a_facility_file(tmp_
 def test_registry_facility_name_from_the_facility_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("project_name: 1st-lab\n")
-    (tmp_path / "facility.json").write_text(
-        json.dumps({"identity": {"code": "demo", "name": "Demo Lab"}})
-    )
+    write_facility_v4(tmp_path, {"identity": {"code": "demo", "name": "Demo Lab"}})
     initialize_cf_hier_context()
     assert get_cf_hier_context().facility_name == "Demo Lab"
 

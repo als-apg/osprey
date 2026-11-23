@@ -26,6 +26,7 @@ from osprey.services.channel_directory import service
 from osprey_connectors import control_context
 from osprey_connectors.directory import DirectoryPage, DirectoryRow
 from osprey_connectors.service_answers import Outcome, Source
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -119,7 +120,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def _config(tmp_path: Path, **extra: Any) -> dict[str, Any]:
     facility = {"identity": {"code": "test", "name": "Test"}, "channels": []}
-    (tmp_path / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(tmp_path, facility)
     config: dict[str, Any] = {
         "config_dir": str(tmp_path),
         "channel_finder": {

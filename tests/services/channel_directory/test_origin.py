@@ -20,6 +20,7 @@ import osprey.channel_roster as channel_roster
 from osprey.services import channel_directory
 from osprey.services.channel_directory import origin
 from osprey.services.channel_directory.origin import NormalisedAddress, mark, normalise_address
+from tests._facility_file import FACILITY_V4, write_facility_v4
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +34,7 @@ def cold_cache() -> Iterator[None]:
 def _render(render: Path, *addresses: str) -> dict[str, Any]:
     """Write a facility file declaring *addresses* and return its project's config."""
     channels = [{"id": address, "role": "none"} for address in addresses]
-    (render / "facility.json").write_text(json.dumps({"channels": channels}), encoding="utf-8")
+    write_facility_v4(render, {"channels": channels})
     return {"config_dir": str(render)}
 
 
@@ -112,7 +113,11 @@ class TestMark:
             "SR:QD:01": "unknown",
         }
 
-    @pytest.mark.parametrize("payload", ["{not json", '{"channels": []}'], ids=["corrupt", "empty"])
+    @pytest.mark.parametrize(
+        "payload",
+        ["{not json", json.dumps({"schema": FACILITY_V4, "channels": []})],
+        ids=["corrupt", "empty"],
+    )
     def test_any_other_absence_marks_unknown_too(self, tmp_path: Path, payload: str) -> None:
         (tmp_path / "facility.json").write_text(payload, encoding="utf-8")
 

@@ -30,6 +30,7 @@ from osprey_connectors.alarm_state import (
 )
 from osprey_connectors.factory import ConnectorFactory
 from osprey_connectors.service_answers import Source, Unavailable
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -96,7 +97,7 @@ def cold_roster() -> Iterator[None]:
 
 
 def _install(tmp_path: Path, control_system: dict[str, Any], section: dict[str, Any]) -> Any:
-    (tmp_path / "facility.json").write_text(json.dumps({"channels": []}), encoding="utf-8")
+    write_facility_v4(tmp_path, {"channels": []})
     config: dict[str, Any] = {
         "config_dir": str(tmp_path),
         "control_system": control_system,

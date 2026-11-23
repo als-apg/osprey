@@ -36,6 +36,7 @@ from osprey_connectors.alarm_state import (
 from osprey_connectors.directory import DirectoryPage, DirectoryRecord, DirectoryRow
 from osprey_connectors.put_log import PutRow
 from osprey_connectors.service_answers import HistoryPage, Outcome, Source
+from tests._facility_file import write_facility_v4
 from tests._service_factory import patch_create_service
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -198,9 +199,8 @@ def _config(
     **extra: Any,
 ) -> dict[str, Any]:
     channels = [{"id": address, "role": "none"} for address in curated]
-    (tmp_path / "facility.json").write_text(
-        json.dumps({"identity": {"code": "test", "name": "Test"}, "channels": channels}),
-        encoding="utf-8",
+    write_facility_v4(
+        tmp_path, {"identity": {"code": "test", "name": "Test"}, "channels": channels}
     )
     config: dict[str, Any] = {
         "config_dir": str(tmp_path),
