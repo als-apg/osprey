@@ -5,7 +5,7 @@ A reader outside the panel engine reads the facility document through
 :func:`check_header`. Both compare the header against :data:`READS` (an exact
 string compare) and refuse anything else with
 :class:`~osprey_facility.errors.FacilityFileError`, naming the rebuild. The
-wording is the panel engine's (``osprey.facility.panels.document``), so an
+wording is the panel engine's (``osprey_panels.document``), so an
 operator reads one sentence whichever reader met the file. Only an absent file
 is an absence: :func:`load_facility` lets :class:`FileNotFoundError` through and
 the caller decides what absence means.

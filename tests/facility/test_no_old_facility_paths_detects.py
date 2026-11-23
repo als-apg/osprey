@@ -80,6 +80,44 @@ def test_planted_old_paths_fail(tmp_path: Path) -> None:
     )
 
 
+def test_planted_panels_paths_fail(tmp_path: Path) -> None:
+    """The retired ``osprey.facility.panels`` tree fails in every spelling."""
+    _plant(
+        tmp_path,
+        "src/pkg/panels.py",
+        "from osprey.facility.panels import write\n"
+        "import osprey.facility.panels.emit\n"
+        "from osprey.facility import panels, settings\n"
+        'importlib.import_module("osprey.facility.emit")\n',
+    )
+    _plant(
+        tmp_path,
+        "docs/source/panels.rst",
+        ".. automodule:: osprey.facility.panels.layout\n"
+        "The builder lived in ``src/osprey/facility/panels/emit.py``.\n",
+    )
+
+    offenders, _ = old_path_offenders(
+        tmp_path,
+        ("src", "docs/source"),
+        modules=MODULES | {"panels", "emit", "layout"},
+        names=NAMES | {"panels", "emit", "layout"},
+        exempt_files=frozenset(),
+        line_allowlist={},
+    )
+
+    assert sorted(offenders) == sorted(
+        [
+            "src/pkg/panels.py:1: osprey.facility.panels",
+            "src/pkg/panels.py:2: osprey.facility.panels",
+            "src/pkg/panels.py:3: from osprey.facility import panels",
+            "src/pkg/panels.py:4: osprey.facility.emit",
+            "docs/source/panels.rst:1: osprey.facility.panels",
+            "docs/source/panels.rst:2: osprey/facility/panels",
+        ]
+    )
+
+
 def test_identifiers_and_surviving_modules_pass(tmp_path: Path) -> None:
     _plant(
         tmp_path,
@@ -88,7 +126,7 @@ def test_identifiers_and_surviving_modules_pass(tmp_path: Path) -> None:
         'SCENARIOS = "osprey.facility.scenarios/3"\n'
         "# header osprey.facility.facility/N\n"
         "from osprey.facility.views import reader\n"
-        "from osprey.facility import panels, settings\n"
+        "from osprey.facility import settings\n"
         "from osprey.facility import other\n"
         "import osprey.facility\n"
         "import osprey_facility.build\n"

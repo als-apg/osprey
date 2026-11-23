@@ -1,10 +1,12 @@
 """Rebuild the panel tests' checked-in facility document from its fixture tree.
 
-The panel tests read ``tests/facility/panels/fixture/facility.json`` instead of
-building the fixture tree every session. The tree is a description and its build
-needs neither the panels nor the framework, so it lives here, in the package
-suite, beside ``panel_fixture/``. Run this after a change to the tree or to the
-build, so the checked-in document is again what the build writes::
+The panel tests read
+``packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json``
+instead of building the fixture tree every session. The tree is a description
+and its build needs neither the panels nor the framework, so it lives here, in
+the package suite, beside ``panel_fixture/``. Run this after a change to the
+tree or to the build, so the checked-in document is again what the build
+writes::
 
     uv run python packages/osprey-facility/tests/osprey_facility_tests/rebuild_panel_fixture.py
     uv run python packages/osprey-facility/tests/osprey_facility_tests/rebuild_panel_fixture.py --check
@@ -30,7 +32,9 @@ FIXTURE_TREE = Path(__file__).resolve().with_name("panel_fixture")
 #: The repository checkout the package lives in.
 REPO_ROOT = Path(__file__).resolve().parents[4]
 #: The fixture tree built into its facility file, checked in beside the panel tests.
-FIXTURE_DOCUMENT = REPO_ROOT / "tests" / "facility" / "panels" / "fixture" / "facility.json"
+FIXTURE_DOCUMENT = (
+    REPO_ROOT / "packages" / "osprey-panels" / "tests" / "osprey_panels_tests" / "fixture"
+) / "facility.json"
 #: The project name the fixture tree is built under.
 PROJECT_NAME = "xr"
 

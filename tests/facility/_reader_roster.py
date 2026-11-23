@@ -223,8 +223,9 @@ ROSTER: tuple[Reader, ...] = (
         "test_the_dispatch_build_step_refuses_a_v3_facility_file",
     ),
     Reader(
-        "osprey.cli.facility_cmd._panel_graph",
+        "osprey_panels.cli._graph",
         "refuse",
-        "tests/cli/test_facility_panels.py::test_a_facility_3_document_is_refused_with_the_rebuild_hint",
+        "packages/osprey-panels/tests/osprey_panels_tests/test_cli.py::"
+        "test_a_facility_3_document_is_refused_with_the_rebuild_hint",
     ),
 )
