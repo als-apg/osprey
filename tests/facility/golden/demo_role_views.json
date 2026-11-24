@@ -2,7 +2,7 @@
   "_reproduce": "Frozen: no command rewrites this golden; it was captured from the demo build at 8f22637c06, the last /3 build, whose views unioned the vocabulary's signal roles with the document's.",
   "_description": "What the facts view and the channel-finder role descriptions give for the demo build. A build that writes the effective signal-role table into the document must give the same.",
   "facts": {
-    "channel_count": 4691,
+    "channel_count": 4765,
     "device_classes": {
       "AcceleratingCavity": {
         "aliases": [
@@ -74,7 +74,7 @@
           "position monitor",
           "position pickup"
         ],
-        "count": 96,
+        "count": 108,
         "groups": [
           "BR/BPM",
           "BR/DIAG",
@@ -120,7 +120,7 @@
           "dipole",
           "dipole magnet"
         ],
-        "count": 53,
+        "count": 69,
         "groups": [
           "BR/DIPOLE",
           "BR/DIPOLE-RAMP",
@@ -162,8 +162,10 @@
           "horizontal orbit corrector",
           "horizontal steering magnet"
         ],
-        "count": 89,
+        "count": 105,
         "groups": [
+          "BR/HCM",
+          "BR/MAG",
           "BTS/HCM",
           "BTS/MAG",
           "GTL/HCM",
@@ -263,7 +265,7 @@
           "quadrupole",
           "quadrupole magnet"
         ],
-        "count": 105,
+        "count": 129,
         "groups": [
           "BR/MAG",
           "BR/QD",
@@ -395,8 +397,10 @@
           "vertical orbit corrector",
           "vertical steering magnet"
         ],
-        "count": 94,
+        "count": 110,
         "groups": [
+          "BR/MAG",
+          "BR/VCM",
           "BTS/MAG",
           "BTS/VCM",
           "GTL/VCM",
@@ -513,6 +517,170 @@
       }
     },
     "measurement_models": {
+      "BR": {
+        "files": {
+          "lattice.json": "0bf0cae6a2008abf8b86cfada3704f04836ca3ce539a213dc90671f6b0298ca3"
+        },
+        "instruments": {},
+        "kinds": {
+          "orm": {
+            "corrector_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "description": "orbit response of the corrector setpoints",
+            "matrix": true,
+            "measure_plan": {
+              "bipolar": {
+                "kwargs": {
+                  "corrector_names": "$names",
+                  "n_avg_meas": "$n_avg_meas",
+                  "sleep_between_meas": "$sleep_between_meas",
+                  "sleep_between_step": "$settle"
+                },
+                "set_delta": true
+              },
+              "bpm_array": "bpm_array_name",
+              "delta": "corrector_delta",
+              "fit": "magnet-group",
+              "magnets": {
+                "members": [
+                  "hcorrectors",
+                  "vcorrectors"
+                ]
+              },
+              "missing": "kind",
+              "named": true,
+              "result": "matrix",
+              "tool": {
+                "attribute": "orm"
+              },
+              "unipolar": {
+                "factory": "orm",
+                "kwargs": {
+                  "bpm_array": "@bpm_array_name",
+                  "correctors": "$names",
+                  "deltas": "$deltas",
+                  "n_avg_meas": "$n_avg_meas",
+                  "set_wait_time": "$settle"
+                },
+                "per_member": true
+              }
+            },
+            "members": {
+              "bpm": {
+                "addresses": [
+                  "BR:DIAG:BPM:01:POSITION:X",
+                  "BR:DIAG:BPM:01:POSITION:Y",
+                  "BR:DIAG:BPM:02:POSITION:X",
+                  "BR:DIAG:BPM:02:POSITION:Y",
+                  "BR:DIAG:BPM:03:POSITION:X",
+                  "BR:DIAG:BPM:03:POSITION:Y",
+                  "BR:DIAG:BPM:04:POSITION:X",
+                  "BR:DIAG:BPM:04:POSITION:Y",
+                  "BR:DIAG:BPM:05:POSITION:X",
+                  "BR:DIAG:BPM:05:POSITION:Y",
+                  "BR:DIAG:BPM:06:POSITION:X",
+                  "BR:DIAG:BPM:06:POSITION:Y",
+                  "BR:DIAG:BPM:07:POSITION:X",
+                  "BR:DIAG:BPM:07:POSITION:Y",
+                  "BR:DIAG:BPM:08:POSITION:X",
+                  "BR:DIAG:BPM:08:POSITION:Y",
+                  "BR:DIAG:BPM:09:POSITION:X",
+                  "BR:DIAG:BPM:09:POSITION:Y",
+                  "BR:DIAG:BPM:10:POSITION:X",
+                  "BR:DIAG:BPM:10:POSITION:Y",
+                  "BR:DIAG:BPM:11:POSITION:X",
+                  "BR:DIAG:BPM:11:POSITION:Y",
+                  "BR:DIAG:BPM:12:POSITION:X",
+                  "BR:DIAG:BPM:12:POSITION:Y",
+                  "BR:DIAG:BPM:13:POSITION:X",
+                  "BR:DIAG:BPM:13:POSITION:Y",
+                  "BR:DIAG:BPM:14:POSITION:X",
+                  "BR:DIAG:BPM:14:POSITION:Y",
+                  "BR:DIAG:BPM:15:POSITION:X",
+                  "BR:DIAG:BPM:15:POSITION:Y",
+                  "BR:DIAG:BPM:16:POSITION:X",
+                  "BR:DIAG:BPM:16:POSITION:Y",
+                  "BR:DIAG:BPM:17:POSITION:X",
+                  "BR:DIAG:BPM:17:POSITION:Y",
+                  "BR:DIAG:BPM:18:POSITION:X",
+                  "BR:DIAG:BPM:18:POSITION:Y",
+                  "BR:DIAG:BPM:19:POSITION:X",
+                  "BR:DIAG:BPM:19:POSITION:Y",
+                  "BR:DIAG:BPM:20:POSITION:X",
+                  "BR:DIAG:BPM:20:POSITION:Y"
+                ],
+                "requirement": "wired"
+              },
+              "hcor": {
+                "addresses": [
+                  "BR:MAG:HCM:01:CURRENT:SP",
+                  "BR:MAG:HCM:02:CURRENT:SP",
+                  "BR:MAG:HCM:03:CURRENT:SP",
+                  "BR:MAG:HCM:04:CURRENT:SP",
+                  "BR:MAG:HCM:05:CURRENT:SP",
+                  "BR:MAG:HCM:06:CURRENT:SP",
+                  "BR:MAG:HCM:07:CURRENT:SP",
+                  "BR:MAG:HCM:08:CURRENT:SP",
+                  "BR:MAG:HCM:09:CURRENT:SP",
+                  "BR:MAG:HCM:10:CURRENT:SP",
+                  "BR:MAG:HCM:11:CURRENT:SP",
+                  "BR:MAG:HCM:12:CURRENT:SP",
+                  "BR:MAG:HCM:13:CURRENT:SP",
+                  "BR:MAG:HCM:14:CURRENT:SP",
+                  "BR:MAG:HCM:15:CURRENT:SP",
+                  "BR:MAG:HCM:16:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              },
+              "vcor": {
+                "addresses": [
+                  "BR:MAG:VCM:01:CURRENT:SP",
+                  "BR:MAG:VCM:02:CURRENT:SP",
+                  "BR:MAG:VCM:03:CURRENT:SP",
+                  "BR:MAG:VCM:04:CURRENT:SP",
+                  "BR:MAG:VCM:05:CURRENT:SP",
+                  "BR:MAG:VCM:06:CURRENT:SP",
+                  "BR:MAG:VCM:07:CURRENT:SP",
+                  "BR:MAG:VCM:08:CURRENT:SP",
+                  "BR:MAG:VCM:09:CURRENT:SP",
+                  "BR:MAG:VCM:10:CURRENT:SP",
+                  "BR:MAG:VCM:11:CURRENT:SP",
+                  "BR:MAG:VCM:12:CURRENT:SP",
+                  "BR:MAG:VCM:13:CURRENT:SP",
+                  "BR:MAG:VCM:14:CURRENT:SP",
+                  "BR:MAG:VCM:15:CURRENT:SP",
+                  "BR:MAG:VCM:16:CURRENT:SP"
+                ],
+                "requirement": "wired"
+              }
+            },
+            "single_pass": true,
+            "stepped_roles": [
+              "hcor",
+              "vcor"
+            ],
+            "takes_by": false,
+            "tool": {
+              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
+              "type": "pyaml.tuning_tools.orbit_response_matrix"
+            },
+            "tool_keys": [
+              "corrector_delta"
+            ],
+            "view_files": []
+          }
+        },
+        "names": {
+          "bpm": "BR_BPM",
+          "hcor": "BR_HCM",
+          "vcor": "BR_VCM"
+        },
+        "path": "data/pyaml/BR/configuration.yaml",
+        "rf": [],
+        "sha256": "fc702c6fc9db904ac056315c7a22d72df351c4797b13bc761884a8a29c78a3a4"
+      },
       "BTS": {
         "files": {},
         "instruments": {},
@@ -1801,6 +1969,12 @@
     "models": [
       {
         "engine": "pyat",
+        "name": "BR",
+        "served": true,
+        "solve": "periodic"
+      },
+      {
+        "engine": "pyat",
         "name": "BTS",
         "served": true,
         "solve": "single_pass"
@@ -1836,12 +2010,14 @@
       {
         "devices": {
           "BeamCurrentMonitor": 1,
-          "BeamPositionMonitor": 8,
-          "Dipole": 9,
+          "BeamPositionMonitor": 20,
+          "Dipole": 25,
+          "HCorrector": 16,
           "Kicker": 1,
-          "Quadrupole": 10,
+          "Quadrupole": 34,
           "ScreenDiagnostic": 5,
-          "Septum": 2
+          "Septum": 2,
+          "VCorrector": 16
         },
         "id": "BR",
         "level": "machine",
@@ -2254,10 +2430,10 @@
       "UtilityLoop": 1
     },
     "vocabulary": {
-      "paired_setpoints": 629,
+      "paired_setpoints": 648,
       "roles": {
-        "readback": 4033,
-        "setpoint": 658
+        "readback": 4088,
+        "setpoint": 677
       },
       "signals": {
         "beam_intensity_readback": {
@@ -2310,17 +2486,17 @@
           }
         },
         "current_readback": {
-          "count": 519,
+          "count": 538,
           "description": "Measured current value read back from a powered device.",
           "roles": {
-            "readback": 519
+            "readback": 538
           }
         },
         "current_setpoint": {
-          "count": 447,
+          "count": 466,
           "description": "Commanded current value sent to a powered device.",
           "roles": {
-            "setpoint": 447
+            "setpoint": 466
           }
         },
         "dose_rate_readback": {
@@ -2331,10 +2507,10 @@
           }
         },
         "fault_status": {
-          "count": 320,
+          "count": 304,
           "description": "Generic device fault flag readback.",
           "roles": {
-            "readback": 320
+            "readback": 304
           }
         },
         "frequency_readback": {
@@ -2457,10 +2633,10 @@
           }
         },
         "position_x_readback": {
-          "count": 96,
+          "count": 108,
           "description": "Horizontal beam position readback from a beam position monitor.",
           "roles": {
-            "readback": 96
+            "readback": 108
           }
         },
         "position_y_golden_readback": {
@@ -2471,10 +2647,10 @@
           }
         },
         "position_y_readback": {
-          "count": 96,
+          "count": 108,
           "description": "Vertical beam position readback from a beam position monitor.",
           "roles": {
-            "readback": 96
+            "readback": 108
           }
         },
         "power_on_command": {
@@ -2485,10 +2661,10 @@
           }
         },
         "power_on_status": {
-          "count": 547,
+          "count": 579,
           "description": "Power-on (energised) state readback of a powered device.",
           "roles": {
-            "readback": 547
+            "readback": 579
           }
         },
         "power_readback": {
@@ -2541,10 +2717,10 @@
           }
         },
         "ready_status": {
-          "count": 410,
+          "count": 394,
           "description": "Device-ready handshake readback (interlocks satisfied, supplies up).",
           "roles": {
-            "readback": 410
+            "readback": 394
           }
         },
         "reset_command": {
@@ -2597,10 +2773,10 @@
           }
         },
         "status": {
-          "count": 298,
+          "count": 310,
           "description": "Generic device status (on/off/fault/enabled/disabled).",
           "roles": {
-            "readback": 298
+            "readback": 310
           }
         },
         "temperature_limit_readback": {

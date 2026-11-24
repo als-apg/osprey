@@ -275,17 +275,17 @@ def test_an_unknown_id_exits_1(repo: Path, as_json: bool) -> None:
 def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool) -> None:
     _append(
         repo / "data" / "facility" / "records" / "devices.yaml",
-        {"id": "BR", "class": "BeamPositionMonitor", "place": "BR"},
+        {"id": "GTL", "class": "BeamPositionMonitor", "place": "GTL"},
     )
 
-    result = _show(repo, *(["--json"] if as_json else []), "BR")
+    result = _show(repo, *(["--json"] if as_json else []), "GTL")
 
     assert result.exit_code == 0, result.output
     if as_json:
         records = json.loads(result.stdout)["records"]
         assert [entry["kind"] for entry in records] == ["place", "device"]
         for entry in records:
-            assert entry["record"]["id"] == "BR"
+            assert entry["record"]["id"] == "GTL"
             assert "provenance" not in entry["record"]
             assert entry["fixes_applied"] == list(entry["provenance"].get("fixes") or [])
         files = [{source["file"] for source in entry["provenance"]["sources"]} for entry in records]
@@ -293,8 +293,8 @@ def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool)
         assert "records/devices.yaml" in files[1]
     else:
         lines = result.stdout.splitlines()
-        assert lines[0] == "place BR"
-        device_at = lines.index("device BR")
+        assert lines[0] == "place GTL"
+        device_at = lines.index("device GTL")
         assert lines[device_at - 1] == ""
         assert lines.count("") == 1
 

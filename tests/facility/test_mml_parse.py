@@ -1,7 +1,7 @@
 """The MML lattice reader gives every injector section its beam order.
 
-``scripts/facility_demo/_mml.py`` reads ``gtblattice.m`` (GTL, LN, LTB) and
-``btslattice.m`` (BTS) into ordered, occurrence-indexed elements with type,
+``scripts/facility_demo/_mml.py`` reads ``gtblattice.m`` (GTL, LN, LTB),
+``boosterlattice.m`` (BR) and ``btslattice.m`` (BTS) into ordered, occurrence-indexed elements with type,
 length, normalized K and bend angle. The tests read the MML files when an MML
 checkout is present and otherwise the checked-in excerpts, which must then
 parse exactly like MML.
@@ -42,6 +42,7 @@ elements = _module("facility_demo_elements", "_elements.py")
 #: Each lattice file and its checked-in excerpt.
 EXCERPT_OF = {
     "GTB/gtblattice.m": "gtblattice_excerpt.m",
+    "Booster/boosterlattice.m": "boosterlattice_excerpt.m",
     "BTS/btslattice.m": "btslattice_excerpt.m",
 }
 
@@ -95,7 +96,7 @@ def test_the_excerpt_parses_on_its_own(section: str) -> None:
 
 
 def test_every_section_is_parsed() -> None:
-    assert set(mml.LATTICES) == {"GTL", "LN", "LTB", "BTS"}
+    assert set(mml.LATTICES) == {"GTL", "LN", "LTB", "BR", "BTS"}
     assert set(mml.LATTICES) <= set(elements.SECTIONS)
 
 
@@ -183,7 +184,8 @@ def test_deck_element_keys_are_unique() -> None:
 def test_the_energies_are_mmls_defaults() -> None:
     for section in ("GTL", "LN", "LTB"):
         assert _section(section).energy == pytest.approx(0.05e9)
-    assert _section("BTS").energy == pytest.approx(1.9e9)
+    for section in ("BR", "BTS"):
+        assert _section(section).energy == pytest.approx(1.9e9)
 
 
 def test_getbrho_matches_mml() -> None:

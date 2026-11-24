@@ -305,11 +305,14 @@ def test_a_facility_with_only_a_transfer_line_offers_no_model(no_ring) -> None:
     assert ring.offered_models(no_ring) == []
 
 
-def test_the_example_facility_offers_its_storage_ring_and_no_transfer_line(
+def test_the_example_facility_offers_its_two_rings_and_no_transfer_line(
     built_demo,
 ) -> None:
     render = Path(built_demo.build_dir)
-    assert ring.offered_models(render) == ["SR"]
+    assert ring.offered_models(render) == ["BR", "SR"]
+    booster = ring.ring_view("BR", render)
+    assert [len(booster.plane(plane).bpms) for plane in ("x", "y")] == [20, 20]
+    assert [len(booster.plane(plane).correctors) for plane in ("x", "y")] == [16, 16]
 
 
 # -- the backend ----------------------------------------------------------------------

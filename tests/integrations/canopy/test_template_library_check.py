@@ -225,10 +225,10 @@ class TestWhatTheTemplateShips:
     def test_the_panels_open_each_other_and_the_overview_opens_the_sections(self, library):
         report = json.loads((library / REPORT_JSON).read_bytes())
         overview = [
-            *((f"w-{697 + i}", sector) for i, sector in enumerate(SECTORS)),
-            ("w-709", "bts/BTS"),
-            ("w-710", "gtl/GTL"),
-            ("w-711", "br/overview"),
+            *((f"w-{749 + i}", sector) for i, sector in enumerate(SECTORS)),
+            ("w-761", "bts/BTS"),
+            ("w-762", "gtl/GTL"),
+            ("w-763", "br/overview"),
         ]
         rows = [
             (row["topScreen"], row["nodeId"], row["file"], row["target"])

@@ -484,7 +484,7 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    assert len(authored) == 658
+    assert len(authored) == 677
     derived_pairs = pairs(derived)
     assert {address: derived_pairs[address] for address in STATED_ONLY} == {
         address: address for address in STATED_ONLY

@@ -556,7 +556,7 @@ def test_facility_show_prints_its_counted_notice_while_stdout_parses(
 
 #: The notes the pyAML view prints, one per served deck model with no measurement file.
 #: The demo's deck models, each of which loses its measurement file in the probe.
-_DECK_MODELS = ("BTS", "LTB", "SR")
+_DECK_MODELS = ("BR", "BTS", "LTB", "SR")
 _PYAML_OMITTED_NOTES = tuple(
     f"pyAML view omitted for {model}: no measurement/{model}.yaml" for model in _DECK_MODELS
 )
