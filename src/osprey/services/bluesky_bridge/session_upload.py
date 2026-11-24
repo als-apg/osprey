@@ -60,7 +60,8 @@ from typing import Any
 from osprey_connectors.posture_store import bind_owner, current_owner
 
 from .plan_fields import declared_channels
-from .plan_validation import hash_plan_body
+from .plan_validation import declares_writes, hash_plan_body
+from .plan_writes import held_to_declaration
 from .preflight import available_devices_phrase, probe_before_motion, warn_if_write_refused
 from .queue_backend import REASON_SESSION_PLAN_NOT_IN_NAMESPACE, REASON_SESSION_PLAN_UNVALIDATED
 from .session_dir import resolve_session_plan_dir
@@ -212,6 +213,13 @@ def install_session_plan(
     the same seam the catalog wrapper calls — and then travels on unchanged so
     the manager reports the monitor's own wording as the item's failure.
 
+    A launch writes only what its plan declares: the plan runs through
+    ``plan_writes.held_to_declaration``, the guard the catalog wrapper shares,
+    with the declaration read by ``plan_validation.declares_writes`` — the
+    validator's own reading, so only a literal ``"writes": True`` in the body's
+    ``PLAN_METADATA`` lets the launch write. Any other body is refused at its
+    first write, before that write is sent.
+
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
         name: The plan name, which is also the namespace key.
@@ -257,6 +265,7 @@ def install_session_plan(
         )
 
     devices = collect_devices(namespace)
+    declares = declares_writes(source)
 
     def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
         with bind_owner(kwargs) as clean:
@@ -279,7 +288,7 @@ def install_session_plan(
                     f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
             try:
-                return (yield from plan)
+                return (yield from held_to_declaration(name, declares, plan))
             except Exception as exc:
                 # Everything, and nothing handled: the shared seam decides
                 # whether what a run raised is a refusal, because a refusal out

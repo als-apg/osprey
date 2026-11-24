@@ -164,7 +164,7 @@ def _two_step_write_plan(devices: Any, params: Any) -> Iterator[Any]:
     yield from bps.mv(devices[params.motor], params.second)
 
 
-_SESSION_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}}}
+_SESSION_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}, "writes": True}}
 
 from bluesky import plan_stubs as bps
 from pydantic import BaseModel, ConfigDict
@@ -327,6 +327,7 @@ def _catalog_wrapper(device: ConnectorSettable) -> Callable[..., Iterator[Any]]:
             "schema": _Params,
             "plan": staticmethod(_two_step_write_plan),
             "description": "A stub plan that drives one channel twice.",
+            "metadata": None,
         },
     )()
     return qserver_startup._make_plan_function(spec, devices={_DEVICE_NAME: device})
