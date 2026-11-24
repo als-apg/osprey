@@ -373,6 +373,10 @@ async def get_run_data(
         greatest of its finite numbers, null when it holds none) and the
         ``note`` says which columns were summarised.
 
+        A cell the bridge could not serve is ``{"refused": "<reason>"}``
+        (``not text`` for bytes that are not text); report it as refused, never
+        as a value. A date cell is ISO 8601 text in UTC.
+
         ``analysis`` is the run's peak statistics, computed over the WHOLE run
         rather than this window, and is always present with the same six keys
         either way: ``{"available", "reason", "x_channel", "x_column",
