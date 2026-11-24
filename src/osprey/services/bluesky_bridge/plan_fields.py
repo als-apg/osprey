@@ -3,9 +3,10 @@
 A plan's ``PARAMS`` model already names the channels a run touches, but a
 bare ``list[str]`` says nothing about what will be done to them. Everything
 downstream -- the load gate, the enqueue pre-check, dry-run mocks, the default
-figure, the pre-flight summary -- needs to know which channels the plan *moves*
-and which it merely *reads*, and until now each of those consumers guessed from
-the field's name. This module replaces the guessing with a declaration.
+figure, the pre-flight summary -- needs to know which channels the plan *moves*,
+which it *triggers* and which it merely *reads*, and until now each of those
+consumers guessed from the field's name. This module replaces the guessing with
+a declaration.
 
 An author annotates the field with one of the role types::
 
@@ -14,10 +15,11 @@ An author annotates the field with one of the role types::
         monitors: ReadableChannels = Field(..., min_length=1)
 
 Each type is a plain ``list[str]`` / ``str`` carrying one extra JSON-schema key,
-``x-channel-role``, whose value is ``"movable"`` or ``"readable"``. The
-singles (`MovableChannel` / `ReadableChannel`) exist for nested models, where
-one field holds one channel name rather than a list. A parameter that may be
-left unset takes the optional singles (`OptionalMovableChannel` /
+``x-channel-role``, whose value is ``"movable"``, ``"triggered"`` or
+``"readable"``. The singles (`MovableChannel` / `TriggeredChannel` /
+`ReadableChannel`) exist for nested models, where one field holds one channel
+name rather than a list. A parameter that may be left unset takes the optional
+singles (`OptionalMovableChannel` / `OptionalTriggeredChannel` /
 `OptionalReadableChannel`) -- their own types rather than a ``| None`` at the
 field site, because pydantic only lifts an ``Annotated`` declaration into the
 field's own metadata when it is the outermost annotation: spelled
@@ -46,7 +48,8 @@ single authority every consumer uses instead of inspecting field names.
 column in a run's data.
 
 Vocabulary: this module speaks only capability language -- a channel is
-*movable* (the plan drives it to a value) or *readable* (the plan records it).
+*movable* (the plan drives it to a value), *triggered* (the plan fires it,
+waits for its act to end and records it) or *readable* (the plan records it).
 That is the vocabulary of every author-facing and operator-facing surface;
 `scan_metadata` is the one function that translates it into the run's standard
 metadata keys, and no consumer spells those keys itself.
@@ -68,11 +71,15 @@ from pydantic_core import to_jsonable_python
 CHANNEL_ROLE_KEY: Final = "x-channel-role"
 """JSON-schema key under which a field's declared channel role is serialized."""
 
-ChannelRole = Literal["movable", "readable"]
-"""What a plan does with a channel: drives it to a value, or records it."""
+ChannelRole = Literal["movable", "triggered", "readable"]
+"""What a plan does with a channel: drives it to a value, fires it and waits
+for its act, or records it."""
 
 MOVABLE_ROLE: Final[ChannelRole] = "movable"
 """Role of a channel the plan drives to a value."""
+
+TRIGGERED_ROLE: Final[ChannelRole] = "triggered"
+"""Role of a channel the plan fires, waits for and records; it never sets it."""
 
 READABLE_ROLE: Final[ChannelRole] = "readable"
 """Role of a channel the plan records without driving."""
@@ -91,12 +98,19 @@ def _role_extra(role: ChannelRole) -> dict[str, str]:
 MovableChannels = Annotated[list[str], Field(json_schema_extra=_role_extra(MOVABLE_ROLE))]
 """A list of channel names the plan drives to values."""
 
+TriggeredChannels = Annotated[list[str], Field(json_schema_extra=_role_extra(TRIGGERED_ROLE))]
+"""A list of channel names the plan fires, waits for and records."""
+
 ReadableChannels = Annotated[list[str], Field(json_schema_extra=_role_extra(READABLE_ROLE))]
 """A list of channel names the plan records at every point."""
 
 MovableChannel = Annotated[str, Field(json_schema_extra=_role_extra(MOVABLE_ROLE))]
 """One channel name the plan drives to values -- the single-channel form of
 `MovableChannels`, for a nested model holding one channel per entry."""
+
+TriggeredChannel = Annotated[str, Field(json_schema_extra=_role_extra(TRIGGERED_ROLE))]
+"""One channel name the plan fires, waits for and records -- the single-channel
+form of `TriggeredChannels`, for a nested model holding one channel per entry."""
 
 ReadableChannel = Annotated[str, Field(json_schema_extra=_role_extra(READABLE_ROLE))]
 """One channel name the plan records -- the single-channel form of
@@ -111,6 +125,12 @@ outermost annotation, so inside a union the role silently vanishes. Here the
 ``Annotated`` wraps the union itself, which keeps the role at the field level.
 An unset (``None``) value simply contributes no channel -- `collect_channels`
 skips it, so nothing downstream needs to special-case absence."""
+
+OptionalTriggeredChannel = Annotated[
+    str | None, Field(json_schema_extra=_role_extra(TRIGGERED_ROLE))
+]
+"""`TriggeredChannel` for a parameter that may be left unset -- see
+`OptionalMovableChannel` for why the union lives inside the annotation."""
 
 OptionalReadableChannel = Annotated[str | None, Field(json_schema_extra=_role_extra(READABLE_ROLE))]
 """`ReadableChannel` for a parameter that may be left unset -- see
@@ -134,7 +154,7 @@ multiply it.
 def _field_role(field: FieldInfo) -> ChannelRole | None:
     """The role *field* declares, or ``None`` if it declares none.
 
-    Anything other than one of the two known roles reads as no declaration: a
+    Anything other than one of the three known roles reads as no declaration: a
     field carrying a misspelled role is a field whose channels no consumer
     collects, which is the direction this has to fail.
     """
@@ -144,10 +164,9 @@ def _field_role(field: FieldInfo) -> ChannelRole | None:
         # time and cannot be read statically; no role type uses one.
         return None
     role = extra.get(CHANNEL_ROLE_KEY)
-    if role == MOVABLE_ROLE:
-        return MOVABLE_ROLE
-    if role == READABLE_ROLE:
-        return READABLE_ROLE
+    for known in (MOVABLE_ROLE, TRIGGERED_ROLE, READABLE_ROLE):
+        if role == known:
+            return known
     return None
 
 
@@ -267,7 +286,8 @@ def collect_channels(model_cls: type[BaseModel], params: Any, role: ChannelRole)
 
 
 def declared_channels(model_cls: type[BaseModel], params: Any) -> list[str]:
-    """Every channel *params* supplies under ANY role -- movable first, deduped.
+    """Every channel *params* supplies under ANY role -- movable, then triggered,
+    then readable, deduped.
 
     `collect_channels` for consumers that need the plan's whole claim rather
     than one role of it. The worker sides use it as a *bound*: the device
@@ -278,12 +298,12 @@ def declared_channels(model_cls: type[BaseModel], params: Any) -> list[str]:
     `ChannelRole` widens both at once, where two open-coded unions would widen
     whichever one someone remembered.
 
-    A channel declared under both roles appears once, at its movable position.
+    A channel declared under several roles appears once, at its first position.
     A model declaring no roles contributes nothing, exactly as `collect_channels`
     does, so a plan file with no ``PARAMS`` bounds itself to no devices at all.
     """
     ordered: dict[str, None] = {}
-    for role in (MOVABLE_ROLE, READABLE_ROLE):
+    for role in (MOVABLE_ROLE, TRIGGERED_ROLE, READABLE_ROLE):
         for name in collect_channels(model_cls, params, role):
             ordered.setdefault(name, None)
     return list(ordered)
@@ -294,8 +314,15 @@ def declared_channels(model_cls: type[BaseModel], params: Any) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def scan_metadata(movable: Sequence[str], readable: Sequence[str], points: int) -> dict[str, Any]:
-    """Standard run metadata for a plan that moves *movable* and reads *readable*.
+def scan_metadata(
+    movable: Sequence[str],
+    readable: Sequence[str],
+    points: int,
+    *,
+    triggered: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Standard run metadata for a plan that moves *movable*, triggers *triggered*
+    and reads *readable*.
 
     A plan passes the result as the ``md`` of its own run decorator, and the run
     it opens then carries the same standard description a stock scan carries.
@@ -306,8 +333,10 @@ def scan_metadata(movable: Sequence[str], readable: Sequence[str], points: int) 
     **This function is the only place in the codebase that spells those keys.**
     Everywhere else -- authoring, error messages, docs, this module's own
     parameter names -- speaks the capability vocabulary a plan author uses:
-    *movable* channels are the ones the plan drives to values, *readable*
-    channels the ones it records. Consumers that need a role read it from the
+    *movable* channels are the ones the plan drives to values, *triggered*
+    channels the ones it fires and records, *readable* channels the ones it
+    records. A triggered channel is recorded, so it is described beside the
+    readable ones. Consumers that need a role read it from the
     declaration via `channel_roles`/`collect_channels`, never from these keys.
 
     Deliberately not emitted:
@@ -326,21 +355,27 @@ def scan_metadata(movable: Sequence[str], readable: Sequence[str], points: int) 
         movable: Channel names the plan drives, in the order it drives them.
         readable: Channel names the plan records at every point.
         points: Total points the run will emit, counting every sweep.
+        triggered: Channel names the plan fires, waits for and records.
 
     Raises:
-        ValueError: if either channel list is empty or *points* is below one.
-            A run that moves nothing, reads nothing, or produces no points is an
-            authoring mistake worth failing on rather than a run worth opening.
+        ValueError: if the plan neither moves nor triggers a channel, records
+            none, or *points* is below one. Such a run is an authoring mistake
+            worth failing on rather than a run worth opening.
     """
-    if not movable:
-        raise ValueError("scan_metadata needs at least one movable channel (the plan drives none)")
-    if not readable:
-        raise ValueError("scan_metadata needs at least one readable channel (the plan reads none)")
+    if not movable and not triggered:
+        raise ValueError(
+            "scan_metadata needs at least one movable or triggered channel "
+            "(the plan drives and triggers none)"
+        )
+    if not readable and not triggered:
+        raise ValueError(
+            "scan_metadata needs at least one readable or triggered channel (the plan records none)"
+        )
     if points < 1:
         raise ValueError(f"scan_metadata needs at least one point, got {points}")
     return {
         "motors": list(movable),
-        "detectors": list(readable),
+        "detectors": [*triggered, *readable],
         "num_points": int(points),
     }
 
