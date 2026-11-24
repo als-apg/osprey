@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -671,12 +671,37 @@ channel with no entry, has confirmation on. The database holds no <code class="d
 block: a top-level <code class="docutils literal notranslate"><span class="pre">defaults</span></code> key, or an entry without <code class="docutils literal notranslate"><span class="pre">writable</span></code>, fails the
 load. Switch it off for the channels a re-read cannot answer
 for – a command channel that resets itself, a register that cannot be read back
-– so those writes report <code class="docutils literal notranslate"><span class="pre">unrequested</span></code> rather than <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>. A call
+– so those writes report <code class="docutils literal notranslate"><span class="pre">unrequested</span></code> rather than <code class="docutils literal notranslate"><span class="pre">unconfirmed</span></code>. A
+command whose status reports when what it started is over needs no re-read
+when it is fired: <code class="docutils literal notranslate"><span class="pre">fire</span></code> (below) writes it with confirmation off and
+confirms it by waiting for the status. A call
 site may pass <code class="docutils literal notranslate"><span class="pre">confirm=True</span></code> or <code class="docutils literal notranslate"><span class="pre">confirm=False</span></code> to decide for one call;
 passing nothing means “no opinion” and leaves the choice to the configuration.
 <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> confirms each channel exactly as a single write
 would, which is why <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channels</span></code> behaves like
 <code class="docutils literal notranslate"><span class="pre">osprey.runtime.write_channel</span></code>.</p>
+</section>
+<section id="firing-a-command">
+<h3>Firing a command<a class="headerlink" href="#firing-a-command" title="Link to this heading">#</a></h3>
+<p>A command is a channel written to start something, such as a reset; what it
+starts is its act, and a status channel reports when the act is over.
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.command.fire(connector,</span> <span class="pre">act,</span> <span class="pre">value)</span></code> writes a command
+channel once and returns when its status says the act is over. A
+<code class="docutils literal notranslate"><span class="pre">CommandAct</span></code> names the command, the status, the value the status reads when
+<code class="docutils literal notranslate"><span class="pre">idle</span></code> and the longest one act may take (<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>). <code class="docutils literal notranslate"><span class="pre">fire</span></code> subscribes
+to the status before it writes, so no update the write causes is missed, and
+reads it; a status that is not idle refuses the act with <code class="docutils literal notranslate"><span class="pre">CommandBusyError</span></code>
+and nothing is written. It then
+writes the command with <code class="docutils literal notranslate"><span class="pre">confirm=False</span></code>, because the wait confirms the write
+more strongly than a re-read, and waits for a status update that is not idle
+followed by one that is. The status is compared with <code class="docutils literal notranslate"><span class="pre">values_match</span></code>, the rule
+a write’s confirmation uses. A status that does not leave idle within
+<code class="docutils literal notranslate"><span class="pre">start_s</span></code> seconds of the write (a keyword of <code class="docutils literal notranslate"><span class="pre">fire</span></code>; at most, and by
+default, <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>) raises <code class="docutils literal notranslate"><span class="pre">CommandNoEffectError</span></code>; one that leaves and does not come back within
+<code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> raises <code class="docutils literal notranslate"><span class="pre">CommandTimeoutError</span></code>; a status that cannot be
+subscribed, read or compared, or whose connection drops, raises
+<code class="docutils literal notranslate"><span class="pre">CommandStatusError</span></code>. Every other write of the command is confirmed as its
+limits entry says.</p>
 </section>
 <section id="what-a-batch-means">
 <h3>What a batch means<a class="headerlink" href="#what-a-batch-means" title="Link to this heading">#</a></h3>
@@ -1309,6 +1334,7 @@ relabeled – to your backend’s UTC wire format.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connection-failures">Connection Failures</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-confirmation">Write Confirmation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-confirmation-off">Switching confirmation off</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#firing-a-command">Firing a command</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#what-a-batch-means">What a batch means</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-values-are-compared">How values are compared</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#who-may-write">Who May Write</a></li>

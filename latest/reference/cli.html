@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -1562,8 +1562,10 @@ on stderr, each a <code class="docutils literal notranslate"><span class="pre">l
 address, sorted: the setpoints with no limits record (the target serves
 them writable with no range when <code class="docutils literal notranslate"><span class="pre">control_system.limits_checking.mode</span></code> is
 <code class="docutils literal notranslate"><span class="pre">optional</span></code>, and refuses writes to them otherwise), and the limits records
-that state one of <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> (served not writable until
-they state both). A finding lists its first ten addresses and counts the
+that lack what would make their setpoint writable (the missing
+<code class="docutils literal notranslate"><span class="pre">min_value</span></code> or <code class="docutils literal notranslate"><span class="pre">max_value</span></code> of a float or int setpoint, <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">true</span></code>
+on any other), each with the bounds it does state and what it lacks; a
+record that says <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> is not listed. A finding lists its first ten addresses and counts the
 rest; <code class="docutils literal notranslate"><span class="pre">--all-limits</span></code> lists every one. The findings change nothing,
 the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
 a kept <code class="docutils literal notranslate"><span class="pre">imported/mml/&lt;model&gt;.response.json</span></code> prints one

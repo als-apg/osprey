@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -449,6 +449,16 @@
 </li>
         <li><a href="reference/connectors-api/contracts.html#osprey_connectors.archiver.ArchiverMetadata.__init__">(osprey_connectors.archiver.ArchiverMetadata method)</a>
 </li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.__init__">(osprey_connectors.command.CommandAct method)</a>
+</li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandBusyError.__init__">(osprey_connectors.command.CommandBusyError method)</a>
+</li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandNoEffectError.__init__">(osprey_connectors.command.CommandNoEffectError method)</a>
+</li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandStatusError.__init__">(osprey_connectors.command.CommandStatusError method)</a>
+</li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandTimeoutError.__init__">(osprey_connectors.command.CommandTimeoutError method)</a>
+</li>
         <li><a href="reference/connectors-api/configuration.html#osprey_connectors.config.ConfigBuilder.__init__">(osprey_connectors.config.ConfigBuilder method)</a>
 </li>
         <li><a href="reference/connectors-api/building.html#osprey_connectors.connection.ConnectionSettings.__init__">(osprey_connectors.connection.ConnectionSettings method)</a>
@@ -618,9 +628,11 @@
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/connectors-api/contracts.html#osprey_connectors.control_system.ControlSystemConnector.__init_subclass__">__init_subclass__() (osprey_connectors.control_system.ControlSystemConnector class method)</a>
 </li>
-      <li><a href="reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata.__post_init__">__post_init__() (osprey_connectors.control_system.ChannelMetadata method)</a>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.__post_init__">__post_init__() (osprey_connectors.command.CommandAct method)</a>
 
       <ul>
+        <li><a href="reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata.__post_init__">(osprey_connectors.control_system.ChannelMetadata method)</a>
+</li>
         <li><a href="reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelWriteResult.__post_init__">(osprey_connectors.control_system.ChannelWriteResult method)</a>
 </li>
       </ul></li>
@@ -992,13 +1004,25 @@
       </ul></li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.view.SimulatorView.code">code (osprey_connectors.simulation.view.SimulatorView property)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.values.coerce">coerce() (in module osprey_connectors.simulation.values)</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.command">command (osprey_connectors.command.CommandAct attribute)</a>
 </li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.view.COMMAND_MARK">COMMAND_MARK (in module osprey_connectors.simulation.view)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct">CommandAct (class in osprey_connectors.command)</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandBusyError">CommandBusyError</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandNoEffectError">CommandNoEffectError</a>
+</li>
       <li><a href="reference/connectors-api/errors-logging.html#osprey_connectors.errors.ChannelError.commands_fired">commands_fired (osprey_connectors.errors.ChannelError attribute)</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandStatusError">CommandStatusError</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandTimeoutError">CommandTimeoutError</a>
 </li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.compare_fingerprint">compare_fingerprint() (in module osprey_connectors.simulation.archive)</a>
 </li>
@@ -1356,6 +1380,8 @@
 </li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.FingerprintComparison">FingerprintComparison (class in osprey_connectors.simulation.archive)</a>
 </li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.fire">fire() (in module osprey_connectors.command)</a>
+</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.state.Overlap.first">first (osprey_connectors.simulation.state.Overlap attribute)</a>
@@ -1531,6 +1557,8 @@
       <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.Approver.identity">identity (osprey_connectors.write_authorization.Approver attribute)</a>
 </li>
       <li><a href="reference/connectors-api/utilities.html#osprey_connectors.identity.IDENTITY_ENV_LADDER">IDENTITY_ENV_LADDER (in module osprey_connectors.identity)</a>
+</li>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.idle">idle (osprey_connectors.command.CommandAct attribute)</a>
 </li>
       <li><a href="reference/connectors-api/supervision.html#osprey_connectors.recovery.Supervised.in_child">in_child (osprey_connectors.recovery.Supervised property)</a>
 </li>
@@ -1866,6 +1894,8 @@
 </li>
         <li><a href="reference/connectors-api/building.html#module-osprey_connectors.call_timeout">osprey_connectors.call_timeout</a>
 </li>
+        <li><a href="reference/connectors-api/write-safety.html#module-osprey_connectors.command">osprey_connectors.command</a>
+</li>
         <li><a href="reference/connectors-api/configuration.html#module-osprey_connectors.config">osprey_connectors.config</a>
 </li>
         <li><a href="reference/connectors-api/building.html#module-osprey_connectors.connection">osprey_connectors.connection</a>
@@ -2099,6 +2129,13 @@
 </li>
       </ul></li>
       <li>
+    osprey_connectors.command
+
+      <ul>
+        <li><a href="reference/connectors-api/write-safety.html#module-osprey_connectors.command">module</a>
+</li>
+      </ul></li>
+      <li>
     osprey_connectors.config
 
       <ul>
@@ -2245,6 +2282,8 @@
         <li><a href="reference/connectors-api/utilities.html#module-osprey_connectors.relative_time">module</a>
 </li>
       </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     osprey_connectors.safety_file
 
@@ -2252,8 +2291,6 @@
         <li><a href="reference/connectors-api/utilities.html#module-osprey_connectors.safety_file">module</a>
 </li>
       </ul></li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li>
     osprey_connectors.service_answers
 
@@ -2749,10 +2786,10 @@
 </li>
       <li><a href="reference/connectors-api/building.html#osprey_connectors.factory.register_builtin_connectors">register_builtin_connectors() (in module osprey_connectors.factory)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_control_system">register_control_system() (osprey_connectors.factory.ConnectorFactory class method)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="reference/connectors-api/building.html#osprey_connectors.factory.ConnectorFactory.register_service">register_service() (osprey_connectors.factory.ConnectorFactory class method)</a>
 </li>
       <li><a href="reference/connectors-api/errors-logging.html#osprey_connectors.errors.RegistryError">RegistryError</a>
@@ -2775,6 +2812,12 @@
 </li>
       <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.write_authorization.renew_lease">renew_lease() (in module osprey_connectors.write_authorization)</a>
 </li>
+      <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.replay">replay() (osprey_connectors.simulation.composite.Composite method)</a>
+
+      <ul>
+        <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.replay">(osprey_connectors.simulation.texture.TextureModel method)</a>
+</li>
+      </ul></li>
       <li><a href="reference/connectors-api/configuration.html#osprey_connectors.workspace.repo_root_for_config">repo_root_for_config() (in module osprey_connectors.workspace)</a>
 </li>
       <li><a href="reference/connectors-api/supervision.html#osprey_connectors.ipc.PooledConnector.report">report (osprey_connectors.ipc.PooledConnector property)</a>
@@ -3126,6 +3169,8 @@
       <ul>
         <li><a href="reference/connectors-api/services.html#osprey_connectors.alarm_state.AlarmStateRecord.status">(osprey_connectors.alarm_state.AlarmStateRecord attribute)</a>
 </li>
+        <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.status">(osprey_connectors.command.CommandAct attribute)</a>
+</li>
         <li><a href="reference/connectors-api/services.html#osprey_connectors.directory.DirectoryQuery.status">(osprey_connectors.directory.DirectoryQuery attribute)</a>
 </li>
         <li><a href="reference/connectors-api/services.html#osprey_connectors.directory.DirectoryRow.status">(osprey_connectors.directory.DirectoryRow attribute)</a>
@@ -3309,8 +3354,12 @@
 </li>
       <li><a href="reference/connectors-api/building.html#osprey_connectors.connection.ConnectionSettings.timeout_or">timeout_or() (osprey_connectors.connection.ConnectionSettings method)</a>
 </li>
-      <li><a href="reference/connectors-api/building.html#osprey_connectors.connection.ConnectionSettings.timeout_s">timeout_s (osprey_connectors.connection.ConnectionSettings attribute)</a>
+      <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.timeout_s">timeout_s (osprey_connectors.command.CommandAct attribute)</a>
+
+      <ul>
+        <li><a href="reference/connectors-api/building.html#osprey_connectors.connection.ConnectionSettings.timeout_s">(osprey_connectors.connection.ConnectionSettings attribute)</a>
 </li>
+      </ul></li>
       <li><a href="reference/connectors-api/contracts.html#osprey_connectors.control_system.ChannelMetadata.timestamp">timestamp (osprey_connectors.control_system.ChannelMetadata attribute)</a>
 
       <ul>
@@ -3529,6 +3578,12 @@
       </ul></li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.channel_faults.ChannelFault.write">write (osprey_connectors.simulation.channel_faults.ChannelFault attribute)</a>
 </li>
+      <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.write">write() (osprey_connectors.simulation.composite.Composite method)</a>
+
+      <ul>
+        <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.write">(osprey_connectors.simulation.texture.TextureModel method)</a>
+</li>
+      </ul></li>
       <li><a href="reference/connectors-api/simulation.html#osprey_connectors.simulation.state.write_active_state">write_active_state() (in module osprey_connectors.simulation.state)</a>
 </li>
       <li><a href="reference/connectors-api/write-safety.html#osprey_connectors.posture_store.write_ceiling">write_ceiling() (in module osprey_connectors.posture_store)</a>

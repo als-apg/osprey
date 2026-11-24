@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -483,6 +483,18 @@
 <span class="sd">input the model does not hold never blocks. The gate is part of the held</span>
 <span class="sd">value, so a read, :meth:`TextureModel.held` and every reader built on it --</span>
 <span class="sd">the archive seed, a subscription comparing held values -- see it alike.</span>
+
+<span class="sd">A channel whose seed states ``responds: {to, for_s, value}`` holds ``value``</span>
+<span class="sd">for ``for_s`` seconds after each live write to the command ``to``, whichever</span>
+<span class="sd">model serves it, and its value by the rules above otherwise; a second write while the response runs</span>
+<span class="sd">starts its time again. A gate still wins: a gated channel holds its gated</span>
+<span class="sd">value while a response runs. Only a write fires a response: the start state,</span>
+<span class="sd">the active scenarios&#39; writes and a reset fire none, and a reset ends a running</span>
+<span class="sd">one. The response is part of the held value, as the gate is.</span>
+
+<span class="sd">A setpoint whose channel states ``started_by: &lt;command&gt;`` holds a written value</span>
+<span class="sd">without echoing it: its readback takes the setpoint&#39;s held value when the</span>
+<span class="sd">command is written. A batch writing both holds the setpoint first.</span>
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
@@ -518,6 +530,7 @@
         <span class="n">NoiseRecord</span><span class="p">,</span>
         <span class="n">PulseRecord</span><span class="p">,</span>
         <span class="n">ResolvedCoupling</span><span class="p">,</span>
+        <span class="n">RespondsRecord</span><span class="p">,</span>
         <span class="n">SeedRecord</span><span class="p">,</span>
         <span class="n">SeedsDocument</span><span class="p">,</span>
         <span class="n">VariablesDocument</span><span class="p">,</span>
@@ -730,6 +743,25 @@
             <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;pair&quot;</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
             <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">][</span><span class="s2">&quot;pair&quot;</span><span class="p">])</span> <span class="ow">in</span> <span class="n">owned</span>
         <span class="p">}</span>
+        <span class="c1">#: Each command&#39;s started setpoints, whose writes echo only when it is written.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_starts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">:</span>
+            <span class="n">command</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">address</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;started_by&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">command</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_starts</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">command</span><span class="p">),</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_started</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
+            <span class="n">address</span> <span class="k">for</span> <span class="n">started</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_starts</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">started</span>
+        <span class="p">)</span>
+        <span class="c1">#: Each command&#39;s responding channels, and each responding channel&#39;s record.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_responders</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_responds</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">RespondsRecord</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span><span class="p">:</span>
+            <span class="n">record</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_seeds</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;responds&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">record</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_responds</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="n">record</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_responders</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]),</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="c1">#: Each command&#39;s last firing, in epoch seconds.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fired</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominal</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">unserved_defaults</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">))</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">owned</span>
@@ -813,9 +845,13 @@
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.reset">[docs]</a>
     <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return every texture-owned channel to its nominal, then apply the active writes.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return every texture-owned channel to its nominal, then apply the active writes.</span>
+
+<span class="sd">        Every running response ends.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fired</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_held</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nominals</span><span class="p">[</span><span class="n">address</span><span class="p">]</span> <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">}</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_hold</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_active</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_active</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="TextureModel.set_active">
@@ -848,8 +884,10 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Each channel&#39;s held value, without motion or clamp.</span>
 
 <span class="sd">        A ``linear`` channel holds the weighted sum of its inputs&#39; held values;</span>
-<span class="sd">        an input the model does not hold counts as zero. A ``gate`` channel</span>
-<span class="sd">        holds its gated value while any input holds its blocking label.</span>
+<span class="sd">        an input the model does not hold counts as zero. A ``responds``</span>
+<span class="sd">        channel holds its response&#39;s value while the response runs, and a</span>
+<span class="sd">        ``gate`` channel its gated value while any input holds its blocking</span>
+<span class="sd">        label.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            names: Texture-owned addresses.</span>
@@ -867,7 +905,9 @@
 
 <span class="sd">        The channel itself, the readback it echoes into, and every channel</span>
 <span class="sd">        downstream of either: a ``linear`` channel summing it, a ``gate``</span>
-<span class="sd">        channel it blocks, a ``pulse`` waveform it drives or enables.</span>
+<span class="sd">        channel it blocks, a ``pulse`` waveform it drives or enables. A command</span>
+<span class="sd">        also reaches the channels responding to it and the readbacks of the</span>
+<span class="sd">        setpoints it starts; a started setpoint does not reach its readback.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">downstream</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="p">:</span>
@@ -884,7 +924,10 @@
         <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">variable</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="k">if</span> <span class="n">variable</span><span class="o">.</span><span class="n">read_only</span><span class="p">:</span>
                 <span class="k">continue</span>
-            <span class="n">found</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">)}</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="p">{</span><span class="n">address</span><span class="p">,</span> <span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_responders</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">())}</span>
+            <span class="k">if</span> <span class="n">address</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_started</span><span class="p">:</span>
+                <span class="n">found</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">address</span><span class="p">))</span>
+            <span class="n">found</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">started</span><span class="p">]</span> <span class="k">for</span> <span class="n">started</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_starts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">()))</span>
             <span class="n">pending</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">found</span><span class="p">)</span>
             <span class="k">while</span> <span class="n">pending</span><span class="p">:</span>
                 <span class="k">for</span> <span class="n">dependent</span> <span class="ow">in</span> <span class="n">downstream</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">pending</span><span class="o">.</span><span class="n">pop</span><span class="p">(),</span> <span class="p">()):</span>
@@ -899,8 +942,20 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_derived</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_derived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">held</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;A channel&#39;s value from ``held``: its weighted sum, then its gate.&quot;&quot;&quot;</span>
-        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gated</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weighted_sum</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">held</span><span class="p">),</span> <span class="n">held</span><span class="p">)</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;A channel&#39;s value from ``held``: its weighted sum, then its response, then its gate.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gated</span><span class="p">(</span>
+            <span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_responding</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weighted_sum</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">held</span><span class="p">)),</span> <span class="n">held</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_responding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;``value``, or the ``responds`` value while the response to its command runs.&quot;&quot;&quot;</span>
+        <span class="n">record</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_responds</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">record</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="n">fired</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fired</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">]))</span>
+        <span class="k">if</span> <span class="n">fired</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span> <span class="o">-</span> <span class="n">fired</span> <span class="o">&gt;=</span> <span class="nb">float</span><span class="p">(</span><span class="n">record</span><span class="p">[</span><span class="s2">&quot;for_s&quot;</span><span class="p">]):</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">record</span><span class="p">[</span><span class="s2">&quot;value&quot;</span><span class="p">])</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_weighted_sum</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">held</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span>
@@ -1157,21 +1212,77 @@
 
     <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_hold</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()))</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_hold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Hold coerced values and their echoes; nothing is held when one is refused.&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="TextureModel.write">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.write">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">at</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Hold one write, made at ``at``.</span>
+
+<span class="sd">        The values of texture-owned channels are held; a name another model</span>
+<span class="sd">        serves is the write&#39;s act alone, its value not held here. A started</span>
+<span class="sd">        setpoint is held without its echo. Each command written, whichever</span>
+<span class="sd">        model serves it, moves the readback of every setpoint it starts to the</span>
+<span class="sd">        setpoint&#39;s held value, this write&#39;s targets included, and fires its</span>
+<span class="sd">        responses at ``at``; with ``at`` ``None`` it fires none. Nothing is</span>
+<span class="sd">        held when one value is refused.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            values_by_name: The write&#39;s values by address.</span>
+<span class="sd">            at: The instant of the write in epoch seconds, or ``None`` for a</span>
+<span class="sd">                write that fires no response.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: A value is refused for its channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">coerced</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">name</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerce</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="k">else</span> <span class="n">value</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span>
         <span class="p">}</span>
+        <span class="n">targets</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">,</span> <span class="o">**</span><span class="n">coerced</span><span class="p">}</span>
         <span class="n">echoes</span> <span class="o">=</span> <span class="p">{</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">]:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">coerced</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span> <span class="ow">and</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_started</span>
         <span class="p">}</span>
+        <span class="k">for</span> <span class="n">command</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">setpoint</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_starts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">command</span><span class="p">,</span> <span class="p">()):</span>
+                <span class="n">echoes</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">setpoint</span><span class="p">]]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_echoed</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_echo</span><span class="p">[</span><span class="n">setpoint</span><span class="p">],</span> <span class="n">setpoint</span><span class="p">,</span> <span class="n">targets</span><span class="p">[</span><span class="n">setpoint</span><span class="p">]</span>
+                <span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">coerced</span><span class="p">)</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">echoes</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">echoes</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">at</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fired</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+                <span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">((</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">values_by_name</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_responders</span><span class="p">),</span> <span class="n">at</span><span class="p">)</span>
+            <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="TextureModel.replay">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.texture.TextureModel.replay">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">replay</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entries</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Hold journalled writes in order, each made at the time it was written.</span>
+
+<span class="sd">        Each ``(address, value, t_s)`` is taken as :meth:`write` takes a write</span>
+<span class="sd">        made at ``t_s``; an entry without a time holds its value and fires</span>
+<span class="sd">        nothing. Nothing is held when one entry is refused.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            entries: Writes in the order they were written; an address</span>
+<span class="sd">                another model serves is the entry&#39;s act alone.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: A value is refused for its channel.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">held</span><span class="p">,</span> <span class="n">fired</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">),</span> <span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fired</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">t_s</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">({</span><span class="n">address</span><span class="p">:</span> <span class="n">value</span><span class="p">},</span> <span class="n">at</span><span class="o">=</span><span class="n">t_s</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fired</span> <span class="o">=</span> <span class="n">held</span><span class="p">,</span> <span class="n">fired</span>
+            <span class="k">raise</span></div>
+</div>
 
 </pre></div>
 

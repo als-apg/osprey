@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -1178,6 +1178,8 @@ or sent; a batch the limits then refuse has still spent it.</p>
 <dt class="sig sig-object py" id="osprey_connectors.control_system.ControlSystemConnector.subscribe">
 <span class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">subscribe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">channel_address</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">callback</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">on_connection</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/control_system/_base.html#ControlSystemConnector.subscribe"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.control_system.ControlSystemConnector.subscribe" title="Link to this definition">#</a></dt>
 <dd><p>Subscribe to channel changes.</p>
+<p>The first callback of each connection carries the channel’s current
+value, with no change needed to send it.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">

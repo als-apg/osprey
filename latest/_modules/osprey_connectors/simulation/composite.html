@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -1849,7 +1849,27 @@
 <span class="sd">                ``address`` names the channel when one channel was refused.</span>
 <span class="sd">            ReadOnlyError: A name is not a settable channel.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Composite.write">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.write">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write channels as :meth:`set` does; returns the instant of the write.</span>
+
+<span class="sd">        The instant is read once from the composite&#39;s clock. The texture is</span>
+<span class="sd">        told of the write at it, whichever model serves each channel: every</span>
+<span class="sd">        response a command fires runs from it, and a journal of the write</span>
+<span class="sd">        records it. A write a channel fault holds fires nothing.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            The instant of the write, in epoch seconds.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            WriteRefusedError: As :meth:`set`.</span>
+<span class="sd">            ReadOnlyError: As :meth:`set`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="Composite.restore">
@@ -1857,8 +1877,9 @@
     <span class="k">def</span><span class="w"> </span><span class="nf">restore</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Put channels back as :meth:`set` writes them, without a client write.</span>
 
-<span class="sd">        For a rollback or a replay: the children&#39;s models take the values, and</span>
-<span class="sd">        no engine is told a client wrote them.</span>
+<span class="sd">        For a rollback: the children&#39;s models take the values, no engine is</span>
+<span class="sd">        told a client wrote them, and no response fires. A journal is put back</span>
+<span class="sd">        by :meth:`replay`.</span>
 
 <span class="sd">        Raises:</span>
 <span class="sd">            WriteRefusedError: As :meth:`set`.</span>
@@ -1867,34 +1888,91 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">values_by_name</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
 
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">client</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<div class="viewcode-block" id="Composite.replay">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.composite.Composite.replay">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">replay</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entries</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Put journalled writes back, without a client write.</span>
+
+<span class="sd">        Each entry is ``(address, value, t_s)``, in the order it was written,</span>
+<span class="sd">        with the instant it was written at or ``None``. A physics child takes</span>
+<span class="sd">        each of its channels&#39; last value, as :meth:`restore` puts it; the</span>
+<span class="sd">        texture is told of every entry in order, whichever model serves it,</span>
+<span class="sd">        and fires each command&#39;s responses at the entry&#39;s instant</span>
+<span class="sd">        (:meth:`TextureModel.replay`). An entry a channel fault holds is put</span>
+<span class="sd">        back as a held write and fires nothing.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            WriteRefusedError: As :meth:`set`.</span>
+<span class="sd">            ReadOnlyError: As :meth:`set`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="n">latest</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">told</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">t_s</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
+            <span class="n">own</span><span class="p">,</span> <span class="n">stored</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerced</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">own</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span><span class="p">:</span>
+                <span class="n">told</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">own</span><span class="p">,</span> <span class="n">stored</span><span class="p">,</span> <span class="n">t_s</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">own</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">!=</span> <span class="n">TEXTURE_OWNER</span><span class="p">:</span>
+                <span class="n">latest</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">=</span> <span class="n">stored</span>
+        <span class="k">if</span> <span class="n">latest</span> <span class="ow">or</span> <span class="n">told</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_apply</span><span class="p">(</span><span class="n">latest</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()),</span> <span class="n">client</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">told</span><span class="o">=</span><span class="n">told</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_coerced</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The address ``name`` is served as and ``value`` stored for its channel.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            WriteRefusedError: As :meth:`set`.</span>
+<span class="sd">            ReadOnlyError: As :meth:`set`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">variable</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">variable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Variable &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is not supported by the model.&quot;</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">variable</span><span class="o">.</span><span class="n">read_only</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ReadOnlyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Variable &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is read-only. Cannot be set.&quot;</span><span class="p">)</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">stored</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">coerce</span><span class="p">(</span>
+                <span class="n">value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="k">else</span> <span class="n">value</span><span class="p">,</span>
+                <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">),</span>
+                <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;options&quot;</span><span class="p">),</span>
+                <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">variable</span><span class="o">.</span><span class="n">validate_value</span><span class="p">(</span><span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">stored</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">),</span> <span class="n">stored</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">client</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write channels at one reading of the clock; returns that reading.</span>
+
+<span class="sd">        A client write is told to the texture at the reading, a restore with</span>
+<span class="sd">        no instant.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_refresh</span><span class="p">()</span>
+        <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">values_by_name</span><span class="p">:</span>
-            <span class="k">return</span>
+            <span class="k">return</span> <span class="n">t_s</span>
         <span class="n">coerced</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-            <span class="n">variable</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">variable</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span>
-                    <span class="sa">f</span><span class="s2">&quot;Variable &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is not supported by the model.&quot;</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span>
-                <span class="p">)</span>
-            <span class="k">if</span> <span class="n">variable</span><span class="o">.</span><span class="n">read_only</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">ReadOnlyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Variable &#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is read-only. Cannot be set.&quot;</span><span class="p">)</span>
-            <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
-            <span class="n">own</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="n">coerced</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">=</span> <span class="n">values</span><span class="o">.</span><span class="n">coerce</span><span class="p">(</span>
-                    <span class="n">value</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="k">else</span> <span class="n">value</span><span class="p">,</span>
-                    <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;value_type&quot;</span><span class="p">),</span>
-                    <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;options&quot;</span><span class="p">),</span>
-                    <span class="n">channel</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;shape&quot;</span><span class="p">),</span>
-                <span class="p">)</span>
-                <span class="n">variable</span><span class="o">.</span><span class="n">validate_value</span><span class="p">(</span><span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">coerced</span><span class="p">[</span><span class="n">own</span><span class="p">]))</span>
-            <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
-                <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span> <span class="n">address</span><span class="o">=</span><span class="n">name</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
-        <span class="n">t_s</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">())</span>
+            <span class="n">own</span><span class="p">,</span> <span class="n">coerced</span><span class="p">[</span><span class="n">own</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coerced</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_apply</span><span class="p">(</span><span class="n">coerced</span><span class="p">,</span> <span class="n">t_s</span><span class="p">,</span> <span class="n">client</span><span class="o">=</span><span class="n">client</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="n">t_s</span> <span class="k">if</span> <span class="n">client</span> <span class="k">else</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">t_s</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_apply</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">coerced</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">],</span>
+        <span class="n">t_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">client</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+        <span class="n">at</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">told</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Advance to ``t_s``, write the coerced values, then deliver and report.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_advance</span><span class="p">(</span><span class="n">t_s</span><span class="p">)</span>
-        <span class="n">forwarded</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_forward</span><span class="p">(</span><span class="n">coerced</span><span class="p">)</span>
+        <span class="n">forwarded</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_forward</span><span class="p">(</span><span class="n">coerced</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="n">at</span><span class="p">,</span> <span class="n">told</span><span class="o">=</span><span class="n">told</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_evolve</span><span class="p">:</span>
             <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">_deliver</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">t_s</span><span class="p">)</span>
@@ -1904,36 +1982,59 @@
     <span class="nd">@override</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_forward</span><span class="p">(</span>
-            <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+            <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_record_of</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
+            <span class="n">at</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_clock</span><span class="p">()),</span>
         <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_forward</span><span class="p">(</span>
-        <span class="bp">self</span><span class="p">,</span> <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">values_by_name</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">],</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">at</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">told</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">,</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]]:</span>
-<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write the children, then the texture; returns what reached each child&#39;s model.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Write the children, then tell the texture; returns what reached each child&#39;s model.</span>
+
+<span class="sd">        The texture holds its channels&#39; values and takes every write no</span>
+<span class="sd">        channel fault holds as an act, whichever model serves it: the write of</span>
+<span class="sd">        ``values_by_name`` made at ``at``, or, for a replay, the ``told``</span>
+<span class="sd">        entries in order at their instants.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">batches</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
             <span class="n">batches</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="p">{})[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
         <span class="n">restores</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Callable</span><span class="p">[[],</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">forwarded</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
-        <span class="n">texture</span> <span class="o">=</span> <span class="n">batches</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">TEXTURE_OWNER</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{}</span>
-        <span class="n">demands</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">texture</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span><span class="p">}</span>
-        <span class="n">writing</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">demands</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">name</span><span class="p">:</span> <span class="n">value</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="p">(</span><span class="n">batches</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">TEXTURE_OWNER</span><span class="p">)</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span>
+        <span class="p">}</span>
+        <span class="n">writing</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="k">for</span> <span class="n">model</span><span class="p">,</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
                 <span class="k">if</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">batches</span><span class="p">:</span>
                     <span class="n">writing</span> <span class="o">=</span> <span class="n">batches</span><span class="p">[</span><span class="n">model</span><span class="p">]</span>
                     <span class="n">restore</span><span class="p">,</span> <span class="n">forwarded</span><span class="p">[</span><span class="n">model</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_child</span><span class="p">(</span><span class="n">child</span><span class="p">,</span> <span class="n">writing</span><span class="p">)</span>
                     <span class="n">restores</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">restore</span><span class="p">)</span>
-            <span class="n">forward</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">texture</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">demands</span><span class="p">}</span>
-            <span class="k">if</span> <span class="n">forward</span><span class="p">:</span>
-                <span class="n">writing</span> <span class="o">=</span> <span class="n">forward</span>
-                <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">set</span><span class="p">(</span>
-                    <span class="p">{</span>
-                        <span class="n">name</span><span class="p">:</span> <span class="n">_for_variable</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">supported_variables</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">value</span><span class="p">)</span>
-                        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">forward</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-                    <span class="p">}</span>
+            <span class="k">if</span> <span class="n">told</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">writing</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">value</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">_t_s</span> <span class="ow">in</span> <span class="n">told</span><span class="p">}</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">replay</span><span class="p">(</span>
+                    <span class="p">[(</span><span class="n">name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_for_texture</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span> <span class="n">t_s</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">t_s</span> <span class="ow">in</span> <span class="n">told</span><span class="p">]</span>
                 <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">acts</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="n">name</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_for_texture</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values_by_name</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_held_writes</span>
+                <span class="p">}</span>
+                <span class="k">if</span> <span class="n">acts</span><span class="p">:</span>
+                    <span class="n">writing</span> <span class="o">=</span> <span class="p">{</span>
+                        <span class="n">name</span><span class="p">:</span> <span class="n">value</span>
+                        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">acts</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_owner</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">==</span> <span class="n">TEXTURE_OWNER</span>
+                    <span class="p">}</span> <span class="ow">or</span> <span class="n">acts</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">acts</span><span class="p">,</span> <span class="n">at</span><span class="o">=</span><span class="n">at</span><span class="p">)</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
             <span class="k">for</span> <span class="n">restore</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">restores</span><span class="p">):</span>
                 <span class="n">restore</span><span class="p">()</span>
@@ -1943,6 +2044,11 @@
             <span class="k">raise</span> <span class="n">WriteRefusedError</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="n">address</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_texture_demands</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">demands</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">forwarded</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_for_texture</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;``value`` as the texture takes it: a texture channel&#39;s in its variable&#39;s form.&quot;&quot;&quot;</span>
+        <span class="n">variable</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_texture</span><span class="o">.</span><span class="n">supported_variables</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span> <span class="k">if</span> <span class="n">variable</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">_for_variable</span><span class="p">(</span><span class="n">variable</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_set_child</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span> <span class="n">child</span><span class="p">:</span> <span class="n">_Child</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">values</span><span class="o">.</span><span class="n">StoredValue</span><span class="p">]</span>

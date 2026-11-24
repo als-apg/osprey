@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -639,7 +639,14 @@ in <code class="docutils literal notranslate"><span class="pre">classes.yaml</sp
 its <code class="docutils literal notranslate"><span class="pre">model</span></code>. A device a model wires takes its position from the deck.</p>
 <p><strong>Channels</strong> are the control-system addresses. A channel’s id is its full
 address, written exactly as the control system serves it; no part of the
-address means anything to OSPREY. What a channel is comes from its fields:</p>
+address means anything to OSPREY. A setpoint may be a command: a channel
+written to start something, such as a reset, rather than to hold a value. The
+build marks it <code class="docutils literal notranslate"><span class="pre">command:</span> <span class="pre">true</span></code> when its <code class="docutils literal notranslate"><span class="pre">signal</span></code> is a command word or a
+model’s engine marks it (<a class="reference internal" href="../reference/contracts/facility-kinds.html"><span class="doc">Facility Kinds Contract</span></a>). Its
+readback is its status, the channel that reports when what the command started,
+its act, is over; the fields <code class="docutils literal notranslate"><span class="pre">idle</span></code> and <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> say what the status reads
+while nothing runs and how long an act may take, so a write of the command can
+wait until the act is over. What a channel is comes from its fields:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -668,15 +675,29 @@ command and the status it reads back on, or a pair whose quantity no
 signal states, may differ. Several setpoints may name one readback (a
 set and a reset command read back on one channel). The simulation
 drives a readback from its setpoint only where exactly one setpoint
-names it and the two agree in type; any other readback it drives from
-no setpoint. The readback’s seed <code class="docutils literal notranslate"><span class="pre">follows</span></code> changes that for one pair
+names it, the two agree in type and the readback states no <code class="docutils literal notranslate"><span class="pre">idle</span></code>;
+any other readback it drives from no setpoint. The readback’s seed <code class="docutils literal notranslate"><span class="pre">follows</span></code> changes that for one pair
 (see Seeds).</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tolerance</span></code></p></td>
 <td><p>On a float setpoint, how close its readback must come before a move
 counts as done: <code class="docutils literal notranslate"><span class="pre">{absolute:</span> <span class="pre">&lt;x&gt;}</span></code> in the channel’s unit or
 <code class="docutils literal notranslate"><span class="pre">{relative:</span> <span class="pre">&lt;fraction&gt;}</span></code> of its seed’s <code class="docutils literal notranslate"><span class="pre">nominal</span></code>. The setpoint and
-its readback must both state a <code class="docutils literal notranslate"><span class="pre">unit</span></code>.</p></td>
+its readback must both state a <code class="docutils literal notranslate"><span class="pre">unit</span></code>. An address under a wiring
+record’s <code class="docutils literal notranslate"><span class="pre">also</span></code> settles within the tolerance of the record’s
+<code class="docutils literal notranslate"><span class="pre">address</span></code> and states none of its own.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">idle</span></code></p></td>
+<td><p>On a readback a command pairs with, its status: what it reads while no
+act runs, typed by the channel: a label on a bool or enum channel, an
+integer on an int, a number on a float, text on a string; a waveform
+channel is never a status. Several commands may share one status. A status that states <code class="docutils literal notranslate"><span class="pre">idle</span></code>
+is never followed: <code class="docutils literal notranslate"><span class="pre">follows</span></code> naming a setpoint on it stops the build
+with <code class="docutils literal notranslate"><span class="pre">command-invalid</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_s</span></code></p></td>
+<td><p>On a command whose status states <code class="docutils literal notranslate"><span class="pre">idle</span></code>: the longest one act may
+take, in seconds. A command and its status state the two together.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">on</span></code></p></td>
 <td><p>The one device or place the channel belongs to, <code class="docutils literal notranslate"><span class="pre">{device:</span> <span class="pre">&lt;id&gt;}</span></code> or
@@ -1272,9 +1293,19 @@ demo preset ships this one:</p>
 </pre></div>
 </div>
 </div>
-<p>A setpoint record with both <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is writable within
-them; <code class="docutils literal notranslate"><span class="pre">max_step</span></code> bounds a single change; <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code> blocks every
-write; <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">false</span></code> turns off the re-read after a write.</p>
+<p>A float or int setpoint record with both <code class="docutils literal notranslate"><span class="pre">min_value</span></code> and <code class="docutils literal notranslate"><span class="pre">max_value</span></code> is
+writable within them; <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">true</span></code> on one without both bounds stops the
+build. A bool, enum, string or waveform setpoint carries no bounds and is
+writable when its record says <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">true</span></code>. For such a channel the limits
+check decides only whether it may be written; which values it takes is decided
+by the control system. <code class="docutils literal notranslate"><span class="pre">max_step</span></code> bounds a single change; <code class="docutils literal notranslate"><span class="pre">writable:</span> <span class="pre">false</span></code>
+blocks every write; <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">false</span></code> turns off the re-read after a write. A
+record that does not state <code class="docutils literal notranslate"><span class="pre">confirm</span></code> is written <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">false</span></code> on a command that states <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code>, whose status confirms
+the write. On such a command, stating <code class="docutils literal notranslate"><span class="pre">confirm:</span> <span class="pre">true</span></code> stops the build:
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors.command.fire</span></code> writes such a command with
+the re-read off and confirms it by waiting for its status
+(<a class="reference internal" href="../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders the records into <code class="docutils literal notranslate"><span class="pre">build/data/channel_limits.json</span></code>,
 the file the connector’s reference monitor and the runtime’s limits check
 enforce on every write. That file is an output: a profile that ships its own stops the build. The file
@@ -1364,7 +1395,8 @@ a <code class="docutils literal notranslate"><span class="pre">nominal</span></c
 <code class="docutils literal notranslate"><span class="pre">topoff</span></code> seed. Live reads and the archive show the same sawtooth.</p>
 <p><code class="docutils literal notranslate"><span class="pre">follows</span></code> says whether the simulation copies a setpoint’s writes into this
 readback. By default it does when exactly one setpoint names the readback as
-its <code class="docutils literal notranslate"><span class="pre">pair</span></code> and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>.
+its <code class="docutils literal notranslate"><span class="pre">pair</span></code> and the two agree in <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code>,
+and the readback states no <code class="docutils literal notranslate"><span class="pre">idle</span></code>.
 <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">&lt;setpoint&gt;</span></code> makes the copy where the default does not, and
 <code class="docutils literal notranslate"><span class="pre">follows:</span> <span class="pre">none</span></code> stops it where the default makes it. A followed readback
 starts at its setpoint’s value and takes each write at once, with its own noise
@@ -1531,8 +1563,10 @@ further address is a channel of its own:</p>
 <code class="docutils literal notranslate"><span class="pre">role</span></code>, <code class="docutils literal notranslate"><span class="pre">value_type</span></code>, <code class="docutils literal notranslate"><span class="pre">options</span></code> and <code class="docutils literal notranslate"><span class="pre">shape</span></code> of the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code>,
 and the same <code class="docutils literal notranslate"><span class="pre">unit</span></code> when both state one. It reads what <code class="docutils literal notranslate"><span class="pre">address</span></code> reads at
 the same instant, with the same calibration, motion and readout noise, and a
-write to it is a write to <code class="docutils literal notranslate"><span class="pre">address</span></code>. It carries no seed of its own, and a
-limit is still stated per address. A pair is stated between
+write to it is a write to <code class="docutils literal notranslate"><span class="pre">address</span></code>. It reads back the <code class="docutils literal notranslate"><span class="pre">pair</span></code> of
+<code class="docutils literal notranslate"><span class="pre">address</span></code> and settles within its <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, and on a command it has the
+time bound and the status of <code class="docutils literal notranslate"><span class="pre">address</span></code>; <code class="docutils literal notranslate"><span class="pre">tolerance</span></code>, <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> and <code class="docutils literal notranslate"><span class="pre">idle</span></code> are stated on <code class="docutils literal notranslate"><span class="pre">address</span></code> only. It
+carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records’ <code class="docutils literal notranslate"><span class="pre">address</span></code> names: the build stops when an address under <code class="docutils literal notranslate"><span class="pre">also</span></code>
 states a <code class="docutils literal notranslate"><span class="pre">pair</span></code>, and when a setpoint’s <code class="docutils literal notranslate"><span class="pre">pair</span></code> names an address under
 <code class="docutils literal notranslate"><span class="pre">also</span></code>. A fault variable is named by <code class="docutils literal notranslate"><span class="pre">address</span></code>

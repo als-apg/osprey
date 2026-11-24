@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -492,8 +492,9 @@
 <span id="connectors-api-write-safety"></span><h1>Write Safety<a class="headerlink" href="#write-safety" title="Link to this heading">#</a></h1>
 <p>The records and verdicts a write passes before anything is put: the read-only
 run, the write switch, a program’s bounded write authorization, held sessions,
-the refusal words, which machine a write lands on, and waiting for a readback
-to settle. <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> describes how they fit together.</p>
+the refusal words, which machine a write lands on, waiting for a readback
+to settle, and firing a command: writing it once and waiting for its status to
+report that what it started is over. <a class="reference internal" href="../../architecture/safety-chain.html"><span class="doc">Safety Chain</span></a> describes how they fit together.</p>
 <p id="module-osprey_connectors.posture_env">The read-only run, as the environment carries it.</p>
 <p>A deployment started read-only, and the python executor’s sandbox subprocess
 for a run submitted with <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readonly&quot;</span></code>, both set
@@ -4178,6 +4179,220 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 </dl>
 </dd></dl>
 
+<p id="module-osprey_connectors.command">Fire a command channel and wait for its status channel to say the act is over.</p>
+<p>A command is written once; the act it starts is reported by a status channel
+that reads a stated <code class="docutils literal notranslate"><span class="pre">idle</span></code> value when nothing runs. <a class="reference internal" href="#osprey_connectors.command.fire" title="osprey_connectors.command.fire"><code class="xref py py-func docutils literal notranslate"><span class="pre">fire()</span></code></a> subscribes
+to the status, refuses when it is not idle, writes the command, and returns
+once the status has left idle and come back, within the act’s bound. The wait
+is the write’s confirmation, a stronger one than a re-read, so the one write
+<a class="reference internal" href="#osprey_connectors.command.fire" title="osprey_connectors.command.fire"><code class="xref py py-func docutils literal notranslate"><span class="pre">fire()</span></code></a> makes passes <code class="docutils literal notranslate"><span class="pre">confirm=False</span></code>; every other write of the command
+is confirmed as its configuration says.</p>
+<p>Every failure is closed and typed: <a class="reference internal" href="#osprey_connectors.command.CommandBusyError" title="osprey_connectors.command.CommandBusyError"><code class="xref py py-class docutils literal notranslate"><span class="pre">CommandBusyError</span></code></a> (nothing was
+written), <a class="reference internal" href="#osprey_connectors.command.CommandNoEffectError" title="osprey_connectors.command.CommandNoEffectError"><code class="xref py py-class docutils literal notranslate"><span class="pre">CommandNoEffectError</span></code></a> and <a class="reference internal" href="#osprey_connectors.command.CommandTimeoutError" title="osprey_connectors.command.CommandTimeoutError"><code class="xref py py-class docutils literal notranslate"><span class="pre">CommandTimeoutError</span></code></a> (the
+command was written, the status did not move or did not come back), and
+<a class="reference internal" href="#osprey_connectors.command.CommandStatusError" title="osprey_connectors.command.CommandStatusError"><code class="xref py py-class docutils literal notranslate"><span class="pre">CommandStatusError</span></code></a> (the status cannot be watched). The status is
+compared with <a class="reference internal" href="contracts.html#osprey_connectors.control_system.values_match" title="osprey_connectors.control_system.values_match"><code class="xref py py-func docutils literal notranslate"><span class="pre">values_match()</span></code></a>, the rule
+a write’s confirmation uses.</p>
+<p>This module imports only the std-lib, <code class="docutils literal notranslate"><span class="pre">osprey_connectors.errors</span></code>, the
+package’s contract alias and the control-system contract, and takes any
+connector with awaitable <code class="docutils literal notranslate"><span class="pre">subscribe(address,</span> <span class="pre">callback,</span> <span class="pre">*,</span> <span class="pre">on_connection)</span></code>,
+<code class="docutils literal notranslate"><span class="pre">unsubscribe(id)</span></code>, <code class="docutils literal notranslate"><span class="pre">read_channel(address)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">write_channel_checked(address,</span> <span class="pre">value,</span> <span class="pre">confirm=...)</span></code>.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">CommandAct</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">idle</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandAct"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandAct" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>One command channel, the status channel that reports its act, the idle value and the bound.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>command</strong> (<em>str</em>) – The address the value is written to.</p></li>
+<li><p><strong>status</strong> (<em>str</em>) – The address of the channel that reports the act.</p></li>
+<li><p><strong>idle</strong> (<em>str</em><em> | </em><em>int</em><em> | </em><em>float</em><em> | </em><em>bool</em>) – What <code class="docutils literal notranslate"><span class="pre">status</span></code> reads when nothing runs: a label, a number or a bool.</p></li>
+<li><p><strong>timeout_s</strong> (<em>float</em>) – The longest one act may take, in seconds.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.command">
+<span class="sig-name descname"><span class="pre">command</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.command.CommandAct.command" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.status">
+<span class="sig-name descname"><span class="pre">status</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#osprey_connectors.command.CommandAct.status" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.idle">
+<span class="sig-name descname"><span class="pre">idle</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">float</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">bool</span></span><a class="headerlink" href="#osprey_connectors.command.CommandAct.idle" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.timeout_s">
+<span class="sig-name descname"><span class="pre">timeout_s</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></span><a class="headerlink" href="#osprey_connectors.command.CommandAct.timeout_s" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.__post_init__">
+<span class="sig-name descname"><span class="pre">__post_init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandAct.__post_init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandAct.__post_init__" title="Link to this definition">#</a></dt>
+<dd><p>Refuse an empty address and a bound that is not a positive finite number.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>ValueError</strong> – <code class="docutils literal notranslate"><span class="pre">command</span></code> or <code class="docutils literal notranslate"><span class="pre">status</span></code> is empty, or <code class="docutils literal notranslate"><span class="pre">timeout_s</span></code> is
+    not finite and greater than zero.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandAct.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">command</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">idle</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_s</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.command.CommandAct.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandBusyError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">CommandBusyError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reading</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandBusyError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandBusyError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="errors-logging.html#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a></p>
+<p>The status was not idle before the write; nothing was written.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>act</strong> – The act that was refused.</p></li>
+<li><p><strong>reading</strong> – The status value that was not idle.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandBusyError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reading</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandBusyError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandBusyError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandNoEffectError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">CommandNoEffectError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandNoEffectError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandNoEffectError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">TimeoutError</span></code></p>
+<p>The command was written and its status did not leave idle in the start window.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>act</strong> – The act whose status did not move.</p></li>
+<li><p><strong>last</strong> – The last status value seen.</p></li>
+<li><p><strong>start_s</strong> – The seconds the status had to leave idle.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandNoEffectError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandNoEffectError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandNoEffectError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandStatusError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">CommandStatusError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cause</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandStatusError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandStatusError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference internal" href="errors-logging.html#osprey_connectors.errors.ChannelReadFailedError" title="osprey_connectors.errors.ChannelReadFailedError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelReadFailedError</span></code></a></p>
+<p>The status channel cannot be watched or its value cannot be compared with idle.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>act</strong> – The act whose status failed.</p></li>
+<li><p><strong>addresses</strong> – The status, the one failed channel.</p></li>
+<li><p><strong>causes</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>BaseException</em><em>]</em>) – The status to the exception that failed it; empty when nothing raised.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandStatusError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cause</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">reason</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandStatusError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandStatusError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py exception">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandTimeoutError">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">CommandTimeoutError</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandTimeoutError"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandTimeoutError" title="Link to this definition">#</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">TimeoutError</span></code></p>
+<p>The command was written, the act started, and its status did not return to idle in time.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Variables<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>act</strong> – The act that did not finish.</p></li>
+<li><p><strong>last</strong> – The last status value seen.</p></li>
+<li><p><strong>timeout_s</strong> – The act’s bound, in seconds.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.command.CommandTimeoutError.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#CommandTimeoutError.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.CommandTimeoutError.__init__" title="Link to this definition">#</a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="osprey_connectors.command.fire">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.command.</span></span><span class="sig-name descname"><span class="pre">fire</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">connector</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">act</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/command.html#fire"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.command.fire" title="Link to this definition">#</a></dt>
+<dd><p>Write <code class="docutils literal notranslate"><span class="pre">value</span></code> to the act’s command and wait for its status to leave and return to idle.</p>
+<p>The status is subscribed and read once before anything is written; a status
+that is not idle refuses the act. The command is written once, unconfirmed,
+because the wait confirms it. The act ends on a status update that is not
+idle followed by one that is, each delivered after the write began, updates
+delivered while the write is awaited among them. The time runs on the event
+loop’s clock from the write. Every exit after the subscription unsubscribes,
+and nothing is ever written a second time.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>connector</strong> (<em>Any</em>) – The connector the status is watched and the command written through.</p></li>
+<li><p><strong>act</strong> (<a class="reference internal" href="#osprey_connectors.command.CommandAct" title="osprey_connectors.command.CommandAct"><em>CommandAct</em></a>) – The command, its status, its idle value and its bound.</p></li>
+<li><p><strong>value</strong> (<em>object</em>) – The value written to the command.</p></li>
+<li><p><strong>start_s</strong> (<em>float</em><em> | </em><em>None</em>) – Seconds the status may take to leave idle; <code class="docutils literal notranslate"><span class="pre">None</span></code>, or more
+than <code class="docutils literal notranslate"><span class="pre">act.timeout_s</span></code>, is <code class="docutils literal notranslate"><span class="pre">act.timeout_s</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The write’s result, whose outcome is <code class="docutils literal notranslate"><span class="pre">unrequested</span></code>.</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#osprey_connectors.command.CommandBusyError" title="osprey_connectors.command.CommandBusyError"><strong>CommandBusyError</strong></a> – The status was not idle before the write; nothing
+    was written.</p></li>
+<li><p><a class="reference internal" href="#osprey_connectors.command.CommandNoEffectError" title="osprey_connectors.command.CommandNoEffectError"><strong>CommandNoEffectError</strong></a> – The command was written and the status did not
+    leave idle within <code class="docutils literal notranslate"><span class="pre">start_s</span></code>.</p></li>
+<li><p><a class="reference internal" href="#osprey_connectors.command.CommandTimeoutError" title="osprey_connectors.command.CommandTimeoutError"><strong>CommandTimeoutError</strong></a> – The status left idle and did not return within
+    <code class="docutils literal notranslate"><span class="pre">act.timeout_s</span></code> of the write.</p></li>
+<li><p><a class="reference internal" href="#osprey_connectors.command.CommandStatusError" title="osprey_connectors.command.CommandStatusError"><strong>CommandStatusError</strong></a> – The connector cannot subscribe, the subscribe or
+    the read failed with a
+    <a class="reference internal" href="errors-logging.html#osprey_connectors.errors.ChannelError" title="osprey_connectors.errors.ChannelError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelError</span></code></a>, a reading had no
+    value, a label <code class="docutils literal notranslate"><span class="pre">idle</span></code> met a reading with no label, or the status
+    connection dropped. The first three are raised before anything
+    is written.</p></li>
+<li><p><strong>ValueError</strong> – <code class="docutils literal notranslate"><span class="pre">start_s</span></code> is not a positive finite number.</p></li>
+<li><p><strong>Exception</strong> – Whatever <code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> raises, unchanged.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="contracts.html#osprey_connectors.control_system.ChannelWriteResult" title="osprey_connectors.control_system._base.ChannelWriteResult"><em>ChannelWriteResult</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
 
@@ -4512,6 +4727,32 @@ is declared and the caller gives no floor, so there is nothing to wait for.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.declared_tolerance"><code class="docutils literal notranslate"><span class="pre">declared_tolerance()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.settle"><code class="docutils literal notranslate"><span class="pre">settle()</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.settle.settle_bound"><code class="docutils literal notranslate"><span class="pre">settle_bound()</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct"><code class="docutils literal notranslate"><span class="pre">CommandAct</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.command"><code class="docutils literal notranslate"><span class="pre">CommandAct.command</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.status"><code class="docutils literal notranslate"><span class="pre">CommandAct.status</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.idle"><code class="docutils literal notranslate"><span class="pre">CommandAct.idle</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.timeout_s"><code class="docutils literal notranslate"><span class="pre">CommandAct.timeout_s</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.__post_init__"><code class="docutils literal notranslate"><span class="pre">CommandAct.__post_init__()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandAct.__init__"><code class="docutils literal notranslate"><span class="pre">CommandAct.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandBusyError"><code class="docutils literal notranslate"><span class="pre">CommandBusyError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandBusyError.__init__"><code class="docutils literal notranslate"><span class="pre">CommandBusyError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandNoEffectError"><code class="docutils literal notranslate"><span class="pre">CommandNoEffectError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandNoEffectError.__init__"><code class="docutils literal notranslate"><span class="pre">CommandNoEffectError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandStatusError"><code class="docutils literal notranslate"><span class="pre">CommandStatusError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandStatusError.__init__"><code class="docutils literal notranslate"><span class="pre">CommandStatusError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandTimeoutError"><code class="docutils literal notranslate"><span class="pre">CommandTimeoutError</span></code></a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.CommandTimeoutError.__init__"><code class="docutils literal notranslate"><span class="pre">CommandTimeoutError.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.command.fire"><code class="docutils literal notranslate"><span class="pre">fire()</span></code></a></li>
 </ul>
   </nav></div>
 

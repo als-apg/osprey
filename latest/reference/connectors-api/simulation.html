@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -951,6 +951,13 @@ Each is a channel of the view whose <code class="docutils literal notranslate"><
 served as the record’s <code class="docutils literal notranslate"><span class="pre">address</span></code> is: <a class="reference internal" href="#osprey_connectors.simulation.view.SimulatorView.record_address" title="osprey_connectors.simulation.view.SimulatorView.record_address"><code class="xref py py-meth docutils literal notranslate"><span class="pre">SimulatorView.record_address()</span></code></a>
 gives the address a channel is served as, and <a class="reference internal" href="#osprey_connectors.simulation.view.Binding.addresses" title="osprey_connectors.simulation.view.Binding.addresses"><code class="xref py py-attr docutils literal notranslate"><span class="pre">Binding.addresses</span></code></a> every
 address of a record.</p>
+<p>A setpoint the texture serves whose channel states <code class="docutils literal notranslate"><span class="pre">started_by</span></code> moves its
+readback when the setpoint named there, its command, is written; a seed’s
+<code class="docutils literal notranslate"><span class="pre">responds</span></code> names the command whose write the channel answers. The reader
+refuses either key when the command is not a setpoint of the view or is a
+further address, <code class="docutils literal notranslate"><span class="pre">started_by</span></code> on a setpoint a physics model serves, a
+<code class="docutils literal notranslate"><span class="pre">responds</span></code> that lacks <code class="docutils literal notranslate"><span class="pre">to</span></code>, <code class="docutils literal notranslate"><span class="pre">for_s</span></code> or <code class="docutils literal notranslate"><span class="pre">value</span></code> or times nothing, and a
+<code class="docutils literal notranslate"><span class="pre">responds</span></code> on a readback a setpoint’s write moves.</p>
 <p>The module imports only the standard library and <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code>, so a
 reader that must not load a model can open a view.</p>
 <dl class="py data">
@@ -3307,6 +3314,16 @@ motion; a bool or enum holds the label <code class="docutils literal notranslate
 input the model does not hold never blocks. The gate is part of the held
 value, so a read, <a class="reference internal" href="#osprey_connectors.simulation.texture.TextureModel.held" title="osprey_connectors.simulation.texture.TextureModel.held"><code class="xref py py-meth docutils literal notranslate"><span class="pre">TextureModel.held()</span></code></a> and every reader built on it –
 the archive seed, a subscription comparing held values – see it alike.</p>
+<p>A channel whose seed states <code class="docutils literal notranslate"><span class="pre">responds:</span> <span class="pre">{to,</span> <span class="pre">for_s,</span> <span class="pre">value}</span></code> holds <code class="docutils literal notranslate"><span class="pre">value</span></code>
+for <code class="docutils literal notranslate"><span class="pre">for_s</span></code> seconds after each live write to the command <code class="docutils literal notranslate"><span class="pre">to</span></code>, whichever
+model serves it, and its value by the rules above otherwise; a second write while the response runs
+starts its time again. A gate still wins: a gated channel holds its gated
+value while a response runs. Only a write fires a response: the start state,
+the active scenarios’ writes and a reset fire none, and a reset ends a running
+one. The response is part of the held value, as the gate is.</p>
+<p>A setpoint whose channel states <code class="docutils literal notranslate"><span class="pre">started_by:</span> <span class="pre">&lt;command&gt;</span></code> holds a written value
+without echoing it: its readback takes the setpoint’s held value when the
+command is written. A batch writing both holds the setpoint first.</p>
 <dl class="py data">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.texture.TEXTURE_OWNER">
 <span class="sig-prename descclassname"><span class="pre">osprey_connectors.simulation.texture.</span></span><span class="sig-name descname"><span class="pre">TEXTURE_OWNER</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">'texture'</span></span><a class="headerlink" href="#osprey_connectors.simulation.texture.TEXTURE_OWNER" title="Link to this definition">#</a></dt>
@@ -3345,6 +3362,7 @@ the archive seed, a subscription comparing held values – see it alike.</p>
 <dt class="sig sig-object py" id="osprey_connectors.simulation.texture.TextureModel.reset">
 <span class="sig-name descname"><span class="pre">reset</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/texture.html#TextureModel.reset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.texture.TextureModel.reset" title="Link to this definition">#</a></dt>
 <dd><p>Return every texture-owned channel to its nominal, then apply the active writes.</p>
+<p>Every running response ends.</p>
 <dl class="field-list simple">
 </dl>
 </dd></dl>
@@ -3371,8 +3389,10 @@ setpoint’s write echoes into its readback as a set does.</p>
 <span class="sig-name descname"><span class="pre">held</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">names</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/texture.html#TextureModel.held"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.texture.TextureModel.held" title="Link to this definition">#</a></dt>
 <dd><p>Each channel’s held value, without motion or clamp.</p>
 <p>A <code class="docutils literal notranslate"><span class="pre">linear</span></code> channel holds the weighted sum of its inputs’ held values;
-an input the model does not hold counts as zero. A <code class="docutils literal notranslate"><span class="pre">gate</span></code> channel
-holds its gated value while any input holds its blocking label.</p>
+an input the model does not hold counts as zero. A <code class="docutils literal notranslate"><span class="pre">responds</span></code>
+channel holds its response’s value while the response runs, and a
+<code class="docutils literal notranslate"><span class="pre">gate</span></code> channel its gated value while any input holds its blocking
+label.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>names</strong> (<em>Sequence</em><em>[</em><em>str</em><em>]</em>) – Texture-owned addresses.</p>
@@ -3392,7 +3412,9 @@ holds its gated value while any input holds its blocking label.</p>
 <dd><p>What a write to each settable channel can change, by address.</p>
 <p>The channel itself, the readback it echoes into, and every channel
 downstream of either: a <code class="docutils literal notranslate"><span class="pre">linear</span></code> channel summing it, a <code class="docutils literal notranslate"><span class="pre">gate</span></code>
-channel it blocks, a <code class="docutils literal notranslate"><span class="pre">pulse</span></code> waveform it drives or enables.</p>
+channel it blocks, a <code class="docutils literal notranslate"><span class="pre">pulse</span></code> waveform it drives or enables. A command
+also reaches the channels responding to it and the readbacks of the
+setpoints it starts; a started setpoint does not reach its readback.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>dict[str, frozenset[str]]</p>
@@ -3471,6 +3493,49 @@ non-zero noise term under the held motion.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
 <dd class="field-odd"><p>float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.texture.TextureModel.write">
+<span class="sig-name descname"><span class="pre">write</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values_by_name</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">at</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/texture.html#TextureModel.write"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.texture.TextureModel.write" title="Link to this definition">#</a></dt>
+<dd><p>Hold one write, made at <code class="docutils literal notranslate"><span class="pre">at</span></code>.</p>
+<p>The values of texture-owned channels are held; a name another model
+serves is the write’s act alone, its value not held here. A started
+setpoint is held without its echo. Each command written, whichever
+model serves it, moves the readback of every setpoint it starts to the
+setpoint’s held value, this write’s targets included, and fires its
+responses at <code class="docutils literal notranslate"><span class="pre">at</span></code>; with <code class="docutils literal notranslate"><span class="pre">at</span></code> <code class="docutils literal notranslate"><span class="pre">None</span></code> it fires none. Nothing is
+held when one value is refused.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>values_by_name</strong> (<em>Mapping</em><em>[</em><em>str</em><em>, </em><em>object</em><em>]</em>) – The write’s values by address.</p></li>
+<li><p><strong>at</strong> (<em>float</em><em> | </em><em>None</em>) – The instant of the write in epoch seconds, or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a
+write that fires no response.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – A value is refused for its channel.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.texture.TextureModel.replay">
+<span class="sig-name descname"><span class="pre">replay</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/texture.html#TextureModel.replay"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.texture.TextureModel.replay" title="Link to this definition">#</a></dt>
+<dd><p>Hold journalled writes in order, each made at the time it was written.</p>
+<p>Each <code class="docutils literal notranslate"><span class="pre">(address,</span> <span class="pre">value,</span> <span class="pre">t_s)</span></code> is taken as <a class="reference internal" href="#osprey_connectors.simulation.texture.TextureModel.write" title="osprey_connectors.simulation.texture.TextureModel.write"><code class="xref py py-meth docutils literal notranslate"><span class="pre">write()</span></code></a> takes a write
+made at <code class="docutils literal notranslate"><span class="pre">t_s</span></code>; an entry without a time holds its value and fires
+nothing. Nothing is held when one entry is refused.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>entries</strong> (<em>Sequence</em><em>[</em><em>tuple</em><em>[</em><em>str</em><em>, </em><em>object</em><em>, </em><em>float</em><em> | </em><em>None</em><em>]</em><em>]</em>) – Writes in the order they were written; an address
+another model serves is the entry’s act alone.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>ValueError</strong> – A value is refused for its channel.</p>
 </dd>
 </dl>
 </dd></dl>
@@ -3931,11 +3996,57 @@ address; of two values for one record the later stands.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.write">
+<span class="sig-name descname"><span class="pre">write</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values_by_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.write"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.write" title="Link to this definition">#</a></dt>
+<dd><p>Write channels as <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a> does; returns the instant of the write.</p>
+<p>The instant is read once from the composite’s clock. The texture is
+told of the write at it, whichever model serves each channel: every
+response a command fires runs from it, and a journal of the write
+records it. A write a channel fault holds fires nothing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The instant of the write, in epoch seconds.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference internal" href="#osprey_connectors.simulation.composite.WriteRefusedError" title="osprey_connectors.simulation.composite.WriteRefusedError"><strong>WriteRefusedError</strong></a> – As <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a>.</p></li>
+<li><p><strong>ReadOnlyError</strong> – As <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a>.</p></li>
+</ul>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>float</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.restore">
 <span class="sig-name descname"><span class="pre">restore</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">values_by_name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.restore"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.restore" title="Link to this definition">#</a></dt>
 <dd><p>Put channels back as <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a> writes them, without a client write.</p>
-<p>For a rollback or a replay: the children’s models take the values, and
-no engine is told a client wrote them.</p>
+<p>For a rollback: the children’s models take the values, no engine is
+told a client wrote them, and no response fires. A journal is put back
+by <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.replay" title="osprey_connectors.simulation.composite.Composite.replay"><code class="xref py py-meth docutils literal notranslate"><span class="pre">replay()</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><a class="reference internal" href="#osprey_connectors.simulation.composite.WriteRefusedError" title="osprey_connectors.simulation.composite.WriteRefusedError"><strong>WriteRefusedError</strong></a> – As <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a>.</p></li>
+<li><p><strong>ReadOnlyError</strong> – As <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.set" title="osprey_connectors.simulation.composite.Composite.set"><code class="xref py py-meth docutils literal notranslate"><span class="pre">set()</span></code></a>.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="osprey_connectors.simulation.composite.Composite.replay">
+<span class="sig-name descname"><span class="pre">replay</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">entries</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/simulation/composite.html#Composite.replay"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.simulation.composite.Composite.replay" title="Link to this definition">#</a></dt>
+<dd><p>Put journalled writes back, without a client write.</p>
+<p>Each entry is <code class="docutils literal notranslate"><span class="pre">(address,</span> <span class="pre">value,</span> <span class="pre">t_s)</span></code>, in the order it was written,
+with the instant it was written at or <code class="docutils literal notranslate"><span class="pre">None</span></code>. A physics child takes
+each of its channels’ last value, as <a class="reference internal" href="#osprey_connectors.simulation.composite.Composite.restore" title="osprey_connectors.simulation.composite.Composite.restore"><code class="xref py py-meth docutils literal notranslate"><span class="pre">restore()</span></code></a> puts it; the
+texture is told of every entry in order, whichever model serves it,
+and fires each command’s responses at the entry’s instant
+(<code class="xref py py-meth docutils literal notranslate"><span class="pre">TextureModel.replay()</span></code>). An entry a channel fault holds is put
+back as a held write and fires nothing.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -4567,6 +4678,8 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.TextureModel.motion"><code class="docutils literal notranslate"><span class="pre">TextureModel.motion()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.TextureModel.has_motion"><code class="docutils literal notranslate"><span class="pre">TextureModel.has_motion()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.TextureModel.clamp"><code class="docutils literal notranslate"><span class="pre">TextureModel.clamp()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.TextureModel.write"><code class="docutils literal notranslate"><span class="pre">TextureModel.write()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.TextureModel.replay"><code class="docutils literal notranslate"><span class="pre">TextureModel.replay()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.texture.channel_value_type"><code class="docutils literal notranslate"><span class="pre">channel_value_type()</span></code></a></li>
@@ -4591,7 +4704,9 @@ with <code class="docutils literal notranslate"><span class="pre">low</span> <sp
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.output_severity"><code class="docutils literal notranslate"><span class="pre">Composite.output_severity()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.status"><code class="docutils literal notranslate"><span class="pre">Composite.status()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.set"><code class="docutils literal notranslate"><span class="pre">Composite.set()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.write"><code class="docutils literal notranslate"><span class="pre">Composite.write()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.restore"><code class="docutils literal notranslate"><span class="pre">Composite.restore()</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.replay"><code class="docutils literal notranslate"><span class="pre">Composite.replay()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.reset"><code class="docutils literal notranslate"><span class="pre">Composite.reset()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.model_variables"><code class="docutils literal notranslate"><span class="pre">Composite.model_variables()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.simulation.composite.Composite.model_get"><code class="docutils literal notranslate"><span class="pre">Composite.model_get()</span></code></a></li>

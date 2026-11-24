@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 23, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
   </head>
   
   
@@ -452,6 +452,14 @@
 <span class="sd">served as the record&#39;s ``address`` is: :meth:`SimulatorView.record_address`</span>
 <span class="sd">gives the address a channel is served as, and :attr:`Binding.addresses` every</span>
 <span class="sd">address of a record.</span>
+
+<span class="sd">A setpoint the texture serves whose channel states ``started_by`` moves its</span>
+<span class="sd">readback when the setpoint named there, its command, is written; a seed&#39;s</span>
+<span class="sd">``responds`` names the command whose write the channel answers. The reader</span>
+<span class="sd">refuses either key when the command is not a setpoint of the view or is a</span>
+<span class="sd">further address, ``started_by`` on a setpoint a physics model serves, a</span>
+<span class="sd">``responds`` that lacks ``to``, ``for_s`` or ``value`` or times nothing, and a</span>
+<span class="sd">``responds`` on a readback a setpoint&#39;s write moves.</span>
 
 <span class="sd">The module imports only the standard library and ``osprey_connectors``, so a</span>
 <span class="sd">reader that must not load a model can open a view.</span>
@@ -958,9 +966,95 @@
 <span class="sd">                ``SCHEMAS[name]`` nor an older one this OSPREY still reads.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">:</span>
-            <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+            <span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="n">VARIABLES_FILE</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_check_started_by</span><span class="p">()</span>
+            <span class="k">elif</span> <span class="n">name</span> <span class="o">==</span> <span class="n">SEEDS_FILE</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_check_responds</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_freeze</span><span class="p">(</span><span class="n">document</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_documents</span><span class="p">[</span><span class="n">name</span><span class="p">]</span></div>
 
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_command_refusal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Why ``address`` cannot be a command a channel names; ``None`` when it can.</span>
+
+<span class="sd">        A command is a setpoint channel of the view, named by the address it is</span>
+<span class="sd">        served as.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">channel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">channel</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">channel</span><span class="o">.</span><span class="n">role</span> <span class="o">!=</span> <span class="n">SETPOINT</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> is not a setpoint of the view&quot;</span>
+        <span class="n">served_as</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">served_as</span> <span class="o">!=</span> <span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> is served as </span><span class="si">{</span><span class="n">served_as</span><span class="si">!r}</span><span class="s2">; name that address&quot;</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_check_started_by</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Refuse a channel whose ``started_by`` names no setpoint of the view, or that a physics model serves.&quot;&quot;&quot;</span>
+        <span class="n">started</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">entry</span> <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parsed</span><span class="p">(</span><span class="n">VARIABLES_FILE</span><span class="p">)[</span><span class="s2">&quot;channels&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="s2">&quot;started_by&quot;</span> <span class="ow">in</span> <span class="n">entry</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">started</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">physics</span> <span class="o">=</span> <span class="p">{</span><span class="n">model</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">physics_models</span><span class="p">()}</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">started</span><span class="p">:</span>
+            <span class="n">address</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;address&quot;</span><span class="p">)</span>
+            <span class="n">owner</span> <span class="o">=</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;owner&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;role&quot;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">SETPOINT</span><span class="p">:</span>
+                <span class="n">refusal</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">&quot;it is not a setpoint&quot;</span>
+            <span class="k">elif</span> <span class="n">owner</span> <span class="ow">in</span> <span class="n">physics</span><span class="p">:</span>
+                <span class="n">refusal</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;model </span><span class="si">{</span><span class="n">owner</span><span class="si">!r}</span><span class="s2"> serves it, not the texture&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">refusal</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_command_refusal</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">&quot;started_by&quot;</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">VARIABLES_FILE</span><span class="si">}</span><span class="s2">: channel </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> states `started_by` &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">entry</span><span class="p">[</span><span class="s1">&#39;started_by&#39;</span><span class="p">]</span><span class="si">!r}</span><span class="s2">, but </span><span class="si">{</span><span class="n">refusal</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+                <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_followed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The readbacks a setpoint&#39;s write moves, each by the address it is served as.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">pair</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">channel</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span><span class="p">()</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">channel</span><span class="o">.</span><span class="n">role</span> <span class="o">==</span> <span class="n">SETPOINT</span>
+            <span class="ow">and</span> <span class="n">channel</span><span class="o">.</span><span class="n">pair</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">pair</span><span class="p">)</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">channel</span><span class="o">.</span><span class="n">address</span><span class="p">)</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_check_responds</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">document</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Refuse a seed whose ``responds`` lacks a part, times nothing, or follows no command.&quot;&quot;&quot;</span>
+        <span class="n">seeds</span> <span class="o">=</span> <span class="n">document</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;seeds&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">seeds</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">):</span>
+            <span class="k">return</span>
+        <span class="n">followed</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="n">seeds</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">seed</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">&quot;responds&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seed</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">responds</span> <span class="o">=</span> <span class="n">seed</span><span class="p">[</span><span class="s2">&quot;responds&quot;</span><span class="p">]</span>
+            <span class="n">refusal</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">responds</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span>
+                <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">responds</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;to&quot;</span><span class="p">,</span> <span class="s2">&quot;for_s&quot;</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">)</span>
+            <span class="p">):</span>
+                <span class="n">refusal</span> <span class="o">=</span> <span class="s2">&quot;it is not {to, for_s, value}&quot;</span>
+            <span class="k">elif</span> <span class="p">(</span>
+                <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">responds</span><span class="p">[</span><span class="s2">&quot;for_s&quot;</span><span class="p">],</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">responds</span><span class="p">[</span><span class="s2">&quot;for_s&quot;</span><span class="p">],</span> <span class="nb">bool</span><span class="p">)</span>
+                <span class="ow">or</span> <span class="ow">not</span> <span class="n">responds</span><span class="p">[</span><span class="s2">&quot;for_s&quot;</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span>
+            <span class="p">):</span>
+                <span class="n">refusal</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;for_s </span><span class="si">{</span><span class="n">responds</span><span class="p">[</span><span class="s1">&#39;for_s&#39;</span><span class="p">]</span><span class="si">!r}</span><span class="s2"> is not a number above zero&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">refusal</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_command_refusal</span><span class="p">(</span><span class="n">responds</span><span class="p">[</span><span class="s2">&quot;to&quot;</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">followed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">followed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_followed</span><span class="p">()</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record_address</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="ow">in</span> <span class="n">followed</span><span class="p">:</span>
+                    <span class="n">refusal</span> <span class="o">=</span> <span class="s2">&quot;a setpoint&#39;s write moves it&quot;</span>
+            <span class="k">if</span> <span class="n">refusal</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ViewSchemaError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="w"> </span><span class="o">/</span><span class="w"> </span><span class="n">SEEDS_FILE</span><span class="si">}</span><span class="s2">: the seed of </span><span class="si">{</span><span class="n">address</span><span class="si">!r}</span><span class="s2"> states `responds`, &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;but </span><span class="si">{</span><span class="n">refusal</span><span class="si">}</span><span class="s2">: rebuild with osprey build&quot;</span>
+                <span class="p">)</span>
 
     <span class="nd">@overload</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">_parsed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;variables.json&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">VariablesDocument</span><span class="p">:</span> <span class="o">...</span>

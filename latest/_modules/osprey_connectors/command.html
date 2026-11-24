@@ -1,0 +1,861 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>osprey_connectors.command &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = '_modules/osprey_connectors/command';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/_modules/osprey_connectors/command.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 24, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Module code</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">osprey_connectors.command</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <h1>Source code for osprey_connectors.command</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Fire a command channel and wait for its status channel to say the act is over.</span>
+
+<span class="sd">A command is written once; the act it starts is reported by a status channel</span>
+<span class="sd">that reads a stated ``idle`` value when nothing runs. :func:`fire` subscribes</span>
+<span class="sd">to the status, refuses when it is not idle, writes the command, and returns</span>
+<span class="sd">once the status has left idle and come back, within the act&#39;s bound. The wait</span>
+<span class="sd">is the write&#39;s confirmation, a stronger one than a re-read, so the one write</span>
+<span class="sd">:func:`fire` makes passes ``confirm=False``; every other write of the command</span>
+<span class="sd">is confirmed as its configuration says.</span>
+
+<span class="sd">Every failure is closed and typed: :class:`CommandBusyError` (nothing was</span>
+<span class="sd">written), :class:`CommandNoEffectError` and :class:`CommandTimeoutError` (the</span>
+<span class="sd">command was written, the status did not move or did not come back), and</span>
+<span class="sd">:class:`CommandStatusError` (the status cannot be watched). The status is</span>
+<span class="sd">compared with :func:`~osprey_connectors.control_system.values_match`, the rule</span>
+<span class="sd">a write&#39;s confirmation uses.</span>
+
+<span class="sd">This module imports only the std-lib, ``osprey_connectors.errors``, the</span>
+<span class="sd">package&#39;s contract alias and the control-system contract, and takes any</span>
+<span class="sd">connector with awaitable ``subscribe(address, callback, *, on_connection)``,</span>
+<span class="sd">``unsubscribe(id)``, ``read_channel(address)`` and</span>
+<span class="sd">``write_channel_checked(address, value, confirm=...)``.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors._contract_types</span><span class="w"> </span><span class="kn">import</span> <span class="n">ContractAny</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.control_system</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelValue</span><span class="p">,</span> <span class="n">ChannelWriteResult</span><span class="p">,</span> <span class="n">values_match</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">osprey_connectors.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChannelError</span><span class="p">,</span> <span class="n">ChannelReadFailedError</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;CommandAct&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CommandBusyError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CommandNoEffectError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CommandStatusError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;CommandTimeoutError&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;fire&quot;</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="CommandAct">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandAct</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;One command channel, the status channel that reports its act, the idle value and the bound.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        command: The address the value is written to.</span>
+<span class="sd">        status: The address of the channel that reports the act.</span>
+<span class="sd">        idle: What ``status`` reads when nothing runs: a label, a number or a bool.</span>
+<span class="sd">        timeout_s: The longest one act may take, in seconds.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">command</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">idle</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">|</span> <span class="nb">bool</span>
+    <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">float</span>
+
+<div class="viewcode-block" id="CommandAct.__post_init__">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandAct.__post_init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Refuse an empty address and a bound that is not a positive finite number.</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            ValueError: ``command`` or ``status`` is empty, or ``timeout_s`` is</span>
+<span class="sd">                not finite and greater than zero.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;command&quot;</span><span class="p">,</span> <span class="s2">&quot;status&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;a command act needs a </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> address&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout_s</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">timeout_s</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;timeout_s must be a positive number of seconds, not </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout_s</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CommandBusyError">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandBusyError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandBusyError</span><span class="p">(</span><span class="n">ChannelError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The status was not idle before the write; nothing was written.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        act: The act that was refused.</span>
+<span class="sd">        reading: The status value that was not idle.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CommandBusyError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandBusyError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span> <span class="n">reading</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act</span> <span class="o">=</span> <span class="n">act</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reading</span> <span class="o">=</span> <span class="n">reading</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="p">,</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="si">}</span><span class="s2"> not written: </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2"> reads </span><span class="si">{</span><span class="n">reading</span><span class="si">}</span><span class="s2">, not </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="si">}</span><span class="s2">; &quot;</span>
+            <span class="s2">&quot;the previous act is still running&quot;</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CommandNoEffectError">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandNoEffectError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandNoEffectError</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The command was written and its status did not leave idle in the start window.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        act: The act whose status did not move.</span>
+<span class="sd">        last: The last status value seen.</span>
+<span class="sd">        start_s: The seconds the status had to leave idle.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CommandNoEffectError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandNoEffectError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span> <span class="n">last</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">start_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act</span> <span class="o">=</span> <span class="n">act</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last</span> <span class="o">=</span> <span class="n">last</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_s</span> <span class="o">=</span> <span class="n">start_s</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="si">}</span><span class="s2"> was written and </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2"> did not leave </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="si">}</span><span class="s2"> &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;within </span><span class="si">{</span><span class="n">start_s</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">s&quot;</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CommandTimeoutError">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandTimeoutError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandTimeoutError</span><span class="p">(</span><span class="ne">TimeoutError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The command was written, the act started, and its status did not return to idle in time.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        act: The act that did not finish.</span>
+<span class="sd">        last: The last status value seen.</span>
+<span class="sd">        timeout_s: The act&#39;s bound, in seconds.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CommandTimeoutError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandTimeoutError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span> <span class="n">last</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span> <span class="n">timeout_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act</span> <span class="o">=</span> <span class="n">act</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last</span> <span class="o">=</span> <span class="n">last</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">timeout_s</span> <span class="o">=</span> <span class="n">timeout_s</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="si">}</span><span class="s2"> was written and </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2"> did not return to </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="si">}</span><span class="s2"> &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;within </span><span class="si">{</span><span class="n">timeout_s</span><span class="si">:</span><span class="s2">g</span><span class="si">}</span><span class="s2">s (last: </span><span class="si">{</span><span class="n">last</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="CommandStatusError">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandStatusError">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CommandStatusError</span><span class="p">(</span><span class="n">ChannelReadFailedError</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The status channel cannot be watched or its value cannot be compared with idle.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        act: The act whose status failed.</span>
+<span class="sd">        addresses: The status, the one failed channel.</span>
+<span class="sd">        causes: The status to the exception that failed it; empty when nothing raised.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CommandStatusError.__init__">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.CommandStatusError.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span>
+        <span class="n">cause</span><span class="p">:</span> <span class="ne">BaseException</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">reason</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">act</span> <span class="o">=</span> <span class="n">act</span>
+        <span class="k">if</span> <span class="n">cause</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">cause</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">cause</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="p">],</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="si">}</span><span class="s2"> of </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="si">}</span><span class="s2"> cannot be watched: </span><span class="si">{</span><span class="n">reason</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="n">causes</span><span class="o">=</span><span class="p">{</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="p">:</span> <span class="n">cause</span><span class="p">}</span> <span class="k">if</span> <span class="n">cause</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Dropped</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The status connection dropped, as one entry in the update queue.&quot;&quot;&quot;</span>
+
+
+<span class="n">_DROPPED</span> <span class="o">=</span> <span class="n">_Dropped</span><span class="p">()</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_is_idle</span><span class="p">(</span><span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span> <span class="n">reading</span><span class="p">:</span> <span class="nb">object</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Whether a status reading is the act&#39;s idle value.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        CommandStatusError: The reading has no value, or ``idle`` is a label</span>
+<span class="sd">            and the reading carries none to compare it with.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">reading</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;no value&quot;</span><span class="p">)</span>
+    <span class="n">metadata</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">reading</span><span class="p">,</span> <span class="s2">&quot;metadata&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="n">label</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">metadata</span><span class="p">,</span> <span class="s2">&quot;enum_label&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="n">label</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span>
+            <span class="n">act</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;idle is the label </span><span class="si">{</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="si">!r}</span><span class="s2"> and the reading </span><span class="si">{</span><span class="n">value</span><span class="si">}</span><span class="s2"> carries no label&quot;</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">values_match</span><span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">idle</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">enum_label</span><span class="o">=</span><span class="n">label</span><span class="p">)</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_read_status</span><span class="p">(</span><span class="n">connector</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span> <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">object</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The status&#39;s current reading, read once.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        CommandStatusError: The read failed with a</span>
+<span class="sd">            :class:`~osprey_connectors.errors.ChannelError`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reading</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">read_channel</span><span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ChannelError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+    <span class="k">return</span> <span class="n">reading</span>
+
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_next_update</span><span class="p">(</span>
+    <span class="n">updates</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">[</span><span class="n">ChannelValue</span> <span class="o">|</span> <span class="n">_Dropped</span><span class="p">],</span> <span class="n">deadline</span><span class="p">:</span> <span class="nb">float</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelValue</span> <span class="o">|</span> <span class="n">_Dropped</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;The oldest queued update, waiting until ``deadline`` for one; ``None`` once it passes.</span>
+
+<span class="sd">    An update already queued is returned whether or not the deadline has passed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">updates</span><span class="o">.</span><span class="n">empty</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">updates</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">async</span> <span class="k">with</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">timeout_at</span><span class="p">(</span><span class="n">deadline</span><span class="p">):</span>
+            <span class="k">return</span> <span class="k">await</span> <span class="n">updates</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">TimeoutError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
+
+<div class="viewcode-block" id="fire">
+<a class="viewcode-back" href="../../reference/connectors-api/write-safety.html#osprey_connectors.command.fire">[docs]</a>
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">fire</span><span class="p">(</span>
+    <span class="c1"># Duck-typed by the module&#39;s contract: any object with the four awaitable</span>
+    <span class="c1"># methods the module docstring names, which the package has no public type to name.</span>
+    <span class="n">connector</span><span class="p">:</span> <span class="n">ContractAny</span><span class="p">,</span>
+    <span class="n">act</span><span class="p">:</span> <span class="n">CommandAct</span><span class="p">,</span>
+    <span class="n">value</span><span class="p">:</span> <span class="nb">object</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">start_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelWriteResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Write ``value`` to the act&#39;s command and wait for its status to leave and return to idle.</span>
+
+<span class="sd">    The status is subscribed and read once before anything is written; a status</span>
+<span class="sd">    that is not idle refuses the act. The command is written once, unconfirmed,</span>
+<span class="sd">    because the wait confirms it. The act ends on a status update that is not</span>
+<span class="sd">    idle followed by one that is, each delivered after the write began, updates</span>
+<span class="sd">    delivered while the write is awaited among them. The time runs on the event</span>
+<span class="sd">    loop&#39;s clock from the write. Every exit after the subscription unsubscribes,</span>
+<span class="sd">    and nothing is ever written a second time.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        connector: The connector the status is watched and the command written through.</span>
+<span class="sd">        act: The command, its status, its idle value and its bound.</span>
+<span class="sd">        value: The value written to the command.</span>
+<span class="sd">        start_s: Seconds the status may take to leave idle; ``None``, or more</span>
+<span class="sd">            than ``act.timeout_s``, is ``act.timeout_s``.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The write&#39;s result, whose outcome is ``unrequested``.</span>
+
+<span class="sd">    Raises:</span>
+<span class="sd">        CommandBusyError: The status was not idle before the write; nothing</span>
+<span class="sd">            was written.</span>
+<span class="sd">        CommandNoEffectError: The command was written and the status did not</span>
+<span class="sd">            leave idle within ``start_s``.</span>
+<span class="sd">        CommandTimeoutError: The status left idle and did not return within</span>
+<span class="sd">            ``act.timeout_s`` of the write.</span>
+<span class="sd">        CommandStatusError: The connector cannot subscribe, the subscribe or</span>
+<span class="sd">            the read failed with a</span>
+<span class="sd">            :class:`~osprey_connectors.errors.ChannelError`, a reading had no</span>
+<span class="sd">            value, a label ``idle`` met a reading with no label, or the status</span>
+<span class="sd">            connection dropped. The first three are raised before anything</span>
+<span class="sd">            is written.</span>
+<span class="sd">        ValueError: ``start_s`` is not a positive finite number.</span>
+<span class="sd">        Exception: Whatever ``write_channel_checked`` raises, unchanged.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">start_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="p">(</span><span class="n">math</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">start_s</span><span class="p">)</span> <span class="ow">and</span> <span class="n">start_s</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;start_s must be a positive number of seconds, not </span><span class="si">{</span><span class="n">start_s</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">start_window</span> <span class="o">=</span> <span class="n">act</span><span class="o">.</span><span class="n">timeout_s</span> <span class="k">if</span> <span class="n">start_s</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">min</span><span class="p">(</span><span class="n">start_s</span><span class="p">,</span> <span class="n">act</span><span class="o">.</span><span class="n">timeout_s</span><span class="p">)</span>
+    <span class="n">subscribe</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="s2">&quot;subscribe&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">subscribe</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;the connector cannot subscribe&quot;</span><span class="p">)</span>
+
+    <span class="n">loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span>
+    <span class="n">updates</span><span class="p">:</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">[</span><span class="n">ChannelValue</span> <span class="o">|</span> <span class="n">_Dropped</span><span class="p">]</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">enqueue</span><span class="p">(</span><span class="n">update</span><span class="p">:</span> <span class="n">ChannelValue</span> <span class="o">|</span> <span class="n">_Dropped</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">on_loop</span> <span class="o">=</span> <span class="n">asyncio</span><span class="o">.</span><span class="n">get_running_loop</span><span class="p">()</span> <span class="ow">is</span> <span class="n">loop</span>
+        <span class="k">except</span> <span class="ne">RuntimeError</span><span class="p">:</span>
+            <span class="n">on_loop</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="n">on_loop</span><span class="p">:</span>
+            <span class="n">updates</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="n">update</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">loop</span><span class="o">.</span><span class="n">call_soon_threadsafe</span><span class="p">(</span><span class="n">updates</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">,</span> <span class="n">update</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">on_connection</span><span class="p">(</span><span class="n">connected</span><span class="p">:</span> <span class="nb">bool</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">connected</span><span class="p">:</span>
+            <span class="n">enqueue</span><span class="p">(</span><span class="n">_DROPPED</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">subscription</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="k">await</span> <span class="n">subscribe</span><span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">status</span><span class="p">,</span> <span class="n">enqueue</span><span class="p">,</span> <span class="n">on_connection</span><span class="o">=</span><span class="n">on_connection</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">ChannelError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">reading</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_read_status</span><span class="p">(</span><span class="n">connector</span><span class="p">,</span> <span class="n">act</span><span class="p">)</span>
+        <span class="n">newest</span> <span class="o">=</span> <span class="n">reading</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">updates</span><span class="o">.</span><span class="n">empty</span><span class="p">():</span>
+            <span class="n">queued</span> <span class="o">=</span> <span class="n">updates</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">queued</span><span class="p">,</span> <span class="n">_Dropped</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;the connection dropped&quot;</span><span class="p">)</span>
+            <span class="n">newest</span> <span class="o">=</span> <span class="n">queued</span>
+        <span class="k">for</span> <span class="n">seen</span> <span class="ow">in</span> <span class="p">(</span><span class="n">reading</span><span class="p">,</span> <span class="n">newest</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_idle</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">seen</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">CommandBusyError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">seen</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+
+        <span class="n">written</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">result</span><span class="p">:</span> <span class="n">ChannelWriteResult</span> <span class="o">=</span> <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">write_channel_checked</span><span class="p">(</span>
+            <span class="n">act</span><span class="o">.</span><span class="n">command</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">confirm</span><span class="o">=</span><span class="kc">False</span>
+        <span class="p">)</span>
+
+        <span class="n">started</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">last</span><span class="p">:</span> <span class="nb">object</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">newest</span><span class="p">,</span> <span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">deadline</span> <span class="o">=</span> <span class="n">written</span> <span class="o">+</span> <span class="p">(</span><span class="n">act</span><span class="o">.</span><span class="n">timeout_s</span> <span class="k">if</span> <span class="n">started</span> <span class="k">else</span> <span class="n">start_window</span><span class="p">)</span>
+            <span class="n">update</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_next_update</span><span class="p">(</span><span class="n">updates</span><span class="p">,</span> <span class="n">deadline</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">update</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">started</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">CommandTimeoutError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">last</span><span class="p">,</span> <span class="n">act</span><span class="o">.</span><span class="n">timeout_s</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">CommandNoEffectError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">last</span><span class="p">,</span> <span class="n">start_window</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">update</span><span class="p">,</span> <span class="n">_Dropped</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">CommandStatusError</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">reason</span><span class="o">=</span><span class="s2">&quot;the connection dropped&quot;</span><span class="p">)</span>
+            <span class="n">idle</span> <span class="o">=</span> <span class="n">_is_idle</span><span class="p">(</span><span class="n">act</span><span class="p">,</span> <span class="n">update</span><span class="p">)</span>
+            <span class="n">last</span> <span class="o">=</span> <span class="n">update</span><span class="o">.</span><span class="n">value</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">idle</span><span class="p">:</span>
+                <span class="n">started</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="k">elif</span> <span class="n">started</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">result</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">await</span> <span class="n">connector</span><span class="o">.</span><span class="n">unsubscribe</span><span class="p">(</span><span class="n">subscription</span><span class="p">)</span></div>
+
+</pre></div>
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
