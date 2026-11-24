@@ -244,7 +244,8 @@ def channel_record(
     """Turn one facility-file channel record into the roster's.
 
     A further address of a wiring record (under ``also``) is that record under
-    another name: its readback, ``timeout_s`` and ``idle`` are the record's.
+    another name, read through :meth:`FacilityRecords.channel`: its readback,
+    kind, ``timeout_s`` and ``idle`` are the record's.
 
     Args:
         channel: The channel record.
@@ -260,26 +261,26 @@ def channel_record(
             ``options`` or ``shape`` is not a list.
     """
     address = channel["id"]
-    role = channel["role"]
+    own = records.record_address(address)
+    read = channel if own == address else records.channel(address) or channel
+    role = read["role"]
     if role not in _ROLE_DIRECTIONS:
         raise ValueError(f"channel {address} has the role {role!r}")
-    own = records.record_address(address)
-    held = channel if own == address else records.record("channel", own) or channel
-    pair = held.get("pair")
+    pair = read.get("pair")
     return ChannelRecord(
         address=address,
         source=source,
         direction=_ROLE_DIRECTIONS[role],
         readback=pair if role == "setpoint" and pair != own else None,
         role=role,
-        value_type=channel.get("value_type"),
-        description=channel.get("description"),
-        on=_on(channel.get("on")),
-        options=_options(channel.get("options")),
-        shape=_shape(channel.get("shape")),
-        command=channel.get("command") is True,
-        timeout_s=held.get("timeout_s"),
-        idle=held.get("idle"),
+        value_type=read.get("value_type"),
+        description=read.get("description"),
+        on=_on(read.get("on")),
+        options=_options(read.get("options")),
+        shape=_shape(read.get("shape")),
+        command=read.get("command") is True,
+        timeout_s=read.get("timeout_s"),
+        idle=read.get("idle"),
     )
 
 
