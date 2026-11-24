@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey_facility import source_tree
 from osprey_facility_tests import rebuild_panel_fixture as script
 from osprey_facility_tests._harness import REPO_ROOT
 
@@ -33,7 +34,7 @@ def test_the_command_names_the_script_where_it_is() -> None:
     assert script.COMMAND == COMMAND
     assert (REPO_ROOT / COMMAND.split()[-1]).resolve() == SCRIPT
     assert script.FIXTURE_DOCUMENT == FIXTURE_DOCUMENT
-    assert (script.FIXTURE_TREE / "documents.yaml").is_file()
+    assert (script.FIXTURE_TREE / source_tree.path("documents")).is_file()
 
 
 def test_the_checked_in_document_is_the_fixture_tree_built_byte_for_byte() -> None:

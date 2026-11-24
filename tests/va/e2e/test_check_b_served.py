@@ -107,7 +107,7 @@ class Served:
 
 def _measured_model(repo: Path) -> str:
     """The one model the deployment's measurement files name."""
-    files = sorted((repo / "data" / "facility" / "measurement").glob("*.yaml"))
+    files = sorted((repo / "data" / "facility" / "simulation" / "measurement").glob("*.yaml"))
     assert len(files) == 1, f"expected one measured model, found {[f.name for f in files]}"
     return files[0].stem
 

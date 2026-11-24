@@ -18,19 +18,7 @@ from osprey_facility.layers.mml import importer as mml_importer
 from osprey_facility.layers.mml import mapping as mml_mapping
 from osprey_facility.layers.mml import seed as mml_seed
 
-TOP_FILES: frozenset[str] = frozenset(
-    {
-        "identity.yaml",
-        "classes.yaml",
-        "signals.yaml",
-        "models.yaml",
-        "limits.yaml",
-        "seeds.yaml",
-        "fixes.yaml",
-        "documents.yaml",
-        "policy.yaml",
-    }
-)
+TOP_FILES: frozenset[str] = frozenset({"identity.yaml", "limits.yaml"})
 
 RECORD_FILES: tuple[tuple[str, str], ...] = (
     ("places.yaml", "place"),
@@ -46,13 +34,13 @@ RELATIONS_MARK = "relations.csv"
 
 TOP_SLOT_FILES: tuple[tuple[str, str], ...] = (
     ("limits", "limits.yaml"),
-    ("classes", "classes.yaml"),
-    ("signals", "signals.yaml"),
+    ("classes", "vocabulary/classes.yaml"),
+    ("signals", "vocabulary/signals.yaml"),
     ("identity", "identity.yaml"),
-    ("documents", "documents.yaml"),
+    ("documents", "provenance/documents.yaml"),
 )
 
-FIXES_FILE = "fixes.yaml"
+FIXES_FILE = "provenance/fixes.yaml"
 
 KNOWLEDGE_DIR = "knowledge"
 
@@ -66,11 +54,11 @@ MML_DECKS_DIR = "imported/mml/decks"
 
 MML_SEED_FILES: tuple[tuple[str, str], ...] = (
     ("LIMITS_FILE", "limits.yaml"),
-    ("READOUT_FILE", "scenarios/readout.yaml"),
-    ("SEEDS_FILE", "seeds.yaml"),
-    ("CLASSES_FILE", "classes.yaml"),
+    ("READOUT_FILE", "simulation/scenarios/readout.yaml"),
+    ("SEEDS_FILE", "simulation/seeds.yaml"),
+    ("CLASSES_FILE", "vocabulary/classes.yaml"),
     ("IDENTITY_FILE", "identity.yaml"),
-    ("MEASUREMENT_DIR", "measurement"),
+    ("MEASUREMENT_DIR", "simulation/measurement"),
 )
 
 LIST_LAYER_DIR = "imported/list"

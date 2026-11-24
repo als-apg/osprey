@@ -351,7 +351,7 @@ def test_an_imported_model_merges_per_field_with_an_authored_one(
     (imported,) = _rows(facility, "models.yaml")
     settings = {"pyat": {"solve": "closed_orbit"}}
     authored = [{"name": "StorageRing", "settings": settings}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     result = _combined(facility)
 
@@ -370,7 +370,7 @@ def test_a_field_both_layers_state_alike_merges(spear3: Path, tmp_path: Path) ->
     facility = tmp_path / "facility"
     shutil.copytree(spear3, facility)
     authored = [{"name": "StorageRing", "engine": "pyat"}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
     assert [error.format_message() for error in _combined(facility).errors] == []
 
 
@@ -381,14 +381,15 @@ def test_settings_the_two_layers_state_in_part_conflict_whole(tmp_path: Path) ->
     layer = tmp_path / LAYER_DIR
     layer.mkdir(parents=True)
     (layer / "models.yaml").write_text(yaml.safe_dump(imported), encoding="utf-8")
-    (tmp_path / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (tmp_path / "simulation").mkdir()
+    (tmp_path / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     (error,) = _combined(tmp_path).errors
 
     assert (error.kind, error.record_kind, error.record_id) == ("layer-conflict", "model", "line")
     assert error.detail.startswith("`settings` differs:")
     assert "authored=" in error.detail and "mml=" in error.detail
-    assert set(error.sources) == {"models.yaml", "imported/mml/models.yaml"}
+    assert set(error.sources) == {"simulation/models.yaml", "imported/mml/models.yaml"}
 
 
 def test_the_imported_transfer_line_conflicts_with_authored_twiss(
@@ -399,7 +400,7 @@ def test_the_imported_transfer_line_conflicts_with_authored_twiss(
     imported = _by(_rows(facility, "models.yaml"), "name")["LTB"]
     assert imported["settings"]["pyat"]["solve"] == "single_pass"
     authored = [{"name": "LTB", "settings": {"pyat": {"twiss_in": {"beta": [1.0, 1.0]}}}}]
-    (facility / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
+    (facility / "simulation" / "models.yaml").write_text(yaml.safe_dump(authored), encoding="utf-8")
 
     (error,) = _combined(facility).errors
 

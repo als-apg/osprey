@@ -195,7 +195,7 @@ def test_a_build_error_exits_1_with_an_empty_stdout(repo: Path) -> None:
         "schema": "osprey.facility.fixes/1",
         "fixes": [{"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"}],
     }
-    (repo / "data" / "facility" / "fixes.yaml").write_text(
+    (repo / "data" / "facility" / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(fixes, sort_keys=False), encoding="utf-8"
     )
 
@@ -236,7 +236,7 @@ def test_a_fixed_record_lists_the_fix_applied(repo: Path) -> None:
         "was": {"unit": {"authored": "mm", "mml": "mm"}},
         "why": "The unit is micrometres.",
     }
-    (facility / "fixes.yaml").write_text(
+    (facility / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump({"schema": "osprey.facility.fixes/1", "fixes": [fix]}, sort_keys=False),
         encoding="utf-8",
     )

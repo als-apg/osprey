@@ -33,7 +33,7 @@ from tests.facility.conftest import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITY_DEMO = REPO_ROOT / "scripts/facility_demo"
-SEEDS = REPO_ROOT / "src/osprey/templates/facilities/example/seeds.yaml"
+SEEDS = REPO_ROOT / "src/osprey/templates/facilities/example/simulation/seeds.yaml"
 
 GUN_HV = "GTL:GUN:EGUN:01:HV_ON:RB"
 GUN_HEATER = "GTL:GUN:EGUN:01:HEATER_ON:RB"

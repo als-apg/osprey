@@ -414,7 +414,7 @@ def test_a_setpoint_with_no_readback_of_its_quantity_is_its_own_pair(tmp_path: P
 
 def test_a_derived_pair_stop_names_the_explicit_way_out(tmp_path: Path) -> None:
     files = _magnet()
-    files["models.yaml"] = [
+    files["simulation/models.yaml"] = [
         {"name": "one", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]},
         {"name": "two", "engine": "pyat", "wiring": [{"address": "Q1:RB", "element": "Q1"}]},
     ]

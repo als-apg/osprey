@@ -17,9 +17,8 @@ What goes where
    example-machine/              the machine repository
      profile.yml                 its VA-only setup
      data/facility/              the machine facts
-       identity.yaml  records/  classes.yaml  signals.yaml  models.yaml  decks/
-       limits.yaml  seeds.yaml  measurement/  scenarios/  fixes.yaml
-       documents.yaml  policy.yaml  imported/<layer>/
+       identity.yaml  records/  limits.yaml  imported/<layer>/
+       vocabulary/  provenance/  simulation/
 
    my-deployment/                a deployment
      profile.yml                 states machine: vendor/example-machine/data/facility
@@ -93,3 +92,21 @@ fix, on:
    profile states ``simulation.default_scenarios`` beside ``start: true`` marks
    or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.
+
+.. _machine-repository-upgrade:
+
+Upgrade
+=======
+
+Upgrade OSPREY in every deployment that mounts the machine repository before
+the machine repository changes. An OSPREY that moves a facility path refuses a
+machine still at the retired path, naming the commands that move it; an older
+OSPREY reads a moved machine without the moved files, and says nothing.
+
+#. In each mounting deployment, upgrade OSPREY and run
+   ``osprey init --revalidate``. It leaves the machine as it is and prints the
+   commands that move it under "Left for you to do by hand"; its builds refuse
+   the machine until it moves.
+#. In the machine repository, upgrade OSPREY, run
+   ``osprey init --revalidate`` (or the printed commands) and commit.
+#. In each deployment, commit the new submodule commit.

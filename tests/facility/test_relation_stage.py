@@ -81,7 +81,7 @@ def _tree(**extra: Any) -> dict[str, Any]:
             {"id": "Q1", "class": "Quadrupole", "place": "SR/S01"},
             {"id": "Q2", "class": "Quadrupole", "place": "SR/S01"},
         ],
-        "documents.yaml": _DOCS,
+        "provenance/documents.yaml": _DOCS,
     }
     files.update(extra)
     return files
@@ -149,7 +149,7 @@ class TestSettled:
             tmp_path,
             _tree(
                 **{
-                    "policy.yaml": _POLICY,
+                    "provenance/policy.yaml": _POLICY,
                     "records/relations.yaml": [
                         _power("a", "PS1", **_cited("spec-1")),
                         _power("b", "PS2", **_cited("dwg-1")),
@@ -169,7 +169,7 @@ class TestSettled:
             tmp_path,
             _tree(
                 **{
-                    "policy.yaml": _POLICY,
+                    "provenance/policy.yaml": _POLICY,
                     "records/relations.yaml": [
                         _power("a", "PS1", **_cited("spec-1")),
                         _power("b", "PS2", **_cited("spec-1")),
@@ -187,7 +187,7 @@ class TestSettled:
         assert _lines(report) == [
             "facility: relation-contested: powered_by device Q1, no port — claims a, b state "
             "different ends and none ranks first; fix: rank the kinds of their documents in "
-            "policy.yaml, or correct the wrong claim"
+            "provenance/policy.yaml, or correct the wrong claim"
         ]
 
 
@@ -293,7 +293,7 @@ class TestLayerPermutation:
         for index, order in enumerate(itertools.permutations(range(3))):
             files = _tree()
             if policy is not None:
-                files["policy.yaml"] = policy
+                files["provenance/policy.yaml"] = policy
             for layer, claims in zip(("a", "b", "c"), order, strict=True):
                 files[f"imported/{layer}/relations.yaml"] = _LAYER_CLAIMS[claims]
             report = _run(tmp_path / str(index), files)

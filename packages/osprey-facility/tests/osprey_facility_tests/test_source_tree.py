@@ -22,6 +22,8 @@ from osprey_facility.source_tree import (
     layer_entry,
     layer_root,
     path,
+    retired_deck_prefix,
+    retired_moves,
     slot,
     slots,
 )
@@ -108,7 +110,11 @@ def test_the_row_is_frozen() -> None:
         ({"limits": "../limits.yaml"}, "not relative POSIX"),
         ({"limits": "a\\limits.yaml"}, "not relative POSIX"),
         ({"limits": ""}, "not relative POSIX"),
-        ({"limits": "seeds.yaml"}, "share a path"),
+        ({"limits": "simulation/seeds.yaml"}, "share a path"),
+        ({"limits": "seeds.yaml"}, "retired path 'seeds.yaml' lies at or inside live slot"),
+        ({"knowledge": "decks"}, "retired path 'decks' lies at or inside live slot 'knowledge'"),
+        ({"knowledge": "scenarios/knowledge"}, "live facility slot 'knowledge' lies inside"),
+        ({"decks": "decks/simulation"}, "retired path 'decks' is or holds its successor"),
         ({"knowledge": "records/places.yaml"}, "share a path"),
         ({"knowledge": "limits.yaml/knowledge"}, "inside file slot 'limits'"),
         ({"records": "limits.yaml/records"}, "inside file slot 'limits'"),
@@ -154,7 +160,17 @@ def test_an_invalid_row_is_refused(row: source_tree._FacilitySlot, message: str)
 
 def test_the_root_single_files() -> None:
     assert path("identity") == "identity.yaml"
-    assert path("policy") == "policy.yaml"
+    assert path("limits") == "limits.yaml"
+
+
+def test_the_grouped_single_files() -> None:
+    assert path("classes") == "vocabulary/classes.yaml"
+    assert path("signals") == "vocabulary/signals.yaml"
+    assert path("documents") == "provenance/documents.yaml"
+    assert path("policy") == "provenance/policy.yaml"
+    assert path("fixes") == "provenance/fixes.yaml"
+    assert path("models") == "simulation/models.yaml"
+    assert path("seeds") == "simulation/seeds.yaml"
 
 
 def test_a_record_file_sits_in_records() -> None:
@@ -164,13 +180,13 @@ def test_a_record_file_sits_in_records() -> None:
 
 
 def test_the_keyed_directories() -> None:
-    assert keyed_file("measurement", "SR") == "measurement/SR.yaml"
-    assert keyed_file("scenarios", "readout") == "scenarios/readout.yaml"
-    assert keyed_dir("scenarios", "bump") == "scenarios/bump"
+    assert keyed_file("measurement", "SR") == "simulation/measurement/SR.yaml"
+    assert keyed_file("scenarios", "readout") == "simulation/scenarios/readout.yaml"
+    assert keyed_dir("scenarios", "bump") == "simulation/scenarios/bump"
 
 
 def test_the_keyed_directories_glob() -> None:
-    assert keyed_file("scenarios", "*") == "scenarios/*.yaml"
+    assert keyed_file("scenarios", "*") == "simulation/scenarios/*.yaml"
 
 
 def test_the_layer_directories_and_entries() -> None:
@@ -183,23 +199,21 @@ def test_the_layer_directories_and_entries() -> None:
 
 
 def test_the_content_directories_and_their_files() -> None:
-    assert path("decks") == "decks"
+    assert path("decks") == "simulation/decks"
     assert path("knowledge") == "knowledge"
     assert source_tree._inside("knowledge", "index.md") == "knowledge/index.md"
     assert path("ariel") == "ariel"
     assert path("ariel_vocabulary") == "ariel/vocabulary.yml"
-    assert path("benchmark_queries") == "benchmarks/cross_paradigm/queries"
-    assert path("in_context_queries") == (
-        "benchmarks/cross_paradigm/queries/in_context_queries.json"
-    )
-    assert path("tree_queries") == "benchmarks/cross_paradigm/queries/tree_queries.json"
+    assert path("benchmark_queries") == "benchmarks/channel_finder"
+    assert path("in_context_queries") == "benchmarks/channel_finder/in_context_queries.json"
+    assert path("tree_queries") == "benchmarks/channel_finder/tree_queries.json"
     assert slot("tree_queries").path == "tree_queries.json"
     assert slot("in_context_queries").path == "in_context_queries.json"
 
 
 def test_the_display_path() -> None:
     assert source_tree._DISPLAY_PREFIX == "data/facility"
-    assert display_path(path("seeds")) == "data/facility/seeds.yaml"
+    assert display_path(path("seeds")) == "data/facility/simulation/seeds.yaml"
     assert display_path(path("ariel_vocabulary")) == "data/facility/ariel/vocabulary.yml"
 
 
@@ -228,6 +242,101 @@ def test_an_unknown_slot_is_refused() -> None:
 def test_an_accessor_refuses_the_wrong_slot(call: object, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         call()  # type: ignore[operator]
+
+
+# --- retired paths ----------------------------------------------------------------------
+
+#: Every move of the facility tree's layout: old path, new path, content slot.
+_RETIRED_MOVES = (
+    ("classes.yaml", "vocabulary/classes.yaml", False),
+    ("signals.yaml", "vocabulary/signals.yaml", False),
+    ("models.yaml", "simulation/models.yaml", False),
+    ("seeds.yaml", "simulation/seeds.yaml", False),
+    ("fixes.yaml", "provenance/fixes.yaml", False),
+    ("documents.yaml", "provenance/documents.yaml", False),
+    ("policy.yaml", "provenance/policy.yaml", False),
+    ("scenarios", "simulation/scenarios", False),
+    ("measurement", "simulation/measurement", False),
+    ("decks", "simulation/decks", False),
+    ("benchmarks/cross_paradigm/queries", "benchmarks/channel_finder", True),
+)
+
+
+def test_the_retired_moves() -> None:
+    assert retired_moves() == _RETIRED_MOVES
+
+
+def test_the_retired_deck_prefix() -> None:
+    assert retired_deck_prefix() == ("decks/", "simulation/decks/")
+
+
+def test_the_unmoved_slots_name_no_retired_path() -> None:
+    moved = {new for _, new, _ in _RETIRED_MOVES}
+    for row in slots():
+        if path(row.name) not in moved:
+            assert row.retired == (), row.name
+
+
+def _with_retired(name: str, *retired: str) -> tuple[source_tree._FacilitySlot, ...]:
+    return tuple(
+        dataclasses.replace(row, retired=retired) if row.name == name else row
+        for row in source_tree._FACILITY_SLOTS
+    )
+
+
+@pytest.mark.parametrize(
+    ("registry", "message"),
+    [
+        (_with_retired("limits", "identity.yaml"), "lies at or inside live slot 'identity'"),
+        (_with_retired("limits", "records/places.yaml"), "lies at or inside live slot"),
+        (_with_retired("limits", "classes.yaml"), "share a retired path: \\['classes.yaml'\\]"),
+        (_with_retired("limits", "limits.yaml"), "is or holds its successor"),
+        (_with_retired("ariel", "vocabulary"), "live facility slot 'classes' lies inside"),
+        (_with_retired("limits", "../limits.yaml"), "retired path '../limits.yaml' is not"),
+        (_with_retired("limits", ""), "is not relative POSIX"),
+    ],
+)
+def test_an_invalid_retired_path_is_refused(
+    registry: tuple[source_tree._FacilitySlot, ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        source_tree._check(registry)
+
+
+def test_a_retired_path_may_sit_in_its_successors_directory() -> None:
+    registry = (
+        *source_tree._FACILITY_SLOTS,
+        source_tree._FacilitySlot("shelf", "shelf", source_tree._DIRECTORY),
+        source_tree._FacilitySlot(
+            "books", "new", source_tree._DIRECTORY, "shelf", retired=("shelf/old",)
+        ),
+    )
+    source_tree._check(registry)
+
+
+def test_a_retired_path_outside_its_successors_directory_is_refused() -> None:
+    registry = (
+        *source_tree._FACILITY_SLOTS,
+        source_tree._FacilitySlot("shelf", "shelf", source_tree._DIRECTORY),
+        source_tree._FacilitySlot("books", "books", source_tree._DIRECTORY, retired=("shelf/old",)),
+    )
+    with pytest.raises(ValueError, match="lies at or inside live slot 'shelf'"):
+        source_tree._check(registry)
+
+
+def test_the_decks_slot_names_one_retired_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(source_tree, "_FACILITY_SLOTS", _with_retired("decks"))
+    with pytest.raises(ValueError, match="names 0 retired paths, not one"):
+        retired_deck_prefix()
+
+
+@pytest.mark.usefixtures("moved")
+def test_a_substitution_keeps_the_retired_paths() -> None:
+    assert tuple(old for row in slots() for old in row.retired) == tuple(
+        old for old, _, _ in _RETIRED_MOVES
+    )
+    assert slot("measurement").retired == ("measurement",)
+    assert retired_moves()[8] == ("measurement", "machine/measurement", False)
 
 
 # --- every accessor follows a rebound registry -----------------------------------------

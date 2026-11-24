@@ -59,7 +59,7 @@ def _restore_schema_after(integration_ariel_config, database_url):
 
 def _make_project(tmp_path: Path, database_url: str) -> Path:
     """Stage a sim-backed project's simulator view, pointing ARIEL at the test DB."""
-    scenarios = TEMPLATE_FACILITY / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "simulation" / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {"ariel": {"database": {"uri": database_url}}}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
@@ -218,7 +218,7 @@ def _drawn(entry_id: str) -> bytes:
     from osprey_connectors.simulation.logbook import PlotSpec
     from osprey_facility.scenarios import scenario_logbook
 
-    scenarios = TEMPLATE_FACILITY / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "simulation" / "scenarios"
     for name, scenario in facility_scenarios(scenarios).items():
         for entry in scenario_logbook({"name": name, **scenario}, scenarios / name):
             if entry.entry_id == entry_id:

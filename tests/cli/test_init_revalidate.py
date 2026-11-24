@@ -9,8 +9,9 @@ holds the five retired layer-directory files exactly as that release emitted
 them (header, no provenance block) and the logbook and knowledge context
 slots. Every other file of the repo — README, data tree, provider catalog, the
 ``channel-finder`` shared login the previous release had no word for — is the current
-exemplar's own, because the rewrite never touches it. So the gate is exact: the
-rewritten repo is the new exemplar, byte for byte.
+exemplar's own, because the rewrite never touches it; only the facility tree's
+files sit at their retired paths, which the rewrite moves. So the gate is
+exact: the rewritten repo is the new exemplar, byte for byte.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from osprey.cli.build_profile_document import (
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import RETIRED_PRESETS, _content_hash, _text_hash
+from osprey_facility import source_tree
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 from tests.fixtures.lifecycle_repo import exemplar_source_files, expand_sentinels
 
@@ -77,13 +79,29 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
+#: The exemplar's facility tree, relative to the repo.
+_FACILITY = "data/facility/"
+
+
+def _facility_spelling(rel: str, *, retired: bool) -> str:
+    """*rel* with its facility path in the retired layout, or in the current one."""
+    if not rel.startswith(_FACILITY):
+        return rel
+    inner = rel[len(_FACILITY) :]
+    for old, new, _content in source_tree.retired_moves():
+        source, target = (new, old) if retired else (old, new)
+        if inner == source or inner.startswith(f"{source}/"):
+            return _FACILITY + target + inner[len(source) :]
+    return rel
+
+
 def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
     """Lay the previous release's repo at *dest* (see the module docstring)."""
     dest.mkdir(parents=True, exist_ok=True)
     for rel, text in exemplar_source_files().items():
         if rel.startswith(_MIGRATED):
             continue
-        path = dest / rel
+        path = dest / _facility_spelling(rel, retired=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     for source in FIXTURE.rglob("*"):
@@ -144,7 +162,10 @@ _KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: a
 
 def revalidated_exemplar() -> dict[str, str]:
     """The new exemplar as the previous release's repo revalidates to it."""
-    files = exemplar_source_files()
+    files = {
+        _facility_spelling(rel, retired=False): text
+        for rel, text in exemplar_source_files().items()
+    }
     asked, allowed = _KEPT_CEILING
     assert files["profile.yml"].count(asked) == 1
     files["profile.yml"] = files["profile.yml"].replace(asked, allowed)

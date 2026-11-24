@@ -756,7 +756,7 @@ class TestRefusals:
             tool.resolve_model_request(LINE, None, render_root=render)
 
         message = raised["envelope"]["error_message"]
-        assert message.startswith(f"measurement/{LINE}.yaml states no corrector_delta")
+        assert message.startswith(f"simulation/measurement/{LINE}.yaml states no corrector_delta")
 
     def test_an_unserved_or_unknown_model_is_refused_listing_the_served(self, sr_render):
         with assert_raises_error() as raised:

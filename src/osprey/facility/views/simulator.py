@@ -64,7 +64,7 @@ scenario is one of the render's ``simulation.default_scenarios``;
 selections resolve to; a scenario named ``still`` that stills every float
 reading is listed when no file defines one. Each
 file a logbook entry's ``attachments`` names, relative to the facility's
-``scenarios/<name>/``, is copied to the same path under the view's
+``simulation/scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
 
 ``simulator_wiring`` gives one model's wiring entries: each wired address with

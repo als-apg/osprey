@@ -49,10 +49,10 @@ def test_served_decks_are_the_served_physics_models_with_a_deck(tmp_path: Path) 
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
     facility = {
         "models": [
-            {"name": "AR", "engine": "pyat", "deck": "decks/ar_lattice.mat"},
+            {"name": "AR", "engine": "pyat", "deck": "simulation/decks/ar_lattice.mat"},
             {"name": "BTS", "engine": "pyat"},
-            {"name": "LTB", "engine": "pyat", "deck": "decks/LTB.json"},
-            {"name": "SR", "engine": "pyat", "deck": "decks/SR.json"},
+            {"name": "LTB", "engine": "pyat", "deck": "simulation/decks/LTB.json"},
+            {"name": "SR", "engine": "pyat", "deck": "simulation/decks/SR.json"},
         ]
     }
     write_facility_v4(tmp_path, facility)
@@ -74,7 +74,9 @@ def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) 
     facts["models"] = [_model("SR", "pyat", True)]
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
-    facility = {"models": [{"name": "SR", "engine": "pyat", "deck": "decks/sr_lattice.mat"}]}
+    facility = {
+        "models": [{"name": "SR", "engine": "pyat", "deck": "simulation/decks/sr_lattice.mat"}]
+    }
     write_facility_v4(tmp_path, facility)
     context = config_derived_context({}, tmp_path)
     context["enabled_agents"] = {"pyat-specialist"}

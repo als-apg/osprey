@@ -122,7 +122,7 @@ CLAIM_IDS: tuple[str, ...] = ADDED_IDS["claims"]
 # Where each record kind lives in a facility tree.
 _KIND_FILES: Mapping[str, str] = MappingProxyType(
     {
-        "documents": "documents.yaml",
+        "documents": "provenance/documents.yaml",
         "places": "records/places.yaml",
         "devices": "records/devices.yaml",
         "groups": "records/groups.yaml",
@@ -191,14 +191,14 @@ def appendix_a_tree(variant: Variant = "no_policy") -> dict[str, Any]:
         raise ValueError(f"unknown Appendix A variant {variant!r}")
     added = _example_records()
     tree: dict[str, Any] = {
-        "documents.yaml": added["documents"],
+        "provenance/documents.yaml": added["documents"],
         "records/places.yaml": [*_STUB_PLACES, *added["places"]],
         "records/devices.yaml": [*_STUB_DEVICES, *added["devices"]],
         "records/groups.yaml": added["groups"],
         "records/relations.yaml": added["claims"],
     }
     if variant == "located_in_precedence":
-        tree["policy.yaml"] = POLICY
+        tree["provenance/policy.yaml"] = POLICY
     return copy.deepcopy(tree)
 
 
@@ -279,7 +279,7 @@ def example_without_appendix_a(root: Path) -> Path:
         ``root``, the written facility directory.
     """
     shutil.copytree(packaged_facility_dir(), root)
-    (root / "policy.yaml").unlink()
+    (root / "provenance" / "policy.yaml").unlink()
     for kind, ids in ADDED_IDS.items():
         path = root / _KIND_FILES[kind]
         remaining = _without(path.read_text(encoding="utf-8"), set(ids))

@@ -93,6 +93,7 @@ INVARIANT_TESTS = (
     "tests/facility/test_no_old_facility_paths.py",
     "tests/facility/test_package_boundary.py",
     "tests/facility/test_reader_coverage.py",
+    "tests/facility/test_retired_facility_spellings.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",

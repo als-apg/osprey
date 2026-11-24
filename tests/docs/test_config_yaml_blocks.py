@@ -41,7 +41,7 @@ not the ledger.
 A block that belongs to another file is recognised by its content and
 skipped (:func:`_other_file`): a Jinja template (it carries a ``{{ name`` or ``{%``);
 a list, which no config file or profile is; a mapping keyed by channel
-address whose entries are seeds, as ``seeds.yaml`` is; or a mapping whose
+address whose entries are seeds, as ``simulation/seeds.yaml`` is; or a mapping whose
 roots are all root keys of one other file and not all config or profile keys.
 Those root sets come from the files' own schemas and loaders (the facility
 schema ``facility/schema/core.yaml``, the MML mapping loader, the bluesky
@@ -393,10 +393,10 @@ def _other_file_roots() -> tuple[tuple[str, frozenset[str], frozenset[str]], ...
     return (
         ("data/facility/identity.yaml", *attributes("Identity")),
         ("data/facility/limits.yaml", *attributes("Limits")),
-        ("data/facility/measurement/<model>.yaml", *attributes("Measurement")),
-        ("a scenario under data/facility/scenarios/", *attributes("Scenario")),
+        ("data/facility/simulation/measurement/<model>.yaml", *attributes("Measurement")),
+        ("a scenario under data/facility/simulation/scenarios/", *attributes("Scenario")),
         # Read by facility/combine.py: the header and the list of fixes.
-        ("data/facility/fixes.yaml", frozenset({"schema", "fixes"}), none),
+        ("data/facility/provenance/fixes.yaml", frozenset({"schema", "fixes"}), none),
         ("the MML import mapping", _MML_TOP_REQUIRED | _MML_TOP_OPTIONAL, none),
         ("build/data/bluesky_devices.yml", frozenset(_BLUESKY_DEVICE_KEYS), none),
         ("an ARIEL vocabulary file", frozenset(vocabulary), none),
@@ -423,7 +423,7 @@ def _other_file(document: Any) -> str | None:
             ]
         )
         if all(isinstance(seed, Mapping) and set(seed) <= seed_keys for seed in document.values()):
-            return "data/facility/seeds.yaml: seeds keyed by channel address"
+            return "data/facility/simulation/seeds.yaml: seeds keyed by channel address"
         return None
     known = _sections() | _KNOWN_PROFILE_KEYS
     if all(root.split(".")[0] in known for root in roots):
@@ -632,7 +632,7 @@ def test_a_jinja_template_is_not_checked() -> None:
     [
         ("code: ca\nname: Demo\n", "data/facility/identity.yaml"),
         ("records:\n  - address: X\n", "data/facility/limits.yaml"),
-        ("SR:BEAM:CURRENT:\n  nominal: 400\n", "data/facility/seeds.yaml"),
+        ("SR:BEAM:CURRENT:\n  nominal: 400\n", "data/facility/simulation/seeds.yaml"),
         ("triggers:\n  - name: t\n", "triggers.yml"),
         ("providers:\n  local: {}\n", "providers.yml"),
         ("- id: SR\n", "a list"),

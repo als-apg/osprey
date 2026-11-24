@@ -4,7 +4,7 @@
  *
  * Progressive drill-down through hierarchy levels with multi-select
  * support on instance levels and "Build Channels" action.
- * Read-only: corrections go into data/facility/fixes.yaml and take effect with
+ * Read-only: corrections go into data/facility/provenance/fixes.yaml and take effect with
  * `osprey build`.
  */
 
@@ -43,7 +43,7 @@ export function setShowDescriptions(val) {
 export async function mountHierarchical(container) {
   container.innerHTML = `
     <div class="cf-corrections-info">
-      Corrections go in <code>data/facility/fixes.yaml</code> and take effect with <code>osprey build</code>.
+      Corrections go in <code>data/facility/provenance/fixes.yaml</code> and take effect with <code>osprey build</code>.
     </div>
     <div class="miller-container" id="miller-container">
       <div class="loading-center"><div class="loading-spinner"></div> Loading hierarchy...</div>

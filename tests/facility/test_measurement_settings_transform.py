@@ -42,7 +42,7 @@ _SOURCE = "package registry-kind-fixture"
 
 def _tree(kinds_listed: list[str] | None = None, **block: Any) -> dict[str, Any]:
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"] |= {
         "kinds": kinds_listed or [REGISTRY_KIND],
         "corrector_delta": 1.0e-5,
         "kind_blocks": {REGISTRY_KIND: {"trigger_sample": 12, **block}},
@@ -117,7 +117,7 @@ def test_the_fault_roster_reads_the_patched_settings(tmp_path, monkeypatch):
 def test_the_patch_merges_under_the_engine_beside_the_hand_written_settings(tmp_path, monkeypatch):
     install(monkeypatch)
     tree = _tree()
-    tree["models.yaml"][0]["settings"] = {"pyat": {"solve": "periodic"}}
+    tree["simulation/models.yaml"][0]["settings"] = {"pyat": {"solve": "periodic"}}
 
     document, _facility = built_document(tmp_path / "tree", tree)
 
@@ -127,12 +127,12 @@ def test_the_patch_merges_under_the_engine_beside_the_hand_written_settings(tmp_
 def test_a_patch_of_a_hand_written_setting_stops_the_build_naming_both(tmp_path, monkeypatch):
     install(monkeypatch)
     tree = _tree()
-    tree["models.yaml"][0]["settings"] = {"pyat": {"rest_mass_gev": 0.000511}}
+    tree["simulation/models.yaml"][0]["settings"] = {"pyat": {"rest_mass_gev": 0.000511}}
 
     assert _stop(tmp_path, tree) == (
         f"facility: value-invalid: model SR — kind {REGISTRY_KIND} ({_SOURCE}) sets "
-        "`settings.pyat.rest_mass_gev`, which models.yaml states by hand; fix: remove "
-        f"`settings.pyat.rest_mass_gev` from models.yaml, or remove {REGISTRY_KIND} from `kinds`"
+        "`settings.pyat.rest_mass_gev`, which simulation/models.yaml states by hand; fix: remove "
+        f"`settings.pyat.rest_mass_gev` from simulation/models.yaml, or remove {REGISTRY_KIND} from `kinds`"
     )
 
 
@@ -185,7 +185,7 @@ def test_a_block_the_kinds_schema_refuses_is_never_handed_to_the_transform(tmp_p
 
     _hooks(monkeypatch, **{REGISTRY_KIND: hook})
     tree = _tree()
-    tree["measurement/SR.yaml"]["kind_blocks"][REGISTRY_KIND] = {"trigger_sample": -1}
+    tree["simulation/measurement/SR.yaml"]["kind_blocks"][REGISTRY_KIND] = {"trigger_sample": -1}
 
     assert _stop(tmp_path, tree) == (
         f"facility: value-invalid: measurement SR — `kind_blocks.{REGISTRY_KIND}.trigger_sample: "

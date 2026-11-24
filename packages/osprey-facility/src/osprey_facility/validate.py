@@ -64,6 +64,7 @@ from osprey_facility.pairing import (
 )
 from osprey_facility.records import ChannelSelection, FacilityRecords
 from osprey_facility.relations import shape_problems
+from osprey_facility.retired import refuse_retired
 from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey_facility.sources import Sources, group_families, load_sources
 
@@ -294,7 +295,12 @@ def run_stages(
 
     Returns:
         The first failing stage and all of its errors, or a clean report.
+
+    Raises:
+        RetiredLayoutRefused: Either root still holds a source at a retired
+            path; no stage runs.
     """
+    refuse_retired(facility_dir, content_dir)
     validated = Validated(
         facility_dir,
         project_name,

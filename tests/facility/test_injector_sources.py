@@ -1,7 +1,7 @@
 """The example facility's injector records, merged from the element table.
 
 The generator's ``injector`` mode merges the storage ring's injection septa SEK
-and SEN into ``records/`` and ``seeds.yaml``. On a copy of the committed tree
+and SEN into ``records/`` and ``simulation/seeds.yaml``. On a copy of the committed tree
 with the septa removed it writes the committed records back, every other record
 byte-equal; run on the committed tree it changes nothing, so a second run changes
 nothing either. It writes no
@@ -49,6 +49,7 @@ from typing import Any
 import pytest
 
 from osprey.facility.bundled import header_line
+from osprey_facility import source_tree
 from osprey_facility.records import FacilityRecords
 from osprey_facility.sources import read_yaml
 from tests._builds import FRAMEWORK_CHECKS
@@ -58,6 +59,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = REPO_ROOT / "scripts/facility_demo/generate.py"
 RESEED = REPO_ROOT / "scripts/demo_seeds/reseed.py"
 EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
+SEEDS = source_tree.path("seeds")
+MODELS = source_tree.path("models")
 
 SEK = "SR:MAG:SEPTUM:01"
 SEN = "SR:MAG:SEPTUM:02"
@@ -95,7 +98,7 @@ RECORDS = [
     "records/channels.yaml",
     "records/groups.yaml",
 ]
-MERGED = [*RECORDS, "seeds.yaml"]
+MERGED = [*RECORDS, SEEDS]
 
 
 _ORIGIN = f"{header_line('example')}\n"
@@ -234,9 +237,9 @@ def merged(tmp_path_factory: pytest.TempPathFactory) -> Merged:
     for rel in RECORDS:
         path = tree / rel
         path.write_text(_stripped(path.read_text(encoding="utf-8")), "utf-8")
-    seeds = (tree / "seeds.yaml").read_text(encoding="utf-8")
+    seeds = (tree / SEEDS).read_text(encoding="utf-8")
     kept = [chunk for chunk in _top_level_keys(seeds) if not _is_generated(chunk.split(":\n")[0])]
-    (tree / "seeds.yaml").write_text("".join(kept), "utf-8")
+    (tree / SEEDS).write_text("".join(kept), "utf-8")
     records = {rel: (tree / rel).read_text(encoding="utf-8") for rel in RECORDS}
     limits = (tree / "limits.yaml").read_bytes()
     _run_injector(tree)
@@ -263,8 +266,8 @@ def test_the_injector_mode_writes_the_committed_records(merged: Merged) -> None:
 
 
 def test_the_injector_mode_writes_the_committed_seed_keys(merged: Merged) -> None:
-    written = read_yaml((merged.tree / "seeds.yaml").read_text(encoding="utf-8"))
-    for address, seed in _committed("seeds.yaml").items():
+    written = read_yaml((merged.tree / SEEDS).read_text(encoding="utf-8"))
+    for address, seed in _committed(SEEDS).items():
         owned = {key: seed[key] for key in ("nominal", "pulse", "gate") if key in seed}
         if _is_generated(address) and owned:
             assert written[address] == owned, address
@@ -348,7 +351,7 @@ def test_every_septum_channel_has_a_description() -> None:
 
 
 def test_no_model_wires_a_septum() -> None:
-    for model in _committed("models.yaml"):
+    for model in _committed(MODELS):
         for record in model.get("wiring", []):
             assert not str(record["address"]).startswith("SR:MAG:SEPTUM:"), model["name"]
 
@@ -357,7 +360,7 @@ def test_no_model_wires_a_septum() -> None:
 
 
 def test_every_septum_setpoint_and_on_status_carries_its_nominal() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     assert seeds[f"{SEK}:CURRENT:SP"]["nominal"] == 3000.0
     assert seeds[f"{SEN}:CURRENT:SP"]["nominal"] == 800.0
     assert seeds[f"{SEK}:STATUS:ON"]["nominal"] == "TRUE"
@@ -365,7 +368,7 @@ def test_every_septum_setpoint_and_on_status_carries_its_nominal() -> None:
 
 
 def test_the_sek_waveform_pulses_from_its_setpoint_and_on_status() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     assert seeds[f"{SEK}:CURRENT:WAVEFORM"] == {
         "pulse": {"driver": f"{SEK}:CURRENT:SP", "enable": f"{SEK}:STATUS:ON"}
     }
@@ -374,14 +377,14 @@ def test_the_sek_waveform_pulses_from_its_setpoint_and_on_status() -> None:
 def test_no_storage_ring_channel_carries_a_gate_but_the_sector_valves_closed_switches() -> None:
     gated = [
         address
-        for address, seed in _committed("seeds.yaml").items()
+        for address, seed in _committed(SEEDS).items()
         if address.startswith("SR:") and "gate" in seed
     ]
     assert gated == [f"SR:VAC:VALVE:{n:02d}:POSITION:CLOSED" for n in range(1, 25)]
 
 
 def test_the_seeds_are_what_reseed_writes() -> None:
-    assert (EXAMPLE / "seeds.yaml").read_text(encoding="utf-8") == _reseed().render()
+    assert (EXAMPLE / SEEDS).read_text(encoding="utf-8") == _reseed().render()
 
 
 def _rule_tolerance(address: str) -> float:
@@ -413,7 +416,7 @@ def test_every_septum_rule_row_names_a_source() -> None:
 
 
 def test_each_septum_readback_moves_by_its_rule_noise() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for prefix in (SEK, SEN):
         assert seeds[f"{prefix}:CURRENT:RB"]["noise"] == {"absolute": 0.1}
 
@@ -573,7 +576,7 @@ def test_no_gtl_or_ln_channel_but_a_corrector_has_a_limits_record() -> None:
 
 
 def test_every_gtl_and_ln_setpoint_carries_its_nominal() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     elements = _facility_demo("_elements")
     nominal = {
         row.demo_name: row.nominal_value()
@@ -587,14 +590,14 @@ def test_every_gtl_and_ln_setpoint_carries_its_nominal() -> None:
 
 
 def test_a_paired_gtl_or_ln_readback_follows_its_setpoint() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for channel in _standin_channels().values():
         if channel.get("role") == "setpoint":
             assert "nominal" not in seeds.get(channel["pair"], {}), channel["pair"]
 
 
 def test_the_transmitted_charge_stands_in_with_a_nominal() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     charges = [a for a in _standin_channels() if ":ICT:" in a]
     assert {a.split(":")[0] for a in charges} == set(STANDIN_SECTIONS)
     for address in charges:
@@ -602,7 +605,7 @@ def test_the_transmitted_charge_stands_in_with_a_nominal() -> None:
 
 
 def test_no_model_wires_a_gtl_or_ln_channel() -> None:
-    for model in _committed("models.yaml"):
+    for model in _committed(MODELS):
         for record in model.get("wiring", []):
             assert not _is_standin(str(record["address"])), model["name"]
 
@@ -634,15 +637,15 @@ def test_the_table_lists_correctors_and_monitors_in_parsed_beam_order(section: s
 
 
 def test_the_injector_mode_writes_the_gtl_and_ln_seed_nominals(merged: Merged) -> None:
-    written = read_yaml((merged.tree / "seeds.yaml").read_text(encoding="utf-8"))
+    written = read_yaml((merged.tree / SEEDS).read_text(encoding="utf-8"))
     for address in _standin_channels():
-        committed = _committed("seeds.yaml").get(address, {})
+        committed = _committed(SEEDS).get(address, {})
         if "nominal" in committed:
             assert written[address]["nominal"] == committed["nominal"], address
 
 
 def test_the_nominal_scenario_says_the_linac_energy_is_150_mev() -> None:
-    text = (EXAMPLE / "scenarios/nominal.yaml").read_text(encoding="utf-8")
+    text = (EXAMPLE / source_tree.keyed_file("scenarios", "nominal")).read_text(encoding="utf-8")
     assert "100 MeV" not in text
     assert "150 MeV" in text
 
@@ -758,7 +761,7 @@ def test_bts_corrector_06_follows_its_explicit_table_row() -> None:
         assert sp.wired
     assert rows["BTS:MAG:HCM:06:CURRENT:SP"].nominal_value() == 1.18
     assert rows["BTS:MAG:VCM:06:CURRENT:SP"].nominal_value() == 0.984
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for family in ("HCM", "VCM"):
         for tail in ("SP", "RB"):
             address = f"BTS:MAG:{family}:06:CURRENT:{tail}"
@@ -772,7 +775,7 @@ def test_all_paddles_out_is_an_int_with_nominal_zero_in_bts() -> None:
     assert "role" not in channel
     assert channel["on"]["device"].startswith("BTS/")
     assert _devices()[channel["on"]["device"]]["place"] == "BTS"
-    seed = _committed("seeds.yaml")[address]
+    seed = _committed(SEEDS)[address]
     assert seed["nominal"] == 0
     assert seed["gate"]["gated"] == 1
 
@@ -807,7 +810,7 @@ def test_every_ltb_and_bts_bpm_reads_millimetres_and_has_a_sum() -> None:
 
 def test_each_new_ltb_and_bts_setpoint_pairs_and_carries_its_nominal_unless_wired() -> None:
     channels = _channels()
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     nominal = {row.demo_name: row.nominal_value() for row in _transfer_rows()}
     wired = {row.demo_name for row in _transfer_rows() if row.wired}
     setpoints = {
@@ -831,7 +834,7 @@ def test_no_ltb_or_bts_channel_but_a_corrector_has_a_limits_record() -> None:
 
 
 def test_the_wired_frozen_bts_seeds_carry_no_nominal_and_keep_their_motion() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     wired = {row.demo_name for row in _transfer_rows() if row.wired}
     frozen_wired = sorted(FROZEN_BTS & wired)
     assert len(frozen_wired) == 48
@@ -876,7 +879,7 @@ def test_the_booster_kicker_is_a_kicker_with_its_voltage_pair() -> None:
     assert sp["signal"] == "voltage_setpoint" and sp["unit"] == "kV"
     assert rb["signal"] == "voltage_readback" and "role" not in rb
     assert on["signal"] == "power_on_status" and on["value_type"] == "bool"
-    assert _committed("seeds.yaml")[f"{BOOSTER_KICKER}:VOLTAGE:SP"]["nominal"] == 25.0
+    assert _committed(SEEDS)[f"{BOOSTER_KICKER}:VOLTAGE:SP"]["nominal"] == 25.0
 
 
 @pytest.mark.parametrize(
@@ -889,7 +892,7 @@ def test_the_ramp_gain_and_offset_are_writable_stand_ins_in_the_booster(
     device = _devices()[f"BR/{family}01"]
     assert device["class"] == device_class and device["place"] == "BR"
     channels = _channels()
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for field, signal, nominal in (("GAIN", "ramp_gain", 1.0), ("OFFSET", "ramp_offset", 0.0)):
         sp = channels[f"BR:MAG:{family}:01:{field}:SP"]
         rb = channels[f"BR:MAG:{family}:01:{field}:RB"]
@@ -909,7 +912,7 @@ def test_the_booster_septa_are_sen_and_sek_unwired_and_unpulsed() -> None:
     assert devices["BR/SEPTUM01"]["label"] == "SEN"
     assert devices["BR/SEPTUM02"]["label"] == "SEK"
     assert {devices[key]["class"] for key in ("BR/SEPTUM01", "BR/SEPTUM02")} == {"Septum"}
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     assert seeds["BR:MAG:SEPTUM:01:CURRENT:SP"]["nominal"] == 800.0
     assert seeds["BR:MAG:SEPTUM:02:CURRENT:SP"]["nominal"] == 3000.0
     septum = [address for address in _booster_channels() if address.startswith("BR:MAG:SEPTUM:")]
@@ -917,7 +920,7 @@ def test_the_booster_septa_are_sen_and_sek_unwired_and_unpulsed() -> None:
     for address in septum:
         assert _channels()[address].get("value_type") != "waveform", address
         assert "pulse" not in seeds.get(address, {}), address
-    for model in _committed("models.yaml"):
+    for model in _committed(MODELS):
         for record in model.get("wiring", []):
             assert not str(record["address"]).startswith("BR:MAG:SEPTUM:"), model["name"]
 
@@ -934,7 +937,7 @@ def test_the_booster_screens_are_writable_paddles_with_lamps() -> None:
 
 
 def test_every_booster_channel_has_a_description_and_only_its_lamps_carry_a_gate() -> None:
-    seeds = _committed("seeds.yaml")
+    seeds = _committed(SEEDS)
     for address, channel in _booster_channels().items():
         assert channel["description"].startswith("Booster ring "), address
         if channel.get("signal") == "lamp_status":

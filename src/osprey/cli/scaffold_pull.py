@@ -233,7 +233,10 @@ def plan_pull(
         ValueError: If ``rel_path`` names nothing pullable in this template,
             propagated from :func:`list_pullable_paths` with its list of
             top-level entries.
+        RetiredLayoutRefused: If the deployment's facility tree holds a source
+            at a retired path, whatever ``rel_path`` names.
     """
+    refuse_retired_facility(repo_root)
     candidates = [
         entry for entry in list_pullable_paths(source, rel_path) if not entry.endswith("/")
     ]
@@ -328,6 +331,29 @@ def _target_refusal(repo_root: Path, target: Path) -> str | None:
     if target.is_dir():
         return "a directory already stands where this file would go"
     return None
+
+
+def refuse_retired_facility(repo_root: Path) -> None:
+    """Stop when the deployment's facility tree holds a source at a retired path.
+
+    The roots are the ones the build reads, resolved from the profile. A
+    profile that does not resolve leaves the tree a pull writes into,
+    ``data/facility/``, as the one checked.
+
+    Raises:
+        RetiredLayoutRefused: If a checked root holds a source at a retired
+            path.
+    """
+    from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.retired import refuse_retired
+
+    from .facility_cmd import _facility_roots, _main_profile
+
+    try:
+        _facility_roots(_main_profile(repo_root)[0], repo_root)
+    except (BuildProfileError, FacilityBuildError, OSError, ValueError, RuntimeError):
+        refuse_retired(repo_root / repo_layout.child_display_path("data", "facility"))
 
 
 # ---------------------------------------------------------------------------

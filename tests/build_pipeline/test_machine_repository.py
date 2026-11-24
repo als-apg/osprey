@@ -213,15 +213,18 @@ def test_the_facility_file_is_byte_equal_standalone_and_mounted(built: dict[str,
 def test_the_decks_are_byte_equal_standalone_and_mounted(
     built: dict[str, Path], machine_source: Path
 ) -> None:
-    source = _files(machine_source / FACILITY_PATH / "decks")
+    source = _files(machine_source / FACILITY_PATH / "simulation" / "decks")
     standalone = built["standalone"] / BUILD_DIR_NAME / "data"
     simulator = _files(standalone / "simulator" / "decks")
 
     assert source and simulator
-    assert _files(standalone / "facility" / "decks") == source
+    assert _files(standalone / "facility" / "simulation" / "decks") == source
     for name, repo in built.items():
         for root in _render_roots(repo):
-            assert _files(root / "data" / "facility" / "decks") == source, (name, root)
+            assert _files(root / "data" / "facility" / "simulation" / "decks") == source, (
+                name,
+                root,
+            )
             assert _files(root / "data" / "simulator" / "decks") == simulator, (name, root)
 
 

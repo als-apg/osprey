@@ -42,7 +42,7 @@ EXPORTER = (
 TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"
 REMEDY = (
-    "move corrections into fixes.yaml and remove the record sources, "
+    "move corrections into provenance/fixes.yaml and remove the record sources, "
     "or start a new repo: osprey init <name> --preset demo"
 )
 
@@ -224,7 +224,7 @@ def test_a_record_written_by_hand_beside_the_layer_survives_a_reimport(cleared: 
     pytest.importorskip("at")
     facility = _facility(cleared)
     assert _import(cleared).exit_code == 0
-    models = facility / "models.yaml"
+    models = facility / "simulation" / "models.yaml"
     models.write_text("- name: CHAIN\n  engine: texture\n", encoding="utf-8")
     channels = facility / "records" / "channels.yaml"
     channels.parent.mkdir(exist_ok=True)
@@ -241,7 +241,7 @@ def test_a_record_written_by_hand_beside_the_layer_survives_a_reimport(cleared: 
 def test_fixes_classes_and_knowledge_never_stop_the_import(cleared: Path) -> None:
     pytest.importorskip("at")
     facility = _facility(cleared)
-    (facility / "fixes.yaml").write_text(
+    (facility / "provenance" / "fixes.yaml").write_text(
         "schema: osprey.facility.fixes/1\nfixes: []\n", encoding="utf-8"
     )
     (facility / "knowledge" / "note.md").write_text("A note.\n", encoding="utf-8")
@@ -272,7 +272,7 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
     assert first.exit_code == 0, first.output
     assert first.stdout.count("golden skipped:") == 1
     facility = _facility(cleared)
-    assert (facility / "seeds.yaml").is_file()
+    assert (facility / "simulation" / "seeds.yaml").is_file()
     seeded = [path for path in _written(first) if not path.startswith(f"data/facility/{LAYER_DIR}")]
     assert seeded
     before = _authored(facility)
@@ -281,7 +281,7 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
 
     assert second.exit_code == 0, second.output
     assert _authored(facility) == before
-    # The importer reports skipped nominals only when it seeds ``seeds.yaml``,
+    # The importer reports skipped nominals only when it seeds ``simulation/seeds.yaml``,
     # and the verb prints no seeding line of its own.
     assert "golden skipped:" not in second.stdout
     assert [path for path in _written(second) if path in seeded] == []
@@ -291,7 +291,8 @@ def test_a_second_import_leaves_the_seeded_files_byte_unchanged(cleared: Path) -
 def test_an_import_beside_a_fix_file_runs(cleared: Path) -> None:
     pytest.importorskip("at")
     assert _import(cleared).exit_code == 0
-    fixes = _facility(cleared) / "fixes.yaml"
+    fixes = _facility(cleared) / "provenance" / "fixes.yaml"
+    fixes.parent.mkdir(exist_ok=True)
     fixes.write_text("schema: osprey.facility.fixes/1\nfixes: []\n", encoding="utf-8")
 
     result = _import(cleared)
@@ -354,7 +355,7 @@ def test_a_first_import_reads_retired_header_files_as_seeded_with_one_warning(
     pytest.importorskip("at")
     facility = _facility(cleared)
     limits = facility / "limits.yaml"
-    seeds = facility / "seeds.yaml"
+    seeds = facility / "simulation" / "seeds.yaml"
     limits.write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
     seeds.write_text(f"{FORMER_HEADER}\nseeds: []\n", encoding="utf-8")
     count = len(classify(facility, TEMPLATE_ROOT).bundled)
@@ -363,7 +364,7 @@ def test_a_first_import_reads_retired_header_files_as_seeded_with_one_warning(
 
     assert result.exit_code == 0, result.output
     assert result.stderr.splitlines() == [
-        *_retired("data/facility/limits.yaml", "data/facility/seeds.yaml"),
+        *_retired("data/facility/limits.yaml", "data/facility/simulation/seeds.yaml"),
         _replaced(count),
     ]
     assert limits.read_text(encoding="utf-8") == f"{FORMER_HEADER}\nrecords: []\n"
@@ -498,7 +499,7 @@ def test_a_header_line_that_runs_on_past_the_header_is_refused(
 
 def test_the_seeded_readout_scenario_passes_a_second_import_unchanged(cleared: Path) -> None:
     pytest.importorskip("at")
-    readout = _facility(cleared) / "scenarios" / "readout.yaml"
+    readout = _facility(cleared) / "simulation" / "scenarios" / "readout.yaml"
 
     first = _import(cleared)
     assert first.exit_code == 0, first.output

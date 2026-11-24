@@ -1533,7 +1533,7 @@ def _seeded_entries() -> list[dict[str, Any]]:
     """The tutorial logbook as the list receives it, newest first, each a day apart."""
     seed = (
         Path(__file__).resolve().parents[3]
-        / "src/osprey/templates/facilities/example/scenarios/nominal.yaml"
+        / "src/osprey/templates/facilities/example/simulation/scenarios/nominal.yaml"
     )
     logbook = yaml.safe_load(seed.read_text(encoding="utf-8"))["logbook"]
     logbook = sorted(logbook, key=lambda e: e["entry_id"], reverse=True)

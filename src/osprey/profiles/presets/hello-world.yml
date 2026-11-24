@@ -288,7 +288,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/models.yaml. null
+  # Models the simulator serves, named from data/facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models: null
   # Seconds between the simulator's ticks; must be greater than 0.

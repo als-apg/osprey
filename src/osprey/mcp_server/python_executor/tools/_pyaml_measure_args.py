@@ -23,7 +23,7 @@ The checks:
   group the model lacks is refused as
   ``<kind> needs <instrument or group>, which <model> does not have``, and a
   kind whose members exist but which ``kinds`` leaves out is refused as
-  ``<kind> is not a kind measurement/<model>.yaml allows``;
+  ``<kind> is not a kind simulation/measurement/<model>.yaml allows``;
 * ``by`` is one of :data:`BYS`, taken by the kinds the table marks
   ``takes_by`` alone, ``magnet`` when omitted;
 * ``modulation`` is one of :data:`MODULATIONS`; a group is stepped once from

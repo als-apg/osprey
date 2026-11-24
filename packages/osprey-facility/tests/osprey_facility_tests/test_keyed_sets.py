@@ -70,7 +70,7 @@ _CITATIONS = [
 
 def _tree(aliases: list[Any], citations: list[Any]) -> dict[str, Any]:
     return {
-        "documents.yaml": _DOCS,
+        "provenance/documents.yaml": _DOCS,
         "records/places.yaml": [
             {"id": "SR", "scheme_names": aliases, "citations": citations},
         ],
@@ -196,7 +196,7 @@ class TestLoadRefusal:
 
 
 _LAYERED: dict[str, Any] = {
-    "documents.yaml": _DOCS,
+    "provenance/documents.yaml": _DOCS,
     "records/devices.yaml": [
         {"id": "QF1", "class": "Quadrupole", "citations": [{"document": "spec-1"}]},
     ],
@@ -245,13 +245,13 @@ class TestAcrossLayers:
             },
             "why": "The drawing states the magnet too.",
         }
-        result = _combine(tmp_path, {**_LAYERED, "fixes.yaml": _fixes(fix)})
+        result = _combine(tmp_path, {**_LAYERED, "provenance/fixes.yaml": _fixes(fix)})
         device = _device(result, "QF1")
         assert device["citations"] == [{"document": "dwg-2"}, {"document": "spec-1"}]
 
 
 _NAMED: dict[str, Any] = {
-    "documents.yaml": _DOCS,
+    "provenance/documents.yaml": _DOCS,
     "records/places.yaml": [
         {"id": "SR", "scheme_names": [{"name": "Ring", "scheme": "drawings"}]},
     ],
@@ -327,7 +327,10 @@ class TestSchemeNamesAcrossLayers:
             },
             "why": "The lattice file states the name.",
         }
-        files = {**_named([{"id": "QF1", "scheme_names": [other]}]), "fixes.yaml": _fixes(fix)}
+        files = {
+            **_named([{"id": "QF1", "scheme_names": [other]}]),
+            "provenance/fixes.yaml": _fixes(fix),
+        }
         device = _device(_combine(tmp_path, files), "QF1")
         assert device["scheme_names"] == [{"name": "QF1", "scheme": "lattice"}]
 
@@ -352,12 +355,12 @@ class TestFixValues:
             },
             "why": "Both states.",
         }
-        errors = _combine(tmp_path, {**_LAYERED, "fixes.yaml": _fixes(fix)}).errors
+        errors = _combine(tmp_path, {**_LAYERED, "provenance/fixes.yaml": _fixes(fix)}).errors
         # The refused fix resolves nothing, so the layers still conflict.
         assert sorted(e.kind for e in errors) == ["layer-conflict", "source-invalid"]
         (error,) = [e for e in errors if e.kind == "source-invalid"]
-        assert error.record_id == "fixes.yaml.fixes.0.fields.citations"
-        assert error.sources == ("fixes.yaml",)
+        assert error.record_id == "provenance/fixes.yaml.fixes.0.fields.citations"
+        assert error.sources == ("provenance/fixes.yaml",)
         assert error.detail == (
             "device QF1 `citations` states two contents for key "
             "document spec-1, no version, no locator"
@@ -378,9 +381,9 @@ class TestFixValues:
             "why": "Missing from the export.",
         }
         files = {**_LAYERED, "records/devices.yaml": [{"id": "QF1", "class": "Quadrupole"}]}
-        error = _one(_combine(tmp_path, {**files, "fixes.yaml": _fixes(fix)}).errors)
+        error = _one(_combine(tmp_path, {**files, "provenance/fixes.yaml": _fixes(fix)}).errors)
         assert error.kind == "source-invalid"
-        assert error.record_id == "fixes.yaml.fixes.0.record.scheme_names"
+        assert error.record_id == "provenance/fixes.yaml.fixes.0.record.scheme_names"
         assert error.detail == (
             "device QF9 `scheme_names` states two contents for key name QF9, scheme lattice"
         )
@@ -398,7 +401,7 @@ class TestTotality:
 
     def _device_yaml(self, citations: str) -> dict[str, Any]:
         return {
-            "documents.yaml": _DOCS,
+            "provenance/documents.yaml": _DOCS,
             "records/devices.yaml": ("- id: QF1\n  class: Quadrupole\n  citations:\n" + citations),
         }
 
@@ -432,7 +435,7 @@ class TestNullKeyFields:
             "imported/mml/devices.yaml": [
                 {"id": "QF1", "class": "Quadrupole", "citations": citations}
             ],
-            "documents.yaml": _DOCS,
+            "provenance/documents.yaml": _DOCS,
         }
         assert _load_errors(tmp_path / "a", files) == []
         device = _device(_combine(tmp_path / "b", files), "QF1")
@@ -465,7 +468,7 @@ _DATED = (
 
 class TestImportedDates:
     def test_a_date_and_the_equal_string_are_one_citation(self, tmp_path: Path) -> None:
-        files = {"documents.yaml": _DOCS, "imported/mml/devices.yaml": _DATED}
+        files = {"provenance/documents.yaml": _DOCS, "imported/mml/devices.yaml": _DATED}
         assert _load_errors(tmp_path / "a", files) == []
         device = _device(_combine(tmp_path / "b", files), "QF1")
         assert device["citations"] == [{"document": "spec-1", "imported": "2026-03-04"}]
@@ -476,7 +479,7 @@ class TestImportedDates:
 
     def test_a_place_citation_date_is_text(self, tmp_path: Path) -> None:
         files = {
-            "documents.yaml": _DOCS,
+            "provenance/documents.yaml": _DOCS,
             "records/places.yaml": (
                 "- id: SR\n  citations:\n  - {document: spec-1, imported: 2026-03-04}\n"
             ),
@@ -486,7 +489,9 @@ class TestImportedDates:
 
     def test_an_unquoted_date_builds_facility_bytes(self, tmp_path: Path) -> None:
         dated = build_facility(
-            _write(tmp_path / "a", {"documents.yaml": _DOCS, "records/devices.yaml": _DATED}),
+            _write(
+                tmp_path / "a", {"provenance/documents.yaml": _DOCS, "records/devices.yaml": _DATED}
+            ),
             project_name="p",
             extra_checks=NO_EXTRA_CHECKS,
         )
@@ -494,7 +499,7 @@ class TestImportedDates:
             _write(
                 tmp_path / "b",
                 {
-                    "documents.yaml": _DOCS,
+                    "provenance/documents.yaml": _DOCS,
                     "records/devices.yaml": _DATED.replace(
                         "imported: 2026-03-04", "imported: '2026-03-04'"
                     ),
@@ -526,7 +531,7 @@ class TestImportedDates:
             "      mml: [{document: dwg-2}, {document: spec-1}]\n"
             "  why: The import date is known.\n"
         )
-        device = _device(_combine(tmp_path, {**_LAYERED, "fixes.yaml": fixes}), "QF1")
+        device = _device(_combine(tmp_path, {**_LAYERED, "provenance/fixes.yaml": fixes}), "QF1")
         assert device["citations"] == [
             {"document": "dwg-2"},
             {"document": "spec-1", "imported": "2026-03-04"},
@@ -546,9 +551,9 @@ class TestImportedDates:
             "  why: Missing from the export.\n"
         )
         files = {
-            "documents.yaml": _DOCS,
+            "provenance/documents.yaml": _DOCS,
             "records/devices.yaml": [{"id": "QF1", "class": "Quadrupole"}],
-            "fixes.yaml": fixes,
+            "provenance/fixes.yaml": fixes,
         }
         device = _device(_combine(tmp_path, files), "QF9")
         assert device["citations"] == [{"document": "spec-1", "imported": "2026-03-04"}]

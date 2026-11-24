@@ -1706,7 +1706,9 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
         result = revalidate_repo(target, preset=preset)
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
-    if not result.changed:
+    if not result.changed and result.manual_steps:
+        output.report(f"{target}: nothing to rewrite here; the steps below are left to you.")
+    elif not result.changed:
         output.report(f"{target}: already current; nothing to rewrite.")
     else:
         click.echo(result.diff, nl=False)

@@ -336,7 +336,7 @@ def test_the_frozen_bts_channels_are_rows() -> None:
 
 
 def test_nominals_agree_with_the_committed_seeds() -> None:
-    seeds = read_yaml((EXAMPLE / "seeds.yaml").read_text(encoding="utf-8"))
+    seeds = read_yaml((EXAMPLE / "simulation" / "seeds.yaml").read_text(encoding="utf-8"))
     for row in ROWS:
         seed = seeds.get(row.demo_name) or {}
         if "nominal" not in seed:

@@ -43,7 +43,7 @@ from osprey_facility.sessions import parse_sessions, resolve
 from tests._builds import FRAMEWORK_CHECKS
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"
+SCENARIO_FILE = TEMPLATE_FACILITY / "simulation" / "scenarios" / "demo-history.yaml"
 VIEW_CONFIG: dict[str, Any] = {"control_system": {"type": "virtual_accelerator"}}
 
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"

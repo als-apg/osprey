@@ -1,7 +1,7 @@
 """The pyAML view: one pyAML configuration per measured model.
 
 Written to ``<render>/data/pyaml/<model>/`` for every model the render serves
-that names a deck and has a ``measurement/<model>.yaml``::
+that names a deck and has a ``simulation/measurement/<model>.yaml``::
 
     configuration.yaml   the pyAML accelerator: its design simulator, the
                          ``live`` OSPREY control system, one device per magnet,

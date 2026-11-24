@@ -76,7 +76,7 @@ monitor type, zero length, bound by no family, and served as plain markers.
 | `SQ` | 4 | A skew quadrupole on the same elements as `SF`: one element, two lattice fields. |
 | `HC` | 4 | The sliced kick family. Its `at_index` is 4×2 with one `"NaN"` — cell 4 has one element where the others have two, so that device has one slice and the rest have two. Its first device is set above its `Range`, so that device is sampled over its band stretched up to its nominal while the other three are sampled over the band itself: one field whose rows are not all the same span. Its conversion bends, so both fields are tables, and their grid rows record the stretched device's span (-1, 1.5) beside the others' (-1, 1). `grid_source` is still `range`, because every device had a band to stretch. |
 | `VC` | 4 | The vertical plane on the same corrector elements, with a `Range` that holds every one of its nominals, so no band is stretched (`grid_source` `range`). |
-| `BPMx` | 4 | A monitor-only family with a `Range`, so its `monitor_inverse` is sampled over the Monitor's own image (`grid_source` `range`). Its stated readout is on the export's contract: each device's `Gain` and `Offset` are inside its conversion, so `monitor_inverse` holds the offset (the import serves it there) and its `Roll` is seeded into `scenarios/readout.yaml`. |
+| `BPMx` | 4 | A monitor-only family with a `Range`, so its `monitor_inverse` is sampled over the Monitor's own image (`grid_source` `range`). Its stated readout is on the export's contract: each device's `Gain` and `Offset` are inside its conversion, so `monitor_inverse` holds the offset (the import serves it there) and its `Roll` is seeded into `simulation/scenarios/readout.yaml`. |
 | `BPMy` | 4 | A monitor-only family with no `Range`: the calibration falls back to a grid about the nominal, and the inverse to the ±10 mm beam-position span (`grid_source` `fallback`). Its stated `Gain` is deliberately not in its conversion — the fixture for the import's `readout not carried` line. |
 | `BEND` | 4 | The energy candidate with a knob. Its conversion is a measured ramp that stops at 500 A, so the Setpoint calibration is a **table** with a `"NaN"` tail and a `finite_span` shorter than its grid, and so is the energy table. |
 | `BDM` | 2 | A bend trim: the same elements and the same `ATType` as `BEND`, but `MemberOf` names `COR`, so it is not an energy candidate. Its `Range` is per device with one non-finite row: the first device is sampled over its band, the second over the fallback grid about its nominal, so the field's `grid_source` is `fallback`. |
@@ -96,7 +96,7 @@ and `energy_scaling` `brho`/`none`.
 
 `BPMx` states a per-device `Gain` and `Offset` that its conversion holds, the
 export's contract, so the import serves the offset in `monitor_inverse`, seeds
-the `Roll` into `scenarios/readout.yaml` and names only what it cannot check or
+the `Roll` into `simulation/scenarios/readout.yaml` and names only what it cannot check or
 carry: `import mml: readout not carried: SR: family BPMx (crunch, gain)`. `BPMy`
 states a `Gain` its conversion does not hold, so the import names it beside the
 rotation it does not carry: `import mml: readout not carried: SR: family BPMy (crunch, gain, roll)`.

@@ -172,7 +172,7 @@ def osprey(*args: str) -> str:
 
 def set_measurement(repo: Path, model: str, **changes: Any) -> None:
     """Edit one model's measurement file in the deployment, as an operator does."""
-    path = repo / "data" / "facility" / "measurement" / f"{model}.yaml"
+    path = repo / "data" / "facility" / "simulation" / "measurement" / f"{model}.yaml"
     document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     document.update(changes)
     path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")

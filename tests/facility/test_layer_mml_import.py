@@ -45,11 +45,11 @@ TREES: dict[str, tuple[str, ...]] = {
 
 #: The authored files the spear3 import seeds beside the layer's records.
 SEEDED = (
-    "classes.yaml",
+    "vocabulary/classes.yaml",
     "identity.yaml",
     "limits.yaml",
-    "measurement/StorageRing.yaml",
-    "seeds.yaml",
+    "simulation/measurement/StorageRing.yaml",
+    "simulation/seeds.yaml",
 )
 
 _LTB_TWISS = {

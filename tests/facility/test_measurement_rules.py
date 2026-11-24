@@ -130,7 +130,7 @@ def test_a_setpoint_shared_by_two_members_is_listed_once(tmp_path: Path) -> None
     tree = measured_tree()
     channels = tree["records/channels.yaml"]
     channels.append({"id": "Q:FAMILY:SP", "role": "setpoint", "endpoint_of": ["SR/QF", "SR/QD"]})
-    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (sr,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr["wiring"].append(
         {
             "address": "Q:FAMILY:SP",
@@ -207,7 +207,7 @@ def test_the_spear3_correctors_keep_their_planes_apart(
 
 def test_a_file_naming_a_missing_group_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["hcor"] = "LINE/NONE"
+    tree["simulation/measurement/LINE.yaml"]["groups"]["hcor"] = "LINE/NONE"
     stop = _stop(tmp_path, tree)
     assert (stop.kind, stop.record_kind, stop.record_id) == (
         "reference-missing",
@@ -219,7 +219,7 @@ def test_a_file_naming_a_missing_group_stops(tmp_path: Path) -> None:
 
 def test_a_kind_whose_member_the_file_does_not_name_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    del tree["measurement/LINE.yaml"]["groups"]["vcor"]
+    del tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"]
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: reference-missing: measurement LINE — kind orm needs `groups.vcor`, which "
@@ -230,8 +230,8 @@ def test_a_kind_whose_member_the_file_does_not_name_stops(tmp_path: Path) -> Non
 def test_a_group_the_model_does_not_wire_stops(tmp_path: Path) -> None:
     """LINE/HCM's corrector is steered in x only once its y setpoint is unwired from vcor."""
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
-    (line,) = [model for model in tree["models.yaml"] if model["name"] == "LINE"]
+    tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    (line,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "LINE"]
     line["wiring"] = [w for w in line["wiring"] if w["address"] != "LCOR:V:SP"]
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
@@ -244,7 +244,7 @@ def test_a_group_the_model_does_not_wire_stops(tmp_path: Path) -> None:
 def test_an_instrument_the_model_does_not_wire_stops(tmp_path: Path) -> None:
     tree = measured_tree()
     tree["records/channels.yaml"].append({"id": "SR:TUNE:S", "on": {"place": "SR"}})
-    tree["measurement/SR.yaml"]["instruments"]["tune"] = "SR:TUNE:S"
+    tree["simulation/measurement/SR.yaml"]["instruments"]["tune"] = "SR:TUNE:S"
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: reference-missing: measurement SR — kind trm needs `instruments.tune`; "
@@ -255,7 +255,7 @@ def test_an_instrument_the_model_does_not_wire_stops(tmp_path: Path) -> None:
 
 def test_a_tune_reading_no_other_plane_reading_pairs_with_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (sr,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr["wiring"] = [entry for entry in sr["wiring"] if entry["address"] != "SR:TUNE:Y"]
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
@@ -273,12 +273,12 @@ def _with_sextupole_group(tree: dict[str, Any]) -> dict[str, Any]:
         {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
     )
     tree["records/groups.yaml"].append({"id": "SR/S", "members": ["SR/SX"]})
-    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (sr,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr["wiring"].append(
         {"address": "SX:SP", "element": "SX", "engine": {"attribute": "PolynomB", "index": 2}}
     )
-    tree["measurement/SR.yaml"] |= {"kinds": ["crm"], "sextu_delta": 0.01}
-    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
+    tree["simulation/measurement/SR.yaml"] |= {"kinds": ["crm"], "sextu_delta": 0.01}
+    tree["simulation/measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
     return tree
 
 
@@ -293,7 +293,7 @@ def test_a_crm_file_without_rf_stops_naming_it(tmp_path: Path) -> None:
 
 def test_a_crm_file_without_tune_stops_naming_it(tmp_path: Path) -> None:
     tree = with_rf(_with_sextupole_group(measured_tree()))
-    del tree["measurement/SR.yaml"]["instruments"]["tune"]
+    del tree["simulation/measurement/SR.yaml"]["instruments"]["tune"]
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: reference-missing: measurement SR — kind crm needs `instruments.tune`, "
@@ -308,7 +308,7 @@ def test_a_crm_file_with_sext_tune_and_rf_builds(tmp_path: Path) -> None:
 
 def test_a_kind_other_than_orm_on_a_single_pass_model_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    tree["measurement/LINE.yaml"] |= {"kinds": ["orm", "trm"], "quad_delta": 0.001}
+    tree["simulation/measurement/LINE.yaml"] |= {"kinds": ["orm", "trm"], "quad_delta": 0.001}
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
@@ -319,7 +319,7 @@ def test_a_kind_other_than_orm_on_a_single_pass_model_stops(tmp_path: Path) -> N
 
 def test_a_step_key_the_kind_needs_missing_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    del tree["measurement/LINE.yaml"]["corrector_delta"]
+    del tree["simulation/measurement/LINE.yaml"]["corrector_delta"]
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: value-invalid: measurement LINE — kind orm needs `corrector_delta`, which "
@@ -332,7 +332,7 @@ def test_one_group_named_by_two_roles_other_than_the_corrector_planes_stops(
 ) -> None:
     """A quadrupole array and a sextupole array cannot hold the same magnets."""
     tree = with_rf(_with_sextupole_group(measured_tree()))
-    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/Q"
+    tree["simulation/measurement/SR.yaml"]["groups"]["sext"] = "SR/Q"
     stop = _stop(tmp_path, tree)
     assert str(stop.format_message()) == (
         "facility: value-invalid: measurement SR — `groups.quad` and `groups.sext` both name "
@@ -343,7 +343,7 @@ def test_one_group_named_by_two_roles_other_than_the_corrector_planes_stops(
 
 def test_a_group_named_by_one_role_and_inside_another_roles_list_stops(tmp_path: Path) -> None:
     tree = with_rf(_with_sextupole_group(_with_family_groups(measured_tree())))
-    tree["measurement/SR.yaml"]["groups"]["sext"] = ["SR/S", "SR/Q"]
+    tree["simulation/measurement/SR.yaml"]["groups"]["sext"] = ["SR/S", "SR/Q"]
     stop = _stop(tmp_path, tree)
     assert (stop.kind, stop.record_id) == ("value-invalid", "SR")
     assert stop.detail == "`groups.quad` and `groups.sext` both name group SR/Q"
@@ -359,14 +359,14 @@ def test_a_role_naming_one_group_builds_to_a_list_of_one(tmp_path: Path) -> None
 
 def test_a_role_naming_several_groups_builds_to_them_sorted(tmp_path: Path) -> None:
     tree = _with_family_groups(measured_tree())
-    tree["measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
+    tree["simulation/measurement/SR.yaml"]["groups"]["quad"] = ["SR/QF", "SR/QD"]
     document, _ = built_document(tmp_path, tree)
     assert _model(document, "SR")["measurement"]["groups"]["quad"] == ["SR/QD", "SR/QF"]
 
 
 def test_a_role_naming_neither_text_nor_a_list_of_text_stops(tmp_path: Path) -> None:
     tree = measured_tree()
-    tree["measurement/SR.yaml"]["groups"]["quad"] = 5
+    tree["simulation/measurement/SR.yaml"]["groups"]["quad"] = 5
     stop = _stop(tmp_path, tree)
     assert stop.kind == "source-invalid"
     assert stop.record_id.endswith("measurement.groups.quad")
@@ -377,7 +377,7 @@ def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
 ) -> None:
     """``hcor`` stands for the group's x-plane setpoints and ``vcor`` for its y-plane ones."""
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     document, _ = built_document(tmp_path, tree)
     assert _model(document, "LINE")["measurement"]["groups"]["vcor"] == ["LINE/HCM"]
     groups = measurement_groups(FacilityRecords(document), "LINE")
@@ -387,7 +387,7 @@ def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
 
 def test_a_kind_is_carried_into_the_facility_file_as_authored(tmp_path: Path) -> None:
     tree = measured_tree()
-    tree["measurement/SR.yaml"]["kinds"] = ["trm"]
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["trm"]
     document, _ = built_document(tmp_path, tree)
     assert _model(document, "SR")["measurement"]["kinds"] == ["trm"]
     assert _model(document, "SR")["measurement"]["quad_delta"] == 0.001

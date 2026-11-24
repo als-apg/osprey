@@ -2494,7 +2494,7 @@ keys:
       The benchmarks facility view writes the mode's query file to
       dataset_path; a facility that ships no query sources gets none. No preset
       states it: the build states data/benchmarks/queries.json when the
-      facility ships data/facility/benchmarks/cross_paradigm/queries/, a stated
+      facility ships data/facility/benchmarks/channel_finder/, a stated
       value is the location, and a stated value for a facility with no query
       sources is refused at build.
     default: {}

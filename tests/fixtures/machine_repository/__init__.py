@@ -101,7 +101,7 @@ def make_machine_repository(top: Path) -> Path:
             else []
         ),
     )
-    scenario = facility / "scenarios" / f"{MARKED_SCENARIO}.yaml"
+    scenario = facility / "simulation" / "scenarios" / f"{MARKED_SCENARIO}.yaml"
     scenario.write_text(
         scenario.read_text(encoding="utf-8").rstrip("\n") + "\nstart: true\n", encoding="utf-8"
     )

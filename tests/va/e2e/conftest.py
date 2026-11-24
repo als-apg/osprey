@@ -270,11 +270,11 @@ def stage_demo_data_dir(root: Path) -> Path:
                 {KICK_CORRECTOR: KICK_CURRENT},
             ),
         ):
-            (facility / "scenarios" / f"{name}.yaml").write_text(
+            (facility / "simulation" / "scenarios" / f"{name}.yaml").write_text(
                 yaml.safe_dump({"description": description, "overrides": overrides}),
                 encoding="utf-8",
             )
-        (facility / "scenarios" / f"{SEEDED_READOUT_SCENARIO_NAME}.yaml").write_text(
+        (facility / "simulation" / "scenarios" / f"{SEEDED_READOUT_SCENARIO_NAME}.yaml").write_text(
             yaml.safe_dump(
                 {
                     "description": "e2e-only synthetic scenario: one monitor's readout offset "
@@ -293,7 +293,7 @@ def stage_demo_data_dir(root: Path) -> Path:
             encoding="utf-8",
         )
         monitors = _monitor_addresses(facility)
-        (facility / "scenarios" / f"{STILL_MONITORS_SCENARIO_NAME}.yaml").write_text(
+        (facility / "simulation" / "scenarios" / f"{STILL_MONITORS_SCENARIO_NAME}.yaml").write_text(
             yaml.safe_dump(
                 {
                     "description": "e2e-only synthetic scenario: every monitor reading serves "
@@ -315,7 +315,7 @@ def stage_demo_data_dir(root: Path) -> Path:
                     ]
                 )
             )
-        with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
+        with (facility / "simulation" / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump({STRING_CHANNEL: {"nominal": STRING_NOMINAL}}))
         _, view = _render_view(facility, root)
     served_lane = lane_selection(view)
@@ -337,7 +337,7 @@ def stage_demo_data_dir(root: Path) -> Path:
 def _monitor_addresses(facility: Path) -> list[str]:
     """The monitor readings the facility's models wire, sorted.
 
-    A monitor reading is an address whose wiring record in ``models.yaml``
+    A monitor reading is an address whose wiring record in ``simulation/models.yaml``
     the model's engine describes as a ``monitor``, or as an ``output`` of one
     plane (a tune or a chromaticity). The source states no direction, so each
     record is described as a reading; a setting record then describes as its
@@ -348,7 +348,9 @@ def _monitor_addresses(facility: Path) -> list[str]:
     from osprey_connectors.simulation.engines import ENGINE_GROUP
     from osprey_facility import TEXTURE
 
-    models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
+    models = (
+        yaml.safe_load((facility / "simulation" / "models.yaml").read_text(encoding="utf-8")) or []
+    )
     monitors: set[str] = set()
     for model in models:
         if model.get("engine") == TEXTURE or not model.get("wiring"):

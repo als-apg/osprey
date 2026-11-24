@@ -117,11 +117,11 @@ class TestProjects:
             {**_located("ps1-spec", "PS1", "HALL/RK1"), "source": {"document": "spec-1"}},
             {**_located("ps1-dwg", "PS1", "HALL/RK2"), "source": {"document": "dwg-1"}},
             **{
-                "documents.yaml": [
+                "provenance/documents.yaml": [
                     {"id": "spec-1", "title": "Rack layout", "kind": "spec"},
                     {"id": "dwg-1", "title": "Cable schedule", "kind": "drawing"},
                 ],
-                "policy.yaml": {
+                "provenance/policy.yaml": {
                     "schema": "osprey.facility.policy/1",
                     "relations": {"precedence": {"located_in": ["spec", "drawing"]}},
                 },
@@ -242,7 +242,7 @@ class TestStatedPlacesWin:
             _located("ps1-rk1", "PS1", "HALL/RK1"),
             **{
                 "imported/mml/devices.yaml": [{"id": "PS1", "place": "HALL/RK2"}],
-                "fixes.yaml": {
+                "provenance/fixes.yaml": {
                     "schema": "osprey.facility.fixes/1",
                     "fixes": [
                         {

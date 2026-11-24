@@ -66,7 +66,7 @@ class TestResolves:
             tmp_path,
             _tree(
                 **{
-                    "documents.yaml": _DOCS,
+                    "provenance/documents.yaml": _DOCS,
                     "records/relations.yaml": [
                         _claim("q1-power", source={"document": "spec-1"}),
                         {
@@ -157,7 +157,7 @@ class TestClaimEnds:
         }
         (error,) = check_references(loaded.sources, combined)
         assert (error.record_kind, error.record_id) == ("relation", "q1-power")
-        assert error.sources == ("records/relations.yaml", "fixes.yaml")
+        assert error.sources == ("records/relations.yaml", "provenance/fixes.yaml")
         assert error.detail == (
             "records/relations.yaml `object.device` names device Q1-PS, "
             "dropped by fix drop device Q1-PS: decommissioned"
@@ -195,7 +195,7 @@ class TestCitations:
     def test_claim_source_names_no_document(self, tmp_path: Path) -> None:
         files = _tree(
             **{
-                "documents.yaml": _DOCS,
+                "provenance/documents.yaml": _DOCS,
                 "records/relations.yaml": [_claim("q1-power", source={"document": "spec-9"})],
             }
         )
@@ -212,7 +212,7 @@ class TestCitations:
         assert error.remedy == "add document spec-9 or correct `source.document`"
 
     def test_device_citation_names_no_document(self, tmp_path: Path) -> None:
-        files = _tree(**{"documents.yaml": _DOCS})
+        files = _tree(**{"provenance/documents.yaml": _DOCS})
         files["records/devices.yaml"][1]["citations"] = [
             {"document": "spec-1"},
             {"document": "dwg-9", "locator": "sheet 3"},
@@ -225,7 +225,7 @@ class TestCitations:
         )
 
     def test_place_citation_names_no_document(self, tmp_path: Path) -> None:
-        files = _tree(**{"documents.yaml": _DOCS})
+        files = _tree(**{"provenance/documents.yaml": _DOCS})
         files["records/places.yaml"] = [
             {"id": "SR", "citations": [{"document": "dwg-9"}]},
             {"id": "SR/S01"},
@@ -238,7 +238,7 @@ class TestCitations:
         )
 
     def test_device_scheme_name_source_names_no_document(self, tmp_path: Path) -> None:
-        files = _tree(**{"documents.yaml": _DOCS})
+        files = _tree(**{"provenance/documents.yaml": _DOCS})
         files["records/devices.yaml"][1]["scheme_names"] = [
             {"name": "QF1", "scheme": "lattice", "source": {"document": "spec-1"}},
             {"name": "SR01C:QF1", "scheme": "controls", "source": {"document": "dwg-9"}},
@@ -251,7 +251,7 @@ class TestCitations:
         )
 
     def test_place_scheme_name_source_names_no_document(self, tmp_path: Path) -> None:
-        files = _tree(**{"documents.yaml": _DOCS})
+        files = _tree(**{"provenance/documents.yaml": _DOCS})
         files["records/places.yaml"] = [
             {
                 "id": "SR",
@@ -368,10 +368,10 @@ class TestShape:
         tree = _tree(
             **{
                 "imported/mml/relations.yaml": [_claim("a")],
-                "fixes.yaml": {"schema": "osprey.facility.fixes/1", "fixes": [fix]},
+                "provenance/fixes.yaml": {"schema": "osprey.facility.fixes/1", "fixes": [fix]},
             }
         )
         report = _run(tmp_path, tree)
         assert report.failed == "records", [e.format_message() for e in report.errors]
         (error,) = report.errors
-        assert error.sources == ("fixes.yaml",)
+        assert error.sources == ("provenance/fixes.yaml",)

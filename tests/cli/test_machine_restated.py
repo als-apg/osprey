@@ -99,7 +99,7 @@ def test_empty_restated_directory_passes(roots: FacilityRoots) -> None:
 
 
 def test_first_offender_is_deterministic(roots: FacilityRoots) -> None:
-    _write(roots.content / "scenarios" / "b.yaml")
+    _write(roots.content / "simulation" / "scenarios" / "b.yaml")
     _write(roots.content / "classes" / "a.yaml")
     _write(roots.content / "limits.yaml")
 

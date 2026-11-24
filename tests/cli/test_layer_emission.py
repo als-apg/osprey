@@ -608,7 +608,7 @@ def test_data_copy_ignore_drops_only_the_named_subtree(tmp_path: Path) -> None:
     from osprey.cli.profile_cmd import _data_copy_ignore
 
     source = tmp_path / "src"
-    for rel in ("benchmarks/results", "benchmarks/cross_paradigm", "results", "raw/results"):
+    for rel in ("benchmarks/results", "benchmarks/channel_finder", "results", "raw/results"):
         (source / rel).mkdir(parents=True)
         (source / rel / "f.txt").write_text("x", encoding="utf-8")
 
@@ -616,7 +616,7 @@ def test_data_copy_ignore_drops_only_the_named_subtree(tmp_path: Path) -> None:
 
     dst = tmp_path / "dst"
     assert not (dst / "benchmarks" / "results").exists()
-    assert (dst / "benchmarks" / "cross_paradigm" / "f.txt").is_file()
+    assert (dst / "benchmarks" / "channel_finder" / "f.txt").is_file()
     assert (dst / "results" / "f.txt").is_file()
     assert (dst / "raw" / "results" / "f.txt").is_file()
 
@@ -648,4 +648,4 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
 
     assert not (target / "data" / "benchmarks" / "results").exists()
     # The sibling staging dir the bundle really ships still comes across.
-    assert (target / "data" / "facility" / "benchmarks" / "cross_paradigm").is_dir()
+    assert (target / "data" / "facility" / "benchmarks" / "channel_finder").is_dir()

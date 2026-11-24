@@ -12,15 +12,15 @@ machine repository.
 
 | Path | Written by | This skill |
 | --- | --- | --- |
-| `fixes.yaml` | The maintainer's decisions about records | Writes confirmed rulings |
-| `policy.yaml` | The maintainer's ranking rules | Writes confirmed rulings |
-| `records/*.yaml`, `documents.yaml`, `classes.yaml`, `signals.yaml`, `models.yaml`, `limits.yaml`, `seeds.yaml`, `measurement/`, `scenarios/`, `knowledge/` | Hand-written (layer `authored`) | Proposes a diff, edits after approval |
+| `provenance/fixes.yaml` | The maintainer's decisions about records | Writes confirmed rulings |
+| `provenance/policy.yaml` | The maintainer's ranking rules | Writes confirmed rulings |
+| `records/*.yaml`, `provenance/documents.yaml`, `vocabulary/classes.yaml`, `vocabulary/signals.yaml`, `simulation/models.yaml`, `limits.yaml`, `simulation/seeds.yaml`, `simulation/measurement/`, `simulation/scenarios/`, `knowledge/` | Hand-written (layer `authored`) | Proposes a diff, edits after approval |
 | `imported/<layer>/` | `osprey facility import`, replaced whole on each import | Reads only |
 
 The files under `imported/<layer>/` include byte copies of the tables an import was
 given. They are the evidence for what the source said on the day of the import.
 
-## fixes.yaml
+## provenance/fixes.yaml
 
 One decision per record: change it, add it, or drop it.
 
@@ -76,7 +76,7 @@ related fixes together if the file is already organised that way.
 written against, the build stops with `fix-stale` and the ruling is looked at again by a
 person. Writing a `was` that does not reflect the sources defeats that.
 
-## policy.yaml
+## provenance/policy.yaml
 
 Rules for ranking relation claims that disagree. It changes no record; its whole effect
 is the `standing` and `contests` the build computes for each claim.
@@ -97,9 +97,9 @@ relations:
 - `stated_over_inferred`: when true (the default once a policy exists), a stated claim
   outranks an inferred one of the same document rank.
 
-Every listed kind has to be the `kind` of a document declared in `documents.yaml`, and a
+Every listed kind has to be the `kind` of a document declared in `provenance/documents.yaml`, and a
 list holds each kind once. Anything else stops the build with `source-invalid` at
-`policy.yaml.relations.precedence.<key>`.
+`provenance/policy.yaml.relations.precedence.<key>`.
 
 ### How standing is computed
 
@@ -132,7 +132,7 @@ Consequences worth checking before proposing a precedence:
 - A superseded claim stays in the facility file with its standing. Nothing is deleted
   by policy.
 
-## documents.yaml
+## provenance/documents.yaml
 
 The documents claims cite. Authored, so changes go by diff.
 

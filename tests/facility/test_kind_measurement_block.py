@@ -112,7 +112,7 @@ def turn_kind(monkeypatch: pytest.MonkeyPatch) -> None:
 def _tree(**sr: Any) -> dict[str, Any]:
     """SR with correctors and the RF; its file lists the kind and names its roles."""
     tree = with_correctors(with_rf(measured_tree()))
-    measurement = tree["measurement/SR.yaml"]
+    measurement = tree["simulation/measurement/SR.yaml"]
     measurement["kinds"] = [KIND]
     measurement["groups"] |= {"turn_bpm": "SR/BPM", "kick": "SR/Q"}
     measurement["instruments"] |= {"inject": "SR:TUNE:Y"}
@@ -214,7 +214,7 @@ def test_a_role_no_listed_kind_declares_stops_the_build(tmp_path):
 @_with_kind
 def test_a_role_named_in_the_other_map_stops_the_build(tmp_path):
     tree = _tree()
-    tree["measurement/SR.yaml"]["groups"]["status"] = "SR/BPM"
+    tree["simulation/measurement/SR.yaml"]["groups"]["status"] = "SR/BPM"
 
     assert _stop(tmp_path, tree) == (
         "facility: value-invalid: measurement SR — `groups.status` names a role whose kind "
@@ -225,7 +225,7 @@ def test_a_role_named_in_the_other_map_stops_the_build(tmp_path):
 @_with_kind
 def test_a_wired_monitor_role_holding_no_monitor_stops_the_build(tmp_path):
     tree = _tree()
-    tree["measurement/SR.yaml"]["groups"]["turn_bpm"] = "SR/Q"
+    tree["simulation/measurement/SR.yaml"]["groups"]["turn_bpm"] = "SR/Q"
 
     assert _stop(tmp_path, tree) == (
         f"facility: reference-missing: measurement SR — kind {KIND} needs `groups.turn_bpm`; "
@@ -237,11 +237,11 @@ def test_a_wired_monitor_role_holding_no_monitor_stops_the_build(tmp_path):
 @_with_kind
 def test_an_instrument_named_as_a_list_stops_the_build(tmp_path):
     tree = _tree()
-    tree["measurement/SR.yaml"]["instruments"]["inject"] = ["SR:TUNE:Y"]
+    tree["simulation/measurement/SR.yaml"]["instruments"]["inject"] = ["SR:TUNE:Y"]
 
     assert _stop(tmp_path, tree) == (
         "facility: source-invalid: path models.1.measurement.instruments.inject — "
-        "measurement/SR.yaml `instruments.inject` is not a channel address; fix: write `instruments.inject` in measurement/SR.yaml "
+        "simulation/measurement/SR.yaml `instruments.inject` is not a channel address; fix: write `instruments.inject` in simulation/measurement/SR.yaml "
         "as a channel address"
     )
 
@@ -336,7 +336,7 @@ def test_a_build_stops_hook_that_fails_stops_the_build_with_one_line(
 @_with_kind
 def test_an_absent_block_is_judged_as_an_empty_one(tmp_path):
     tree = _tree()
-    del tree["measurement/SR.yaml"]["kind_blocks"]
+    del tree["simulation/measurement/SR.yaml"]["kind_blocks"]
 
     assert _stop(tmp_path, tree) == (
         f"facility: value-invalid: measurement SR — `kind_blocks.{KIND}.trigger_sample: "
@@ -348,7 +348,7 @@ def test_an_absent_block_is_judged_as_an_empty_one(tmp_path):
 @_with_kind
 def test_a_block_of_a_kind_the_file_does_not_list_stops_the_build(tmp_path):
     tree = _tree()
-    tree["measurement/SR.yaml"]["kind_blocks"]["orm"] = {}
+    tree["simulation/measurement/SR.yaml"]["kind_blocks"]["orm"] = {}
 
     assert _stop(tmp_path, tree) == (
         "facility: value-invalid: measurement SR — `kind_blocks.orm` is the block of a kind "
@@ -359,7 +359,7 @@ def test_a_block_of_a_kind_the_file_does_not_list_stops_the_build(tmp_path):
 @_with_kind
 def test_a_block_of_a_kind_with_no_schema_stops_the_build(tmp_path):
     tree = _tree(kinds=[KIND, "trm"])
-    tree["measurement/SR.yaml"]["kind_blocks"]["trm"] = {"anything": 1}
+    tree["simulation/measurement/SR.yaml"]["kind_blocks"]["trm"] = {"anything": 1}
 
     assert _stop(tmp_path, tree) == (
         "facility: value-invalid: measurement SR — kind trm declares no measurement schema, "
@@ -373,6 +373,6 @@ def test_kind_blocks_is_a_mapping(tmp_path):
 
     assert _stop(tmp_path, tree) == (
         "facility: source-invalid: path models.1.measurement.kind_blocks — "
-        "measurement/SR.yaml `kind_blocks` is not a mapping of kind to a mapping; fix: write "
-        "`kind_blocks` in measurement/SR.yaml as a mapping of kind to a mapping"
+        "simulation/measurement/SR.yaml `kind_blocks` is not a mapping of kind to a mapping; fix: write "
+        "`kind_blocks` in simulation/measurement/SR.yaml as a mapping of kind to a mapping"
     )

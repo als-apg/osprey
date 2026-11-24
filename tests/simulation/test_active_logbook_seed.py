@@ -41,7 +41,7 @@ NOMINAL_IDS = [f"DEMO-{i:03d}" for i in (*range(1, 26), *range(32, 36))]
 
 def _make_project(tmp_path: Path) -> Path:
     """Stage a project whose render holds the example facility's simulator view."""
-    scenarios = TEMPLATE_FACILITY / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "simulation" / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {"ariel": ARIEL_CONFIG}
     (tmp_path / "config.yml").write_text(yaml.safe_dump(config))
@@ -210,7 +210,7 @@ def test_sim_apply_seeds_a_facility_scenario_s_edited_logbook_text(tmp_path, mon
     # Arrange
     project = _make_project(tmp_path)
     edited = {**_entry("DEMO-026"), "text": "Edited: the cavity warmed after the RF trip."}
-    scenarios = TEMPLATE_FACILITY / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "simulation" / "scenarios"
     view = facility_scenarios(scenarios)
     view["rf-thermal"] = {**view["rf-thermal"], "logbook": [edited]}
     write_scenarios_view(project, view)
@@ -282,7 +282,7 @@ def test_seed_active_logbook_hands_over_a_shipped_picture_from_the_view(tmp_path
     (path,) = seen["pictures"]["DEMO-031"]
     view = project / "data" / "simulator" / "scenarios" / "bpm-polarity"
     assert path == (view / "plots" / "corrector_bump_test.png").resolve()
-    source = TEMPLATE_FACILITY / "scenarios" / "bpm-polarity"
+    source = TEMPLATE_FACILITY / "simulation" / "scenarios" / "bpm-polarity"
     assert seen["bytes"]["DEMO-031"] == [
         (source / "plots" / "corrector_bump_test.png").read_bytes()
     ]

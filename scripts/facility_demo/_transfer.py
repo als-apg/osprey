@@ -104,6 +104,8 @@ import _mml
 import _standin
 import _tree
 
+from osprey_facility import source_tree
+
 #: The transfer lines this module builds, in beam order.
 SECTIONS = ("LTB", "BTS")
 
@@ -239,10 +241,10 @@ def deck_text(section: _mml.Section) -> str:
 
 
 def write_decks(tree: Path, root: Path | None = _mml.MML_ROOT) -> list[Path]:
-    """Write ``decks/LTB.json`` and ``decks/BTS.json`` under ``tree`` from the MML at ``root``."""
+    """Write ``simulation/decks/LTB.json`` and ``BTS.json`` under ``tree`` from the MML at ``root``."""
     paths = []
     for name in SECTIONS:
-        path = tree / "decks" / f"{name}.json"
+        path = tree / deck_path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(deck_text(_mml.load(name, root)), encoding="utf-8")
         paths.append(path)
@@ -551,9 +553,14 @@ def _engine_key(row: _elements.ElementRow) -> str:
     return row.role if row.role.startswith("bpm_") else row.role.split("_", 1)[0]
 
 
+def deck_path(section: str) -> str:
+    """``section``'s deck relative to the facility root, as its model's ``deck:`` names it."""
+    return f"{source_tree.path('decks')}/{section}.json"
+
+
 def read_deck(tree: Path, section: str) -> dict[str, Any]:
-    """The committed deck ``decks/<section>.json`` under ``tree``."""
-    return json.loads((tree / "decks" / f"{section}.json").read_text(encoding="utf-8"))
+    """The committed deck ``simulation/decks/<section>.json`` under ``tree``."""
+    return json.loads((tree / deck_path(section)).read_text(encoding="utf-8"))
 
 
 def deck_element_name(deck_element: str, names: set[str]) -> str:
@@ -659,7 +666,7 @@ def model(section: str, deck_document: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": section,
         "engine": "pyat",
-        "deck": f"decks/{section}.json",
+        "deck": deck_path(section),
         "settings": {"pyat": {"solve": "single_pass", "twiss_in": twiss_in(section)}},
         "wiring": wiring(section, deck_document),
     }
@@ -703,19 +710,19 @@ def _strip_nominals(path: Path, addresses: set[str]) -> None:
 def write_sources(tree: Path) -> None:
     """Merge the LTB and BTS models into the facility tree ``tree``.
 
-    The models go into ``models.yaml``, each measurement file is written
+    The models go into ``simulation/models.yaml``, each measurement file is written
     whole, places LTB and BTS gain their span, and the wired channels' seed
     nominals are removed. Every other record keeps its text.
     """
     decks = {section: read_deck(tree, section) for section in SECTIONS}
     _tree.merge(
-        tree / "models.yaml",
+        tree / source_tree.path("models"),
         [model(section, decks[section]) for section in SECTIONS],
         "name",
         ordered=True,
     )
     for section in SECTIONS:
-        path = tree / "measurement" / f"{section}.yaml"
+        path = tree / source_tree.keyed_file("measurement", section)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_tree.dump(measurement(section)), encoding="utf-8")
     places_path = tree / "records" / "places.yaml"
@@ -725,7 +732,7 @@ def write_sources(tree: Path) -> None:
         if record["id"] in SECTIONS
     ]
     _tree.merge(places_path, spanned, "id", ordered=False)
-    _strip_nominals(tree / "seeds.yaml", wired_addresses())
+    _strip_nominals(tree / source_tree.path("seeds"), wired_addresses())
 
 
 if __name__ == "__main__":

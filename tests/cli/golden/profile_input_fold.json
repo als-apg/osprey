@@ -9,7 +9,7 @@
       {
         "key": "data/",
         "label": "data",
-        "digest": "7325704b4420dd566a052a3f0a792790c65d801e5f022dd690ed8d022bdbdd75"
+        "digest": "5fccbdc32521adcb545244e474345dc6f240ab5846b638a02662b2f57babfebf"
       },
       {
         "key": "mcp_servers/",
@@ -17,7 +17,7 @@
         "digest": "93aad50a01ce25a0d8308cbea0d55d5615d998bd434f4b39a3f99c9558645371"
       }
     ],
-    "profile_hash": "sha256:076a6bc44e57ae294fe04e4497a619b79c90ed798d25eb0c3e0e53d3d4ab622a",
+    "profile_hash": "sha256:bdfc7b033004b8a8bc11bd8b57e257db1c904ef4cc859b84699b5c69cd8090ff",
     "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
   },
   "demo": {
@@ -30,7 +30,7 @@
       {
         "key": "data/",
         "label": "data",
-        "digest": "ce91ffa0708830320dfbb3b6d76a3ad78ee0846dc84d7fe24643d7001c7611dc"
+        "digest": "071c87f1a95d98113d7c889dd62d4af44b7f4d0371dba16970c152c824d8eb2e"
       },
       {
         "key": "rules/",
@@ -78,7 +78,7 @@
         "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
       }
     ],
-    "profile_hash": "sha256:c807b2d651bf6b22aa359ea10bf45316c92b823ca2559c343f190e18c68be5f9",
+    "profile_hash": "sha256:1774b740dc62563ff2d980394e4a761d801808d9f2fca104f4a214469a98e4c6",
     "preset_hash": "sha256:922c1ef4698306f142b53635e4558198534879249174b8597ba1ff1b40667a4e"
   }
 }

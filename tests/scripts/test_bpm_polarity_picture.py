@@ -34,7 +34,7 @@ sys.modules[_SPEC.name] = plots
 _SPEC.loader.exec_module(plots)
 
 EXAMPLE = plots.EXAMPLE_FACILITY
-COMMITTED_PICTURE = EXAMPLE / "scenarios" / plots.SCENARIO / plots.PICTURE
+COMMITTED_PICTURE = EXAMPLE / "simulation" / "scenarios" / plots.SCENARIO / plots.PICTURE
 
 
 @pytest.fixture(scope="module")
@@ -52,8 +52,8 @@ def _read_yaml(path: Path) -> dict:
 
 def _scenario_reversed_horizontal_elements() -> set[str]:
     """The deck elements of the scenario's horizontal ``polarity: -1`` addresses."""
-    scenario = _read_yaml(EXAMPLE / "scenarios" / f"{plots.SCENARIO}.yaml")
-    models = {model["name"]: model for model in _read_yaml(EXAMPLE / "models.yaml")}
+    scenario = _read_yaml(EXAMPLE / "simulation" / "scenarios" / f"{plots.SCENARIO}.yaml")
+    models = {model["name"]: model for model in _read_yaml(EXAMPLE / "simulation" / "models.yaml")}
     elements = set()
     for model, addresses in scenario["faults"].items():
         wiring = {record["address"]: record for record in models[model]["wiring"]}
@@ -98,7 +98,7 @@ def test_the_bump_test_draws_every_monitor_alike(view, monkeypatch, tmp_path):
 
 
 def test_the_scenario_attaches_the_picture_this_script_draws():
-    scenario = _read_yaml(EXAMPLE / "scenarios" / f"{plots.SCENARIO}.yaml")
+    scenario = _read_yaml(EXAMPLE / "simulation" / "scenarios" / f"{plots.SCENARIO}.yaml")
     (entry,) = [e for e in scenario["logbook"] if e["entry_id"] == "DEMO-031"]
     assert entry["attachments"] == [{"path": plots.PICTURE}]
     assert COMMITTED_PICTURE.is_file()
@@ -146,7 +146,7 @@ def test_a_rerun_writes_the_same_bytes_and_the_committed_picture_is_the_same_pic
     view, tmp_path
 ):
     copy = _copy_example(tmp_path)
-    picture = copy / "scenarios" / plots.SCENARIO / plots.PICTURE
+    picture = copy / "simulation" / "scenarios" / plots.SCENARIO / plots.PICTURE
     assert plots.main([str(copy)]) == 0
     first = picture.read_bytes()
     assert plots.main([str(copy)]) == 0

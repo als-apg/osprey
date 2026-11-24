@@ -688,13 +688,22 @@ def _project_name(resolved: LoadedProfile, repo_root: Path) -> str:
 def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
     """Where a resolved profile's machine facts and deployment content are read.
 
+    Every verb that reads or writes the facility resolves its roots here, so
+    a tree holding sources at retired paths stops each one before anything is
+    classified, read or written.
+
     Raises:
         FacilityBuildError: When a stated ``machine:`` root is missing or
             overlaps the data root.
+        RetiredLayoutRefused: When either root holds a source at a retired
+            path.
     """
+    from osprey_facility.retired import refuse_retired
+
     roots = resolved.profile.resolved_facility_roots(repo_root)
     if roots is None:
         raise RuntimeError("a resolved profile names no data root")
+    refuse_retired(roots.machine, roots.content)
     return roots
 
 

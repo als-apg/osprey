@@ -135,7 +135,7 @@ def _stage_data_root() -> Path:
         shutil.copytree(e2e_conftest.PRESET_FACILITY_DIR, facility)
         with (facility / "records" / "channels.yaml").open("a", encoding="utf-8") as records:
             records.write(yaml.safe_dump(PAIR_CHANNELS, sort_keys=False))
-        with (facility / "seeds.yaml").open("a", encoding="utf-8") as seeds:
+        with (facility / "simulation" / "seeds.yaml").open("a", encoding="utf-8") as seeds:
             seeds.write(yaml.safe_dump(PAIR_SEEDS))
         _doc, view = e2e_conftest._render_view(facility, root)
     # each command carries its status as its pair, as the served simulation reads it;

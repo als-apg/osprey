@@ -149,7 +149,7 @@ def fixture_tree(block: dict[str, Any] | None = None) -> dict[str, Any]:
     the injection request wired as a record the engine fires.
     """
     tree = with_correctors(with_rf(measured_tree()))
-    tree["signals.yaml"] = [dict(FIXTURE_ROLE)]
+    tree["vocabulary/signals.yaml"] = [dict(FIXTURE_ROLE)]
     tree["records/channels.yaml"] += [
         {"id": "INJ:REQ", "role": "setpoint", "on": {"place": "SR"}},
         {"id": "INJ:BUSY", "on": {"place": "SR"}},
@@ -159,7 +159,7 @@ def fixture_tree(block: dict[str, Any] | None = None) -> dict[str, Any]:
     sr = model(tree, "SR")
     sr["engine"] = ENGINE
     sr["wiring"].append({"address": "INJ:REQ", "engine": {"fire": "inject"}})
-    measurement = tree["measurement/SR.yaml"]
+    measurement = tree["simulation/measurement/SR.yaml"]
     measurement["kinds"] = ["trm", KIND]
     measurement["groups"]["series_monitors"] = "SR/BPM"
     measurement["instruments"] |= INSTRUMENTS

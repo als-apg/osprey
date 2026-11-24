@@ -104,11 +104,11 @@ def _tree() -> dict[str, Any]:
             _setpoint("LQ:SP", "LINE/Q1"),
         ],
         "records/groups.yaml": [{"id": "SR/QUADS", "members": ["SR/QF", "SR/QD"]}],
-        "models.yaml": [
+        "simulation/models.yaml": [
             {
                 "name": "SR",
                 "engine": "pyat",
-                "deck": "decks/sr.json",
+                "deck": "simulation/decks/sr.json",
                 "wiring": [
                     {
                         "address": "QF:SP",
@@ -122,7 +122,7 @@ def _tree() -> dict[str, Any]:
             {
                 "name": "LINE",
                 "engine": "pyat",
-                "deck": "decks/line.json",
+                "deck": "simulation/decks/line.json",
                 "settings": {
                     "pyat": {
                         "solve": "single_pass",
@@ -140,8 +140,8 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    _sr_deck(root / "decks" / "sr.json")
-    _line_deck(root / "decks" / "line.json")
+    _sr_deck(root / "simulation" / "decks" / "sr.json")
+    _line_deck(root / "simulation" / "decks" / "line.json")
     return root
 
 
@@ -183,7 +183,7 @@ def _stops(tmp_path: Path, files: dict[str, Any]) -> list[tuple[str, str, str]]:
 
 
 def _model(files: dict[str, Any], name: str) -> dict[str, Any]:
-    return next(model for model in files["models.yaml"] if model["name"] == name)
+    return next(model for model in files["simulation/models.yaml"] if model["name"] == name)
 
 
 @pytest.fixture
@@ -264,7 +264,7 @@ class TestSpans:
 
     def test_a_span_on_a_deckless_model_stops(self, tmp_path):
         files = _tree()
-        files["models.yaml"].append({"name": "PLAIN", "engine": "pyat", "wiring": []})
+        files["simulation/models.yaml"].append({"name": "PLAIN", "engine": "pyat", "wiring": []})
         files["records/places.yaml"].append(
             {"id": "OTHER", "span": {"model": "PLAIN", "from_marker": "M0"}}
         )
@@ -345,7 +345,7 @@ class TestPlaces:
     def test_a_fix_keeps_an_imported_place(self, tmp_path):
         files = _tree()
         files["imported/mml/devices.yaml"] = [{"id": "SR/QD", "place": "SR/B"}]
-        files["fixes.yaml"] = {
+        files["provenance/fixes.yaml"] = {
             "schema": "osprey.facility.fixes/1",
             "fixes": [
                 {
@@ -616,10 +616,10 @@ class TestEngineStops:
     def test_the_locate_stop_names_the_wiring_record_not_the_deck(self, tmp_path):
         files = _tree()
         sr = _model(files, "SR")
-        sr["deck"] = "decks/lattice_v2.json"
+        sr["deck"] = "simulation/decks/lattice_v2.json"
         sr["wiring"][0]["slices"].append({"element": "GHOST"})
         root = _write(tmp_path / "facility", files)
-        _sr_deck(root / "decks" / "lattice_v2.json")
+        _sr_deck(root / "simulation" / "decks" / "lattice_v2.json")
         result = run_stages(
             root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
         )
@@ -638,7 +638,9 @@ class TestEngineStops:
 class TestModelConflicts:
     def test_a_declared_texture_model(self, tmp_path):
         files = _tree()
-        files["models.yaml"].append({"name": "texture", "engine": "texture", "wiring": []})
+        files["simulation/models.yaml"].append(
+            {"name": "texture", "engine": "texture", "wiring": []}
+        )
         assert _stops(tmp_path, files) == [("model-conflict", "model", "texture")]
 
     def test_a_channel_on_a_status_address(self, tmp_path):
@@ -698,7 +700,7 @@ class TestModelPaths:
 
     def test_a_model_without_a_deck_may_state_its_path(self, tmp_path):
         files = _tree()
-        files["models.yaml"].append(
+        files["simulation/models.yaml"].append(
             {"name": "LIST", "engine": "pyat", "length": 12.5, "periodic": False, "wiring": []}
         )
         listed = next(m for m in _ok(tmp_path, files)["models"] if m["name"] == "LIST")
@@ -769,11 +771,11 @@ def _ab_tree(root: Path, **extra: Any) -> Path:
             {"id": "Q1:SP", "role": "setpoint", "pair": "Q1:RB", "on": {"device": "SR/Q1"}},
             {"id": "Q1:RB", "on": {"device": "SR/Q1"}},
         ],
-        "models.yaml": [
+        "simulation/models.yaml": [
             {
                 "name": "SR",
                 "engine": "pyat",
-                "deck": "decks/ab.json",
+                "deck": "simulation/decks/ab.json",
                 "settings": {"pyat": {"solve": "single_pass", "twiss_in": TWISS_IN}},
                 "wiring": [
                     {
@@ -792,7 +794,7 @@ def _ab_tree(root: Path, **extra: Any) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     _save(
-        root / "decks" / "ab.json",
+        root / "simulation" / "decks" / "ab.json",
         [
             at.Drift("D0", 1.0),
             at.Quadrupole("A", 0.2, K_A),

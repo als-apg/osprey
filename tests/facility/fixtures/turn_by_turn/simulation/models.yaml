@@ -43,7 +43,7 @@
       engine: {signal: busy}
 - name: RING
   engine: pyat
-  deck: decks/SR.json
+  deck: simulation/decks/SR.json
   settings:
     pyat:
       solve: periodic

@@ -168,7 +168,7 @@ def _model(name: str, engine: str, address: str, inputs: list[Any] | None) -> di
     model: dict[str, Any] = {
         "name": name,
         "engine": engine,
-        "deck": f"decks/{name}.json",
+        "deck": f"simulation/decks/{name}.json",
         "wiring": [{"address": address, "element": "BPM1", "engine": {"axis": "x"}}],
     }
     if inputs is not None:
@@ -183,7 +183,7 @@ def _simulator_view(tmp_path: Path, *, with_inputs: bool) -> Path:
         "records/channels.yaml": [
             {"id": address, "unit": "mm"} for address in (PRODUCED, CONSUMED)
         ],
-        "models.yaml": [
+        "simulation/models.yaml": [
             _model(PRODUCER, "producer", PRODUCED, None),
             _model(CONSUMER, "consumer", CONSUMED, inputs),
         ],
@@ -193,7 +193,7 @@ def _simulator_view(tmp_path: Path, *, with_inputs: bool) -> Path:
         path = facility_dir / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    for model in files["models.yaml"]:
+    for model in files["simulation/models.yaml"]:
         _save_deck(facility_dir / model["deck"])
     report = run_stages(
         facility_dir, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS

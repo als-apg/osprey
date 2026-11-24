@@ -87,7 +87,7 @@ def _base_tree(policy: bool = False) -> dict[str, Any]:
     del tree["records/groups.yaml"]
     del tree["records/relations.yaml"]
     if policy:
-        tree["policy.yaml"] = POLICY
+        tree["provenance/policy.yaml"] = POLICY
     return tree
 
 

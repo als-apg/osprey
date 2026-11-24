@@ -3,9 +3,13 @@
 A facility tree is the directory ``osprey build`` reads facility sources from.
 Each slot below is one place in it: a single file (``limits.yaml``), a
 directory (``records/``, ``knowledge/``), or a keyed directory that holds one
-``<key>.yaml`` per key (``measurement/<model>.yaml``). A slot may sit inside
-another (the record files inside ``records/``); its path is then relative to
-that parent, so moving the parent moves it.
+``<key>.yaml`` per key (``simulation/measurement/<model>.yaml``). A slot may sit
+inside another (the record files inside ``records/``); its path is then
+relative to that parent, so moving the parent moves it.
+
+A slot that once lived elsewhere names its former locations as retired paths
+(``classes.yaml`` for ``vocabulary/classes.yaml``). A retired path is never a
+place a source is read from; it is only named so an old tree can be recognised.
 
 Every layer under ``imported/<layer>/`` is flat: a slot a layer also carries
 has its own fixed name there (``models.yaml``, ``decks``), which never follows
@@ -32,6 +36,8 @@ __all__ = [
     "layer_entry",
     "layer_root",
     "path",
+    "retired_deck_prefix",
+    "retired_moves",
     "slot",
     "slots",
 ]
@@ -70,6 +76,8 @@ class _FacilitySlot:
         record_kind: The record kind a record file holds.
         content: True for what a deployment writes about its own use of the
             machine, false for a fact of the machine.
+        retired: Where the slot was authored before, POSIX, relative to the
+            facility root; never read.
     """
 
     name: str
@@ -79,18 +87,25 @@ class _FacilitySlot:
     layer_name: str | None = None
     record_kind: str | None = None
     content: bool = False
+    retired: tuple[str, ...] = ()
 
 
 _FACILITY_SLOTS: tuple[_FacilitySlot, ...] = (
     _FacilitySlot("identity", "identity.yaml", FILE),
-    _FacilitySlot("classes", "classes.yaml", FILE),
-    _FacilitySlot("signals", "signals.yaml", FILE),
-    _FacilitySlot("models", "models.yaml", FILE, layer_name="models.yaml"),
+    _FacilitySlot("classes", "vocabulary/classes.yaml", FILE, retired=("classes.yaml",)),
+    _FacilitySlot("signals", "vocabulary/signals.yaml", FILE, retired=("signals.yaml",)),
+    _FacilitySlot(
+        "models",
+        "simulation/models.yaml",
+        FILE,
+        layer_name="models.yaml",
+        retired=("models.yaml",),
+    ),
     _FacilitySlot("limits", "limits.yaml", FILE),
-    _FacilitySlot("seeds", "seeds.yaml", FILE),
-    _FacilitySlot("fixes", "fixes.yaml", FILE),
-    _FacilitySlot("documents", "documents.yaml", FILE),
-    _FacilitySlot("policy", "policy.yaml", FILE),
+    _FacilitySlot("seeds", "simulation/seeds.yaml", FILE, retired=("seeds.yaml",)),
+    _FacilitySlot("fixes", "provenance/fixes.yaml", FILE, retired=("fixes.yaml",)),
+    _FacilitySlot("documents", "provenance/documents.yaml", FILE, retired=("documents.yaml",)),
+    _FacilitySlot("policy", "provenance/policy.yaml", FILE, retired=("policy.yaml",)),
     _FacilitySlot("records", "records", _DIRECTORY),
     _FacilitySlot(
         "places", "places.yaml", FILE, "records", layer_name="places.yaml", record_kind="place"
@@ -118,14 +133,20 @@ _FACILITY_SLOTS: tuple[_FacilitySlot, ...] = (
         record_kind="relation",
     ),
     _FacilitySlot(_LAYER_ROOT, "imported", _DIRECTORY),
-    _FacilitySlot("scenarios", "scenarios", _KEYED_DIRECTORY),
-    _FacilitySlot("measurement", "measurement", _KEYED_DIRECTORY),
-    _FacilitySlot("decks", "decks", _DIRECTORY, layer_name="decks"),
+    _FacilitySlot("scenarios", "simulation/scenarios", _KEYED_DIRECTORY, retired=("scenarios",)),
+    _FacilitySlot(
+        "measurement", "simulation/measurement", _KEYED_DIRECTORY, retired=("measurement",)
+    ),
+    _FacilitySlot("decks", "simulation/decks", _DIRECTORY, layer_name="decks", retired=("decks",)),
     _FacilitySlot("knowledge", "knowledge", _DIRECTORY, content=True),
     _FacilitySlot("ariel", "ariel", _DIRECTORY, content=True),
     _FacilitySlot("ariel_vocabulary", "vocabulary.yml", FILE, "ariel", content=True),
     _FacilitySlot(
-        "benchmark_queries", "benchmarks/cross_paradigm/queries", _DIRECTORY, content=True
+        "benchmark_queries",
+        "benchmarks/channel_finder",
+        _DIRECTORY,
+        content=True,
+        retired=("benchmarks/cross_paradigm/queries",),
     ),
     _FacilitySlot(
         "in_context_queries", "in_context_queries.json", FILE, "benchmark_queries", content=True
@@ -154,7 +175,7 @@ def path(name: str) -> str:
 
 
 def keyed_file(name: str, key: str) -> str:
-    """The file of *key* in keyed directory *name*: ``measurement/<key>.yaml``.
+    """The file of *key* in keyed directory *name*: ``simulation/measurement/<key>.yaml``.
 
     The key ``*`` gives the glob of every file of the directory.
     """
@@ -162,7 +183,10 @@ def keyed_file(name: str, key: str) -> str:
 
 
 def keyed_dir(name: str, key: str) -> str:
-    """The directory of *key* beside its file in keyed directory *name*: ``scenarios/<key>``."""
+    """The directory of *key* beside its file in keyed directory *name*.
+
+    For example ``simulation/scenarios/<key>``.
+    """
     return f"{_path_of(name, _KEYED_DIRECTORY)}/{key}"
 
 
@@ -193,6 +217,34 @@ def layer_entry(layer: str, name: str) -> str:
     if entry is None:
         raise ValueError(f"a layer carries no {name!r} slot")
     return f"{layer_dir(layer)}/{entry}"
+
+
+def retired_moves() -> tuple[tuple[str, str, bool], ...]:
+    """Every retired path with where it lives now, in declaration order.
+
+    Each entry is ``(old, new, content)``, both paths relative to the facility
+    root; *content* is true for a content slot, whose paths sit under the
+    content root. What sat inside a retired directory sits at the same place
+    inside its successor.
+    """
+    return tuple(
+        (old, path(row.name), row.content) for row in _FACILITY_SLOTS for old in row.retired
+    )
+
+
+def retired_deck_prefix() -> tuple[str, str]:
+    """How an authored ``deck:`` value under the retired decks directory begins, then and now.
+
+    ``("decks/", "simulation/decks/")``: a value starting with the first is the
+    same deck under the second.
+
+    Raises:
+        ValueError: The decks slot does not name exactly one retired path.
+    """
+    retired = slot("decks").retired
+    if len(retired) != 1:
+        raise ValueError(f"the decks slot names {len(retired)} retired paths, not one")
+    return f"{retired[0]}/", f"{path('decks')}/"
 
 
 def display_path(relative: str) -> str:
@@ -250,15 +302,13 @@ def _check(registry: tuple[_FacilitySlot, ...]) -> None:
             raise ValueError(f"facility slot {row.name!r} is declared twice")
         if row.kind not in _KINDS:
             raise ValueError(f"facility slot {row.name!r} has unknown kind {row.kind!r}")
-        pure = PurePosixPath(row.path)
-        if (
-            not row.path
-            or "\\" in row.path
-            or pure.is_absolute()
-            or pure.as_posix() != row.path
-            or any(part in (".", "..") for part in row.path.split("/"))
-        ):
+        if not _is_relative_posix(row.path):
             raise ValueError(f"facility slot {row.name!r} path {row.path!r} is not relative POSIX")
+        for old in row.retired:
+            if not _is_relative_posix(old):
+                raise ValueError(
+                    f"facility slot {row.name!r} retired path {old!r} is not relative POSIX"
+                )
         if row.parent is not None:
             parent = seen.get(row.parent)
             if parent is None:
@@ -285,6 +335,57 @@ def _check(registry: tuple[_FacilitySlot, ...]) -> None:
         doubled = sorted({value for value in values if values.count(value) > 1})
         if doubled:
             raise ValueError(f"facility slots share a {what}: {doubled}")
+    _check_retired(registry, resolved)
+
+
+def _is_relative_posix(where: str) -> bool:
+    pure = PurePosixPath(where)
+    return not (
+        not where
+        or "\\" in where
+        or pure.is_absolute()
+        or pure.as_posix() != where
+        or any(part in (".", "..") for part in where.split("/"))
+    )
+
+
+def _within(inner: str, outer: str) -> bool:
+    """True when *inner* is *outer* or lies inside it."""
+    return inner == outer or inner.startswith(f"{outer}/")
+
+
+def _check_retired(registry: tuple[_FacilitySlot, ...], resolved: Mapping[str, str]) -> None:
+    """Raise ValueError unless every retired path is apart from the live layout.
+
+    A retired path is unique and has exactly one successor, the slot naming it.
+    It never equals or lies inside a live path, and no live path lies inside
+    it; the one exception is the directory its successor sits in, which may
+    hold it too (``benchmarks`` for ``benchmarks/cross_paradigm/queries`` moved
+    to ``benchmarks/channel_finder``).
+    """
+    retired = [old for row in registry for old in row.retired]
+    doubled = sorted({old for old in retired if retired.count(old) > 1})
+    if doubled:
+        raise ValueError(f"facility slots share a retired path: {doubled}")
+    for row in registry:
+        successor = resolved[row.name]
+        successor_parent = PurePosixPath(successor).parent.as_posix()
+        for old in row.retired:
+            if _within(successor, old):
+                raise ValueError(
+                    f"facility slot {row.name!r} retired path {old!r} is or holds its successor"
+                )
+            for other, live in resolved.items():
+                if _within(old, live) and live != successor_parent:
+                    raise ValueError(
+                        f"facility slot {row.name!r} retired path {old!r} "
+                        f"lies at or inside live slot {other!r}"
+                    )
+                if _within(live, old):
+                    raise ValueError(
+                        f"live facility slot {other!r} lies inside retired path {old!r} "
+                        f"of slot {row.name!r}"
+                    )
 
 
 _check(_FACILITY_SLOTS)

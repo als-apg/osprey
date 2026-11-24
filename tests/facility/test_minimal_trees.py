@@ -174,16 +174,16 @@ def _line_with_a_span() -> dict[str, Any]:
             {"id": "LINE", "span": {"model": "LINE", "from_marker": "M0"}},
             {"id": "LINE/G", "span": {"model": "LINE", "from_marker": "M0", "to_marker": "M1"}},
         ],
-        "models.yaml": [
+        "simulation/models.yaml": [
             {
                 "name": "LINE",
                 "engine": "pyat",
-                "deck": "decks/line.json",
+                "deck": "simulation/decks/line.json",
                 "settings": {"pyat": {"solve": "single_pass", "twiss_in": dict(LINE_TWISS)}},
                 "wiring": [{"address": "LQ:SP", "element": "Q1", "engine": dict(SETTING)}],
             }
         ],
-        "decks/line.json": Deck(
+        "simulation/decks/line.json": Deck(
             lambda at: [
                 at.Marker("M0"),
                 at.Drift("DL", 2.0),

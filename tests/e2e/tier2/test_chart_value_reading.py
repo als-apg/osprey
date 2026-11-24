@@ -25,7 +25,7 @@ the MongoDB archiver with its recorder, ARIEL's Postgres and the qmd sidecar. A
 mock archive would synthesize last year on request; a store with retention
 answers honestly that it holds nothing there, which is what makes the picture the
 only record. Both scenarios are facility scenario files, installed into the
-deployment's ``data/facility/scenarios/`` before the build. The logbook scenario
+deployment's ``data/facility/simulation/scenarios/`` before the build. The logbook scenario
 is concealed after seeding (its file, its render copy, its simulator-view entry
 and attached files, its active-state line), so the plot's numbers are not one
 ``Read`` away in the agent's cwd; the recent scenario stays, being the live
@@ -276,7 +276,7 @@ def _build_project(output_dir: Path) -> Path:
     # Between the two verbs: the build reads <repo>/data/facility into the render
     # and its simulator view, so a scenario written now exists in every tree
     # concealment scrubs.
-    fixture.install_scenarios(repo / "data" / "facility" / "scenarios")
+    fixture.install_scenarios(repo / "data" / "facility" / "simulation" / "scenarios")
 
     build = [
         str(osprey_bin),

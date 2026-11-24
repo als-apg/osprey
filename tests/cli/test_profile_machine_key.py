@@ -144,7 +144,8 @@ def test_an_absent_machine_directory_is_machine_missing(tmp_path: Path) -> None:
 
 def test_a_machine_without_identity_is_machine_missing(tmp_path: Path) -> None:
     (tmp_path / "va" / "records").mkdir(parents=True)
-    (tmp_path / "va" / "classes.yaml").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "va" / "vocabulary").mkdir()
+    (tmp_path / "va" / "vocabulary" / "classes.yaml").write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(FacilityBuildError) as excinfo:
         _profile(tmp_path, machine="va").resolved_facility_roots(tmp_path)

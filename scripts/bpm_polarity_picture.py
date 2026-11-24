@@ -15,7 +15,7 @@ Inputs, all read through the simulator view's reader:
 * ``seeds.json`` -- each monitor's absolute noise;
 * ``decks/<model>.json`` -- the lattice the model solves.
 
-Output: ``<FACILITY_DIR>/scenarios/bpm-polarity/plots/corrector_bump_test.png``,
+Output: ``<FACILITY_DIR>/simulation/scenarios/bpm-polarity/plots/corrector_bump_test.png``,
 each monitor's reading against a kick of the corrector upstream of the reversed
 monitor, over the monitors of the lattice segment holding it. Model slopes come
 from the model's closed-orbit response through its wiring and calibration; the
@@ -43,6 +43,7 @@ from typing import Any
 import numpy as np
 
 from osprey_connectors.simulation.view import VIEW_RELPATH, Binding, SimulatorView
+from osprey_facility import source_tree
 from osprey_facility.records import FacilityRecords
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -272,7 +273,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--simulator", type=Path, default=None, metavar="VIEW_DIR")
     args = parser.parse_args(argv)
     facility_dir: Path = args.facility_dir
-    path = facility_dir / "scenarios" / SCENARIO / PICTURE
+    path = facility_dir / source_tree.keyed_dir("scenarios", SCENARIO) / PICTURE
     if args.simulator is not None:
         draw_bump_test(bump_test(SimulatorView.open(args.simulator)), path)
     else:

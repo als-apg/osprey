@@ -33,7 +33,7 @@ pytestmark = [pytest.mark.slow]
 
 GRAPH = "data/graph/facility.ttl"
 VARIABLES = "data/simulator/variables.json"
-SEEDS = "seeds.yaml"
+SEEDS = "simulation/seeds.yaml"
 
 #: The channel whose seed ``test_a_changed_seed_changes_the_facility_file`` moves: the first
 #: one ``seeds.yaml`` states a noise of 0.005 for, its noise as stated and as moved.

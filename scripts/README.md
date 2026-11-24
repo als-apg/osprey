@@ -280,7 +280,7 @@ and wiring), `seeds.json` (each monitor's absolute noise) and
 `decks/<model>.json`. It draws one panel per monitor of the lattice segment
 holding the reversed monitor, the reading against a kick of the corrector
 upstream of it, and writes
-`src/osprey/templates/facilities/example/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
+`src/osprey/templates/facilities/example/simulation/scenarios/bpm-polarity/plots/corrector_bump_test.png`.
 Without `--simulator` it renders the view in-process first. A fixed noise seed
 makes a re-run write the same bytes on one host and the same picture on any.
 

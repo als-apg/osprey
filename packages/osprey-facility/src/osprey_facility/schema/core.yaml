@@ -1058,7 +1058,7 @@ classes:
           extra?, attachments?}]`, the entries the scenario narrates.
           `attachments` lists the entry's pictures, each `{path: <picture
           file>}` or `{plot: <plot spec .json>}`, relative to the scenario's
-          own directory `scenarios/<name>/`.
+          own directory `simulation/scenarios/<name>/`.
       sessions:
         range: Any
         multivalued: true

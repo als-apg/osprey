@@ -239,7 +239,7 @@ def test_a_multipole_field_names_its_polynomial_and_index(field: str, expected: 
 
 def _tree(faults: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     tree = plain_tree()
-    tree["models.yaml"] = [
+    tree["simulation/models.yaml"] = [
         {
             "name": "optics",
             "engine": "pyat",
@@ -250,7 +250,7 @@ def _tree(faults: dict[str, Any], settings: dict[str, Any] | None = None) -> dic
             ],
         }
     ]
-    tree["scenarios/seeded.yaml"] = {"faults": {"optics": faults}}
+    tree["simulation/scenarios/seeded.yaml"] = {"faults": {"optics": faults}}
     return tree
 
 
@@ -357,7 +357,7 @@ def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
 ) -> None:
     settings = _declaring(*items)
     with pytest.raises(ErrorElementsError) as built:
-        fault_variables(_tree({})["models.yaml"][0]["wiring"], settings)
+        fault_variables(_tree({})["simulation/models.yaml"][0]["wiring"], settings)
 
     with pytest.raises(FacilityBuildError) as stopped:
         build_facility(
@@ -383,9 +383,9 @@ def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
     settings = _declaring({"element": element})
     tree = _tree({"Q1/dx": 1.0e-4}, settings)
     if not named:
-        del tree["scenarios/seeded.yaml"]
+        del tree["simulation/scenarios/seeded.yaml"]
     with pytest.raises(ErrorElementsError) as built:
-        fault_variables(tree["models.yaml"][0]["wiring"], settings)
+        fault_variables(tree["simulation/models.yaml"][0]["wiring"], settings)
 
     report = run_stages(
         write_tree(tmp_path / "facility", tree),

@@ -28,7 +28,7 @@ CHANNELS = [
     {"id": "SR:W", "value_type": "waveform", "shape": [2]},
 ]
 
-_HEAD = "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of channel"
+_HEAD = "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 of channel"
 
 
 def _document(*events: Any, channel: str = "SR:X") -> dict[str, Any]:
@@ -47,54 +47,54 @@ def _line(document: dict[str, Any]) -> str:
         (
             {"shape": "wave", "at": 0.5, "to": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X has shape 'wave', not one of `burst`, `loss`, `ramp`, `spike`, "
             "`step`; fix: write `shape` as one of `burst`, `loss`, `ramp`, `spike`, `step`",
         ),
         (
             {"shape": "spike", "at": 0.5, "amplitude": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X lacks `width`; fix: give the `spike` event `width`",
         ),
         (
             {"shape": "ramp", "at": 0.2, "to": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X lacks `until`; fix: give the `ramp` event `until`",
         ),
         (
             {"shape": "step", "to": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X states 0 position keys; fix: state exactly one of `at`, "
             "`at_offset`, `at_time`, `at_when`",
         ),
         (
             {"shape": "step", "at": 0.5, "at_offset": -60, "to": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X states 2 position keys (`at`, `at_offset`); fix: state exactly "
             "one of `at`, `at_offset`, `at_time`, `at_when`",
         ),
         (
             {"shape": "ramp", "at_time": "08:00:00", "until": 0.5, "to": 1.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X places a `ramp` by `at_time`; fix: place the `ramp` by `at` with "
             "`until`, or by `at_offset` with `until_offset`",
         ),
         (
             {"shape": "spike", "at_offset": -60, "amplitude": "big", "width": 5},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X has `amplitude` 'big', not a number; fix: write `amplitude` as "
             "a number",
         ),
         (
             {"shape": "ramp", "at": 0.2, "until": 0.4, "to": 1.0},
             "SR:ON",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:ON is a `ramp` on a bool channel; fix: use a `step` event, or "
             "move the event to a float channel",
         ),
@@ -107,14 +107,14 @@ def _line(document: dict[str, Any]) -> str:
                 "tail_share": 0.1,
             },
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X states `tail_share` without the rest of its tail; fix: state "
             "`tail_share`, `tail_decay_s` together, or neither",
         ),
         (
             {"shape": "burst", "at_offset": -60, "amplitude": 1e-7, "decay_s": 0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X has `decay_s` 0, not greater than 0; fix: write `decay_s` as a "
             "number greater than 0",
         ),
@@ -128,21 +128,21 @@ def _line(document: dict[str, Any]) -> str:
                 "tail_decay_s": 30,
             },
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X has `tail_share` 1.5, not between 0 and 1; fix: write "
             "`tail_share` as the slow tail's fraction of the amplitude, above 0 and below 1",
         ),
         (
             {"shape": "loss", "at_offset": -60, "amount": -18.0},
             "SR:X",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:X has `amount` -18.0, not greater than 0; fix: write `amount` as a "
             "number greater than 0",
         ),
         (
             {"shape": "loss", "at_offset": -60, "amount": 5.0},
             "SR:ON",
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 "
             "of channel SR:ON is a `loss` on a bool channel; fix: use a `step` event, or "
             "move the event to a float channel",
         ),
@@ -328,14 +328,14 @@ def test_an_unknown_channel_is_left_to_the_reference_check() -> None:
 def test_the_stops_follow_scenario_entry_and_event_order() -> None:
     document = _document({"shape": "wave"}, {"shape": "step", "to": 1.0})
     assert [e.detail.split(" of channel")[0] for e in check_scenario_events(document)] == [
-        "scenarios/warm.yaml `archiver` event 1",
-        "scenarios/warm.yaml `archiver` event 2",
+        "simulation/scenarios/warm.yaml `archiver` event 1",
+        "simulation/scenarios/warm.yaml `archiver` event 2",
     ]
 
 
 def test_the_build_stops_on_a_malformed_event(tmp_path: Path) -> None:
     tree = plain_tree()
-    tree["scenarios/warm.yaml"] = {
+    tree["simulation/scenarios/warm.yaml"] = {
         "archiver": [{"channel": "BPM1:X", "events": [{"shape": "wave", "at": 0.5}]}]
     }
 
@@ -347,7 +347,9 @@ def test_the_build_stops_on_a_malformed_event(tmp_path: Path) -> None:
         )
 
     assert caught.value.kind == "value-invalid"
-    assert "scenarios/warm.yaml `archiver` event 1 of channel BPM1:X" in caught.value.detail
+    assert (
+        "simulation/scenarios/warm.yaml `archiver` event 1 of channel BPM1:X" in caught.value.detail
+    )
 
 
 def test_the_shipped_scenarios_build_with_no_stop(built_demo: Any) -> None:

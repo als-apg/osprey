@@ -2,28 +2,32 @@
 
 The tree the loader reads::
 
-    identity.yaml             {code, name?, description?}
-    classes.yaml              [{class, parent, aliases?, description?}]
-    signals.yaml              [{name, aliases?, description?}]
-    models.yaml               [{name, engine, deck?, settings?, wiring: [...]}]
-    limits.yaml               {records}
-    seeds.yaml                {<address>: {nominal?, noise?, drift?, clamp?, linear?}}
-    fixes.yaml                {schema: osprey.facility.fixes/1, fixes: [...]}
-    documents.yaml            [{id, title?, kind?, system?}]
-    policy.yaml               {relations?: {precedence?, stated_over_inferred?}}
-    records/<kind>s.yaml      [{id, ...}] for places, devices, channels, groups,
-                              relations
-    scenarios/<name>.yaml     {description?, overrides?, faults?, archiver?, logbook?,
-                               drivers?, couple?, noise?, start?}
-    measurement/<model>.yaml  {kinds, groups?, instruments?, <step/settle keys>}
-    imported/<layer>/         places, devices, channels, groups, relations and
-                              models files written by one importer, beside the
-                              layer's own files (mapping.yaml), which the build
-                              never reads; a relations.csv marks a relations layer
+    identity.yaml                        {code, name?, description?}
+    limits.yaml                          {records}
+    records/<kind>s.yaml                 [{id, ...}] for places, devices, channels,
+                                         groups, relations
+    vocabulary/
+        classes.yaml                     [{class, parent, aliases?, description?}]
+        signals.yaml                     [{name, aliases?, description?}]
+    simulation/
+        models.yaml                      [{name, engine, deck?, settings?, wiring: [...]}]
+        seeds.yaml                       {<address>: {nominal?, noise?, drift?, clamp?,
+                                          linear?}}
+        scenarios/<name>.yaml            {description?, overrides?, faults?, archiver?,
+                                          logbook?, drivers?, couple?, noise?, start?}
+        measurement/<model>.yaml         {kinds, groups?, instruments?, <step/settle keys>}
+    provenance/
+        fixes.yaml                       {schema: osprey.facility.fixes/1, fixes: [...]}
+        documents.yaml                   [{id, title?, kind?, system?}]
+        policy.yaml                      {relations?: {precedence?, stated_over_inferred?}}
+    imported/<layer>/                    places, devices, channels, groups, relations and
+                                         models files written by one importer, beside the
+                                         layer's own files (mapping.yaml), which the build
+                                         never reads; a relations.csv marks a relations layer
 
-``records/`` and ``models.yaml`` merge as the layer ``authored``; each directory
-under ``imported/`` is the layer of that name. A layer writes only the fields
-its source states, and never a slot the build computes.
+``records/`` and ``simulation/models.yaml`` merge as the layer ``authored``;
+each directory under ``imported/`` is the layer of that name. A layer writes
+only the fields its source states, and never a slot the build computes.
 
 Every problem this stage finds is collected rather than raised, so ``validate``
 can print all of them; the result lists them in file order.
@@ -45,6 +49,7 @@ import yaml
 from osprey_connectors import yaml_loader
 from osprey_facility import PN_LOCAL, source_tree
 from osprey_facility.errors import FacilityBuildError
+from osprey_facility.retired import refuse_retired
 
 __all__ = [
     "AUTHORED",
@@ -494,9 +499,9 @@ class Sources:
         seeds: ``seeds.yaml``, address to seed record.
         limits: ``limits.yaml`` without its header, or ``None`` when absent or
             holding nothing but a header or comments (limits are opt-in).
-        scenarios: One record per ``scenarios/<name>.yaml``, with its ``name``,
+        scenarios: One record per ``simulation/scenarios/<name>.yaml``, with its ``name``,
             sorted by name.
-        measurement: ``measurement/<model>.yaml``, model name to its record.
+        measurement: ``simulation/measurement/<model>.yaml``, model name to its record.
         fixes: ``fixes.yaml``'s document as parsed, or ``None`` when absent.
         documents: ``documents.yaml``'s records, in file order.
         policy: ``policy.yaml`` without its header, or ``None`` when absent or
@@ -546,7 +551,12 @@ def load_sources(facility_dir: Path) -> LoadResult:
 
     Returns:
         The sources and every stop found.
+
+    Raises:
+        RetiredLayoutRefused: The directory still holds a source at a
+            retired path; nothing is read.
     """
+    refuse_retired(facility_dir)
     return _Reader(facility_dir).read()
 
 

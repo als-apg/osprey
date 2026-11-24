@@ -22,7 +22,7 @@ When the tools are there
 
 The build writes ``data/pyaml/<model>/configuration.yaml`` for each served
 model that names a deck and has a measurement file under
-``data/facility/measurement/`` (see :doc:`describe-your-facility`). This file
+``data/facility/simulation/measurement/`` (see :doc:`describe-your-facility`). This file
 is the model's *pyAML view*.
 
 A render with at least one such view registers three things: both tools, the

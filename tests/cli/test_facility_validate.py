@@ -89,7 +89,7 @@ def _snapshot(root: Path) -> dict[str, bytes | None]:
 
 def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
     document = {"schema": "osprey.facility.fixes/1", "fixes": list(entries)}
-    (repo / "data" / "facility" / "fixes.yaml").write_text(
+    (repo / "data" / "facility" / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
     )
 
@@ -227,7 +227,7 @@ def test_a_scenario_beyond_a_tolerance_warns_in_the_build_and_in_validate(
     )
     readback = setpoint["pair"]
     name = "settle-breach"
-    (repo / "data" / "facility" / "scenarios" / f"{name}.yaml").write_text(
+    (repo / "data" / "facility" / "simulation" / "scenarios" / f"{name}.yaml").write_text(
         yaml.safe_dump(
             {"noise": {readback: {"absolute": setpoint["tolerance"]["absolute"]}}},
             sort_keys=False,
@@ -414,7 +414,7 @@ def test_every_error_of_the_failing_stage_is_printed_sorted(repo: Path) -> None:
     assert result.exit_code == 1, result.output
     assert result.stderr.splitlines() == [
         f"facility: fix-missing: device SR/{name} — no device SR/{name} exists; fix: remove "
-        "the fix from fixes.yaml"
+        "the fix from provenance/fixes.yaml"
         for name in ("Q8", "Q9")
     ]
 
@@ -446,13 +446,13 @@ def test_validate_has_no_json_flag(repo: Path) -> None:
 
 
 def _set_policy(repo: Path, variant: Variant) -> None:
-    """Give the demo repo the ``policy.yaml`` of an Appendix A variant.
+    """Give the demo repo the ``provenance/policy.yaml`` of an Appendix A variant.
 
     The demo ships the Appendix A records, claims and policy; a variant
     differs only by its policy, and ``no_policy`` removes the file.
     """
-    path = repo / "data" / "facility" / "policy.yaml"
-    policy = appendix_a_tree(variant).get("policy.yaml")
+    path = repo / "data" / "facility" / "provenance" / "policy.yaml"
+    policy = appendix_a_tree(variant).get("provenance/policy.yaml")
     if policy is None:
         path.unlink()
     else:

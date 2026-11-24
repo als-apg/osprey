@@ -1,7 +1,7 @@
 """The benchmarks view: the channel-finder benchmark query file a render carries.
 
 The facility tree ships one scored query set per pipeline family under
-``data/facility/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
+``data/facility/benchmarks/channel_finder/``: ``in_context_queries.json``
 for the ``in_context`` pipeline and ``tree_queries.json`` for every other mode.
 A render whose ``config.yml`` states ``channel_finder.benchmark.dataset_path``
 carries the one its ``channel_finder.pipeline_mode`` selects, byte-equal, at

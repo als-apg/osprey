@@ -99,11 +99,11 @@ def _with_relations(tree: dict[str, Any]) -> dict[str, Any]:
         {"name": "SR01C___QF", "scheme": "controls"},
     ]
     device["citations"] = [dict(_CITATION), {"document": "dwg-1"}]
-    tree["documents.yaml"] = [
+    tree["provenance/documents.yaml"] = [
         {"id": "spec-1", "title": "Magnet list", "kind": "spec"},
         {"id": "dwg-1", "title": "Rack layout", "kind": "drawing"},
     ]
-    tree["policy.yaml"] = {
+    tree["provenance/policy.yaml"] = {
         "schema": "osprey.facility.policy/1",
         "relations": {"precedence": {"default": ["spec", "drawing"]}},
     }
@@ -358,7 +358,7 @@ def test_new_class_devices_are_ordinary_devices(
 
 def test_a_facility_declaring_its_own_power_supply_builds(tmp_path: Path) -> None:
     tree = _base_tree()
-    tree["classes.yaml"] = [
+    tree["vocabulary/classes.yaml"] = [
         {"class": "PowerSupply", "parent": "Magnet", "description": "A magnet supply."}
     ]
     document, _ = _build(tmp_path, tree)
@@ -430,8 +430,8 @@ def _view_files(files: dict[str, bytes]) -> dict[str, bytes]:
 def _unrelated(source: Path, document: dict[str, Any], root: Path) -> Path:
     """The shipped example minus its documents, policy and claims, projected places authored."""
     shutil.copytree(source, root)
-    (root / "documents.yaml").unlink()
-    (root / "policy.yaml").unlink()
+    (root / "provenance" / "documents.yaml").unlink()
+    (root / "provenance" / "policy.yaml").unlink()
     (root / "records" / "relations.yaml").unlink()
     projected = {
         d["id"]: d["place"]

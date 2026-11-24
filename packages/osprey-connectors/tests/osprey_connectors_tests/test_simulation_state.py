@@ -128,7 +128,7 @@ def test_two_stills_on_one_reading_compose() -> None:
 # -- archiver events -----------------------------------------------------------
 
 #: The example facility's scenario files, as the facility ships them.
-EXAMPLE_SCENARIOS = REPO_ROOT / "src/osprey/templates/facilities/example/scenarios"
+EXAMPLE_SCENARIOS = REPO_ROOT / "src/osprey/templates/facilities/example/simulation/scenarios"
 
 #: The archiver block a demo-history scenario states when the example facility
 #: does not ship one yet: events on channels rf-thermal and vacuum-burst script too.

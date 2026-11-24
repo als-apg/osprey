@@ -24,7 +24,7 @@ through :func:`scenario_logbook`; each entry's ``when`` is ``{days_ago,
 time}``, resolved against the activation anchor when the entry is seeded.
 An entry's ``attachments`` list names its pictures, each item one of
 ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
-scenario's own directory ``scenarios/<name>/``.
+scenario's own directory ``simulation/scenarios/<name>/``.
 
 A scenario's ``sessions`` block parses through
 :func:`~osprey_facility.sessions.parse_sessions`;
@@ -411,7 +411,7 @@ def check_scenario_attachments(
     """Check every file a scenario's logbook entries attach.
 
     Each item of an entry's ``attachments`` is one of ``{path: <picture>}`` or
-    ``{plot: <plot spec .json>}``, relative to ``scenarios/<name>/``. A path
+    ``{plot: <plot spec .json>}``, relative to ``simulation/scenarios/<name>/``. A path
     that leaves that directory, an item of another shape, a picture whose
     suffix or bytes are not an accepted image, or a plot spec that is not a
     valid ``.json`` spec is ``value-invalid``; a named file that does not
