@@ -292,7 +292,7 @@ def test_a_word_search_lists_curated_and_control_system_only_rows(
     rows = {row["name"]: row for row in _rows(host)}
     assert _count(host) == len(rows)
     health = {name for name in rows if name.startswith("ca:SIM:")}
-    assert {f"ca:SIM:{ioc}:UPTIME" for ioc in ("BTS", "LINE", "LTB", "SR", "texture")} == health
+    assert {f"ca:SIM:{ioc}:UPTIME" for ioc in ("BTS", "LTB", "SR", "texture")} == health
     for name, row in rows.items():
         assert row["mark"] == ("◇" if name in health else "◆"), row
         assert row["value"] not in ("…", "—", "no answer"), row

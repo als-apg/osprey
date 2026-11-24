@@ -31,18 +31,23 @@ the models reached this way lives in this connector's composite alone. No
 other connector sees it, and the journal does not carry it: a connector that
 replays the journal starts its models again from their start state and puts
 the journalled values back without a client write, so a replayed request
-starts nothing.
+starts no model again; a command's responses alone run on, from the instant
+its entry was journalled at.
 
 **Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
-the limits validator and a successful put it appends ``[seq, address, value]``
-to ``<simulation state dir>/inprocess/writes.json``, a document
+the limits validator and a successful put it appends ``[seq, address, value,
+t_s]``, ``t_s`` the instant the composite wrote it at
+(:meth:`~osprey_connectors.simulation.composite.Composite.write`), to
+``<simulation state dir>/inprocess/writes.json``, a document
 ``{active_set_sha256, seq, writes}`` updated under ``flock`` on
-``writes.json.lock`` and replaced atomically. Every operation reads the active
+``writes.json.lock`` and replaced atomically; an entry ``[seq, address,
+value]`` reads as a write with no time. Every operation reads the active
 scenario set first, then the journal: when ``seq`` moved, the composite is
-reset and the journal restored as one write, of which no model is told a
-client wrote it, provided every entry is a setpoint of the view, writable,
-inside its band, and was written under the current active set; otherwise
-nothing from it is applied, one line
+reset and the journal replayed in ``seq`` order
+(:meth:`~osprey_connectors.simulation.composite.Composite.replay`), each
+command's responses timed from its entry's ``t_s``, provided every entry is a setpoint
+of the view, writable, inside its band, and was written under the current
+active set; otherwise nothing from it is applied, one line
 ``writes journal rejected: <address>: <reason>`` is logged, a
 ``journal-rejected`` record is appended to every physics model's log, and the
 journal is emptied, so the writes that follow are journalled afresh. A reset or a
@@ -249,8 +254,9 @@ class _JournalDocument(TypedDict):
     writes: list[object]
 
 
-#: One journalled write, ``[seq, address, value]``.
-_JournalEntry: TypeAlias = tuple[int, str, object]
+#: One journalled write, ``[seq, address, value, t_s]``; ``t_s`` is ``None``
+#: for an entry written without its time.
+_JournalEntry: TypeAlias = tuple[int, str, object, float | None]
 
 
 class _Journal:
@@ -312,13 +318,22 @@ def _is_journal(document: object) -> TypeGuard[_JournalDocument]:
 
 
 def _journal_entry(entry: object) -> _JournalEntry | None:
-    """One journalled ``[seq, address, value]`` write, or ``None`` when it is malformed."""
-    if not isinstance(entry, list) or len(entry) != 3:
+    """One journalled ``[seq, address, value]`` or ``[seq, address, value, t_s]`` write.
+
+    ``None`` when it is malformed: ``t_s``, when present, is a finite number of
+    epoch seconds.
+    """
+    if not isinstance(entry, list) or len(entry) not in (3, 4):
         return None
-    seq_no, address, value = entry
+    seq_no, address, value, *rest = entry
     if not isinstance(seq_no, int) or isinstance(seq_no, bool) or not isinstance(address, str):
         return None
-    return seq_no, address, value
+    if not rest:
+        return seq_no, address, value, None
+    t_s = rest[0]
+    if not isinstance(t_s, int | float) or isinstance(t_s, bool) or not math.isfinite(t_s):
+        return None
+    return seq_no, address, value, float(t_s)
 
 
 def _mark(document: object, text: str) -> int | str:
@@ -347,6 +362,18 @@ def _tell_connection(
         on_connection(connected)
     except Exception as exc:
         logger.warning(f"In-process connection callback for {address} raised: {exc}")
+
+
+async def _deliver(
+    address: str, callback: Callable[[ChannelValue], object], reading: ChannelValue
+) -> None:
+    """Hand a subscription's callback one reading, awaiting it; a raise is logged."""
+    try:
+        result = callback(reading)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning(f"In-process subscription callback for {address} raised: {exc}")
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -518,9 +545,9 @@ class VAInProcessConnector(ControlSystemConnector):
             return None
 
     def _replay(self, document: _JournalDocument | None, text: str) -> None:
-        """Reset the composite and put the journal back as one write, when it is well formed.
+        """Reset the composite and replay the journal in order, when it is well formed.
 
-        The values are restored, not written: a journalled write was a client
+        The values are put back, not written: a journalled write was a client
         write once, in the connector that took it, and is none here.
         """
         assert self._composite is not None
@@ -540,12 +567,13 @@ class VAInProcessConnector(ControlSystemConnector):
             return
         # Every entry is well formed: _rejection found none that is not.
         entries = [entry for entry in map(_journal_entry, writes) if entry is not None]
-        replayed: dict[str, object] = {
-            address: value
-            for _seq_no, address, value in sorted(entries, key=lambda entry: entry[0])
-        }
         try:
-            self._composite.restore(replayed)
+            self._composite.replay(
+                [
+                    (address, value, t_s)
+                    for _seq_no, address, value, t_s in sorted(entries, key=lambda entry: entry[0])
+                ]
+            )
         except Exception as exc:
             self._composite.reset()
             self._reject(getattr(exc, "address", None) or JOURNAL_FILE, str(exc))
@@ -570,7 +598,7 @@ class VAInProcessConnector(ControlSystemConnector):
             entries.append(parsed)
         if document.get("active_set_sha256") != self._active_sha:
             return entries[0][1], "written under another active scenario set"
-        for _seq_no, address, value in entries:
+        for _seq_no, address, value, _t_s in entries:
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
@@ -594,8 +622,8 @@ class VAInProcessConnector(ControlSystemConnector):
                     return address, f"{value!r} is outside [{low}, {high}]"
         return None
 
-    def _append(self, address: str, value: object) -> None:
-        """Append one write the composite took, under the journal's lock."""
+    def _append(self, address: str, value: object, t_s: float) -> None:
+        """Append one write the composite took at instant ``t_s``, under the journal's lock."""
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
@@ -605,7 +633,7 @@ class VAInProcessConnector(ControlSystemConnector):
             if _is_journal(document) and document.get("active_set_sha256") == self._active_sha:
                 writes = list(document["writes"])
             seq = (seq or 0) + 1
-            writes.append([seq, address, value])
+            writes.append([seq, address, value, t_s])
             self._journal.write(
                 {"active_set_sha256": self._active_sha, "seq": seq, "writes": writes}
             )
@@ -936,7 +964,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         before = self._subscribed_held()
         try:
-            self._put(channel_address, stored)
+            t_s = self._put(channel_address, stored)
         except Exception as e:
             from lume.exceptions import ReadOnlyError
 
@@ -954,7 +982,7 @@ class VAInProcessConnector(ControlSystemConnector):
                 error_message=f"In-process write failed: {e}",
             )
         try:
-            self._append(channel_address, stored)
+            self._append(channel_address, stored, t_s)
         except OSError as exc:
             # The composite holds the write; only its survival across
             # connectors is lost.
@@ -1003,9 +1031,12 @@ class VAInProcessConnector(ControlSystemConnector):
             notes=f"Observed {held}, sent {value} (in process)",
         )
 
-    def _put(self, channel_address: str, value: object) -> None:
-        """Set ``value`` in the composite; raises whatever the composite raises."""
-        self._require(channel_address).set({channel_address: value})
+    def _put(self, channel_address: str, value: object) -> float:
+        """Write ``value`` into the composite; returns the write's instant.
+
+        Raises whatever the composite raises.
+        """
+        return self._require(channel_address).write({channel_address: value})
 
     # -- subscriptions and the tick ------------------------------------------
 
@@ -1017,15 +1048,16 @@ class VAInProcessConnector(ControlSystemConnector):
         *,
         on_connection: Callable[[bool], None] | None = None,
     ) -> str:
-        """Subscribe to a channel; the callback fires after a tick or a write.
+        """Subscribe to a channel; the callback fires now, then after a tick or a write.
 
         A channel of the facility is served by this process, so it drops only
         while a scenario's ``stopped_servers`` stops its simulated server, as a
         channel of a stopped server does on the wire: ``on_connection`` is told
         the channel's state before this returns -- ``False`` when its server is
         stopped, and the subscription then waits -- and told again on every
-        stop and restart. The first callback after a restart carries the
-        channel's current value.
+        stop and restart. The callback is given the channel's current value
+        before this returns when the channel is up, and as its first callback
+        after a restart.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
@@ -1041,6 +1073,8 @@ class VAInProcessConnector(ControlSystemConnector):
             self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"In-process subscription created: {sub_id}")
         _tell_connection(channel_address, on_connection, connected)
+        if connected:
+            await _deliver(channel_address, callback, self._reading(channel_address, held=False))
         return sub_id
 
     @override
@@ -1092,14 +1126,8 @@ class VAInProcessConnector(ControlSystemConnector):
         self._last_held.update(now)
         for subscription in list(self._subscriptions.values()):
             address, callback = subscription.address, subscription.callback
-            if address not in due:
-                continue
-            try:
-                result = callback(self._reading(address, held=False))
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                logger.warning(f"In-process subscription callback for {address} raised: {exc}")
+            if address in due:
+                await _deliver(address, callback, self._reading(address, held=False))
 
     def _wait_s(self) -> float:
         """How long the tick sleeps: ``tick_s``, or less when a time-driven model's

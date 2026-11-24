@@ -159,7 +159,7 @@ def test_every_corrector_setpoint_has_one_record() -> None:
     addresses = [record["address"] for record in records]
     assert len(addresses) == len(set(addresses))
     correctors = corrector_setpoints()
-    assert len(correctors) == 191
+    assert len(correctors) == 183
     assert set(addresses) == set(correctors) | {r["address"] for r in TEACHING_RECORDS}
     for record in records[3:]:
         assert record == {"address": record["address"], **corrector_band(record["address"])}
@@ -213,7 +213,7 @@ def test_cavity_band_holds_the_deck_operating_point() -> None:
 def test_limits_golden_holds_the_resolved_rows() -> None:
     golden = load_golden("limits.json")
     assert "defaults" not in golden
-    assert golden["count"] == len(golden["channels"]) == 193
+    assert golden["count"] == len(golden["channels"]) == 185
     for address, row in RESOLVED_ROWS.items():
         assert golden["channels"][address] == row
     for address in corrector_setpoints():

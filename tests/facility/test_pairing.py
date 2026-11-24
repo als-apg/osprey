@@ -244,6 +244,28 @@ def test_a_followed_pair_of_one_type_copies_its_value() -> None:
     assert (follow.follow, follow.copy, follow.labels) == (FOLLOWED_DEFAULT, "value", None)
 
 
+@pytest.mark.parametrize(
+    ("setpoint", "seed"),
+    [
+        pytest.param({"value_type": "bool"}, None, id="default"),
+        pytest.param({"value_type": "bool"}, {"follows": "CMD"}, id="seed"),
+        pytest.param({"value_type": "int"}, {"follows": "CMD"}, id="seed-by-index"),
+    ],
+)
+def test_a_readback_that_states_idle_is_followed_from_no_setpoint(
+    setpoint: dict[str, Any], seed: dict[str, Any] | None
+) -> None:
+    status: dict[str, Any] = {"value_type": "bool", "idle": "OFF"}
+    if seed is not None:
+        status["simulation"] = seed
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", **setpoint),
+        **_rb("STS", "power_on_status", **status),
+    }
+    assert _follows(channels) == {("CMD", "STS"): (NOT_FOLLOWED, "the readback states `idle`")}
+    assert simulated_pairs(channels) == {}
+
+
 def test_a_command_pairs_with_its_status_of_another_type() -> None:
     channels = {
         **_sp("CMD", "power_on_command", value_type="enum", options=["Idle", "On", "Off"]),
@@ -462,7 +484,7 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
         }
 
     authored = pairs(stated)
-    assert len(authored) == 674
+    assert len(authored) == 658
     derived_pairs = pairs(derived)
     assert {address: derived_pairs[address] for address in STATED_ONLY} == {
         address: address for address in STATED_ONLY

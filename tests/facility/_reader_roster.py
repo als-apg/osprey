@@ -140,7 +140,7 @@ ROSTER: tuple[Reader, ...] = (
         "test_the_facility_name_of_a_v3_facility_file_is_refused_naming_the_rebuild",
     ),
     Reader(
-        "osprey.runtime._facility_channels",
+        "osprey.runtime._facility_records",
         "refuse",
         "tests/runtime/test_settle.py::test_a_v3_facility_file_is_refused_naming_the_rebuild",
     ),

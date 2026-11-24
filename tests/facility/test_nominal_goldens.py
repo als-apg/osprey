@@ -1,8 +1,7 @@
 """The in-process simulator's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
-address but the deck's tune and chromaticity instruments, the transfer
-line's channels and the waveforms, the nominal the simulator served in process serves with no
+address but the deck's tune and chromaticity instruments and the waveforms, the nominal the simulator served in process serves with no
 scenario active. It serves the demo build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
@@ -71,9 +70,6 @@ MODE_LABEL = "Machine studies"
 
 #: The storage ring's stored current, a top-off sawtooth.
 SR_DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
-
-#: How many transfer line channels the golden's capture predates.
-LINE_CHANNELS = 40
 
 #: The served waveforms: a trace has no scalar nominal, so the golden holds none.
 WAVEFORMS = frozenset({"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"})
@@ -163,9 +159,7 @@ def bts_monitors() -> set[str]:
 
 def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
     unheld = set(served.channels) - set(golden())
-    line = {address for address in unheld if address.startswith("LINE:")}
-    assert len(line) == LINE_CHANNELS
-    assert unheld - line == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
+    assert unheld == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
     assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
     assert set(golden()) <= set(served.channels)
 

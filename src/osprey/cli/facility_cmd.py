@@ -144,10 +144,10 @@ def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
     ``limits:`` count line and one line per address (the first ten and a
     count of the rest, unless --all-limits): the setpoints with no
     limits record (served writable with no range when the target's limits
-    mode is ``optional``, refused otherwise) and the limits records that state
-    one edge (served not writable); they report and change nothing, the exit
-    code included. When the facility file holds relation claims,
-    one summary line closes stderr:
+    mode is ``optional``, refused otherwise) and the limits records that serve
+    their setpoint not writable until they state what their line lacks; they
+    report and change nothing, the exit code included. When the facility file
+    holds relation claims, one summary line closes stderr:
     ``relations: N claims (S stated, I inferred); A accepted, C contested``,
     with ``, X superseded`` appended when any claim is superseded; a facility
     without claims prints no such line.

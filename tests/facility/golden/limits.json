@@ -3,7 +3,7 @@
   "_sources": [
     "src/osprey/templates/facilities/example/limits.yaml"
   ],
-  "count": 193,
+  "count": 185,
   "channels": {
     "BTS:MAG:HCM:01:CURRENT:SP": {
       "min_value": -10.0,
@@ -181,62 +181,6 @@
       "confirm": true
     },
     "GTL:MAG:VCM:04:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:HCM:01:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:HCM:02:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:HCM:03:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:HCM:04:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:VCM:01:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:VCM:02:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:VCM:03:CURRENT:SP": {
-      "min_value": -10.0,
-      "max_value": 10.0,
-      "max_step": null,
-      "writable": true,
-      "confirm": true
-    },
-    "LINE:MAG:VCM:04:CURRENT:SP": {
       "min_value": -10.0,
       "max_value": 10.0,
       "max_step": null,

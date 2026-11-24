@@ -6,7 +6,7 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 4731 channels, 674 of them settable, every one of
+the tree OSPREY ships -- 4691 channels, 658 of them settable, every one of
 those but the gauge trip resets paired with the readback the file states.
 
 The second is memoization. A build asks this question several times -- both
@@ -43,9 +43,9 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 4731
-DEMO_WRITES = 674
-DEMO_READS = 4057
+DEMO_CHANNELS = 4691
+DEMO_WRITES = 658
+DEMO_READS = 4033
 
 #: The demo's unpaired setpoints: each vacuum gauge's trip reset, a command with
 #: no readback of its own.

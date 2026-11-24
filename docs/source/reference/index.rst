@@ -36,6 +36,20 @@ lookup material; the how-to guides link here for every value they mention.
       The Python API of the connectors package: the connector contracts, the
       factory, the errors, and the write-safety records.
 
+   .. grid-item-card:: osprey-facility
+      :link: contracts/facility-json
+      :link-type: doc
+
+      The ``facility.json`` file the facility package builds: its header,
+      its JSON Schema, and how a reader checks the format version.
+
+   .. grid-item-card:: osprey-panels
+      :link: osprey-panels
+      :link-type: doc
+
+      The ``osprey-panels`` command: the operator screens it writes from a
+      built ``facility.json`` and the facility's panel rule tables.
+
    .. grid-item-card:: Ports
       :link: ports
       :link-type: doc
@@ -50,4 +64,5 @@ lookup material; the how-to guides link here for every value they mention.
    configuration/index
    contracts/index
    connectors-api/index
+   osprey-panels
    ports

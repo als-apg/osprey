@@ -172,6 +172,17 @@
           "title": "Id",
           "type": "string"
         },
+        "idle": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On a readback a command pairs with, its status: what it reads while no act runs, typed by the channel: a label on a bool or enum channel, an integer on an int, a number on a float, text on a string; a waveform channel is never a status.",
+          "title": "Idle"
+        },
         "label": {
           "anyOf": [
             {
@@ -332,6 +343,19 @@
           ],
           "default": null,
           "title": "Tags"
+        },
+        "timeout_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On a command whose status states `idle`: the longest one act may take, in seconds.",
+          "title": "Timeout S"
         },
         "tolerance": {
           "anyOf": [
@@ -1188,7 +1212,7 @@
             }
           ],
           "default": null,
-          "description": "Absent means true; false turns off the re-read after a write.",
+          "description": "Absent means true, and false on a command that states `timeout_s`, whose status confirms the write; false turns off the re-read after a write.",
           "title": "Confirm"
         },
         "max_step": {
@@ -1237,7 +1261,7 @@
             }
           ],
           "default": null,
-          "description": "Absent means true on a setpoint carrying both `min_value` and `max_value`, false otherwise.",
+          "description": "Absent means true on a float or int setpoint carrying both `min_value` and `max_value`, false otherwise. A setpoint of any other value_type carries no bounds and is writable only when this is true; its value is not checked against this record.",
           "title": "Writable"
         }
       },
@@ -2987,6 +3011,8 @@
       "type": "string"
     }
   },
+  "$id": "https://als-apg.github.io/osprey/latest/schemas/facility/4.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "The whole facility file.",
   "properties": {
     "channels": {

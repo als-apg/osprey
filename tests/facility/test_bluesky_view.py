@@ -76,6 +76,46 @@ def test_a_setpoint_paired_with_itself_names_no_readback() -> None:
     assert document["settables"] == [{"name": "A:SP", "setpoint": "A:SP"}]
 
 
+def test_a_further_setpoint_is_a_settable_reading_its_records_pair() -> None:
+    document = bluesky_document(
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel("A:SP", "setpoint", "A:RB"),
+                    _channel("A:RB", "readback"),
+                    _channel("RACK:SP", "setpoint", "RACK:SP"),
+                ],
+                "models": [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}],
+            }
+        )
+    )
+
+    assert document["settables"] == [
+        {"name": "A:SP", "setpoint": "A:SP", "readback": "A:RB"},
+        {"name": "RACK:SP", "setpoint": "RACK:SP", "readback": "A:RB"},
+    ]
+
+
+def test_a_further_setpoint_settles_within_its_records_tolerance() -> None:
+    document = bluesky_document(
+        FacilityRecords(
+            {
+                "channels": [
+                    {**_channel("A:SP", "setpoint", "A:RB"), "tolerance": {"absolute": 0.05}},
+                    _channel("A:RB", "readback"),
+                    _channel("RACK:SP", "setpoint", "RACK:SP"),
+                ],
+                "models": [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}],
+            }
+        )
+    )
+
+    settables = {entry["name"]: entry for entry in document["settables"]}
+    for name in ("A:SP", "RACK:SP"):
+        assert settables[name]["settle_tolerance"] == 0.05
+        assert settables[name]["readback"] == "A:RB"
+
+
 def test_an_unpaired_readback_is_a_readable() -> None:
     document = bluesky_document(FacilityRecords({"channels": [_channel("T:01", "readback")]}))
 
@@ -220,6 +260,20 @@ def test_a_live_lane_warns_once_with_the_count(
     assert err.count(line) == 1
     assert "B:SP" in err and "C:SP" in err
     assert "bluesky_va" not in err
+
+
+def test_a_further_setpoint_of_a_toleranced_record_is_not_warned(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = _toleranced()
+    doc["channels"].append(_channel("RACK:SP", "setpoint"))
+    doc["models"] = [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}]
+    services = {"bluesky": {"settle_tolerance": 0.001}}
+    write_bluesky_view(tmp_path, _rendered(doc, services, "epics", set()))
+
+    err = capsys.readouterr().err
+    assert "2 setpoints declare no `tolerance`" in err
+    assert "RACK:SP" not in err
 
 
 def test_a_simulated_lane_does_not_warn(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -402,8 +456,7 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
-    assert len(setpoints) == 674
-    assert sum(address.startswith("LINE:") for address in setpoints) == 16
+    assert len(setpoints) == 658
 
     settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 

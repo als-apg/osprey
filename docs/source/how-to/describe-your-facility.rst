@@ -124,7 +124,14 @@ its ``model``. A device a model wires takes its position from the deck.
 
 **Channels** are the control-system addresses. A channel's id is its full
 address, written exactly as the control system serves it; no part of the
-address means anything to OSPREY. What a channel is comes from its fields:
+address means anything to OSPREY. A setpoint may be a command: a channel
+written to start something, such as a reset, rather than to hold a value. The
+build marks it ``command: true`` when its ``signal`` is a command word or a
+model's engine marks it (:doc:`/reference/contracts/facility-kinds`). Its
+readback is its status, the channel that reports when what the command started,
+its act, is over; the fields ``idle`` and ``timeout_s`` say what the status reads
+while nothing runs and how long an act may take, so a write of the command can
+wait until the act is over. What a channel is comes from its fields:
 
 .. list-table::
    :header-rows: 1
@@ -148,14 +155,26 @@ address means anything to OSPREY. What a channel is comes from its fields:
        signal states, may differ. Several setpoints may name one readback (a
        set and a reset command read back on one channel). The simulation
        drives a readback from its setpoint only where exactly one setpoint
-       names it and the two agree in type; any other readback it drives from
-       no setpoint. The readback's seed ``follows`` changes that for one pair
+       names it, the two agree in type and the readback states no ``idle``;
+       any other readback it drives from no setpoint. The readback's seed ``follows`` changes that for one pair
        (see Seeds).
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
        ``{relative: <fraction>}`` of its seed's ``nominal``. The setpoint and
-       its readback must both state a ``unit``.
+       its readback must both state a ``unit``. An address under a wiring
+       record's ``also`` settles within the tolerance of the record's
+       ``address`` and states none of its own.
+   * - ``idle``
+     - On a readback a command pairs with, its status: what it reads while no
+       act runs, typed by the channel: a label on a bool or enum channel, an
+       integer on an int, a number on a float, text on a string; a waveform
+       channel is never a status. Several commands may share one status. A status that states ``idle``
+       is never followed: ``follows`` naming a setpoint on it stops the build
+       with ``command-invalid``.
+   * - ``timeout_s``
+     - On a command whose status states ``idle``: the longest one act may
+       take, in seconds. A command and its status state the two together.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
@@ -547,9 +566,19 @@ demo preset ships this one:
    :caption: limits.yaml
    :start-after: Delete this line to make the file yours.
 
-A setpoint record with both ``min_value`` and ``max_value`` is writable within
-them; ``max_step`` bounds a single change; ``writable: false`` blocks every
-write; ``confirm: false`` turns off the re-read after a write.
+A float or int setpoint record with both ``min_value`` and ``max_value`` is
+writable within them; ``writable: true`` on one without both bounds stops the
+build. A bool, enum, string or waveform setpoint carries no bounds and is
+writable when its record says ``writable: true``. For such a channel the limits
+check decides only whether it may be written; which values it takes is decided
+by the control system. ``max_step`` bounds a single change; ``writable: false``
+blocks every write; ``confirm: false`` turns off the re-read after a write. A
+record that does not state ``confirm`` is written ``confirm: true``, and
+``confirm: false`` on a command that states ``timeout_s``, whose status confirms
+the write. On such a command, stating ``confirm: true`` stops the build:
+``osprey_connectors.command.fire`` writes such a command with
+the re-read off and confirms it by waiting for its status
+(:doc:`/reference/contracts/connectors`).
 
 ``osprey build`` renders the records into ``build/data/channel_limits.json``,
 the file the connector's reference monitor and the runtime's limits check
@@ -652,7 +681,8 @@ a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
 
 ``follows`` says whether the simulation copies a setpoint's writes into this
 readback. By default it does when exactly one setpoint names the readback as
-its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``.
+its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``,
+and the readback states no ``idle``.
 ``follows: <setpoint>`` makes the copy where the default does not, and
 ``follows: none`` stops it where the default makes it. A followed readback
 starts at its setpoint's value and takes each write at once, with its own noise
@@ -704,23 +734,24 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
 .. code-block:: yaml
 
-   - name: LINE
+   - name: BTS
      engine: pyat
-     deck: decks/LINE.json
+     deck: decks/BTS.json
      settings:
        pyat:
          solve: single_pass
          twiss_in:
-           beta: [7.448848, 4.786082]
-           alpha: [-1.333207, 0.885765]
+           beta: [0.63, 9.6]
+           alpha: [-0.32, 2.42]
+           dispersion: [0.074, 0.018, 0.0, 0.0]
      wiring:
-     - address: LINE:DIAG:BPM:01:POSITION:X
-       element: BPM01
+     - address: BTS:DIAG:BPM:01:POSITION:X
+       element: BPM1
        engine:
          axis: x
        calibration:
          curve:
-           linear: {gain: 1.0, offset: 0.0}
+           linear: {gain: 0.001, offset: 0.0}
          energy_scaling: none
 
 The ``pyat`` settings may also carry ``error_elements``, a list of
@@ -827,16 +858,16 @@ further address is a channel of its own:
 
 .. code-block:: yaml
 
-   - id: LINE:RACK:03:UNIT:01:X
+   - id: BTS:RACK:03:UNIT:01:X
      label: BPM 01 horizontal position, as the rack unit names it
 
 and the record lists it under ``also``:
 
 .. code-block:: yaml
 
-   - address: LINE:DIAG:BPM:01:POSITION:X
-     also: [LINE:RACK:03:UNIT:01:X]
-     element: BPM01
+   - address: BTS:DIAG:BPM:01:POSITION:X
+     also: [BTS:RACK:03:UNIT:01:X]
+     element: BPM1
      engine:
        axis: x
 
@@ -844,12 +875,14 @@ Each address under ``also`` is a channel of ``records/channels.yaml`` with the
 ``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
 and the same ``unit`` when both state one. It reads what ``address`` reads at
 the same instant, with the same calibration, motion and readout noise, and a
-write to it is a write to ``address``. It carries no seed of its own, and a
-limit is still stated per address. A pair is stated between
+write to it is a write to ``address``. It reads back the ``pair`` of
+``address`` and settles within its ``tolerance``, and on a command it has the
+time bound and the status of ``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
+carries no seed of its own, and a limit is still stated per address. A pair is stated between
 records' ``address`` names: the build stops when an address under ``also``
 states a ``pair``, and when a setpoint's ``pair`` names an address under
 ``also``. A fault variable is named by ``address``
-only (``LINE:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
+only (``BTS:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
 (``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
 either. An address belongs to one wiring record: the build stops when two
 records name it, and when two records read the same axis of one monitor.

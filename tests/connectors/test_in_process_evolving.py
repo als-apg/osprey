@@ -234,6 +234,8 @@ async def test_a_subscription_fires_when_a_step_lands_between_ticks(tmp_path: Pa
 
     try:
         await connector.subscribe(COUNTERS[-1], on_count)
+        # A subscription is given the channel's current value before the write.
+        assert counted.get_nowait() == 0.0
         assert (await connector.write_channel(REQUEST, 1.0)).outcome is WriteOutcome.CONFIRMED
 
         assert await asyncio.wait_for(counted.get(), timeout=30.0) == 1.0

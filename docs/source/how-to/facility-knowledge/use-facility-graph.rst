@@ -417,17 +417,17 @@ only its own status channels. After ``osprey build`` the views hold:
      - Addresses
      - Relationship to the graph
    * - Graph view (``data/graph/facility.ttl``)
-     - 4731
-     - Build output, written from the facility file: 1027 devices, and one
-       binding per channel; the 674 setpoint channels are the write-direction
+     - 4691
+     - Build output, written from the facility file: 1007 devices, and one
+       binding per channel; the 658 setpoint channels are the write-direction
        bindings.
    * - Channel finder — hierarchical and graph builds
-     - 4731
+     - 4691
      - The same set, address for address. A graph-mode build keeps no database
        of its own: it answers out of the search index the build writes from
        the graph view.
    * - Channel finder — middle-layer build
-     - 4725
+     - 4685
      - A strict subset — every channel bound to a device. The few channels the
        facility file attaches to a place rather than a device belong to no
        family, so this view leaves them out.

@@ -1,0 +1,12 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+description: 'The booster-to-storage transfer line IOC sim-BTS stops, so the IOCs view shows one IOC gone
+  silent. While applied, the channels the BTS model serves give no answer: the current setpoint and readback
+  of every BTS corrector, quadrupole and bend (BTS:MAG:*:CURRENT:SP and :RB), the BTS BPM positions (BTS:DIAG:BPM:*:POSITION:X
+  and :Y) and the IOC''s own status and health PVs (ca:SIM:BTS:STATUS, HEARTBEAT, UPTIME, ENGINEER), on the
+  virtual accelerator and the stand-in alike; a BTS trajectory read, steering write or orbit response measurement
+  fails. Only the IOC''s answers stop, not the magnets or the beam: every other BTS channel (magnet on and
+  ready statuses, screens, BPM sum signals, the charge monitor) is served by sim-texture and keeps answering,
+  and so do the storage ring, the booster and the LTB line. Injection and the stored beam are unchanged. Apply
+  on demand; it is not a default scenario.'
+stopped_servers:
+- sim-BTS

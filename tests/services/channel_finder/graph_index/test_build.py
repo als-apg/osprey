@@ -36,11 +36,11 @@ from osprey.services.graph_store.seeder import ttl_sha256
 #: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
 #: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
 #: every binding owner, so the top place ``SR``, which carries the tune,
-#: chromaticity, user beam mode and operation-mode channels itself, is one of the 1017; ``signals`` is what
+#: chromaticity, user beam mode and operation-mode channels itself, is one of the 997; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 4731
-DEMO_DEVICES = 1017
+DEMO_BINDINGS = 4691
+DEMO_DEVICES = 997
 DEMO_CLASSES = 36
 DEMO_SIGNALS = 62
 
@@ -50,7 +50,7 @@ DEMO_SIGNALS = 62
 #: and ``RK08``, and the girder ``G2`` in ``SECT3``),
 #: not read off a store-backed assertion -- no census test seeds this corpus and
 #: asks the store for its section count.
-DEMO_SECTIONS = 24
+DEMO_SECTIONS = 23
 
 
 def _meta_row(index_path: Path) -> dict:
@@ -156,8 +156,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "4731 bindings" in line
-        assert "1017 devices" in line
+        assert "4691 bindings" in line
+        assert "997 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):

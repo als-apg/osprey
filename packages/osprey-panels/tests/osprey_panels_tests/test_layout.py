@@ -36,6 +36,7 @@ from osprey_panels.layout import (
     unexpressed,
 )
 from osprey_panels.model import load_graph
+from osprey_panels.screen_ir import SCREEN_IR_VERSION
 from osprey_panels.view import (
     Fact,
     Light,
@@ -832,7 +833,7 @@ def test_the_format_requests_are_exactly_the_needs_the_views_hit(panel_graph, mo
 
 def test_the_document_is_a_screen_of_the_targets_id(panel_graph) -> None:
     doc, _ = draw(card("XR01:QF1"), panel_graph)
-    assert doc["schemaVersion"] == "1.1" and doc["kind"] == "screen"
+    assert doc["schemaVersion"] == SCREEN_IR_VERSION and doc["kind"] == "screen"
     assert doc["id"] == Screens.doc_id(Target("card", "device", "XR01:QF1"))  # the caller's
     assert not hasattr(layout, "screen_id")  # one screen id function: emit's
     named = render(card("x"), graph=panel_graph, screens=Screens(), doc_id="a/b")
