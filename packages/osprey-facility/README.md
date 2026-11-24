@@ -58,5 +58,6 @@ Schema: the current one, or `published_schema(4)` for a format version's floor.
 | `osprey_facility.served` | framework job: `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views` |
 | `osprey_facility.sessions` | framework job: `osprey.agent_runner`, `osprey.interfaces.web_terminal`, `osprey.registry`, `osprey.simulation` |
 | `osprey_facility.simulated` | framework job: `osprey.facility.views` |
+| `osprey_facility.source_tree` | framework job: `osprey.cli`, `osprey.facility`, `osprey.mcp_server.python_executor`, `osprey.registry`, `osprey.simulation` |
 | `osprey_facility.sources` | framework job: `osprey.facility.views` |
 | `osprey_facility.validate` | framework job: `osprey.cli`, `osprey.facility.views`, `osprey.mcp_server.channel_finder_graph`, `osprey.registry` |
