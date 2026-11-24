@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_record.config import (
     AgentRecordConfig,
     agent_record_errors,
@@ -1827,7 +1828,7 @@ class BuildProfile:
         errors.extend(
             watchdog_errors(
                 self.watchdogs,
-                base_dir=profile_dir,
+                watchdogs_dir=repo_layout.watchdogs_source_dir(profile_dir),
                 write_tools=write_tools,
                 hook_selection=library_selection(
                     "hooks", self.hooks if isinstance(self.hooks, list) else []

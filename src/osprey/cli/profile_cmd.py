@@ -35,7 +35,7 @@ import click
 
 from osprey import repo_layout
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
+from osprey.services.watchdog.config import parse_watchdogs_block
 from osprey.utils.workspace import (
     APPS_DIRNAME,
     TIERS_DIRNAME,
@@ -1957,11 +1957,13 @@ def _materialize_profile_directory(
         # Every watchdog the block names, enabled or not, so the files travel with
         # the block. The strict parser holds a preset's disabled entries to their
         # files too, where validating the resolved preset does not.
-        parse_watchdogs_block(resolved.watchdogs, base_dir=preset_dir)
+        parse_watchdogs_block(
+            resolved.watchdogs, watchdogs_dir=repo_layout.watchdogs_source_dir(preset_dir)
+        )
         for watchdog in resolved.watchdogs:
             shutil.copytree(
-                preset_dir / WATCHDOGS_BLOCK / watchdog,
-                target / WATCHDOGS_BLOCK / watchdog,
+                repo_layout.watchdogs_source_dir(preset_dir) / watchdog,
+                repo_layout.watchdogs_source_dir(target) / watchdog,
                 ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
             )
         if catalog.carried:
