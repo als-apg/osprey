@@ -30,7 +30,7 @@ LA = ZoneInfo("America/Los_Angeles")  # non-UTC facility; -7h (PDT) / -8h (PST)
 
 def _make_project(tmp_path: Path) -> Path:
     """Stage a project whose render holds a simulator view, with a non-UTC facility timezone."""
-    scenarios = TEMPLATE_FACILITY / "scenarios"
+    scenarios = TEMPLATE_FACILITY / "simulation" / "scenarios"
     write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
     config = {
         # URI is never dialed: _seed_logbook is stubbed below.

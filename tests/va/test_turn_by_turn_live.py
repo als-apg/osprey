@@ -195,7 +195,7 @@ def _slow_view(root: Path) -> Path:
 
     facility_dir = root / "data" / "facility"
     shutil.copytree(FIXTURE, facility_dir)
-    models_path = facility_dir / "models.yaml"
+    models_path = facility_dir / "simulation" / "models.yaml"
     models = yaml.safe_load(models_path.read_text(encoding="utf-8"))
     (ring,) = [model for model in models if model["name"] == RING]
     ring["settings"]["pyat"]["turn_by_turn"]["particles"] = SLOW_PARTICLES

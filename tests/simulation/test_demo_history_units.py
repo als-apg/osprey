@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"
+SCENARIO_FILE = TEMPLATE_FACILITY / "simulation" / "scenarios" / "demo-history.yaml"
 CHANNELS_FILE = TEMPLATE_FACILITY / "records" / "channels.yaml"
 
 BPM13_X = "SR:DIAG:BPM:13:POSITION:X"

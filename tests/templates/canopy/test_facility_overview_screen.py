@@ -434,7 +434,17 @@ def test_status_box_readouts(nodes: list[dict]) -> None:
 
 
 def test_the_energy_label_is_the_storage_ring_decks_energy() -> None:
-    deck = ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "decks" / "SR.json"
+    deck = (
+        ROOT
+        / "src"
+        / "osprey"
+        / "templates"
+        / "facilities"
+        / "example"
+        / "simulation"
+        / "decks"
+        / "SR.json"
+    )
     energy_ev = json.loads(deck.read_text(encoding="utf-8"))["properties"]["energy"]
     assert gen.ENERGY_TEXT == f"{energy_ev / 1e9:.1f} GeV"
 
