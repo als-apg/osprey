@@ -544,7 +544,7 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
     # mean "a RunEngine ran this". Contract read from bluesky 1.16.0
     # (`run_engine.py::_wait_for`), the floor this package pins; re-verify it
     # if that floor moves. Anything else driving this generator — the read-only
-    # preview walk in `qserver_startup.collect_channel_moves` is the one that
+    # preview walk in `qserver_startup.walk_launch` is the one that
     # does — consumes the message without executing it and sends `None` back.
     finished = yield Msg("wait_for", None, [lambda: probe_addresses(connector, addresses)])
     if not finished:
