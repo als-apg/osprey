@@ -2636,9 +2636,8 @@ class _Records:
                     "limit",
                     address,
                     files,
-                    f"`writable: true` on a {value_type} setpoint without both `min_value` and "
-                    "`max_value`",
-                    "state `min_value` and `max_value`",
+                    f"`writable: true` on a {value_type} setpoint without {quoted_slots(missing)}",
+                    f"state {quoted_slots(missing)}",
                 )
             if bounds and value_type not in _NUMERIC_TYPES:
                 yield self._error(
