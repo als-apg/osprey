@@ -30,8 +30,9 @@ its readback; every setpoint, on-status and unpaired readback carries the
 table's nominal. The booster septa sit on the BTS deck as fixed elements, so
 no model wires them and none carries a pulse. A channel bound by several
 legacy names (the septum supplies' interlock bits) is one channel. The
-booster's existing records -- its bends, quadrupoles, monitors, current
-monitor and system groups -- are not emitted and keep their text.
+booster's lattice records -- its bends, quadrupoles, correctors, monitors,
+the three supplies' currents and the system groups -- are ``_booster.py``'s;
+its current monitor is not emitted and keeps its text.
 
 The gun-to-linac line and the linac are texture stand-ins built by
 ``_standin.py``, and the linac-to-booster and booster-to-storage lines are

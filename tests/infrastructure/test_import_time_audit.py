@@ -76,6 +76,9 @@ WHITELIST: dict[str, set[str]] = {
     "tests/facility/test_element_table.py": {"sys.modules"},
     "tests/facility/test_mml_parse.py": {"sys.modules"},
     "tests/scripts/test_panel_rename.py": {"sys.modules"},
+    # The demo facility's booster script, loaded as the transfer-line ones
+    # below are; its skip condition reads it.
+    "tests/facility/test_booster_model.py": {"sys.modules", "sys.path"},
     # The demo facility's transfer-line scripts import their siblings by bare
     # name, as generate.py runs them: the loader holds the scripts folder on
     # sys.path only while one executes, and their sections feed parametrize.

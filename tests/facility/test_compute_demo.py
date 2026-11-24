@@ -25,10 +25,10 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.slow]
 
 #: The demo's models that have a deck.
-MODELS = ("BTS", "LTB", "SR")
+MODELS = ("BR", "BTS", "LTB", "SR")
 
 #: The models whose devices state their place, inside the model's span.
-AUTHORED_PLACE_MODELS = ("BTS", "LTB")
+AUTHORED_PLACE_MODELS = ("BR", "BTS", "LTB")
 
 
 def _model_of(record_id: str) -> str | None:

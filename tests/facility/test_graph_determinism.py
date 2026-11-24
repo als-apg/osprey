@@ -78,8 +78,8 @@ ALL_SETTINGS = [
 #: changes; copied here so the comparison needs no git history, and lowered by what the
 #: synthetic transfer line the example has since dropped held: 542 triples, 20 devices,
 #: 5 groups and 40 channels.
-BASE_TRIPLES_LOADED = 43259
-BASE_FACILITY_COUNTS = {"devices": 996, "groups": 74, "channels": 4691}
+BASE_TRIPLES_LOADED = 45163
+BASE_FACILITY_COUNTS = {"devices": 1080, "groups": 76, "channels": 4765}
 
 
 def _at_base(path: str) -> str:

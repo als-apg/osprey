@@ -3,8 +3,232 @@
   "_sources": [
     "src/osprey/templates/facilities/example/limits.yaml"
   ],
-  "count": 185,
+  "count": 217,
   "channels": {
+    "BR:MAG:HCM:01:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:02:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:03:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:04:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:05:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:06:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:07:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:08:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:09:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:10:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:11:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:12:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:13:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:14:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:15:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:HCM:16:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:01:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:02:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:03:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:04:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:05:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:06:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:07:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:08:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:09:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:10:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:11:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:12:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:13:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:14:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:15:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
+    "BR:MAG:VCM:16:CURRENT:SP": {
+      "min_value": -6.0,
+      "max_value": 6.0,
+      "max_step": null,
+      "writable": true,
+      "confirm": true
+    },
     "BTS:MAG:HCM:01:CURRENT:SP": {
       "min_value": -10.0,
       "max_value": 10.0,

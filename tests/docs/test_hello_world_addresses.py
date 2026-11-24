@@ -36,8 +36,8 @@ TUTORIALS = {
 }
 
 #: A colon-separated channel address, as the tutorials spell one; a ``*``
-#: segment names a family.
-ADDRESS = re.compile(r"(?<![\w*])[A-Z][A-Z0-9_]*(?::(?:[A-Z0-9_]+|\*))+(?![\w*])")
+#: segment names a family, and a segment may hold a hyphen (``QD-RAMP``).
+ADDRESS = re.compile(r"(?<![\w*])[A-Z][A-Z0-9_]*(?::(?:[A-Z0-9_]+(?:-[A-Z0-9_]+)*|\*))+(?![\w*-])")
 
 #: The mock connector's refusal for an address outside the facility file.
 REFUSAL = re.compile(rf"({ADDRESS.pattern}) is not a channel of this facility")

@@ -123,7 +123,7 @@ def test_each_line_is_a_single_pass_pyat_model_from_its_launch_twiss(section: st
 
 
 def test_the_models_are_sorted_by_name() -> None:
-    assert [model["name"] for model in _committed("models.yaml")] == ["BTS", "LTB", "SR"]
+    assert [model["name"] for model in _committed("models.yaml")] == ["BR", "BTS", "LTB", "SR"]
 
 
 @pytest.mark.parametrize("section", SECTIONS)

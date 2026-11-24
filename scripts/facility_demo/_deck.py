@@ -100,6 +100,23 @@ def bend(
     }
 
 
+def cavity(
+    name: str, *, voltage: float, frequency: float, harmonic: int, energy: float
+) -> dict[str, Any]:
+    """An RF cavity of ``voltage`` V at ``frequency`` Hz, with longitudinal motion."""
+    return {
+        "FamName": name,
+        "Length": 0.0,
+        "PassMethod": "RFCavityPass",
+        "Energy": energy,
+        "Frequency": frequency,
+        "HarmNumber": harmonic,
+        "TimeLag": 0.0,
+        "Voltage": voltage,
+        "Class": "RFCavity",
+    }
+
+
 def fodo_cells(
     cells: int,
     *,
@@ -132,19 +149,26 @@ def fodo_cells(
 
 
 def document(
-    name: str, energy: float, elements: list[dict[str, Any]], *, periodicity: int = 1
+    name: str,
+    energy: float,
+    elements: list[dict[str, Any]],
+    *,
+    periodicity: int = 1,
+    harmonic_number: int | None = None,
 ) -> dict[str, Any]:
-    """The pyAT JSON document of the deck ``name`` at ``energy`` eV."""
-    return {
-        "atjson": 1,
-        "elements": elements,
-        "properties": {
-            "name": name,
-            "energy": energy,
-            "particle": dict(PARTICLE),
-            "periodicity": periodicity,
-        },
+    """The pyAT JSON document of the deck ``name`` at ``energy`` eV.
+
+    A ring with a cavity states its ``harmonic_number``.
+    """
+    properties: dict[str, Any] = {
+        "name": name,
+        "energy": energy,
+        "particle": dict(PARTICLE),
+        "periodicity": periodicity,
     }
+    if harmonic_number is not None:
+        properties["harmonic_number"] = harmonic_number
+    return {"atjson": 1, "elements": elements, "properties": properties}
 
 
 def text(deck: dict[str, Any]) -> str:

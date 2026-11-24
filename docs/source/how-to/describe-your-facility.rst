@@ -456,7 +456,7 @@ cell is absent.
 
 Every table also takes the citation columns ``document``, ``version``,
 ``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``
-needs a ``rule``. Against the demo preset, these three tables put both booster
+needs a ``rule``. Against the demo preset, these three tables put two booster
 focusing quadrupoles on one new supply in a new rack:
 
 .. code-block:: text
