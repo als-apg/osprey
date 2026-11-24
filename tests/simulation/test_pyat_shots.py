@@ -868,3 +868,312 @@ class TestReadoutFaultsOnTurnArrays:
             return np.asarray(_value(model, X_2))
 
         np.testing.assert_array_equal(second({f"{POSITION_X_1}/offset": 0.5}), second({}))
+
+
+SUM_2 = "SR:DIAG:BPM:02:TBT:SUM"
+STORED_UNITS = 0.25
+
+
+class TestAMonitorsSumGain:
+    """A turn-by-turn monitor's sum record carries that monitor's own ``gain``."""
+
+    @staticmethod
+    def _wiring(demo: dict[str, Any]) -> list[dict[str, Any]]:
+        return [*demo["wiring"], *_turn_records(), _record("turn_sum", SUM_2, element="BPM02")]
+
+    @classmethod
+    def _ring(cls, demo: dict[str, Any], faults: dict[str, float], **block: Any) -> Any:
+        settings = _settings(demo)
+        settings["pyat"]["turn_by_turn"].update(block)
+        model = engine.build(MODEL, cls._wiring(demo), demo["deck"], settings, faults)
+        engine.advance(model, 0.0)
+        return model
+
+    @staticmethod
+    def _shoot(model: Any, *, shot: float = 11.0, stored: float = 0.0) -> dict[str, np.ndarray]:
+        # Drained, an earlier shot's arrays let go of their monitors on the next advance.
+        engine.emitted(model)
+        _deliver(model, shot - 1.0, baseline=True, t_s=shot - 0.9, stored=stored)
+        _arm(model, ARM_1, t_s=shot - 0.5)
+        _arm(model, ARM_2, t_s=shot - 0.5)
+        _deliver(model, shot, stored=stored, t_s=shot)
+        return {name: np.asarray(_value(model, name)) for name in (X_1, Y_1, SUM_1, X_2, SUM_2)}
+
+    def test_the_roster_declares_one_gain_per_sum_record_on_its_monitor(self, demo):
+        roster = engine.fault_variables(self._wiring(demo), _settings(demo))
+        slot = roster[f"{SUM_1}/gain"]
+        assert (slot.address, slot.field, slot.element) == (SUM_1, "gain", "BPM01")
+        assert slot.value_range == (0.1, 10.0)
+        assert roster[f"{SUM_2}/gain"].element == "BPM02"
+        assert [name for name in roster if name.startswith(f"{SUM_1}/")] == [f"{SUM_1}/gain"]
+        assert not [name for name in roster if name.startswith((f"{X_1}/", f"{Y_1}/"))]
+
+    def test_the_model_declares_the_faults_the_roster_names(self, demo):
+        from osprey.simulation.engines import pyat_faults
+
+        model = self._ring(demo, {})
+        declared = {
+            name for name in model.supported_variables if pyat_faults.FAULT_SEPARATOR in name
+        }
+        roster = {
+            name
+            for name, slot in engine.fault_variables(self._wiring(demo), _settings(demo)).items()
+            if slot.scope == pyat_faults.ADDRESS_SCOPE
+        }
+        assert declared == roster
+        assert _value(model, f"{SUM_1}/gain") == 1.0
+
+    def test_a_gain_of_one_reads_the_arrays_of_no_fault_bit_for_bit(self, demo):
+        block = {"sum_noise": 0.01, "sum_floor": 0.02}
+        plain = self._shoot(self._ring(demo, {}, **block), stored=STORED_UNITS)
+        unit = self._shoot(
+            self._ring(demo, {f"{SUM_1}/gain": 1.0, f"{SUM_2}/gain": 1.0}, **block),
+            stored=STORED_UNITS,
+        )
+        for name, array in plain.items():
+            np.testing.assert_array_equal(unit[name], array)
+
+    def test_two_monitors_read_the_same_shot_in_the_ratio_of_their_gains(self, demo):
+        plain = self._shoot(self._ring(demo, {}))
+        read = self._shoot(self._ring(demo, {f"{SUM_1}/gain": 0.8, f"{SUM_2}/gain": 1.2}))
+        assert np.all(plain[SUM_1][TRIGGER:] > 0.0)
+        np.testing.assert_allclose(read[SUM_1], 0.8 * plain[SUM_1], rtol=1e-14)
+        np.testing.assert_allclose(read[SUM_2], 1.2 * plain[SUM_2], rtol=1e-14)
+        np.testing.assert_allclose(
+            read[SUM_2] * plain[SUM_1], 1.5 * read[SUM_1] * plain[SUM_2], rtol=1e-13
+        )
+
+    def test_the_stored_beam_reads_in_the_ratio_of_the_gains(self, demo):
+        read = self._shoot(
+            self._ring(demo, {f"{SUM_1}/gain": 0.8, f"{SUM_2}/gain": 1.2}), stored=STORED_UNITS
+        )
+        np.testing.assert_allclose(read[SUM_1][:TRIGGER], 0.8 * STORED_UNITS, rtol=1e-14)
+        np.testing.assert_allclose(read[SUM_2][:TRIGGER], 1.2 * STORED_UNITS, rtol=1e-14)
+
+    def test_the_positions_are_those_of_a_monitor_with_no_sum_gain(self, demo):
+        block = {"sum_floor": 0.02}
+        plain = self._shoot(self._ring(demo, {}, **block), stored=STORED_UNITS)
+        read = self._shoot(self._ring(demo, {f"{SUM_1}/gain": 0.1}, **block), stored=STORED_UNITS)
+        for name in (X_1, Y_1, X_2):
+            np.testing.assert_array_equal(read[name], plain[name])
+
+    def test_the_sum_noise_keeps_its_width_under_a_gain(self, demo):
+        quiet = self._shoot(self._ring(demo, {}))
+        noisy = self._shoot(self._ring(demo, {}, sum_noise=0.01))
+        gained = self._shoot(self._ring(demo, {f"{SUM_1}/gain": 4.0}, sum_noise=0.01))
+        added = (gained[SUM_1] - 4.0 * quiet[SUM_1])[TRIGGER:]
+        np.testing.assert_allclose(added, (noisy[SUM_1] - quiet[SUM_1])[TRIGGER:], atol=1e-13)
+        assert 0.005 < added.std() < 0.015
+
+    def test_a_gain_written_on_the_model_reaches_the_next_shot(self, demo):
+        model = self._ring(demo, {})
+        before = self._shoot(model)
+        model.set({f"{SUM_1}/gain": 2.0})
+        after = self._shoot(model, shot=21.0)
+        clean = self._shoot(self._ring(demo, {}), shot=21.0)
+        np.testing.assert_allclose(after[SUM_1], 2.0 * clean[SUM_1], rtol=1e-14)
+        np.testing.assert_array_equal(after[SUM_2], clean[SUM_2])
+        assert not np.array_equal(before[SUM_1], after[SUM_1])
+
+    def test_a_gain_off_its_range_stops_the_build(self, demo):
+        with pytest.raises(ValueError, match="gain"):
+            self._ring(demo, {f"{SUM_1}/gain": 0.0})
+
+    @pytest.mark.parametrize("name", [f"{SUM_1}/offset", f"{X_1}/gain"])
+    def test_a_sum_record_carries_no_other_fault_and_a_position_array_none(self, demo, name):
+        with pytest.raises(ValueError, match="does not declare"):
+            self._ring(demo, {name: 1.0})
+
+
+PICKUP = {
+    "shape": "round",
+    "radius": 0.016,
+    "buttons": [45.0, 135.0, 225.0, 315.0],
+    "half_width": 14.0,
+    "x": {"plus": [1, 4], "minus": [2, 3]},
+    "y": {"plus": [1, 2], "minus": [3, 4]},
+}
+
+
+class TestAMonitorsPickup:
+    """A monitor that states a pickup is read button by button, each button with its gain."""
+
+    QUIET = {"position_noise": 0.0, "pickup": PICKUP}
+    _wiring = staticmethod(TestAMonitorsSumGain._wiring)
+    _shoot = staticmethod(TestAMonitorsSumGain._shoot)
+
+    @staticmethod
+    def _ring(demo: dict[str, Any], faults: dict[str, float], **block: Any) -> Any:
+        return TestAMonitorsSumGain._ring(demo, faults, **block)
+
+    @staticmethod
+    def _pickup() -> Any:
+        from pathlib import Path
+
+        from osprey.simulation.engines import pyat_pickup
+
+        return pyat_pickup.parse(PICKUP, "pickup", Path("."), lambda detail, _: ValueError(detail))
+
+    @staticmethod
+    def _with(demo: dict[str, Any], **block: Any) -> dict[str, Any]:
+        settings = _settings(demo)
+        settings["pyat"]["turn_by_turn"].update(block)
+        return settings
+
+    def test_the_roster_declares_one_gain_per_button_on_the_sum_record(self, demo):
+        roster = engine.fault_variables(self._wiring(demo), self._with(demo, pickup=PICKUP))
+        for address, element in ((SUM_1, "BPM01"), (SUM_2, "BPM02")):
+            assert [name for name in roster if name.startswith(f"{address}/")] == [
+                f"{address}/button_1",
+                f"{address}/button_2",
+                f"{address}/button_3",
+                f"{address}/button_4",
+                f"{address}/gain",
+            ]
+            slot = roster[f"{address}/button_3"]
+            assert (slot.address, slot.field, slot.element) == (address, "button_3", element)
+            assert slot.value_range == (0.0, 10.0)
+        assert not [name for name in roster if name.startswith(f"{X_1}/")]
+
+    def test_a_pickup_of_one_monitor_gives_buttons_to_that_monitor_alone(self, demo):
+        two = {**PICKUP, "buttons": [0.0, 180.0], "y": {"plus": [1], "minus": [2], "scale": 1.0}}
+        two["x"] = {"plus": [1], "minus": [2]}
+        settings = self._with(demo, pickups=[{"elements": ["BPM02"], **two}])
+        roster = engine.fault_variables(self._wiring(demo), settings)
+        assert [name for name in roster if name.startswith(f"{SUM_2}/")] == [
+            f"{SUM_2}/button_1",
+            f"{SUM_2}/button_2",
+            f"{SUM_2}/gain",
+        ]
+        assert [name for name in roster if name.startswith(f"{SUM_1}/")] == [f"{SUM_1}/gain"]
+        model = self._ring(demo, {f"{SUM_2}/button_2": 0.9}, pickups=settings_pickups(settings))
+        assert _value(model, f"{SUM_2}/button_2") == 0.9
+        assert f"{SUM_1}/button_1" not in model.supported_variables
+
+    def test_the_model_declares_the_faults_the_roster_names(self, demo):
+        from osprey.simulation.engines import pyat_faults
+
+        model = self._ring(demo, {}, pickup=PICKUP)
+        declared = {
+            name for name in model.supported_variables if pyat_faults.FAULT_SEPARATOR in name
+        }
+        roster = {
+            name
+            for name, slot in engine.fault_variables(
+                self._wiring(demo), self._with(demo, pickup=PICKUP)
+            ).items()
+            if slot.scope == pyat_faults.ADDRESS_SCOPE
+        }
+        assert declared == roster
+        assert _value(model, f"{SUM_1}/button_4") == 1.0
+
+    def test_a_beam_near_the_centre_reads_nearly_as_on_a_monitor_with_no_pickup(self, demo):
+        plain = self._shoot(self._ring(demo, {}, position_noise=0.0), stored=STORED_UNITS)
+        read = self._shoot(self._ring(demo, {}, **self.QUIET), stored=STORED_UNITS)
+        assert np.all(np.abs(plain[X_1]) < 1e-3)
+        np.testing.assert_allclose(read[SUM_1], plain[SUM_1], rtol=1e-6)
+        np.testing.assert_allclose(read[SUM_2], plain[SUM_2], rtol=1e-6)
+        np.testing.assert_allclose(read[X_1], plain[X_1], rtol=1e-2, atol=1e-9)
+        np.testing.assert_allclose(read[SUM_1][:TRIGGER], STORED_UNITS, rtol=1e-14)
+
+    def test_an_offset_beam_reads_the_difference_over_sum_of_its_buttons(self, demo):
+        launch = {"launch": {"x": 3e-3, "y": -1e-3}}
+        plain = self._shoot(self._ring(demo, {}, position_noise=0.0, **launch))
+        read = self._shoot(self._ring(demo, {}, **self.QUIET, **launch))
+        pickup = self._pickup()
+        assert np.abs(plain[X_1][TRIGGER:]).max() > 1e-3
+        buttons = plain[SUM_1] * pickup.response(plain[X_1], plain[Y_1])
+        np.testing.assert_allclose(read[SUM_1], buttons.sum(axis=0), rtol=1e-12)
+        np.testing.assert_allclose(
+            read[X_1][TRIGGER:],
+            (pickup.scale_x * (pickup.signs_x @ buttons) / buttons.sum(axis=0))[TRIGGER:],
+            rtol=1e-10,
+            atol=1e-15,
+        )
+        np.testing.assert_allclose(
+            read[Y_1][TRIGGER:],
+            (pickup.scale_y * (pickup.signs_y @ buttons) / buttons.sum(axis=0))[TRIGGER:],
+            rtol=1e-10,
+            atol=1e-15,
+        )
+        assert np.abs(read[X_1] - plain[X_1])[TRIGGER:].max() > 1e-5
+        assert not np.allclose(read[SUM_1], plain[SUM_1], rtol=1e-4)
+
+    def test_unit_button_gains_read_the_arrays_of_no_fault_bit_for_bit(self, demo):
+        block = {**self.QUIET, "launch": {"x": 2e-3}, "sum_noise": 0.01}
+        plain = self._shoot(self._ring(demo, {}, **block), stored=STORED_UNITS)
+        unit = self._shoot(
+            self._ring(demo, {f"{SUM_1}/button_{k}": 1.0 for k in (1, 2, 3, 4)}, **block),
+            stored=STORED_UNITS,
+        )
+        for name, array in plain.items():
+            np.testing.assert_array_equal(unit[name], array)
+
+    def test_a_weak_button_shows_as_an_offset_in_both_planes(self, demo):
+        pickup = self._pickup()
+        plain = self._shoot(self._ring(demo, {}, **self.QUIET))
+        read = self._shoot(self._ring(demo, {f"{SUM_1}/button_1": 0.95}, **self.QUIET))
+        # The first-order amount: a button a share d weaker shifts a plane it
+        # adds to by -scale * d / 4.
+        for name, scale in ((X_1, pickup.scale_x), (Y_1, pickup.scale_y)):
+            np.testing.assert_allclose(
+                (read[name] - plain[name])[TRIGGER:], -scale * 0.05 / 4.0, rtol=5e-2
+            )
+        np.testing.assert_array_equal(read[X_2], plain[X_2])
+
+    def test_the_position_faults_act_on_top_of_the_buttons(self, demo):
+        from osprey.simulation.engines import pyat_faults
+
+        roster = engine.fault_variables(self._wiring(demo), self._with(demo, pickup=PICKUP))
+        (offset,) = [
+            name
+            for name, slot in roster.items()
+            if slot.element == "BPM01" and slot.field == "offset" and name.endswith(":X/offset")
+        ]
+        assert pyat_faults.FAULT_SEPARATOR in offset
+        weak = {f"{SUM_1}/button_1": 0.95}
+        plain = self._shoot(self._ring(demo, weak, **self.QUIET))
+        shifted = self._shoot(self._ring(demo, {**weak, offset: 0.2}, **self.QUIET))
+        moved = (shifted[X_1] - plain[X_1])[TRIGGER:]
+        assert np.all(np.abs(moved) > 0.0)
+        np.testing.assert_allclose(moved, moved[0], rtol=1e-9)
+        np.testing.assert_array_equal(shifted[Y_1], plain[Y_1])
+        np.testing.assert_array_equal(shifted[SUM_1], plain[SUM_1])
+
+    def test_a_button_gain_written_on_the_model_reaches_the_next_shot(self, demo):
+        model = self._ring(demo, {}, **self.QUIET)
+        before = self._shoot(model)
+        model.set({f"{SUM_1}/button_2": 0.5})
+        after = self._shoot(model, shot=21.0)
+        clean = self._shoot(self._ring(demo, {}, **self.QUIET), shot=21.0)
+        assert np.all(np.abs(before[X_1][TRIGGER:]) < 1e-3)
+        # Button 2 subtracts from x: half of it gone shifts x up by scale * 0.5 / 3.5.
+        np.testing.assert_allclose(
+            (after[X_1] - clean[X_1])[TRIGGER:], self._pickup().scale_x * 0.5 / 3.5, rtol=5e-2
+        )
+        np.testing.assert_allclose(after[SUM_1], clean[SUM_1] * 3.5 / 4.0, rtol=2e-2)
+        np.testing.assert_array_equal(after[SUM_2], clean[SUM_2])
+
+    def test_dead_buttons_read_as_no_beam(self, demo):
+        dead = {f"{SUM_1}/button_{k}": 0.0 for k in (1, 2, 3, 4)}
+        read = self._shoot(self._ring(demo, dead, **self.QUIET, floor_noise=0.0))
+        assert np.all(read[SUM_1] == 0.0)
+        assert np.all(read[X_1] == 0.0) and np.all(read[Y_1] == 0.0)
+        assert np.all(read[SUM_2][TRIGGER:] > 0.0)
+
+    @pytest.mark.parametrize("value", [-0.1, 10.5])
+    def test_a_button_gain_off_its_range_stops_the_build(self, demo, value):
+        with pytest.raises(ValueError, match="button_1"):
+            self._ring(demo, {f"{SUM_1}/button_1": value}, pickup=PICKUP)
+
+    def test_a_button_the_pickup_does_not_have_is_no_fault(self, demo):
+        with pytest.raises(ValueError, match="does not declare"):
+            self._ring(demo, {f"{SUM_1}/button_5": 1.0}, pickup=PICKUP)
+
+    def test_a_monitor_with_no_pickup_carries_no_button(self, demo):
+        with pytest.raises(ValueError, match="does not declare"):
+            self._ring(demo, {f"{SUM_1}/button_1": 1.0})
+
+
+def settings_pickups(settings: dict[str, Any]) -> Any:
+    return settings["pyat"]["turn_by_turn"]["pickups"]

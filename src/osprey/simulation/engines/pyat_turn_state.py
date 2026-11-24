@@ -50,6 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     import at
     from lume.variables import Variable
 
+    from osprey.simulation.engines.pyat_pickup import Pickup
     from osprey.simulation.engines.pyat_turn_settings import TurnSettings
     from osprey.simulation.engines.pyat_turns import TurnReading
 
@@ -331,6 +332,12 @@ class TurnByTurnModel(PyATLatticeModel):
             elif isinstance(variable, TurnArrayVariable):
                 self._array_names.setdefault(variable.monitor, {})[variable.signal] = variable.name
         kwargs["tolerant"] = True
+        self._pickups: dict[str, Pickup] = {
+            name: pickup
+            for name in dict.fromkeys(monitors)
+            if (pickup := turn_settings.pickup_of(name)) is not None
+        }
+        kwargs["sum_buttons"] = {name: pickup.buttons for name, pickup in self._pickups.items()}
         super().__init__(lattice, channels, **kwargs)
 
     def reset(self) -> None:
@@ -445,6 +452,7 @@ class TurnByTurnModel(PyATLatticeModel):
     ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]], TurnReading]:
         """Each monitor's ``(x, y, sum)`` arrays for one tracked shot, and the shot's reading."""
         from osprey.simulation.engines import pyat_turn_readout, pyat_turns
+        from osprey.simulation.engines.pyat_faults import button_gains, sum_gain
         from osprey.simulation.engines.pyat_variables import pilot_tone_on, rf_on
 
         state = self.turn_state
@@ -512,6 +520,8 @@ class TurnByTurnModel(PyATLatticeModel):
                 for signal in ("turn_x", "turn_y", "turn_sum")
             )
             addresses = (x_address, y_address, sum_address)
+            element = self.simulator.element(name)
+            pickup = self._pickups.get(name)
             arrays[name] = pyat_turn_readout.monitor_turn_arrays(
                 alive=reading.alive[row],
                 centroid_x=reading.x[row],
@@ -525,6 +535,9 @@ class TurnByTurnModel(PyATLatticeModel):
                 shot=shot,
                 readout=settings.readout,
                 faults=self._faults(name, x_address, y_address, shot),
+                sum_gain=sum_gain(element),
+                pickup=pickup,
+                button_gains=None if pickup is None else button_gains(element, pickup.buttons),
             )
         return arrays, reading
 

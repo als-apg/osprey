@@ -382,7 +382,16 @@ ring (:ref:`va-turn-by-turn`) the faults stated on a monitor's orbit reading
 act on its ``turn_x`` and ``turn_y`` arrays through the same chain in the
 same order, sample by sample, so an offset stated once shifts the orbit
 reading and every turn alike. The ``offset`` and ``noise`` values stay in the
-unit the orbit reading publishes; the arrays show them in metres.
+unit the orbit reading publishes; the arrays show them in metres. The
+monitor's ``turn_sum`` record carries one fault of its own, ``gain``: the
+factor on the beam sum that monitor reads, so monitors read one charge
+differently. It acts on the sum array alone, before the sum's noise and
+floor, and the position faults never reach the sum. Where the ring's settings
+state a button pickup for the monitor, the same record also carries one gain
+per button, ``button_1`` to ``button_<N>``: the factor on that button's
+signal, before the sum and the positions are formed from the buttons, so
+uneven buttons show as a position offset. The position faults then act on
+what the buttons read.
 
 Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
 ``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
