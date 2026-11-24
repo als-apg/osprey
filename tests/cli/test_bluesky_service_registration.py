@@ -616,7 +616,7 @@ def test_settle_keys_round_trip_through_compose(tmp_path: Path) -> None:
         # An unauthored cap renders neither key anywhere at all.
         pytest.param(
             "BLUESKY_LIVE_MAX_RUNS",
-            "BLUESKY_LIVE_MAX_ROWS_PER_RUN",
+            "BLUESKY_LIVE_MAX_BYTES_PER_RUN",
             id="default-live-buffer-caps",
         ),
     ],
@@ -685,10 +685,10 @@ def test_live_buffer_caps_round_trip_through_compose(tmp_path: Path) -> None:
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(live_max_runs=4, live_max_rows_per_run=200), project_path)
+    _inject_bluesky(BlueskyConfig(live_max_runs=4, live_max_bytes_per_run=200), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
 
     bridge = rendered["services"]["bluesky-bridge"]
     assert bridge["environment"]["BLUESKY_LIVE_MAX_RUNS"] == "4"
-    assert bridge["environment"]["BLUESKY_LIVE_MAX_ROWS_PER_RUN"] == "200"
+    assert bridge["environment"]["BLUESKY_LIVE_MAX_BYTES_PER_RUN"] == "200"

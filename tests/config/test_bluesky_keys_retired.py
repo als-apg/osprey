@@ -57,6 +57,44 @@ def test_no_shipped_source_spells_the_retired_key() -> None:
     assert offenders == []
 
 
+ROW_CAP_KEY = "services.bluesky.live_max_rows_per_run"
+
+
+def test_the_row_cap_is_on_the_resurrection_list() -> None:
+    """The byte cap replaced the row cap: the row cap is deleted and has no live row."""
+    manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
+
+    assert ROW_CAP_KEY in manifest["deleted"]
+    assert ROW_CAP_KEY not in manifest["keys"]
+
+
+def test_no_shipped_source_spells_the_row_cap() -> None:
+    """No source under src/osprey or page under docs/source names the row cap.
+
+    The key's sites postdate the guard's back-test baseline, so no orphan
+    regex can be proven to fire there; this scan holds the same line.
+    """
+    spelling = re.compile(r"live_max_rows_per_run|LIVE_MAX_ROWS_PER_RUN")
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}:{number}"
+        for root in (REPO_ROOT / "src" / "osprey", REPO_ROOT / "docs" / "source")
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path != MANIFEST and path.suffix not in {".pyc"}
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
+        )
+        if spelling.search(line)
+    ]
+
+    assert offenders == []
+
+
+def test_a_profile_naming_the_row_cap_is_refused() -> None:
+    """A profile still stating the row cap is refused by the unknown-key check."""
+    with pytest.raises(BuildProfileError, match="'live_max_rows_per_run'"):
+        _parse_profile({"name": "x", "bluesky": {"live_max_rows_per_run": 10}})
+
+
 def test_a_profile_naming_the_devices_file_is_refused() -> None:
     """The device file is the build's view; a profile cannot name another."""
     with pytest.raises(BuildProfileError, match="'devices_file'"):

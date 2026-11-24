@@ -1084,12 +1084,13 @@ class BlueskyConfig:
     the bridge falls back to the same default when the env var is absent.
     """
 
-    live_max_rows_per_run: int = 10_000
-    """How many rows one run's buffer stores before it stops growing.
+    live_max_bytes_per_run: int = 20_000_000
+    """How many bytes of one run's values the bridge holds in memory before
+    the run's buffer stops growing, each number counted at 32 bytes.
 
-    A safety valve against a runaway or never-ending plan, not a normal-case
-    limit: rows past the cap are still COUNTED, so the run-data route keeps
-    reporting the true total over a truncated buffer.
+    A safety valve against a runaway plan or a wide array reading, not a
+    normal-case limit: rows past the cap are still COUNTED, so the run-data
+    route keeps reporting the true total over a truncated buffer.
 
     At the default value this key renders NOTHING into the compose file, and
     the bridge falls back to the same default when the env var is absent.

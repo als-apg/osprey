@@ -38,20 +38,24 @@ Document handling (bluesky's plain-dict document protocol):
 
 Bounding uses two independent knobs:
 
-- :func:`max_rows_per_run`: a hard cap on stored rows per run, so a runaway
-  plan cannot grow the buffer without limit. ``total_seen`` keeps counting
-  every event past this cap — the ``row_count`` on the run-data route reports
-  this *true* total
-  even when the tail beyond the cap was never stored (a documented trade-off
-  for a pathological never-ending run, not the common case).
+- :func:`max_bytes_per_run`: a hard cap on the bytes of values one run
+  stores, so neither a runaway plan nor a wide array reading can grow the
+  buffer without limit. A row counts :data:`VALUE_BYTES` for every value it
+  holds as stored (each element of an array cell, nested arrays by their
+  leaves) plus each string's length. A row is stored only while the run's
+  stored bytes plus the row's stay within the cap; the first row that does not
+  fit ends storing for the run, so the buffer is always a prefix of the run.
+  ``total_seen`` keeps counting every event past this cap — the ``row_count``
+  on the run-data route reports this *true* total even when the tail beyond
+  the cap was never stored.
 - :func:`max_runs`: number of run buffers retained at all, oldest-evicted
   (insertion-ordered ``OrderedDict``, ``move_to_end`` on every write) once
   exceeded. This is what lets a completed run's data survive to be read later.
 
-Both are authored per facility (``bluesky.live_max_rows_per_run`` and
+Both are authored per facility (``bluesky.live_max_bytes_per_run`` and
 ``bluesky.live_max_runs`` in the build profile) and reach the bridge as env
-vars, because how many runs are worth keeping in memory, and how long a run
-gets, are properties of the plans a facility runs and of the memory its
+vars, because how many runs are worth keeping in memory, and how much a run
+records, are properties of the plans a facility runs and of the memory its
 deployment host has. A recorder resolves both at its start document and holds
 them for that run, so a cap never moves under a buffer that is already filling.
 
@@ -82,12 +86,16 @@ MAX_RUNS_ENV = "BLUESKY_LIVE_MAX_RUNS"
 #: readable well past its own completion.
 DEFAULT_MAX_RUNS = 50
 
-#: Env var carrying the hard per-run row storage cap.
-MAX_ROWS_PER_RUN_ENV = "BLUESKY_LIVE_MAX_ROWS_PER_RUN"
+#: Env var carrying the hard per-run storage cap, in bytes.
+MAX_BYTES_PER_RUN_ENV = "BLUESKY_LIVE_MAX_BYTES_PER_RUN"
 
-#: Used when the variable is unset. A safety valve against a runaway or
-#: never-ending plan, not a normal-case limit (see `total_seen` above).
-DEFAULT_MAX_ROWS_PER_RUN = 10_000
+#: Used when the variable is unset. A safety valve against a runaway plan or a
+#: wide reading, not a normal-case limit (see `total_seen` above).
+DEFAULT_MAX_BYTES_PER_RUN = 20_000_000
+
+#: What one stored value counts against the byte cap: a Python float (24
+#: bytes) plus its slot in the list that holds it (8 bytes).
+VALUE_BYTES = 32
 
 
 def max_runs() -> int:
@@ -105,8 +113,8 @@ def max_runs() -> int:
     return require_positive_int_str(os.environ.get(MAX_RUNS_ENV), DEFAULT_MAX_RUNS, MAX_RUNS_ENV)
 
 
-def max_rows_per_run() -> int:
-    """How many rows one run buffer stores before it stops growing.
+def max_bytes_per_run() -> int:
+    """How many bytes of values one run buffer stores before it stops growing.
 
     Rows past this cap are counted in ``total_seen`` and not stored, so the
     run-data route keeps reporting the true total over a truncated buffer.
@@ -116,8 +124,17 @@ def max_rows_per_run() -> int:
             or to an integer below 1.
     """
     return require_positive_int_str(
-        os.environ.get(MAX_ROWS_PER_RUN_ENV), DEFAULT_MAX_ROWS_PER_RUN, MAX_ROWS_PER_RUN_ENV
+        os.environ.get(MAX_BYTES_PER_RUN_ENV), DEFAULT_MAX_BYTES_PER_RUN, MAX_BYTES_PER_RUN_ENV
     )
+
+
+def _cell_bytes(cell: Any) -> int:
+    """What one stored cell counts against the byte cap (see :data:`VALUE_BYTES`)."""
+    if isinstance(cell, list):
+        return sum(_cell_bytes(value) for value in cell)
+    if isinstance(cell, (str, bytes)):
+        return VALUE_BYTES + len(cell)
+    return VALUE_BYTES
 
 
 _lock = Lock()
@@ -242,7 +259,9 @@ class LiveRowRecorder:
         self._key = key
         self._plan = plan
         self._uid: str | None = None
-        self._max_rows: int = DEFAULT_MAX_ROWS_PER_RUN
+        self._max_bytes: int = DEFAULT_MAX_BYTES_PER_RUN
+        self._stored_bytes = 0
+        self._full = False
 
     def __call__(self, name: str, doc: dict[str, Any]) -> None:
         try:
@@ -267,7 +286,9 @@ class LiveRowRecorder:
         # run: `_on_event` runs per event document on the RunEngine's thread,
         # and a cap that changes mid-run would move the boundary of a buffer
         # that is already half-filled under it.
-        self._max_rows = max_rows_per_run()
+        self._max_bytes = max_bytes_per_run()
+        self._stored_bytes = 0
+        self._full = False
         retained_runs = max_runs()
         with _lock:
             _buffers[uid] = {
@@ -310,8 +331,14 @@ class LiveRowRecorder:
                 for row in buf["rows"]:
                     row.extend([None] * len(new_columns))
             buf["total_seen"] += 1
-            if len(buf["rows"]) < self._max_rows:
-                buf["rows"].append([json_cell(data.get(col)) for col in buf["columns"]])
+            if not self._full:
+                row = [json_cell(data.get(col)) for col in buf["columns"]]
+                row_bytes = sum(_cell_bytes(cell) for cell in row)
+                if self._stored_bytes + row_bytes <= self._max_bytes:
+                    buf["rows"].append(row)
+                    self._stored_bytes += row_bytes
+                else:
+                    self._full = True
             _buffers.move_to_end(self._uid)
 
     def _on_stop(self, _doc: dict[str, Any]) -> None:

@@ -1326,8 +1326,8 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
         keys["settle_tolerance"] = bluesky.settle_tolerance
     if bluesky.live_max_runs != BlueskyConfig.live_max_runs:
         keys["live_max_runs"] = bluesky.live_max_runs
-    if bluesky.live_max_rows_per_run != BlueskyConfig.live_max_rows_per_run:
-        keys["live_max_rows_per_run"] = bluesky.live_max_rows_per_run
+    if bluesky.live_max_bytes_per_run != BlueskyConfig.live_max_bytes_per_run:
+        keys["live_max_bytes_per_run"] = bluesky.live_max_bytes_per_run
     return keys
 
 
