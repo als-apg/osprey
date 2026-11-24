@@ -122,6 +122,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "read_configuration",
     "set",
     "set_name",
+    "set_writes",
     "setpoint_key",
     "stage",
     "unstage",

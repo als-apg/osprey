@@ -42,6 +42,7 @@ from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
 
 from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
 from osprey_connectors.settle import Landing, settle, settle_bound
 
 from ._connect import connect_all
@@ -172,6 +173,9 @@ class ConnectorSettable(StandardReadable):
     The device is Bluesky-``Locatable``, so ``bps.loc`` answers where it
     was told to go and where it is, both read live through the connector.
 
+    :meth:`set_writes` states the one write ``set()`` makes: the demand to the
+    setpoint channel, never to the readback.
+
     ``unit`` is the unit of the value reported under ``<name>`` and
     ``setpoint_unit`` the unit of the demand under ``<name>_setpoint``; each is
     stated as the data key's ``units`` in :meth:`describe`, and a key whose
@@ -208,6 +212,10 @@ class ConnectorSettable(StandardReadable):
         self._unit = unit
         self._setpoint_unit = setpoint_unit
         super().__init__(name=name)
+
+    def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``set(value)`` makes: ``value`` to the setpoint. No I/O."""
+        return (ChannelWrite(self._setpoint_pv, value),)
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
