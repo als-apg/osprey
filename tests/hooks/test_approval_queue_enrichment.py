@@ -746,6 +746,44 @@ def _draft_route(plan: str, plan_args: dict, revision: int) -> dict:
     return {"draft": {"plan_name": plan, "plan_args": plan_args}, "revision": revision}
 
 
+def test_queue_add_renders_triggered_channels_under_their_own_headline(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """A channel the launch would trigger is written to, so the approver sees
+    it under its own headline, between what is moved and what is read."""
+    config = _queue_config(make_config)
+    plan_args = {"detectors": ["ES1:MCA01:ACQ"]}
+    routes = {
+        "/draft": _draft_route("shots", plan_args, 4),
+        _preview_route("shots"): {
+            "ok": True,
+            "plan": "shots",
+            "channels": [
+                {"channel": "SR:C01:COR:SP", "role": "movable"},
+                {"channel": "ES1:MCA01:ACQ", "role": "triggered"},
+                {"channel": "SR:BPM01:X", "role": "readable"},
+            ],
+            "moves": [],
+            "total_moves": 0,
+            "truncated": False,
+            "move_cap": 10000,
+            "reason": None,
+            "detail": None,
+        },
+    }
+    posted: list[tuple[str, object]] = []
+
+    with serving_bridge(routes, posted) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=4))
+
+    lines = [line.strip() for line in reason.splitlines()]
+    move = lines.index("Channels this launch would move: SR:C01:COR:SP")
+    trigger = lines.index("Channels this launch would trigger: ES1:MCA01:ACQ")
+    read = lines.index("Channels this launch would read: SR:BPM01:X")
+    assert move < trigger < read
+
+
 def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     tmp_path, hook_runner, make_config, monkeypatch
 ):

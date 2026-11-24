@@ -60,7 +60,13 @@ from .models import (
     PlanSessionWriteRequest,
     PlanValidateRequest,
 )
-from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels, resolve_plan_args
+from .plan_fields import (
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+    TRIGGERED_ROLE,
+    collect_channels,
+    resolve_plan_args,
+)
 from .plan_metadata import extract_plan_name_from_source
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
@@ -1218,14 +1224,15 @@ def _declared_channels(spec: PlanSpec[Any], params: Any) -> list[dict[str, str]]
     roles at all contributes nothing rather than having its parameters guessed
     at by field name.
 
-    Movable entries come first — the channels a launch would drive are what an
-    approver needs to see before the ones it would merely record.
+    Movable entries come first, then triggered ones — the channels a launch
+    would write are what an approver needs to see before the ones it would
+    merely record.
     """
     if not spec.roles:
         return []
     return [
         {"channel": name, "role": role}
-        for role in (MOVABLE_ROLE, READABLE_ROLE)
+        for role in (MOVABLE_ROLE, TRIGGERED_ROLE, READABLE_ROLE)
         for name in collect_channels(spec.schema, params, role)
     ]
 
@@ -2497,13 +2504,14 @@ def _stamp_name(plan_stamp: Any) -> str | None:
 
 
 def _role_channels(spec: PlanSpec[Any], params: Any) -> tuple[list[str], list[str]]:
-    """The movable and the readable channels *params* supplies, as two lists.
+    """The movable and the recorded channels *params* supplies, as two lists.
 
-    `_declared_channels`' counterpart for the read routes, which need the two
-    roles apart rather than interleaved and labelled: the movable channels pick
-    the default figure's x axis and the run's independent variable for
-    `analysis`, the readable ones order the figure's panels and are what the
-    statistics are computed for. Same single authority — `PlanSpec.roles` says
+    `_declared_channels`' counterpart for the read routes, which need the
+    channels apart rather than interleaved and labelled: the movable channels
+    pick the default figure's x axis and the run's independent variable for
+    `analysis`; the recorded ones -- readable, then triggered, since the run
+    records both -- order the figure's panels and are what the statistics are
+    computed for. Same single authority — `PlanSpec.roles` says
     whether the plan declared anything at all, `plan_fields.collect_channels`
     says which names the parameters put in the declared fields.
 
@@ -2520,10 +2528,13 @@ def _role_channels(spec: PlanSpec[Any], params: Any) -> tuple[list[str], list[st
         walked: Any = params
         with suppress(ValidationError):
             walked = spec.schema.model_validate({} if params is None else params)
-        return (
-            collect_channels(spec.schema, walked, MOVABLE_ROLE),
-            collect_channels(spec.schema, walked, READABLE_ROLE),
-        )
+        recorded = collect_channels(spec.schema, walked, READABLE_ROLE)
+        recorded += [
+            name
+            for name in collect_channels(spec.schema, walked, TRIGGERED_ROLE)
+            if name not in recorded
+        ]
+        return collect_channels(spec.schema, walked, MOVABLE_ROLE), recorded
     except Exception:
         logger.warning(
             "could not read plan %r's declared channels; the default figure falls back to "

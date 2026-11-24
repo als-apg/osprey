@@ -40,6 +40,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannel,
     MovableChannels,
     ReadableChannels,
+    TriggeredChannels,
 )
 from osprey.services.bluesky_bridge.plan_loader import FacilityPlans
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
@@ -76,6 +77,14 @@ class _NoRoleParams(BaseModel):
 class _FlatParams(BaseModel):
     correctors: MovableChannels
     monitors: ReadableChannels
+
+
+class _TriggeringParams(BaseModel):
+    """Every role, readable declared first, so the labels' order is the route's."""
+
+    monitors: ReadableChannels
+    detectors: TriggeredChannels
+    correctors: MovableChannels
 
 
 class _DefaultedParams(BaseModel):
@@ -180,6 +189,7 @@ def _catalog(monkeypatch):
             "flat_scan": _spec("flat_scan", _FlatParams),
             "mystery": _spec("mystery", _NoRoleParams),
             "defaulted": _spec("defaulted", _DefaultedParams),
+            "shots": _spec("shots", _TriggeringParams),
         }
     )
     monkeypatch.setattr(plan_loader, "get_facility_plans", lambda: plans)
@@ -296,6 +306,21 @@ def test_a_flat_declaration_is_read_the_same_way(bridge) -> None:
     assert body["channels"] == [
         {"channel": "COR9", "role": "movable"},
         {"channel": "BPM9", "role": "readable"},
+    ]
+
+
+def test_the_preview_labels_a_triggered_channel(bridge) -> None:
+    client, _manager = bridge(_accepted(), [_completed(_summary())])
+
+    body = _preview(
+        client, "shots", {"monitors": ["BPM1"], "detectors": ["MCA1"], "correctors": ["COR1"]}
+    )
+
+    # Moved, then triggered, then read: what a launch writes leads the list.
+    assert body["channels"] == [
+        {"channel": "COR1", "role": "movable"},
+        {"channel": "MCA1", "role": "triggered"},
+        {"channel": "BPM1", "role": "readable"},
     ]
 
 
@@ -831,3 +856,16 @@ def test_a_body_carrying_nothing_previews_the_plan_with_no_parameters(bridge, co
     assert response.status_code == 200, response.text
     assert response.json()["ok"] is True
     assert _items(manager)[0]["args"] == ["grid_scan", {}]
+
+
+def test_the_read_routes_count_a_triggered_channel_among_the_recorded_ones() -> None:
+    """The run records what it triggers, so the figure and the statistics read
+    a triggered channel after the readable ones, never as an x axis."""
+    spec = _spec("shots", _TriggeringParams)
+
+    movable, recorded = app_module._role_channels(
+        spec, {"monitors": ["BPM1"], "detectors": ["MCA1", "BPM1"], "correctors": ["COR1"]}
+    )
+
+    assert movable == ["COR1"]
+    assert recorded == ["BPM1", "MCA1"]

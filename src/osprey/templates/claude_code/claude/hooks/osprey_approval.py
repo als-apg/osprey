@@ -1631,6 +1631,7 @@ _MAX_PREVIEWED_QUEUE_ITEMS = 3
 # bridge's reading of the plan's declaration is what this prompt reports.
 _ROLE_HEADLINES = {
     "movable": "Channels this launch would move",
+    "triggered": "Channels this launch would trigger",
     "readable": "Channels this launch would read",
 }
 
@@ -1659,8 +1660,8 @@ def _declared_channel_lines(preview) -> list[str]:
     The grouping is the bridge's own reading of the plan's role declaration
     against these parameters — this hook does no schema walking and guesses
     nothing from a name. Groups render in whichever order the bridge sent
-    them (the route contract puts movable first; this function preserves
-    that order rather than establishing it).
+    them (the route contract puts movable first, then triggered, then
+    readable; this function preserves that order rather than establishing it).
     """
     if not isinstance(preview, dict):
         return []
