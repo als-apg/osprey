@@ -216,6 +216,9 @@ VAR_AUDIT = WordGroup(
             "FR7: proves reset keeps the pre-upgrade tree beside the record"
         ),
         "tests/cli/test_reset_verb.py": "FR7: pins the reset verb's help text",
+        "tests/test_repo_layout_boundaries.py": (
+            "pins what executed code may not write, the pre-upgrade tree included"
+        ),
         "tests/docs/test_agent_record_pages.py": (
             "FR7: pins what the reset docs say about the pre-upgrade tree"
         ),
