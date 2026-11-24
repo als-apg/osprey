@@ -88,13 +88,13 @@ def test_agentic_requires_prompt_and_wait_for():
 
 def test_init_sets_need_the_tutorial_stack():
     with pytest.raises(ValueError, match="init_sets"):
-        validate_registry([_standalone(init_sets=("apps.orbit-bump={}",))])
+        validate_registry([_standalone(init_sets=("apps.corrector-trim={}",))])
 
 
 def test_init_sets_are_key_value_pairs():
     with pytest.raises(ValueError, match="KEY=VALUE"):
-        validate_registry([_stack_static(init_sets=("apps.orbit-bump",))])
-    validate_registry([_stack_static(init_sets=("apps.orbit-bump={}",))])
+        validate_registry([_stack_static(init_sets=("apps.corrector-trim",))])
+    validate_registry([_stack_static(init_sets=("apps.corrector-trim={}",))])
 
 
 def test_agentic_must_be_tutorial_stack():

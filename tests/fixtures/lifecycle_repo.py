@@ -3279,26 +3279,23 @@ def seeded_facility_rule(profile_text: str) -> str:
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
 
 
-#: The application OSPREY ships beside the demo preset, off in it by default.
-ORBIT_BUMP = "orbit-bump"
-
-#: The ``osprey init --set`` pair that turns it on: init copies it into
-#: ``apps/orbit-bump/`` and lists it.
-ENABLE_ORBIT_BUMP = f"apps.{ORBIT_BUMP}={{}}"
+#: The name tests give the application they turn on: the shipped scaffold, as
+#: ``osprey app new`` copies it.
+LISTED_APP = "corrector-trim"
 
 
-def enable_orbit_bump(root: Path) -> None:
-    """Turn orbit bump on in the repo at *root*, as ``--set apps.orbit-bump={}`` at init does.
+def add_scaffold_app(root: Path, name: str = LISTED_APP) -> None:
+    """Run ``osprey app new NAME`` on the repo at *root*.
 
-    For a repo made from the exemplar rather than by ``osprey init``: the
-    profile lists the application and its tree is copied with its provenance.
+    The scaffold is copied into ``apps/NAME/`` and the profile lists it: the one
+    way a repo made from a shipped preset gains an application.
     """
-    with (root / "profile.yml").open("a", encoding="utf-8") as profile:
-        profile.write(f"\napps:\n  {ORBIT_BUMP}: {{}}\n")
-    for rel, text in packaged_application_files().items():
-        path = root / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+    from click.testing import CliRunner
+
+    from osprey.cli.app_cmd import app
+
+    result = CliRunner().invoke(app, ["new", name, "--repo", str(root)])
+    assert result.exit_code == 0, result.output
 
 
 def lay_preset_applications(preset: str, root: Path) -> None:
@@ -3315,31 +3312,6 @@ def lay_preset_applications(preset: str, root: Path) -> None:
             root / "apps" / name,
             ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
         )
-
-
-def packaged_application_files() -> dict[str, str]:
-    """Orbit bump as ``osprey init`` copies it when turned on, sidecar included.
-
-    Read rather than frozen, for the reason the data README is: the package owns
-    these files, and what the comparison downstream is for is that init copies
-    them through unchanged.
-    """
-    from osprey.cli.build_profile_merge import compute_preset_hash
-    from osprey.cli.build_profile_updates import APP_PROVENANCE_FILENAME, app_provenance_text
-    from osprey.profiles import presets
-
-    app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
-    files = {
-        f"apps/orbit-bump/{path.relative_to(app_dir).as_posix()}": path.read_text(encoding="utf-8")
-        for path in sorted(app_dir.rglob("*"))
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.suffix not in {".pyc", ".pyo"}
-    }
-    files[f"apps/orbit-bump/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
-        app_dir, "demo", compute_preset_hash("demo")
-    )
-    return files
 
 
 def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:

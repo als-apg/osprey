@@ -62,10 +62,8 @@ from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests._scoped_stdlib import scoped
 from tests.cli._reporters import installed
 from tests.fixtures.lifecycle_repo import (
-    ENABLE_ORBIT_BUMP,
     EXEMPLAR_DIRNAME,
     exemplar_source_files,
-    packaged_application_files,
 )
 
 #: The exemplar's display name — what ``init`` derives from the directory it
@@ -333,21 +331,6 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
         if exemplar_repo.joinpath(name).read_text(encoding="utf-8") != expected[name]
     ]
     assert differing == []
-
-
-def test_the_listed_application_is_copied_as_packaged(runner: CliRunner, tmp_path: Path) -> None:
-    """Every file of an application init is told to list, and its sidecar, down to the byte."""
-    target = tmp_path / EXEMPLAR_DIRNAME
-    result = init_exemplar(runner, target, "--set", ENABLE_ORBIT_BUMP)
-    assert result.exit_code == 0, result.output
-    expected = packaged_application_files()
-    emitted = {
-        path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
-        for path in (target / APPS_DIRNAME).rglob("*")
-        if path.is_file()
-    }
-    assert f"{APPS_DIRNAME}/orbit-bump/app.yml" in expected
-    assert emitted == expected
 
 
 def test_the_preset_lists_no_application(exemplar_repo: Path) -> None:

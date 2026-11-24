@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import shutil
 import zipfile
@@ -125,6 +126,19 @@ def test_the_package_stays_inside_the_boundary() -> None:
         "tools.py",
     ]
     assert check_package(PACKAGE, app=APP_NAME) == []
+
+
+def test_the_tool_server_does_not_load_the_backend() -> None:
+    tree = ast.parse((PACKAGE / "tools.py").read_text(encoding="utf-8"))
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    imported |= {node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert "scaffold_app.server" not in imported
+    assert "uvicorn" not in imported and "fastapi" not in imported
 
 
 def test_the_template_names_no_channel_of_its_own() -> None:

@@ -2663,7 +2663,7 @@ _JUDGED = PanelRegistry(
         "knowledge-panel": ApplicationPanel(
             "knowledge", (("GET", "/api/search"), ("POST", "/api/draft"))
         ),
-        "orbit": ApplicationPanel("orbit-bump", (("GET", "/api/state"),)),
+        "orbit": ApplicationPanel("corrector-trim", (("GET", "/api/state"),)),
     },
 )
 
@@ -2700,7 +2700,7 @@ def test_judge_grants_resolve_applications_to_their_panels() -> None:
     """A server is named for its application, not its panel: the registry maps between them."""
     grants = _grants()
     assert grants.panels_serving(["knowledge"]) == frozenset({"knowledge-panel"})
-    assert grants.panels_serving(["knowledge", "orbit-bump"]) == frozenset(
+    assert grants.panels_serving(["knowledge", "corrector-trim"]) == frozenset(
         {"knowledge-panel", "orbit"}
     )
     assert grants.panels_serving(["controls", "no-such-app"]) == frozenset()
