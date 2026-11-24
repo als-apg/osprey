@@ -5,8 +5,9 @@ repository that is the deployment: one directory, four zones.
 
     my-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
-    ├── profile.yml  triggers.yml  README.md
-    ├── data/  tiers/  apps/  web-terminal-context/
+    ├── profile.yml  providers.yml  triggers.yml  README.md
+    ├── data/  tiers/  apps/  watchdogs/  web-terminal-context/  .osprey/
+    ├── rules/  mcp_servers/       (where the profile selects or the bundle ships them)
     ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with deploy coordinates)
     │  ═ SECRETS — ignored, durable ══════════════════
@@ -36,10 +37,11 @@ import subprocess
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import click
 
+from osprey import repo_layout
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, STATE_ZONE_DIRS
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
@@ -58,8 +60,9 @@ from .variant_selection import (
 
 if TYPE_CHECKING:
     # Annotation only — both modules are imported lazily inside the command
-    # body to keep `osprey --help` off the build-profile import chain (the
-    # lazy-import budget test in tests/cli/test_main.py pins this).
+    # body to keep `osprey --help` off the build-profile import chain
+    # (`test_importing_the_module_stays_off_the_heavy_chain` in
+    # tests/cli/test_init_verb.py pins this).
     from osprey.deployment.reset import ForeignCheckoutError
 
     from .build_profile_schema import McpServerDef
@@ -68,10 +71,14 @@ if TYPE_CHECKING:
 
 logger = get_logger("init")
 
+_V = TypeVar("_V")
+
 #: Where the post-deploy health check lands in a four-zone repo. The source
 #: zone IS the repo root here, so the check sits exactly where the pipeline
 #: that invokes it says it does — there is no ``project/`` mirror in between.
-REPO_VERIFY_PATH: tuple[str, ...] = ("scripts", "verify.sh")
+REPO_VERIFY_PATH: tuple[str, ...] = tuple(
+    repo_layout.child_display_path("scripts", "verify-script").split("/")
+)
 
 #: The STATE zone, created empty. Git-ignored, so deliberately WITHOUT a
 #: ``.gitkeep``: a marker file there would be ignored too, and would be the one
@@ -79,11 +86,6 @@ REPO_VERIFY_PATH: tuple[str, ...] = ("scripts", "verify.sh")
 #: when they are absent, so a fresh clone and a reset repo look identical —
 #: which is why the pair is imported rather than restated here.
 _STATE_DIRS: tuple[str, ...] = STATE_ZONE_DIRS
-
-#: The facility's own CI jobs. The generated pipeline ``include:``s this file,
-#: so it is the supported way to extend the pipeline without editing a
-#: generated one — and it is written once and never rewritten.
-_CI_EXTRA_FILENAME = "ci-extra.yml"
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +233,7 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `data/`, `tiers/`, `apps/`, `watchdogs/` | yes | yes |
+| Your settings | {_settings_row(seeded, facility_rule)} | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
 | The agent's memory and record | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/agent_record/` | no | yes |
@@ -304,7 +306,7 @@ at the end of `profile.yml` (which server, which CI system), then run:
 osprey scaffold ci
 ```
 
-That writes the pipeline files. Your own extra CI jobs go in `ci-extra.yml`,
+That writes the pipeline files. Your own extra CI jobs go in `{repo_layout.display_path("ci-extra.yml")}`,
 which nothing ever overwrites.
 
 ## Starting over
@@ -478,102 +480,83 @@ def _repo_gitignore_for(
     return _repo_gitignore()
 
 
-#: Files ``init`` authors and never rewrites, each with the builder producing
-#: its text. This mapping DRIVES the writing — ``init`` loops over it rather
-#: than naming the four files again — so a file that is written is a file that
-#: is listed, and the ``--force`` promise below cannot describe a set the code
-#: does not implement. Every builder takes the same triple — the deployment's
-#: name, the directories :data:`WRITE_ONCE_DIRS` actually seeded into this repo,
-#: and whether the resolved profile selects the facility rule — so that a builder
-#: may start describing either conditional directory without the loop that calls
-#: it having to learn which builders care.
-WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...], bool], str]] = {
-    ".gitignore": _repo_gitignore_for,
-    ENV_SHARED_FILENAME: _repo_env_shared,
-    "README.md": _repo_readme,
-    _CI_EXTRA_FILENAME: _ci_extra_text,
-}
+def _by_row(role: repo_layout.InitRole, by_key: Mapping[str, _V]) -> dict[str, _V]:
+    """*by_key* re-keyed by the path of each row ``init`` treats as *role*, in table order.
 
-#: Where the scaffolding engine puts the CI pair in a four-zone repo. Spelled
-#: here rather than imported because ``deploy_scaffold`` pulls the build-profile
-#: chain in with it (TR-2); a test cross-checks these against the engine's own
-#: ``CI_OUTPUT_NAMES`` and :data:`REPO_VERIFY_PATH` so the two cannot drift.
-CI_EMITTED_PATHS: tuple[str, ...] = (".gitlab-ci.yml", "/".join(REPO_VERIFY_PATH))
+    Raises:
+        ValueError: A row of that role has no value, or a value names no such row.
+    """
+    rows = repo_layout.rows_with_init(role)
+    if {row.key for row in rows} != set(by_key):
+        raise ValueError(
+            f"the {role} rows {[row.key for row in rows]} and their table {sorted(by_key)} differ"
+        )
+    return {row.path: by_key[row.key] for row in rows}
 
-#: The profile-root directory one Python MCP server's package lives in — the
-#: source name of the convention row that carries those packages into a build.
-#: Named here, above the first table that needs it, because the directory the
-#: seeding writes and the directory the pairing check reads are the same one:
-#: spelling it twice is how a rename leaves the check looking for a name
-#: nothing writes any more.
-MCP_SERVER_SOURCE_DIR: str = "mcp_servers"
+
+#: Files ``init`` authors and never rewrites — the write-once rows, each with the
+#: builder producing its text. This mapping DRIVES the writing — ``init`` loops
+#: over it rather than naming the files again — so a file that is written is a
+#: file that is listed, and the ``--force`` promise below cannot describe a set
+#: the code does not implement. Every builder takes the same triple — the
+#: deployment's name, the directories :data:`WRITE_ONCE_DIRS` actually seeded
+#: into this repo, and whether the resolved profile selects the facility rule —
+#: so that a builder may start describing either conditional directory without
+#: the loop that calls it having to learn which builders care.
+WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...], bool], str]] = _by_row(
+    repo_layout.InitRole.WRITE_ONCE,
+    {
+        ".gitignore": _repo_gitignore_for,
+        ENV_SHARED_FILENAME: _repo_env_shared,
+        "README.md": _repo_readme,
+        "ci-extra.yml": _ci_extra_text,
+    },
+)
+
+#: Where the scaffolding engine puts the CI pair in a four-zone repo: the
+#: scaffolded rows and the verifier inside ``scripts``. Read from the
+#: declaration rather than imported because ``deploy_scaffold`` pulls the
+#: build-profile chain in with it (TR-2); a test cross-checks these against the
+#: engine's own ``CI_OUTPUT_NAMES`` and :data:`REPO_VERIFY_PATH` so the two
+#: cannot drift.
+CI_EMITTED_PATHS: tuple[str, ...] = (
+    *repo_layout.paths(repo_layout.rows_with_init(repo_layout.InitRole.SCAFFOLDED)),
+    repo_layout.child_display_path("scripts", "verify-script"),
+)
+
+#: The key of the convention row whose directory holds one Python MCP server's
+#: package each. The seeding writes that directory and the pairing check reads
+#: it, both at the row's path.
+MCP_SERVER_SOURCE_DIR: str = repo_layout.entry("mcp_servers").key
 
 #: Directories seeded out of the app bundle the first time a repo is
-#: materialized, mapping the name each takes at the repo root to the
-#: bundle-relative path it is copied from. Once seeded they are the facility's:
-#: nothing rewrites them, and nothing puts one back that the facility removed.
-#: Like the tables above this one DRIVES its consumers — the seeding, the
-#: ``--force`` promise, the README's zone row and the tests all iterate it — so
-#: a second seeded directory joins every one of them by being listed here.
-WRITE_ONCE_DIRS: Mapping[str, str] = {MCP_SERVER_SOURCE_DIR: "mcp_servers"}
+#: materialized, mapping the path each takes at the repo root to the
+#: bundle-relative path it is copied from. An app bundle is laid out as a
+#: deployment, so both are the seeded row's path. Once seeded they are the
+#: facility's: nothing rewrites them, and nothing puts one back that the
+#: facility removed. Like the tables above this one DRIVES its consumers — the
+#: seeding, the ``--force`` promise, the README's zone row and the tests all
+#: iterate it — so a second seeded row joins every one of them.
+WRITE_ONCE_DIRS: Mapping[str, str] = {
+    row.path: row.path for row in repo_layout.rows_with_init(repo_layout.InitRole.SEEDED)
+}
 
-#: The convention directory holding the facility description a deployment
-#: rewrites in its own words. Source zone, but in neither table above: it is not
+#: The convention row holding the facility description a deployment rewrites in
+#: its own words. Source zone, but in neither table above: it is not
 #: materialized (a re-materialization must not replace the operator's own
 #: facility text) and it is not seeded from the bundle (it is rendered from the
 #: framework template, by `osprey init` and by the first build that finds it
-#: missing). Named here so the README's zone table can say where it is.
-FACILITY_RULE_DIR: str = "rules"
+#: missing).
+(_FACILITY_RULE_ROW,) = repo_layout.rows_with_init(repo_layout.InitRole.FACILITY_RULE)
 
-
-def _source_zone_prose(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
-    """The SOURCE row of the README's zone table, derived from the categories above.
-
-    The source zone is exactly what a materialization owns
-    (:data:`~.profile_cmd.MATERIALIZED_SOURCE_ENTRIES`), plus the repo shell
-    ``init`` authors once (:data:`WRITE_ONCE_FILES`), plus whatever
-    :data:`WRITE_ONCE_DIRS` seeded into THIS repo, plus the CI pair the
-    scaffolding engine emits (:data:`CI_EMITTED_PATHS`) — the same
-    derive-from-the-tables rule :data:`PRESERVED_BY_FORCE` follows, for the same
-    reason. Naming the zone by hand is how this table came to advertise
-    ``scripts/`` (not a materialized entry at all, and never replaced) while
-    omitting ``web-terminal-context/`` (which is one, and is), so that the README
-    and this module's own docstring described two different repos.
-
-    A materialized entry with no filename suffix is a directory and is shown with
-    a trailing slash — ``.env.example`` has one, so the split holds for every
-    entry in that table. Write-once and CI entries are files by construction.
-
-    ``seeded`` is what this repo actually received, not the seeding table: an
-    app template that ships no server package seeds nothing, and its README must
-    not name a directory the operator will not find. The names arrive already
-    filtered, so the row grows only where the directory does.
-
-    ``facility_rule`` carries the same rule for :data:`FACILITY_RULE_DIR`, which
-    is written only where the resolved profile selects the facility rule — the
-    gate ``profile_cmd`` makes before it seeds the directory. A deployment whose
-    rule selection leaves the facility rule out has no such directory, so its
-    README does not name one.
-
-    Imported inside the body rather than at module scope: ``profile_cmd`` pulls
-    the build-profile chain in with it, which ``osprey --help`` must stay off
-    (TR-2), and this is only ever called while a repo is being written.
-    """
-    from .profile_cmd import MATERIALIZED_SOURCE_ENTRIES
-
-    entries = [
-        f"{name}/" if not Path(name).suffix else name for name in MATERIALIZED_SOURCE_ENTRIES
-    ]
-    entries.extend(f"{name}/" for name in seeded)
-    if facility_rule:
-        entries.append(f"{FACILITY_RULE_DIR}/")
-    entries.extend(WRITE_ONCE_FILES)
-    entries.extend(CI_EMITTED_PATHS)
-    return ", ".join(f"`{name}`" for name in entries)
-
+#: The key of :data:`_FACILITY_RULE_ROW`; its directory is the row's path.
+FACILITY_RULE_DIR: str = _FACILITY_RULE_ROW.key
 
 #: The durable content ``init`` never writes at all, and therefore never risks.
-_UNTOUCHED_BY_INIT: tuple[str, ...] = (".env", ".git", f"{STATE_DIR}/", f"{BUILD_OUTPUT_DIR}/")
+_UNTOUCHED_BY_INIT: tuple[str, ...] = tuple(
+    repo_layout.listing_name(row)
+    for row in repo_layout.rows_with_init(repo_layout.InitRole.UNTOUCHED)
+)
 
 #: Everything a re-materialization leaves intact — DERIVED from the categories
 #: above rather than declared beside them. A new write-once file — or a new
@@ -586,23 +569,120 @@ PRESERVED_BY_FORCE: tuple[str, ...] = (
     *WRITE_ONCE_FILES,
     *CI_EMITTED_PATHS,
     *(f"{name}/" for name in WRITE_ONCE_DIRS),
-    f"{FACILITY_RULE_DIR}/",
+    repo_layout.listing_name(_FACILITY_RULE_ROW),
 )
 
 _PRESERVED_PROSE = ", ".join(PRESERVED_BY_FORCE)
 
+# ---------------------------------------------------------------------------
+# The texts that name the source zone, computed from the replaced rows
+# ---------------------------------------------------------------------------
+
+#: How init's texts word a replaced entry that is not plainly overwritten, by
+#: row key: the provider catalog is merged (OSPREY's entries reset, the
+#: operator's kept) and OSPREY's own record of the presets is rewritten. Every
+#: other replaced entry is worded as replaced, losing any edit to it.
+REPLACED_WORDING: Mapping[str, str] = {"providers.yml": "merged", ".osprey": "rewritten"}
+
+if not set(REPLACED_WORDING) <= {
+    row.key for row in repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
+}:
+    raise ValueError(f"{sorted(REPLACED_WORDING)} are not all entries init replaces")
+
+
+def _replaced_names(*wordings: str | None) -> list[str]:
+    """The replaced entries worded as one of *wordings*, as a listing names them.
+
+    ``None`` stands for an entry plainly replaced. Table order.
+    """
+    return [
+        repo_layout.listing_name(row)
+        for row in repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
+        if REPLACED_WORDING.get(row.key) in wordings
+    ]
+
+
+def _and_list(names: list[str], *, serial_comma: bool) -> str:
+    """*names* as an English list: ``a, b and c``, or ``a, b, and c`` with *serial_comma*."""
+    if len(names) < 2:
+        return "".join(names)
+    return ", ".join(names[:-1]) + (", and " if serial_comma else " and ") + names[-1]
+
+
+(_MERGED_ENTRY,) = _replaced_names("merged")
+
+
+def _source_zone_names(
+    replaced: list[str], seeded: tuple[str, ...], facility_rule: bool
+) -> list[str]:
+    """*replaced*, then the directories seeded into THIS repo, then the facility rule's."""
+    names = [*replaced, *(f"{name}/" for name in seeded)]
+    if facility_rule:
+        names.append(repo_layout.listing_name(_FACILITY_RULE_ROW))
+    return names
+
+
+def _settings_row(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+    """The "Your settings" cell of the README's zone table.
+
+    The source-zone entries the operator edits: every replaced one in the
+    source zone except OSPREY's own record, then what was seeded and the facility
+    rule, under the same conditions as :func:`_source_zone_prose`.
+    """
+    replaced = [
+        repo_layout.listing_name(row)
+        for row in repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
+        if row.zone is repo_layout.Zone.SOURCE and REPLACED_WORDING.get(row.key) != "rewritten"
+    ]
+    return ", ".join(f"`{name}`" for name in _source_zone_names(replaced, seeded, facility_rule))
+
+
+def _source_zone_prose(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+    """The SOURCE row of the README's zone table in full, derived from the categories above.
+
+    The source zone is exactly what a materialization owns (the replaced rows),
+    plus whatever :data:`WRITE_ONCE_DIRS` seeded into THIS repo, plus the
+    facility rule, plus the repo shell ``init`` authors once
+    (:data:`WRITE_ONCE_FILES`), plus the CI pair the scaffolding engine emits
+    (:data:`CI_EMITTED_PATHS`) — the same derive-from-the-tables rule
+    :data:`PRESERVED_BY_FORCE` follows, for the same reason: a zone named by hand
+    drifts from the repo it describes.
+
+    ``seeded`` is what this repo actually received, not the seeding table: an
+    app template that ships no server package seeds nothing, and its README must
+    not name a directory the operator will not find. The names arrive already
+    filtered, so the row grows only where the directory does.
+
+    ``facility_rule`` carries the same rule for the facility rule's directory,
+    which is written only where the resolved profile selects the facility rule —
+    the gate ``profile_cmd`` makes before it seeds the directory. A deployment
+    whose rule selection leaves the facility rule out has no such directory, so
+    its README does not name one.
+    """
+    names = _source_zone_names(_replaced_names(None, "merged", "rewritten"), seeded, facility_rule)
+    names.extend(WRITE_ONCE_FILES)
+    names.extend(CI_EMITTED_PATHS)
+    return ", ".join(f"`{name}`" for name in names)
+
+
 _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
-    "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, watchdogs/, .env.example and .osprey/, losing any edit to "
-    "them. In "
-    "providers.yml the entries OSPREY ships are reset to the packaged values "
-    "(your edits to them are lost) and the ones you added are kept. To start "
-    "over on this name entirely, re-run with --reset: that re-materializes the "
+    f"which replaces {_and_list(_replaced_names(None, 'rewritten'), serial_comma=False)}, "
+    f"losing any edit to them. In {_MERGED_ENTRY} the entries OSPREY ships are reset to "
+    "the packaged values (your edits to them are lost) and the ones you added are kept. "
+    "To start over on this name entirely, re-run with --reset: that re-materializes the "
     "source zone the same way AND destroys the previous deployment's "
     "containers, data volumes and images. These are left alone either way: "
     f"{_PRESERVED_PROSE}."
+)
+
+_FORCE_HELP = (
+    "Re-materialize the source zone of an existing deployment repo, discarding edits to "
+    f"{_and_list(_replaced_names(None), serial_comma=True)}, and rewriting "
+    f"{_and_list(_replaced_names('rewritten'), serial_comma=True)}. In {_MERGED_ENTRY} "
+    "the entries OSPREY ships are reset to the packaged values (your edits to them are "
+    f"lost) and the ones you added are kept. Never touches: {_PRESERVED_PROSE}."
 )
 
 _TARGET_NOT_EMPTY = (
@@ -1254,12 +1334,7 @@ def _reject_shorthand_flags(command: Callable) -> Callable:
 @click.option(
     "--force",
     is_flag=True,
-    help="Re-materialize the source zone of an existing deployment repo, "
-    "discarding edits to profile.yml, data/, tiers/, apps/, triggers.yml, "
-    "web-terminal-context/, watchdogs/, and .env.example, and rewriting .osprey/. In "
-    "providers.yml the entries "
-    "OSPREY ships are reset to the packaged values (your edits to them are "
-    f"lost) and the ones you added are kept. Never touches: {_PRESERVED_PROSE}.",
+    help=_FORCE_HELP,
 )
 @click.option(
     "--no-git",
@@ -1468,7 +1543,7 @@ def init(
         for entry, module in _missing_server_packages(materialized.resolved.mcp_servers, target):
             output.warn(
                 f"profile.yml declares {entry} but "
-                f"{MCP_SERVER_SOURCE_DIR}/{module}/ is missing; "
+                f"{repo_layout.display_path(MCP_SERVER_SOURCE_DIR, module)}/ is missing; "
                 "delete the block too, or copy the package back.",
                 "Every session otherwise waits 20 s for a server that cannot start.",
             )
@@ -1880,7 +1955,7 @@ def _missing_server_packages(
         if position == len(args):
             continue
         module = args[position]
-        if not (target / MCP_SERVER_SOURCE_DIR / module).is_dir():
+        if not (target / convention.source / module).is_dir():
             unpaired.append((name, module))
     return unpaired
 
@@ -1948,7 +2023,10 @@ def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
         by_dir.setdefault(layer.parent.name, []).append(layer.stem)
     rows: list[tuple[str, str]] = [
         ("profile.yml", "your assistant's settings; edit this"),
-        ("data/", "channel lists and facility docs; edit these"),
+        (
+            repo_layout.listing_name(repo_layout.entry("data")),
+            "channel lists and facility docs; edit these",
+        ),
     ]
     rows += [
         (f"{dirname}/", f"{_LAYER_ENTRY_NOTES[kind]}: {', '.join(by_dir[dirname])}")

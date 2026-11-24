@@ -43,6 +43,7 @@ from click.testing import CliRunner
 from rich.console import Console
 
 from osprey.cli.init_cmd import (
+    _ALREADY_A_REPO,
     _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
     FACILITY_RULE_DIR,
@@ -50,6 +51,7 @@ from osprey.cli.init_cmd import (
     REPO_VERIFY_PATH,
     WRITE_ONCE_DIRS,
     WRITE_ONCE_FILES,
+    _settings_row,
     _source_zone_prose,
     _surviving_project_resources,
     init,
@@ -849,6 +851,35 @@ def test_the_zone_row_names_a_seeded_directory_only_when_one_was_seeded() -> Non
     assert entries.index("mcp_servers/") == len(MATERIALIZED_SOURCE_ENTRIES)
     assert entries.index("mcp_servers/") < entries.index(next(iter(WRITE_ONCE_FILES)))
     assert "mcp_servers" not in _source_zone_prose()
+
+
+def test_the_settings_row_lists_the_source_entries_in_table_order() -> None:
+    """The README's "Your settings" cell: the replaced source entries but OSPREY's record."""
+    assert _settings_row() == (
+        "`profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, "
+        "`web-terminal-context/`, `watchdogs/`"
+    )
+    assert _settings_row(("mcp_servers",), True).endswith("`watchdogs/`, `mcp_servers/`, `rules/`")
+
+
+def test_the_already_a_repo_message_lists_the_replaced_entries_in_table_order() -> None:
+    assert (
+        "which replaces profile.yml, data/, tiers/, apps/, .osprey/, triggers.yml, "
+        "web-terminal-context/, .env.example and watchdogs/, losing any edit to them. "
+        "In providers.yml the entries OSPREY ships are reset"
+    ) in _ALREADY_A_REPO
+
+
+def test_the_force_help_lists_the_replaced_entries_in_table_order() -> None:
+    option_help = {
+        param.name: param.help for param in init.params if isinstance(param, click.Option)
+    }
+    assert option_help["force"].startswith(
+        "Re-materialize the source zone of an existing deployment repo, discarding edits to "
+        "profile.yml, data/, tiers/, apps/, triggers.yml, web-terminal-context/, "
+        ".env.example, and watchdogs/, and rewriting .osprey/. In providers.yml the entries "
+        "OSPREY ships are reset"
+    )
 
 
 def test_force_never_regenerates_a_hand_written_pipeline(runner: CliRunner, tmp_path: Path) -> None:
