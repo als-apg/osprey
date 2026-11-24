@@ -2,7 +2,7 @@
   "_reproduce": "Frozen: no command rewrites this golden; it was captured from the demo build at 8f22637c06, the last /3 build, whose views unioned the vocabulary's signal roles with the document's.",
   "_description": "What the facts view and the channel-finder role descriptions give for the demo build. A build that writes the effective signal-role table into the document must give the same.",
   "facts": {
-    "channel_count": 4731,
+    "channel_count": 4691,
     "device_classes": {
       "AcceleratingCavity": {
         "aliases": [
@@ -74,14 +74,13 @@
           "position monitor",
           "position pickup"
         ],
-        "count": 100,
+        "count": 96,
         "groups": [
           "BR/BPM",
           "BR/DIAG",
           "BTS/BPM",
           "BTS/DIAG",
           "GTL/BPM",
-          "LINE/BPM",
           "LN/BPM",
           "LTB/BPM",
           "SR/BPM",
@@ -163,12 +162,11 @@
           "horizontal orbit corrector",
           "horizontal steering magnet"
         ],
-        "count": 93,
+        "count": 89,
         "groups": [
           "BTS/HCM",
           "BTS/MAG",
           "GTL/HCM",
-          "LINE/HCM",
           "LN/HCM",
           "LTB/HCM",
           "SR/HCM",
@@ -265,7 +263,7 @@
           "quadrupole",
           "quadrupole magnet"
         ],
-        "count": 113,
+        "count": 105,
         "groups": [
           "BR/MAG",
           "BR/QD",
@@ -275,8 +273,6 @@
           "BTS/MAG",
           "BTS/QD",
           "BTS/QF",
-          "LINE/QD",
-          "LINE/QF",
           "LN/QD",
           "LN/QF",
           "LTB/QD",
@@ -399,12 +395,11 @@
           "vertical orbit corrector",
           "vertical steering magnet"
         ],
-        "count": 98,
+        "count": 94,
         "groups": [
           "BTS/MAG",
           "BTS/VCM",
           "GTL/VCM",
-          "LINE/VCM",
           "LN/VCM",
           "LTB/VCM",
           "SR/MAG",
@@ -637,112 +632,6 @@
         "path": "data/pyaml/BTS/configuration.yaml",
         "rf": [],
         "sha256": "de5d1ced6a958286c76dfa0bd75a129f587e8358b4afcaf7d4edd9e55f8c018f"
-      },
-      "LINE": {
-        "files": {},
-        "instruments": {},
-        "kinds": {
-          "orm": {
-            "corrector_roles": [
-              "hcor",
-              "vcor"
-            ],
-            "description": "orbit response of the corrector setpoints",
-            "matrix": true,
-            "measure_plan": {
-              "bipolar": {
-                "kwargs": {
-                  "corrector_names": "$names",
-                  "n_avg_meas": "$n_avg_meas",
-                  "sleep_between_meas": "$sleep_between_meas",
-                  "sleep_between_step": "$settle"
-                },
-                "set_delta": true
-              },
-              "bpm_array": "bpm_array_name",
-              "delta": "corrector_delta",
-              "fit": "magnet-group",
-              "magnets": {
-                "members": [
-                  "hcorrectors",
-                  "vcorrectors"
-                ]
-              },
-              "missing": "kind",
-              "named": true,
-              "result": "matrix",
-              "tool": {
-                "attribute": "orm"
-              },
-              "unipolar": {
-                "factory": "orm",
-                "kwargs": {
-                  "bpm_array": "@bpm_array_name",
-                  "correctors": "$names",
-                  "deltas": "$deltas",
-                  "n_avg_meas": "$n_avg_meas",
-                  "set_wait_time": "$settle"
-                },
-                "per_member": true
-              }
-            },
-            "members": {
-              "bpm": {
-                "addresses": [
-                  "LINE:DIAG:BPM:01:POSITION:X",
-                  "LINE:DIAG:BPM:01:POSITION:Y",
-                  "LINE:DIAG:BPM:02:POSITION:X",
-                  "LINE:DIAG:BPM:02:POSITION:Y",
-                  "LINE:DIAG:BPM:03:POSITION:X",
-                  "LINE:DIAG:BPM:03:POSITION:Y",
-                  "LINE:DIAG:BPM:04:POSITION:X",
-                  "LINE:DIAG:BPM:04:POSITION:Y"
-                ],
-                "requirement": "wired"
-              },
-              "hcor": {
-                "addresses": [
-                  "LINE:MAG:HCM:01:CURRENT:SP",
-                  "LINE:MAG:HCM:02:CURRENT:SP",
-                  "LINE:MAG:HCM:03:CURRENT:SP",
-                  "LINE:MAG:HCM:04:CURRENT:SP"
-                ],
-                "requirement": "wired"
-              },
-              "vcor": {
-                "addresses": [
-                  "LINE:MAG:VCM:01:CURRENT:SP",
-                  "LINE:MAG:VCM:02:CURRENT:SP",
-                  "LINE:MAG:VCM:03:CURRENT:SP",
-                  "LINE:MAG:VCM:04:CURRENT:SP"
-                ],
-                "requirement": "wired"
-              }
-            },
-            "single_pass": true,
-            "stepped_roles": [
-              "hcor",
-              "vcor"
-            ],
-            "takes_by": false,
-            "tool": {
-              "name": "DEFAULT_ORBIT_RESPONSE_MATRIX",
-              "type": "pyaml.tuning_tools.orbit_response_matrix"
-            },
-            "tool_keys": [
-              "corrector_delta"
-            ],
-            "view_files": []
-          }
-        },
-        "names": {
-          "bpm": "LINE_BPM",
-          "hcor": "LINE_HCM",
-          "vcor": "LINE_VCM"
-        },
-        "path": "data/pyaml/LINE/configuration.yaml",
-        "rf": [],
-        "sha256": "3d0b99665178f989d1fc11c18329160b1c73450f1214bc9961b0f723dcad7d96"
       },
       "LTB": {
         "files": {},
@@ -1918,12 +1807,6 @@
       },
       {
         "engine": "pyat",
-        "name": "LINE",
-        "served": true,
-        "solve": "single_pass"
-      },
-      {
-        "engine": "pyat",
         "name": "LTB",
         "served": true,
         "solve": "single_pass"
@@ -2039,17 +1922,6 @@
         },
         "id": "HALL/ROW3/RK08",
         "level": "rack",
-        "names": []
-      },
-      {
-        "devices": {
-          "BeamPositionMonitor": 4,
-          "HCorrector": 4,
-          "Quadrupole": 8,
-          "VCorrector": 4
-        },
-        "id": "LINE",
-        "level": "machine",
         "names": []
       },
       {
@@ -2382,10 +2254,10 @@
       "UtilityLoop": 1
     },
     "vocabulary": {
-      "paired_setpoints": 645,
+      "paired_setpoints": 629,
       "roles": {
-        "readback": 4057,
-        "setpoint": 674
+        "readback": 4033,
+        "setpoint": 658
       },
       "signals": {
         "beam_intensity_readback": {
@@ -2438,17 +2310,17 @@
           }
         },
         "current_readback": {
-          "count": 535,
+          "count": 519,
           "description": "Measured current value read back from a powered device.",
           "roles": {
-            "readback": 535
+            "readback": 519
           }
         },
         "current_setpoint": {
-          "count": 463,
+          "count": 447,
           "description": "Commanded current value sent to a powered device.",
           "roles": {
-            "setpoint": 463
+            "setpoint": 447
           }
         },
         "dose_rate_readback": {
@@ -2585,10 +2457,10 @@
           }
         },
         "position_x_readback": {
-          "count": 100,
+          "count": 96,
           "description": "Horizontal beam position readback from a beam position monitor.",
           "roles": {
-            "readback": 100
+            "readback": 96
           }
         },
         "position_y_golden_readback": {
@@ -2599,10 +2471,10 @@
           }
         },
         "position_y_readback": {
-          "count": 100,
+          "count": 96,
           "description": "Vertical beam position readback from a beam position monitor.",
           "roles": {
-            "readback": 100
+            "readback": 96
           }
         },
         "power_on_command": {

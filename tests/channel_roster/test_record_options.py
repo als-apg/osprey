@@ -18,6 +18,7 @@ import osprey.channel_roster as channel_roster
 from osprey.channel_roster import ChannelRecord, RosterAbsenceReason, registered_channels
 from osprey.channel_roster.records import RosterSource, RosterSourceKind
 from osprey.channel_roster.sources import channel_record, read_facility_roster
+from osprey_facility.records import FacilityRecords
 from tests._facility_file import write_facility_file, write_facility_v4
 from tests.facility._synthetic_trees import plain_tree
 
@@ -101,25 +102,27 @@ class TestChannelRecord:
         assert record.options is None
 
     def test_a_channel_record_reads_its_options(self, tmp_path: Path) -> None:
+        channel = {"id": "OPS:MODE", "role": "readback", "value_type": "enum", "options": MODES}
         record = channel_record(
-            {"id": "OPS:MODE", "role": "readback", "value_type": "enum", "options": MODES},
-            _source(tmp_path / "facility.json"),
+            channel, _source(tmp_path / "facility.json"), FacilityRecords({"channels": [channel]})
         )
         assert record.options == tuple(MODES)
 
     def test_labels_are_read_as_strings(self, tmp_path: Path) -> None:
+        channel = {"id": "N", "role": "readback", "value_type": "enum", "options": [1, "two"]}
         record = channel_record(
-            {"id": "N", "role": "readback", "value_type": "enum", "options": [1, "two"]},
-            _source(tmp_path / "facility.json"),
+            channel, _source(tmp_path / "facility.json"), FacilityRecords({"channels": [channel]})
         )
         assert record.options == ("1", "two")
 
     @pytest.mark.parametrize("bad", ["User operation", {"a": 1}, 3])
     def test_options_that_are_not_a_list_are_refused(self, tmp_path: Path, bad: Any) -> None:
+        channel = {"id": "OPS:MODE", "role": "readback", "options": bad}
         with pytest.raises(TypeError, match="options"):
             channel_record(
-                {"id": "OPS:MODE", "role": "readback", "options": bad},
+                channel,
                 _source(tmp_path / "facility.json"),
+                FacilityRecords({"channels": [channel]}),
             )
 
     def test_a_file_with_malformed_options_is_a_corrupt_source(self, tmp_path: Path) -> None:

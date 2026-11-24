@@ -69,9 +69,6 @@ async def on_bus(monkeypatch, worker_record):
     monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
     monkeypatch.setattr(dispatch_api, "describe_run_input_artifacts", lambda run_id: [])
 
-    # The bus keeps the protocol's heartbeat: the worker's link sends at that
-    # interval, and a bus expecting a shorter one expires the worker between
-    # two heartbeats.
     bus = WorkerBus("tcp://127.0.0.1:*", keys=None)
     await bus.start()
     link = bus_adapter.make_link(WorkerSettings(bus.endpoint, "dispatch-worker-1", None))

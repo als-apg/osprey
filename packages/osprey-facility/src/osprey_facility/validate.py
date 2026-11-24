@@ -69,10 +69,12 @@ from osprey_facility.sources import Sources, group_families, load_sources
 
 __all__ = [
     "FACILITY_HEADER",
+    "LIMIT_BOUNDS",
     "STAGES",
     "Stage",
     "StageReport",
     "Validated",
+    "check_commands",
     "check_measurement",
     "check_records",
     "check_references",
@@ -81,6 +83,8 @@ __all__ = [
     "need",
     "ordered_slots",
     "paired_nominal_error",
+    "record_missing",
+    "record_writable",
     "relation_types",
     "run_stages",
     "schema_document",
@@ -123,6 +127,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
     ("relation-invalid",),
     ("class-unknown",),
     ("pair-invalid",),
+    ("command-invalid",),
     ("value-invalid",),
     ("seed-invalid", "seed-missing"),
     ("limit-invalid",),
@@ -144,8 +149,6 @@ _MAX_LABEL = 25
 #: than 17 significant digits.
 _MAX_PRECISION = 17
 
-_NUMERIC_TYPES = ("float", "int")
-
 #: The channel slots every address of one wiring record states alike, each with
 #: the value a channel stating none has.
 _SAME_VARIABLE_SLOTS: dict[str, Any] = {
@@ -154,7 +157,17 @@ _SAME_VARIABLE_SLOTS: dict[str, Any] = {
     "options": None,
     "shape": None,
 }
-_LIMIT_BOUNDS = ("min_value", "max_value", "max_step")
+#: How ``idle`` is typed by its status; the schema description and the docs row say the same.
+_IDLE_TYPING = (
+    "a label on a bool or enum channel, an integer on an int, a number on a float, "
+    "text on a string; a waveform channel is never a status"
+)
+#: The two edges of a limits record's range; a float or int setpoint is writable only with both.
+_LIMIT_EDGES = ("min_value", "max_value")
+#: The bound slots of a limits record, in the order the limits document writes them.
+LIMIT_BOUNDS = (*_LIMIT_EDGES, "max_step")
+#: The value types a limits record bounds; every other type carries no bounds.
+_NUMERIC_TYPES = ("float", "int")
 _MOTION = ("noise", "drift")
 #: The two terms a ``noise`` record states exactly one of.
 _NOISE_TERMS = ("absolute", "relative")
@@ -1213,6 +1226,8 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
     (all but the nominal band, which needs the computed operating point), and
     ``relation-invalid`` for a relation claim whose shape breaks a rule.
+    A further address of a wiring record (under ``also``) states no
+    ``tolerance``: the record's holds under each of its addresses.
 
     Args:
         document: The document S3 validated.
@@ -1221,6 +1236,30 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
         Every error found.
     """
     return list(_Records(document).run())
+
+
+def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check each command's ``timeout_s`` and its status's ``idle`` together.
+
+    A command that states ``timeout_s`` pairs with a readback, its status, that
+    states ``idle``; a command whose status states ``idle`` states
+    ``timeout_s``. ``idle`` sits only on a readback a command pairs with and is
+    typed by that channel; ``timeout_s`` sits only on a command and is a finite
+    number > 0. A limits record states no ``confirm: true`` on a command with
+    ``timeout_s``: the wait for its status confirms the write. A status that
+    states ``idle`` states no ``follows`` naming a setpoint; the simulation never
+    follows it. A further address of a wiring record (under ``also``) states
+    neither ``timeout_s`` nor ``idle``: the record's own hold under each of
+    its addresses. Runs once commands are marked, so the stop is
+    ``command-invalid`` alone.
+
+    Args:
+        document: The combined document, its commands marked ``command: true``.
+
+    Returns:
+        Every error found.
+    """
+    return list(_Records(document).commands())
 
 
 class _Records:
@@ -1244,12 +1283,223 @@ class _Records:
         yield from self._gate_cycles()
         yield from self._pairs()
         for address, channel in sorted(self.index.channels.items()):
-            if "tolerance" in channel and address not in self.broken:
+            if "tolerance" not in channel:
+                continue
+            if address in self._further:
+                yield from self._on_further(
+                    "value-invalid", ("tolerance",), address, channel, *self._further[address]
+                )
+            elif address not in self.broken:
                 yield from self._tolerance(address, channel)
         yield from self._wiring()
         yield from self._limits()
         yield from self._scenarios()
         yield from self._relations()
+
+    def commands(self) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.values import coerce
+
+        self.coerce = coerce
+        channels = self.index.channels
+        status_of = {
+            address: str(channel.get("pair", address))
+            for address, channel in sorted(channels.items())
+            if channel.get("command") is True
+        }
+        awaited = {status for address, status in status_of.items() if status != address}
+        further = self._further
+        for address, channel in sorted(channels.items()):
+            if address in further:
+                yield from self._on_further(
+                    "command-invalid", ("timeout_s", "idle"), address, channel, *further[address]
+                )
+                continue
+            yield from self._bound(address, channel, status_of.get(address))
+            if "idle" in channel:
+                yield from self._idle(address, channel, awaited)
+        for record in self.index.limits:
+            address = str(record.get("address"))
+            own = further[address][1] if address in further else address
+            bounded = own in status_of and "timeout_s" in channels[own]
+            if bounded and record.get("confirm") is True:
+                yield self._error(
+                    "command-invalid",
+                    "limit",
+                    address,
+                    ["limits.yaml"],
+                    "`confirm: true` on a command that states `timeout_s`"
+                    if own == address
+                    else "`confirm: true` on a further address of a command that states "
+                    "`timeout_s`",
+                    f"remove `confirm`; the wait for {status_of[own]} confirms the write",
+                )
+
+    @cached_property
+    def _further(self) -> dict[str, tuple[str, str]]:
+        """A further address of a wiring record is that record under another name.
+
+        Each further address, by the wiring record's id and ``address`` it names.
+        """
+        further: dict[str, tuple[str, str]] = {}
+        for _, entry in self.index.wiring:
+            own, *names = wiring_addresses(entry)
+            for name in names:
+                if name != own:
+                    further.setdefault(name, (str(entry.get("id")), own))
+        return further
+
+    def _on_further(
+        self,
+        code: str,
+        keys: tuple[str, ...],
+        address: str,
+        channel: Mapping[str, Any],
+        wid: str,
+        own: str,
+    ) -> Iterator[FacilityBuildError]:
+        """A record fact is stated on a wiring record's ``address`` only."""
+        for key in keys:
+            if key in channel:
+                yield self._error(
+                    code,
+                    "channel",
+                    address,
+                    stating_files(channel, key),
+                    f"`{key}` on {address}, which wiring record {wid} states under `also`",
+                    f"state `{key}` on {own} only; it holds under each of its addresses",
+                )
+
+    def _bound(
+        self, address: str, channel: Mapping[str, Any], status: str | None
+    ) -> Iterator[FacilityBuildError]:
+        """A command's ``timeout_s`` and its status's ``idle`` are stated together."""
+        bound: Any = channel.get("timeout_s")
+        files = stating_files(channel, "timeout_s")
+        if status is None:
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    "`timeout_s` on a channel that is no command",
+                    "remove `timeout_s`; only a command states how long one act may take",
+                )
+            return
+        if status != address and is_waveform(self._type(status)):
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"`timeout_s` on a command whose status {status} is a waveform channel",
+                    f"pair {address} with a status that is no waveform, or remove `timeout_s`",
+                )
+            return
+        if "timeout_s" not in channel:
+            if status != address and "idle" in self.index.channels[status]:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, None),
+                    f"a command whose status {status} states `idle` states no `timeout_s`",
+                    f"state `timeout_s` on {address}",
+                )
+        elif not (_finite(bound) and bound > 0):
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` {bound!r} is not a finite number > 0",
+                "state `timeout_s` as the longest one act may take, in seconds",
+            )
+        elif status == address:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`timeout_s` on a command that is its own pair",
+                "name the readback that reads the act as `pair`, and state `idle` on it",
+            )
+        elif "idle" not in self.index.channels[status]:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` on a command whose status {status} states no `idle`",
+                f"state `idle` on {status}",
+            )
+
+    def _idle(
+        self, address: str, channel: Mapping[str, Any], awaited: set[str]
+    ) -> Iterator[FacilityBuildError]:
+        """``idle`` sits on a readback a command pairs with, typed by the channel."""
+        follows = seed_follows(channel)
+        if follows is not None and follows != FOLLOWS_NONE:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                self._seed_files(channel),
+                f"`follows` names {follows} on a status that states `idle`; a followed status "
+                f"holds each write to {follows} and never returns to `idle` by itself",
+                "remove `follows`; a status that states `idle` is never followed",
+            )
+        files = stating_files(channel, "idle")
+        role = channel.get("role", DEFAULT_ROLE)
+        if role != "readback":
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`idle` on a {role} channel",
+                "remove `idle`; only a readback a command pairs with states it",
+            )
+        elif address not in awaited:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`idle` on a readback no command pairs with",
+                f"remove `idle`, or name {address} as a command's `pair`",
+            )
+        else:
+            problem = self._idle_problem(address, channel["idle"])
+            if problem is not None:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    problem,
+                    f"type `idle` by the channel: {_IDLE_TYPING}",
+                )
+
+    def _idle_problem(self, address: str, idle: Any) -> str | None:
+        """Why ``idle`` does not fit its channel's type, or ``None``."""
+        value_type = self._type(address)
+        if is_waveform(value_type):
+            return f"`idle` on waveform channel {address}; a waveform channel is never a status"
+        prefix = f"`idle` of {value_type} channel {address} is {idle!r}"
+        if value_type == "string":
+            if not isinstance(idle, str):
+                return f"{prefix}, not text"
+        elif value_type == "float":
+            if not _finite(idle):
+                return f"{prefix}, not a number"
+        elif value_type == "int":
+            if not _finite(idle) or _non_integral(idle):
+                return f"{prefix}, not an integer"
+        elif self._label_refusal(address, idle) is not None:
+            return f"{prefix}, not a label"
+        return None
 
     # --- helpers -------------------------------------------------------------------
 
@@ -1816,6 +2066,10 @@ class _Records:
             follows = seed_follows(channel)
             if follows is None:
                 continue
+            # A `follows` naming a setpoint on a status that states `idle` is
+            # refused by `check_commands`.
+            if "idle" in channel and follows != FOLLOWS_NONE:
+                continue
             setpoints = sorted(named.get(address, ()))
             problem = remedy = None
             if not setpoints:
@@ -2249,7 +2503,18 @@ class _Records:
                     f"`writable: true` on a {channel.get('role', DEFAULT_ROLE)} channel",
                     "remove `writable`; only a setpoint is writable",
                 )
-            bounds = [slot for slot in _LIMIT_BOUNDS if record.get(slot) is not None]
+            bounds = [slot for slot in LIMIT_BOUNDS if record.get(slot) is not None]
+            missing = record_missing(record, str(channel.get("role")), value_type)
+            if record.get("writable") is True and missing:
+                yield self._error(
+                    "limit-invalid",
+                    "limit",
+                    address,
+                    files,
+                    f"`writable: true` on a {value_type} setpoint without both `min_value` and "
+                    "`max_value`",
+                    "state `min_value` and `max_value`",
+                )
             if bounds and value_type not in _NUMERIC_TYPES:
                 yield self._error(
                     "value-invalid",
@@ -2555,7 +2820,11 @@ class _Records:
             yield from refused
             return
         record = records.get(address)
-        if role == "setpoint" and record is not None and _locked(record):
+        if (
+            role == "setpoint"
+            and record is not None
+            and not record_writable(record, role, self._type(address))
+        ):
             yield self._error(
                 "seed-invalid",
                 "scenario",
@@ -3012,15 +3281,6 @@ def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildE
     )
 
 
-def _locked(record: Mapping[str, Any]) -> bool:
-    """True when a setpoint's limits record leaves it unwritable."""
-    return (
-        record.get("writable") is False
-        or record.get("min_value") is None
-        or record.get("max_value") is None
-    )
-
-
 def _as_index(value: Any, count: int) -> int | None:
     """``value`` as an index of ``count`` labels: an integral, finite number in range."""
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -3186,7 +3446,8 @@ def tolerance_warnings(
     moves a toleranced setpoint's readback beyond the tolerance, so its moves
     time out while it is active; and, per lane that does not serve the
     simulator, the count of float setpoints that declare no ``tolerance`` and
-    so settle within the lane's floor, the first line followed by up to
+    so settle within the lane's floor (a further address of a wiring record
+    counts as its record), the first line followed by up to
     :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
     ``still`` counts as the simulator view writes it
     (:func:`~osprey_facility.simulated.resolved_still`), so a reading
@@ -3243,6 +3504,7 @@ def tolerance_warnings(
         if channel.get("role") == "setpoint"
         and channel.get("value_type", "float") == "float"
         and not channel.get("tolerance")
+        and records.record_address(address) == address
     ]
     for key, simulated, floor in lanes:
         if simulated or not bare:
@@ -3254,6 +3516,44 @@ def tolerance_warnings(
             f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
         )
     return lines
+
+
+def record_missing(record: Mapping[str, Any], role: str, value_type: str) -> tuple[str, ...] | None:
+    """The slots a channel's limits record must still state for the channel to be writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        None for any role but setpoint and for ``writable: false``: no
+        slot the record lacks makes it writable. Otherwise the slots it
+        lacks, empty when it is writable: on a float or int channel the
+        unstated edges of ``min_value`` and ``max_value``; on any other,
+        ``("writable",)`` unless it says ``writable: true``.
+    """
+    if role != "setpoint" or record.get("writable") is False:
+        return None
+    if value_type in _NUMERIC_TYPES:
+        return tuple(edge for edge in _LIMIT_EDGES if record.get(edge) is None)
+    return () if record.get("writable") is True else ("writable",)
+
+
+def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
+    """Whether a channel's limits record leaves it writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        False for any role but setpoint and for ``writable: false``; on a
+        numeric channel, whether the record carries both ``min_value`` and
+        ``max_value``; on any other, whether it says ``writable: true``.
+    """
+    return record_missing(record, role, value_type) == ()
 
 
 def tolerance_bound(channel: Mapping[str, Any]) -> float | None:

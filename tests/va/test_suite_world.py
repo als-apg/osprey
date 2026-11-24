@@ -148,8 +148,12 @@ def test_the_second_model_is_a_served_line_without_dispersion() -> None:
     assert second in VIEW.served()
     assert second != e2e_conftest.LANE_MODEL
     assert "orm" in _kinds(second) and "dispersion" not in _kinds(second)
-    assert all(VIEW.seed(binding.address) is None for binding in VIEW.bindings(model=second))
-    assert second_models(VIEW, e2e_conftest.PRESET_DOCUMENT) == (second,)
+    assert second_models(VIEW, e2e_conftest.PRESET_DOCUMENT)[0] == second
+    monitors = monitor_addresses(VIEW, model=second)
+    assert monitors
+    assert set(monitors) <= set(
+        e2e_conftest._monitor_addresses(e2e_conftest.PRESET_FACILITY_DIR)
+    ), "the suite's still-monitors scenario does not still the second model's monitors"
 
 
 def test_the_bench_world_names_bench_records() -> None:

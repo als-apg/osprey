@@ -54,18 +54,18 @@ NARAD_PROPERTY = "https://narad.example.org/property/"
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the 1823 addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 1783 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 4731
-EXPECTED_DEVICES = 1027
+EXPECTED_BINDINGS = 4691
+EXPECTED_DEVICES = 1007
 #: Devices placed in a system: every device but the nine placed nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1018
+EXPECTED_SYSTEM_DESCRIBED = 998
 
 #: Devices carrying each device prose predicate: every device placed in a
 #: system carries its system's text, and only a device some described group names carries a
 #: family's.
 EXPECTED_DESCRIBED_DEVICES = {
-    "familyDescription": 1016,
+    "familyDescription": 996,
     "systemDescription": EXPECTED_SYSTEM_DESCRIBED,
 }
 
@@ -80,8 +80,8 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 75,
-    "systemDescription": 8,
+    "familyDescription": 70,
+    "systemDescription": 7,
 }
 
 #: How many members of a set difference a failure message names before eliding.

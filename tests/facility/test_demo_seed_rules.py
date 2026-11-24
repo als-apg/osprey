@@ -147,8 +147,7 @@ def test_every_setpoint_carries_a_tolerance() -> None:
         and channel.get("value_type") != "bool"
         and channel.get("unit")
     ]
-    assert len(setpoints) == 590
-    assert sum(channel["id"].startswith("LINE:") for channel in setpoints) == 16
+    assert len(setpoints) == 574
     for channel in setpoints:
         assert set(channel["tolerance"]) == {"absolute"}, channel["id"]
         assert channel["tolerance"]["absolute"] > 0, channel["id"]
@@ -215,8 +214,7 @@ def test_a_stored_reference_carries_no_motion() -> None:
         )
 
     references = [address for address, channel in channels.items() if held_still(channel)]
-    assert len(references) == 660
-    assert sum(address.startswith("LINE:") for address in references) == 24
+    assert len(references) == 636
     for address in references:
         assert not set(MOTION_KEYS) & set(generated().get(address, {})), address
 

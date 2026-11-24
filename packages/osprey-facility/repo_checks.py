@@ -43,6 +43,7 @@ _ROW = re.compile(r"^\|\s*`(osprey_facility(?:\.\w+)*)`\s*\|\s*(.+?)\s*\|\s*$")
 
 #: Names that are public with no user in the tree, each with the reason.
 EXTENSION_POINTS: Mapping[str, str] = {
+    "osprey_facility.__version__": "a deployment or tool reads the installed release",
     "osprey_facility.kinds.CHROMATICITY_MONITOR_NAME": "a kind plug-in names a built-in kind",
     "osprey_facility.kinds.CRM_FILE": "a kind plug-in names a built-in kind's view file",
     "osprey_facility.kinds.E_DELTA_CAP": "a kind plug-in's measure plan reads the energy cap",
@@ -370,5 +371,24 @@ LANES: tuple[Lane, ...] = (
         "osprey-facility-standalone",
         "installs the facility package alone",
         ("packages/osprey-facility/**", "pyproject.toml", "uv.lock"),
+    ),
+    Lane(
+        "facility-compat-plan",
+        "reads the release tags",
+        (
+            "scripts/ci/compat_matrix.py",
+            "packages/osprey-facility/pyproject.toml",
+            "pyproject.toml",
+        ),
+    ),
+    Lane(
+        "facility-compat",
+        "installs released frameworks",
+        (
+            "packages/osprey-facility/**",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
+        ),
     ),
 )

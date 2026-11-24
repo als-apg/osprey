@@ -100,10 +100,6 @@ SECTIONS: dict[str, Section] = {
             "BTS/TV",
         ),
     ),
-    "LINE": Section(
-        added_queries=1,
-        new_families=("LINE/QD", "LINE/QF"),
-    ),
     "GTL": Section(
         added_queries=2,
         new_classes=(

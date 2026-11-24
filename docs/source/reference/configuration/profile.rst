@@ -1295,6 +1295,11 @@ block (see :ref:`va-two-venues`):
      - ``10``
      - Milliseconds the simulator in process waits before it answers. Read in
        process only.
+   * - ``control_system.connector.virtual_accelerator.evolve``
+     - ``false``
+     - ``true`` runs the time-driven models of the simulator in process, so a
+       request there takes a shot; see
+       :ref:`Shots in process <va-in-process-evolve>`. Read in process only.
 
 The live stand-in
 -----------------

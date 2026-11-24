@@ -18,10 +18,13 @@ from osprey_facility.schema import core
 from osprey_facility.sources import SET_VALUED_SLOTS, load_sources
 from osprey_facility.validate import (
     FACILITY_HEADER,
+    LIMIT_BOUNDS,
     STAGES,
     StageReport,
     known_classes,
     ordered_slots,
+    record_missing,
+    record_writable,
     run_stages,
     schema_document,
     signal_roles,
@@ -356,14 +359,11 @@ class TestSchemaStage:
         result = _run(tmp_path, _tree(**{"limits.yaml": {"records": records}}))
         assert result.ok, _lines(result)
         assert result.validated.document["limits"] == {"records": records}
+        schema = yaml.safe_load(CORE_YAML.read_text(encoding="utf-8"))
+        stated = schema["classes"]["LimitRecord"]["attributes"]
         fields = core.LimitRecord.model_fields
-        assert fields["writable"].description == (
-            "Absent means true on a setpoint carrying both `min_value` and `max_value`, "
-            "false otherwise."
-        )
-        assert fields["confirm"].description == (
-            "Absent means true; false turns off the re-read after a write."
-        )
+        for slot in ("writable", "confirm"):
+            assert fields[slot].description == stated[slot]["description"]
 
     @pytest.mark.parametrize(
         "text",
@@ -1245,6 +1245,44 @@ class TestLimitRules:
             )
         )
         assert _run(tmp_path, files).ok
+
+    def test_the_limit_bounds_are_float_slots_of_a_limits_record(self) -> None:
+        record = yaml.safe_load(CORE_YAML.read_text(encoding="utf-8"))["classes"]["LimitRecord"]
+        attributes = record["attributes"]
+        assert {slot: attributes[slot].get("range") for slot in LIMIT_BOUNDS} == dict.fromkeys(
+            LIMIT_BOUNDS, "float"
+        )
+
+    @pytest.mark.parametrize(
+        ("record", "role", "value_type", "answer"),
+        [
+            ({"min_value": 0.0}, "setpoint", "float", ("max_value",)),
+            ({"max_step": 0.5}, "setpoint", "float", ("min_value", "max_value")),
+            ({"min_value": 0.0, "max_value": 1.0}, "setpoint", "float", ()),
+            ({"min_value": 0.0, "max_value": 1.0, "writable": False}, "setpoint", "float", None),
+            ({"min_value": 0.0}, "readback", "float", None),
+            ({}, "setpoint", "bool", ("writable",)),
+            ({"writable": True}, "setpoint", "bool", ()),
+        ],
+        ids=[
+            "one-edge",
+            "no-edge",
+            "both-edges",
+            "locked",
+            "readback",
+            "bool-unstated",
+            "bool-writable",
+        ],
+    )
+    def test_a_record_says_what_it_lacks_to_be_writable(
+        self,
+        record: dict[str, Any],
+        role: str,
+        value_type: str,
+        answer: tuple[str, ...] | None,
+    ) -> None:
+        assert record_missing(record, role, value_type) == answer
+        assert record_writable(record, role, value_type) is (answer == ())
 
     def test_integral_bounds_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(

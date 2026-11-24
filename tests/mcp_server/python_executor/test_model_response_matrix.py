@@ -763,7 +763,7 @@ class TestRefusals:
             tool.resolve_model_request("ELSEWHERE", None, render_root=sr_render)
 
         assert raised["envelope"]["error_message"] == (
-            "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LINE, LTB, SR"
+            "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LTB, SR"
         )
 
     @pytest.mark.parametrize(

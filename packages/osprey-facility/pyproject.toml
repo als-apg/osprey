@@ -14,7 +14,7 @@ license = {text = "BSD-3-Clause"}
 # Lower bounds are the framework's own, so a framework install and this package
 # resolve the same floors.
 dependencies = [
-    "osprey-connectors>=2026.11.15",
+    "osprey-connectors>=2026.11.16",
     "pydantic>=2.11,<3",
     "PyYAML>=6.0.2",
     "packaging>=26.3",
@@ -53,6 +53,32 @@ source = "vcs"
 # package's first release. The describe command sits in the `scm.git` table, not
 # the deprecated flat `git_describe_command` key, as in osprey-connectors.
 raw-options = { root = "../..", version_scheme = "post-release", scm = { git = { describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-facility-v2[0-9][0-9][0-9].*" } } }
+
+# The framework releases the facility package built at HEAD must keep working
+# under. A framework release that depends on osprey-facility pins it with a floor
+# and no ceiling, so a rebuild of one resolves the newest facility package; the
+# `facility-compat` CI lane and the nightly run HEAD under each release listed
+# here (`scripts/ci/compat_matrix.py --package facility` reads it).
+#
+# Policy: the newest stable framework release, every stable release published
+# within the last six months, and any pre-release newer than the newest stable
+# until a stable release supersedes it. A release leaves `frameworks` for
+# `retired` when it falls outside that window, never because it fails. A
+# deliberate break inside the window is a recorded retirement: the release
+# moves to `retired` with its reason written beside it.
+#
+# The plan job holds both lists to the framework tags reachable from HEAD: a
+# tagged release newer than 2026.11.1 (the last framework without an
+# osprey-facility dependency) must be in one of them once a newer tag follows
+# it, and neither may name a release with no tag. No framework release depends
+# on the package yet, so both start empty.
+[tool.osprey-facility.compat]
+frameworks = []
+retired = []
+# Framework tests that read the facility source tree as text rather than drive
+# the package, deselected where the installed package is not HEAD's (as the
+# connectors list is). Node ids at HEAD; none yet.
+source-text-tests = []
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/osprey_facility/_version.py"

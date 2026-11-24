@@ -4,6 +4,5 @@ the new `osprey-panels` package, import root `osprey_panels`, with its own
 command `osprey-panels write|check|classes`. The framework does not depend on
 it. Every input is named on the command line: `--facility` and `--tables` are
 required, `--repo` is gone, and `--theme` names the theme file the drawing
-colours are held against. Until `osprey-panels` is published, run it from a
-checkout: `uv sync` installs it, then
-`uv run osprey-panels write --facility build/facility.json --tables data/facility/panels --out <dir>`.
+colours are held against. Install it with `pip install osprey-panels`, then
+`osprey-panels write --facility build/facility.json --tables data/facility/panels --out <dir>`.

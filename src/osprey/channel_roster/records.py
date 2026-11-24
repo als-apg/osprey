@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from string import Formatter
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from osprey.repo_layout import child_display_path
 
@@ -205,9 +205,9 @@ class ChannelRecord:
         direction: ``"write"`` for a settable channel, ``"read"`` for a
             readable one, ``None`` when the source could not say.
         readback: The paired readback address of a settable channel: the
-            facility file's ``pair`` when it names another channel. ``None``
-            when the setpoint is its own pair -- the worker then reads the
-            setpoint back.
+            facility file's ``pair`` when it names another channel, the
+            wiring record's for a further address. ``None`` when the setpoint
+            is its own pair -- the worker then reads the setpoint back.
         role: The facility file's ``role`` for the channel (``"setpoint"``,
             ``"readback"`` or ``"none"``), or ``None`` from a source that
             states only a direction.
@@ -220,6 +220,13 @@ class ChannelRecord:
         options: The labels of a labelled (``bool`` or ``enum``) channel, in
             option-index order, as the facility file's ``options`` states them;
             ``None`` when the file states none.
+        command: Whether the facility file marks the channel a command; its
+            status is ``readback``.
+        timeout_s: On a command, the longest one act may take, in seconds,
+            the wiring record's for a further address; ``None`` when the file
+            states none.
+        idle: On a status, what it reads while no act runs, the wiring
+            record's for a further address; ``None`` when the file states none.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -236,6 +243,9 @@ class ChannelRecord:
     description: str | None = None
     on: tuple[str, str] | None = None
     options: tuple[str, ...] | None = None
+    command: bool = False
+    timeout_s: float | None = None
+    idle: str | int | float | None = None
 
     def __post_init__(self) -> None:
         if not self.address:
@@ -250,6 +260,16 @@ class ChannelRecord:
                 f"{self.address} carries a readback but is not a write channel; a "
                 "readback pairs a setpoint."
             )
+
+
+class CommandCompletion(NamedTuple):
+    """What waiting for one command's act to end needs: the command, its status,
+    what the status reads while no act runs, and the longest one act may take."""
+
+    command: str
+    status: str
+    idle: str | int | float
+    timeout_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,3 +314,20 @@ class RosterResult:
     def addresses(self) -> tuple[str, ...]:
         """Every enumerated address, in source order."""
         return tuple(record.address for record in self.records)
+
+    def completion(self, address: str) -> CommandCompletion | None:
+        """How to wait for the act of the command at ``address`` to end.
+
+        Returns:
+            The command, its status, the status's ``idle`` and the command's
+            ``timeout_s``; ``None`` when ``address`` is no command with a
+            bound whose status states ``idle``.
+        """
+        records = {record.address: record for record in self.records}
+        command = records.get(address)
+        if command is None or not command.command or command.timeout_s is None:
+            return None
+        status = records.get(command.readback) if command.readback is not None else None
+        if status is None or status.idle is None:
+            return None
+        return CommandCompletion(address, status.address, status.idle, command.timeout_s)

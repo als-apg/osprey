@@ -275,8 +275,8 @@ def _describe_glob(member_root: Path) -> str | None:
     try:
         with (member_root / "pyproject.toml").open("rb") as handle:
             options = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
-        # setuptools-scm's `scm.git.describe_command` table (osprey-connectors),
-        # else the flat `git_describe_command` key the other members still use.
+        # setuptools-scm's `scm.git.describe_command` table (the members on
+        # their own tag stream), else the flat `git_describe_command` key.
         command = options.get("scm", {}).get("git", {}).get("describe_command")
         if command is None:
             command = options["git_describe_command"]
@@ -321,10 +321,12 @@ def _require_members_satisfy_framework(
 ) -> None:
     """Refuse a member wheel whose version the framework wheel's own requirement refuses.
 
-    Each member versions from git tags (``osprey-connectors`` from its own
-    ``osprey-connectors-v*`` tags), so a checkout missing them — a clone that
-    never fetched tags, a fork or mirror that synced only the framework's
-    ``v*`` tags — builds the member as ``0.0.postN``. The wheel layer would
+    Each member versions from the git tags its describe glob matches (a member
+    on its own stream, such as ``osprey-connectors``, from its own
+    ``<member>-v*`` tags), so a checkout missing them — a clone that never
+    fetched tags, a fork or mirror that synced only the framework's ``v*``
+    tags — builds the member as ``0.0.postN``. The remedy names the refused
+    member's glob. The wheel layer would
     then pass over the staged wheel for PyPI and fail late, inside the image
     build; this names the cause before anything is staged. A pre-release
     satisfies: a dev wheel descending from a beta tag is one.
@@ -352,6 +354,7 @@ def _require_members_satisfy_framework(
             continue
         glob = _describe_glob(member_root)
         source = f"the newest git tag matching {glob}" if glob else "its git tags"
+        tags = f"the {glob} tags" if glob else f"the tags {requirement.name} versions from"
         raise DevModeUnavailableError(
             f"the {requirement.name} wheel built from the checkout is {version}, "
             f"which the framework's requirement '{line}' refuses",
@@ -359,8 +362,7 @@ def _require_members_satisfy_framework(
             "the checkout; with none it builds as 0.0.postN.\n"
             "Fetch the tags:  git fetch --tags\n"
             f"{_tag_fetch_hint(member_root, glob)}"
-            "A fork or mirror must sync the osprey-connectors-v* tags as well as "
-            "the framework's v* tags.",
+            f"A fork or mirror must sync {tags} as well as the framework's v* tags.",
         )
 
 

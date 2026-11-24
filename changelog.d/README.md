@@ -44,9 +44,9 @@ sidecar, as it already did for the operator's credentials.
 
 A pull request that touches `src/`, `packages/` or `plugins/` needs a fragment;
 the check below names those directories in every verdict. The exceptions are
-`packages/osprey-connectors/` and `packages/osprey-facility/`, which release on
-their own `osprey-connectors-v*` and `osprey-facility-v*` tags and keep their own
-changelogs: a change to what ships in one of their wheels needs a fragment in
+`packages/osprey-connectors/`, `packages/osprey-facility/` and
+`packages/osprey-panels/`, which release on their own `osprey-connectors-v*`,
+`osprey-facility-v*` and `osprey-panels-v*` tags and keep their own changelogs: a change to what ships in one of their wheels needs a fragment in
 that package's `changelog.d/` instead (see the README there). To check before
 pushing:
 
