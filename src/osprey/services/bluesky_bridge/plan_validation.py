@@ -30,7 +30,7 @@ which can reject outright before the next ever runs:
    auto-discovery — see :data:`_EPICS_INERT_ENV`), against in-process mock
    devices
    (:mod:`osprey.services.bluesky_bridge.devices.mock`) built for exactly the
-   channels the plan's ``PARAMS`` declared movable or readable. This is an
+   channels the plan's ``PARAMS`` declared movable, triggered or readable. This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
    downstream load and enqueue gates that key off this module's validation

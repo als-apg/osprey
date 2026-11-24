@@ -23,6 +23,7 @@ which OSPREY depends on directly, so the check always runs.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import json
 import os
@@ -45,6 +46,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     resolve_plan_args,
 )
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
 from osprey_connectors_tests._harness import (
     isolate_verdict_environment,
     reset_verdict_state,
@@ -844,10 +846,39 @@ def test_a_channel_named_by_an_undeclared_field_is_not_resolvable(
 
     message = str(excinfo.value)
     assert "bpm_01" in message
-    assert "do not declare as a movable or readable channel" in message
+    assert "do not declare as a movable, triggered or readable channel" in message
     # And it still names what this worker actually has, which is what tells an
     # author the device is there and the declaration is what is missing.
     assert "corrector_01" in message
+
+
+class _StatesATriggerWrite:
+    """A device whose trigger states one write: a device a plan triggers."""
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        return (ChannelWrite("ES1:MCA01:ACQ", 1),)
+
+
+def test_a_triggerable_named_as_readable_is_refused_before_the_plan_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plans = _catalog(tmp_path, monkeypatch)
+    built: list[Any] = []
+    spec = plans["sample_scan"]
+    plans["sample_scan"] = dataclasses.replace(
+        spec, plan=lambda devices, params: built.append(params) or spec.plan(devices, params)
+    )
+    devices = {"corrector_01": object(), "bpm_01": _StatesATriggerWrite()}
+
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+
+    with pytest.raises(ValueError) as raised:
+        next(plan_function(**_sample_kwargs()))
+    assert str(raised.value) == (
+        "plan 'sample_scan' names 'bpm_01' as a readable channel; 'bpm_01' is triggered, "
+        "not read — declare it under a triggered field"
+    )
+    assert built == []
 
 
 def test_filtering_leaves_the_wrapper_annotations_untouched(

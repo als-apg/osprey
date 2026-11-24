@@ -62,7 +62,13 @@ from osprey_connectors.posture_store import bind_owner, current_owner
 from .plan_fields import declared_channels
 from .plan_validation import declares_writes, hash_plan_body
 from .plan_writes import held_to_declaration
-from .preflight import available_devices_phrase, probe_before_motion, warn_if_write_refused
+from .preflight import (
+    available_devices_phrase,
+    cancel_unfinished_triggers,
+    probe_before_motion,
+    refuse_misdeclared_triggers,
+    warn_if_write_refused,
+)
 from .queue_backend import REASON_SESSION_PLAN_NOT_IN_NAMESPACE, REASON_SESSION_PLAN_UNVALIDATED
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
@@ -188,7 +194,8 @@ def install_session_plan(
     ``is_device`` predicate, so the wrapper closes over exactly the device set
     the manager itself considers available in this worker. What one run may
     reach is narrower still: ``build_plan`` receives only the channels the
-    validated params declare movable or readable (:func:`_declared_devices`),
+    validated params declare movable, triggered or readable
+    (:func:`_declared_devices`),
     and a device referenced through a parameter carrying no role declaration is
     absent from that mapping — a legible ``KeyError`` naming both the reason and
     the worker's devices, not a silent resolution.
@@ -219,6 +226,12 @@ def install_session_plan(
     validator's own reading, so only a literal ``"writes": True`` in the body's
     ``PLAN_METADATA`` lets the launch write. Any other body is refused at its
     first write, before that write is sent.
+
+    A device the plan triggers is held to its declaration and its unfinished
+    trigger is cancelled on every exit but the plan's own return, through the
+    same two seams the catalog wrapper calls
+    (``preflight.refuse_misdeclared_triggers``,
+    ``preflight.cancel_unfinished_triggers``).
 
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
@@ -271,6 +284,7 @@ def install_session_plan(
         with bind_owner(kwargs) as clean:
             params = params_model.model_validate(clean)
             declared = _declared_devices(params_model, params, devices)
+            refuse_misdeclared_triggers(name, params_model, params, declared)
             yield from probe_before_motion(name, declared)
             try:
                 plan = build_plan(declared, params)
@@ -279,8 +293,8 @@ def install_session_plan(
                 if missing in devices:
                     raise KeyError(
                         f"session plan {name!r} referenced device {missing!r}, which its "
-                        f"parameters do not declare as a movable or readable channel — a plan "
-                        f"resolves only the channels it declares; available devices: "
+                        f"parameters do not declare as a movable, triggered or readable channel "
+                        f"— a plan resolves only the channels it declares; available devices: "
                         f"{available_devices_phrase(devices)}"
                     ) from exc
                 raise KeyError(
@@ -288,15 +302,21 @@ def install_session_plan(
                     f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
             try:
-                return (yield from held_to_declaration(name, declares, plan))
-            except Exception as exc:
-                # Everything, and nothing handled: the shared seam decides
-                # whether what a run raised is a refusal, because a refusal out
-                # of a device's `set()` reaches a plan as the RunEngine's own
-                # failure rather than as itself.
-                # `qserver_startup._make_plan_function` does the same thing the
-                # same way, for the same reason.
-                warn_if_write_refused(logger, name, current_owner(), exc)
+                try:
+                    return (yield from held_to_declaration(name, declares, plan))
+                except Exception as exc:
+                    # Everything, and nothing handled: the shared seam decides
+                    # whether what a run raised is a refusal, because a refusal out
+                    # of a device's `set()` reaches a plan as the RunEngine's own
+                    # failure rather than as itself.
+                    # `qserver_startup._make_plan_function` does the same thing the
+                    # same way, for the same reason.
+                    warn_if_write_refused(logger, name, current_owner(), exc)
+                    raise
+            except BaseException:
+                # Every end of the run but the plan's own return; the catalog
+                # wrapper cancels the same way.
+                cancel_unfinished_triggers(declared)
                 raise
 
     plan_function.__name__ = name

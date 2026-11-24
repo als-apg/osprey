@@ -359,7 +359,8 @@ def _declared_devices(schema: Any, params: Any, devices: Mapping[str, Any]) -> d
     """The devices one plan may resolve: the channels its params *declare*.
 
     A plan's ``PARAMS`` model declares, per field, whether the channels named
-    there are movable (the plan drives them) or readable (it records them).
+    there are movable (the plan drives them), triggered (it fires them, waits
+    and records them) or readable (it records them).
     That declaration is the plan's whole claim on this worker, so it is also
     the bound: the mapping built here holds the declared channels and nothing
     else, and a plan reaching for a device it never declared finds it absent
@@ -407,6 +408,11 @@ def _make_plan_function(
     declares no channel role — and listing what this worker actually has,
     rather than a bare key.
 
+    A declared device the plan triggers -- one whose ``trigger_writes()`` states
+    a write -- must be named under a triggered field and under no other; the
+    wrapper refuses the run before the plan is built otherwise
+    (``preflight.refuse_misdeclared_triggers``).
+
     Those declared channels are also what the run's pre-flight probes: the last
     thing the wrapper does before the plan is built is ask the connector
     whether every address they touch answers, and refuse the run if any does
@@ -448,6 +454,12 @@ def _make_plan_function(
     launch, and a plan whose metadata does not say ``writes: true`` is refused
     at its first write, before that write is sent. A plan with no authoring
     metadata is held only to every write being stated.
+
+    **No trigger writes after the run ends.** Every end of the generator other
+    than the plan's own return -- an abort, a stop, a close, an exception --
+    cancels every declared device's unfinished trigger before it travels on
+    (``preflight.cancel_unfinished_triggers``). The plan's own return cancels
+    nothing.
     """
     # Absolute, not relative — see the module docstring. Imported at wrapper
     # build time rather than inside the generator so a missing pre-flight is a
@@ -455,7 +467,9 @@ def _make_plan_function(
     from osprey.services.bluesky_bridge.plan_writes import held_to_declaration
     from osprey.services.bluesky_bridge.preflight import (
         available_devices_phrase,
+        cancel_unfinished_triggers,
         probe_before_motion,
+        refuse_misdeclared_triggers,
         warn_if_write_refused,
     )
     from osprey_connectors.posture_store import bind_owner, current_owner
@@ -466,6 +480,7 @@ def _make_plan_function(
         with bind_owner(kwargs) as clean:
             params = spec.schema.model_validate(clean)
             declared = _declared_devices(spec.schema, params, devices)
+            refuse_misdeclared_triggers(spec.name, spec.schema, params, declared)
             yield from probe_before_motion(spec.name, declared)
             try:
                 plan = spec.plan(declared, params)
@@ -474,8 +489,8 @@ def _make_plan_function(
                 if missing in devices:
                     raise KeyError(
                         f"plan {spec.name!r} referenced device {missing!r}, which its parameters "
-                        f"do not declare as a movable or readable channel — a plan resolves only "
-                        f"the channels it declares; available devices: "
+                        f"do not declare as a movable, triggered or readable channel — a plan "
+                        f"resolves only the channels it declares; available devices: "
                         f"{available_devices_phrase(devices)}"
                     ) from exc
                 raise KeyError(
@@ -483,16 +498,23 @@ def _make_plan_function(
                     f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
             try:
-                return (yield from held_to_declaration(spec.name, declares_writes, plan))
-            except Exception as exc:
-                # Everything, because a refusal wears two shapes and the seam
-                # that knows both is the one that decides whether this is one
-                # — catching by class here would mean naming the RunEngine's
-                # wrapper exception in both wrappers and catching the shape
-                # rather than the event. The owner is asked as the ladder
-                # answers it, which is the owner the verdict was decided for.
-                # Nothing is handled: whatever this is travels on untouched.
-                warn_if_write_refused(logger, spec.name, current_owner(), exc)
+                try:
+                    return (yield from held_to_declaration(spec.name, declares_writes, plan))
+                except Exception as exc:
+                    # Everything, because a refusal wears two shapes and the seam
+                    # that knows both is the one that decides whether this is one
+                    # — catching by class here would mean naming the RunEngine's
+                    # wrapper exception in both wrappers and catching the shape
+                    # rather than the event. The owner is asked as the ladder
+                    # answers it, which is the owner the verdict was decided for.
+                    # Nothing is handled: whatever this is travels on untouched.
+                    warn_if_write_refused(logger, spec.name, current_owner(), exc)
+                    raise
+            except BaseException:
+                # Every end of the run but the plan's own return: an abort, a
+                # stop, a close, a failure. No unfinished trigger may write
+                # after it.
+                cancel_unfinished_triggers(declared)
                 raise
 
     plan_function.__name__ = spec.name
