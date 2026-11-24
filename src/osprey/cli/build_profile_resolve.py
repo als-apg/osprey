@@ -57,6 +57,7 @@ from .build_profile_load import (
     _parse_profile,
 )
 from .build_profile_merge import (
+    ResolvedProfileDocument,
     _refuse_root_lists,
     _resolve_extends,
     refuse_inputs_outside_repository,
@@ -584,6 +585,16 @@ def resolve_build_document(
         # inheritance merge to union with the preset's, and a subtree it names
         # outranks the deeper keys the preset or a parent spells beneath.
         raw = apply_cli_edits(raw, set_pairs)
+        # A preset has no file of its own in the deployment and reads no
+        # extends file there, so its resolved document is the raw mapping
+        # anchored at the package directory.
+        document = ResolvedProfileDocument(
+            raw=raw,
+            root_dir=profile_dir,
+            is_layer=False,
+            excluded_artifacts=frozenset(),
+            inherited_preset=preset,
+        )
 
         # Checked after extends resolution so no injection path escapes: the
         # preset itself, a --set pair, or an extends parent. A preset
@@ -639,7 +650,8 @@ def resolve_build_document(
             raw = seal_login_render(raw, document.seal)
         # Checked on the edited document, so a `--set` edit cannot name an
         # input the repository does not hold.
-        refuse_inputs_outside_repository(dataclasses.replace(document, raw=raw))
+        document = dataclasses.replace(document, raw=raw)
+        refuse_inputs_outside_repository(document)
 
     profile = _parse_profile(raw)
     profile.inherited_preset = inherited_preset
@@ -647,6 +659,7 @@ def resolve_build_document(
     return LoadedProfile(
         profile=profile,
         profile_dir=profile_dir,
+        document=document,
         is_layer=is_layer,
         excluded_artifacts=excluded_artifacts,
     )
