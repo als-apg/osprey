@@ -718,7 +718,7 @@ def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, .
 
 
 def _scenario_file(scenario: Mapping[str, Any]) -> str:
-    return source_tree.keyed_file("scenarios", scenario.get("name"))
+    return source_tree.keyed_file("scenarios", str(scenario.get("name")))
 
 
 def stating_files(
