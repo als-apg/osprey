@@ -839,8 +839,9 @@ Each input's ``signal`` says what the ring reads from the chain: ``shot``,
 the counter whose rise is a shot; ``charge``, the shot's charge; and
 ``stored_current``, the current already stored. Declare all three: without
 ``shot`` no shot is taken, without ``charge`` every shot carries zero charge,
-and without ``stored_current`` there is no stored beam. Each wiring record's
-``signal``:
+and without ``stored_current`` there is no stored beam. A record with a
+``signal`` is served as the model holds it and states no ``calibration``; one
+that does stops the build. Each wiring record's ``signal``:
 
 - ``arm``: a monitor's arm setting. Wire one per monitor, naming its
   monitor ``element``.

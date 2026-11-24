@@ -1,8 +1,9 @@
-"""A monitor's sum gain through the facility build.
+"""A monitor's sum gain and a turn record's calibration through the facility build.
 
 The turn-by-turn fixture is built as ``osprey facility validate`` builds it,
-with one scenario on top: a scenario may state a ``gain`` on a monitor's
-turn-sum record and nothing else there.
+with one scenario or one wiring change on top: a scenario may state a ``gain``
+on a monitor's turn-sum record and nothing else there, and a turn-by-turn
+record may state no ``calibration``.
 """
 
 from __future__ import annotations
@@ -71,3 +72,19 @@ def test_a_sum_gain_off_its_range_stops_the_build(tmp_path: Path) -> None:
 
     assert f"faults.{RING}.{SUM_1}.gain" in str(caught.value)
     assert "below its range" in str(caught.value)
+
+
+def test_a_calibration_on_a_turn_array_stops_the_build(tmp_path: Path) -> None:
+    facility_dir = _tree(tmp_path)
+    models = yaml.safe_load((facility_dir / "models.yaml").read_text())
+    (ring,) = [model for model in models if model["name"] == RING]
+    (record,) = [entry for entry in ring["wiring"] if entry["address"] == SUM_1]
+    record["calibration"] = {"curve": {"linear": {"gain": 2.0, "offset": 0.0}}}
+    (facility_dir / "models.yaml").write_text(yaml.safe_dump(models, sort_keys=False))
+
+    with pytest.raises(FacilityBuildError) as caught:
+        _build(facility_dir)
+
+    text = str(caught.value)
+    assert f"{SUM_1}: signal turn_sum states a calibration" in text
+    assert "fault `gain`" in text
