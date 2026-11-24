@@ -49,7 +49,7 @@
 
 import { subscribe } from '/design-system/js/theme-manager.js';
 
-import { exportFilename, saveCsv, toCsv } from './csv-export.js';
+import { exportFilename, refusedCellText, saveCsv, toCsv } from './csv-export.js';
 import { renderFigure } from './figure-renderer.js';
 import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 
@@ -63,7 +63,11 @@ import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
  *   progress?: any,
  * }} RunRecord */
 
-/** @typedef {{
+/**
+ * Each cell of `rows` is a reading, or `{refused: string}` for a value the
+ * bridge could not serve.
+ *
+ * @typedef {{
  *   run_uid?: string|null,
  *   columns: Array<{name: string, unit: string|null, shape: Array<number|null>|null}>,
  *   rows: Array<Array<unknown>>,
@@ -120,7 +124,8 @@ export function runMetaParts(run) {
 /**
  * One cell as table text. An array cell reads as its element count and the
  * range of its finite numbers, `[1024] 0 … 812`, or `[1024]` alone when it
- * holds none; a nested cell counts its own elements.
+ * holds none; a nested cell counts its own elements. A refused cell reads as
+ * `refused: <reason>`.
  *
  * @param {unknown} value
  * @returns {string}
@@ -139,7 +144,7 @@ export function formatCell(value) {
     const max = numbers.reduce((a, b) => Math.max(a, b));
     return `${length} ${formatCell(min)} … ${formatCell(max)}`;
   }
-  return String(value);
+  return refusedCellText(value) ?? String(value);
 }
 
 /**

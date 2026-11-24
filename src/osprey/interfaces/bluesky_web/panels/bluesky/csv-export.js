@@ -29,6 +29,22 @@
 const NEEDS_QUOTING = /[",\r\n]/;
 
 /**
+ * A refused cell as text, `refused: <reason>`, or `null` for any other value.
+ *
+ * The bridge serves a cell it has no reading spelling for as
+ * `{refused: "<reason>"}`; this is the one place that spelling becomes text,
+ * for the table and the CSV alike.
+ *
+ * @param {unknown} value
+ * @returns {string|null}
+ */
+export function refusedCellText(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const reason = /** @type {{refused?: unknown}} */ (value).refused;
+  return typeof reason === 'string' ? `refused: ${reason}` : null;
+}
+
+/**
  * One wire value as a CSV field.
  *
  * `null`/`undefined` become an empty field — the CSV spelling of "no value".
@@ -36,14 +52,15 @@ const NEEDS_QUOTING = /[",\r\n]/;
  * `formatCell`'s `toFixed(6)` is display rounding and must not reach a file.
  * Non-finite numbers are written as their names rather than blanked, because a
  * `NaN` in a run is a reading that failed, which is a different fact from a
- * channel that was never read at all.
+ * channel that was never read at all. A refused cell is written as its
+ * refusal (`refusedCellText`) rather than blanked, for the same reason.
  *
  * @param {unknown} value
  * @returns {string}
  */
 export function csvField(value) {
   if (value === null || value === undefined) return '';
-  const text = String(value);
+  const text = refusedCellText(value) ?? String(value);
   if (!NEEDS_QUOTING.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 }
