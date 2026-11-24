@@ -590,7 +590,7 @@ def test_the_guide_shows_devices_as_the_demo_build_writes_them(
     built = yaml.safe_load((built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text())
 
     assert documented["schema"] == built["schema"]
-    for kind in ("settables", "readables"):
+    for kind in ("settables", "triggerables", "readables"):
         by_name = {device["name"]: device for device in built[kind]}
         assert documented[kind]
         for device in documented[kind]:

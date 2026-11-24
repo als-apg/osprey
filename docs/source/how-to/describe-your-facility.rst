@@ -131,7 +131,9 @@ model's engine marks it (:doc:`/reference/contracts/facility-kinds`). Its
 readback is its status, the channel that reports when what the command started,
 its act, is over; the fields ``idle`` and ``timeout_s`` say what the status reads
 while nothing runs and how long an act may take, so a write of the command can
-wait until the act is over. What a channel is comes from its fields:
+wait until the act is over, and a plan triggers such a command rather than
+setting it (:doc:`/how-to/bluesky/write-plans`). What a channel is comes from
+its fields:
 
 .. list-table::
    :header-rows: 1

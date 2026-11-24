@@ -35,7 +35,7 @@ query:
 * **Signals** — what a binding reads or writes, reached over ``READSSIGNAL`` or
   ``WRITESSIGNAL``: a setpoint channel writes its signal and a readback channel
   reads it, as the channel's ``role`` in the facility file says. The queue
-  server's settables and readables come from those same roles
+  server's settables, triggerables and readables come from those same roles
   (:doc:`/how-to/bluesky/write-plans`).
 * **Classes** — the device ontology, linked by ``SUBCLASSOF``. A device is
   typed by ``TYPE``. This is what lets "every magnet" find an ``HCorrector``

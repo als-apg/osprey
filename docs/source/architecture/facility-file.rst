@@ -353,10 +353,12 @@ tree with device counts, the device classes with their aliases, the signals in
 use and the models. It is how an agent knows the facility's own words without
 a prompt written by hand.
 
-**Bluesky.** One settable per setpoint and one readable per readback. A
-settable reads back its pair when the pair is another channel, and settles
-within the setpoint's ``tolerance``, else within the motion its readback's
-seed declares, else within the profile's floor.
+**Bluesky.** One settable per setpoint and one readable per readback, except
+that a command whose status states ``idle`` and which states ``timeout_s`` is
+one triggerable and no settable. A settable reads back its pair when the pair
+is another channel, and settles within the setpoint's ``tolerance``, else
+within the motion its readback's seed declares, else within the profile's
+floor.
 
 **Channel finder.** Three indexes, one per file-backed pipeline; a render
 carries the one its profile's ``channel_finder_mode`` selects. The fourth
