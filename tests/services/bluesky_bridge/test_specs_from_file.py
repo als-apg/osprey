@@ -434,6 +434,44 @@ def test_validate_accepts_units() -> None:
     assert validate_device_document(doc) == []
 
 
+# --- shape ------------------------------------------------------------------
+
+
+def test_a_readable_reads_its_shape(tmp_path: Path) -> None:
+    """``shape`` is read onto the readable spec as a tuple; absent leaves ``None``."""
+    path = _write(
+        tmp_path,
+        {"readables": [{"name": "w", "pv": "W", "shape": [500]}, {"name": "s", "pv": "S"}]},
+    )
+    _, readables = specs_from_file(path)
+    assert [(r.name, r.shape) for r in readables] == [("w", (500,)), ("s", None)]
+    assert validate_device_document({"readables": [{"name": "w", "pv": "W", "shape": [500]}]}) == []
+
+
+_MALFORMED_SHAPES = [[], [0], [2, 3], [True], "500", [1.5]]
+
+
+@pytest.mark.parametrize("bad", _MALFORMED_SHAPES)
+def test_a_readable_with_a_malformed_shape_is_skipped_with_a_warning(
+    tmp_path: Path, caplog, bad: Any
+) -> None:
+    path = _write(
+        tmp_path, {"readables": [{**_READABLE, "shape": bad}, {**_READABLE, "name": "ok"}]}
+    )
+    with caplog.at_level("WARNING"):
+        _, readables = specs_from_file(path)
+    assert [r.name for r in readables] == ["ok"]
+    assert "'bad'" in caplog.text
+    assert "shape" in caplog.text
+
+
+@pytest.mark.parametrize("bad", _MALFORMED_SHAPES)
+def test_validate_refuses_a_readable_shape_that_is_not_one_positive_int(bad: Any) -> None:
+    assert validate_device_document({"readables": [{**_READABLE, "shape": bad}]}) == [
+        "readables[0]: 'shape' must be a list of one int >= 1 when present"
+    ]
+
+
 # --- validate_device_document ----------------------------------------------
 
 

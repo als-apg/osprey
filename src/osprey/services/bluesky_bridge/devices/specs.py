@@ -47,9 +47,11 @@ class ReadableSpec:
     """One read-only device to build: its device-mapping name and read PV.
 
     ``unit`` is the unit of the value it reads, ``None`` when the facility
-    states none.
+    states none. ``shape`` is the length of a 1-D array reading, ``None`` for
+    a scalar.
     """
 
     name: str
     read_pv: str
     unit: str | None = None
+    shape: tuple[int] | None = None
