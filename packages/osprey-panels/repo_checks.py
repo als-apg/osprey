@@ -71,6 +71,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_panels.document.READS": (
         "the contract test holds the facility header to the headers the engine reads"
     ),
+    "osprey_panels.document.RECORD_FACTS": (
+        "a fork or tool reads which channel slots a further address takes from its record"
+    ),
     "osprey_panels.health_rollup": "a fork or tool says what a screen shows, without layout",
     "osprey_panels.layout.aggregates": (
         "the Canopy contract test counts a screen's server-side aggregates"

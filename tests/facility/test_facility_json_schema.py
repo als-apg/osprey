@@ -6,7 +6,7 @@ The pin, the honesty against the floor and the schema's own agreement with
 What stays here needs the panels or the framework:
 
 - **Agreement**: the panels reader's declared headers and file name name what
-  the build writes.
+  the build writes, and it reads a further address as the description does.
 - **Openness**: a built demo document validates against current, and still does
   with a key a later additive change could introduce.
 """
@@ -48,6 +48,26 @@ def test_the_panels_reader_reads_the_current_header() -> None:
 
 def test_the_panels_reader_names_the_file_the_build_writes() -> None:
     assert document.FACILITY_FILE == osprey_facility.FACILITY_FILE
+
+
+def test_the_panels_reader_mirrors_the_record_facts() -> None:
+    assert document.RECORD_FACTS == frozenset(osprey_facility.RECORD_FACTS)
+
+
+def test_the_panels_reader_reads_a_further_address_as_the_description_does(
+    tmp_path: Path,
+) -> None:
+    from osprey_facility.records import FacilityRecords
+    from tests.facility._pyaml_trees import built_document
+    from tests.facility.test_wiring_also import SETPOINT_ALSO, _tree
+
+    built = built_document(tmp_path, _tree())[0]
+    panels, records = document.FacilityDocument(built), FacilityRecords(built)
+
+    ids = [str(channel["id"]) for channel in built["channels"]]
+    assert SETPOINT_ALSO in ids
+    for address in ids:
+        assert panels.channel(address) == records.channel(address), address
 
 
 # --- openness --------------------------------------------------------------

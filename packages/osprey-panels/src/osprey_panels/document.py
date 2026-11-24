@@ -6,6 +6,10 @@ against :data:`READS` (an exact string compare) and the shape of every table the
 engine reads, and refuses anything else with :class:`FacilityDocumentError`. It
 does not validate the document against the schema; the build does that.
 
+A further address of a wiring record (under ``also``) reads every record fact
+from the channel of its record's ``address``: the description states that list
+(``osprey_facility.RECORD_FACTS``) and :data:`RECORD_FACTS` mirrors it.
+
 Stdlib only: the panels carry no dependency on the description code.
 """
 
@@ -21,6 +25,7 @@ __all__ = [
     "END_KINDS",
     "FACILITY_FILE",
     "READS",
+    "RECORD_FACTS",
     "FacilityDocument",
     "FacilityDocumentError",
     "end_identity",
@@ -31,6 +36,27 @@ READS: frozenset[str] = frozenset({"osprey.facility.facility/4"})
 
 #: The name of the built facility document.
 FACILITY_FILE = "facility.json"
+
+#: The channel slots a further address of a wiring record reads from its record.
+RECORD_FACTS: frozenset[str] = frozenset(
+    {
+        "attributes",
+        "command",
+        "idle",
+        "options",
+        "pair",
+        "precision",
+        "role",
+        "shape",
+        "signal",
+        "simulation",
+        "tags",
+        "timeout_s",
+        "tolerance",
+        "unit",
+        "value_type",
+    }
+)
 
 #: The kinds one relation end may name; an end names exactly one.
 END_KINDS: tuple[str, ...] = ("device", "place", "group")
@@ -142,6 +168,20 @@ class FacilityDocument:
                 if isinstance(row, Mapping) and row.get(key) is not None:
                     indexed.setdefault(str(row[key]), MappingProxyType(row))
             self._by_kind[kind] = tuple(indexed.values())
+            if kind == "channel":
+                self._channels = indexed
+        self._record_of: dict[str, str] = {}
+        for model in self._by_kind["model"]:
+            wiring = model.get("wiring")
+            for entry in wiring if isinstance(wiring, list) else ():
+                address = entry.get("address") if isinstance(entry, Mapping) else None
+                if not isinstance(address, str):
+                    continue
+                also = entry.get("also")
+                self._record_of.setdefault(address, address)
+                for name in also if isinstance(also, list) else ():
+                    if isinstance(name, str):
+                        self._record_of.setdefault(name, address)
         self._signals = tuple(MappingProxyType(row) for row in document["signals"])
         self._relation_types = tuple(MappingProxyType(row) for row in document["relation_types"])
 
@@ -181,6 +221,30 @@ class FacilityDocument:
             KeyError: ``kind`` is not a record kind.
         """
         return self._by_kind[kind]
+
+    def record_address(self, address: str) -> str:
+        """The address of the wiring record naming ``address`` under ``also``; ``address`` itself otherwise."""
+        return self._record_of.get(address, address)
+
+    def channel(self, address: str) -> Mapping[str, Any] | None:
+        """The channel at ``address``, read as its wiring record states it.
+
+        A further address keeps every slot but :data:`RECORD_FACTS` from its
+        own row and reads those from the channel of its record's ``address``.
+
+        Returns:
+            The channel as read, read-only; the channel's own row for any
+            address no record names under ``also``; ``None`` when no channel
+            has that address.
+        """
+        row = self._channels.get(address)
+        own = self.record_address(address)
+        held = self._channels.get(own)
+        if row is None or own == address or held is None:
+            return row
+        read = {key: value for key, value in row.items() if key not in RECORD_FACTS}
+        read.update((key, value) for key, value in held.items() if key in RECORD_FACTS)
+        return MappingProxyType(read)
 
     def signal_rows(self) -> tuple[Mapping[str, Any], ...]:
         """The rows of the ``signals`` table, in document order."""
