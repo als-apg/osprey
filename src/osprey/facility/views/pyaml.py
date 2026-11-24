@@ -598,6 +598,7 @@ def _configuration(
         out for want of a pyAML magnet model and those left out because their
         slices mix zero-length and thick elements, each in group order.
     """
+    from osprey_facility.validate import limit_records
     from pyaml_cs_osprey.names import (
         RF_PLANT_NAME,
         TUNE_MONITOR_NAME,
@@ -613,8 +614,7 @@ def _configuration(
     groups_named = measurement.get("groups") or {}
     instruments = measurement.get("instruments") or {}
     kinds = list(measurement.get("kinds") or [])
-    limit_rows = (records.document.get("limits") or {}).get("records") or []
-    limits = {str(row["address"]): row for row in limit_rows}
+    limits = limit_records(records.document)
 
     magnets = _magnets(records, model, groups)
     bpms = _bpms(records, model, groups.get("bpm", ()))

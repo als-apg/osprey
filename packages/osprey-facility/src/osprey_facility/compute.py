@@ -83,8 +83,10 @@ from osprey_facility.sources import AUTHORED
 from osprey_facility.validate import (
     Validated,
     _cycle_from,
+    limit_records,
     need,
     paired_nominal_error,
+    record_range,
     relation_types,
     stating_files,
 )
@@ -1079,13 +1081,11 @@ def _nominal_band(run: _Run) -> None:
                 )
             )
 
-    limits = run.document.get("limits")
-    records = limits.get("records") if isinstance(limits, dict) else None
-    for limit in sorted(records or [], key=lambda r: str(r.get("address"))):
-        address = str(limit["address"])
-        low, high = limit.get("min_value"), limit.get("max_value")
-        if low is None or high is None or "linear" in seed(address):
+    for address, limit in limit_records(run.document).items():
+        span = record_range(limit)
+        if span is None or "linear" in seed(address):
             continue
+        low, high = span
         value, files = nominal(address)
         if (
             channels[address].get("role") == "setpoint"

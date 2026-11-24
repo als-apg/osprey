@@ -41,7 +41,14 @@ from typing import Any
 from osprey_facility import DEFAULT_ROLE, TEXTURE, wiring_addresses
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.provenance import add_defaults
-from osprey_facility.validate import Validated, check_commands, need, stating_files
+from osprey_facility.validate import (
+    Validated,
+    check_commands,
+    limit_records,
+    need,
+    record_range,
+    stating_files,
+)
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
@@ -91,9 +98,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
 
     document: dict[str, Any] = need(validated.document)
     channels: dict[str, dict[str, Any]] = {c["id"]: c for c in document.get("channels", [])}
-    limits: dict[str, dict[str, Any]] = {
-        r["address"]: r for r in (document.get("limits") or {}).get("records", [])
-    }
+    limits = limit_records(document)
     from osprey_facility.pairing import simulated_pairs
 
     setpoint_of = simulated_pairs(channels)
@@ -436,8 +441,8 @@ def _fill_record(
         slots["default"] = default
     if "unit" in channel:
         slots["unit"] = channel["unit"]
-    if limit is not None and "min_value" in limit and "max_value" in limit:
-        slots["value_range"] = [float(limit["min_value"]), float(limit["max_value"])]
+    if limit is not None and (span := record_range(limit)) is not None:
+        slots["value_range"] = list(span)
     _write_slots(record, slots)
 
 
