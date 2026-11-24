@@ -34,7 +34,10 @@ quadrupoles gained their aperture and the stopped-server scenario moved to
 ``sim-BTS``; every other file of the example kept its digest. The example
 facility's ``addresses.json``, ``scenarios.json``, ``seeds.json`` and
 ``variables.json`` were retaken when the example gained end station ES1;
-every other file kept its digest.
+every other file kept its digest. The injection fixture's ``variables.json``
+was retaken when a limits record's range came to be written as floats,
+``[0.0, 10.0]`` for ``[0, 10]``; with the integers put back the file has the
+previous digest.
 """
 
 from __future__ import annotations
