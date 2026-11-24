@@ -210,6 +210,46 @@ def test_each_device_states_the_unit_its_channels_declare() -> None:
     assert validate_device_document(document) == []
 
 
+def _waveform(id_: str, shape: list[int]) -> dict[str, Any]:
+    return {**_channel(id_, "readback"), "value_type": "waveform", "shape": shape}
+
+
+def test_a_waveform_readable_states_its_shape() -> None:
+    document = bluesky_document(
+        FacilityRecords({"channels": [{**_waveform("W:TRACE", [500]), "unit": "A"}]})
+    )
+
+    assert document["readables"] == [
+        {"name": "W:TRACE", "pv": "W:TRACE", "unit": "A", "shape": [500]}
+    ]
+    assert validate_device_document(document) == []
+
+
+def test_a_readable_of_more_than_one_dimension_is_left_out_and_named_once(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = {
+        "channels": [
+            _waveform("CAM1:IMAGE", [4, 8]),
+            _waveform("CAM2:IMAGE", [2, 2, 3]),
+            _waveform("W:TRACE", [500]),
+        ]
+    }
+    reported: set[str] = set()
+    for render in ("one", "two"):
+        write_bluesky_view(
+            tmp_path / render, _rendered(doc, {"bluesky": {}}, "virtual_accelerator", reported)
+        )
+
+    err = capsys.readouterr().err
+    summary = "2 readback channel(s) of more than one dimension are no plan device"
+    assert err.count(summary) == 1
+    assert "CAM1:IMAGE" in err and "CAM2:IMAGE" in err
+    assert "W:TRACE" not in err
+    _, readables = specs_from_file(tmp_path / "one" / BLUESKY_DEVICES_FILE)
+    assert [(spec.name, spec.shape) for spec in readables] == [("W:TRACE", (500,))]
+
+
 def _toleranced(scenarios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A setpoint toleranced at 0.05 A, its readback noisy, and an untoleranced pair."""
     return {
@@ -464,6 +504,16 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     assert sorted(spec.name for spec in readables) == readbacks
     assert all(spec.name == spec.setpoint_pv for spec in settables)
     assert all(spec.name == spec.read_pv for spec in readables)
+
+
+@pytest.mark.slow
+def test_the_demo_view_states_the_septum_waveform_as_an_array_of_500(
+    built_demo: BuiltProject,
+) -> None:
+    _, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
+
+    shaped = {spec.name: spec.shape for spec in readables if spec.shape is not None}
+    assert shaped == {"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM": (500,)}
 
 
 _WRITE_PLANS_DOC = (
