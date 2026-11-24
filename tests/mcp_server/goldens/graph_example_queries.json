@@ -18,7 +18,7 @@
       "title": "Device count rolled up to top-level branches"
     },
     {
-      "cypher": "MATCH (cls:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $class_uri})\nMATCH (d:Resource)-[:TYPE]->(cls)\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sectionCode AS section,\n       d.deviceId AS device\nORDER BY device_class, section, device\nLIMIT 500",
+      "cypher": "MATCH (cls:Class)-[:SUBCLASSOF*0..]->(:Class {uri: $class_uri})\nMATCH (d:Resource)-[:TYPE]->(cls)\nRETURN [l IN labels(d) WHERE l <> \"Resource\"][0] AS device_class,\n       d.sectionCode AS section,\n       d.deviceId AS device\nORDER BY device_class, section, device\nLIMIT 1000",
       "description": "Answers 'give me every magnet' — or every instrument, every vacuum device — by walking the class hierarchy down from one class and listing the devices typed as it or any of its descendants. Each row is a device with its concrete class and the section it sits in. This is the payoff of having an ontology: the caller names one class and the graph supplies the subclasses.\n\n$class_uri — the class to roll up. Any class URI works; q4b lists the ones this corpus has.",
       "key": "q1c",
       "parameters": {

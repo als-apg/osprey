@@ -80,8 +80,9 @@ agent reads and writes — a containerized simulator with LUME-backed physics, l
 out in :doc:`../architecture/virtual-accelerator` — and the **archive**, a
 MongoDB store and a recorder service that holds what those channels did.
 
-The simulator serves three physics models: ``SR``, solved as a periodic machine,
-and the transfer lines ``LTB`` and ``BTS``, solved single-pass.
+The simulator serves four physics models: ``SR`` and the booster ``BR``, solved
+as periodic machines, and the transfer lines ``LTB`` and ``BTS``, solved
+single-pass.
 
 **The first deploy seeds the archive**, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
@@ -187,7 +188,7 @@ agent figures out the PV for you:
 
 .. code-block:: text
 
-   You: Read the current in the booster's defocusing quadrupole
+   You: Read the current of the booster's defocusing quadrupole supply
 
 The main agent delegates to the **channel-finder** sub-agent, which searches the
 facility knowledge graph and resolves your description to a real PV before reading it.
@@ -196,10 +197,10 @@ something like:
 
 .. code-block:: text
 
-   Resolved "booster defocusing quadrupole current" → BR:MAG:QD:01:CURRENT:RB
+   Resolved "booster defocusing quadrupole supply current" → BR:MAG:QD-RAMP:01:CURRENT:RB
 
-   Channel: BR:MAG:QD:01:CURRENT:RB
-   Value:   142.7 A
+   Channel: BR:MAG:QD-RAMP:01:CURRENT:RB
+   Value:   105.0 A
    Status:  OK
 
 Try a few more descriptions — none of them require you to know the PV naming
@@ -458,8 +459,8 @@ relaunch:
    osprey build
    osprey chat
 
-Your queries don't change --- "Read the current in the booster's defocusing
-quadrupole" and "Plot the storage-ring beam current over the last 24 hours" now
+Your queries don't change --- "Read the current of the booster's defocusing
+quadrupole supply" and "Plot the storage-ring beam current over the last 24 hours" now
 run against your control system and its archiver. The connectors handle the
 difference; the agent, the channel finder, and your prompts stay the same.
 

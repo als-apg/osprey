@@ -84,6 +84,114 @@
     "BR:DIAG:BPM:08:STATUS:VALID": {
       "nominal": 100.0
     },
+    "BR:DIAG:BPM:09:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:09:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:09:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:10:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:10:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:10:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:11:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:11:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:11:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:12:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:12:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:12:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:13:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:13:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:13:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:14:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:14:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:14:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:15:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:15:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:15:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:16:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:16:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:16:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:17:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:17:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:17:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:18:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:18:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:18:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:19:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:19:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:19:STATUS:VALID": {
+      "nominal": 1.0
+    },
+    "BR:DIAG:BPM:20:POSITION:X": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:20:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:20:STATUS:VALID": {
+      "nominal": 1.0
+    },
     "BR:DIAG:DCCT:01:CURRENT:RB": {
       "nominal": 1.2
     },
@@ -134,6 +242,12 @@
     },
     "BR:DIAG:TV:05:PADDLE:SP": {
       "nominal": 0.0
+    },
+    "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB": {
+      "nominal": 799.9999999999999
+    },
+    "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP": {
+      "nominal": 799.9999999999999
     },
     "BR:MAG:DIPOLE-RAMP:01:GAIN:RB": {
       "nominal": 1.0
@@ -246,6 +360,150 @@
     "BR:MAG:DIPOLE:08:STATUS:READY": {
       "nominal": 1.0
     },
+    "BR:MAG:HCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:05:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:05:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:05:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:06:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:06:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:06:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:07:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:07:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:07:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:08:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:08:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:08:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:09:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:09:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:09:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:10:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:10:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:10:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:11:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:11:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:11:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:12:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:12:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:12:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:13:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:13:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:13:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:14:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:14:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:14:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:15:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:15:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:15:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:HCM:16:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:16:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:16:STATUS:ON": {
+      "nominal": 1.0
+    },
     "BR:MAG:KICKER:01:STATUS:ON": {
       "nominal": 1.0
     },
@@ -254,6 +512,12 @@
     },
     "BR:MAG:KICKER:01:VOLTAGE:SP": {
       "nominal": 25.0
+    },
+    "BR:MAG:QD-RAMP:01:CURRENT:RB": {
+      "nominal": 105.0
+    },
+    "BR:MAG:QD-RAMP:01:CURRENT:SP": {
+      "nominal": 105.0
     },
     "BR:MAG:QD-RAMP:01:GAIN:RB": {
       "nominal": 1.0
@@ -317,6 +581,12 @@
     },
     "BR:MAG:QD:04:STATUS:READY": {
       "nominal": 1.0
+    },
+    "BR:MAG:QF-RAMP:01:CURRENT:RB": {
+      "nominal": 110.0
+    },
+    "BR:MAG:QF-RAMP:01:CURRENT:SP": {
+      "nominal": 110.0
     },
     "BR:MAG:QF-RAMP:01:GAIN:RB": {
       "nominal": 1.0
@@ -397,6 +667,150 @@
       "nominal": 3000.0
     },
     "BR:MAG:SEPTUM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:01:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:02:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:03:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:04:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:05:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:05:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:05:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:06:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:06:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:06:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:07:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:07:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:07:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:08:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:08:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:08:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:09:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:09:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:09:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:10:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:10:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:10:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:11:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:11:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:11:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:12:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:12:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:12:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:13:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:13:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:13:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:14:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:14:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:14:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:15:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:15:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:15:STATUS:ON": {
+      "nominal": 1.0
+    },
+    "BR:MAG:VCM:16:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:16:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:16:STATUS:ON": {
       "nominal": 1.0
     },
     "BTS:DIAG:BPM:01:POSITION:X": {

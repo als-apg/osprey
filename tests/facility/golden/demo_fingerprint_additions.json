@@ -3,6 +3,258 @@
   "_description": "Addresses the demo serves beyond demo_fingerprint.json: one row per added address in the fingerprint's row shape (address, role, value_type, names, description), sorted by address.",
   "rows": [
     {
+      "address": "BR:DIAG:BPM:09:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 09 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:09:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 09 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:09:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 09 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:10:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 10 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:10:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 10 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:10:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 10 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:11:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 11 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:11:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 11 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:11:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 11 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:12:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 12 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:12:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 12 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:12:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 12 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:13:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 13 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:13:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 13 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:13:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 13 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:14:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 14 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:14:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 14 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:14:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 14 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:15:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 15 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:15:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 15 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:15:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 15 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:16:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 16 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:16:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 16 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:16:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 16 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:17:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 17 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:17:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 17 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:17:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 17 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:18:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 18 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:18:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 18 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:18:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 18 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:19:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 19 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:19:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 19 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:19:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 19 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
+      "address": "BR:DIAG:BPM:20:POSITION:X",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 20 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position."
+    },
+    {
+      "address": "BR:DIAG:BPM:20:POSITION:Y",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring beam position monitor 20 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position."
+    },
+    {
+      "address": "BR:DIAG:BPM:20:STATUS:VALID",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring beam position monitor 20 status valid. BPM status. Valid Data (read-only): BPM reading is valid."
+    },
+    {
       "address": "BR:DIAG:TV:01:LAMP:RB",
       "role": "readback",
       "value_type": "bool",
@@ -108,6 +360,20 @@
       "description": "Booster ring screen 05 paddle in command (read-write): inserts the screen into the beam."
     },
     {
+      "address": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet supply current readback (read-only): the measured current of the one supply that feeds the 24 bending magnets in series."
+    },
+    {
+      "address": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring bending magnet supply current setpoint (read-write): the commanded current of the one supply that feeds the 24 bending magnets in series."
+    },
+    {
       "address": "BR:MAG:DIPOLE-RAMP:01:GAIN:RB",
       "role": "readback",
       "value_type": "float",
@@ -143,6 +409,342 @@
       "description": "Booster ring bending magnet ramp 01 on status (read-only): the ramped supply is on."
     },
     {
+      "address": "BR:MAG:HCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 03 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 03 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 04 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 04 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:05:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 05 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:05:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 05 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 05 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:06:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 06 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:06:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 06 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 06 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:07:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 07 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:07:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 07 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:07:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 07 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:08:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 08 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:08:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 08 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:08:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 08 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:09:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 09 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:09:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 09 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:09:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 09 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:10:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 10 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:10:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 10 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:10:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 10 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:11:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 11 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:11:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 11 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:11:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 11 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:12:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 12 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:12:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 12 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:12:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 12 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:13:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 13 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:13:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 13 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:13:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 13 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:14:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 14 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:14:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 14 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:14:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 14 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:15:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 15 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:15:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 15 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:15:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 15 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:HCM:16:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 16 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:16:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring horizontal corrector 16 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:HCM:16:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring horizontal corrector 16 on status (read-only): the corrector supply is on."
+    },
+    {
       "address": "BR:MAG:KICKER:01:STATUS:ON",
       "role": "readback",
       "value_type": "bool",
@@ -162,6 +764,20 @@
       "value_type": "float",
       "names": [],
       "description": "Booster ring injection kicker 01 voltage setpoint (read-write): the commanded kicker pulse voltage."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole supply current readback (read-only): the measured current of the one supply that feeds the 16 defocusing quadrupoles."
+    },
+    {
+      "address": "BR:MAG:QD-RAMP:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring defocusing quadrupole supply current setpoint (read-write): the commanded current of the one supply that feeds the 16 defocusing quadrupoles."
     },
     {
       "address": "BR:MAG:QD-RAMP:01:GAIN:RB",
@@ -197,6 +813,20 @@
       "value_type": "bool",
       "names": [],
       "description": "Booster ring defocusing quadrupole ramp 01 on status (read-only): the ramped supply is on."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole supply current readback (read-only): the measured current of the one supply that feeds the 16 focusing quadrupoles."
+    },
+    {
+      "address": "BR:MAG:QF-RAMP:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring focusing quadrupole supply current setpoint (read-write): the commanded current of the one supply that feeds the 16 focusing quadrupoles."
     },
     {
       "address": "BR:MAG:QF-RAMP:01:GAIN:RB",
@@ -274,6 +904,342 @@
       "value_type": "bool",
       "names": [],
       "description": "Booster ring extraction septum SEK on status (read-only): the septum supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:01:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 01 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:01:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 01 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:01:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 01 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:02:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 02 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:02:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 02 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:02:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 02 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:03:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 03 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:03:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 03 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:03:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 03 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:04:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 04 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:04:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 04 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:04:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 04 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:05:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 05 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:05:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 05 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:05:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 05 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:06:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 06 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:06:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 06 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:06:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 06 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:07:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 07 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:07:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 07 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:07:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 07 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:08:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 08 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:08:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 08 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:08:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 08 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:09:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 09 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:09:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 09 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:09:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 09 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:10:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 10 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:10:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 10 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:10:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 10 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:11:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 11 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:11:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 11 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:11:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 11 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:12:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 12 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:12:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 12 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:12:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 12 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:13:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 13 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:13:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 13 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:13:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 13 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:14:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 14 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:14:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 14 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:14:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 14 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:15:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 15 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:15:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 15 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:15:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 15 on status (read-only): the corrector supply is on."
+    },
+    {
+      "address": "BR:MAG:VCM:16:CURRENT:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 16 current readback (read-only): the measured corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:16:CURRENT:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "Booster ring vertical corrector 16 current setpoint (read-write): the commanded corrector current."
+    },
+    {
+      "address": "BR:MAG:VCM:16:STATUS:ON",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "Booster ring vertical corrector 16 on status (read-only): the corrector supply is on."
     },
     {
       "address": "BTS:DIAG:BPM:01:SUM:RB",

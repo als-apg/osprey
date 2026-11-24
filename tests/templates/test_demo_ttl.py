@@ -1,9 +1,9 @@
 """The graph view the demo build writes.
 
 A corpus that nobody counts can drift silently: a change to the facility or to
-the view's writer would quietly seed a different graph. The census below (1009
-devices, 4701 bindings, 662 written and 4034 read signals) is the demo facility
-as the build renders it, and the 662 writes are all `:SP` addresses.
+the view's writer would quietly seed a different graph. The census below (1093
+devices, 4775 bindings, 681 written and 4089 read signals) is the demo facility
+as the build renders it, and the 681 writes are all `:SP` addresses.
 The prose census sits beside it: a description on every binding, a system
 description plus the SYSTEM token on every device placed in a system, a family description on
 every device a described group names, and none of the three descriptions on a
@@ -35,25 +35,27 @@ NARAD_SEMANTICS = "https://narad.example.org/schema/shared_semantics/"
 NON_DEVICE_CLASSES = {"ChannelBinding", "Claim", "Group", "SemanticSignal"}
 
 #: The demo facility's census, as the build renders it: the tier-3 channel
-#: database's 2908 device channels, the four tune and chromaticity channels
+#: database's 2908 device channels less the booster's 64 retired per-magnet
+#: channels, the four tune and chromaticity channels
 #: and the user beam mode the top place carries itself, the
-#: storage ring injection septa's 7 channels, the injector's 379 channels
+#: storage ring injection septa's 7 channels, the injector's 517 channels
 #: beyond the frozen ones, the storage ring's beam lifetime and operation
 #: mode, the storage ring's 1390 peripheral channels, and end station ES1's 10
 #: channels. A channel that names no signal is neither written nor read: the
 #: four tune and chromaticity channels and the user beam mode.
-EXPECTED_DEVICES = 1009
-EXPECTED_BINDINGS = 4701
-EXPECTED_WRITES = 662
-EXPECTED_READS = 4034
+EXPECTED_DEVICES = 1093
+EXPECTED_BINDINGS = 4775
+EXPECTED_WRITES = 681
+EXPECTED_READS = 4089
 
 #: Devices placed in a system, each carrying its system's description and
 #: SYSTEM token: every device but the nine the facility places nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 1000
+EXPECTED_SYSTEM_DESCRIBED = 1084
 
 #: Devices a described group names, each carrying its family's description:
-#: every device that has channels is in one.
-EXPECTED_FAMILY_DESCRIBED = 998
+#: every device that has channels is in one, and so are the booster's 56
+#: magnets on the three supplies they share.
+EXPECTED_FAMILY_DESCRIBED = 1082
 
 #: Prose predicates carried once by every ``narad_sem:ChannelBinding``: the
 #: channel's own sentence.
@@ -109,7 +111,7 @@ def test_prose_census(graph) -> None:
     """Every binding and every device placed in a system carries its prose, once.
 
     The subject counts are what make this a census rather than a spot check: a
-    predicate appearing 4701 times spread over 40 bindings would satisfy a
+    predicate appearing 4775 times spread over 40 bindings would satisfy a
     triple count and import into a graph where most channels have no text at
     all. neosemantics keeps one value per property unless told otherwise, so a
     doubled predicate is also silent data loss at seed time.

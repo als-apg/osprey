@@ -1,0 +1,326 @@
+{
+  "_reproduce": "Written by hand, in the change that retires the address; a retired row stays in demo_fingerprint.json.",
+  "count": 64,
+  "rows": [
+    {
+      "address": "BR:MAG:DIPOLE:01:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:01:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:01:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:01:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:02:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:02:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:02:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:02:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:03:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:03:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:03:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:03:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:04:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:04:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:04:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:04:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:05:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:05:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:05:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:05:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:06:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:06:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:06:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:06:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:07:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:07:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:07:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:07:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:08:CURRENT:RB",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:08:CURRENT:SP",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:08:STATUS:FAULT",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:DIPOLE:08:STATUS:READY",
+      "reason": "MML: the booster's 24 bending magnets are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:01:CURRENT:RB",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QD:01:CURRENT:SP",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QD:01:STATUS:FAULT",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:01:STATUS:READY",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:02:CURRENT:RB",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QD:02:CURRENT:SP",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QD:02:STATUS:FAULT",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:02:STATUS:READY",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:03:CURRENT:RB",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QD:03:CURRENT:SP",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QD:03:STATUS:FAULT",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:03:STATUS:READY",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:04:CURRENT:RB",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QD:04:CURRENT:SP",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QD:04:STATUS:FAULT",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QD:04:STATUS:READY",
+      "reason": "MML: the booster's 16 defocusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QD-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:01:CURRENT:RB",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QF:01:CURRENT:SP",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QF:01:STATUS:FAULT",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:01:STATUS:READY",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:02:CURRENT:RB",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QF:02:CURRENT:SP",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QF:02:STATUS:FAULT",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:02:STATUS:READY",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:03:CURRENT:RB",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QF:03:CURRENT:SP",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QF:03:STATUS:FAULT",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:03:STATUS:READY",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:04:CURRENT:RB",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:RB"
+    },
+    {
+      "address": "BR:MAG:QF:04:CURRENT:SP",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:CURRENT:SP"
+    },
+    {
+      "address": "BR:MAG:QF:04:STATUS:FAULT",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    },
+    {
+      "address": "BR:MAG:QF:04:STATUS:READY",
+      "reason": "MML: the booster's 16 focusing quadrupoles are on one supply, so no magnet has a supply of its own",
+      "superseded_by": "BR:MAG:QF-RAMP:01:STATUS:ON"
+    }
+  ]
+}

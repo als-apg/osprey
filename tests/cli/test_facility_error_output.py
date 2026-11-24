@@ -100,7 +100,7 @@ UNKNOWN_FACTORY = (
     " stepped-kind-pkg; fix: use the measure-plan words OSPREY offers"
 )
 
-REPLACED = "replaced the bundled example facility (52 files)"
+REPLACED = "replaced the bundled example facility (54 files)"
 
 #: A demo channel the scenario's turn may name.
 CHANNEL = "BR:DIAG:BPM:01:POSITION:X"
@@ -526,14 +526,14 @@ def test_a_build_with_one_warning_exits_0_and_prints_it_on_stderr(repo: Path) ->
         PREAMBLE
         + "\n"
         + "→ Rendering the configuration\n"
-        + "  · Channel search index built from facility.ttl: 4701 binding(s) over 999"
+        + "  · Channel search index built from facility.ttl: 4775 binding(s) over 1027"
         " device(s), 38 class(es).\n"
         "  · project files, agent artifacts and services (<t>)\n"
         "  · services injected: 1 profile service(s), event dispatch, bluesky bridge,"
         " bluesky web, virtual accelerator, archiver store, server fleet\n"
         "  · 6 render(s) (<t>)\n"
         "  · services bound to localhost only (127.0.0.1)\n"
-        "  · bluesky plan devices: 662 settable / 4039 readable from data/bluesky_devices.yml\n"
+        "  · bluesky plan devices: 681 settable / 4094 readable from data/bluesky_devices.yml\n"
         "  · compose files (<t>)\n"
         "  · 7 image build context(s) (<t>)\n"
         "  ✓ Rendering the configuration (<t>)\n"
@@ -559,19 +559,19 @@ def test_validate_with_one_warning_exits_0_and_prints_it_on_stderr(repo: Path) -
         "",
         [
             f"{COARSE}; fix: {COARSE_FIX}",
-            "limits: 477 setpoints have no limits record; the target serves them writable"
+            "limits: 464 setpoints have no limits record; the target serves them writable"
             " with no range",
             "  BR:DIAG:TV:01:PADDLE:SP",
             "  BR:DIAG:TV:02:PADDLE:SP",
             "  BR:DIAG:TV:03:PADDLE:SP",
             "  BR:DIAG:TV:04:PADDLE:SP",
             "  BR:DIAG:TV:05:PADDLE:SP",
+            "  BR:MAG:DIPOLE-RAMP:01:CURRENT:SP",
             "  BR:MAG:DIPOLE-RAMP:01:GAIN:SP",
             "  BR:MAG:DIPOLE-RAMP:01:OFFSET:SP",
-            "  BR:MAG:DIPOLE:01:CURRENT:SP",
-            "  BR:MAG:DIPOLE:02:CURRENT:SP",
-            "  BR:MAG:DIPOLE:03:CURRENT:SP",
-            "  and 467 more; --all-limits lists every one",
+            "  BR:MAG:KICKER:01:VOLTAGE:SP",
+            "  BR:MAG:QD-RAMP:01:CURRENT:SP",
+            "  and 454 more; --all-limits lists every one",
             "relations: 18 claims (16 stated, 2 inferred); 17 accepted, 0 contested, 1 superseded",
         ],
     )

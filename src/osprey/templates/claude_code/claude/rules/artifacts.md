@@ -106,8 +106,11 @@ A subagent that files its answer returns a pointer, not the answer:
 `**Results** (artifact_id: …)` (or `**Channels found**`), a headline of a few
 sentences, and the identifiers the question asked for. The artifact holds the
 full answer. Call `artifact_focus(artifact_id)` on it so the user sees the
-whole thing in the gallery, and relay the headline — do not re-type the
-artifact's tables or listings into your reply. Read it with
+whole thing in the gallery, and relay the headline and the identifiers the
+hand-back lists. Write each identifier out in full, one per line, as the
+hand-back gives it: a range or a pattern (`…:01` through `…:72`, `…:NN`) is
+not a list the user can act on. Do not re-type the artifact's tables or other
+listings into your reply. Read it with
 `artifact_read(artifact_id)` only when the next step needs its detail.
 
 ## Math in Markdown Artifacts

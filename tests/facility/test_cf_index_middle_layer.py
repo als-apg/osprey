@@ -1040,9 +1040,11 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 #: supplies and hosts of the example hold no channel, so ``-`` and ``HALL`` are no
 #: System.
 DEMO_GROUPS = {
+    # The booster's bends and quadrupoles share three supplies and have no
+    # channel of their own, so their groups are no family of a channel index.
     "BR": [
-        *("BPM", "DIAG", "DIPOLE", "DIPOLE-RAMP", "KICKER", "MAG"),
-        *("QD", "QD-RAMP", "QF", "QF-RAMP", "SEPTUM", "TV"),
+        *("BPM", "DIAG", "DIPOLE-RAMP", "HCM", "KICKER", "MAG"),
+        *("QD-RAMP", "QF-RAMP", "SEPTUM", "TV", "VCM"),
     ],
     "BTS": [
         *("BPM", "DIAG", "DIPOLE", "HCM", "ICT", "MAG"),
@@ -1087,7 +1089,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 86
+    assert sum(len(families) for families in _families(document).values()) == 85
     fields = [
         field
         for system, families in document.items()
@@ -1096,8 +1098,8 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 2453
-    assert by_address == 2143
+    assert len(fields) == 2476
+    assert by_address == 2167
     assert left_out == 6
     assert document["count"] == len(built_demo.facility["channels"]) - left_out
     assert left_out == sum(
@@ -1217,7 +1219,7 @@ def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
 ) -> None:
     document, _left_out, _by_address = _document(built_demo.facility)
 
-    for system, family in (("SR", "SF"), ("BR", "DIPOLE")):
+    for system, family in (("SR", "SF"), ("BR", "DIPOLE-RAMP")):
         field = _fields(document[system][family])["current_setpoint"]
         assert all(address.endswith(":CURRENT:SP") for address in field["ChannelNames"])
         assert field["_description"] == _signal_text("current_setpoint"), (system, family)
@@ -1249,7 +1251,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (8267, 4695)
+    assert counts == (8409, 4769)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 

@@ -28,7 +28,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
 )
 from osprey_facility.records import FacilityRecords
 from tests._facility_file import FACILITY_V4
-from tests.facility.test_cf_view_parity import fingerprint_rows, load_golden
+from tests.facility.test_cf_view_parity import load_golden, served_fingerprint_rows
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -493,10 +493,10 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
 def test_the_demo_view_holds_every_setpoint_and_readback(
     built_demo: BuiltProject,
 ) -> None:
-    rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
+    rows = served_fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
-    assert len(setpoints) == 662
+    assert len(setpoints) == 681
 
     settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 

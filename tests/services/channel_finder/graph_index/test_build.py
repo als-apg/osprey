@@ -36,11 +36,11 @@ from osprey.services.graph_store.seeder import ttl_sha256
 #: populations. ``bindings``, ``devices`` and ``classes`` are the numbers
 #: ``test_parse_corpus.py`` pins against the parity lane; ``devices`` counts
 #: every binding owner, so the top place ``SR``, which carries the tune,
-#: chromaticity, user beam mode and operation-mode channels itself, is one of the 999; ``signals`` is what
+#: chromaticity, user beam mode and operation-mode channels itself, is one of the 1027; ``signals`` is what
 #: ``GRAPH_SIGNAL_COUNT_CYPHER`` counts, and ``sections`` what
 #: ``GRAPH_SECTION_COUNT_CYPHER`` does.
-DEMO_BINDINGS = 4701
-DEMO_DEVICES = 999
+DEMO_BINDINGS = 4775
+DEMO_DEVICES = 1027
 DEMO_CLASSES = 38
 DEMO_SIGNALS = 71
 
@@ -156,8 +156,8 @@ class TestDemoCorpus:
         records = [record for record in caplog.records if record.name == builder_logger]
         assert [record.levelno for record in records] == [logging.DEBUG], records
         line = records[0].getMessage()
-        assert "4701 bindings" in line
-        assert "999 devices" in line
+        assert "4775 bindings" in line
+        assert "1027 devices" in line
         assert " s: " in line, line
 
     def test_the_package_exports_the_entry_point_lazily(self):

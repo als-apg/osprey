@@ -48,8 +48,8 @@ from tests.channel_roster.test_facade import DEMO_UNPAIRED, demo_readback, is_de
 
 #: What the shipped demo tree holds, pinned alongside
 #: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 662
-DEMO_READS = 4039
+DEMO_WRITES = 681
+DEMO_READS = 4094
 
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
@@ -358,7 +358,7 @@ class TestTheShippedDemoRoster:
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """662 settables / 4039 readables: every channel the demo tree holds."""
+        """681 settables / 4094 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)

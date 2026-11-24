@@ -78,12 +78,18 @@ SECTIONS: dict[str, Section] = {
         new_classes=("Kicker", "Septum", "ScreenDiagnostic"),
         new_families=(
             "BR/DIPOLE-RAMP",
+            "BR/HCM",
             "BR/KICKER",
             "BR/QD-RAMP",
             "BR/QF-RAMP",
             "BR/SEPTUM",
             "BR/TV",
+            "BR/VCM",
         ),
+        # Four queries ask about booster channels: its magnets are on shared
+        # supplies, so what was asked of a magnet is asked of its supply or of
+        # a corrector.
+        added_queries=4,
     ),
     # Two queries ask about BTS channels the transfer line gained; two older
     # aggregate queries (all corrector setpoints, all quadrupole readbacks) now

@@ -457,7 +457,7 @@ cell is absent.
 
 Every table also takes the citation columns ``document``, ``version``,
 ``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``
-needs a ``rule``. Against the demo preset, these three tables put both booster
+needs a ``rule``. Against the demo preset, these three tables put two booster
 focusing quadrupoles on one new supply in a new rack:
 
 .. code-block:: text
@@ -596,7 +596,8 @@ Seeds
 
 ``seeds.yaml`` says how a channel behaves in the simulator when no model
 wires it. It is keyed by address. The preset's booster current starts at
-1.2 mA with Gaussian noise:
+1.2 mA with Gaussian noise (its ``gate`` key, described below, is left out
+here):
 
 .. code-block:: yaml
 

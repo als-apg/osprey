@@ -6,7 +6,7 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 4701 channels, 662 of them settable, every one of
+the tree OSPREY ships -- 4775 channels, 681 of them settable, every one of
 those but the gauge trip resets and the stage's stop command paired with the
 readback the file states.
 
@@ -44,9 +44,9 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 4701
-DEMO_WRITES = 662
-DEMO_READS = 4039
+DEMO_CHANNELS = 4775
+DEMO_WRITES = 681
+DEMO_READS = 4094
 
 #: The demo's unpaired setpoints: each vacuum gauge's trip reset and the ES1
 #: stage's stop command, commands with no readback of their own.

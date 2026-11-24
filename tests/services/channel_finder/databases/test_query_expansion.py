@@ -5,7 +5,7 @@ mixin: how an ``instances`` level turns into a list of options, what each
 expansion ``_type`` contributes to the option descriptions, and what happens at
 a branch where the level's container is absent or carries no ``_expansion``.
 
-Tree navigation itself (``_navigate_to_node`` / ``_extract_tree_options``) is
+Tree navigation itself (``_navigate_to_nodes`` / ``_extract_tree_options``) is
 characterised elsewhere; here ``get_options_at_level`` is only the public seam
 that reaches ``_get_expansion_options`` and ``_expand_instances``.
 

@@ -287,19 +287,22 @@ def bounded_corrector(repo: Path) -> tuple[str, str, str]:
 
 
 def seeded_readback(view: SimulatorView) -> str:
-    """The first channel, in address order, that is not a setpoint, has a seed
-    and is wired by no served model.
+    """The first float channel, in address order, that is not a setpoint, has a
+    seed and is wired by no served model.
 
-    Reading it returns a number near the seed's nominal: no model moves it.
+    Reading it returns a number near the seed's nominal: no model moves it, and
+    a flag or an enum, whose seed is a label, is passed over.
     """
     for address in view.channels():
+        channel = view.channel(address)
         if (
-            view.channel(address).role != "setpoint"
+            channel.role != "setpoint"
+            and channel.value_type == "float"
             and view.seed(address) is not None
             and view.binding(address) is None
         ):
             return address
-    raise AssertionError("the view has no seeded channel that no served model wires")
+    raise AssertionError("the view has no seeded float channel that no served model wires")
 
 
 def bounded_setpoint(view: SimulatorView) -> tuple[str, float]:

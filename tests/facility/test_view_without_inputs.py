@@ -31,8 +31,11 @@ what ``variables.json`` already holds. The example facility's
 ``scenarios.json`` and ``decks/BTS.json`` were retaken, and its fifth deck
 dropped, when the facility lost its synthetic transfer line, the BTS
 quadrupoles gained their aperture and the stopped-server scenario moved to
-``sim-BTS``; every other file of the example kept its digest. The example
-facility's ``addresses.json``, ``scenarios.json``, ``seeds.json`` and
+``sim-BTS``; every other file of the example kept its digest. Its
+``addresses.json``, ``served_models.json``, ``variables.json``,
+``scenarios.json`` and ``seeds.json`` were retaken, and ``decks/BR.json``
+added, when the booster gained its model and its beam readings their gates.
+Its ``addresses.json``, ``scenarios.json``, ``seeds.json`` and
 ``variables.json`` were retaken when the example gained end station ES1;
 every other file kept its digest. The injection fixture's ``variables.json``
 was retaken when a limits record's range came to be written as floats,

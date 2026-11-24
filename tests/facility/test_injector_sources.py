@@ -129,9 +129,15 @@ BOOSTER_FAMILIES = ("KICKER", "SEPTUM", "TV", "DIPOLE-RAMP", "QF-RAMP", "QD-RAMP
 
 
 def _is_booster(record_id: str) -> bool:
-    """A booster record the generator emits: a channel, device or group of a new family."""
+    """A booster record the generator emits: a channel, device or group of a new family.
+
+    Each ramped supply's current pair is on a device of these families and is
+    the booster model's, not the table's.
+    """
     if record_id.startswith("BR:"):
-        return record_id.split(":")[2] in BOOSTER_FAMILIES
+        parts = record_id.split(":")
+        model_owned = parts[2].endswith("-RAMP") and parts[4] == "CURRENT"
+        return parts[2] in BOOSTER_FAMILIES and not model_owned
     if record_id.startswith("BR/"):
         return record_id[3:].rstrip("0123456789") in BOOSTER_FAMILIES
     return False
@@ -955,9 +961,9 @@ def test_each_new_booster_family_has_a_one_line_group() -> None:
     assert len(groups["BR/TV"]["members"]) == 5
 
 
-def test_no_booster_channel_has_a_limits_record() -> None:
+def test_no_booster_table_channel_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [address for address in addresses if address.startswith("BR:")] == []
+    assert [address for address in addresses if _is_booster(address)] == []
 
 
 # --- the hand-authored descriptions ------------------------------------------------
