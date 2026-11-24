@@ -34,7 +34,7 @@ quadrupoles gained their aperture and the stopped-server scenario moved to
 ``sim-BTS``; every other file of the example kept its digest. Its
 ``addresses.json``, ``served_models.json``, ``variables.json``,
 ``scenarios.json`` and ``seeds.json`` were retaken, and ``decks/BR.json``
-added, when the booster gained its model.
+added, when the booster gained its model and its beam readings their gates.
 """
 
 from __future__ import annotations

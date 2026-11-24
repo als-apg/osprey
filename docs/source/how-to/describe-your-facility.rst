@@ -595,7 +595,8 @@ Seeds
 
 ``seeds.yaml`` says how a channel behaves in the simulator when no model
 wires it. It is keyed by address. The preset's booster current starts at
-1.2 mA with Gaussian noise:
+1.2 mA with Gaussian noise (its ``gate`` key, described below, is left out
+here):
 
 .. code-block:: yaml
 

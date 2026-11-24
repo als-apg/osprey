@@ -6,7 +6,10 @@ injection, in the element table's beam order, and writes it as explicit
 transmission/charge proxy and every BPM ``STATUS:VALID`` after it in beam order,
 and lights its own lamp; the gun's high voltage or heater on-status ``FALSE``
 gates every one of those readings; any paddle in sets the "all paddles out"
-count to 1. A BPM's positions carry no gate, and the chain gates no storage
+count to 1. The booster's circulating beam is read by its monitors'
+``STATUS:VALID`` and its DCCT current: the gun and every paddle up to the end
+of the booster gate them, a screen anywhere in the ring stopping the beam for
+all of them. A BPM's positions carry no gate, and the chain gates no storage
 ring channel: the storage ring's only gates are its sector valves' closed
 switches, which the peripherals generator writes, each reading closed while its
 own open switch reads not open.
@@ -33,7 +36,8 @@ from tests.facility.conftest import BuiltProject
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITY_DEMO = REPO_ROOT / "scripts/facility_demo"
-SEEDS = REPO_ROOT / "src/osprey/templates/facilities/example/seeds.yaml"
+TREE = REPO_ROOT / "src/osprey/templates/facilities/example"
+SEEDS = TREE / "seeds.yaml"
 
 GUN_HV = "GTL:GUN:EGUN:01:HV_ON:RB"
 GUN_HEATER = "GTL:GUN:EGUN:01:HEATER_ON:RB"
@@ -41,6 +45,15 @@ PADDLE_COUNT = "BTS:DIAG:PADDLES:01:COUNT:INSERTED"
 
 #: The roles of the readings the beam gates, and what each reads when gated.
 BEAM_ROLES = ("bpm_sum", "ict_charge", "bpm_valid")
+
+#: The booster's readings of its circulating beam, which no model serves: the
+#: valid flag of each of its 20 monitors and its DCCT current.
+BOOSTER_VALID = [f"BR:DIAG:BPM:{n:02d}:STATUS:VALID" for n in range(1, 21)]
+BOOSTER_CURRENT = "BR:DIAG:DCCT:01:CURRENT:RB"
+BOOSTER_READINGS = [*BOOSTER_VALID, BOOSTER_CURRENT]
+
+#: The sections whose paddles stop the beam before or inside the booster.
+BOOSTER_UPSTREAM = ("GTL:", "LN:", "LTB:", "BR:")
 
 
 def _module(name: str) -> ModuleType:
@@ -111,7 +124,7 @@ def position(address: str) -> int:
 
 
 def test_the_committed_gates_are_exactly_what_the_generator_writes():
-    chain = _module("_injector").gates()
+    chain = _module("_injector").gates(TREE)
     assert not set(chain) & set(valve_closed_switches())
     assert gated() == {**chain, **valve_closed_switches()}
 
@@ -145,6 +158,34 @@ def test_every_beam_reading_is_gated_by_the_gun_and_every_paddle_upstream_of_it(
         assert gated()[address]["inputs"] == expected, address
 
 
+def test_the_booster_s_beam_readings_are_its_deck_s_monitors_and_its_dcct():
+    text = (TREE / "records" / "channels.yaml").read_text(encoding="utf-8")
+    served = {str(record["id"]) for record in read_yaml(text)}
+    valid = sorted(a for a in served if a.startswith("BR:DIAG:BPM:") and a.endswith("VALID"))
+
+    assert valid == BOOSTER_VALID
+    assert BOOSTER_CURRENT in served
+    assert list(_module("_injector").booster_beam_readings(TREE)) == BOOSTER_READINGS
+
+
+def test_the_booster_s_beam_readings_are_gated_by_the_gun_and_every_paddle_up_to_its_end():
+    upstream = [p for p in paddles() if p.startswith(BOOSTER_UPSTREAM)]
+    expected = {GUN_HEATER: "FALSE", GUN_HV: "FALSE", **dict.fromkeys(upstream, "TRUE")}
+
+    assert len(upstream) == 14
+    assert sum(p.startswith("BR:") for p in upstream) == 5
+    for address in BOOSTER_READINGS:
+        assert gated()[address]["inputs"] == expected, address
+    assert not {a for a in gated() if a.startswith("BR:DIAG:BPM:") and ":POSITION:" in a}
+    assert "BR:DIAG:DCCT:01:STATUS:VALID" not in gated()
+
+
+def test_a_gated_booster_reading_reads_as_a_gated_line_reading_does():
+    assert 0.0 < gated()[BOOSTER_CURRENT]["gated"] <= 0.1
+    for address in BOOSTER_VALID:
+        assert gated()[address]["gated"] == "FALSE", address
+
+
 def test_a_gated_beam_reading_drops_by_a_factor_and_never_to_zero():
     for address in by_role("bpm_sum", "ict_charge"):
         factor = gated()[address]["gated"]
@@ -173,7 +214,7 @@ def test_any_paddle_sets_all_paddles_out_to_one():
 
 
 def test_only_the_chain_and_the_valve_closed_switches_carry_gates():
-    chain = set(by_role(*BEAM_ROLES, "tv_lamp_rb", "paddle_count"))
+    chain = set(by_role(*BEAM_ROLES, "tv_lamp_rb", "paddle_count")) | set(BOOSTER_READINGS)
 
     assert set(gated()) == chain | set(valve_closed_switches())
 
@@ -252,3 +293,31 @@ def test_gtl_tv1_in_drops_bpm2_sum_and_leaves_bpm1_sum(served: Served):
 
     assert held[bpm1] == pytest.approx(served.nominal(bpm1))
     assert 0.0 < held[bpm2] <= 0.1 * served.nominal(bpm2)
+
+
+@pytest.mark.parametrize(
+    "setpoint",
+    ["GTL:DIAG:TV:01:PADDLE:SP", "LTB:DIAG:TV:03:PADDLE:SP", "BR:DIAG:TV:04:PADDLE:SP"],
+)
+def test_a_paddle_before_or_in_the_booster_stops_its_circulating_beam(
+    served: Served, setpoint: str
+):
+    served.composite.set({setpoint: "TRUE"})
+    try:
+        held = served.held(BOOSTER_READINGS)
+    finally:
+        served.composite.set({setpoint: "FALSE"})
+
+    assert all(held[address] == "FALSE" for address in BOOSTER_VALID)
+    assert 0.0 < held[BOOSTER_CURRENT] <= 0.1 * served.nominal(BOOSTER_CURRENT)
+    assert _ungated(served, served.held(BOOSTER_READINGS)) == []
+
+
+def test_a_paddle_after_the_booster_leaves_its_circulating_beam(served: Served):
+    served.composite.set({"BTS:DIAG:TV:01:PADDLE:SP": "TRUE"})
+    try:
+        held = served.held(BOOSTER_READINGS)
+    finally:
+        served.composite.set({"BTS:DIAG:TV:01:PADDLE:SP": "FALSE"})
+
+    assert _ungated(served, held) == []
