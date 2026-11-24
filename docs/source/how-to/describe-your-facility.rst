@@ -725,22 +725,11 @@ status reads its gated value while an act runs.
 
 .. code-block:: yaml
 
-   - id: SR:MAG:PS:01:ON:COMMAND
-     role: setpoint
-     signal: power_on_command
-     value_type: bool
-     options: ['OFF', 'ON']
-     pair: SR:MAG:PS:01:ON:STATUS
-     timeout_s: 5.0
-   - id: SR:MAG:PS:01:ON:STATUS
-     signal: power_on_status
-     value_type: bool
-     options: ['OFF', 'ON']
-     idle: 'OFF'
-     simulation:
-       responds:
-         to: SR:MAG:PS:01:ON:COMMAND
-         for_s: 2.0
+   ES1:MOT:STAGE:01:STATUS:MOVE:
+     responds:
+       to: ES1:MOT:STAGE:01:MOVE:SP
+       for_s: 2.0
+       value: MOVING
 
 The build stops with ``seed-invalid`` when a model wires the status, the
 status states no ``idle``, the seed states ``nominal`` or a value of its own

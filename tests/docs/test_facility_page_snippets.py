@@ -201,7 +201,6 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
     "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),
     "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
-    "- id: SR:MAG:PS:01:ON:COMMAND": ("records/channels.yaml", _by("id")),
     "- id: SR:MAG:QF:01:VOLTAGE:RB": ("records/channels.yaml", _by("id")),
     "- address: SR:MAG:QF:01:VOLTAGE:RB": ("models.yaml", _wired_in("SR")),
     "- id: SR:MAG:BEND:CURRENT:SP": ("records/channels.yaml", _by("id")),
@@ -211,6 +210,7 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
 #: Blocks that show part of a preset record, by first line: the preset file.
 SUBSETS: dict[str, str] = {
     "SR:DIAG:DCCT:01:CURRENT:RB:": "seeds.yaml",
+    "ES1:MOT:STAGE:01:STATUS:MOVE:": "seeds.yaml",
     "- name: BTS": "models.yaml",
 }
 
