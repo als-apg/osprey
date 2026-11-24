@@ -114,7 +114,10 @@ takes a selection, so read its options too.
 {%- endif %}
 {%- endif %}
 
-Every level is a choice among named options.
+Every level is a choice among named options. Select them by the exact names
+`get_options` returned for that level under the same selections above it: there
+is no wildcard, and a name that is not in that list is refused, however close it
+is to one that is. Never build a name from a pattern you see in other names.
 
 ### Step 3: Build channel names
 
