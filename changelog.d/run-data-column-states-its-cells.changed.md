@@ -1,0 +1,1 @@
+Each column of a run's data states its shape. The bridge bounds a run's live buffer in bytes, `bluesky.live_max_bytes_per_run`, which replaces `bluesky.live_max_rows_per_run`. `get_run_data` gives an array column too wide for one answer as each cell's length, min and max, and the results table shows an array cell as its length and range.
