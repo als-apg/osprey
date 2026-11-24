@@ -40,7 +40,9 @@ is not writable.
 
 ``seeds.json`` maps each channel carrying a seed record to that record, less
 ``follows``, which a setpoint's ``pair`` in ``variables.json`` already carries;
-a seed of ``follows`` alone is not listed.
+a seed of ``follows`` alone is not listed. A seed stating ``responds`` carries
+the status's ``idle`` as its ``nominal`` and ``responds`` as ``{to, for_s,
+value}``, ``value`` the label that is not ``idle`` where the seed leaves it out.
 ``follows.json`` says for each pair, a setpoint whose ``pair`` names another
 channel, whether the simulation follows it: ``pairs`` lists ``{setpoint,
 readback, follow, why, copy?, labels?}`` sorted by readback, then setpoint,
@@ -354,9 +356,29 @@ def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         if seed is None:
             continue
         kept = {key: copy.deepcopy(value) for key, value in seed.items() if key != "follows"}
+        if "responds" in kept:
+            kept.update(_responding(channel, kept["responds"]))
         if kept:
             seeds[str(channel["id"])] = kept
     return {"schema": SEEDS_SCHEMA, "seeds": seeds}
+
+
+def _responding(channel: Mapping[str, Any], responds: Mapping[str, Any]) -> dict[str, Any]:
+    """A responding status's ``nominal``, its ``idle``, and its ``responds`` with a ``value``.
+
+    A ``value`` left out is the one label of the status that is not ``idle``.
+    """
+    from osprey_facility.pairing import labels_of
+
+    idle = channel["idle"]
+    if "value" in responds:
+        value = responds["value"]
+    else:
+        (value,) = [label for label in labels_of(channel) or () if label != idle]
+    return {
+        "nominal": copy.deepcopy(idle),
+        "responds": {"to": responds["to"], "for_s": responds["for_s"], "value": value},
+    }
 
 
 def _follows_document(doc: Mapping[str, Any]) -> dict[str, Any]:

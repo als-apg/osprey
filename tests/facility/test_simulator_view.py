@@ -1409,3 +1409,55 @@ def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render
     assert "`sim-SR`, which this render does not serve" in stop.value.detail
     assert "`sim-texture`" in stop.value.remedy
     assert "`simulation.default_scenarios`" in stop.value.remedy
+
+
+#: A command and the status that reads its act, as a served tree states them.
+RESPONDING_COMMAND = {"signal": "power_on_command", "value_type": "bool", "timeout_s": 2.0}
+
+
+def _responding_seed(tmp_path: Path, status: dict[str, Any]) -> dict[str, Any]:
+    """The seed ``seeds.json`` carries for the status ``C:STS`` of command ``C:CMD``."""
+    from tests.facility.served_tree import served_tree
+
+    view = served_tree(
+        tmp_path, {"C:CMD": "C:STS"}, channels={"C:CMD": RESPONDING_COMMAND, "C:STS": status}
+    )
+    seeds: dict[str, Any] = _view(view, "seeds.json")["seeds"]
+    return seeds["C:STS"]
+
+
+def test_a_responding_seed_carries_idle_as_its_nominal(tmp_path: Path) -> None:
+    status = {
+        "value_type": "bool",
+        "idle": "FALSE",
+        "simulation": {"responds": {"to": "C:CMD", "for_s": 0.3}, "follows": "none"},
+    }
+
+    assert _responding_seed(tmp_path, status)["nominal"] == "FALSE"
+
+
+def test_a_two_label_responding_seed_carries_the_other_label(tmp_path: Path) -> None:
+    status = {
+        "value_type": "bool",
+        "options": ["OFF", "ON"],
+        "idle": "OFF",
+        "simulation": {"responds": {"to": "C:CMD", "for_s": 0.3}},
+    }
+
+    assert _responding_seed(tmp_path, status) == {
+        "nominal": "OFF",
+        "responds": {"to": "C:CMD", "for_s": 0.3, "value": "ON"},
+    }
+
+
+def test_a_stated_value_is_written_as_stated(tmp_path: Path) -> None:
+    status = {
+        "value_type": "int",
+        "idle": 0,
+        "simulation": {"responds": {"to": "C:CMD", "for_s": 0.3, "value": 2}},
+    }
+
+    assert _responding_seed(tmp_path, status) == {
+        "nominal": 0,
+        "responds": {"to": "C:CMD", "for_s": 0.3, "value": 2},
+    }
