@@ -64,6 +64,7 @@ def test_a_setpoint_is_a_settable_reading_its_pair_back() -> None:
 
     assert document == {
         "settables": [{"name": "A:SP", "setpoint": "A:SP", "readback": "A:RB"}],
+        "triggerables": [],
         "readables": [{"name": "A:RB", "pv": "A:RB"}],
     }
 
@@ -119,17 +120,25 @@ def test_a_further_setpoint_settles_within_its_records_tolerance() -> None:
 def test_an_unpaired_readback_is_a_readable() -> None:
     document = bluesky_document(FacilityRecords({"channels": [_channel("T:01", "readback")]}))
 
-    assert document == {"settables": [], "readables": [{"name": "T:01", "pv": "T:01"}]}
+    assert document == {
+        "settables": [],
+        "triggerables": [],
+        "readables": [{"name": "T:01", "pv": "T:01"}],
+    }
 
 
 def test_a_channel_with_role_none_is_no_device() -> None:
     document = bluesky_document(FacilityRecords({"channels": [_channel("S:01", "none")]}))
 
-    assert document == {"settables": [], "readables": []}
+    assert document == {"settables": [], "triggerables": [], "readables": []}
 
 
 def test_no_channel_is_an_empty_document() -> None:
-    assert bluesky_document(FacilityRecords({"channels": []})) == {"settables": [], "readables": []}
+    assert bluesky_document(FacilityRecords({"channels": []})) == {
+        "settables": [],
+        "triggerables": [],
+        "readables": [],
+    }
 
 
 def test_a_seeded_readback_writes_its_motion_band_for_its_settable() -> None:
@@ -405,6 +414,31 @@ def test_the_file_opens_with_its_schema_and_loads_in_full(tmp_path: Path) -> Non
     assert [(r.name, r.read_pv) for r in readables] == [("A:RB", "A:RB")]
 
 
+def test_the_view_carries_a_triggerable_command(tmp_path: Path) -> None:
+    command, status = "ES1:DET:01:ACQUIRE:SP", "ES1:DET:01:STATUS"
+    inputs = _inputs(
+        [
+            {
+                **_channel(command, "setpoint", status),
+                "command": True,
+                "timeout_s": 5.0,
+                "value_type": "bool",
+            },
+            {**_channel(status, "readback"), "value_type": "bool", "idle": "FALSE"},
+            _channel("ES1:STOP:SP", "setpoint"),
+        ]
+    )
+
+    write_bluesky_view(tmp_path, inputs)
+
+    found = specs_from_file(tmp_path / BLUESKY_DEVICES_FILE)
+    assert [(t.name, t.command, t.status, t.idle, t.timeout_s) for t in found.triggerables] == [
+        (command, command, status, "FALSE", 5.0)
+    ]
+    assert [spec.name for spec in found.settables] == ["ES1:STOP:SP"]
+    assert [spec.name for spec in found.readables] == [status]
+
+
 def test_the_file_is_world_readable(tmp_path: Path) -> None:
     write_bluesky_view(tmp_path, _inputs([_channel("T:01", "readback")]))
 
@@ -502,7 +536,11 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     found = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
     settables, readables = found.settables, found.readables
 
-    assert sorted(spec.name for spec in settables) == setpoints
+    # A command with a completion signal is a triggerable, not a settable;
+    # its status stays a readable.
+    assert sorted(spec.name for spec in (*settables, *found.triggerables)) == setpoints
+    assert found.triggerables
+    assert {spec.status for spec in found.triggerables} <= set(readbacks)
     assert sorted(spec.name for spec in readables) == readbacks
     assert all(spec.name == spec.setpoint_pv for spec in settables)
     assert all(spec.name == spec.read_pv for spec in readables)

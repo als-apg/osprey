@@ -533,7 +533,7 @@ def test_a_build_with_one_warning_exits_0_and_prints_it_on_stderr(repo: Path) ->
         " bluesky web, virtual accelerator, archiver store, server fleet\n"
         "  · 6 render(s) (<t>)\n"
         "  · services bound to localhost only (127.0.0.1)\n"
-        "  · bluesky plan devices: 681 settable / 4094 readable from data/bluesky_devices.yml\n"
+        "  · bluesky plan devices: 679 settable / 4094 readable from data/bluesky_devices.yml\n"
         "  · compose files (<t>)\n"
         "  · 7 image build context(s) (<t>)\n"
         "  ✓ Rendering the configuration (<t>)\n"
