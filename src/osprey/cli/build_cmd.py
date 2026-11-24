@@ -54,7 +54,6 @@ import click
 from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
 from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
-from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.deployment.wheel_build import (
     DEPLOYMENT_PACKAGES_DIRNAME,
@@ -62,7 +61,12 @@ from osprey.deployment.wheel_build import (
     build_deployment_packages,
     is_secret_file,
 )
-from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
+from osprey.profiles.providers import (
+    PACKAGED_CATALOG_FILENAME,
+    PROVIDERS_FILENAME,
+    load_provider_catalog,
+)
+from osprey.repo_layout import child_path, image_excluded_rows, paths
 from osprey.utils.config_writer import (
     config_edit_session,
     flush_config_edits,
@@ -203,16 +207,16 @@ __all__ = [
 #: so ``build/`` remains the only directory a repo's ``.gitignore`` has to name.
 _STAGE_DIRNAME = ".tmp"
 
-#: Repo-root entries that are NOT source, and so never enter a container image:
-#: the two derived zones, git's own directory, the merged compose document a
-#: deploy writes at the root, and every ``.env`` variant. This is the
+#: Repo-root entries that are NOT source, and so never enter a container image
+#: by their fixed name: the deployment-root rows flagged ``image_excluded``
+#: (:mod:`osprey.repo_layout`) — the two derived zones, git's own directory and
+#: the merged compose document a deploy writes at the root. This is the
 #: ``.gitignore`` the emitted repo ships, said in Python — a container gets what
-#: a fresh clone gets. Secrets are excluded here rather than left to the image's
-#: ``.dockerignore``, because this is the copy that decides what the build
-#: context contains at all.
-_NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
-    {BUILD_DIR_NAME, STATE_DIR_NAME, ".git", MERGED_COMPOSE_FILENAME}
-)
+#: a fresh clone gets. It is matched against the names at the root, which
+#: :func:`osprey.repo_layout.check_layout` holds by refusing a nested path on such
+#: a row. Every ``.env`` variant, the repo's Claude Code files and its
+#: ``.dockerignore`` are left out by :func:`_stage_source_zone`'s other clauses.
+_NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(paths(image_excluded_rows()))
 
 #: The interpreter every OSPREY process inside a container image is launched
 #: with — MCP servers, framework hooks, and the registry's
@@ -2549,7 +2553,9 @@ def _render_project(
     # (no roots handed over) reads the single tree, as before `machine:`.
     from osprey_facility.roots import FacilityRoots
 
-    facility_roots = shared.facility_roots or FacilityRoots.single(data_root / "facility")
+    facility_roots = shared.facility_roots or FacilityRoots.single(
+        child_path(data_root, "data", "facility")
+    )
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -4079,6 +4085,7 @@ def _build_repo(
     from .phase_reporter import current_reporter
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
+        convention_source,
         facility_mirror_violation,
         handwritten_limits_violation,
         machine_restated_violation,
@@ -4112,7 +4119,7 @@ def _build_repo(
         # stop, raised ahead of profile validation, which gathers every other
         # profile error and leaves this one out.
         mirror_stop = facility_mirror_violation(
-            repo_root / PROJECT_MIRROR_DIR,
+            repo_root / convention_source(PROJECT_MIRROR_DIR),
             authoring_route=_stated_machine_route(profile_path),
         )
         if mirror_stop is not None:
@@ -4207,7 +4214,9 @@ def _build_repo(
         # because the fix is an edit to a file the operator holds.
         catalog = load_provider_catalog(repo_root)
         catalog_named = (
-            PROVIDERS_FILENAME if catalog.source == "repo" else f"the packaged {PROVIDERS_FILENAME}"
+            PROVIDERS_FILENAME
+            if catalog.source == "repo"
+            else f"the packaged {PACKAGED_CATALOG_FILENAME}"
         )
         # Only a chat provider can drive the agent; an embeddings-only one is
         # named by an embedding module instead, so it is left out of the list.
