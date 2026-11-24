@@ -92,11 +92,12 @@ def _cli_force_listing(text: str) -> dict[str, list[str]]:
 
 
 def _build_profiles_force_listing(text: str) -> dict[str, list[str]]:
-    """The build-profiles page's ``--force`` sentence: replaced (in order) and merged names."""
+    """The build-profiles page's ``--force`` sentence: replaced, rewritten and merged names."""
     page = "build-profiles.rst"
     paragraph = _paragraph(text, '**"is already an OSPREY deployment repo"**')
     return {
-        "replaced": _literals(_between(paragraph, "which rewrites", ", losing any edit", page)),
+        "replaced": _literals(_between(paragraph, "which replaces", ", losing any edit", page)),
+        "rewritten": _literals(_between(paragraph, "edit to them, and rewrites", ". In ``", page)),
         "merged": _literals(
             _between(paragraph, "In ", " it resets the entries OSPREY ships", page)
         ),
@@ -192,9 +193,8 @@ def _build_profiles_drift(
 ) -> list[str]:
     where = "how-to/build-profiles.rst --force"
     return [
-        *_sequence_drift(
-            page["replaced"], [*replaced[None], *replaced["rewritten"]], where, "replaced"
-        ),
+        *_sequence_drift(page["replaced"], replaced[None], where, "replaced"),
+        *_sequence_drift(page["rewritten"], replaced["rewritten"], where, "rewritten"),
         *_sequence_drift(page["merged"], replaced["merged"], where, "merged"),
     ]
 

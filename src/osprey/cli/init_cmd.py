@@ -160,7 +160,12 @@ __pycache__/
 """
 
 
-def _repo_env_shared(name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False) -> str:
+def _repo_env_shared(
+    name: str,
+    _seeded: tuple[str, ...] = (),
+    _facility_rule: bool = False,
+    _absent: frozenset[str] = frozenset(),
+) -> str:
     """The committed half of the deployment's environment, as a commented starter.
 
     Every line is commented out, because a deployment needs no shared defaults
@@ -215,7 +220,12 @@ def _repo_env_shared(name: str, _seeded: tuple[str, ...] = (), _facility_rule: b
 """
 
 
-def _repo_readme(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+def _repo_readme(
+    name: str,
+    seeded: tuple[str, ...] = (),
+    facility_rule: bool = False,
+    absent: frozenset[str] = frozenset(),
+) -> str:
     """The README an operator meets this layout through.
 
     Its subject is the repo, not the profile: which zone survives what, and the
@@ -233,12 +243,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | {_settings_row(seeded, facility_rule)} | yes | yes |
+| Your settings | {_settings_row(seeded, facility_rule, absent)} | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `{BUILD_OUTPUT_DIR}/` | no | no, safe to delete |
 | The agent's memory and record | `{STATE_DIR}/agent_data/`, `{STATE_DIR}/agent_record/` | no | yes |
 
-In full, the first row is: {_source_zone_prose(seeded, facility_rule)}.
+In full, the first row is: {_source_zone_prose(seeded, facility_rule, absent)}.
 
 `{BUILD_OUTPUT_DIR}/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -388,7 +398,12 @@ Every key named here is written up in full at https://als-apg.github.io/osprey/.
 """
 
 
-def _ci_extra_text(name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False) -> str:
+def _ci_extra_text(
+    name: str,
+    _seeded: tuple[str, ...] = (),
+    _facility_rule: bool = False,
+    _absent: frozenset[str] = frozenset(),
+) -> str:
     """The starter ``ci-extra.yml`` — an include point with nothing in it yet.
 
     Written by this command and by nothing else, ever: the pipeline beside it
@@ -468,7 +483,10 @@ _NOT_A_DIRECTORY = "Not a directory: {target}. `osprey init` creates a deploymen
 
 
 def _repo_gitignore_for(
-    _name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False
+    _name: str,
+    _seeded: tuple[str, ...] = (),
+    _facility_rule: bool = False,
+    _absent: frozenset[str] = frozenset(),
 ) -> str:
     """:func:`_repo_gitignore`, with the uniform signature the table needs.
 
@@ -498,12 +516,15 @@ def _by_row(role: repo_layout.InitRole, by_key: Mapping[str, _V]) -> dict[str, _
 #: builder producing its text. This mapping DRIVES the writing — ``init`` loops
 #: over it rather than naming the files again — so a file that is written is a
 #: file that is listed, and the ``--force`` promise below cannot describe a set
-#: the code does not implement. Every builder takes the same triple — the
-#: deployment's name, the directories :data:`WRITE_ONCE_DIRS` actually seeded
-#: into this repo, and whether the resolved profile selects the facility rule —
-#: so that a builder may start describing either conditional directory without
-#: the loop that calls it having to learn which builders care.
-WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...], bool], str]] = _by_row(
+#: the code does not implement. Every builder takes the same four arguments —
+#: the deployment's name, the directories :data:`WRITE_ONCE_DIRS` actually
+#: seeded into this repo, whether the resolved profile selects the facility
+#: rule, and the replaced entries and CI files the repo lacks
+#: (:func:`_absent_entries`) — so that a builder may start describing any
+#: conditional entry without the loop that calls it having to learn which
+#: builders care.
+WRITE_ONCE_FILES: Mapping[str, Callable[[str, tuple[str, ...], bool, frozenset[str]], str]]
+WRITE_ONCE_FILES = _by_row(
     repo_layout.InitRole.WRITE_ONCE,
     {
         ".gitignore": _repo_gitignore_for,
@@ -613,31 +634,48 @@ def _and_list(names: list[str], *, serial_comma: bool) -> str:
 
 
 def _source_zone_names(
-    replaced: list[str], seeded: tuple[str, ...], facility_rule: bool
+    replaced: list[str], seeded: tuple[str, ...], facility_rule: bool, absent: frozenset[str]
 ) -> list[str]:
-    """*replaced*, then the directories seeded into THIS repo, then the facility rule's."""
-    names = [*replaced, *(f"{name}/" for name in seeded)]
+    """*replaced* less *absent*, then what was seeded into THIS repo, then the facility rule's."""
+    names = [*(name for name in replaced if name not in absent), *(f"{name}/" for name in seeded)]
     if facility_rule:
         names.append(repo_layout.listing_name(_FACILITY_RULE_ROW))
     return names
 
 
-def _settings_row(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+def _absent_entries(target: Path) -> frozenset[str]:
+    """The replaced entries and CI files missing under *target*, as a listing names them.
+
+    A preset materializes only the entries it ships, and the CI pair is emitted
+    only where the profile says where to deploy, so what a repo has is read
+    from the repo rather than from the tables.
+    """
+    candidates = [*_replaced_names(None, "merged", "rewritten"), *CI_EMITTED_PATHS]
+    return frozenset(name for name in candidates if not (target / name.rstrip("/")).exists())
+
+
+def _settings_row(
+    seeded: tuple[str, ...] = (), facility_rule: bool = False, absent: frozenset[str] = frozenset()
+) -> str:
     """The "Your settings" cell of the README's zone table.
 
     The source-zone entries the operator edits: every replaced one in the
-    source zone except OSPREY's own record, then what was seeded and the facility
-    rule, under the same conditions as :func:`_source_zone_prose`.
+    source zone except OSPREY's own record and what is *absent*, then what was
+    seeded and the facility rule, under the same conditions as
+    :func:`_source_zone_prose`.
     """
     replaced = [
         repo_layout.listing_name(row)
         for row in repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
         if row.zone is repo_layout.Zone.SOURCE and REPLACED_WORDING.get(row.key) != "rewritten"
     ]
-    return ", ".join(f"`{name}`" for name in _source_zone_names(replaced, seeded, facility_rule))
+    names = _source_zone_names(replaced, seeded, facility_rule, absent)
+    return ", ".join(f"`{name}`" for name in names)
 
 
-def _source_zone_prose(seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+def _source_zone_prose(
+    seeded: tuple[str, ...] = (), facility_rule: bool = False, absent: frozenset[str] = frozenset()
+) -> str:
     """The SOURCE row of the README's zone table in full, derived from the categories above.
 
     The source zone is exactly what a materialization owns (the replaced rows),
@@ -658,19 +696,25 @@ def _source_zone_prose(seeded: tuple[str, ...] = (), facility_rule: bool = False
     the gate ``profile_cmd`` makes before it seeds the directory. A deployment
     whose rule selection leaves the facility rule out has no such directory, so
     its README does not name one.
+
+    ``absent`` carries it for the replaced entries and the CI pair: the names
+    :func:`_absent_entries` found missing under the target are left out.
     """
-    names = _source_zone_names(_replaced_names(None, "merged", "rewritten"), seeded, facility_rule)
+    replaced = _replaced_names(None, "merged", "rewritten")
+    names = _source_zone_names(replaced, seeded, facility_rule, absent)
     names.extend(WRITE_ONCE_FILES)
-    names.extend(CI_EMITTED_PATHS)
+    names.extend(name for name in CI_EMITTED_PATHS if name not in absent)
     return ", ".join(f"`{name}`" for name in names)
 
 
 _ALREADY_A_REPO = (
     "{target} is already an OSPREY deployment repo (it has a profile.yml).\n\n"
     "Re-run with --force to re-materialize its source zone from the preset — "
-    f"which replaces {_and_list(_replaced_names(None, 'rewritten'), serial_comma=False)}, "
-    f"losing any edit to them. In {_MERGED_ENTRY} the entries OSPREY ships are reset to "
-    "the packaged values (your edits to them are lost) and the ones you added are kept. "
+    f"which replaces {_and_list(_replaced_names(None), serial_comma=False)}, "
+    "losing any edit to them, and rewrites "
+    f"{_and_list(_replaced_names('rewritten'), serial_comma=False)}. "
+    f"In {_MERGED_ENTRY} the entries OSPREY ships are reset to the packaged values"
+    " (your edits to them are lost) and the ones you added are kept. "
     "To start over on this name entirely, re-run with --reset: that re-materializes the "
     "source zone the same way AND destroys the previous deployment's "
     "containers, data volumes and images. These are left alone either way: "
@@ -1515,11 +1559,14 @@ def init(
             facility_rule = selects_facility_rule(materialized.resolved.rules)
             # Driven off the table rather than four calls written out: the set of
             # files this command authors and the set the --force promise names are
-            # then the same object, not two lists that agree today.
+            # then the same object, not two lists that agree today. The README is
+            # held back to the end of the stage, because it describes the rest.
             for filename, build_text in WRITE_ONCE_FILES.items():
+                if build_text is _repo_readme:
+                    continue
                 _write_if_absent(
                     target / filename,
-                    build_text(name, materialized.seeded, facility_rule),
+                    build_text(name, materialized.seeded, facility_rule, frozenset()),
                 )
             for relative in _STATE_DIRS:
                 (target / relative).mkdir(parents=True, exist_ok=True)
@@ -1528,6 +1575,17 @@ def init(
             # repo created today and one re-scaffolded a year from now carry the
             # same files.
             deploy_files = _emit_ci(target, declared=materialized.deploy_declared)
+
+            # Last, so it names an entry exactly where the repo has it: what the
+            # preset materialized, what was seeded, and the CI pair.
+            for filename, build_text in WRITE_ONCE_FILES.items():
+                if build_text is _repo_readme:
+                    _write_if_absent(
+                        target / filename,
+                        build_text(
+                            name, materialized.seeded, facility_rule, _absent_entries(target)
+                        ),
+                    )
             phase.step("repo scaffolding")
 
             # No step of its own: whatever git did or did not do, `_report`
