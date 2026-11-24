@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from .build_profile_model import BuildProfile
     from .profile_conventions import ConventionCopy
 
+from osprey import repo_layout
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
@@ -54,13 +55,19 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
     config_update_fields(config_path, config_dict)
 
 
-#: The facility description, as the profile's ``rules/`` convention directory
-#: and the framework template each spell it.
+#: The facility description, as the profile's rules convention directory and
+#: the framework template each spell it. The relative path is the profile's
+#: copy under the deployment root; the render's copy sits at
+#: :data:`FACILITY_RULE_RENDER_RELPATH` under the build's ``.claude/``.
 FACILITY_RULE_NAME = "facility"
-FACILITY_RULE_RELPATH = PurePosixPath("rules/facility.md")
+FACILITY_RULE_RELPATH = PurePosixPath(repo_layout.display_path("rules", f"{FACILITY_RULE_NAME}.md"))
 FACILITY_RULE_TEMPLATE = "claude_code/claude/rules/facility.md.j2"
-#: The list entry that names the profile's own copy of it.
-FACILITY_RULE_PATH_ENTRY = FACILITY_RULE_RELPATH.with_suffix("").as_posix()
+#: The render's copy, relative to the build's ``.claude/``: a render path, which
+#: does not follow the rules row.
+FACILITY_RULE_RENDER_RELPATH = PurePosixPath("rules/facility.md")
+#: The list entry that names the profile's own copy of it: the convention's key
+#: and the rule's name, an identity that does not follow the rules row's path.
+FACILITY_RULE_PATH_ENTRY = f"{repo_layout.entry('rules').key}/{FACILITY_RULE_NAME}"
 
 
 def selects_facility_rule(rules: Iterable[str]) -> bool:
@@ -116,7 +123,7 @@ class ConventionApplication:
     """The outcome of applying a profile's convention tree to a project.
 
     Attributes:
-        by_category: Number of copies made per convention source directory.
+        by_category: Number of copies made per convention key.
         seeded_users: Roster users whose profile context directory was created.
         departed_users: Profile context directories with no roster user left.
         owned_artifacts: ``scaffold.user_owned`` names for what the conventions
@@ -232,8 +239,7 @@ def _artifact_name(copy: ConventionCopy) -> str:
     # What is left is the classes outside the ownership system — MCP servers
     # and per-user context (directories per user, plus the base.md baseline as
     # the one file copy) — so the only thing separating name from destination
-    # is the source directory's own spelling (``mcp_servers/`` for
-    # ``_mcp_servers/``).
+    # is the convention's key (``mcp_servers/`` for ``_mcp_servers/``).
     convention = convention_for(copy.category)
     assert convention is not None  # planned copies always come from the table
     rel = PurePosixPath(copy.destination).relative_to(convention.destination).as_posix()
@@ -335,12 +341,14 @@ def _apply_conventions(
             ``project/`` mirror writes a build-owned path.
     """
     import osprey
+    from osprey.repo_layout import display_path
 
     from .profile_conventions import (
         CONVENTION_DIRS,
         PER_USER_CONTEXT_DIRNAME,
         PROJECT_MIRROR_DIR,
         SELECTED_CONVENTION_SOURCES,
+        convention_source,
         partition_context_users,
         plan_convention_copies,
         replaces_library_artifact,
@@ -360,7 +368,8 @@ def _apply_conventions(
     warn_unknown_root_entries(profile_dir, extra_known)
     validate_convention_sources(profile_dir)
 
-    per_user_source = PER_USER_CONTEXT_DIRNAME
+    per_user_dir = profile_dir / convention_source(PER_USER_CONTEXT_DIRNAME)
+    per_user_shown = display_path(PER_USER_CONTEXT_DIRNAME)
     result = ConventionApplication()
     roster = context_users or []
     if roster:
@@ -368,15 +377,15 @@ def _apply_conventions(
         result.departed_users = departed
         result.seeded_users = missing
         for user in missing:
-            seeded = profile_dir / per_user_source / user
+            seeded = per_user_dir / user
             seeded.mkdir(parents=True, exist_ok=True)
             # An empty directory does not survive a git checkout, and a
             # profile is something operators keep in version control.
             (seeded / ".gitkeep").touch()
 
-    entry_nouns = {convention.source: convention.entry_noun for convention in CONVENTION_DIRS}
+    entry_nouns = {convention.key: convention.entry_noun for convention in CONVENTION_DIRS}
     excluded_names = frozenset(excluded)
-    selected_sources = frozenset(SELECTED_CONVENTION_SOURCES.values())
+    selected_keys = frozenset(SELECTED_CONVENTION_SOURCES.values())
     project_root = project_path.resolve()
     for copy in plan_convention_copies(profile_dir, context_users=roster or None):
         name = _artifact_name(copy)
@@ -385,7 +394,7 @@ def _apply_conventions(
             # it would have shadowed keeps the framework render.
             logger.debug("Convention: %s excluded by the resolved profile", name)
             continue
-        if selected is not None and copy.category in selected_sources and name not in selected:
+        if selected is not None and copy.category in selected_keys and name not in selected:
             # A list-selected artifact renders only where the render's list
             # names it.
             logger.debug("Convention: %s not selected by this render", name)
@@ -406,7 +415,7 @@ def _apply_conventions(
         # the library one is not selected here, so nothing was rendered to
         # overwrite, but it is still the framework's artifact being replaced.
         shadowed = destination.exists() or (
-            copy.category in selected_sources and replaces_library_artifact(name)
+            copy.category in selected_keys and replaces_library_artifact(name)
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
         if copy.is_directory:
@@ -434,7 +443,7 @@ def _apply_conventions(
             "  %s/ has context for %d user(s) not on the roster: %s\n"
             "     They were skipped. Add them to modules.web_terminals.users, or remove "
             "the directory from the profile.",
-            per_user_source,
+            per_user_shown,
             len(result.departed_users),
             ", ".join(result.departed_users),
         )
@@ -444,7 +453,7 @@ def _apply_conventions(
         report_step(f"seeded {len(result.seeded_users)} empty context dir(s) in the profile")
         logger.debug(
             "Seeded empty context directories: %s",
-            ", ".join(f"{per_user_source}/{user}" for user in result.seeded_users),
+            ", ".join(f"{per_user_shown}/{user}" for user in result.seeded_users),
         )
     if PROJECT_MIRROR_DIR in result.by_category:
         # As above: this one lands on the project root.

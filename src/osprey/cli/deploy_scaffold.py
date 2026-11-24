@@ -110,14 +110,13 @@ SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
 #: root, so a second literal here could move the file out from under the line
 #: that installs it.
 #:
-#: Under ``scripts/`` rather than at the repo root, and deliberately so.
-#: :mod:`osprey.cli.profile_conventions` keeps ``_SOURCE_ZONE_ENTRIES``, the set
-#: of repo-root entries ``osprey build``'s unknown-root-entry warning knows
-#: about. A new root file would not be in it, so a build would warn about a file
-#: OSPREY itself told the operator to create — the exact thing that module's
-#: docstring says must not happen. ``scripts`` is already covered (it is where
-#: ``verify.sh`` lands), so emitting the hook there needs no edit to that table,
-#: nor to the python-executor write-guard that mirrors it.
+#: Under ``scripts/`` rather than at the repo root, and deliberately so. A file
+#: at the root would be an entry no row of :mod:`osprey.repo_layout` declares,
+#: so ``osprey build``'s unknown-root-entry warning would report a file OSPREY
+#: itself told the operator to create. Inside the ``scripts`` row it is that
+#: row's ``boot-hook`` child, beside the ``verify-script`` child: the known-root
+#: set and the python-executor write guard are both views of the declared rows,
+#: so a child needs no row of its own.
 BOOT_HOOK_OUTPUT_PATH: tuple[str, ...] = tuple(BOOT_HOOK_PATH.split("/"))
 
 #: The health check is meant to be runnable by hand (``./scripts/verify.sh``),

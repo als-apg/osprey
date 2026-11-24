@@ -112,20 +112,20 @@ _EXCLUDABLE_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def _convention_source_for_field(field_name: str) -> str | None:
-    """The convention directory, if any, an ``exclude:`` field names.
+def _convention_key_for_field(field_name: str) -> str | None:
+    """The key of the convention, if any, an ``exclude:`` field names.
 
     Args:
         field_name: One key of an ``exclude:`` mapping.
 
     Returns:
-        The matching entry of
-        :data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, or ``None``
-        when the field names no convention directory. A profile spells its list
-        fields with underscores (``output_styles``) while the directory is
-        hyphenated (``output-styles/``), so an underscore fallback bridges the
-        two; the identity match runs first, which keeps ``mcp_servers`` — whose
-        directory really does carry an underscore — from being rewritten.
+        The matching convention key
+        (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`), or ``None``
+        when the field names no convention. A profile spells its list fields
+        with underscores (``output_styles``) while the key is hyphenated
+        (``output-styles``), so an underscore fallback bridges the two; the
+        identity match runs first, which keeps ``mcp_servers`` — whose key
+        really does carry an underscore — from being rewritten.
     """
     from .profile_conventions import CONVENTION_SOURCES
 
@@ -155,12 +155,12 @@ _ARTIFACT_LIBRARY_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def _selecting_list_field(source: str | None) -> str | None:
-    """The profile list field that selects convention directory *source*, if any."""
+def _selecting_list_field(key: str | None) -> str | None:
+    """The profile list field that selects the convention *key*, if any."""
     from .profile_conventions import SELECTED_CONVENTION_SOURCES
 
     return next(
-        (field for field, dirname in SELECTED_CONVENTION_SOURCES.items() if dirname == source),
+        (field for field, convention in SELECTED_CONVENTION_SOURCES.items() if convention == key),
         None,
     )
 
@@ -188,7 +188,7 @@ def _is_library_selection(field_name: str, name: str) -> bool:
         return False
 
 
-def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tuple[str, bool]:
+def _split_exclude_entry(field_name: str, key: str | None, entry: Any) -> tuple[str, bool]:
     """Split one ``exclude:`` entry into its bare name and its spelling.
 
     The spelling is the contract, because the two things a profile can select
@@ -200,7 +200,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
 
     Args:
         field_name: The ``exclude:`` key the entry was listed under.
-        source: That key's convention directory, or ``None``.
+        key: The key of that field's convention, or ``None``.
         entry: The raw list entry.
 
     Returns:
@@ -221,7 +221,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     head, sep, tail = entry.partition("/")
     if not sep:
         return entry, False
-    if source is not None and head in (source, field_name):
+    if key is not None and head in (key, field_name):
         if not tail:
             raise BuildProfileError(
                 f"exclude.{field_name}: entry {entry!r} names no artifact after the "
@@ -231,7 +231,7 @@ def _split_exclude_entry(field_name: str, source: str | None, entry: Any) -> tup
     # Checked for every field, not only convention-backed ones: a qualified
     # entry under an unrelated key (``hooks: [agents/x]``) is the same mistake
     # and must not pass as a literal hook name that matches nothing.
-    if _convention_source_for_field(head) is not None:
+    if _convention_key_for_field(head) is not None:
         raise BuildProfileError(
             f"exclude.{field_name}: entry {entry!r} names a {head!r} artifact under "
             f"the {field_name!r} key. List it under {head!r} instead, or drop the "
@@ -316,7 +316,7 @@ def _apply_exclude(
       (:data:`_EXCLUDABLE_FIELDS`), so a built-in artifact an ``extends`` base
       selected is no longer selected;
     * qualified (``agents/channel-finder``) records the entry in ``artifacts``
-      as ``"<source>/<name>"`` so the build omits the profile's own file for
+      as ``"<key>/<name>"`` so the build omits the profile's own file for
       it, and drops that same qualified selection from the list, leaving the
       bare library selection alone.
 
@@ -355,7 +355,7 @@ def _apply_exclude(
             place. ``None`` skips recording, for callers that only need list
             subtraction.
         shadow_candidates: Set collecting the *other* half — bare entries that
-            named a built-in library artifact, as ``"<source>/<name>"`` — so a
+            named a built-in library artifact, as ``"<key>/<name>"`` — so a
             caller that knows the profile root can tell whether the profile also
             shadows that name (see :func:`_warn_shadowed_bare_exclusions`).
             Deliberately disjoint from ``artifacts``: these entries record no
@@ -377,8 +377,8 @@ def _apply_exclude(
         if field_name == "config":
             _apply_config_exclude(merged, entries)
             continue
-        source = _convention_source_for_field(field_name)
-        if field_name not in _EXCLUDABLE_FIELDS and source is None:
+        key = _convention_key_for_field(field_name)
+        if field_name not in _EXCLUDABLE_FIELDS and key is None:
             raise BuildProfileError(
                 f"exclude: unknown or non-list field {field_name!r} (must be one of "
                 f"{sorted(_EXCLUDABLE_FIELDS)}, a convention directory: "
@@ -390,18 +390,18 @@ def _apply_exclude(
                 f"exclude.{field_name} must be a list of entries to remove "
                 f"(got {type(entries).__name__})"
             )
-        split = [_split_exclude_entry(field_name, source, entry) for entry in entries]
+        split = [_split_exclude_entry(field_name, key, entry) for entry in entries]
         if field_name == "hooks":
             _refuse_excluded_helpers(name for name, qualified in split if not qualified)
-        if source is not None:
+        if key is not None:
             for name, qualified in split:
                 # One library probe per entry: list_artifacts() walks a
                 # directory, and both records below key off the same answer.
                 library = not qualified and _is_library_selection(field_name, name)
                 if artifacts is not None and not library:
-                    artifacts.add(f"{source}/{name}")
+                    artifacts.add(f"{key}/{name}")
                 if shadow_candidates is not None and library:
-                    shadow_candidates.add(f"{source}/{name}")
+                    shadow_candidates.add(f"{key}/{name}")
 
         current = merged.get(field_name)
         if isinstance(current, dict):
@@ -413,10 +413,10 @@ def _apply_exclude(
         # A qualified entry also takes the profile's own artifact out of the
         # list that selects it (`exclude: {skills: [skills/beam-check]}` drops
         # `skills/beam-check` from `skills:`), whichever spelling the key used.
-        list_field = _selecting_list_field(source)
+        list_field = _selecting_list_field(key)
         selecting = merged.get(list_field) if list_field else None
         if list_field is not None and isinstance(selecting, list):
-            qualified_removal = {f"{source}/{name}" for name, qualified in split if qualified}
+            qualified_removal = {f"{key}/{name}" for name, qualified in split if qualified}
             merged[list_field] = [item for item in selecting if item not in qualified_removal]
 
 
@@ -581,12 +581,20 @@ def merge_layer_delta(
     return merged
 
 
+def _convention_dir(root_dir: Path, key: str) -> Path:
+    """Where the convention *key* sits under *root_dir*; a key that names none, as spelled."""
+    from .profile_conventions import convention_for
+
+    convention = convention_for(key)
+    return root_dir / (convention.source if convention is not None else key)
+
+
 def _profile_ships(root_dir: Path, artifact: str) -> bool:
-    """Whether the profile carries its own file for a ``"<source>/<name>"`` entry.
+    """Whether the profile carries its own file for a ``"<key>/<name>"`` entry.
 
     Args:
         root_dir: The profile root the exclusions anchor at.
-        artifact: A recorded exclusion, ``"<source>/<name>"``.
+        artifact: A recorded exclusion, ``"<key>/<name>"``.
 
     Returns:
         ``True`` when the profile ships that artifact. Markdown categories name
@@ -604,18 +612,18 @@ def _profile_ships(root_dir: Path, artifact: str) -> bool:
     """
     from .profile_conventions import EntryShape, convention_for
 
-    source, _, name = artifact.partition("/")
-    base = root_dir / source / name
+    key, _, name = artifact.partition("/")
+    base = _convention_dir(root_dir, key) / name
     if base.exists() or (base.parent / f"{base.name}.md").exists():
         return True
 
-    convention = convention_for(source)
+    convention = convention_for(key)
     if convention is None or convention.shape is not EntryShape.FILE:
         return False
     from .templates.artifact_library import resolve_artifact
 
     try:
-        library_file = resolve_artifact(source, name)
+        library_file = resolve_artifact(key, name)
     except Exception:
         return False
     return (base.parent / library_file.name).is_file()
@@ -633,18 +641,18 @@ def _warn_shadowed_bare_exclusions(root_dir: Path, shadow_candidates: set[str]) 
     successful build as a successful exclusion.
 
     The remedy is the other spelling, so the warning names it: the qualified
-    ``<source>/<name>`` form drops the profile's own file, which is what someone
+    ``<key>/<name>`` form drops the profile's own file, which is what someone
     who shadows an artifact and then excludes it almost always meant.
 
     Args:
         root_dir: The profile root the exclusions anchor at.
         shadow_candidates: Bare library-selection exclusions recorded by
-            :func:`_apply_exclude`, as ``"<source>/<name>"``.
+            :func:`_apply_exclude`, as ``"<key>/<name>"``.
     """
     for artifact in sorted(shadow_candidates):
         if not _profile_ships(root_dir, artifact):
             continue
-        source, _, name = artifact.partition("/")
+        key, _, name = artifact.partition("/")
         _LOGGER.warning(
             "Profile %s excludes the bare name %r under %r, but it also ships its own "
             "%r in %s. That file still renders, so the exclusion has no effect. "
@@ -653,9 +661,9 @@ def _warn_shadowed_bare_exclusions(root_dir: Path, shadow_candidates: set[str]) 
             "own file, which is what makes the built-in version render again.",
             root_dir,
             name,
-            source,
+            key,
             name,
-            root_dir / source,
+            _convention_dir(root_dir, key),
             artifact,
         )
 
@@ -670,18 +678,18 @@ def _warn_unmatched_exclusions(root_dir: Path, artifacts: set[str]) -> None:
 
     Args:
         root_dir: The profile root the exclusions anchor at.
-        artifacts: Recorded ``"<source>/<name>"`` exclusions.
+        artifacts: Recorded ``"<key>/<name>"`` exclusions.
     """
     for artifact in sorted(artifacts):
         if _profile_ships(root_dir, artifact):
             continue
-        source, _, _name = artifact.partition("/")
+        key, _, _name = artifact.partition("/")
         _LOGGER.warning(
             "Profile %s excludes %r, but no such artifact exists under %s. The "
             "exclusion has no effect. Check the spelling.",
             root_dir,
             artifact,
-            root_dir / source,
+            _convention_dir(root_dir, key),
         )
 
 
@@ -1767,7 +1775,7 @@ class ResolvedProfileDocument:
             delta's own parent.
         is_layer: Whether the document was resolved as a layer.
         excluded_artifacts: Convention-dir artifacts the resolved profile
-            excludes, as ``"<source>/<name>"`` (e.g. ``"agents/orbit-writer"``).
+            excludes, as ``"<key>/<name>"`` (e.g. ``"agents/orbit-writer"``).
             The build omits these files, and ownership derivation scans the
             post-exclude set — so excluding a shadow restores the framework's
             own version of that artifact.
@@ -2154,8 +2162,9 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
       the drift gate;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
-      includes the ``project/`` verbatim mirror), folded in sorted name order
-      so reordering the mapping table cannot move a hash;
+      includes the ``project/`` verbatim mirror), folded in sorted key order
+      under ``convention:<key>``, so neither reordering the mapping table nor
+      moving a convention's directory moves a hash;
     * the trigger file ``dispatch.triggers`` names, when it lives with the
       profile (a bundled trigger file is package content, not profile
       material);
@@ -2381,11 +2390,12 @@ def profile_inputs(
             A preset is one file among many in a shared package directory, so
             its neighbours, its own file and any overlay are package content.
     """
+    from osprey.repo_layout import display_path, watchdogs_source_dir
     from osprey.services.watchdog.config import WATCHDOGS_BLOCK
 
     from .build_profile_model import BuildProfile
     from .build_profile_watchdogs import enabled_watchdogs
-    from .profile_conventions import CONVENTION_SOURCES
+    from .profile_conventions import CONVENTION_DIRS
     from .profile_root import layer_files
     from .variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
@@ -2426,12 +2436,17 @@ def profile_inputs(
             )
         )
 
-    for source in sorted(CONVENTION_SOURCES):
-        candidate = root / source
+    # Ordered and labelled by key, so a convention that moves keeps its place
+    # and its label; the input key names where it is, as the operator spells it.
+    for convention in sorted(CONVENTION_DIRS, key=lambda row: row.key):
+        candidate = root / convention.source
         if candidate.exists():
             entries.append(
                 ProfileInput(
-                    f"{source}/", f"convention:{source}", candidate, ProfileInputRole.MATERIAL
+                    f"{display_path(convention.key)}/",
+                    f"convention:{convention.key}",
+                    candidate,
+                    ProfileInputRole.MATERIAL,
                 )
             )
 
@@ -2475,9 +2490,9 @@ def profile_inputs(
 
     entries.extend(
         ProfileInput(
-            f"{WATCHDOGS_BLOCK}/{name}/",
+            f"{display_path('watchdogs', name)}/",
             f"watchdog:{name}",
-            root / WATCHDOGS_BLOCK / name,
+            watchdogs_source_dir(root) / name,
             ProfileInputRole.MATERIAL,
         )
         for name in sorted(enabled_watchdogs(document.raw.get(WATCHDOGS_BLOCK)))

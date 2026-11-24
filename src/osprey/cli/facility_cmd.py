@@ -250,6 +250,7 @@ def _build_in_memory(
     from .facility_report import report_errors, report_warnings
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
+        convention_source,
         facility_mirror_violation,
         handwritten_limits_violation,
         machine_restated_violation,
@@ -262,7 +263,8 @@ def _build_in_memory(
     # The mirror guard checks the deployment's project/ before anything is
     # resolved; a stated machine root only changes where its remedy points.
     mirror_stop = facility_mirror_violation(
-        repo_root / PROJECT_MIRROR_DIR, authoring_route=_stated_machine_route(profile_path)
+        repo_root / convention_source(PROJECT_MIRROR_DIR),
+        authoring_route=_stated_machine_route(profile_path),
     )
     if mirror_stop is not None:
         raise mirror_stop
