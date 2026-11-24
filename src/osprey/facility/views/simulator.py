@@ -296,8 +296,9 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         ).items()
     }
     channels: list[dict[str, Any]] = []
-    for record in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
-        address = str(record["id"])
+    for row in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
+        address = str(row["id"])
+        record = inputs.records.channel(address) or row
         role = record.get("role", DEFAULT_ROLE)
         value_type = record.get("value_type", DEFAULT_VALUE_TYPE)
         entry = limits.get(address)
@@ -439,21 +440,19 @@ def _split_stopped_servers(
     return stopped, dict.fromkeys(unserved, INACTIVE_UNSERVED)
 
 
-def _record_addresses(document: Mapping[str, Any], served: Iterable[str]) -> dict[str, str]:
+def _record_addresses(records: FacilityRecords, served: Iterable[str]) -> dict[str, str]:
     """Each address a served model's wiring record names under ``also``, mapped to its ``address``.
 
     A model the render does not serve leaves every address of its wiring to
     the texture model, each a channel of its own.
     """
     served = set(served)
-    return {
-        further: address
-        for model in document.get("models", [])
-        if model.get("name") in served
-        for record in model.get("wiring", [])
-        for address, *also in [wiring_addresses(record)]
-        for further in also
-    }
+    record_of: dict[str, str] = {}
+    for address in sorted(records.ids("channel")):
+        own = records.record_address(address)
+        if own != address and records.wiring_model(address) in served:
+            record_of[address] = own
+    return record_of
 
 
 def _by_record_address(block: Any, record_of: Mapping[str, str]) -> Any:
@@ -470,7 +469,7 @@ def _by_record_address(block: Any, record_of: Mapping[str, str]) -> Any:
 
 
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
-    record_of = _record_addresses(inputs.records.document, inputs.served)
+    record_of = _record_addresses(inputs.records, inputs.served)
     scenarios: list[dict[str, Any]] = []
     for scenario in sorted(
         inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])

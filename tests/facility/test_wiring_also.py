@@ -19,9 +19,14 @@ import pytest
 import yaml
 
 from osprey.apps.sdk.testing import model
+from osprey.facility.views.bluesky import bluesky_document
 from osprey.facility.views.simulator import write_simulator_view
+from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    SETTLE_TOLERANCE_KEY,
+    UNIT_KEY,
+)
 from osprey_connectors.simulation.view import SimulatorView
-from osprey_facility import RECORD_FACTS
+from osprey_facility import RECORD_FACTS, TEXTURE
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import FacilityRecords
 from tests.facility._injection_fixture import FIXTURE as INJECTION
@@ -157,8 +162,25 @@ def test_a_further_address_of_a_bool_record_is_built_with_its_records_labels(
     assert "pair" not in row
 
 
+def test_a_further_address_reads_its_records_unit_in_every_reader(tmp_path: Path) -> None:
+    tree = _tree()
+    _channel(tree, SETPOINT)["unit"] = "A"
+    _channel(tree, SETPOINT)["tolerance"] = {"absolute": 0.5}
+    inputs = view_inputs(tmp_path, tree)
+
+    settables = {entry["name"]: entry for entry in bluesky_document(inputs.records)["settables"]}
+    view = tmp_path / "render" / "data" / "simulator"
+    write_simulator_view(view, inputs)
+    variables = json.loads((view / "variables.json").read_text(encoding="utf-8"))
+    units = {channel["address"]: channel["unit"] for channel in variables["channels"]}
+
+    assert settables[SETPOINT_ALSO][UNIT_KEY] == settables[SETPOINT][UNIT_KEY] == "A"
+    assert settables[SETPOINT_ALSO][SETTLE_TOLERANCE_KEY] == 0.5
+    assert units[SETPOINT_ALSO] == units[SETPOINT] == "A"
+
+
 def test_a_facility_stating_no_also_is_written_as_before(tmp_path: Path) -> None:
-    """Dropping ``also`` changes the further addresses' owner and nothing else.
+    """Dropping ``also`` changes the further addresses' owner and the record facts they read.
 
     The former further addresses state their kind, which the build wrote on them from their record.
     """
@@ -179,6 +201,11 @@ def test_a_facility_stating_no_also_is_written_as_before(tmp_path: Path) -> None
     for channel in stripped["channels"]:
         if channel["address"] in (READING_ALSO, SETPOINT_ALSO):
             channel["owner"] = "texture"
+    for document in (stripped, without):
+        for channel in document["channels"]:
+            if channel["address"] in (READING_ALSO, SETPOINT_ALSO):
+                for fact in RECORD_FACTS:
+                    channel.pop(fact, None)
     assert stripped == without
 
 
@@ -405,6 +432,23 @@ def test_a_scenario_block_keyed_by_a_further_address_is_written_under_the_record
     assert scenarios["shifted"]["noise"] == {READING: {"absolute": 0.2}}
     assert scenarios["shifted"]["channel_faults"] == {READING: "frozen"}
     assert scenarios["quiet"]["still"] == [READING]
+
+
+def test_a_further_address_of_an_unserved_model_keeps_its_own_scenario_keys(
+    tmp_path: Path,
+) -> None:
+    """A model the render does not serve leaves its further addresses to the texture model."""
+    tree = _tree()
+    tree["scenarios/shifted.yaml"] = {
+        "name": "shifted",
+        "noise": {READING_ALSO: {"absolute": 0.2}},
+    }
+    view = tmp_path / "render" / "data" / "simulator"
+    write_simulator_view(view, view_inputs(tmp_path, tree, served=[TEXTURE]))
+    listed = json.loads((view / "scenarios.json").read_text(encoding="utf-8"))["scenarios"]
+
+    (shifted,) = [scenario for scenario in listed if scenario["name"] == "shifted"]
+    assert shifted["noise"] == {READING_ALSO: {"absolute": 0.2}}
 
 
 def test_a_fault_variable_is_keyed_by_the_records_address(tmp_path: Path) -> None:
