@@ -97,6 +97,23 @@ def test_start_builds_the_first_closed_orbit_model_only(cache, sdk):
     assert cache.state("OTHER").status == IDLE
 
 
+def test_start_builds_the_configured_model_when_it_is_offered(cache, sdk):
+    assert cache.start("OTHER") == "OTHER"
+    _entered(sdk)
+    sdk.queue("OTHER", _matrix("OTHER"))
+    _finish(cache, sdk, "OTHER")
+    assert [call[0] for call in sdk.calls] == ["OTHER"]
+    assert cache.state("RING").status == IDLE
+
+
+def test_start_builds_the_first_model_when_the_configured_one_is_not_offered(cache, sdk):
+    assert cache.start("ABSENT") == "RING"
+    _entered(sdk)
+    sdk.queue("RING", _matrix("RING"))
+    _finish(cache, sdk, "RING")
+    assert [call[0] for call in sdk.calls] == ["RING"]
+
+
 def test_start_with_no_closed_orbit_model_builds_nothing():
     sdk = FakeSdk(models=())
     cache = OrmCache(sdk=sdk)

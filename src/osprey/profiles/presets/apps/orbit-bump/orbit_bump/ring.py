@@ -9,7 +9,7 @@ ring position ``b`` is its place among its plane's BPMs in that order, a correct
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -132,6 +132,21 @@ class RingView:
 def offered_models(render_root: Path | None = None) -> list[str]:
     """The models the panel offers: the render's closed-orbit models, facility order."""
     return closed_orbit_models(render_root)
+
+
+def start_model(offered: Sequence[str], configured: str | None) -> str | None:
+    """The model the app starts on: ``configured`` when it is offered, else the first offered.
+
+    Args:
+        offered: The offered models, facility order.
+        configured: The deployment's ``apps.orbit-bump.config.start_model``, or None.
+
+    Returns:
+        The model's name, or None when none is offered.
+    """
+    if configured in offered:
+        return configured
+    return offered[0] if offered else None
 
 
 def ring_view(model: str, render_root: Path | None = None) -> RingView:

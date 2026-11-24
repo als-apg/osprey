@@ -217,14 +217,13 @@ def deployment(va_render: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 @pytest.mark.usefixtures("deployment")
 def test_a_one_bpm_bump_applied_on_the_va_meets_the_plan(va_render: Path) -> None:
     sdk = _PinnedSdk(va_render)
-    app = create_app(sdk=sdk)
+    app = create_app(sdk=sdk, config={"start_model": MODEL})
     app.user_middleware = [
         entry for entry in app.user_middleware if entry.cls is not WebAuthMiddleware
     ] + [Middleware(_GatedAs)]
 
     with TestClient(app) as client:
-        # The app starts the first offered ring's build, the booster's.
-        app.state.orm.ensure(MODEL)
+        # The app starts the configured ring's build, the storage ring's.
         assert app.state.orm.join(MODEL, 120), "the example ring's ORM did not build"
         assert app.state.orm.state(MODEL).status == "ready", app.state.orm.state(MODEL).error
 

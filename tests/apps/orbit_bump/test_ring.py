@@ -214,6 +214,22 @@ def test_offered_models_are_the_closed_orbit_models(monkeypatch):
     assert ring.offered_models() == ["a", "b"]
 
 
+@pytest.mark.parametrize(
+    ("offered", "configured", "start"),
+    [
+        (["a", "b"], "b", "b"),
+        (["a", "b"], None, "a"),
+        (["a", "b"], "c", "a"),
+        ([], "b", None),
+        ([], None, None),
+    ],
+)
+def test_the_start_model_is_the_configured_one_when_offered_else_the_first(
+    offered, configured, start
+):
+    assert ring.start_model(offered, configured) == start
+
+
 def test_module_names_no_facility_literal():
     import inspect
 

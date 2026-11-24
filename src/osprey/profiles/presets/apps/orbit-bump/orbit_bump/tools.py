@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import httpx
 
 from orbit_bump import APP_NAME
+from orbit_bump.ring import start_model
 from osprey.apps.sdk import (
     ApprovalRefused,
     agent_panel_headers,
@@ -221,7 +222,7 @@ def digest(
         model
         or draft.get("model")
         or (plan or {}).get("model")
-        or (models[0]["name"] if models else None)
+        or start_model([str(m.get("name")) for m in models], state.get("start_model"))
     )
     plane = plane or draft.get("plane") or (plan or {}).get("plane") or "x"
     if plane not in ("x", "y"):
@@ -316,7 +317,7 @@ def register(server: FastMCP) -> None:
         ``draft_matches_plan`` whether the current plan was computed from it.
 
         Args:
-            model: The model to show; default the panel's, else the plan's, else the first.
+            model: The model to show; default the panel's, else the plan's, else the start model.
             plane: ``x`` or ``y``; default the panel's, else the plan's, else ``x``.
             bpms: Show only these BPM elements (the panel's zoom); default every BPM.
         """

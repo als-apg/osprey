@@ -24,6 +24,7 @@ from typing import Any, Final, Literal
 
 import numpy as np
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,7 +44,14 @@ from orbit_bump.plans import (
     PlanNotFound,
     PlanStore,
 )
-from orbit_bump.ring import PlaneView, RingView, build_ring, position_addr, setpoint_addr
+from orbit_bump.ring import (
+    PlaneView,
+    RingView,
+    build_ring,
+    position_addr,
+    setpoint_addr,
+    start_model,
+)
 from orbit_bump.solver import (
     CLOSURE,
     MANUAL,
@@ -89,6 +97,10 @@ DRAFT_ROUTE = "/api/draft"
 COMPUTE_ROUTE = "/api/compute"
 #: Write the owner's current plan to the machine.
 APPLY_ROUTE = "/api/apply"
+#: Where the deployment hands this application its rendered ``apps.<name>.config``.
+APP_CONFIG_ENV = "OSPREY_APP_CONFIG"
+#: The config key naming the model the app starts on (``apps.orbit-bump.config.start_model``).
+START_MODEL_KEY = "start_model"
 #: The prefix the panel's MML signed-index rules carry; the solver takes the list bare.
 MML_RULE_PREFIX = "mml:"
 #: The other BPMs (every BPM of the plane not in the bump) are left out of the solve.
@@ -861,11 +873,21 @@ def residual_after(
     return residual
 
 
+def read_app_config() -> dict[str, Any]:
+    """The application's config the deployment rendered; empty when it rendered none."""
+    path = os.environ.get(APP_CONFIG_ENV)
+    if not path or not Path(path).is_file():
+        return {}
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return data if isinstance(data, dict) else {}
+
+
 def create_app(
     connector_for: ConnectorFor = build_connector,
     *,
     sdk: Any = None,
     clock: Callable[[], float] = time.time,
+    config: Mapping[str, Any] | None = None,
 ) -> FastAPI:
     """Build the backend.
 
@@ -874,7 +896,13 @@ def create_app(
         sdk: The object holding ``closed_orbit_models``, ``model_members`` and
             ``model_response_matrix``; the application SDK when omitted.
         clock: The wall clock the ORM's age is measured on.
+        config: The application's config; the deployment's rendered one when omitted.
     """
+    if config is None:
+        config = read_app_config()
+    authored = config.get(START_MODEL_KEY)
+    configured = str(authored) if authored is not None else None
+    fell_back: set[str] = set()
     if sdk is None:
         from osprey.apps import sdk as default_sdk
 
@@ -895,7 +923,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
-            orm.start()
+            orm.start(starting(offered()))
         except Exception:  # no models to read is not a reason to refuse the panel
             _log.exception("the first response-matrix build did not start")
         yield
@@ -929,6 +957,21 @@ def create_app(
 
     def offered() -> list[str]:
         return list(sdk.closed_orbit_models())
+
+    def starting(models: list[str]) -> str | None:
+        """The start model among ``models``; a configured one not offered is logged once."""
+        start = start_model(models, configured)
+        if configured is not None and start != configured and configured not in fell_back:
+            fell_back.add(configured)
+            _log.warning(
+                "apps.%s.config.%s names %s, which is not offered (%s); starting on %s",
+                APP_NAME,
+                START_MODEL_KEY,
+                configured,
+                ", ".join(models) or "none",
+                start,
+            )
+        return start
 
     def ring(model: str) -> tuple[ModelMembers, RingView]:
         """The model's members and ring view, read once; raises ValueError."""
@@ -1041,6 +1084,7 @@ def create_app(
         values = await read_values(target, list(dict.fromkeys(positions + golden)))
         return {
             "models": models,
+            "start_model": starting([str(model["name"]) for model in models]),
             "posture": posture(target, owner),
             "orbit": {
                 "position": {addr: values[addr] for addr in positions},

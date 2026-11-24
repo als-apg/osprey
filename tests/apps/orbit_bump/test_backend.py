@@ -290,6 +290,55 @@ def client(app: FastAPI, sdk: FakeSdk):
         app.state.orm.join(model, WAIT)
 
 
+def _started(monkeypatch, sdk: FakeSdk, section, config) -> tuple[str | None, list[str]]:
+    """The state's start model and the builds begun, for a backend made with ``config``."""
+    monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
+    monkeypatch.setattr(backend, "_section", lambda: section, raising=True)
+
+    async def connector_for(target: str) -> StandInConnector:
+        return StandInConnector(target)
+
+    app = create_app(connector_for, sdk=sdk, clock=lambda: NOW, config=config)
+    app.user_middleware = [
+        entry for entry in app.user_middleware if entry.cls is not WebAuthMiddleware
+    ] + [Middleware(_GatedAs)]
+    with TestClient(app) as test_client:
+        start = test_client.get(STATE_ROUTE).json()["start_model"]
+        for model in sdk.models:
+            sdk.gate(model).set()
+        for model in sdk.models:
+            app.state.orm.join(model, WAIT)
+    return start, list(sdk.calls)
+
+
+def test_a_configured_start_model_is_the_states_and_the_first_build(monkeypatch, sdk, section):
+    config = {backend.START_MODEL_KEY: "OTHER"}
+    assert _started(monkeypatch, sdk, section, config) == ("OTHER", ["OTHER"])
+
+
+def test_with_no_start_model_configured_the_first_offered_starts(monkeypatch, sdk, section):
+    assert _started(monkeypatch, sdk, section, {}) == ("RING", ["RING"])
+
+
+def test_a_start_model_not_offered_falls_back_to_the_first_and_says_so_once(
+    monkeypatch, sdk, section, caplog
+):
+    config = {backend.START_MODEL_KEY: "ABSENT"}
+    with caplog.at_level("WARNING", logger=backend.__name__):
+        assert _started(monkeypatch, sdk, section, config) == ("RING", ["RING"])
+    said = [r for r in caplog.records if "start_model names ABSENT" in r.getMessage()]
+    assert len(said) == 1
+
+
+def test_the_start_model_is_read_from_the_rendered_app_config(monkeypatch, tmp_path):
+    path = tmp_path / "config.yml"
+    path.write_text("start_model: OTHER\n", encoding="utf-8")
+    monkeypatch.setenv(backend.APP_CONFIG_ENV, str(path))
+    assert backend.read_app_config() == {"start_model": "OTHER"}
+    monkeypatch.setenv(backend.APP_CONFIG_ENV, str(tmp_path / "absent.yml"))
+    assert backend.read_app_config() == {}
+
+
 def _built(app: FastAPI, sdk: FakeSdk, model: str) -> None:
     sdk.gate(model).set()
     assert app.state.orm.join(model, WAIT), "the build did not end"

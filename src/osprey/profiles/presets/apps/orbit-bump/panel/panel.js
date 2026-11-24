@@ -132,6 +132,7 @@ const DRAFT_DEBOUNCE_MS = 300;
 /**
  * @typedef {object} BumpState
  * @property {Model[]} models
+ * @property {string | null} [start_model] the model the panel opens on
  * @property {{allowed: boolean, reason?: string | null, phrase?: string | null}} posture
  * @property {{position: Record<string, number | null>, golden: Record<string, number | null>}} orbit
  * @property {Plan | null} plan
@@ -3217,7 +3218,9 @@ export function showState(root, state) {
   panel.state = state;
   const names = (state.models ?? []).map((model) => model.name);
   if (!panel.selection.model || !names.includes(panel.selection.model)) {
-    panel.selection = { ...panel.selection, model: names[0] ?? null };
+    const start = state.start_model;
+    const model = start && names.includes(start) ? start : (names[0] ?? null);
+    panel.selection = { ...panel.selection, model };
   }
   field(root, 'error').hidden = true;
   hydrate(root, state.plan);

@@ -34,7 +34,7 @@ see or press, so you can always tell the operator where to look.
 
 Call `bump_state` before planning and whenever the operator asks what the
 panel shows. It answers for one model and plane (the panel's, else the
-current plan's, else the first model and `x`):
+current plan's, else the deployment's start model and `x`):
 
 - `models`: each offered model with its response matrix (`orm.status`,
   `orm.age_s`, `orm.error`, `orm.unsolved`). Compute needs `ready`.
