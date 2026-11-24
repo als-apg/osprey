@@ -74,7 +74,7 @@ def view(tmp_path_factory: pytest.TempPathFactory) -> SimulatorView:
 
 
 def _ring_settings() -> Any:
-    models = yaml.safe_load((FIXTURE / "models.yaml").read_text())
+    models = yaml.safe_load((FIXTURE / "simulation" / "models.yaml").read_text())
     return next(model for model in models if model["name"] == RING)["settings"]
 
 

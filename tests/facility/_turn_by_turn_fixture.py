@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from osprey_facility import source_tree
 from tests._builds import FRAMEWORK_CHECKS
 
 __all__ = [
@@ -60,7 +61,7 @@ __all__ = [
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "turn_by_turn"
 
 #: The ring's lattice file inside the tree.
-DECK = FIXTURE / "decks" / "SR.json"
+DECK = FIXTURE / source_tree.path("decks") / "SR.json"
 
 #: The injection chain's model name.
 CHAIN = "CHAIN"
