@@ -314,3 +314,83 @@ def test_guard_ignores_the_deployment_wide_key_when_the_lanes_block_disables_lim
 
     # Assert
     assert limits_probe_calls == []
+
+
+# =========================================================================
+# POST /plans/validate holds a triggered channel to the worker's devices
+# =========================================================================
+
+_SHOTS_PLAN = "device_check_shots"
+
+_SHOTS_BODY = """\
+from bluesky import plan_stubs as bps
+from bluesky import preprocessors as bpp
+from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import (
+    ReadableChannels,
+    TriggeredChannels,
+    scan_metadata,
+)
+
+
+class PARAMS(BaseModel):
+    detectors: TriggeredChannels = Field(..., min_length=1)
+    monitors: ReadableChannels = Field(..., min_length=1)
+
+
+def build_plan(devices, params):
+    detector = devices[params.detectors[0]]
+    monitor = devices[params.monitors[0]]
+
+    @bpp.stage_decorator([detector, monitor])
+    @bpp.run_decorator(
+        md=scan_metadata(
+            movable=[], readable=params.monitors, points=1, triggered=params.detectors
+        )
+    )
+    def _shot():
+        yield from bps.trigger_and_read([detector, monitor])
+
+    return _shot()
+"""
+
+
+def test_validation_refuses_an_unknown_triggered_device() -> None:
+    """A pass whose sample arguments trigger a device the worker lacks is no
+    pass: the triggered name is held to the worker's devices and quoted first,
+    and nothing is recorded."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge.app import app
+    from tests.services.bluesky_bridge._queue_fakes import (
+        FakeManager,
+        install_backend,
+        status_doc,
+    )
+
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed={"success": True, "devices_allowed": {"AAA1": {}, "BPM1": {}}},
+    )
+    install_backend(manager)
+    client = TestClient(app)
+    resp = client.post(
+        "/plans/session", json={"name": _SHOTS_PLAN, "writes": True, "body": _SHOTS_BODY}
+    )
+    assert resp.status_code == 200, resp.text
+    content_hash = resp.json()["content_hash"]
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": _SHOTS_PLAN, "sample_args": {"detectors": ["MCA9"], "monitors": ["AAA9"]}},
+    )
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert detail["devices"] == ["AAA9", "MCA9"]
+    assert detail["detail"].startswith(f"session plan {_SHOTS_PLAN!r} referenced device 'MCA9'")
+    assert validation_records.has_passing_record(content_hash) is False

@@ -371,13 +371,13 @@ class ValidationResult:
     caller can key a validation record (or a rejection) against the exact
     body content regardless of which stage decided the outcome.
 
-    ``movable_channels`` and ``readable_channels`` are the channel names the
-    sample arguments supply under each role the body's ``PARAMS`` declares,
-    sorted. Both are empty unless ``passed``; a body that declares no role
-    reports none, whatever mocks the dry run drove it against.
+    ``movable_channels``, ``triggered_channels`` and ``readable_channels`` are
+    the channel names the sample arguments supply under each role the body's
+    ``PARAMS`` declares, sorted. All are empty unless ``passed``; a body that
+    declares no role reports none, whatever mocks the dry run drove it against.
 
     Raises:
-        ValueError: if ``passed`` is false and either channel tuple is non-empty.
+        ValueError: if ``passed`` is false and any channel tuple is non-empty.
     """
 
     passed: bool
@@ -385,9 +385,12 @@ class ValidationResult:
     content_hash: str
     movable_channels: tuple[str, ...] = ()
     readable_channels: tuple[str, ...] = ()
+    triggered_channels: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.passed and (self.movable_channels or self.readable_channels):
+        if not self.passed and (
+            self.movable_channels or self.readable_channels or self.triggered_channels
+        ):
             raise ValueError("a validation that did not pass reports no channels")
 
 
@@ -472,16 +475,18 @@ def _render_dry_run_script(
     against its ``PARAMS`` schema, and drives the resulting generator through a
     bluesky ``RunEngine`` against mock devices built for the channels those
     validated params supply — a `MockSettable` for every channel the plan declared
-    movable, a `MockReadable` for every one it declared readable, and nothing
+    movable, a `MockTriggerable` for every one it declared triggered, a
+    `MockReadable` for every one it declared readable, and nothing
     at all for a string sitting under a field that declared no role (that is a
     plain parameter, not a device). Writes a JSON result to ``result_path`` in a
     ``finally`` so the parent always has something to read even if construction
     itself raised.
 
-    On a successful drive the result also carries ``movable_channels`` and
-    ``readable_channels``: the names the validated params supply under each
-    declared role, before any fallback mock is added, so the parent can report
-    what the sample arguments named and never the dry run's own placeholders.
+    On a successful drive the result also carries ``movable_channels``,
+    ``triggered_channels`` and ``readable_channels``: the names the validated
+    params supply under each declared role, before any fallback mock is added,
+    so the parent can report what the sample arguments named and never the dry
+    run's own placeholders.
 
     On a successful drive the result also carries ``declared_points``: one entry
     per run the plan opened, holding what that run declared about its own size
@@ -547,6 +552,7 @@ try:
     from osprey.services.bluesky_bridge.plan_fields import (
         MOVABLE_ROLE,
         READABLE_ROLE,
+        TRIGGERED_ROLE,
         collect_channels,
     )
 
@@ -559,12 +565,14 @@ try:
 
     # Which channel gets which mock comes from the plan's own declaration, not
     # from what a field is named: a channel the plan declared movable gets the
-    # settable mock, one it declared readable gets the readable mock, and a
-    # string under a field that declared no role is a plain parameter that gets
-    # no mock at all. A plan declaring neither role falls back to one of each so
-    # a parameterless body still has something to drive.
+    # settable mock, one it declared triggered gets the triggerable mock, one it
+    # declared readable gets the readable mock, and a string under a field that
+    # declared no role is a plain parameter that gets no mock at all. A plan
+    # declaring no movable or no readable channel falls back to one of that
+    # kind, so a parameterless body still has something to drive.
     _declared_movable = list(collect_channels(params_cls, params, MOVABLE_ROLE))
     _declared_readable = list(collect_channels(params_cls, params, READABLE_ROLE))
+    _declared_triggered = list(collect_channels(params_cls, params, TRIGGERED_ROLE))
     _movable_names = _declared_movable or list(_FALLBACK_MOVABLE)
     _readable_names = _declared_readable or list(_FALLBACK_READABLE)
 
@@ -577,7 +585,12 @@ try:
     # whichever loop connects them -- which must be `RE.loop`, the loop bluesky
     # drives all signal I/O on, not a throwaway one.
     devices = dict(asyncio.run_coroutine_threadsafe(
-        build_devices(settable_names=_movable_names, readable_names=_readable_names), RE.loop
+        build_devices(
+            settable_names=_movable_names,
+            readable_names=_readable_names,
+            triggered_names=_declared_triggered,
+        ),
+        RE.loop,
     ).result(timeout=30.0))
 
     try:
@@ -587,7 +600,7 @@ try:
         raise KeyError(
             f"plan {{_PLAN_NAME!r}} referenced device {{_missing!r}}, which the dry run "
             f"did not mock; available mock devices: {{sorted(devices)}}. A channel is "
-            f"mocked only when PARAMS declares it movable or readable."
+            f"mocked only when PARAMS declares it movable, triggered or readable."
         ) from exc
 
     # What each run this plan opens declares about its own size, captured from
@@ -638,6 +651,7 @@ try:
 
     result["movable_channels"] = sorted(set(_declared_movable))
     result["readable_channels"] = sorted(set(_declared_readable))
+    result["triggered_channels"] = sorted(set(_declared_triggered))
     result["declared_points"] = _declared_points
     result["moved_unrecorded"] = sorted(_moved - _recorded)
     result["success"] = True
@@ -750,15 +764,16 @@ def _unrecorded_move_reasons(payload: dict[str, Any], *, plan_name: str) -> list
 class _DryRunOutcome:
     """What stage 3 reports: its rejections, and on a clean run the channels.
 
-    ``movable_channels`` / ``readable_channels`` are the sorted names the
-    validated sample arguments supply under each declared role, read in the
-    subprocess (`_render_dry_run_script`); they are empty whenever ``reasons``
-    is not.
+    ``movable_channels`` / ``readable_channels`` / ``triggered_channels`` are
+    the sorted names the validated sample arguments supply under each declared
+    role, read in the subprocess (`_render_dry_run_script`); they are empty
+    whenever ``reasons`` is not.
     """
 
     reasons: list[str]
     movable_channels: tuple[str, ...] = ()
     readable_channels: tuple[str, ...] = ()
+    triggered_channels: tuple[str, ...] = ()
 
 
 async def _dry_run(
@@ -858,6 +873,7 @@ async def _dry_run(
             [],
             movable_channels=tuple(sorted(payload.get("movable_channels") or ())),
             readable_channels=tuple(sorted(payload.get("readable_channels") or ())),
+            triggered_channels=tuple(sorted(payload.get("triggered_channels") or ())),
         )
 
 
@@ -924,4 +940,5 @@ async def validate_plan(
         content_hash=content_hash,
         movable_channels=outcome.movable_channels,
         readable_channels=outcome.readable_channels,
+        triggered_channels=outcome.triggered_channels,
     )

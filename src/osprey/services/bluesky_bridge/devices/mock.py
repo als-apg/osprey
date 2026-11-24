@@ -1,6 +1,6 @@
 """Pure-mock ophyd-async device factory: no CA/EPICS, no scenario/machine state.
 
-``MockSettable``/``MockReadable`` are in-process soft-signal devices — there is no
+``MockSettable``/``MockReadable``/``MockTriggerable`` are in-process devices — there is no
 external process backing their values, so nothing here is a "scenario": every
 instance starts from the same fixed initial state on every process start, and
 there is no shared substrate two callers could observe each other mutating.
@@ -33,10 +33,11 @@ Imports ophyd-async (a core dependency), so this module (like the rest of
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 from typing import Any
 
-from bluesky.protocols import Location
+from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import (
     AsyncStatus,
     StandardReadable,
@@ -114,11 +115,49 @@ class MockReadable(StandardReadable):
         self._set_value(self._count)
 
 
+class MockTriggerable(StandardReadable):
+    """An in-process stand-in for a device a plan triggers.
+
+    ``trigger()`` completes at once and counts (:attr:`trigger_count`).
+    ``read()``/``describe()`` report one data key named exactly for the device,
+    the column a real triggered device records, holding the trigger count.
+
+    :meth:`trigger_writes` states the write a real triggered device sends: the
+    press value to the channel this device is named for.
+    """
+
+    def __init__(self, name: str = "") -> None:
+        self.trigger_count = 0
+        super().__init__(name=name)
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``trigger()`` stands in for: 1 to this device's name."""
+        return (ChannelWrite(self.name, 1),)
+
+    @AsyncStatus.wrap
+    async def trigger(self) -> None:
+        self.trigger_count += 1
+
+    async def read(self) -> dict[str, Reading[Any]]:
+        """The trigger count under the device's own name."""
+        return {self.name: {"value": self.trigger_count, "timestamp": time.time()}}
+
+    async def describe(self) -> dict[str, DataKey]:
+        """One scalar number under the device's own name."""
+        return {self.name: {"source": f"mock:{self.name}", "dtype": "number", "shape": []}}
+
+    @property
+    def hints(self) -> Hints:
+        """The one data key, named for the device."""
+        return {"fields": [self.name]}
+
+
 async def build_devices(
     settable_names: Sequence[str] = ("sp1",),
     readable_names: Sequence[str] = ("rb1",),
+    triggered_names: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """Build and connect a set of mock settables/readables, keyed by name.
+    """Build and connect a set of mock settables/readables/triggerables, keyed by name.
 
     Matches the ``get_devices() -> dict[str, Any]`` shape ``plans.py``'s
     built-in plans (and any facility-injected plan, per ``plan_loader.py``)
@@ -131,6 +170,8 @@ async def build_devices(
             to build. Defaults to a single ``"sp1"`` for the deploy smoke demo.
         readable_names: Device-mapping keys for the ``MockReadable`` instances
             to build. Defaults to a single ``"rb1"``.
+        triggered_names: Device-mapping keys for the ``MockTriggerable``
+            instances to build. Defaults to none.
 
     Returns:
         Mapping of device name to connected device instance.
@@ -140,4 +181,6 @@ async def build_devices(
         devices[name] = MockSettable(name=name)
     for name in readable_names:
         devices[name] = MockReadable(name=name)
+    for name in triggered_names:
+        devices[name] = MockTriggerable(name=name)
     return await connect_all(devices)

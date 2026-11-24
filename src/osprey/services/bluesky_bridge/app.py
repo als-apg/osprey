@@ -905,7 +905,7 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
             await queue._check_channel_names_built(
                 backend,
                 name,
-                set(result.movable_channels),
+                set(result.movable_channels) | set(result.triggered_channels),
                 set(result.readable_channels),
                 status,
                 session_tier=True,
