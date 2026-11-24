@@ -53,6 +53,7 @@ from osprey_connectors_tests._harness import (
     write_control_context,
 )
 from tests.facility.served_tree import served_tree
+from tests.services.bluesky_bridge._fake_connector import FakeConnector as SharedFakeConnector
 
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 
@@ -2076,3 +2077,100 @@ def test_preview_of_a_resolved_set_calls_no_factory() -> None:
 
     assert preview["ok"] is True, preview
     assert factory.calls == 1
+
+
+# ---------------------------------------------------------------------------
+# A command the plan triggers: an abort ends it before its write
+# ---------------------------------------------------------------------------
+
+_ACT_TIMEOUT_S = 5.0
+"""The act bound the device file states for the triggered command."""
+
+_TRIGGERABLE_ENTRY = {
+    "name": "mca_01",
+    "command": "ES1:MCA01:ACQ",
+    "status": "ES1:MCA01:ACQ_STATUS",
+    "idle": 0,
+    "timeout_s": _ACT_TIMEOUT_S,
+}
+
+
+class _TriggerConnector(SharedFakeConnector):
+    """The shared fake, answering the pre-flight's probe for every address."""
+
+    async def validate_channel(self, address: str) -> bool:  # noqa: ARG002 - the probe signature
+        return True
+
+
+def _triggering_plan_source(name: str) -> str:
+    """A catalog plan that triggers one declared command and waits for its act."""
+    return (
+        "from bluesky.utils import Msg\n"
+        "from pydantic import BaseModel\n\n"
+        "from osprey.services.bluesky_bridge.plan_fields import TriggeredChannel\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A sample catalog plan that triggers one command.",\n'
+        '    "writes": True,\n'
+        "}\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    detector: TriggeredChannel\n\n\n"
+        "def build_plan(devices, params):\n"
+        "    detector = devices[params.detector]\n"
+        "    def _gen():\n"
+        "        yield Msg('open_run', None)\n"
+        "        yield Msg('checkpoint', None)\n"
+        "        yield Msg('trigger', detector, group='shot')\n"
+        "        yield Msg('wait', None, group='shot')\n"
+        "        yield Msg('close_run', None)\n"
+        "    return _gen()\n"
+    )
+
+
+def test_an_abort_cancels_an_unfinished_trigger_and_nothing_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """OSPREY aborts a run by pausing it and aborting the paused run. A trigger
+    still reading its status when the pause lands is cancelled there, and the
+    command is never written."""
+    import threading
+
+    from bluesky import RunEngine
+    from bluesky.utils import RunEngineInterrupted
+
+    connector = _TriggerConnector(readbacks={_TRIGGERABLE_ENTRY["status"]: 0})
+    connector.responses[_TRIGGERABLE_ENTRY["command"]] = (_TRIGGERABLE_ENTRY["status"], [1, 0])
+    connector.hold_reads.add(_TRIGGERABLE_ENTRY["status"])
+    plans = _catalog(tmp_path, monkeypatch, "shot", source=_triggering_plan_source)
+    devices = asyncio.run(
+        qserver_startup.build_devices(
+            env=_devices_env(tmp_path, {"triggerables": [_TRIGGERABLE_ENTRY]}),
+            connector=connector,
+        )
+    )
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["shot"]
+    run_engine = RunEngine(context_managers=[])
+    ended: list[BaseException] = []
+
+    def _run() -> None:
+        try:
+            run_engine(plan_function(detector="mca_01"))
+        except BaseException as exc:
+            ended.append(exc)
+
+    run = threading.Thread(target=_run)
+
+    run.start()
+    assert connector.read_held.wait(timeout=2 * _ACT_TIMEOUT_S), "the trigger never read"
+    run_engine.request_pause(defer=False)
+    run.join(timeout=2 * _ACT_TIMEOUT_S)
+    assert not run.is_alive()
+    assert [type(exc) for exc in ended] == [RunEngineInterrupted]
+    assert run_engine.state == "paused"
+    assert connector.held_read_cancelled.wait(timeout=2 * _ACT_TIMEOUT_S), (
+        "the pause left the trigger running"
+    )
+    run_engine.abort()
+
+    assert run_engine.state == "idle"
+    assert connector.write_calls == []

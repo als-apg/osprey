@@ -17,9 +17,12 @@ no low-level EPICS signal backend, and no direct PV access anywhere in
 this module.
 
 Device-level delegation over the stable ophyd-async public API (design
-decision D1): ``ConnectorSettable``/``ConnectorReadable`` are plain
-``StandardReadable`` subclasses that call the connector from ``set()``/
-``read()``/``describe()``. This is deliberately NOT a custom
+decision D1): ``ConnectorSettable``/``ConnectorReadable``/
+``ConnectorTriggerable`` are plain ``StandardReadable`` subclasses that call
+the connector from ``set()``/``trigger()``/``read()``/``describe()``. A
+triggerable fires its command through ``osprey_connectors.command.fire``,
+which writes it once through ``connector.write_channel_checked`` and waits for
+its status to report the act ended. This is deliberately NOT a custom
 ``SignalBackend`` — the ophyd-async ``Signal``/backend protocol is an
 internal extension point, while ``StandardReadable``'s ``set``/``read``/
 ``describe``/``connect`` are the stable public device contract that plans
@@ -33,6 +36,7 @@ import-clean of ophyd.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from collections.abc import Sequence
@@ -43,10 +47,14 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 
 from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
 from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
+from osprey_connectors.command import CommandAct, fire
 from osprey_connectors.settle import Landing, settle, settle_bound
 
 from ._connect import connect_all
-from .specs import ReadableSpec, SettableSpec
+from .specs import ReadableSpec, SettableSpec, TriggerableSpec
+
+#: The value a trigger writes to its command: the press value.
+PRESS_VALUE = 1
 
 #: Env var carrying the floor on how close a readback must come to the demand
 #: before ``ConnectorSettable.set()`` calls a move settled. Authored per
@@ -427,14 +435,126 @@ class ConnectorReadable(StandardReadable):
         return {"fields": [self.name]}
 
 
+class _Firing:
+    """One command fired through a connector, and the trigger still running, if any."""
+
+    def __init__(self, connector: Any, act: CommandAct) -> None:
+        self.connector = connector
+        self.act = act
+        self.pending: asyncio.Task[Any] | None = None
+
+    @property
+    def running(self) -> bool:
+        """Whether a trigger has started and not finished."""
+        return self.pending is not None and not self.pending.done()
+
+
+async def _refuse(error: Exception) -> None:
+    raise error
+
+
+class ConnectorTriggerable(StandardReadable):
+    """A command a plan triggers, fired and waited for through the OSPREY connector.
+
+    ``trigger()`` writes :data:`PRESS_VALUE` to the command once, through
+    ``osprey_connectors.command.fire``: the status is read and must be idle,
+    the command is written through ``write_channel_checked`` unconfirmed (the
+    wait confirms it), and the trigger completes when the status has left idle
+    and come back within the act's bound. Every failure of ``fire`` fails the
+    trigger's status. While one trigger is unfinished, another is refused and
+    writes nothing.
+
+    No ``set()`` and no ``stop()``: a plan triggers this device and never sets
+    it. :meth:`cancel_trigger` cancels an unfinished trigger; a trigger
+    cancelled before its write writes nothing, and a command already written
+    runs its act to the end in the hardware while the run stops waiting for
+    it. The RunEngine calls :meth:`pause` on every pause and suspend, and it
+    cancels; :meth:`resume` does nothing, so a run resumed after a pause fails
+    at the trigger the pause cut.
+
+    ``read()``/``describe()`` report the status, read fresh through the
+    connector, under the device's name: once per trigger, the run records what
+    the act left the status at.
+
+    :meth:`trigger_writes` states the one write ``trigger()`` makes.
+
+    The OSPREY connector instance is stored as ``self._osprey_connector`` for
+    the same reason as :class:`ConnectorSettable`.
+    """
+
+    def __init__(
+        self,
+        connector: Any,
+        command: str,
+        status: str,
+        idle: str | int | float | bool,
+        timeout_s: float,
+        name: str = "",
+    ) -> None:
+        self._osprey_connector = connector
+        self._firing = _Firing(connector, CommandAct(command, status, idle, timeout_s))
+        super().__init__(name=name)
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``trigger()`` makes: the press value to the command. No I/O."""
+        return (ChannelWrite(self._firing.act.command, PRESS_VALUE),)
+
+    def trigger(self) -> AsyncStatus:
+        """Fire the command and wait for its act to end.
+
+        Returns a failed status, having written nothing, while the previous
+        trigger is unfinished.
+        """
+        if self._firing.running:
+            return AsyncStatus(
+                _refuse(RuntimeError(f"{self.name}: the previous trigger is still running"))
+            )
+        status = AsyncStatus(fire(self._firing.connector, self._firing.act, PRESS_VALUE))
+        self._firing.pending = status.task
+        return status
+
+    def cancel_trigger(self) -> None:
+        """Cancel an unfinished trigger; a finished one, or none, is left alone."""
+        pending = self._firing.pending
+        if pending is not None and not pending.done():
+            pending.cancel()
+
+    def pause(self) -> None:
+        """Cancel an unfinished trigger: nothing is written after a pause."""
+        self.cancel_trigger()
+
+    def resume(self) -> None:
+        """Do nothing: a trigger cut by a pause is not fired again."""
+
+    def channel_addresses(self) -> tuple[str, ...]:
+        """The addresses a run of this device touches: the command and the status."""
+        return (self._firing.act.command, self._firing.act.status)
+
+    async def read(self) -> dict[str, Reading[Any]]:
+        """Return the status, read fresh through the connector, under the device's name."""
+        reading = await self._osprey_connector.read_channel(self._firing.act.status)
+        return {self.name: {"value": reading.value, "timestamp": time.time()}}
+
+    async def describe(self) -> dict[str, DataKey]:
+        """Describe the status under the device's name. Reads nothing."""
+        return {self.name: _data_key(self._firing.act.status, None)}
+
+    @property
+    def hints(self) -> Hints:
+        """Declare the device's one field as the hinted one; see
+        :attr:`ConnectorReadable.hints`."""
+        return {"fields": [self.name]}
+
+
 async def build_devices(
     settables: Sequence[SettableSpec] = (),
     readables: Sequence[ReadableSpec] = (),
     connector: Any = None,
     *,
     simulated: bool = False,
+    triggerables: Sequence[TriggerableSpec] = (),
 ) -> dict[str, Any]:
-    """Build and connect connector-mediated settable/readable devices, keyed by name.
+    """Build and connect connector-mediated devices, keyed by name.
 
     Matches the ``get_devices() -> dict[str, Any]`` shape ``plans.py``'s
     built-in plans (and any facility-injected plan, per ``plan_loader.py``)
@@ -455,6 +575,7 @@ async def build_devices(
             without a declared tolerance settles within its readback's
             motion band. False, the fail-safe toward hardware, leaves such a
             device on the profile's floor.
+        triggerables: Specs for the ``ConnectorTriggerable`` instances to build.
 
     Returns:
         Mapping of device name to connected device instance.
@@ -490,5 +611,14 @@ async def build_devices(
             name=readable_spec.name,
             unit=readable_spec.unit,
             shape=readable_spec.shape,
+        )
+    for triggerable_spec in triggerables:
+        devices[triggerable_spec.name] = ConnectorTriggerable(
+            connector,
+            triggerable_spec.command,
+            triggerable_spec.status,
+            triggerable_spec.idle,
+            triggerable_spec.timeout_s,
+            name=triggerable_spec.name,
         )
     return await connect_all(devices)

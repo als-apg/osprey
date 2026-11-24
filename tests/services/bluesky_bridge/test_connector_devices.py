@@ -14,6 +14,7 @@ on.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import time
 from typing import Any
@@ -24,9 +25,16 @@ from osprey.services.bluesky_bridge.devices import connector as connector_module
 from osprey.services.bluesky_bridge.devices.connector import (
     ConnectorReadable,
     ConnectorSettable,
+    ConnectorTriggerable,
     build_devices,
 )
-from osprey.services.bluesky_bridge.devices.specs import ReadableSpec, SettableSpec
+from osprey.services.bluesky_bridge.devices.specs import (
+    ReadableSpec,
+    SettableSpec,
+    TriggerableSpec,
+)
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
+from osprey_connectors.command import CommandBusyError, CommandNoEffectError
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from tests.services.bluesky_bridge._fake_connector import (
     FakeChannelValue,
@@ -806,3 +814,148 @@ async def test_the_timeout_names_the_bound(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(TimeoutError, match=rf"readback RB did not settle to -3\.0 ± {_BAND:g}"):
         await device.set(-3.0)
+
+
+# --- a command a plan triggers ------------------------------------------------
+
+_COMMAND = "ES1:MCA01:ACQ"
+_STATUS = "ES1:MCA01:ACQ_STATUS"
+
+
+_ACT_TIMEOUT_S = 5.0
+"""The ``timeout_s`` the command states for one act: longer than any act these tests complete."""
+
+_UNANSWERED_ACT_TIMEOUT_S = _ACT_TIMEOUT_S / 100
+"""The ``timeout_s`` stated for a command whose status never moves: the device's own
+bound, which ends that act with ``CommandNoEffectError``; the test waits on the error."""
+
+
+def _triggerable(fake: FakeConnector, timeout_s: float = _ACT_TIMEOUT_S) -> ConnectorTriggerable:
+    return ConnectorTriggerable(fake, _COMMAND, _STATUS, idle=0, timeout_s=timeout_s, name="mca")
+
+
+def _acting() -> FakeConnector:
+    """A connector whose status leaves idle and returns once the command is written."""
+    fake = FakeConnector(readbacks={_STATUS: 0})
+    fake.responses[_COMMAND] = (_STATUS, [1, 0])
+    return fake
+
+
+async def test_trigger_fires_through_the_checked_write_unconfirmed_and_waits_for_the_act() -> None:
+    fake = _acting()
+    device = _triggerable(fake)
+
+    status = device.trigger()
+    await status
+
+    assert status.success
+    assert fake.write_calls == [(_COMMAND, 1, {"confirm": False})]
+    assert fake.readbacks[_STATUS] == 0
+    assert fake.subscribers == {}
+
+
+async def test_a_busy_status_refuses_the_trigger_and_writes_nothing() -> None:
+    fake = _acting()
+    fake.readbacks[_STATUS] = 1
+    device = _triggerable(fake)
+
+    with pytest.raises(CommandBusyError):
+        await device.trigger()
+
+    assert fake.write_calls == []
+
+
+async def test_a_status_that_never_moves_fails_the_trigger() -> None:
+    fake = FakeConnector(readbacks={_STATUS: 0})
+    device = _triggerable(fake, timeout_s=_UNANSWERED_ACT_TIMEOUT_S)
+
+    with pytest.raises(CommandNoEffectError):
+        await device.trigger()
+
+    assert [address for address, _value, _kwargs in fake.write_calls] == [_COMMAND]
+
+
+def _holding() -> FakeConnector:
+    """A connector whose status read waits until the trigger reading it is cancelled."""
+    fake = _acting()
+    fake.hold_reads.add(_STATUS)
+    fake.read_held_here = asyncio.Event()
+    return fake
+
+
+async def test_a_second_trigger_while_one_runs_is_refused() -> None:
+    fake = _holding()
+    device = _triggerable(fake)
+    first = device.trigger()
+    await fake.read_held_here.wait()
+
+    with pytest.raises(RuntimeError, match="mca: the previous trigger is still running"):
+        await device.trigger()
+
+    device.cancel_trigger()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert fake.write_calls == []
+
+
+async def test_pause_before_the_write_cancels_and_nothing_is_written() -> None:
+    fake = _holding()
+    device = _triggerable(fake)
+    status = device.trigger()
+    await fake.read_held_here.wait()
+
+    device.pause()
+
+    with pytest.raises(asyncio.CancelledError):
+        await status
+    assert not status.success
+    assert fake.write_calls == []
+    assert fake.subscribers == {}
+    device.resume()
+    assert fake.write_calls == []
+
+
+def test_a_triggerable_has_no_set() -> None:
+    device = _triggerable(FakeConnector())
+
+    assert not hasattr(device, "set")
+    assert not hasattr(device, "stop")
+
+
+async def test_trigger_writes_is_what_trigger_sends() -> None:
+    fake = _acting()
+    device = _triggerable(fake)
+
+    stated = device.trigger_writes()
+
+    assert stated == (ChannelWrite(_COMMAND, 1),)
+    assert fake.read_calls == [] and fake.write_calls == []
+    await device.trigger()
+    assert [(address, value) for address, value, _kwargs in fake.write_calls] == [
+        tuple(write) for write in stated
+    ]
+
+
+async def test_a_triggerable_reads_its_status_under_its_name() -> None:
+    fake = FakeConnector(readbacks={_STATUS: 0})
+    device = _triggerable(fake)
+
+    reading = await device.read()
+    described = await device.describe()
+
+    assert list(reading) == ["mca"]
+    assert reading["mca"]["value"] == 0
+    assert fake.read_calls == [_STATUS]
+    assert list(described) == ["mca"]
+    assert described["mca"]["source"] == f"connector:{_STATUS}"
+    assert device.hints == {"fields": ["mca"]}
+
+
+async def test_build_devices_builds_a_triggerable_from_its_spec() -> None:
+    fake = _acting()
+    spec = TriggerableSpec("mca", _COMMAND, _STATUS, 0, 5.0)
+
+    devices = await build_devices(connector=fake, triggerables=[spec])
+
+    assert isinstance(devices["mca"], ConnectorTriggerable)
+    assert devices["mca"].trigger_writes() == (ChannelWrite(_COMMAND, 1),)

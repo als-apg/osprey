@@ -326,8 +326,7 @@ async def build_devices(
     connector_devices.settle_tolerance()
 
     specs = specs_from_file(path)
-    setpoints, readbacks = specs.settables, specs.readables
-    if not setpoints and not readbacks:
+    if not specs.settables and not specs.readables and not specs.triggerables:
         logger.warning(
             "qserver_startup: device file %r names no devices; this worker will expose no plans",
             devices_file,
@@ -341,17 +340,20 @@ async def build_devices(
 
     devices = dict(
         await connector_devices.build_devices(
-            setpoints,
-            readbacks,
+            specs.settables,
+            specs.readables,
             connector,
             simulated=is_simulated(resolve_control_system_type()),
+            triggerables=specs.triggerables,
         )
     )
     logger.info(
-        "qserver_startup: built %d connector-mediated device(s) (%d setpoint(s), %d readback(s))",
+        "qserver_startup: built %d connector-mediated device(s) "
+        "(%d setpoint(s), %d triggerable(s), %d readback(s))",
         len(devices),
-        len(setpoints),
-        len(readbacks),
+        len(specs.settables),
+        len(specs.triggerables),
+        len(specs.readables),
     )
     return devices
 

@@ -39,12 +39,16 @@ from typing import Any
 import pytest
 from bluesky import RunEngine
 from bluesky import plan_stubs as bps
+from bluesky import plans as bp
 from bluesky.utils import FailedStatus
 from pydantic import BaseModel, ConfigDict
 
 from osprey.services.bluesky_bridge import qserver_startup
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
-from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+from osprey.services.bluesky_bridge.devices.connector import (
+    ConnectorSettable,
+    ConnectorTriggerable,
+)
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.errors import ChannelWriteBlockedError
@@ -343,3 +347,91 @@ def test_the_same_plan_is_permitted_for_an_owner_the_store_does_not_narrow(
 
     assert connector.write_owners == [_UNNARROWED_OWNER]
     assert connector.readbacks[_CHANNEL] == _SETPOINT
+
+
+# --- a trigger's write, for the owner the run carries -----------------------
+
+_COMMAND = "ES1:MCA01:ACQ"
+_STATUS = "ES1:MCA01:ACQ_STATUS"
+_DETECTOR_NAME = "mca"
+
+
+class _TriggerParams(BaseModel):
+    """A plan schema declaring the one command the plan triggers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detector: TriggeredChannel = _DETECTOR_NAME
+
+
+def _trigger_probe_plan(devices: Any, params: Any) -> Iterator[Any]:
+    """Trigger the declared command once and record it, in a run of its own."""
+    yield from bp.count([devices[params.detector]])
+
+
+_TRIGGER_SESSION_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}, "writes": True}}
+
+from bluesky import plans as bp
+from pydantic import BaseModel, ConfigDict
+
+from osprey.services.bluesky_bridge.plan_fields import TriggeredChannel
+
+
+class PARAMS(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    detector: TriggeredChannel = {_DETECTOR_NAME!r}
+
+
+def build_plan(devices, params):
+    """Trigger the declared command once and record it, in a run of its own."""
+    yield from bp.count([devices[params.detector]])
+'''
+
+
+def _trigger_wrapper(kind: str, device: ConnectorTriggerable) -> Callable[..., Iterator[Any]]:
+    if kind == "session":
+        namespace: dict[str, Any] = {"__name__": "__main__", _DETECTOR_NAME: device}
+        return install_session_plan(namespace, _PLAN_NAME, _TRIGGER_SESSION_SOURCE)
+    spec = type(
+        "_Spec",
+        (),
+        {
+            "name": _PLAN_NAME,
+            "schema": _TriggerParams,
+            "plan": staticmethod(_trigger_probe_plan),
+            "description": "A stub plan that triggers one command.",
+            "metadata": None,
+        },
+    )()
+    return qserver_startup._make_plan_function(spec, devices={_DETECTOR_NAME: device})
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_a_trigger_write_is_decided_for_the_bound_owner(
+    kind: str, control_context_tree: Path
+) -> None:
+    """The command a trigger writes is written from the task ``fire`` runs in,
+    so the owner has to reach it as context, and the store answers for that
+    owner: on for one, the act runs; off for the other, nothing is written."""
+    record_for(control_context_tree, _OWNER, on=True)
+    record_for(control_context_tree, _UNNARROWED_OWNER, on=True)
+    turn_off_for(control_context_tree, _UNNARROWED_OWNER)
+
+    connector = _GatedConnector()
+    connector.readbacks[_STATUS] = 0
+    connector.responses[_COMMAND] = (_STATUS, [1, 0])
+    device = ConnectorTriggerable(
+        connector, _COMMAND, _STATUS, idle=0, timeout_s=5.0, name=_DETECTOR_NAME
+    )
+    plan_function = _trigger_wrapper(kind, device)
+    run_engine = RunEngine(context_managers=[])
+
+    run_engine(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
+    with pytest.raises(FailedStatus, match="switch_off"):
+        run_engine(plan_function(**{RESERVED_OWNER_KWARG: _UNNARROWED_OWNER}))
+
+    assert connector.write_owners == [_OWNER, _UNNARROWED_OWNER]
+    assert [(address, value) for address, value, _kwargs in connector.write_calls] == [
+        (_COMMAND, 1)
+    ]
