@@ -8,6 +8,8 @@ Written to ``<render>/data/bluesky_devices.yml``::
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <x>,
          unit: <pair's unit>, setpoint_unit: <setpoint's unit>}
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, motion_band: <band>}
+    triggerables:
+      - {name: <command>, command: <command>, status: <pair>, idle: <idle>, timeout_s: <bound>}
     readables:
       - {name: <readback>, pv: <readback>, unit: <unit>}
       - {name: <waveform>, pv: <waveform>, unit: <unit>, shape: [<n>]}
@@ -15,6 +17,9 @@ Written to ``<render>/data/bluesky_devices.yml``::
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
+A command whose status states ``idle`` and which states ``timeout_s`` is one
+triggerable, a plan fires it and waits for its act, and it is no settable; its
+status stays a readable.
 A settable carries ``settle_tolerance`` when its setpoint declares a
 ``tolerance``, a further address of a wiring record (under ``also``) its
 record's: the number of an absolute one, ``{relative: <f>}`` of a relative
@@ -114,6 +119,19 @@ def _units(records: FacilityRecords) -> dict[str, str]:
     return units
 
 
+def _completions(records: list[Any], facility_file: Path) -> dict[str, Any]:
+    """Each command's completion signal, by address, as the roster states it."""
+    from osprey.channel_roster import RosterResult
+
+    roster = RosterResult(records=tuple(records), source=_source(facility_file))
+    completions = {}
+    for record in roster.write_records:
+        completion = roster.completion(record.address)
+        if completion is not None:
+            completions[record.address] = completion
+    return completions
+
+
 def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]]:
     """The device document of one facility file.
 
@@ -121,15 +139,18 @@ def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]
         records: The facility file's records.
 
     Returns:
-        ``{settables, readables}`` as the worker's device file holds them.
+        ``{settables, triggerables, readables}`` as the worker's device file
+        holds them.
     """
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
+    roster = _records(records, Path(FACILITY_FILE))
     return devices_document(
-        _records(records, Path(FACILITY_FILE)),
+        roster,
         _tolerances(records),
         _motion_bands(records),
         _units(records),
+        _completions(roster, Path(FACILITY_FILE)),
     )
 
 
@@ -228,6 +249,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         tolerances=_tolerances(inputs.records),
         motion_bands=_motion_bands(inputs.records),
         units=_units(inputs.records),
+        completions=_completions(records, facility_file),
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)

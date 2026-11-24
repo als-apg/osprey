@@ -3,14 +3,15 @@
 Single source of truth for turning the facility's channel roster (the
 :class:`~osprey.channel_roster.records.ChannelRecord` sequence
 :func:`osprey.channel_roster.registered_channels` returns) into the bridge's
-device set, in the two-list device-file format the queueserver worker reads
+device set, in the three-list device-file format the queueserver worker reads
 (see ``osprey.services.bluesky_bridge.devices._specs_from_file`` for the schema
 and the parser).
 
 Every channel the roster enumerated becomes a device: each write-direction
-record a settable, each read-direction record a readable -- except a read
-channel of more than one dimension, which a run cannot record in its table and
-so is no device. Nothing here filters by machine, family, field or address
+record a settable -- or, for a command with a completion signal, a triggerable
+a plan fires and never sets -- and each read-direction record a readable,
+except a read channel of more than one dimension, which a run cannot record in
+its table and so is no device. Nothing here filters by machine, family, field or address
 grammar. Which channels exist and which way
 they point is the roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
@@ -93,6 +94,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.channel_roster import ChannelRecord, RosterSource
+from osprey.channel_roster.records import CommandCompletion
 
 # Key names of the device-file document the worker parses. Imported rather
 # than restated so the host-side producer and the container-side consumer can
@@ -106,10 +108,50 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
     SHAPE_KEY,
+    TIMEOUT_KEY,
+    TRIGGERABLES_KEY,
     UNIT_KEY,
 )
 from osprey_connectors import yaml_loader
 from osprey_connectors.safety_file import atomic_replace
+
+
+def _write_entry(
+    record: ChannelRecord,
+    completion: CommandCompletion | None,
+    tolerance: Mapping[str, float] | None,
+    bands: Mapping[str, float],
+    stated: Mapping[str, str],
+) -> tuple[str, dict[str, Any]]:
+    """The device one write-direction record becomes: its device-file section and entry.
+
+    The one place a write record's device kind is decided: a command with a
+    completion signal is a triggerable, every other write record a settable.
+    """
+    if completion is not None:
+        return TRIGGERABLES_KEY, {
+            "name": record.address,
+            "command": completion.command,
+            "status": completion.status,
+            "idle": completion.idle,
+            TIMEOUT_KEY: float(completion.timeout_s),
+        }
+    entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
+    readback = record.address
+    if record.readback is not None and record.readback != record.address:
+        entry["readback"] = readback = record.readback
+    band = bands.get(readback, 0.0)
+    if tolerance is not None and RELATIVE_KEY in tolerance:
+        entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
+    elif tolerance is not None:
+        entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
+    elif band > 0:
+        entry[MOTION_BAND_KEY] = float(band)
+    if readback in stated:
+        entry[UNIT_KEY] = stated[readback]
+    if readback != record.address and record.address in stated:
+        entry[SETPOINT_UNIT_KEY] = stated[record.address]
+    return SETTABLES_KEY, entry
 
 
 def devices_document(
@@ -117,15 +159,23 @@ def devices_document(
     tolerances: Mapping[str, Mapping[str, float]] | None = None,
     motion_bands: Mapping[str, float] | None = None,
     units: Mapping[str, str] | None = None,
+    completions: Mapping[str, CommandCompletion] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
-    Returns the two-list mapping ``_specs_from_file`` parses: one ``settables``
-    entry (``name``/``setpoint``, plus ``readback`` where the roster paired one)
-    per write-direction record, and one ``readables`` entry (``name``/``pv``)
-    per read-direction record, in roster order. Both keys are always present,
-    even when empty, so a caller can see *which* half a facility yielded nothing
-    for rather than inferring it from an absent key.
+    Returns the three-list mapping ``_specs_from_file`` parses: one
+    ``settables`` entry (``name``/``setpoint``, plus ``readback`` where the
+    roster paired one) per write-direction record, one ``triggerables`` entry
+    (``name``/``command``/``status``/``idle``/``timeout_s``) per command with a
+    completion signal, and one ``readables`` entry (``name``/``pv``) per
+    read-direction record, in roster order. Every key is always present, even
+    when empty, so a caller can see *which* kind a facility yielded nothing for
+    rather than inferring it from an absent key.
+
+    ``completions`` maps a command address to its
+    :class:`~osprey.channel_roster.records.CommandCompletion`: that write
+    record is a triggerable a plan fires and waits for, and no settable. A
+    command without one stays a settable.
 
     ``readback`` is emitted only for a settable the roster actually paired: an
     unpaired setpoint gets no ``readback`` key at all, which is how the loader
@@ -166,36 +216,28 @@ def devices_document(
         tolerances: Each setpoint address's tolerance record, or None.
         motion_bands: Each readback address's motion band, or None.
         units: Each channel address's unit, or None.
+        completions: Each command's completion signal, by address, or None.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
         build's ``validate_device_document``.
     """
-    settables: list[dict[str, Any]] = []
-    readables: list[dict[str, Any]] = []
+    document: dict[str, list[dict[str, Any]]] = {
+        SETTABLES_KEY: [],
+        TRIGGERABLES_KEY: [],
+        READABLES_KEY: [],
+    }
     declared = tolerances or {}
     bands = motion_bands or {}
     stated = units or {}
+    commands = completions or {}
 
     for record in records:
         if record.direction == "write":
-            entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
-            readback = record.address
-            if record.readback is not None and record.readback != record.address:
-                entry["readback"] = readback = record.readback
-            tolerance = declared.get(record.address)
-            band = bands.get(readback, 0.0)
-            if tolerance is not None and RELATIVE_KEY in tolerance:
-                entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
-            elif tolerance is not None:
-                entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
-            elif band > 0:
-                entry[MOTION_BAND_KEY] = float(band)
-            if readback in stated:
-                entry[UNIT_KEY] = stated[readback]
-            if readback != record.address and record.address in stated:
-                entry[SETPOINT_UNIT_KEY] = stated[record.address]
-            settables.append(entry)
+            section, entry = _write_entry(
+                record, commands.get(record.address), declared.get(record.address), bands, stated
+            )
+            document[section].append(entry)
         elif record.direction == "read":
             if record.shape is not None and len(record.shape) > 1:
                 continue
@@ -204,9 +246,9 @@ def devices_document(
                 readable[UNIT_KEY] = stated[record.address]
             if record.shape is not None:
                 readable[SHAPE_KEY] = list(record.shape)
-            readables.append(readable)
+            document[READABLES_KEY].append(readable)
 
-    return {SETTABLES_KEY: settables, READABLES_KEY: readables}
+    return document
 
 
 _FILE_MODE = 0o644
@@ -220,6 +262,8 @@ _GENERATED_HEADER = """\
 #
 # Every setpoint channel is a settable device, every readback channel a readable
 # one, and a settable names a readback only where the facility pairs one.
+# A command whose status states `idle` and which states `timeout_s` is a
+# triggerable a plan fires and waits for, and no settable.
 # A readback of more than one dimension is no device.
 """
 """Header the written file carries, filled with the roster source's
@@ -235,9 +279,10 @@ def write_devices_file(
     tolerances: Mapping[str, Mapping[str, float]] | None = None,
     motion_bands: Mapping[str, float] | None = None,
     units: Mapping[str, str] | None = None,
+    completions: Mapping[str, CommandCompletion] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Write the document ``devices_document(records, tolerances, motion_bands, units)``
-    builds to ``path`` as YAML, and return it.
+    """Write the document ``devices_document(records, tolerances, motion_bands,
+    units, completions)`` builds to ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
@@ -257,7 +302,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records, tolerances, motion_bands, units)
+    document = devices_document(records, tolerances, motion_bands, units, completions)
     body = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True
     )

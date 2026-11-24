@@ -38,7 +38,9 @@ from osprey.channel_roster import (
     RosterSourceKind,
     registered_channels,
 )
+from osprey.channel_roster.records import CommandCompletion
 from osprey.services.bluesky_bridge import substrate_devices
+from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
 from osprey.services.bluesky_bridge.substrate_devices import (
     devices_document,
     write_devices_file,
@@ -80,10 +82,41 @@ _RECORDS = (
 
 
 class TestDevicesDocument:
-    def test_both_top_level_keys_are_always_present(self) -> None:
-        """Even a facility that yields nothing gets both keys, so a caller can
-        see WHICH half came up empty instead of inferring it from a missing key."""
-        assert devices_document(()) == {"settables": [], "readables": []}
+    def test_a_command_with_a_completion_is_a_triggerable_and_no_settable(self) -> None:
+        command, status = "ES1:DET:MCA:01:ACQUIRE:SP", "ES1:DET:MCA:01:STATUS:ACQUIRE"
+        records = (_write(command, readback=status), _read(status))
+
+        document = devices_document(
+            records, completions={command: CommandCompletion(command, status, "FALSE", 5.0)}
+        )
+
+        assert document == {
+            "settables": [],
+            "triggerables": [
+                {
+                    "name": command,
+                    "command": command,
+                    "status": status,
+                    "idle": "FALSE",
+                    "timeout_s": 5.0,
+                }
+            ],
+            "readables": [{"name": status, "pv": status}],
+        }
+        assert validate_device_document(document) == []
+
+    def test_a_command_without_a_completion_stays_a_settable(self) -> None:
+        command = "ES1:MOT:STAGE:01:STOP:SP"
+
+        document = devices_document((_write(command),), completions={})
+
+        assert document["settables"] == [{"name": command, "setpoint": command}]
+        assert document["triggerables"] == []
+
+    def test_every_top_level_key_is_always_present(self) -> None:
+        """Even a facility that yields nothing gets every key, so a caller can
+        see WHICH kind came up empty instead of inferring it from a missing key."""
+        assert devices_document(()) == {"settables": [], "triggerables": [], "readables": []}
 
     def test_every_write_record_is_a_settable_in_roster_order(self) -> None:
         document = devices_document(_RECORDS)
@@ -132,7 +165,7 @@ class TestDevicesDocument:
         build refuses to stage a derived file rather than guess."""
         document = devices_document((ChannelRecord(address="A:B:C", source=_SOURCE),))
 
-        assert document == {"settables": [], "readables": []}
+        assert document == {"settables": [], "triggerables": [], "readables": []}
 
     def test_the_build_validator_accepts_what_the_producer_emits(self) -> None:
         """The producer and the build's refusal gate must agree: anything this
@@ -431,7 +464,7 @@ class TestWriteDevicesFile:
 
         document = write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
-        assert document == {"settables": [], "readables": []}
+        assert document == {"settables": [], "triggerables": [], "readables": []}
         assert _SOURCE.describe() in path.read_text(encoding="utf-8")
 
     def test_leaves_no_temp_file_behind(self, tmp_path) -> None:

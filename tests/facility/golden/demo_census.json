@@ -800,7 +800,7 @@
     {
       "file": "tests/cli/test_facility_error_output.py",
       "pin": "text:bluesky plan devices: {value} settable",
-      "value": 681
+      "value": 679
     },
     {
       "file": "tests/cli/test_facility_error_output.py",
