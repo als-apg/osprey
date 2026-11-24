@@ -337,6 +337,8 @@ _SESSION_READBACK = "SR:MAG:HCM:07:CUR:RB"
 MOVING_PLAN_SOURCE = """from bluesky.utils import Msg
 from pydantic import BaseModel
 
+PLAN_METADATA = {"name": "moving_scan", "writes": True}
+
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 
 

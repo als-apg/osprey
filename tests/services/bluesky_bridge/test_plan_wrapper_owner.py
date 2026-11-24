@@ -60,6 +60,7 @@ from osprey.audit.posture import POSTURE_ENV_VAR
 from osprey.services.bluesky_bridge import qserver_startup, session_upload
 from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+from osprey.services.bluesky_bridge.plan_writes import UndeclaredWriteError
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
@@ -266,6 +267,7 @@ def _catalog_wrapper(plan: Any) -> Any:
         schema=_Params,
         plan=plan,
         description="A stub plan that reports its owner.",
+        metadata=None,
     )
     return qserver_startup._make_plan_function(spec, devices={})
 
@@ -501,7 +503,7 @@ def _write_plan(devices: Any, params: Any) -> Any:
     yield from bps.mv(devices[params.motor], params.setpoint)
 
 
-_WRITE_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}}}
+_WRITE_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}, "writes": True}}
 
 from bluesky import plan_stubs as bps
 from pydantic import BaseModel, ConfigDict
@@ -556,6 +558,7 @@ def _catalog_write_wrapper(device: ConnectorSettable) -> Any:
         schema=_DeviceParams,
         plan=_write_plan,
         description="A stub plan that drives one channel.",
+        metadata=None,
     )
     return qserver_startup._make_plan_function(spec, devices={_DEVICE_NAME: device})
 
@@ -656,6 +659,73 @@ def test_a_write_that_failed_rather_than_was_refused_earns_no_line(
     assert _warnings_from(caplog, logger_name) == []
     assert isinstance(failure.value.__cause__, ChannelWriteFailedError)
     assert connector.write_calls != []
+
+
+# --- a launch writes only what its plan declares ----------------------------
+#
+# Both wrappers run the plan through the one guard that reads each message's
+# device-stated writes before the RunEngine sees it. A plan that does not
+# declare `writes: true` is refused at its first write, and that write is never
+# sent; a plan that declares it, or a catalog plan with no authoring metadata,
+# runs its write.
+
+_UNDECLARED_SOURCE = _WRITE_SOURCE.replace('"writes": True', '"writes": False')
+
+
+def _catalog_declaring_wrapper(device: ConnectorSettable, metadata: Any) -> Any:
+    """The device-driving catalog plan, carrying ``metadata`` as its authoring block."""
+    spec = SimpleNamespace(
+        name=_PLAN_NAME,
+        schema=_DeviceParams,
+        plan=_write_plan,
+        description="A stub plan that drives one channel.",
+        metadata=metadata,
+    )
+    return qserver_startup._make_plan_function(spec, devices={_DEVICE_NAME: device})
+
+
+def _session_declaring_wrapper(device: ConnectorSettable, source: str) -> Any:
+    namespace: dict[str, Any] = {"__name__": "__main__", _DEVICE_NAME: device}
+    return install_session_plan(namespace, _PLAN_NAME, source)
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_both_wrappers_refuse_an_undeclared_write_before_it_is_sent(kind: str) -> None:
+    connector = FakeConnector(readbacks={_CHANNEL: 0.0})
+    device = _device(connector)
+    if kind == "catalog":
+        plan_function = _catalog_declaring_wrapper(device, SimpleNamespace(writes=False))
+    else:
+        plan_function = _session_declaring_wrapper(device, _UNDECLARED_SOURCE)
+
+    with pytest.raises(UndeclaredWriteError) as refusal:
+        RunEngine(context_managers=[])(plan_function())
+
+    assert str(refusal.value) == (
+        f"plan {_PLAN_NAME!r} does not declare writes: true and this launch writes "
+        f"{_CHANNEL}; state writes: true in PLAN_METADATA to run it"
+    )
+    assert connector.write_calls == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "declaration"),
+    [("catalog", SimpleNamespace(writes=True)), ("catalog", None), ("session", _WRITE_SOURCE)],
+    ids=["catalog-writes-true", "catalog-no-metadata", "session-writes-true"],
+)
+def test_both_wrappers_run_a_declared_write(kind: str, declaration: Any) -> None:
+    connector = FakeConnector(readbacks={_CHANNEL: 0.0})
+    device = _device(connector)
+    if kind == "catalog":
+        plan_function = _catalog_declaring_wrapper(device, declaration)
+    else:
+        plan_function = _session_declaring_wrapper(device, declaration)
+
+    RunEngine(context_managers=[])(plan_function())
+
+    assert [(address, value) for address, value, _ in connector.write_calls] == [
+        (_CHANNEL, _SETPOINT)
+    ]
 
 
 # --- what a plan's own failure may be carrying ------------------------------

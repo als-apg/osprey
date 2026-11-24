@@ -441,16 +441,27 @@ def _make_plan_function(
     seam — not this handler — that knows a refusal out of a device's ``set()``
     reaches a plan wrapped in the RunEngine's own failure rather than as
     itself.
+
+    **A launch writes only what its plan declares.** The plan runs through
+    ``plan_writes.held_to_declaration``, shared with the session-plan wrapper:
+    every message's writes are read from its device's own statement before the
+    RunEngine sees it, a device that can write but states nothing refuses the
+    launch, and a plan whose metadata does not say ``writes: true`` is refused
+    at its first write, before that write is sent. A plan with no authoring
+    metadata is held only to every write being stated.
     """
     # Absolute, not relative — see the module docstring. Imported at wrapper
     # build time rather than inside the generator so a missing pre-flight is a
     # startup failure, not a surprise on the first run.
+    from osprey.services.bluesky_bridge.plan_writes import held_to_declaration
     from osprey.services.bluesky_bridge.preflight import (
         available_devices_phrase,
         probe_before_motion,
         warn_if_write_refused,
     )
     from osprey_connectors.posture_store import bind_owner, current_owner
+
+    declares_writes = None if spec.metadata is None else spec.metadata.writes
 
     def plan_function(**kwargs: Any) -> Generator[Any, Any, Any]:
         with bind_owner(kwargs) as clean:
@@ -473,7 +484,7 @@ def _make_plan_function(
                     f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
             try:
-                return (yield from plan)
+                return (yield from held_to_declaration(spec.name, declares_writes, plan))
             except Exception as exc:
                 # Everything, because a refusal wears two shapes and the seam
                 # that knows both is the one that decides whether this is one
