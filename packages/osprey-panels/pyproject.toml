@@ -20,20 +20,17 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/als-apg/osprey"
 Issues = "https://github.com/als-apg/osprey/issues"
-Changelog = "https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/CHANGELOG.md"
 
 [project.scripts]
 osprey-panels = "osprey_panels.cli:main"
 
 [tool.hatch.version]
 source = "vcs"
-# The package has its own calendar stream, on its own tags:
-# osprey-panels-vYYYY.M.P. `root` climbs to the repository the tags live in;
-# the describe glob reads only this package's calendar tags, and the backend's
-# default tag regex strips the `osprey-panels-` prefix and leading `v`. With no
-# such tag reachable the build is 0.0.postN+g…, which is intended until the
-# package's first release. The describe command sits in the `scm.git` table, not
-# the deprecated flat `git_describe_command` key, as in osprey-facility.
+# The package is not published and has no release tags. `root` climbs to the
+# repository; the describe glob matches no tag there, so every build is
+# 0.0.postN+g…, and the framework's `v*` tags never number it. The describe
+# command sits in the `scm.git` table, not the deprecated flat
+# `git_describe_command` key, as in osprey-facility.
 raw-options = { root = "../..", version_scheme = "post-release", scm = { git = { describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-panels-v2[0-9][0-9][0-9].*" } } }
 
 # What the panels promise the documents around them: the facility-document
@@ -43,8 +40,7 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # Rule: adding a read is additive and needs only this table. Dropping a read,
 # or changing the emitted version, is a recorded retirement: the old value
 # moves to `retired`, with its reason written beside it. A value the base
-# revision or a reachable osprey-panels-v* tag listed must stay in `reads`,
-# `emits` or `retired`; tests/osprey_panels_tests/test_stability_table.py
+# revision listed must stay in `reads`, `emits` or `retired`; tests/osprey_panels_tests/test_stability_table.py
 # holds both the code and that history to this table.
 [tool.osprey-panels.compat]
 reads = ["osprey.facility.facility/4"]
@@ -57,13 +53,12 @@ version-file = "src/osprey_panels/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/osprey_panels"]
 
-# Unreleased changelog fragments are repository workflow, not package content:
-# the release fold empties the directory into CHANGELOG.md, which does ship. So
-# is the package's checks module, which only the repository's check command
-# reads, and `tools/`, the font-metrics generator and its font, which only a
-# maintainer regenerating `metrics.py` runs.
+# Repository workflow, not package content: the package's checks module, which
+# only the repository's check command reads, and `tools/`, the font-metrics
+# generator and its font, which only a maintainer regenerating `metrics.py`
+# runs.
 [tool.hatch.build.targets.sdist]
-exclude = ["changelog.d", "repo_checks.py", "tools"]
+exclude = ["repo_checks.py", "tools"]
 
 # The package suite's test dependencies: a group, not an extra, so they never
 # reach the wheel's metadata. `uv sync --package osprey-panels` installs it.

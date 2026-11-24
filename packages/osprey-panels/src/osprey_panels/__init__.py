@@ -58,8 +58,8 @@ from osprey_panels.tables import (
 )
 from osprey_panels.view import Target, View
 
-# The version comes from the package's own osprey-panels-v* calendar tags (see
-# pyproject.toml): a built distribution answers from its own metadata, and a
+# The package is not published and has no release tags (see pyproject.toml):
+# a built distribution answers from its own metadata, and a
 # bare source tree — no dist installed, no build hook run — answers honestly
 # that it is unbuilt.
 try:
