@@ -960,7 +960,7 @@ class TestReadGatewayOnly:
         _set_switch(gateways.state_dir, position)
         async with _serving(listener) as client:
             connector = gateways.session.connector
-            assert connector._selected_role == "read_only"
+            assert connector.selected_gateway_role == "read_only"
             assert gateways.addresses == ["read-gw"]
             assert is_readonly_run()
             writes = gateways.session.writes
@@ -976,7 +976,7 @@ class TestReadGatewayOnly:
         gateways.serve_section(_epics_section(read_only=READ_GATEWAY, write_access=WRITE_GATEWAY))
         _set_switch(gateways.state_dir, position)
         session = await session_module.ControlSession.open(surface=child_module.SURFACE)
-        assert session.connector._selected_role == "write_access"
+        assert session.connector.selected_gateway_role == "write_access"
         assert gateways.addresses == ["write-gw"]
         await session.close()
 
