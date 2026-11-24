@@ -24,6 +24,9 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
+from osprey.services.bluesky_bridge.devices.specs import DeviceSpecs, TriggerableSpec
+
+_NO_DEVICES = DeviceSpecs([], [], [])
 
 
 def _write(tmp_path: Path, doc: object, name: str = "devices.yml") -> Path:
@@ -47,7 +50,7 @@ def test_duplicate_settable_name_drops_the_later_entry(tmp_path: Path) -> None:
             ]
         },
     )
-    settables, _ = specs_from_file(path)
+    settables = specs_from_file(path).settables
     assert [s.name for s in settables] == ["m"]
     assert settables[0].setpoint_pv == "A:SP"  # first wins, not the shadowing second
 
@@ -63,7 +66,8 @@ def test_readable_name_colliding_with_a_settable_is_dropped(tmp_path: Path) -> N
             "readables": [{"name": "dev", "pv": "B:RB"}, {"name": "other", "pv": "C:RB"}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert [s.name for s in settables] == ["dev"]
     assert [s.name for s in readables] == ["other"]  # 'dev' readable dropped
 
@@ -77,7 +81,8 @@ def test_distinct_names_are_all_kept(tmp_path: Path) -> None:
             "readables": [{"name": "d1", "pv": "C:RB"}, {"name": "d2", "pv": "D:RB"}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert [s.name for s in settables] == ["m1", "m2"]
     assert [s.name for s in readables] == ["d1", "d2"]
 
@@ -96,7 +101,8 @@ def test_comma_bearing_pv_survives_the_round_trip(tmp_path: Path) -> None:
             "readables": [{"name": "bpm", "pv": "BTS:BPM,1:X:RB"}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert settables[0].setpoint_pv == comma_pv
     assert settables[0].readback_pv == "BTS:QF,1:CURRENT:RB"
     assert readables[0].read_pv == "BTS:BPM,1:X:RB"
@@ -109,7 +115,7 @@ def test_colon_bearing_device_name_survives(tmp_path: Path) -> None:
         tmp_path,
         {"settables": [{"name": "SR:C01:QF:1", "setpoint": "SR:C01:QF:1:SP"}]},
     )
-    settables, _ = specs_from_file(path)
+    settables = specs_from_file(path).settables
     assert [s.name for s in settables] == ["SR:C01:QF:1"]
 
 
@@ -126,7 +132,8 @@ def test_json_document_parses(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert [s.name for s in settables] == ["m"]
     assert settables[0].readback_pv == "A:RB"
     assert [s.name for s in readables] == ["d"]
@@ -136,7 +143,7 @@ def test_omitted_readback_becomes_none(tmp_path: Path) -> None:
     """``readback`` is optional; omitting it leaves ``readback_pv`` unset so the
     device falls back to the setpoint PV for reads."""
     path = _write(tmp_path, {"settables": [{"name": "m", "setpoint": "A:SP"}]})
-    settables, _ = specs_from_file(path)
+    settables = specs_from_file(path).settables
     assert settables[0].readback_pv is None
 
 
@@ -144,7 +151,7 @@ def test_path_may_be_a_string(tmp_path: Path) -> None:
     """The container passes an env-var string; ``str`` is accepted alongside
     ``Path``."""
     path = _write(tmp_path, {"readables": [{"name": "d", "pv": "C:RB"}]})
-    _, readables = specs_from_file(str(path))
+    readables = specs_from_file(str(path)).readables
     assert [s.name for s in readables] == ["d"]
 
 
@@ -175,7 +182,8 @@ def test_malformed_entry_is_skipped_and_the_rest_survive(tmp_path: Path) -> None
             ],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert [s.name for s in settables] == ["good", "also_good"]
     assert [s.name for s in readables] == ["rb_good", "rb_also_good"]
 
@@ -183,12 +191,12 @@ def test_malformed_entry_is_skipped_and_the_rest_survive(tmp_path: Path) -> None
 def test_missing_file_yields_no_devices(tmp_path: Path) -> None:
     """An unreadable path degrades to an empty device set rather than raising --
     the caller warns that the worker will expose no plans."""
-    assert specs_from_file(tmp_path / "does-not-exist.yml") == ([], [])
+    assert specs_from_file(tmp_path / "does-not-exist.yml") == _NO_DEVICES
 
 
 def test_directory_path_yields_no_devices(tmp_path: Path) -> None:
     """A path that is a directory is unreadable too, and degrades the same way."""
-    assert specs_from_file(tmp_path) == ([], [])
+    assert specs_from_file(tmp_path) == _NO_DEVICES
 
 
 @pytest.mark.parametrize(
@@ -203,7 +211,7 @@ def test_directory_path_yields_no_devices(tmp_path: Path) -> None:
 def test_file_without_a_usable_document_yields_no_devices(tmp_path: Path, text: str) -> None:
     path = tmp_path / "devices.yml"
     path.write_text(text, encoding="utf-8")
-    assert specs_from_file(path) == ([], [])
+    assert specs_from_file(path) == _NO_DEVICES
 
 
 def test_non_mapping_document_yields_no_devices_and_one_warning(tmp_path: Path, caplog) -> None:
@@ -211,7 +219,7 @@ def test_non_mapping_document_yields_no_devices_and_one_warning(tmp_path: Path, 
     one warning -- not one per entry."""
     path = _write(tmp_path, [{"name": "m", "setpoint": "A:SP"}])
     with caplog.at_level("WARNING"):
-        assert specs_from_file(path) == ([], [])
+        assert specs_from_file(path) == _NO_DEVICES
     assert len(caplog.records) == 1
 
 
@@ -224,7 +232,7 @@ def test_unknown_top_level_key_rejects_the_document(tmp_path: Path, caplog) -> N
         {"settables": [{"name": "m", "setpoint": "A:SP"}], "readable": [{"name": "d", "pv": "C"}]},
     )
     with caplog.at_level("WARNING"):
-        assert specs_from_file(path) == ([], [])
+        assert specs_from_file(path) == _NO_DEVICES
     assert len(caplog.records) == 1
 
 
@@ -238,7 +246,8 @@ def test_non_list_device_section_is_skipped(tmp_path: Path) -> None:
             "readables": [{"name": "d", "pv": "C:RB"}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert settables == []
     assert [s.name for s in readables] == ["d"]
 
@@ -258,7 +267,7 @@ def test_a_settable_carries_its_settle_tolerance(tmp_path: Path) -> None:
             ]
         },
     )
-    settables, _ = specs_from_file(path)
+    settables = specs_from_file(path).settables
     assert [(s.name, s.settle_tolerance) for s in settables] == [
         ("m", 0.011),
         ("z", 0.0),
@@ -281,7 +290,7 @@ def test_a_bad_settle_tolerance_skips_the_entry(tmp_path: Path, caplog, bad: Any
         },
     )
     with caplog.at_level("WARNING"):
-        settables, _ = specs_from_file(path)
+        settables = specs_from_file(path).settables
     assert [s.name for s in settables] == ["good"]
     assert "settle_tolerance" in caplog.text
 
@@ -318,7 +327,7 @@ def test_a_settable_carries_a_relative_tolerance_and_a_motion_band(tmp_path: Pat
             ]
         },
     )
-    settables, _ = specs_from_file(path)
+    settables = specs_from_file(path).settables
     assert [(s.name, s.settle_tolerance, s.settle_relative, s.motion_band) for s in settables] == [
         ("r", None, 1e-4, None),
         ("b", None, None, 0.011),
@@ -348,7 +357,7 @@ def test_a_bad_relative_tolerance_or_motion_band_skips_the_entry(
         },
     )
     with caplog.at_level("WARNING"):
-        settables, _ = specs_from_file(path)
+        settables = specs_from_file(path).settables
     assert [s.name for s in settables] == ["ok"]
     assert key in caplog.text
     assert validate_device_document({"settables": [{"name": "m", "setpoint": "A:SP", key: bad}]})
@@ -386,7 +395,8 @@ def test_a_device_carries_the_units_its_entry_states(tmp_path: Path) -> None:
             "readables": [{"name": "t", "pv": "T", "unit": "u4"}, {"name": "s", "pv": "S"}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     assert [(s.name, s.unit, s.setpoint_unit) for s in settables] == [
         ("p", "u1", "u2"),
         ("q", "u3", None),
@@ -416,7 +426,8 @@ def test_a_bad_unit_skips_the_entry_and_is_a_validation_problem(
     good = {**entry, "name": "ok"}
     path = _write(tmp_path, {section: [{**entry, key: bad}, good]})
     with caplog.at_level("WARNING"):
-        settables, readables = specs_from_file(path)
+        found = specs_from_file(path)
+        settables, readables = found.settables, found.readables
     assert [s.name for s in (settables if section == "settables" else readables)] == ["ok"]
     assert key in caplog.text
     assert validate_device_document({section: [{**entry, key: bad}]}) == [
@@ -443,7 +454,7 @@ def test_a_readable_reads_its_shape(tmp_path: Path) -> None:
         tmp_path,
         {"readables": [{"name": "w", "pv": "W", "shape": [500]}, {"name": "s", "pv": "S"}]},
     )
-    _, readables = specs_from_file(path)
+    readables = specs_from_file(path).readables
     assert [(r.name, r.shape) for r in readables] == [("w", (500,)), ("s", None)]
     assert validate_device_document({"readables": [{"name": "w", "pv": "W", "shape": [500]}]}) == []
 
@@ -459,7 +470,7 @@ def test_a_readable_with_a_malformed_shape_is_skipped_with_a_warning(
         tmp_path, {"readables": [{**_READABLE, "shape": bad}, {**_READABLE, "name": "ok"}]}
     )
     with caplog.at_level("WARNING"):
-        _, readables = specs_from_file(path)
+        readables = specs_from_file(path).readables
     assert [r.name for r in readables] == ["ok"]
     assert "'bad'" in caplog.text
     assert "shape" in caplog.text
@@ -636,7 +647,8 @@ def test_comma_bearing_pv_reaches_the_connector_of_a_built_device(tmp_path: Path
             "readables": [{"name": "bpm1", "pv": read_pv}],
         },
     )
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
 
     async def build_and_exercise() -> _FakeConnector:
         connector = _FakeConnector()
@@ -713,7 +725,8 @@ def test_facility_scale_document_parses_and_builds_within_the_worker_budget(
     path = _write(tmp_path, _scale_document(_SCALE_SETTABLES, _SCALE_READABLES))
 
     parse_start = time.perf_counter()
-    settables, readables = specs_from_file(path)
+    found = specs_from_file(path)
+    settables, readables = found.settables, found.readables
     parse_seconds = time.perf_counter() - parse_start
 
     # Built and exercised inside ONE event loop: an ophyd-async device is bound
@@ -748,3 +761,88 @@ def test_facility_scale_document_parses_and_builds_within_the_worker_budget(
     assert len(readables) == _SCALE_READABLES
     assert len(devices) == _SCALE_SETTABLES + 1 + _SCALE_READABLES
     assert connector.writes == [("BTS:QF,1:CURRENT:SP", 0.0)]
+
+
+# --- triggerables -------------------------------------------------------------
+
+
+_TRIGGERABLE = {
+    "name": "ES1:MCA01:ACQ",
+    "command": "ES1:MCA01:ACQ",
+    "status": "ES1:MCA01:ACQ_STATUS",
+    "idle": "Idle",
+    "timeout_s": 5.0,
+}
+
+
+def test_a_triggerable_entry_parses(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        {"triggerables": [_TRIGGERABLE, {**_TRIGGERABLE, "name": "b", "idle": 0, "timeout_s": 2}]},
+    )
+
+    found = specs_from_file(path)
+
+    assert found.triggerables == [
+        TriggerableSpec("ES1:MCA01:ACQ", "ES1:MCA01:ACQ", "ES1:MCA01:ACQ_STATUS", "Idle", 5.0),
+        TriggerableSpec("b", "ES1:MCA01:ACQ", "ES1:MCA01:ACQ_STATUS", 0, 2.0),
+    ]
+    assert validate_device_document(yaml.safe_load(path.read_text())) == []
+
+
+@pytest.mark.parametrize(
+    ("override", "problem"),
+    [
+        ({"command": ""}, "'command' must be a non-empty string"),
+        ({"status": None}, "'status' must be a non-empty string"),
+        ({"idle": None}, "'idle' must be a non-null scalar"),
+        ({"idle": [0]}, "'idle' must be a non-null scalar"),
+        ({"timeout_s": 0}, "'timeout_s' must be a finite number > 0"),
+        ({"timeout_s": float("inf")}, "'timeout_s' must be a finite number > 0"),
+        ({"timeout_s": True}, "'timeout_s' must be a finite number > 0"),
+    ],
+)
+def test_a_malformed_triggerable_is_skipped_and_reported(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, override: dict[str, Any], problem: str
+) -> None:
+    bad = {**_TRIGGERABLE, "name": "bad", **override}
+    doc = {"triggerables": [bad, _TRIGGERABLE]}
+    path = _write(tmp_path, doc)
+
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(path)
+
+    assert [spec.name for spec in found.triggerables] == ["ES1:MCA01:ACQ"]
+    assert "'bad'" in caplog.text
+    assert f"triggerables[0]: {problem}" in validate_device_document(doc)
+
+
+def test_a_document_without_triggerables_still_loads(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        {
+            "settables": [{"name": "m", "setpoint": "A:SP"}],
+            "readables": [{"name": "d", "pv": "B:RB"}],
+        },
+    )
+
+    found = specs_from_file(path)
+
+    assert [spec.name for spec in found.settables] == ["m"]
+    assert [spec.name for spec in found.readables] == ["d"]
+    assert found.triggerables == []
+
+
+def test_a_triggerable_name_claimed_by_a_settable_is_dropped(tmp_path: Path) -> None:
+    doc = {
+        "settables": [{"name": "ES1:MCA01:ACQ", "setpoint": "A:SP"}],
+        "triggerables": [_TRIGGERABLE],
+        "readables": [{"name": "ES1:MCA01:ACQ", "pv": "B:RB"}],
+    }
+    path = _write(tmp_path, doc)
+
+    found = specs_from_file(path)
+
+    assert [spec.name for spec in found.settables] == ["ES1:MCA01:ACQ"]
+    assert found.triggerables == [] and found.readables == []
+    assert len([p for p in validate_device_document(doc) if "already claimed" in p]) == 2
