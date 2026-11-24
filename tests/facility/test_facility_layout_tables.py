@@ -16,7 +16,7 @@ from osprey.facility import settings as facility_settings
 from osprey.facility.views import benchmarks
 from osprey.services.code_review import settings as code_review_settings
 
-QUERY_SOURCES = "benchmarks/cross_paradigm/queries"
+QUERY_SOURCES = "benchmarks/channel_finder"
 
 IN_CONTEXT_QUERY_FILE = "in_context_queries.json"
 

@@ -16,20 +16,20 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   whose ``Range`` lacks a finite edge carries ``writable: false`` beside
   whichever edge is stated, and the import names it: the channel is refused
   until a person bands it.
-* ``seeds.yaml``: the nominal the export states for each channel no model
+* ``simulation/seeds.yaml``: the nominal the export states for each channel no model
   wires. A wired channel starts from its deck, so its nominal is not written
   and the import says how many it skipped.
-* ``measurement/<model>.yaml``: for each model that carries wiring, the groups
+* ``simulation/measurement/<model>.yaml``: for each model that carries wiring, the groups
   and instruments its wiring names, every measurement kind they allow
   (:func:`osprey_facility.kinds.builtin_kinds`) and pyAML's step and
   settle keys (:data:`TUNING`). ``quad`` and ``sext`` list the families the
   export tags as tune and chromaticity correctors; the import names the
   wired families each leaves out, and a role it does not write.
-* ``classes.yaml``: one row per class of the mapping the vocabulary lacks,
+* ``vocabulary/classes.yaml``: one row per class of the mapping the vocabulary lacks,
   each declared branch ahead of the classes that extend it.
 * ``identity.yaml``: the mapping's ``facility:`` block, which is then removed
   from ``mapping.yaml``; every other line of the mapping stays as written.
-* ``scenarios/readout.yaml``: the readout the export states for each device's
+* ``simulation/scenarios/readout.yaml``: the readout the export states for each device's
   ``Monitor`` reading, as a scenario a deployer applies by choice (:func:`_readout`).
   A value at its identity (gain 1, offset 0, roll 0, crunch 0, polarity 1) is
   not written. An offset the family's ``monitor_inverse`` is seen to hold is

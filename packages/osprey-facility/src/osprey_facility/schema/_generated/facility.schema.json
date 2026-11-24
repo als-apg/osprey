@@ -2364,7 +2364,7 @@
             }
           ],
           "default": null,
-          "description": "`[{entry_id, when, author, title, text, tags?, categories?, loto_tag?, extra?, attachments?}]`, the entries the scenario narrates. `attachments` lists the entry's pictures, each `{path: <picture file>}` or `{plot: <plot spec .json>}`, relative to the scenario's own directory `scenarios/<name>/`.",
+          "description": "`[{entry_id, when, author, title, text, tags?, categories?, loto_tag?, extra?, attachments?}]`, the entries the scenario narrates. `attachments` lists the entry's pictures, each `{path: <picture file>}` or `{plot: <plot spec .json>}`, relative to the scenario's own directory `simulation/scenarios/<name>/`.",
           "title": "Logbook"
         },
         "name": {

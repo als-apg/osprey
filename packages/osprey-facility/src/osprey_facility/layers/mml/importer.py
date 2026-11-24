@@ -74,8 +74,9 @@ a stop leaves the layer directory as it was.
 The wiring pass's lines are printed once the records are written
 (:mod:`~osprey_facility.layers.mml.wiring` lists them). After the records,
 :func:`import_mml` seeds the authored files that do not
-exist yet (``limits.yaml``, ``seeds.yaml``, ``measurement/<model>.yaml``,
-``classes.yaml`` and ``identity.yaml``; :mod:`~osprey_facility.layers.mml.seed`)
+exist yet (``limits.yaml``, ``simulation/seeds.yaml``,
+``simulation/measurement/<model>.yaml``, ``vocabulary/classes.yaml`` and
+``identity.yaml``; :mod:`~osprey_facility.layers.mml.seed`)
 and prints what the seeding reports.
 
 The export loaders pull numpy and scipy and the deck reader pulls pyAT, so

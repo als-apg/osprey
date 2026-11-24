@@ -154,7 +154,7 @@ def _two_channel_scenario_measurement() -> dict[str, Any]:
         {
             "name": "optics",
             "engine": "pyat",
-            "deck": "decks/optics/lattice.m",
+            "deck": "simulation/decks/optics/lattice.m",
             "measurement": {
                 "kinds": ["orm"],
                 "groups": {"bpm": ["BPM"], "hcor": ["HCM"], "vcor": ["VCM"]},
