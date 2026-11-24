@@ -47,6 +47,7 @@ from ophyd_async.core import (
     StandardReadableFormat as Format,
 )
 
+from ..plan_writes import ChannelWrite
 from ._connect import connect_all
 
 
@@ -58,6 +59,9 @@ class MockSettable(StandardReadable):
     no velocity or settle time to simulate — contract tests care that
     ``set()`` completes and the readback reflects the new value, not motion
     realism.
+
+    :meth:`set_writes` states the one write ``set()`` stands in for: the demand
+    to the channel this device is named for.
     """
 
     def __init__(self, name: str = "", initial_value: float = 0.0) -> None:
@@ -65,6 +69,10 @@ class MockSettable(StandardReadable):
             self.readback, self._set_readback = soft_signal_r_and_setter(float, initial_value)
         self.setpoint = soft_signal_rw(float, initial_value)
         super().__init__(name=name)
+
+    def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``set(value)`` stands in for: ``value`` to this device's name."""
+        return (ChannelWrite(self.name, value),)
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
@@ -86,6 +94,8 @@ class MockReadable(StandardReadable):
     Deterministic on purpose — a fixed count sequence (1, 2, 3, ...) per
     instance, rather than a random value, so lifecycle/contract tests get
     reproducible documents without needing to seed an RNG.
+
+    :meth:`trigger_writes` states that ``trigger()`` writes no channel.
     """
 
     def __init__(self, name: str = "") -> None:
@@ -93,6 +103,10 @@ class MockReadable(StandardReadable):
             self.value, self._set_value = soft_signal_r_and_setter(int, 0)
         self._count = 0
         super().__init__(name=name)
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``trigger()`` makes: none. No I/O."""
+        return ()
 
     @AsyncStatus.wrap
     async def trigger(self) -> None:
