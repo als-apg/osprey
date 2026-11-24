@@ -1,6 +1,6 @@
 {
   "base_sha": "5ae6e91a97a153543a22f8278fec9d9f6e027b8a",
-  "head_sha": null,
+  "head_sha": "bbd7ba7a0c41b3dd651204d96f0339c368fad58b",
   "files": [
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/scripts/test_connectors_compat_matrix.py",
