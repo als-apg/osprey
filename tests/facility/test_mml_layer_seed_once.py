@@ -38,7 +38,7 @@ from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
 from osprey_facility.layers.mml.seed import READOUT_FILE, TUNING, band
 from osprey_facility.records import FacilityRecords
 from osprey_facility.sources import group_families
-from osprey_facility.validate import known_classes, run_stages
+from osprey_facility.validate import known_classes, record_writable, run_stages
 from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import (
     BUILT,
@@ -455,14 +455,14 @@ def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
 
     import_mml([ao], facility)
 
-    lines = [line for line in capsys.readouterr().out.splitlines() if "limits unbanded" in line]
+    lines = [line for line in capsys.readouterr().out.splitlines() if "limits not writable" in line]
     wired = _wired(facility)
     quads = sorted(address for address in wired if address.startswith("QK:QF:") and "SP" in address)
     sexts = sorted(address for address in wired if address.startswith("QK:SF:") and "SP" in address)
     assert quads and sexts
     assert lines == sorted(
-        [f"limits unbanded: {address} export [-,-]" for address in quads]
-        + [f"limits unbanded: {address} export [0,-]" for address in sexts]
+        [f"limits not writable: {address}: no min_value, no max_value" for address in quads]
+        + [f"limits not writable: {address}: min_value 0.0, no max_value" for address in sexts]
     )
     limits = _limits(facility)
     for address in quads:
@@ -470,6 +470,14 @@ def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
     assert "QK:IDGAP:1:CUR:SP" not in limits
     for address in sexts:
         assert limits[address] == {"address": address, "min_value": 0.0, "writable": False}
+    banded = sorted(
+        address
+        for address in wired
+        if address in limits and "min_value" in limits[address] and "max_value" in limits[address]
+    )
+    assert banded
+    assert limits[banded[0]]["writable"] is True
+    assert not any(banded[0] in line for line in lines)
 
 
 def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
@@ -485,7 +493,26 @@ def test_an_import_beside_a_limits_file_reports_no_unbanded_setpoint(
 
     import_mml([ao], facility)
 
-    assert "limits unbanded" not in capsys.readouterr().out
+    assert "limits not writable" not in capsys.readouterr().out
+
+
+def test_the_seed_writes_what_the_rule_answers(synthetic: Path) -> None:
+    value_types = {
+        channel["id"]: channel.get("value_type", "float")
+        for channel in _load(synthetic / LAYER_DIR / "channels.yaml")
+    }
+    wired = _wired(synthetic)
+    answered = [
+        record
+        for record in _load(synthetic / "limits.yaml")["records"]
+        if record["address"] in wired
+    ]
+    assert answered
+    for record in answered:
+        stated = {slot: value for slot, value in record.items() if slot != "writable"}
+        assert record["writable"] is record_writable(
+            stated, "setpoint", value_types[record["address"]]
+        )
 
 
 # --- seeds.yaml ---------------------------------------------------------------------
