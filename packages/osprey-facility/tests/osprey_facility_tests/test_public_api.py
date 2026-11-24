@@ -12,6 +12,7 @@ import ast
 import importlib
 import json
 import re
+from importlib import metadata
 from pathlib import Path
 from types import ModuleType
 
@@ -110,6 +111,18 @@ def test_a_public_module_lists_every_public_name_it_defines(name: str) -> None:
     owed = {entry for entry in UNLISTED if entry.rpartition(".")[0] == name}
     assert unlisted - owed == set()
     assert owed - unlisted == set(), "listed now; remove from UNLISTED"
+
+
+def test_the_package_declares_its_version() -> None:
+    package = importlib.import_module("osprey_facility")
+    assert "__version__" in package.__all__
+    try:
+        installed = metadata.version("osprey-facility")
+    except metadata.PackageNotFoundError:  # pragma: no cover — source tree without an install
+        installed = "0.0.0+unbuilt"
+    assert package.__version__ == installed
+    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "`osprey_facility.__version__`" in readme, "the README does not declare the version"
 
 
 def test_the_accessor_returns_the_current_schema() -> None:

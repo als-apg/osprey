@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -228,3 +229,155 @@ def test_current_schema_const_is_the_facility_header(current: dict[str, Any]) ->
 def test_a_floor_exists_for_the_current_header(generator: ModuleType) -> None:
     floor_path = GENERATED_DIR / generator.floor_name(FACILITY_HEADER)
     assert floor_path.is_file(), f"{floor_path.name} is missing; run `{COMMAND}`"
+
+
+# --- identity -----------------------------------------------------------------
+
+DIALECT = "https://json-schema.org/draft/2020-12/schema"
+IDENTITY_BASE = "https://als-apg.github.io/osprey/latest/schemas/facility"
+
+
+def _with_identity(schema: dict[str, Any], n: int) -> dict[str, Any]:
+    return {"$schema": DIALECT, "$id": f"{IDENTITY_BASE}/{n}.schema.json", **schema}
+
+
+def test_top_level_identity_is_neither_breaking_nor_additive(floor: dict[str, Any]) -> None:
+    bare = {k: v for k, v in floor.items() if k not in {"$schema", "$id"}}
+    newer = _with_identity(copy.deepcopy(bare), 4)
+    result = classify(bare, newer)
+    assert result.breaking == ()
+    assert result.additions == ()
+    removed = classify(newer, bare)
+    assert removed.breaking == ()
+    assert removed.additions == ()
+
+
+def test_a_changed_top_level_id_is_not_breaking(floor: dict[str, Any]) -> None:
+    older = _with_identity(copy.deepcopy(floor), 4)
+    newer = _with_identity(copy.deepcopy(floor), 5)
+    result = classify(older, newer)
+    assert result.breaking == ()
+    assert result.additions == ()
+
+
+@pytest.mark.parametrize("keyword", ["$id", "$schema"])
+def test_identity_below_the_root_still_compares(floor: dict[str, Any], keyword: str) -> None:
+    newer = copy.deepcopy(floor)
+    newer["$defs"]["Channel"][keyword] = "https://example.invalid/channel.schema.json"
+    result = classify(floor, newer)
+    assert not result.additive
+    assert any(line.startswith(f"#/$defs/Channel/{keyword}") for line in result.breaking), (
+        result.breaking
+    )
+
+
+def test_a_changed_id_below_the_root_is_breaking(floor: dict[str, Any]) -> None:
+    older = copy.deepcopy(floor)
+    older["$defs"]["Channel"]["$id"] = "https://example.invalid/a.schema.json"
+    newer = copy.deepcopy(floor)
+    newer["$defs"]["Channel"]["$id"] = "https://example.invalid/b.schema.json"
+    result = classify(older, newer)
+    assert any(line.startswith("#/$defs/Channel/$id") for line in result.breaking), result.breaking
+
+
+# --- published identity ---------------------------------------------------------
+
+
+def test_generator_check_round_trips(generator: ModuleType, tmp_path: Path) -> None:
+    assert generator.main(["--output-dir", str(tmp_path)]) == 0
+    assert generator.main(["--check", "--output-dir", str(tmp_path)]) == 0
+    assert generator.main(["--check"]) == 0, f"_generated/ is stale; run `{COMMAND}`"
+
+
+def test_generator_check_fails_on_a_stale_current(generator: ModuleType, tmp_path: Path) -> None:
+    generator.main(["--output-dir", str(tmp_path)])
+    (tmp_path / generator.CURRENT).write_text("{}\n", encoding="utf-8")
+    assert generator.main(["--check", "--output-dir", str(tmp_path)]) == 1
+
+
+def test_current_carries_the_dialect_and_the_id_of_its_header(
+    generator: ModuleType, current: dict[str, Any]
+) -> None:
+    n = generator.header_version(FACILITY_HEADER)
+    assert generator.DIALECT == DIALECT
+    assert generator.IDENTITY_BASE == IDENTITY_BASE
+    assert current["$schema"] == DIALECT
+    assert current["$id"] == f"{IDENTITY_BASE}/{n}.schema.json"
+    assert current["$id"].endswith(f"/{n}.schema.json")
+
+
+def test_the_id_names_the_newest_additive_form_of_n(
+    floor: dict[str, Any], current: dict[str, Any]
+) -> None:
+    # Same N as the floor, and nothing in current breaks the floor: the $id
+    # names the newest additive form of N, not a different version.
+    result = classify(floor, current)
+    assert result.breaking == ()
+    assert result.additive
+
+
+def test_floors_are_unchanged_and_carry_no_identity(generator: ModuleType) -> None:
+    floors = sorted(GENERATED_DIR.glob("facility-[0-9]*.schema.json"))
+    floors = [path for path in floors if ".final." not in path.name]
+    assert floors, "no floor is committed"
+    for path in floors:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        assert not set(schema) & set(generator.IDENTITY_KEYS), path.name
+    # Regenerating never rewrites a committed floor.
+    before = {path: path.read_bytes() for path in floors}
+    assert generator.main(["--check"]) == 0
+    assert {path: path.read_bytes() for path in floors} == before
+
+
+def test_a_written_floor_is_current_without_identity(generator: ModuleType, tmp_path: Path) -> None:
+    generator.main(["--output-dir", str(tmp_path)])
+    current = json.loads((tmp_path / generator.CURRENT).read_text(encoding="utf-8"))
+    floor_text = (tmp_path / generator.floor_name(FACILITY_HEADER)).read_text(encoding="utf-8")
+    assert floor_text == generator.render(generator.without_identity(current))
+    assert not set(json.loads(floor_text)) & set(generator.IDENTITY_KEYS)
+
+
+def _bump(header: str) -> str:
+    prefix, version = header.rsplit("/", 1)
+    return f"{prefix}/{int(version) + 1}"
+
+
+def test_an_n_bump_freezes_the_old_current_as_its_final(
+    generator: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import osprey_facility.validate as validate
+
+    n = generator.header_version(FACILITY_HEADER)
+    generator.main(["--output-dir", str(tmp_path)])
+    old_current = (tmp_path / generator.CURRENT).read_text(encoding="utf-8")
+    old_floor = (tmp_path / generator.floor_name(FACILITY_HEADER)).read_bytes()
+
+    monkeypatch.setattr(validate, "FACILITY_HEADER", _bump(FACILITY_HEADER))
+    assert generator.main(["--output-dir", str(tmp_path)]) == 0
+
+    final_path = tmp_path / generator.final_name(n)
+    assert final_path.read_text(encoding="utf-8") == old_current
+    assert json.loads(final_path.read_text(encoding="utf-8"))["$id"] == (
+        f"{IDENTITY_BASE}/{n}.schema.json"
+    )
+    new_current = json.loads((tmp_path / generator.CURRENT).read_text(encoding="utf-8"))
+    assert new_current["$id"] == f"{IDENTITY_BASE}/{n + 1}.schema.json"
+    new_floor = json.loads(
+        (tmp_path / generator.floor_name(_bump(FACILITY_HEADER))).read_text(encoding="utf-8")
+    )
+    assert not set(new_floor) & set(generator.IDENTITY_KEYS)
+    assert (tmp_path / generator.floor_name(FACILITY_HEADER)).read_bytes() == old_floor
+    assert generator.main(["--check", "--output-dir", str(tmp_path)]) == 0
+
+    # A second run at the new N leaves the frozen final alone.
+    assert generator.main(["--output-dir", str(tmp_path)]) == 0
+    assert final_path.read_text(encoding="utf-8") == old_current
+
+
+def test_a_current_without_id_freezes_no_final(generator: ModuleType, tmp_path: Path) -> None:
+    generator.main(["--output-dir", str(tmp_path)])
+    current = tmp_path / generator.CURRENT
+    bare = generator.without_identity(json.loads(current.read_text(encoding="utf-8")))
+    current.write_text(generator.render(bare), encoding="utf-8")
+    generator.main(["--output-dir", str(tmp_path)])
+    assert not list(tmp_path.glob("*.final.schema.json"))

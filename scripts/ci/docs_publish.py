@@ -7,7 +7,7 @@ development banner, and only the newest `vX.Y.Z` release tag is allowed to
 rewrite the root. The workflow used to work this out in bash, where the
 "newest" tag came from `git tag --sort=-version:refname | head -n1`. That
 sorts in plain string order over *every* tag in the repository, so a
-`checkpoint-*` backup tag, a connector release like `osprey-connectors-v0.1.0`,
+`checkpoint-*` backup tag, a component release like `osprey-connectors-v0.1.0`,
 or a two-component `v2026.7` could win and silently overwrite the site root
 with a build of whatever tree it pointed at.
 
@@ -157,10 +157,11 @@ def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:  # 
        directory, and rewrites the site root if it is the newest release. A
        pre-release tag push (`vX.Y.Z{a|b|rc}N`) publishes into its own
        directory and switcher entry only -- never the root.
-    3. Any other tag ref -- `v2026.7`, `osprey-connectors-v0.1.0`,
-       `checkpoint-*` -- builds but does not deploy. This workflow and
-       `release.yml` share loose `v*`-style triggers, so such refs arrive
-       here routinely and must not reach the site.
+    3. Any other tag ref -- `v2026.7`, a component tag such as
+       `osprey-facility-v2026.12.0`, `checkpoint-*` -- builds but does not
+       deploy. This workflow and `release.yml` share loose `v*`-style
+       triggers, so such refs arrive here routinely and must not reach the
+       site.
     4. `refs/heads/main` publishes `/latest/` and is **never** `is_latest` --
        for every possible tag list, including one where the tag `git
        describe` would name on main is the newest release, and including no

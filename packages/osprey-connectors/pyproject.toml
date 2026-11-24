@@ -90,8 +90,8 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # The framework releases the connectors built at HEAD must keep working under.
 # A framework release pins osprey-connectors with a floor and no ceiling, so a
 # rebuild of one resolves the newest connectors; the `connectors-compat` CI lane
-# and the nightly `connectors-compat-nightly.yml` run HEAD under each release
-# listed here (scripts/ci/connectors_compat_matrix.py reads it).
+# and the nightly `compat-nightly.yml` run HEAD under each release
+# listed here (`scripts/ci/compat_matrix.py --package connectors` reads it).
 #
 # Policy: the newest stable framework release, every stable release published
 # within the last six months, and any pre-release newer than the newest stable

@@ -10,8 +10,9 @@ section that is the last one in the file keeps its last bullet. A version with
 no section prints ``See <CHANGELOG.md> for details.`` instead, so the release
 still gets a body.
 
-Shared by release.yml (the framework's CHANGELOG.md) and release-connectors.yml
-(packages/osprey-connectors/CHANGELOG.md). Stdlib-only.
+Shared by release.yml (the framework's CHANGELOG.md) and release-package.yml
+(the tagged component package's own CHANGELOG.md, the stream's ``changelog`` in
+scripts/ci/release_streams.py). Stdlib-only.
 """
 
 from __future__ import annotations

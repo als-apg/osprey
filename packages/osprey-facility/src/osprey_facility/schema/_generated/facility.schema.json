@@ -2987,6 +2987,8 @@
       "type": "string"
     }
   },
+  "$id": "https://als-apg.github.io/osprey/latest/schemas/facility/4.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "The whole facility file.",
   "properties": {
     "channels": {
