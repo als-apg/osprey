@@ -1146,7 +1146,7 @@ def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
         if channel is None or channel.get("role") != "setpoint":
             raise ValueError(f"{address} is no setpoint in {path}")
         own = records.record_address(address)
-        held = records.record("channel", own) or channel
+        held = records.channel(address) or channel
         pair = held.get("pair")
         readback = str(pair) if pair and pair != own else address
         if simulated is None:

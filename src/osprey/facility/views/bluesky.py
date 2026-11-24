@@ -88,7 +88,7 @@ def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
     """Each setpoint's settle ``tolerance`` record, by address; a further address of a wiring record takes its record's."""
     tolerances: dict[str, Mapping[str, float]] = {}
     for channel in records.of_kind("channel"):
-        held = records.record("channel", records.record_address(channel["id"])) or channel
+        held = records.channel(channel["id"]) or channel
         if held.get("tolerance"):
             tolerances[channel["id"]] = held["tolerance"]
     return tolerances
@@ -105,12 +105,13 @@ def _motion_bands(records: FacilityRecords) -> dict[str, float]:
 
 
 def _units(records: FacilityRecords) -> dict[str, str]:
-    """Each channel's declared ``unit``, by address, for channels that state one."""
-    return {
-        channel["id"]: channel["unit"]
-        for channel in records.of_kind("channel")
-        if isinstance(channel.get("unit"), str) and channel["unit"]
-    }
+    """Each channel's declared ``unit``, by address; a further address of a wiring record takes its record's."""
+    units: dict[str, str] = {}
+    for channel in records.of_kind("channel"):
+        unit = (records.channel(channel["id"]) or channel).get("unit")
+        if isinstance(unit, str) and unit:
+            units[channel["id"]] = unit
+    return units
 
 
 def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]]:
