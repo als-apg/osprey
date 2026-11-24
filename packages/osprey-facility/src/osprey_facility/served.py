@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from osprey_facility import TEXTURE
 from osprey_facility.errors import FacilityBuildError, quoted_slots
@@ -93,13 +94,32 @@ def served_scope(records: FacilityRecords, served: list[str]) -> list[Mapping[st
     physics = [name for name in served if name != TEXTURE]
     if not physics:
         return list(channels)
+    scopes = _scopes.setdefault(records, {})
+    key = tuple(sorted(physics))
+    if key not in scopes:
+        scopes[key] = _physics_scope(records, physics)
+    return list(scopes[key])
 
-    def selection(model: str) -> set[str]:
-        selected = records.select_channels(ChannelSelection(model=model))
-        return {str(channel["id"]) for channel in selected}
 
-    owned = set().union(*(selection(name) for name in records.ids("model") - {TEXTURE}))
-    in_scope = set().union(*(selection(name) for name in physics)) | {
+#: The scope of each set of served physics models, per read model: a model's
+#: selection scans every channel, and each render of one build asks for the
+#: scope of the same models over the same records.
+_scopes: WeakKeyDictionary[
+    FacilityRecords, dict[tuple[str, ...], tuple[Mapping[str, Any], ...]]
+] = WeakKeyDictionary()
+
+
+def _physics_scope(records: FacilityRecords, physics: list[str]) -> tuple[Mapping[str, Any], ...]:
+    """The channels in scope when the ``physics`` models are served, in document order."""
+    channels = records.of_kind("channel")
+    selection = {
+        name: {
+            str(channel["id"]) for channel in records.select_channels(ChannelSelection(model=name))
+        }
+        for name in records.ids("model") - {TEXTURE}
+    }
+    owned = set().union(*selection.values())
+    in_scope = set().union(*(selection[name] for name in physics)) | {
         str(channel["id"]) for channel in channels if str(channel["id"]) not in owned
     }
-    return [channel for channel in channels if str(channel["id"]) in in_scope]
+    return tuple(channel for channel in channels if str(channel["id"]) in in_scope)

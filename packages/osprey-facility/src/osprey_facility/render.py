@@ -35,6 +35,7 @@ __all__ = [
     "facility_bytes",
     "facility_digest",
     "facility_sha256",
+    "file_sha256",
     "json_bytes",
     "write_facility_file",
 ]
@@ -245,6 +246,15 @@ def serialised_file_document(path: Path) -> FacilityDocument | None:
 
 #: How much of a file is read at a time to hash or copy it.
 _BLOCK = 1 << 20
+
+
+def file_sha256(path: Path) -> str:
+    """The sha256 hex digest of the file at ``path``, read a block at a time."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(_BLOCK), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def copy_checked(source: Path, target: Path, sha256: str) -> bool:

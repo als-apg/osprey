@@ -836,7 +836,7 @@ def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str,
     from osprey_facility.records import FacilityRecords
 
     out: dict[str, list[dict[str, str | None]]] = {}
-    for name, pairs in middle_layer_families(FacilityRecords(facility)).items():
+    for name, pairs in middle_layer_families(FacilityRecords.of(facility)).items():
         qualified = len({system for system, _family in pairs}) > 1
         out[name] = [
             {"name": family, "system": system if qualified else None} for system, family in pairs

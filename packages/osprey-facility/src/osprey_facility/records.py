@@ -237,6 +237,36 @@ class FacilityRecords:
                     self._by_name.setdefault(name, set()).add((kind, id_))
 
     @classmethod
+    def of(cls, document: Mapping[str, Any]) -> FacilityRecords:
+        """The records of ``document``, indexed once while the same document is asked for.
+
+        A build hands one finished document to every render it makes, and each
+        render reads it in several places; indexing a large facility takes a
+        noticeable part of a second every time. This returns the read model
+        built here before when ``document`` is that very object, and builds
+        one otherwise. The last few documents are kept: a build reads its own
+        document and, where that one does not read back as itself, the parse
+        of the file it wrote. As with the build's one serialisation
+        (:mod:`osprey_facility.render`), a document handed in here is one
+        nobody changes: a caller that edits a document builds its own read
+        model.
+
+        Args:
+            document: A finished facility file.
+
+        Returns:
+            Its records, shared with every other caller that asks for them here.
+        """
+        for index, held in enumerate(_indexed):
+            if held._source is document:
+                _indexed.insert(0, _indexed.pop(index))
+                return held
+        records = cls(document)
+        _indexed.insert(0, records)
+        del _indexed[_INDEXED_KEPT:]
+        return records
+
+    @classmethod
     def from_file(cls, path: Path) -> FacilityRecords | None:
         """Read the records of the facility file at ``path``.
 
@@ -511,6 +541,13 @@ class FacilityRecords:
             nothing.
         """
         return describe_records(self.resolve(target))
+
+
+#: The read models :meth:`FacilityRecords.of` built last, the latest asked for first.
+_indexed: list[FacilityRecords] = []
+
+#: How many documents :meth:`FacilityRecords.of` keeps a read model of.
+_INDEXED_KEPT = 4
 
 
 def describe_records(found: Iterable[FacilityRecord]) -> list[dict[str, Any]]:

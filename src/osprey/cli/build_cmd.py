@@ -2630,7 +2630,7 @@ def _render_project(
         # Written for what the profile leaves unstated. The stand-in copies the
         # simulator's probe, so it reads the filled value.
         facility_fill = fill_facility_settings(
-            FacilityRecords(shared.facility),
+            FacilityRecords.of(shared.facility),
             facility_roots.machine,
             repo_root,
             _rendered_config(render_dir),

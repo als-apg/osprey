@@ -47,7 +47,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.views import ViewInputs
+from osprey.facility.views import ViewInputs, write_once
 from osprey_facility import FACILITY_FILE
 from osprey_facility.records import FacilityRecords
 
@@ -199,15 +199,21 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     root.mkdir(parents=True, exist_ok=True)
     facility_file = root.parent / FACILITY_FILE
     target = root / BLUESKY_DEVICES_FILE
-    write_devices_file(
-        target,
-        _records(inputs.records, facility_file),
-        source=_source(facility_file),
-        schema=BLUESKY_DEVICES_SCHEMA,
-        tolerances=_tolerances(inputs.records),
-        motion_bands=_motion_bands(inputs.records),
-        units=_units(inputs.records),
-    )
+
+    def write(path: Path) -> None:
+        write_devices_file(
+            path,
+            _records(inputs.records, facility_file),
+            source=_source(facility_file),
+            schema=BLUESKY_DEVICES_SCHEMA,
+            tolerances=_tolerances(inputs.records),
+            motion_bands=_motion_bands(inputs.records),
+            units=_units(inputs.records),
+        )
+
+    # The file follows from the facility file alone; the render's config decides
+    # the warnings below, so renders that differ in it share the one file.
+    write_once(inputs, target, BLUESKY_DEVICES_FILE, write)
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
     return [target]

@@ -21,7 +21,7 @@ bytes, and a build writes each such view once and copies it into the others
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,7 @@ __all__ = [
     "report_note",
     "report_omitted",
     "view_bytes",
+    "write_once",
 ]
 
 #: The rendered config key that selects one channel-finder index view.
@@ -72,6 +73,10 @@ class ViewInputs:
         content_dir: The content root, where the deployment's ``knowledge/``,
             ``ariel/`` and ``benchmarks/`` are read; ``None`` means
             ``facility_dir``, a single tree.
+        written: What this build's earlier renders wrote
+            (:data:`osprey.facility.views.outputs.WrittenViews`), the record
+            :func:`write_once` copies a single file from and adds to; ``None``
+            writes every file.
     """
 
     records: FacilityRecords
@@ -81,6 +86,7 @@ class ViewInputs:
     reported: set[str] | None = None
     built_databases: dict[str, Path] | None = None
     content_dir: Path | None = None
+    written: dict[Hashable, list[tuple[str, Path, str]]] | None = None
 
     @property
     def content_root(self) -> Path:
@@ -163,6 +169,38 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
     from osprey_facility.render import json_bytes
 
     return json_bytes(document)
+
+
+def write_once(
+    inputs: ViewInputs, target: Path, key: Hashable, write: Callable[[Path], None]
+) -> None:
+    """Write one file of a view, or copy the one an earlier render wrote from the same ``key``.
+
+    A view is copied whole only into a render that agrees on every config key
+    its writer reads (``View.reads``). A file whose bytes follow from less than
+    that is written through here: renders that differ in those keys and agree
+    on ``key`` share the one file. The copy is held to the digest taken when
+    the file was written, so a file changed or removed since is written again.
+
+    Args:
+        inputs: The render's view inputs.
+        target: The file to write.
+        key: Everything the file's bytes follow from, the build's facility
+            file apart: the file's own name among it, so two files never share
+            a key.
+        write: Writes the file at the path it is given.
+    """
+    from osprey_facility.render import copy_checked, file_sha256
+
+    known = inputs.written
+    slot = ("file", key)
+    if known is not None and slot in known:
+        ((_name, written, digest),) = known[slot]
+        if written != target and copy_checked(written, target, digest):
+            return
+    write(target)
+    if known is not None:
+        known[slot] = [(target.name, target, file_sha256(target))]
 
 
 def report_omitted(view: View, reason: str) -> None:

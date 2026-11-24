@@ -83,7 +83,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.views import ViewInputs, view_bytes
+from osprey.facility.views import ViewInputs, view_bytes, write_once
 from osprey_connectors.simulation.servers import served_servers
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
@@ -273,18 +273,28 @@ def unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
     return posture.mode == LIMITS_MODE_OPTIONAL
 
 
-def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
+def _variables_document(
+    records: FacilityRecords, served: list[str], unlisted_writable: bool
+) -> dict[str, Any]:
+    """``variables.json`` of a render serving ``served``.
+
+    Args:
+        records: The facility file's records.
+        served: The models the render serves.
+        unlisted_writable: Whether a setpoint without a limits record is
+            writable (:func:`unlisted_setpoints_writable`), the one fact the
+            document takes from the render's config.
+    """
     from osprey.facility.views.limits import limits_document
 
-    doc = inputs.records.document
+    doc = records.document
     models = sorted(doc.get("models", []), key=lambda model: str(model["name"]))
     owners: dict[str, str] = {}
     for model in models:
         for record in model.get("wiring", []):
             for address in wiring_addresses(record):
                 owners.setdefault(address, str(model["name"]))
-    limits = limits_document(inputs.records)
-    unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
+    limits = limits_document(records)
 
     from osprey_facility.pairing import simulated_pairs
 
@@ -326,19 +336,21 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     return {
         "schema": VARIABLES_SCHEMA,
         "code": str(doc["identity"]["code"]),
-        "models": [_model_entry(inputs, model) for model in models],
+        "models": [_model_entry(records, served, model) for model in models],
         "channels": channels,
     }
 
 
-def _model_entry(inputs: ViewInputs, model: Mapping[str, Any]) -> dict[str, Any]:
+def _model_entry(
+    records: FacilityRecords, served: list[str], model: Mapping[str, Any]
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "name": model["name"],
         "engine": model.get("engine"),
-        "served": model["name"] in inputs.served,
+        "served": model["name"] in served,
         "settings": copy.deepcopy(model.get("settings") or {}),
         "deck": served_deck_path(model),
-        "wiring": simulator_wiring(inputs.records, str(model["name"])),
+        "wiring": simulator_wiring(records, str(model["name"])),
     }
     if model.get("inputs"):
         entry["inputs"] = copy.deepcopy(list(model["inputs"]))
@@ -510,6 +522,17 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     return list(copies)
 
 
+#: The view's JSON documents, in the order they are written.
+_DOCUMENT_FILES = (
+    SERVED_MODELS_FILE,
+    ADDRESSES_FILE,
+    VARIABLES_FILE,
+    SEEDS_FILE,
+    FOLLOWS_FILE,
+    SCENARIOS_FILE,
+)
+
+
 def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """Write the simulator view into ``root``.
 
@@ -533,17 +556,28 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
                 address for name in inputs.served for address in server_health_addresses(code, name)
             ],
         },
-        VARIABLES_FILE: _variables_document(inputs),
         SEEDS_FILE: _seeds_document(doc),
         FOLLOWS_FILE: _follows_document(doc),
         SCENARIOS_FILE: _scenarios_document(inputs),
     }
+    # The view's largest file, and the one fact it takes from the render's
+    # config is this: renders that differ elsewhere under `control_system`, and
+    # so write the view again, share the one file.
+    unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
+
+    def write_variables(target: Path) -> None:
+        document = _variables_document(inputs.records, inputs.served, unlisted_writable)
+        target.write_bytes(view_bytes(document))
 
     root.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
-    for name, document in documents.items():
+    for name in _DOCUMENT_FILES:
         target = root / name
-        target.write_bytes(view_bytes(document))
+        if name == VARIABLES_FILE:
+            key = (VARIABLES_FILE, tuple(inputs.served), unlisted_writable)
+            write_once(inputs, target, key, write_variables)
+        else:
+            target.write_bytes(view_bytes(documents[name]))
         written.append(target)
 
     written.extend(_copy_scenario_files(root, inputs))

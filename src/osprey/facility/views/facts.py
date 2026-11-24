@@ -200,8 +200,23 @@ def _class_counts(devices: list[Mapping[str, Any]]) -> dict[str, int]:
 
 
 def _places(records: FacilityRecords) -> list[dict[str, Any]]:
-    """Each place with its level, its names and the devices at or under it by class."""
-    devices = records.of_kind("device")
+    """Each place with its level, its names and the devices at or under it by class.
+
+    One pass over the devices counts each under its own place and under every
+    place id that place lies below, rather than asking every device of every
+    place.
+    """
+    under: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for device in records.of_kind("device"):
+        if device.get("place") is None:
+            continue
+        at = str(device["place"])
+        name = device.get("class")
+        counted = NO_CLASS if name is None else str(name)
+        under[at][counted] += 1
+        for cut, character in enumerate(at):
+            if character == "/":
+                under[at[:cut]][counted] += 1
     places = []
     for place in sorted(records.of_kind("place"), key=lambda place: str(place["id"])):
         here = str(place["id"])
@@ -211,17 +226,7 @@ def _places(records: FacilityRecords) -> list[dict[str, Any]]:
                 "id": here,
                 "level": None if level is None else str(level),
                 "names": sorted({str(name) for name in place.get("names") or []}),
-                "devices": _class_counts(
-                    [
-                        device
-                        for device in devices
-                        if device.get("place") is not None
-                        and (
-                            str(device["place"]) == here
-                            or str(device["place"]).startswith(f"{here}/")
-                        )
-                    ]
-                ),
+                "devices": dict(sorted(under[here].items())) if here in under else {},
             }
         )
     return places
