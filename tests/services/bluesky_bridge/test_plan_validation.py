@@ -1127,7 +1127,7 @@ class TestDeclaredPointCountGate:
         ],
     )
     def test_the_writes_declaration_is_read_statically_off_the_body(self, body, expected):
-        assert plan_validation._declares_writes(body) is expected
+        assert plan_validation.declares_writes(body) is expected
 
 
 # =========================================================================

@@ -649,17 +649,21 @@ finally:
 """
 
 
-def _declares_writes(body: str) -> bool:
-    """Whether the body's own ``PLAN_METADATA`` says the plan moves channels.
+def declares_writes(body: str) -> bool:
+    """Whether the body's own ``PLAN_METADATA`` says the plan writes to the machine.
+
+    The one reading of a session plan's ``writes`` declaration: this
+    validator's point-count gate and the worker's session wrapper both ask it,
+    so the two cannot disagree on what a body declared.
 
     Read statically off the assignment's dict literal, never by importing the
     body — the bridge process never loads a plan body (see the module
     docstring), and this runs on the same untrusted text stages 1-2 parse.
     A body with no ``PLAN_METADATA``, a non-literal one, or one whose
     ``writes`` value is anything but the literal `True` reads as "does not
-    move channels": the point-count gate then has nothing to enforce, and a
-    plan that genuinely moves channels while declaring otherwise is the LOAD
-    gate's rejection (`plan_loader`), not this one's.
+    write": the point-count gate then has nothing to enforce, and the session
+    wrapper refuses the launch at its first write
+    (`plan_writes.held_to_declaration`).
     """
     try:
         tree = ast.parse(body)
@@ -846,7 +850,7 @@ async def _dry_run(
         if not payload.get("success"):
             return _DryRunOutcome([f"Dry-run failed: {payload.get('error', 'unknown error')}"])
         reasons = _unrecorded_move_reasons(payload, plan_name=plan_name)
-        if _declares_writes(body):
+        if declares_writes(body):
             reasons += _point_count_reasons(payload, plan_name=plan_name)
         if reasons:
             return _DryRunOutcome(reasons)
