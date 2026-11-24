@@ -634,6 +634,11 @@ def _big_graph(devices: int) -> PanelGraph:
     return build(devices)
 
 
+# Four full write-and-check passes (2,000 and 8,000 devices, twice each): about
+# 150 s on a developer machine and 556 s on a shared CI runner, against the CI
+# lane's 600 s per-test hang-breaker. Its own bound keeps the hang guard without
+# letting runner speed decide the verdict; the ratio assertion is unchanged.
+@pytest.mark.timeout(1800)
 def test_write_and_check_scale_near_linearly(tmp_path):
     def once(n: int, tag: int) -> float:
         graph = _big_graph(n)
