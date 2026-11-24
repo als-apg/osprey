@@ -42,6 +42,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannel,
     MovableChannels,
     ReadableChannels,
+    TriggeredChannels,
     channel_roles,
 )
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
@@ -1332,6 +1333,43 @@ def test_the_refusal_sentence_leads_with_a_movable_channel(client: TestClient, c
 
     assert "referenced device 'COR1'" in detail["detail"]
     assert detail["devices"] == ["BPM1", "COR1"]
+
+
+class _TriggeringParams(BaseModel):
+    """A plan that triggers one list of channels and records another."""
+
+    detectors: TriggeredChannels
+    monitors: ReadableChannels
+
+
+def test_an_unknown_triggered_device_is_refused_at_enqueue_and_leads_the_sentence(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A triggered channel is written, so a worker lacking it is refused like a
+    movable one, and the sentence quotes it ahead of an unknown readable name
+    that sorts first."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices("SOMETHING_ELSE"))
+    install_backend(manager)
+    _register(monkeypatch, _probe_spec(_TriggeringParams, name="shots"))
+    resp = client.patch(
+        "/draft",
+        json={
+            "plan_name": "shots",
+            "plan_args_patch": {"detectors": ["MCA9"], "monitors": ["AAA1"]},
+            "client_id": "test",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = client.post("/queue/items", json={"draft_revision": resp.json()["revision"]})
+
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "unknown_device"
+    assert "plan 'shots' referenced device 'MCA9'" in detail["detail"]
+    assert detail["devices"] == ["AAA1", "MCA9"]
+    assert "item_add" not in manager.method_names()
 
 
 def test_an_unreadable_device_list_does_not_block_the_enqueue(
