@@ -257,7 +257,7 @@ def channel_record(
         ValueError: The record's ``role`` is not one the facility file allows,
             or the record is not one :class:`ChannelRecord` accepts.
         TypeError: The record, or its ``on``, is not a mapping, or its
-            ``options`` is not a list.
+            ``options`` or ``shape`` is not a list.
     """
     address = channel["id"]
     role = channel["role"]
@@ -276,6 +276,7 @@ def channel_record(
         description=channel.get("description"),
         on=_on(channel.get("on")),
         options=_options(channel.get("options")),
+        shape=_shape(channel.get("shape")),
         command=channel.get("command") is True,
         timeout_s=held.get("timeout_s"),
         idle=held.get("idle"),
@@ -293,6 +294,19 @@ def _options(options: Any) -> tuple[str, ...] | None:
     if not isinstance(options, list | tuple):
         raise TypeError(f"options must be a list of labels, got {type(options).__name__}")
     return tuple(str(label) for label in options)
+
+
+def _shape(shape: Any) -> tuple[int, ...] | None:
+    """A waveform channel's dimensions, in order.
+
+    Raises:
+        TypeError: The record's ``shape`` is not a list of dimensions.
+    """
+    if shape is None:
+        return None
+    if not isinstance(shape, list | tuple):
+        raise TypeError(f"shape must be a list of dimensions, got {type(shape).__name__}")
+    return tuple(int(n) for n in shape)
 
 
 def _on(target: Mapping[str, Any] | None) -> tuple[str, str] | None:

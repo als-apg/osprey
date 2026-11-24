@@ -176,6 +176,29 @@ class TestTheRecords:
         assert records["HALL:TEMP"].on == ("place", "HALL")
         assert records["LOOSE"].on is None
 
+    def test_a_waveform_record_carries_its_shape(self, tmp_path: Path) -> None:
+        tree = plain_tree()
+        tree["records/channels.yaml"].append(
+            {
+                "id": "BPM1:TRACE",
+                "on": {"device": "SR/BPM1"},
+                "value_type": "waveform",
+                "shape": [500],
+            }
+        )
+        write_facility_file(tmp_path, tree)
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert records["BPM1:TRACE"].shape == (500,)
+
+    def test_a_record_that_states_no_shape_carries_none(self, tmp_path: Path) -> None:
+        write_facility_file(tmp_path, plain_tree())
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert records["BPM1:X"].shape is None
+
     def test_the_role_states_the_direction(self, tmp_path: Path) -> None:
         write_facility_file(
             tmp_path, channel_tree(setpoints=["A:SP"], readbacks=["A:RB"], unpaired=["A:NOTE"])
