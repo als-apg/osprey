@@ -124,7 +124,8 @@ def test_resolve_preset_bundle_returns_the_name_and_its_app_template() -> None:
 
 def test_resolve_preset_bundle_normalizes_the_underscore_spelling() -> None:
     """Both CLI spellings of a preset resolve to the same answer."""
-    assert _resolve_preset_bundle("demo") == _resolve_preset_bundle("demo")
+    assert _resolve_preset_bundle("hello_world") == _resolve_preset_bundle("hello-world")
+    assert _resolve_preset_bundle("hello_world")[0] == "hello-world"
 
 
 def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:
@@ -250,9 +251,11 @@ DEMO_PULLABLE = [
     "data/facility/records/groups.yaml",
     "data/facility/records/places.yaml",
     "data/facility/records/relations.yaml",
+    "data/facility/simulation/decks/BR.json",
     "data/facility/simulation/decks/BTS.json",
     "data/facility/simulation/decks/LTB.json",
     "data/facility/simulation/decks/SR.json",
+    "data/facility/simulation/measurement/BR.yaml",
     "data/facility/simulation/measurement/BTS.yaml",
     "data/facility/simulation/measurement/LTB.yaml",
     "data/facility/simulation/measurement/SR.yaml",

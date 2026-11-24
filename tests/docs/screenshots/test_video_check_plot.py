@@ -71,14 +71,14 @@ def test_short_labels_are_accepted():
     assert video_check_plot.find_plot_artifact([_plot("a1")], set(), fetch) == "a1"
 
 
-def test_two_bpms_only_are_rejected():
-    html = '{"type": "scatter3d"} BPM1 BPM2 BPM1 BPM02'
-    fetch = _fetcher({"/files/a1/a1.html": html})
-    assert video_check_plot.find_plot_artifact([_plot("a1")], set(), fetch) is None
-
-
-def test_bpm_label_with_trailing_digit_does_not_count():
-    html = '{"type": "scatter3d"} BPM1 BPM2 BPM31'
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param('{"type": "scatter3d"} BPM1 BPM2 BPM1 BPM02', id="two-bpms-only"),
+        pytest.param('{"type": "scatter3d"} BPM1 BPM2 BPM31', id="bpm-label-with-trailing-digit"),
+    ],
+)
+def test_too_few_bpm_labels_are_rejected(html):
     fetch = _fetcher({"/files/a1/a1.html": html})
     assert video_check_plot.find_plot_artifact([_plot("a1")], set(), fetch) is None
 

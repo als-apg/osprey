@@ -241,14 +241,3 @@ def test_turning_the_switch_off_mid_script_refuses_the_next_write(switch_on):
     assert _refused_for("switch_off", exc.value), str(exc.value)
     assert runtime._runtime_connector is connector
     assert read_channel("TEST:PV1") == 1.0
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(True, reason="EPICS connector requires actual EPICS environment")
-async def test_with_epics_connector(clear_runtime_state):
-    """Test with EPICS connector (requires EPICS environment).
-
-    This test is skipped by default but can be enabled in EPICS-enabled
-    test environments by removing the skipif decorator.
-    """
-    pass  # Placeholder for actual EPICS tests

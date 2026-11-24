@@ -72,7 +72,9 @@ def test_diagnosis_ignores_a_genuine_bad_credential() -> None:
 def test_diagnosis_survives_a_partial_or_wrapped_log() -> None:
     """Matching is substring-based, so log decoration does not defeat it."""
     noisy = "\x1b[0m " + REAL_FAILURE.replace("\n", "\r\n") + "\nError: exit status 1\n"
-    assert diagnose_build_failure(noisy) is not None
+    diagnosis = diagnose_build_failure(noisy)
+    assert diagnosis is not None
+    assert diagnosis == diagnose_build_failure(REAL_FAILURE)
 
 
 # ---------------------------------------------------------------------------

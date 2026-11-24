@@ -551,3 +551,4 @@ def test_a_run_whose_result_cannot_be_built_raises_its_error(
     _run, outcome = _run_to_exit(make_run, monkeypatch, _MALFORMED_MANIFEST)
 
     assert isinstance(outcome.get("error"), RuntimeError)
+    assert str(outcome["error"]) == "artifact store unavailable"

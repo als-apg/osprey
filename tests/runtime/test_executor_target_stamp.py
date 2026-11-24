@@ -444,22 +444,25 @@ class TestLaunchPostureStamp:
             _section_reader({**_control_system_section(view), "writes": "allowed"}),
         )
 
-    def test_the_posture_is_stamped_beside_the_target(self, state_root, monkeypatch, view):
-        """A tier that allows and a switch that is on: the run launches with writes."""
+    @pytest.mark.parametrize(
+        ("switch", "posture"),
+        [
+            # A tier that allows and a switch that is on: the run launches with writes.
+            pytest.param({"va": "on"}, "va=writes", id="the-posture-is-stamped-beside-the-target"),
+            pytest.param(
+                {"live": "on"}, "va=sandbox", id="a-switched-off-target-is-stamped-sandboxed"
+            ),
+        ],
+    )
+    def test_under_an_allowing_tier_the_switch_decides_the_posture(
+        self, state_root, monkeypatch, view, switch, posture
+    ):
         self._tier_allows(monkeypatch, view)
-        write_record(state_root, target="va", generation=7, switch={"va": "on"})
+        write_record(state_root, target="va", generation=7, switch=switch)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
-        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
-
-    def test_a_switched_off_target_is_stamped_sandboxed(self, state_root, monkeypatch, view):
-        self._tier_allows(monkeypatch, view)
-        write_record(state_root, target="va", generation=7, switch={"live": "on"})
-        env: dict[str, str] = {}
-
-        assert host_executor._apply_target_stamp(env) == "va"
-        assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
+        assert env[host_executor.ENV_LAUNCH_POSTURE] == posture
 
     @pytest.mark.usefixtures("deployment_config")
     def test_a_tier_that_allows_nothing_is_stamped_sandboxed(self, state_root):

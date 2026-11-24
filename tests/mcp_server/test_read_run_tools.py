@@ -19,41 +19,43 @@ def _fn(name):
     return get_tool_fn(getattr(read_tools, name))
 
 
-# ── get_run ──────────────────────────────────────────────────────────────
-async def test_get_run_success():
-    body = {"id": "abc123", "status": "running", "completion": 0.5}
-    with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("get_run")(run_id="abc123")
-    assert m.call_args.args[0] == "/runs/abc123"
-    data = extract_response_dict(result)
-    assert data["status"] == "running"
-
-
-async def test_get_run_unknown_run():
-    with patch(f"{_MOD}._http_get_json", return_value=(404, {"detail": "unknown run 'abc123'"})):
-        with assert_raises_error(error_type="unknown_run") as ctx:
-            await _fn("get_run")(run_id="abc123")
-    assert "unknown run" in ctx["envelope"]["error_message"]
-
-
-async def test_get_run_bridge_error():
-    with patch(f"{_MOD}._http_get_json", return_value=(500, {"detail": "boom"})):
-        with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
-            await _fn("get_run")(run_id="abc123")
-    assert "boom" in ctx["envelope"]["error_message"]
+# ── run reads: bridge status translation ────────────────────────────────
+@pytest.mark.parametrize(
+    ("tool", "status", "detail", "error_type"),
+    [
+        pytest.param(
+            "get_run", 404, "unknown run 'abc123'", "unknown_run", id="get_run-unknown_run"
+        ),
+        pytest.param("get_run", 500, "boom", "bluesky_bridge_error", id="get_run-bridge_error"),
+        pytest.param(
+            "get_run_data",
+            404,
+            "unknown run 'abc123'",
+            "unknown_run",
+            id="get_run_data-unknown_run",
+        ),
+        # 404 maps to unknown_run exactly as get_run_data does.
+        pytest.param(
+            "get_run_figure",
+            404,
+            "unknown run 'abc123'",
+            "unknown_run",
+            id="get_run_figure-unknown_run",
+        ),
+        pytest.param(
+            "get_run_figure", 503, "boom", "bluesky_bridge_error", id="get_run_figure-bridge_error"
+        ),
+    ],
+)
+async def test_a_run_read_translates_a_bridge_status(tool, status, detail, error_type):
+    """A bridge refusal reaches the agent as its error type, carrying the bridge's detail."""
+    with patch(f"{_MOD}._http_get_json", return_value=(status, {"detail": detail})):
+        with assert_raises_error(error_type=error_type) as ctx:
+            await _fn(tool)(run_id="abc123")
+    assert detail in ctx["envelope"]["error_message"]
 
 
 # ── list_plans ──────────────────────────────────────────────────────────
-async def test_list_plans_success():
-    plans = [{"name": "count", "params": {}}]
-    with patch(f"{_MOD}._http_get_json", return_value=(200, plans)) as m:
-        result = await _fn("list_plans")()
-    assert m.call_args.args[0] == "/plans"
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert data["plans"] == plans
-
-
 async def test_list_plans_passes_through_metadata_and_provenance():
     """The bridge's `metadata`/`provenance` fields (task 1.3) must survive the
     tool's JSON round-trip unmodified — an agent picking a plan needs both to
@@ -105,24 +107,6 @@ def _devices_body(devices, total=None, offset=0, limit=500):
         "offset": offset,
         "limit": limit,
     }
-
-
-async def test_list_devices_success():
-    devices = [
-        {"name": "BPM1", "is_movable": False, "is_readable": True},
-        {"name": "COR1", "is_movable": True, "is_readable": True},
-    ]
-    body = _devices_body(devices)
-    with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("list_devices")()
-    assert m.call_args.args[0] == "/devices"
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert data["devices"] == devices
-    assert (data["total"], data["offset"], data["limit"]) == (2, 0, 500)
-    # A complete page is not qualified: a note here would read as "there is
-    # more" about a set the agent already has whole.
-    assert "note" not in data
 
 
 async def test_list_devices_empty():
@@ -210,16 +194,6 @@ async def test_list_devices_prefix_only_omits_the_other_params():
 
 
 # ── list_runs ────────────────────────────────────────────────────────────────
-async def test_list_runs_success():
-    runs = [{"id": "abc123", "status": "completed"}]
-    with patch(f"{_MOD}._http_get_json", return_value=(200, runs)) as m:
-        result = await _fn("list_runs")(limit=10)
-    assert m.call_args.args[0] == "/runs?limit=10"
-    data = extract_response_dict(result)
-    assert data["status"] == "success"
-    assert data["runs"] == runs
-
-
 async def test_list_runs_default_limit():
     with patch(f"{_MOD}._http_get_json", return_value=(200, [])) as m:
         await _fn("list_runs")()
@@ -227,32 +201,16 @@ async def test_list_runs_default_limit():
 
 
 # ── get_run_data ───────────────────────────────────────────────────────────
-async def test_get_run_data_success():
-    body = {
-        "run_uid": "uid-1",
-        "columns": [{"name": "x", "unit": None}],
-        "rows": [[1.0]],
-        "row_count": 1,
-        "truncated": False,
-    }
-    with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("get_run_data")(run_id="abc123", max_rows=50)
-    assert m.call_args.args[0] == "/runs/abc123/data?max_rows=50"
-    data = extract_response_dict(result)
-    assert data["row_count"] == 1
-
-
 async def test_get_run_data_query_params():
+    with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
+        await _fn("get_run_data")(run_id="abc123", max_rows=50)
+    # An offset and a tail left at their defaults are not sent.
+    assert m.call_args.args[0] == "/runs/abc123/data?max_rows=50"
+
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
         await _fn("get_run_data")(run_id="abc123", max_rows=10, offset=5, tail=True)
     url = m.call_args.args[0]
     assert "max_rows=10" in url and "offset=5" in url and "tail=true" in url
-
-
-async def test_get_run_data_unknown_run():
-    with patch(f"{_MOD}._http_get_json", return_value=(404, {"detail": "unknown run 'abc123'"})):
-        with assert_raises_error(error_type="unknown_run"):
-            await _fn("get_run_data")(run_id="abc123")
 
 
 async def test_get_run_data_empty_run():

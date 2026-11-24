@@ -762,28 +762,29 @@ def test_posture_floor_key_losing_required_goes_red():
     assert "hooks.debug" in details(guard)
 
 
-def test_unexplained_derived_default_goes_red():
-    """`derived` with no note is the escape hatch the note rule exists to close."""
+@pytest.mark.parametrize(
+    "key",
+    [
+        # `derived` with no note is the escape hatch the note rule exists to close.
+        pytest.param("services.qmd.port", id="derived"),
+        # The note rule binds both sentinels, not just `derived`.
+        pytest.param("services.qmd.path", id="no-fallback"),
+        # `required` names no fallback, so it has to name the accepted values.
+        # A reader holding only the ledger otherwise sees "you must set this" with
+        # nowhere to learn what may be set.
+        pytest.param("control_system.type", id="required"),
+    ],
+)
+def test_a_default_without_its_note_goes_red(key):
+    """A sentinel default (`derived`, `no_fallback`, `required`) must carry a note."""
 
     def strip_the_note(manifest):
-        manifest["keys"]["services.qmd.port"].pop("default_note", None)
+        manifest["keys"][key].pop("default_note", None)
 
     guard = make_guard(strip_the_note)
     guard.check_defaults()
     assert "default" in modes(guard)
-    assert "services.qmd.port" in details(guard)
-
-
-def test_unexplained_no_fallback_default_goes_red():
-    """The note rule binds both sentinels, not just `derived`."""
-
-    def strip_the_note(manifest):
-        manifest["keys"]["services.qmd.path"].pop("default_note", None)
-
-    guard = make_guard(strip_the_note)
-    guard.check_defaults()
-    assert "default" in modes(guard)
-    assert "services.qmd.path" in details(guard)
+    assert key in details(guard)
 
 
 @pytest.mark.parametrize("misspelling", ["no_fallback", "Derived", "N/A", " required "])
@@ -801,22 +802,6 @@ def test_near_miss_sentinel_goes_red(misspelling):
     guard.check_defaults()
     assert "default" in modes(guard)
     assert "cli.theme" in details(guard)
-
-
-def test_required_default_without_a_note_goes_red():
-    """`required` names no fallback, so it has to name the accepted values.
-
-    A reader holding only the ledger otherwise sees "you must set this" with
-    nowhere to learn what may be set.
-    """
-
-    def strip_the_note(manifest):
-        manifest["keys"]["control_system.type"].pop("default_note", None)
-
-    guard = make_guard(strip_the_note)
-    guard.check_defaults()
-    assert "default" in modes(guard)
-    assert "control_system.type" in details(guard)
 
 
 def test_note_on_a_required_default_stays_green():

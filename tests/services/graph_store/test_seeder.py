@@ -411,35 +411,33 @@ class TestTtlDigest:
     the other's digest as a different corpus.
     """
 
-    def test_the_digest_is_sha256_over_the_utf8_text(self):
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param(
+                "@prefix ex: <http://example.org/> .\nex:a a ex:Thing .\n", id="ascii-corpus"
+            ),
+            # A facility export carrying an accented label or a µ must digest
+            # identically on every host, or a marker written on one machine reads
+            # as a different corpus on another.
+            pytest.param(
+                "ex:a ex:label 'Sekundärstrahlung µm' .\n",
+                id="non-ascii-is-encoded-as-utf8-not-as-the-platform-default",
+            ),
+        ],
+    )
+    def test_the_digest_is_sha256_over_the_utf8_text(self, text):
         """Pinned against an independently spelled sha256 rather than against
         itself, so a reworked implementation has to still produce the digest
         every already-written marker carries."""
         import hashlib
 
-        text = "@prefix ex: <http://example.org/> .\nex:a a ex:Thing .\n"
-
         assert ttl_sha256(text) == hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-    def test_the_same_corpus_always_hashes_the_same(self):
-        """What makes `unchanged` reportable at all."""
-        text = "ex:a a ex:Thing .\n"
-        assert ttl_sha256(text) == ttl_sha256(text)
 
     def test_a_one_byte_change_changes_the_digest(self):
         """And what makes `differs` detectable: an edited corpus must not pass
         as the seeded one."""
         assert ttl_sha256("ex:a a ex:Thing .\n") != ttl_sha256("ex:a a ex:Thingg .\n")
-
-    def test_non_ascii_is_encoded_as_utf8_not_as_the_platform_default(self):
-        """A facility export carrying an accented label or a µ must digest
-        identically on every host, or a marker written on one machine reads as a
-        different corpus on another."""
-        import hashlib
-
-        text = "ex:a ex:label 'Sekundärstrahlung µm' .\n"
-
-        assert ttl_sha256(text) == hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def test_the_marker_writer_and_the_index_builder_use_this_one_helper(self):
         """Grep-level, deliberately: both call sites import it lazily, so an

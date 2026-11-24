@@ -46,25 +46,22 @@ class TestARIELSearchRequest:
         assert request.facility == "ERF"
         assert request.max_results == 50
 
-    def test_empty_query_raises(self) -> None:
-        """Test that empty query raises ValueError."""
+    @pytest.mark.parametrize(
+        "query", [pytest.param("", id="empty"), pytest.param("   ", id="whitespace")]
+    )
+    def test_blank_query_raises(self, query) -> None:
+        """An empty or whitespace-only query raises ValueError."""
         with pytest.raises(ValueError, match="query is required"):
-            ARIELSearchRequest(query="")
+            ARIELSearchRequest(query=query)
 
-    def test_whitespace_query_raises(self) -> None:
-        """Test that whitespace-only query raises ValueError."""
-        with pytest.raises(ValueError, match="query is required"):
-            ARIELSearchRequest(query="   ")
-
-    def test_max_results_clamped_low(self) -> None:
-        """Test that max_results is clamped to minimum 1."""
-        request = ARIELSearchRequest(query="test", max_results=0)
-        assert request.max_results == 1
-
-    def test_max_results_clamped_high(self) -> None:
-        """Test that max_results is clamped to maximum 100."""
-        request = ARIELSearchRequest(query="test", max_results=500)
-        assert request.max_results == 100
+    @pytest.mark.parametrize(
+        ("given", "clamped"),
+        [pytest.param(0, 1, id="low"), pytest.param(500, 100, id="high")],
+    )
+    def test_max_results_clamped(self, given, clamped) -> None:
+        """max_results is clamped to the range 1..100."""
+        request = ARIELSearchRequest(query="test", max_results=given)
+        assert request.max_results == clamped
 
 
 class TestARIELSearchResult:

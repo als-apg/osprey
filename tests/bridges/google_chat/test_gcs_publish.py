@@ -598,21 +598,47 @@ def test_the_served_type_wins_over_the_descriptors_delivered_mime(cfg):
     assert results[0]["mime"] == "text/html"
 
 
-def test_a_content_type_with_parameters_is_normalized_before_it_is_used(cfg):
+@pytest.mark.parametrize(
+    "served_type,body,extension,content_type",
+    [
+        # A content type with parameters is normalized before it is used.
+        pytest.param(
+            "TEXT/CSV; charset=utf-8", b"a,b,c", ".csv", "text/csv", id="parameters-are-normalized"
+        ),
+        # The descriptor claims markdown; an absent served type is reported as
+        # unknown rather than borrowing that claim.
+        pytest.param(
+            None, b"unknown bytes", ".bin", "application/octet-stream", id="no-content-type"
+        ),
+        # The extension allowlist and the served type answer different questions:
+        # the key falls back to .bin, but the object is still served back as what it
+        # actually is.
+        pytest.param(
+            "application/x-msdownload",
+            b"MZ...",
+            ".bin",
+            "application/x-msdownload",
+            id="unrecognized-type-keeps-its-own-content-type",
+        ),
+    ],
+)
+def test_the_served_content_type_decides_the_key_extension_and_the_served_type(
+    cfg, served_type, body, extension, content_type
+):
     client = FakeGcsClient()
 
     results = publish_documents(
         cfg,
         "R1",
-        [descriptor("a1")],
-        http=make_http(worker_handler_for({"a1": (b"a,b,c", "TEXT/CSV; charset=utf-8")})),
+        [descriptor("a1", mime="text/markdown")],
+        http=make_http(worker_handler_for({"a1": (body, served_type)})),
         client_factory=factory_for(client),
     )
 
     blob = client.only_blob()
-    assert blob.name.endswith(".csv")
-    assert blob.content_type == "text/csv"
-    assert results[0]["mime"] == "text/csv"
+    assert blob.name.endswith(extension)
+    assert blob.content_type == content_type
+    assert results[0]["mime"] == content_type
 
 
 @pytest.mark.parametrize(
@@ -642,45 +668,6 @@ def test_a_table_is_published_as_a_document_under_its_own_extension(cfg, mime, e
     assert blob.content_type == mime
     assert results[0]["filename"] == f"transitions{extension}"
     assert results[0]["mime"] == mime
-
-
-def test_a_document_served_with_no_content_type_falls_back_to_octet_stream(cfg):
-    # The descriptor claims markdown; an absent served type is reported as
-    # unknown rather than borrowing that claim.
-    client = FakeGcsClient()
-
-    results = publish_documents(
-        cfg,
-        "R1",
-        [descriptor("a1", mime="text/markdown")],
-        http=make_http(worker_handler_for({"a1": (b"unknown bytes", None)})),
-        client_factory=factory_for(client),
-    )
-
-    blob = client.only_blob()
-    assert blob.name.endswith(".bin")
-    assert blob.content_type == "application/octet-stream"
-    assert results[0]["mime"] == "application/octet-stream"
-
-
-def test_an_unrecognized_served_type_keeps_its_own_content_type_under_a_bin_key(cfg):
-    # The extension allowlist and the served type answer different questions:
-    # the key falls back to .bin, but the object is still served back as what it
-    # actually is.
-    client = FakeGcsClient()
-
-    results = publish_documents(
-        cfg,
-        "R1",
-        [descriptor("a1")],
-        http=make_http(worker_handler_for({"a1": (b"MZ...", "application/x-msdownload")})),
-        client_factory=factory_for(client),
-    )
-
-    blob = client.only_blob()
-    assert blob.name.endswith(".bin")
-    assert blob.content_type == "application/x-msdownload"
-    assert results[0]["mime"] == "application/x-msdownload"
 
 
 def test_an_image_declined_by_publish_artifacts_can_be_republished_as_a_document(cfg):

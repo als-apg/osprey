@@ -1173,20 +1173,33 @@ class TestDryRunEnvScrub:
         )
         return captured_env
 
-    async def test_epics_ca_vars_are_neutralized_in_the_subprocess_env(
-        self, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("family", "port"),
+        [
+            # Channel Access.
+            pytest.param("CA", "5064", id="channel-access"),
+            # An ophyd-async device speaks pvAccess, whose auto-discovery
+            # broadcasts exactly as Channel Access's does. A dry-run inert
+            # against one family and left at its defaults on the other is inert
+            # only against the protocol nobody was going to use.
+            pytest.param("PVA", "5075", id="pvaccess"),
+        ],
+    )
+    async def test_epics_vars_are_neutralized_in_the_subprocess_env(
+        self, monkeypatch: pytest.MonkeyPatch, family: str, port: str
     ):
-        """Deliberately asserts the SET values, not merely "key absent": a CA
-        client that sees neither `EPICS_CA_ADDR_LIST` nor an explicit
-        `EPICS_CA_AUTO_ADDR_LIST` defaults auto-discovery to YES and
+        """Deliberately asserts the SET values, not merely "key absent": a client
+        that sees neither `EPICS_<family>_ADDR_LIST` nor an explicit
+        `EPICS_<family>_AUTO_ADDR_LIST` defaults auto-discovery to YES and
         broadcasts on the local subnet looking for IOCs — so simply deleting
         these keys would have been worse than leaving them alone. The
         assertions below are what actually proves that gap is closed.
         """
-        monkeypatch.setenv("EPICS_CA_ADDR_LIST", "10.0.0.1")
-        monkeypatch.setenv("EPICS_CA_NAME_SERVERS", "10.0.0.1:5064")
-        monkeypatch.setenv("EPICS_CA_AUTO_ADDR_LIST", "YES")
-        monkeypatch.setenv("EPICS_CA_SERVER_PORT", "5064")
+        prefix = f"EPICS_{family}_"
+        monkeypatch.setenv(f"{prefix}ADDR_LIST", "10.0.0.1")
+        monkeypatch.setenv(f"{prefix}NAME_SERVERS", f"10.0.0.1:{port}")
+        monkeypatch.setenv(f"{prefix}AUTO_ADDR_LIST", "YES")
+        monkeypatch.setenv(f"{prefix}SERVER_PORT", port)
         captured_env = self._capture_dry_run_env(monkeypatch)
 
         outcome = await plan_validation._dry_run(
@@ -1194,37 +1207,13 @@ class TestDryRunEnvScrub:
         )
 
         assert outcome.reasons == []
-        assert captured_env["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
-        assert captured_env["EPICS_CA_ADDR_LIST"] == ""
-        assert captured_env["EPICS_CA_NAME_SERVERS"] == ""
+        assert captured_env[f"{prefix}AUTO_ADDR_LIST"] == "NO"
+        assert captured_env[f"{prefix}ADDR_LIST"] == ""
+        assert captured_env[f"{prefix}NAME_SERVERS"] == ""
         # Named by no inert value: it is carried off by the prefix scrub, which
         # is what makes the neutralisation about the family rather than about
         # the handful of names anyone thought to list.
-        assert "EPICS_CA_SERVER_PORT" not in captured_env
-
-    async def test_pvaccess_vars_are_neutralized_in_the_subprocess_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """An ophyd-async device speaks pvAccess, whose auto-discovery
-        broadcasts exactly as Channel Access's does. A dry-run inert against one
-        family and left at its defaults on the other is inert only against the
-        protocol nobody was going to use.
-        """
-        monkeypatch.setenv("EPICS_PVA_ADDR_LIST", "10.0.0.1")
-        monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", "10.0.0.1:5075")
-        monkeypatch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "YES")
-        monkeypatch.setenv("EPICS_PVA_SERVER_PORT", "5075")
-        captured_env = self._capture_dry_run_env(monkeypatch)
-
-        outcome = await plan_validation._dry_run(
-            BENIGN_PLAN_BODY, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS, timeout=5.0
-        )
-
-        assert outcome.reasons == []
-        assert captured_env["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
-        assert captured_env["EPICS_PVA_ADDR_LIST"] == ""
-        assert captured_env["EPICS_PVA_NAME_SERVERS"] == ""
-        assert "EPICS_PVA_SERVER_PORT" not in captured_env
+        assert f"{prefix}SERVER_PORT" not in captured_env
 
     def test_inert_env_constants_are_actually_inert(self):
         """`_EPICS_INERT_ENV` is the source of truth the assertions above

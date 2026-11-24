@@ -155,13 +155,22 @@ def test_every_interpolation_form_counts_as_a_reference(fragment):
     assert _compose_interpolated_vars(fragment) == {"ARIEL_DB_PASSWORD"}
 
 
-def test_an_escaped_dollar_is_not_a_reference():
-    """``$$`` is compose's literal dollar — the name behind it is never resolved.
+@pytest.mark.parametrize(
+    "text",
+    [
+        # ``$$`` is compose's literal dollar — the name behind it is never resolved.
+        pytest.param("command: echo $$ARIEL_DB_PASSWORD", id="escaped-dollar"),
+        # ``$`` before a non-name character names nothing and must not crash.
+        pytest.param("price: $9.99 and a trailing $", id="bare-dollar"),
+    ],
+)
+def test_a_dollar_that_names_nothing_is_not_a_reference(text):
+    """A literal dollar is not a reference.
 
     Warning about it would be a false positive, and a preflight that cries wolf
     on a literal is one an operator learns to scroll past.
     """
-    assert _compose_interpolated_vars("command: echo $$ARIEL_DB_PASSWORD") == set()
+    assert _compose_interpolated_vars(text) == set()
 
 
 def test_scanning_continues_inside_the_braces():
@@ -170,11 +179,6 @@ def test_scanning_continues_inside_the_braces():
         "OSPREY_WORKER_IMAGE",
         "PROJECT_IMAGE",
     }
-
-
-def test_a_bare_dollar_is_not_a_reference():
-    """``$`` before a non-name character names nothing and must not crash."""
-    assert _compose_interpolated_vars("price: $9.99 and a trailing $") == set()
 
 
 # ---------------------------------------------------------------------------
@@ -726,13 +730,15 @@ def test_a_deliberate_override_is_one_info_line_of_names(tmp_path, caplog):
 
 
 def test_the_info_line_carries_names_and_no_values(tmp_path, caplog):
-    repo = _repo(tmp_path, f"A={_PINNED}\n")
-    _shared(repo, f"A={_EXPORTED}\n")
+    # A key name no line of the report's own wording could contain by accident.
+    repo = _repo(tmp_path, f"OVERRIDDEN_KEY={_PINNED}\n")
+    _shared(repo, f"OVERRIDDEN_KEY={_EXPORTED}\n")
 
     with caplog.at_level(logging.INFO):
         _report_chain_overrides(repo)
 
-    assert "A" in caplog.text
+    info_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("OVERRIDDEN_KEY" in line for line in info_lines), info_lines
     assert _PINNED not in caplog.text and _EXPORTED not in caplog.text
 
 
@@ -789,18 +795,19 @@ def test_a_shared_value_moving_past_an_unchanged_local_pin_warns(tmp_path, caplo
     looking perfectly healthy, which is why this is the one layering case that
     warrants a warning.
     """
-    repo = _repo(tmp_path, "A=old-shared-value\n")
-    _shared(repo, "A=old-shared-value\nB=x\n")
+    # A key name the warning's own wording could not contain by accident.
+    repo = _repo(tmp_path, "STALE_PIN_KEY=old-shared-value\n")
+    _shared(repo, "STALE_PIN_KEY=old-shared-value\nB=x\n")
     _report_chain_overrides(repo)  # the deploy that recorded the shared value
 
-    _shared(repo, "A=new-shared-value\nB=x\n")
+    _shared(repo, "STALE_PIN_KEY=new-shared-value\nB=x\n")
 
     with caplog.at_level(logging.INFO):
         deliberate, stale = _report_chain_overrides(repo)
 
-    assert (deliberate, stale) == ([], ["A"])
-    assert [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert "A" in caplog.text
+    assert (deliberate, stale) == ([], ["STALE_PIN_KEY"])
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("STALE_PIN_KEY" in warning for warning in warnings), warnings
 
 
 def test_a_stale_pin_is_kept_out_of_the_deliberate_line(tmp_path):
@@ -1144,10 +1151,12 @@ def test_a_matching_chain_lets_the_deploy_through(tmp_path, monkeypatch):
 
 def test_the_deploy_path_reports_a_stale_pin(tmp_path, monkeypatch, caplog):
     """End to end: the layering warning reaches an operator running ``osprey up``."""
-    repo = _repo(tmp_path, "A=old-shared-value\n", _worker_compose("./.env.shared", "./.env"))
-    _shared(repo, "A=old-shared-value\n")
+    repo = _repo(
+        tmp_path, "STALE_PIN_KEY=old-shared-value\n", _worker_compose("./.env.shared", "./.env")
+    )
+    _shared(repo, "STALE_PIN_KEY=old-shared-value\n")
     _report_chain_overrides(repo)
-    _shared(repo, "A=new-shared-value\n")
+    _shared(repo, "STALE_PIN_KEY=new-shared-value\n")
     _stub_runtime(monkeypatch, [])
 
     with caplog.at_level(logging.WARNING):
@@ -1159,7 +1168,8 @@ def test_the_deploy_path_reports_a_stale_pin(tmp_path, monkeypatch, caplog):
             env_path=repo / ".env",
         )
 
-    assert "A" in caplog.text
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("STALE_PIN_KEY" in warning for warning in warnings), warnings
     assert "old-shared-value" not in caplog.text and "new-shared-value" not in caplog.text
 
 
@@ -1327,14 +1337,16 @@ def test_a_pinned_name_only_the_local_file_sets_refuses(tmp_path, caplog):
     notice. Requiring a disagreement here would have made the declaration
     enforceable in exactly the case it was not needed.
     """
-    repo = _repo(tmp_path, "A=local\n")
+    # A key name the refusal's own wording ("A pinned name is ...") cannot contain.
+    repo = _repo(tmp_path, "LOCAL_ONLY_PIN=local\n")
     _shared(repo, "B=shared\n")
-    _pins(repo, "A")
+    _pins(repo, "LOCAL_ONLY_PIN")
 
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="env.pinned"):
         container_lifecycle._preflight_pinned_overrides(repo)
 
-    assert "A" in caplog.text
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("LOCAL_ONLY_PIN" in error for error in errors), errors
 
 
 def test_a_pinned_name_set_locally_with_no_shared_file_at_all_refuses(tmp_path):
@@ -1647,15 +1659,26 @@ def test_a_repo_with_no_chain_at_all_is_still_left_alone(tmp_path, monkeypatch):
     assert _preflight_env_shadowing(_files(), repo) == []
 
 
-def test_an_exported_pin_the_chain_never_sets_refuses_before_the_image_build(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("local", "shared"),
+    [
+        # An exported pin the chain never sets.
+        pytest.param("OTHER=x\n", "STILL_NOT_THE_PINNED_NAME=y\n", id="chain-never-sets"),
+        # A pin the chain sets, shadowed by the export.
+        pytest.param(f"PINNED_UPSTREAM_URL={_PINNED}\n", "OTHER=x\n", id="shadowed"),
+    ],
+)
+def test_a_pin_the_export_contradicts_refuses_before_the_image_build(
+    tmp_path, monkeypatch, local, shared
+):
     """End to end, on the deploy path: nothing is built and nothing is started."""
     repo = _repo(
         tmp_path,
-        "OTHER=x\n",
+        local,
         _worker_compose("./.env.shared", "./.env")
         + "\n    environment:\n      A: ${PINNED_UPSTREAM_URL}\n",
     )
-    _shared(repo, "STILL_NOT_THE_PINNED_NAME=y\n")
+    _shared(repo, shared)
     _pins(repo, "PINNED_UPSTREAM_URL")
     monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
 
@@ -1696,35 +1719,6 @@ def test_the_unpinned_warning_is_emitted_before_the_pinned_refusal(tmp_path, mon
     assert warned and refused
     assert "LOOSE_UPSTREAM_URL" in warned[0].getMessage()
     assert "PINNED_UPSTREAM_URL" not in warned[0].getMessage()
-
-
-def test_a_shadowed_pin_refuses_before_the_image_build(tmp_path, monkeypatch):
-    repo = _repo(
-        tmp_path,
-        f"PINNED_UPSTREAM_URL={_PINNED}\n",
-        _worker_compose("./.env.shared", "./.env")
-        + "\n    environment:\n      A: ${PINNED_UPSTREAM_URL}\n",
-    )
-    _shared(repo, "OTHER=x\n")
-    _pins(repo, "PINNED_UPSTREAM_URL")
-    monkeypatch.setenv("PINNED_UPSTREAM_URL", _EXPORTED)
-
-    order: list[str] = []
-    ran = _stub_runtime(monkeypatch, order)
-
-    with pytest.raises(RuntimeError, match="env.pinned"):
-        container_lifecycle._start_stack(
-            {"project_name": "proj", "deployed_services": ["postgresql"]},
-            _files(),
-            repo,
-            detached=True,
-            env_path=repo / ".env",
-        )
-
-    assert order == [], "the image build ran despite the refusal"
-    assert [cmd for cmd in ran if "compose" in cmd] == [], (
-        "a compose command ran despite the refusal"
-    )
 
 
 # ---------------------------------------------------------------------------

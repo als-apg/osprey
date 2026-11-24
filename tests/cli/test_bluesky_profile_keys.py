@@ -130,6 +130,12 @@ def test_empty_block_still_takes_the_defaults() -> None:
         pytest.param("settle_tolerance", -1e-9, id="settle-tolerance-negative"),
         pytest.param("settle_tolerance", True, id="settle-tolerance-bool"),
         pytest.param("settle_tolerance", "abc", id="settle-tolerance-string"),
+        # Retaining zero runs or zero rows evicts everything the moment it lands.
+        *(
+            pytest.param(key, value, id=f"{key.replace('_', '-')}-{kind}")
+            for key in ("live_max_runs", "live_max_rows_per_run")
+            for value, kind in ((0, "zero"), (-5, "negative"), (True, "bool"), ("abc", "string"))
+        ),
     ],
 )
 def test_a_numeric_bluesky_key_rejects_a_value_of_the_wrong_kind(key: str, value: Any) -> None:
@@ -156,18 +162,6 @@ def test_settle_keys_default_when_unstated() -> None:
     assert profile.bluesky is not None
     assert profile.bluesky.settle_timeout_s == BlueskyConfig.settle_timeout_s
     assert profile.bluesky.settle_tolerance == BlueskyConfig.settle_tolerance
-
-
-@pytest.mark.parametrize("key", ["live_max_runs", "live_max_rows_per_run"])
-@pytest.mark.parametrize("value", [0, -5, True, "abc"])
-def test_live_buffer_caps_reject_a_value_that_is_not_a_positive_int(key: str, value: Any) -> None:
-    """Retaining zero runs or zero rows evicts everything the moment it lands."""
-    with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {key: value}})
-
-    message = str(excinfo.value)
-    assert f"bluesky.{key}" in message
-    assert repr(value) in message
 
 
 def test_live_buffer_caps_default_when_unstated() -> None:

@@ -45,23 +45,16 @@ class TestFacilityKnowledgeAgentCatalog:
         adef = FRAMEWORK_AGENTS["facility-knowledge"]
         assert adef.description
 
-    def test_no_condition(self):
-        """facility-knowledge must be unconditional — no gating on a config key."""
+    def test_unconditional_enabled_framework_agent(self):
+        """facility-knowledge must be unconditional — no gating on a config key — and
+        declares no server_dependency; it is enabled by default and not custom."""
         adef = FRAMEWORK_AGENTS["facility-knowledge"]
-        assert adef.condition is None
-
-    def test_no_server_dependency(self):
-        """facility-knowledge does not declare a server_dependency."""
-        adef = FRAMEWORK_AGENTS["facility-knowledge"]
-        assert adef.server_dependency is None
-
-    def test_enabled_by_default(self):
-        adef = FRAMEWORK_AGENTS["facility-knowledge"]
-        assert adef.default_enabled is True
-
-    def test_is_not_custom(self):
-        adef = FRAMEWORK_AGENTS["facility-knowledge"]
-        assert adef.is_custom is False
+        assert (adef.condition, adef.server_dependency, adef.default_enabled, adef.is_custom) == (
+            None,
+            None,
+            True,
+            False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -161,10 +154,14 @@ class TestFacilityKnowledgeAgentTemplate:
         assert expected in rendered
 
     def test_disallowed_tools_present(self, template_manager):
+        """The disallowedTools: frontmatter line pins exactly the blocked tools, in order."""
         ctx = self._full_ctx(enabled=True)
         rendered = self._render(template_manager, ctx)
-        assert "disallowedTools" in rendered
-        assert "Bash" in rendered
+        expected = (
+            "disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, "
+            "NotebookEdit, Task, Skill, Agent"
+        )
+        assert expected in rendered.splitlines()
 
     def test_no_capabilities_tool(self, template_manager):
         """capabilities is a server-level introspection tool, not exposed to the agent."""

@@ -162,7 +162,7 @@ async def test_sql_query_empty():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(sql="")
 
-    _exc_ctx["envelope"]
+    assert "Empty SQL query" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_sql_query_row_limit(ariel_registry):

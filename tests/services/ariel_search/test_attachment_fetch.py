@@ -514,13 +514,15 @@ async def test_fetch_connect_timeout_is_host_down(adapter, monkeypatch):
     assert out == FetchOutcome(transient=True, host_up=False)
 
 
-async def test_fetch_same_origin_redirect_is_followed(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/redir/same"), 1000, _origins(server), adapter)
-    assert out.data == PNG
-
-
-async def test_fetch_three_hops_are_followed(server, adapter):
-    out = await fetch_attachment_bytes(_url(server, "/chain/3"), 1000, _origins(server), adapter)
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("/redir/same", id="same_origin_redirect"),
+        pytest.param("/chain/3", id="three_hops"),
+    ],
+)
+async def test_fetch_redirect_is_followed(server, adapter, path):
+    out = await fetch_attachment_bytes(_url(server, path), 1000, _origins(server), adapter)
     assert out.data == PNG
 
 
@@ -787,13 +789,15 @@ async def test_fetch_file_source_directory_leaf_is_not_a_regular_file(tmp_path):
     assert out == FetchOutcome(code="not_a_regular_file")
 
 
-async def test_fetch_file_source_missing_leaf_is_source_gone(tmp_path):
-    out = await fetch_attachment_bytes("nope.png", 1000, frozenset(), _file_source(tmp_path))
-    assert out == FetchOutcome(code="source_gone")
-
-
-async def test_fetch_file_source_missing_directory_is_source_gone(tmp_path):
-    out = await fetch_attachment_bytes("nodir/a.png", 1000, frozenset(), _file_source(tmp_path))
+@pytest.mark.parametrize(
+    "relpath",
+    [
+        pytest.param("nope.png", id="missing_leaf"),
+        pytest.param("nodir/a.png", id="missing_directory"),
+    ],
+)
+async def test_fetch_file_source_missing_path_is_source_gone(tmp_path, relpath):
+    out = await fetch_attachment_bytes(relpath, 1000, frozenset(), _file_source(tmp_path))
     assert out == FetchOutcome(code="source_gone")
 
 

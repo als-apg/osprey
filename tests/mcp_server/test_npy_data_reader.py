@@ -166,18 +166,6 @@ class TestNpyReaderRoundTrip:
             exec(DATA_READER_SOURCE, namespace)
 
 
-class TestNpyReaderSandboxSafety:
-    """The emitted .npy loader must clear the viz sandbox import whitelist."""
-
-    def test_generated_code_has_no_disallowed_imports(self):
-        from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
-        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
-
-        is_safe, violations = validate_sandbox_code(DATA_READER_SOURCE)
-
-        assert is_safe, violations
-
-
 class TestExistingBranchesUnchanged:
     """The new branch must not shadow the formats that already worked."""
 

@@ -1986,19 +1986,6 @@ def test_renders_needing_dispatcher_token_selects_only_the_declaring_render(tmp_
     assert result == {"readwrite"}
 
 
-def test_renders_needing_dispatcher_token_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_dispatcher_token(config, tmp_path) == set()
-
-
 # ---------------------------------------------------------------------------
 # ARIEL config -> per-user database credential
 #
@@ -2070,19 +2057,6 @@ def test_renders_needing_ariel_password_selects_only_the_ariel_render(tmp_path) 
 
     # Assert
     assert result == {"readwrite"}
-
-
-def test_renders_needing_ariel_password_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_ariel_password(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -2320,19 +2294,6 @@ def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path
 
     # Assert
     assert result == {"bluesky": {"readwrite"}}
-
-
-def test_renders_needing_launch_token_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_launch_token_by_lane(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -2637,19 +2598,6 @@ def test_renders_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
 
     # Assert
     assert result == {"readwrite", "readonly"}
-
-
-def test_renders_needing_graphdb_password_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_graphdb_password(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -3140,19 +3088,6 @@ def test_renders_needing_archiver_credentials_maps_each_render_to_its_variables(
     assert result == {"readwrite": ("MONGO_ROOT_PASSWORD",), "facility": ("OTHER_TOKEN",)}
 
 
-def test_renders_needing_archiver_credentials_skips_unrendered_render_projects(
-    tmp_path,
-) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    assert renders_needing_archiver_credentials(config, tmp_path) == {}
-
-
 # ---------------------------------------------------------------------------
 # channel directory services -> the variables their blocks name, and their CA files
 # ---------------------------------------------------------------------------
@@ -3395,15 +3330,35 @@ def test_renders_needing_archiver_ca_bundles_maps_each_render_to_its_file(tmp_pa
     assert result == {"facility": (str(ca),)}
 
 
-def test_renders_needing_archiver_ca_bundles_skips_unrendered_render_projects(
-    tmp_path,
+# ---------------------------------------------------------------------------
+# Every per-render credential reader skips a render that was never rendered
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("renders_needing", "empty"),
+    [
+        pytest.param(renders_needing_dispatcher_token, set(), id="dispatcher-token"),
+        pytest.param(renders_needing_ariel_password, set(), id="ariel-password"),
+        pytest.param(renders_needing_graphdb_password, set(), id="graphdb-password"),
+        pytest.param(renders_needing_launch_token_by_lane, {}, id="launch-token-by-lane"),
+        pytest.param(renders_needing_archiver_credentials, {}, id="archiver-credentials"),
+        pytest.param(renders_needing_archiver_ca_bundles, {}, id="archiver-ca-bundles"),
+    ],
+)
+def test_renders_needing_a_credential_skips_unrendered_render_projects(
+    tmp_path, renders_needing, empty
 ) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
     config = _catalog_config(
         {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
         [{"name": "alice", "index": 0, "tier": "ghost"}],
     )
 
-    assert renders_needing_archiver_ca_bundles(config, tmp_path) == {}
+    # Act / Assert
+    assert renders_needing(config, tmp_path) == empty
 
 
 # ---------------------------------------------------------------------------

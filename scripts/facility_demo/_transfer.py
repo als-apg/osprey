@@ -177,20 +177,15 @@ def element_name(deck_element: str, section: _mml.Section) -> str:
 
 
 def _bend(name: str, definition: _mml.Definition) -> dict[str, Any]:
-    return {
-        "FamName": name,
-        "Length": definition.length,
-        "PassMethod": "BndMPoleSymplectic4Pass",
-        "BendingAngle": definition.angle,
-        "EntranceAngle": definition.entrance_angle,
-        "ExitAngle": definition.exit_angle,
-        "MaxOrder": 1,
-        "NumIntSteps": STEPS,
-        "PolynomA": [0.0, 0.0],
-        "PolynomB": [0.0, definition.k],
-        "K": definition.k,
-        "Class": "Bend",
-    }
+    return _deck.bend(
+        name,
+        definition.length,
+        definition.angle,
+        entrance_angle=definition.entrance_angle,
+        exit_angle=definition.exit_angle,
+        k=definition.k,
+        steps=STEPS,
+    )
 
 
 def _element(element: _mml.Element, name: str, section: str) -> dict[str, Any]:
@@ -686,7 +681,7 @@ def wired_addresses() -> set[str]:
     return {row.demo_name for row in table_rows() if row.wired}
 
 
-def _strip_nominals(path: Path, addresses: set[str]) -> None:
+def strip_nominals(path: Path, addresses: set[str]) -> None:
     """Remove ``nominal`` from the seeds of ``addresses``; drop an entry left empty."""
     import yaml
 
@@ -732,7 +727,7 @@ def write_sources(tree: Path) -> None:
         if record["id"] in SECTIONS
     ]
     _tree.merge(places_path, spanned, "id", ordered=False)
-    _strip_nominals(tree / source_tree.path("seeds"), wired_addresses())
+    strip_nominals(tree / source_tree.path("seeds"), wired_addresses())
 
 
 if __name__ == "__main__":

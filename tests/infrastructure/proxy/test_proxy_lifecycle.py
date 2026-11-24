@@ -84,20 +84,39 @@ class TestIsProxyNeeded:
     def test_native_providers_never_need_proxy(self, provider):
         assert lifecycle.is_proxy_needed(provider) is False
 
-    def test_unknown_provider_needs_proxy(self):
-        assert lifecycle.is_proxy_needed("some-openai-clone") is True
-
-    def test_explicit_anthropic_protocol_skips_proxy(self):
-        api = {"custom": {"api_protocol": "anthropic"}}
-        assert lifecycle.is_proxy_needed("custom", api_providers=api) is False
-
-    def test_non_anthropic_protocol_needs_proxy(self):
-        api = {"custom": {"api_protocol": "openai"}}
-        assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
-
-    def test_provider_absent_from_config_needs_proxy(self):
-        api = {"other": {"api_protocol": "anthropic"}}
-        assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
+    @pytest.mark.parametrize(
+        ("provider", "api_providers", "expected"),
+        [
+            pytest.param("some-openai-clone", None, True, id="unknown-provider-needs-proxy"),
+            pytest.param(
+                "custom",
+                {"custom": {"api_protocol": "anthropic"}},
+                False,
+                id="explicit-anthropic-protocol-skips-proxy",
+            ),
+            pytest.param(
+                "custom",
+                {"custom": {"api_protocol": "openai"}},
+                True,
+                id="non-anthropic-protocol-needs-proxy",
+            ),
+            pytest.param(
+                "custom",
+                {"other": {"api_protocol": "anthropic"}},
+                True,
+                id="provider-absent-from-config-needs-proxy",
+            ),
+            # Nine of the twelve proxied built-ins declare nothing and are OpenAI.
+            pytest.param(
+                "custom",
+                {"custom": {"base_url": "https://gateway.example.org/v1"}},
+                True,
+                id="an-absent-key-keeps-the-openai-default",
+            ),
+        ],
+    )
+    def test_the_declaration_decides_the_proxy(self, provider, api_providers, expected):
+        assert lifecycle.is_proxy_needed(provider, api_providers=api_providers) is expected
 
     @pytest.mark.parametrize("value", ["Anthropic", "ANTHROPIC", "antropic", "openai-compatible"])
     def test_unrecognised_protocol_is_refused(self, value):
@@ -118,11 +137,6 @@ class TestIsProxyNeeded:
         api = {"anthropic": {"api_protocol": "Anthropic"}}
         with pytest.raises(ValueError):
             lifecycle.is_proxy_needed("anthropic", api_providers=api)
-
-    def test_an_absent_key_keeps_the_openai_default(self):
-        """Nine of the twelve proxied built-ins declare nothing and are OpenAI."""
-        api = {"custom": {"base_url": "https://gateway.example.org/v1"}}
-        assert lifecycle.is_proxy_needed("custom", api_providers=api) is True
 
     @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
     def test_explicit_openai_on_a_native_provider_routes_through_the_proxy(self, provider):

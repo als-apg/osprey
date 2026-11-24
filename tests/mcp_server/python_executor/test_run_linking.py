@@ -170,11 +170,25 @@ async def test_a_failed_run_stores_a_failed_head_and_raises():
     assert _payload(head)["code"] == "raise ValueError('boom')"
 
 
-@pytest.mark.parametrize("kind", [FAILURE_KIND_SETUP, FAILURE_KIND_SWITCH_IN_PROGRESS])
-async def test_a_run_that_never_started_stores_a_not_run_head(kind):
+@pytest.mark.parametrize(
+    ("kind", "error_type", "details_kind"),
+    [
+        pytest.param(
+            FAILURE_KIND_SETUP, "service_unavailable", "setup_failed", id=FAILURE_KIND_SETUP
+        ),
+        pytest.param(
+            FAILURE_KIND_SWITCH_IN_PROGRESS,
+            "execution_error",
+            FAILURE_KIND_SWITCH_IN_PROGRESS,
+            id=FAILURE_KIND_SWITCH_IN_PROGRESS,
+        ),
+    ],
+)
+async def test_a_run_that_never_started_stores_a_not_run_head(kind, error_type, details_kind):
     never = _result(success=False, stderr="", failure_kind=kind, execution_time_seconds=None)
-    with _stubbed(never), pytest.raises(Exception):
+    with _stubbed(never), assert_raises_error(error_type=error_type) as ctx:
         await _execute()(code="print(1)", description="never started")
+    assert ctx["envelope"]["details"]["kind"] == details_kind
 
     head = _only_head()
     assert head.exec_id == TOOL_USE_ID

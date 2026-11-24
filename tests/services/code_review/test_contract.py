@@ -71,6 +71,15 @@ def test_contract_constants_and_types() -> None:
         (f"```\n{PASS}\n```\n", ReviewVerdict("pass", ())),
         (f"The code is unsafe.\n\n{BLOCK}\n", ReviewVerdict("block", ("writes to a magnet",))),
         (f"{BLOCK}\nThat is my answer.", ReviewVerdict("block", ("writes to a magnet",))),
+        # A verdict-shaped value inside the last object must not outrank that object.
+        (
+            '{"verdict": "block", "reasons": ["r"], "extra": {"verdict": "pass", "reasons": []}}',
+            ReviewVerdict("block", ("r",)),
+        ),
+        (
+            f"The line `config = {{` is f'{{x}}' and }} closes it.\n{BLOCK}",
+            ReviewVerdict("block", ("writes to a magnet",)),
+        ),
     ],
     ids=[
         "pass-empty-reasons",
@@ -82,6 +91,8 @@ def test_contract_constants_and_types() -> None:
         "fenced-no-language",
         "prose-before",
         "prose-after",
+        "nested-object-is-not-top-level",
+        "stray-braces-in-prose",
     ],
 )
 def test_parse_verdict_accepts_the_reply_shape(text: str, expected: ReviewVerdict) -> None:
@@ -104,12 +115,6 @@ def test_last_top_level_object_wins(text: str, expected_verdict: str) -> None:
     assert result.verdict == expected_verdict
 
 
-def test_a_nested_object_is_not_the_top_level_one() -> None:
-    """A verdict-shaped value inside the last object must not outrank that object."""
-    text = '{"verdict": "block", "reasons": ["r"], "extra": {"verdict": "pass", "reasons": []}}'
-    assert parse_verdict(text) == ReviewVerdict("block", ("r",))
-
-
 def test_an_object_inside_a_top_level_array_is_not_top_level() -> None:
     assert "object" in _failure(f"[{PASS}]").message
 
@@ -117,11 +122,6 @@ def test_an_object_inside_a_top_level_array_is_not_top_level() -> None:
 def test_a_later_non_verdict_object_is_the_one_judged() -> None:
     """Last wins even when the last is wrong: the reply does not get to fall back."""
     assert "verdict" in _failure(f'{BLOCK}\n{{"note": "done"}}').message
-
-
-def test_stray_braces_in_prose_do_not_hide_the_verdict() -> None:
-    text = f"The line `config = {{` is f'{{x}}' and }} closes it.\n{BLOCK}"
-    assert parse_verdict(text) == ReviewVerdict("block", ("writes to a magnet",))
 
 
 @pytest.mark.parametrize(

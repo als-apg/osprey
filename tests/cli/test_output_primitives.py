@@ -217,14 +217,15 @@ def test_report_style_rides_on_the_text_not_the_call():
     assert visible(buffer.getvalue()) == ["osprey-demo — running"]
 
 
-def test_report_takes_prose_positionally():
+@pytest.mark.parametrize("fn", [report, note], ids=["report", "note"])
+def test_takes_prose_positionally(fn):
     """The copy guard reads prose out of positional arguments only.
 
     Positional-only, so a call site cannot quietly hide a printed sentence from
     the guard by naming the argument.
     """
     with pytest.raises(TypeError):
-        report(text="deployment created")  # type: ignore[call-arg]
+        fn(text="deployment created")
 
 
 def test_report_prints_a_blank_separator_line():
@@ -266,11 +267,6 @@ def test_note_is_dim_on_a_terminal():
     install_reporter(ConsoleReporter(console))
     note("resolved from OSPREY_PROFILE")
     assert "\x1b[" in buffer.getvalue()
-
-
-def test_note_takes_prose_positionally():
-    with pytest.raises(TypeError):
-        note(text="resolved from OSPREY_PROFILE")  # type: ignore[call-arg]
 
 
 # -- section ----------------------------------------------------------------

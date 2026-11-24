@@ -761,19 +761,22 @@ async def test_close_relays_the_key_without_a_base_rev():
     assert app.state.visible_panels == ["ariel"]
 
 
-async def test_the_terminal_is_never_an_agent_close_target():
+@pytest.mark.parametrize(
+    ("key", "reason"),
+    [
+        pytest.param(
+            "terminal",
+            "terminal_not_agent_movable",
+            id="the_terminal_is_never_an_agent_close_target",
+        ),
+        pytest.param("nope", "unknown_key", id="close_of_an_unknown_panel"),
+    ],
+)
+async def test_a_close_is_refused(key, reason):
     app = _app()
-    resp, frame, _ = await _write(app, "/api/panel-op/close", {"key": "terminal"})
+    resp, frame, _ = await _write(app, "/api/panel-op/close", {"key": key})
     assert resp.status_code == 422
-    assert resp.json()["reason"] == "terminal_not_agent_movable"
-    assert frame is None
-
-
-async def test_close_of_an_unknown_panel_is_refused():
-    app = _app()
-    resp, frame, _ = await _write(app, "/api/panel-op/close", {"key": "nope"})
-    assert resp.status_code == 422
-    assert resp.json()["reason"] == "unknown_key"
+    assert resp.json()["reason"] == reason
     assert frame is None
 
 

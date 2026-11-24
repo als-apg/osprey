@@ -32,10 +32,8 @@ class TestArtifactFocusTool:
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_focus()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(artifact_id="nonexistent-id")
-
-        _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_focus_valid_artifact(self, tmp_path, monkeypatch):

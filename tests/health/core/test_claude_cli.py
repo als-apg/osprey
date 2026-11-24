@@ -45,17 +45,18 @@ class TestClaudeCliPoll:
         assert row.status == Status.OK
         assert "1.2.3" in row.message
 
-    async def test_missing_binary_is_warning(self, monkeypatch):
-        _stub_run(monkeypatch, raises=FileNotFoundError())
+    @pytest.mark.parametrize(
+        ("raised", "needle"),
+        [
+            pytest.param(FileNotFoundError(), "not found in PATH", id="missing_binary"),
+            pytest.param(TimeoutError(), "timed out", id="timeout"),
+        ],
+    )
+    async def test_a_failed_run_is_warning(self, monkeypatch, raised, needle):
+        _stub_run(monkeypatch, raises=raised)
         results = await claude_cli({})()
         assert results[0].status == Status.WARNING
-        assert "not found in PATH" in results[0].message
-
-    async def test_timeout_is_warning(self, monkeypatch):
-        _stub_run(monkeypatch, raises=TimeoutError())
-        results = await claude_cli({})()
-        assert results[0].status == Status.WARNING
-        assert "timed out" in results[0].message
+        assert needle in results[0].message
 
     async def test_unparseable_output_is_warning(self, monkeypatch):
         _stub_run(monkeypatch, returncode=0, stdout="no version here", stderr="err")

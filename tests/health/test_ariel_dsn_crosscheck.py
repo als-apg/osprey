@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from osprey.health.core.configuration import ConfigState, configuration
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port, resolve_port_base
@@ -103,10 +105,6 @@ class TestMatchingPortIsSilent:
         ]
         assert row.status is Status.OK
 
-    def test_matching_port_does_not_raise_the_exit_code(self):
-        rows = _rows(_config(database={"uri": _STALE_URI}, postgresql={"port_host": 5432}))
-        assert rows["ariel_dsn_port"].status is not Status.WARNING
-
 
 class TestUnsetPortHostIsStillComparable:
     """An unset ``port_host`` is a KNOWN port — the deployment's layout slot.
@@ -155,58 +153,61 @@ class TestUnsetPortHostIsStillComparable:
         assert default_port("postgres", base=base) == 20800
 
 
-class TestNothingToCrossCheck:
-    def test_derived_dsn_emits_no_row(self):
-        """No explicit uri: the DSN follows port_host by construction."""
-        rows = _rows(_config(database={}, postgresql=_MOVED_PORT))
-        assert "ariel_dsn_port" not in rows
-
-    def test_absent_ariel_section_emits_no_row(self):
-        rows = _rows(_config(postgresql=_MOVED_PORT))
-        assert "ariel_dsn_port" not in rows
-
-    def test_no_postgresql_service_emits_no_row(self):
-        """An explicit uri with no local Postgres is a legitimate external DB."""
-        rows = _rows(_config(database={"uri": _STALE_URI}))
-        assert "ariel_dsn_port" not in rows
-
-    def test_malformed_port_host_emits_no_row(self):
-        """Nothing comparable: a non-integer port_host is the schema's problem."""
-        rows = _rows(_config(database={"uri": _STALE_URI}, postgresql={"port_host": "nope"}))
-        assert "ariel_dsn_port" not in rows
-
-    def test_external_database_host_emits_no_row(self):
-        """port_host publishes *this* project's Postgres, not a remote server's."""
-        rows = _rows(
+@pytest.mark.parametrize(
+    "config",
+    [
+        # No explicit uri: the DSN follows port_host by construction.
+        pytest.param(_config(database={}, postgresql=_MOVED_PORT), id="derived_dsn"),
+        pytest.param(_config(postgresql=_MOVED_PORT), id="absent_ariel_section"),
+        # An explicit uri with no local Postgres is a legitimate external DB.
+        pytest.param(_config(database={"uri": _STALE_URI}), id="no_postgresql_service"),
+        # Nothing comparable: a non-integer port_host is the schema's problem.
+        pytest.param(
+            _config(database={"uri": _STALE_URI}, postgresql={"port_host": "nope"}),
+            id="malformed_port_host",
+        ),
+        # port_host publishes *this* project's Postgres, not a remote server's.
+        pytest.param(
             _config(
                 database={"uri": "postgresql://user:pw@db.example.org:5432/ariel"},
                 postgresql=_MOVED_PORT,
-            )
-        )
-        assert "ariel_dsn_port" not in rows
-
-    def test_portless_uri_emits_no_row(self):
-        """Nothing explicit to have gone stale."""
-        rows = _rows(
-            _config(database={"uri": "postgresql://localhost/ariel"}, postgresql=_MOVED_PORT)
-        )
-        assert "ariel_dsn_port" not in rows
-
-
-class TestUnparseableValuesAreHandledGracefully:
-    def test_garbage_uri_emits_no_row(self):
-        rows = _rows(_config(database={"uri": "not a dsn at all"}, postgresql=_MOVED_PORT))
-        assert "ariel_dsn_port" not in rows
-
-    def test_non_numeric_port_in_uri_emits_no_row(self):
-        rows = _rows(
+            ),
+            id="external_database_host",
+        ),
+        # Nothing explicit to have gone stale.
+        pytest.param(
+            _config(database={"uri": "postgresql://localhost/ariel"}, postgresql=_MOVED_PORT),
+            id="portless_uri",
+        ),
+        # Unparseable values are handled gracefully.
+        pytest.param(
+            _config(database={"uri": "not a dsn at all"}, postgresql=_MOVED_PORT),
+            id="garbage_uri",
+        ),
+        pytest.param(
             _config(
                 database={"uri": "postgresql://ariel@localhost:not-a-port/ariel"},
                 postgresql=_MOVED_PORT,
-            )
-        )
-        assert "ariel_dsn_port" not in rows
+            ),
+            id="non_numeric_port_in_uri",
+        ),
+        pytest.param(_config(database={"uri": 5432}, postgresql=_MOVED_PORT), id="non_string_uri"),
+        pytest.param(
+            _config(database={"uri": _STALE_URI}, postgresql={"port_host": "auto"}),
+            id="non_numeric_port_host",
+        ),
+        pytest.param(
+            {"ariel": {"database": None}, "services": {"postgresql": _MOVED_PORT}},
+            id="null_database_block",
+        ),
+    ],
+)
+def test_nothing_comparable_emits_no_row(config):
+    """Every configuration that is not a stale duplicate of the port emits no row."""
+    assert "ariel_dsn_port" not in _rows(config)
 
+
+class TestUnparseableValuesAreHandledGracefully:
     def test_unresolved_placeholder_port_emits_no_row(self, monkeypatch):
         monkeypatch.delenv("ARIEL_DB_PORT", raising=False)
         rows = _rows(
@@ -226,15 +227,3 @@ class TestUnparseableValuesAreHandledGracefully:
             )
         )["ariel_dsn_port"]
         assert row.status is Status.WARNING
-
-    def test_non_string_uri_emits_no_row(self):
-        rows = _rows(_config(database={"uri": 5432}, postgresql=_MOVED_PORT))
-        assert "ariel_dsn_port" not in rows
-
-    def test_non_numeric_port_host_emits_no_row(self):
-        rows = _rows(_config(database={"uri": _STALE_URI}, postgresql={"port_host": "auto"}))
-        assert "ariel_dsn_port" not in rows
-
-    def test_null_database_block_emits_no_row(self):
-        rows = _rows({"ariel": {"database": None}, "services": {"postgresql": _MOVED_PORT}})
-        assert "ariel_dsn_port" not in rows

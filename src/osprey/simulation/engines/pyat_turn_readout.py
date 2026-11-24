@@ -9,11 +9,13 @@ trigger see only the stored beam, and injected turn 1 sits at index
 
 The sum is the injected charge times its alive share times the sum per unit
 charge, plus, while the RF is on, the stored current times the sum per unit
-stored current; it never falls below the floor. The beam position is the
+stored current, the whole times the monitor's own sum gain; it never falls
+below the floor. The beam position is the
 sum-weighted mix of the stored beam, which sits at zero, and the injected
 bunch, plus position noise. The monitor's own read-out faults -- the ones its
 orbit reading carries, handed in as one function of the (x, y) pair -- then
-act on that position, as they act on an orbit reading. Where the beam sum is
+act on that position, as they act on an orbit reading. The sum gain is the sum array's alone: the mix and the test
+for beam read the sum of a monitor with a gain of 1. Where that beam sum is
 at or below the floor there is no beam to read: the positions are floor
 noise, much larger than a beam signal, and no fault shows. With the pilot
 tone on, a spike lands on every sample whose index is a multiple of the
@@ -276,6 +278,7 @@ def monitor_turn_arrays(
     shot: int,
     readout: TurnReadout,
     faults: Callable[[np.ndarray, np.ndarray], tuple[Any, Any]] | None = None,
+    sum_gain: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One monitor's ``x``, ``y`` and ``sum`` arrays for one shot.
 
@@ -295,6 +298,9 @@ def monitor_turn_arrays(
         faults: The monitor's own read-out faults: called once with the two
             beam-position arrays, in metres, it returns what the monitor
             reads of them. ``None`` is a perfect monitor.
+        sum_gain: The monitor's own factor on the beam sum, injected and
+            stored, applied before the sum's noise and floor. The positions
+            never read it.
 
     Returns:
         ``(x, y, sum)``, float64 arrays of ``trigger_sample + turns`` samples, no NaN.
@@ -348,7 +354,8 @@ def monitor_turn_arrays(
         )
         for position, beam, address in ((x, beam_x, address_x), (y, beam_y, address_y))
     )
-    total = turn_sum(
-        injected + stored, address=address_sum, shot=shot, tone_on=tone_on, readout=readout
-    )
+    physics = injected + stored
+    if sum_gain != 1.0:
+        physics = physics * float(sum_gain)
+    total = turn_sum(physics, address=address_sum, shot=shot, tone_on=tone_on, readout=readout)
     return x, y, total

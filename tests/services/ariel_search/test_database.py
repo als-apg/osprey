@@ -193,16 +193,17 @@ class TestBaseMigration:
         assert migration.name == "core_schema"
         assert migration.depends_on == []
 
-    def test_semantic_processor_migration_properties(self) -> None:
-        """Test SemanticProcessorMigration properties."""
-        migration = SemanticProcessorMigration()
-        assert migration.name == "semantic_processor"
-        assert migration.depends_on == ["core_schema"]
-
-    def test_text_embedding_migration_properties(self) -> None:
-        """Test TextEmbeddingMigration properties."""
-        migration = TextEmbeddingMigration()
-        assert migration.name == "text_embedding"
+    @pytest.mark.parametrize(
+        ("cls", "name"),
+        [
+            pytest.param(SemanticProcessorMigration, "semantic_processor", id="semantic-processor"),
+            pytest.param(TextEmbeddingMigration, "text_embedding", id="text-embedding"),
+        ],
+    )
+    def test_module_migration_properties(self, cls: type[BaseMigration], name: str) -> None:
+        """A module migration has its own name and depends on the core schema."""
+        migration = cls()
+        assert migration.name == name
         assert migration.depends_on == ["core_schema"]
 
     def test_text_embedding_with_custom_models(self) -> None:
@@ -372,22 +373,6 @@ class TestTextEmbeddingMigration:
         assert migration._get_models() == models
 
 
-class TestMigrationModuleExports:
-    """Tests for migration module exports."""
-
-    def test_model_to_table_name_exported(self) -> None:
-        """model_to_table_name is exported."""
-        from osprey.services.ariel_search.database.migrations import model_to_table_name
-
-        assert callable(model_to_table_name)
-
-    def test_base_migration_exported(self) -> None:
-        """BaseMigration is exported."""
-        from osprey.services.ariel_search.database.migrations import BaseMigration
-
-        assert BaseMigration is not None
-
-
 class TestCoreMigration:
     """Tests for CoreMigration class."""
 
@@ -536,26 +521,37 @@ class TestCreateConnectionPoolOpen:
         assert raised.value is refusals[0]
 
 
-class TestDatabaseExports:
-    """Tests for database module exports."""
+class TestPackageExports:
+    """The subpackages keep the public names their callers import from them."""
 
-    def test_create_connection_pool_exported(self) -> None:
-        """create_connection_pool is exported from database package."""
-        from osprey.services.ariel_search.database import create_connection_pool
+    @pytest.mark.parametrize(
+        ("package", "name"),
+        [
+            pytest.param(
+                "database", "create_connection_pool", id="database-create_connection_pool"
+            ),
+            pytest.param("database", "ARIELRepository", id="database-ARIELRepository"),
+            pytest.param("database", "run_migrations", id="database-run_migrations"),
+            pytest.param(
+                "enhancement", "BaseEnhancementModule", id="enhancement-BaseEnhancementModule"
+            ),
+            pytest.param(
+                "enhancement",
+                "create_enhancers_from_config",
+                id="enhancement-create_enhancers_from_config",
+            ),
+            pytest.param("enhancement", "get_enhancer_names", id="enhancement-get_enhancer_names"),
+            pytest.param("ingestion.adapters", "get_adapter", id="adapters-get_adapter"),
+            pytest.param("search", "keyword_search", id="search-keyword_search"),
+            pytest.param("search", "semantic_search", id="search-semantic_search"),
+        ],
+    )
+    def test_package_keeps_every_public_name(self, package: str, name: str) -> None:
+        """Each re-exported name is reachable from its package."""
+        import importlib
 
-        assert callable(create_connection_pool)
-
-    def test_ariel_repository_exported(self) -> None:
-        """ARIELRepository is exported from database package."""
-        from osprey.services.ariel_search.database import ARIELRepository
-
-        assert ARIELRepository is not None
-
-    def test_run_migrations_exported(self) -> None:
-        """run_migrations is exported from database package."""
-        from osprey.services.ariel_search.database import run_migrations
-
-        assert callable(run_migrations)
+        module = importlib.import_module(f"osprey.services.ariel_search.{package}")
+        assert callable(getattr(module, name, None)), name
 
 
 class TestMigrationRunnerLogic:
@@ -829,14 +825,6 @@ class TestEmbeddingTableInfo:
 class TestConnectionModule:
     """Tests for database connection module."""
 
-    def test_create_connection_pool_import(self) -> None:
-        """create_connection_pool can be imported."""
-        from osprey.services.ariel_search.database.connection import (
-            create_connection_pool,
-        )
-
-        assert callable(create_connection_pool)
-
     def test_connection_pool_is_async(self) -> None:
         """create_connection_pool is an async function."""
         import asyncio
@@ -848,50 +836,8 @@ class TestConnectionModule:
         assert asyncio.iscoroutinefunction(create_connection_pool)
 
 
-class TestEnhancementModulesInit:
-    """Tests for enhancement module initialization."""
-
-    def test_base_enhancement_import(self) -> None:
-        """BaseEnhancementModule can be imported."""
-        from osprey.services.ariel_search.enhancement.base import (
-            BaseEnhancementModule,
-        )
-
-        assert BaseEnhancementModule is not None
-
-    def test_factory_import(self) -> None:
-        """Enhancement factory can be imported."""
-        from osprey.services.ariel_search.enhancement.factory import (
-            create_enhancers_from_config,
-        )
-
-        assert callable(create_enhancers_from_config)
-
-    def test_text_embedding_import(self) -> None:
-        """TextEmbeddingModule can be imported."""
-        from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
-            TextEmbeddingModule,
-        )
-
-        assert TextEmbeddingModule is not None
-
-    def test_semantic_processor_import(self) -> None:
-        """SemanticProcessorModule can be imported."""
-        from osprey.services.ariel_search.enhancement.semantic_processor.processor import (
-            SemanticProcessorModule,
-        )
-
-        assert SemanticProcessorModule is not None
-
-
 class TestIngestionAdaptersInit:
     """Tests for ingestion adapter initialization."""
-
-    def test_facility_adapter_import(self) -> None:
-        """FacilityAdapter can be imported."""
-        from osprey.services.ariel_search.ingestion.base import FacilityAdapter
-
-        assert FacilityAdapter is not None
 
     def test_ingestion_adapters_in_registry(self) -> None:
         """Ingestion adapters are discoverable via the Osprey registry."""
@@ -901,28 +847,6 @@ class TestIngestionAdaptersInit:
         adapters = registry.list_ariel_ingestion_adapters()
         assert "als_logbook" in adapters
         assert "generic_json" in adapters
-
-    def test_get_adapter_function(self) -> None:
-        """get_adapter function exists."""
-        from osprey.services.ariel_search.ingestion.adapters import get_adapter
-
-        assert callable(get_adapter)
-
-
-class TestSearchModulesInit:
-    """Tests for search module initialization."""
-
-    def test_keyword_search_import(self) -> None:
-        """keyword_search can be imported."""
-        from osprey.services.ariel_search.search import keyword_search
-
-        assert callable(keyword_search)
-
-    def test_semantic_search_import(self) -> None:
-        """semantic_search can be imported."""
-        from osprey.services.ariel_search.search import semantic_search
-
-        assert callable(semantic_search)
 
 
 class TestEnhancementFactory:
@@ -937,7 +861,7 @@ class TestEnhancementFactory:
         config = ARIELConfig(database=DatabaseConfig(uri="postgresql://localhost/test"))
         enhancers = create_enhancers_from_config(config)
 
-        assert isinstance(enhancers, list)
+        assert enhancers == []
 
     def test_create_enhancers_with_text_embedding(self) -> None:
         """create_enhancers_from_config creates TextEmbeddingModule."""
@@ -1081,36 +1005,38 @@ class TestGetEnabledMigrations:
             "ariel_only_sync_status",
         ]
 
-    def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
-        """A migration whose module is gone must not break the whole run."""
+    @pytest.mark.parametrize(
+        ("migration_name", "module_path", "class_name"),
+        [
+            # A migration whose module is gone must not break the whole run.
+            pytest.param(
+                "ghost",
+                "osprey.services.ariel_search.database.no_such_module",
+                "Ghost",
+                id="unimportable-module",
+            ),
+            # A renamed class is reported the same way as a missing module.
+            pytest.param(
+                "core_schema",
+                "osprey.services.ariel_search.database.core_migration",
+                "RenamedMigration",
+                id="missing-class",
+            ),
+        ],
+    )
+    def test_broken_migration_is_skipped_with_warning(
+        self, monkeypatch, caplog, migration_name: str, module_path: str, class_name: str
+    ) -> None:
+        """A migration that cannot be loaded is skipped with a warning naming it."""
         caplog.set_level(logging.WARNING, logger="ariel")
         monkeypatch.setattr(
             migrations_module,
             "KNOWN_MIGRATIONS",
-            [("ghost", "osprey.services.ariel_search.database.no_such_module", "Ghost", None)],
+            [(migration_name, module_path, class_name, None)],
         )
 
         assert make_runner()._get_enabled_migrations() == []
-        assert "Failed to load migration ghost" in caplog.text
-
-    def test_missing_migration_class_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
-        """A renamed class is reported the same way as a missing module."""
-        caplog.set_level(logging.WARNING, logger="ariel")
-        monkeypatch.setattr(
-            migrations_module,
-            "KNOWN_MIGRATIONS",
-            [
-                (
-                    "core_schema",
-                    "osprey.services.ariel_search.database.core_migration",
-                    "RenamedMigration",
-                    None,
-                )
-            ],
-        )
-
-        assert make_runner()._get_enabled_migrations() == []
-        assert "Failed to load migration core_schema" in caplog.text
+        assert f"Failed to load migration {migration_name}" in caplog.text
 
     def test_embedding_migration_falls_back_to_default_models(self) -> None:
         """text_embedding enabled without a models list keeps the built-in default."""

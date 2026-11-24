@@ -116,12 +116,15 @@ class TestChannelsEndpoint:
 class TestPipelineGating:
     """Tests that pipeline-specific endpoints return 404 for wrong pipeline."""
 
-    def test_hierarchical_endpoint_returns_404_on_in_context(self, client):
-        resp = client.get("/api/explore/options?level=system")
-        assert resp.status_code == 404
-
-    def test_middle_layer_endpoint_returns_404_on_in_context(self, client):
-        resp = client.get("/api/explore/systems")
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/api/explore/options?level=system", id="hierarchical_endpoint"),
+            pytest.param("/api/explore/systems", id="middle_layer_endpoint"),
+        ],
+    )
+    def test_endpoint_returns_404_on_in_context(self, client, path):
+        resp = client.get(path)
         assert resp.status_code == 404
 
 

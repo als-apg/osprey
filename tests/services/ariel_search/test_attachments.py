@@ -354,7 +354,8 @@ class TestAttachmentIdFor:
         assert attachment_id_for("e1", {"url": "2x"}) != attachment_id_for("e12", {"url": "x"})
 
     def test_non_fetchable_non_empty_url_still_gets_an_id(self):
-        assert attachment_id_for("e1", {"url": "relative/x.png"}) is not None
+        digest = hashlib.sha256(b"e1\0relative/x.png").hexdigest()[:24]
+        assert attachment_id_for("e1", {"url": "relative/x.png"}) == f"att-{digest}"
 
     @pytest.mark.parametrize("item", [{}, {"url": ""}, {"url": None}, {"url": 7}, {"url": b"x"}])
     def test_empty_missing_or_non_string_url_is_none(self, item):

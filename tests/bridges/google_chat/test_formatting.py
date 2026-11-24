@@ -166,9 +166,30 @@ def test_markdown_converts_to_its_chat_form(md, expected):
     assert markdown_to_chat(md) == expected
 
 
-def test_markdown_significant_characters_inside_inline_code_are_preserved():
-    md = "call `func(**a, _b_)` and `x | y` and `# not a heading`"
-    # Every markdown-significant char inside inline code survives verbatim.
+@pytest.mark.parametrize(
+    "md",
+    [
+        # Every markdown-significant char inside inline code survives verbatim.
+        pytest.param(
+            "call `func(**a, _b_)` and `x | y` and `# not a heading`",
+            id="markdown-significant-characters-inside-inline-code",
+        ),
+        pytest.param(
+            "```\n| a | b |\n#### heading-looking\n```", id="pipes-and-hashes-inside-a-fenced-block"
+        ),
+        # No closing ``` -> not a fence match -> emitted unchanged (malformed -> raw).
+        pytest.param("```python\nprint('hi')\nno closing fence", id="unterminated-fence"),
+        # Several code spans come back each in its own place, in order.
+        pytest.param(
+            "first `one` then `two` then ```\nthree\n``` done",
+            id="multiple-code-spans-restored-in-order",
+        ),
+        # Column count mismatch -> raw block.
+        pytest.param("| a | b |\n| --- | --- |\n| onlyone |", id="table-with-a-ragged-row"),
+        pytest.param("| just | pipes |\n| no | separator |", id="pipes-without-a-separator-row"),
+    ],
+)
+def test_markdown_that_chat_cannot_or_need_not_convert_is_left_verbatim(md):
     assert markdown_to_chat(md) == md
 
 
@@ -177,23 +198,6 @@ def test_a_fenced_block_drops_its_language_tag_and_keeps_its_body_verbatim():
     out = markdown_to_chat(md)
     assert out == "```\n# a comment\necho **not bold**\n```"
     assert "bash" not in out.split("\n", 1)[0]  # opening fence carries no lang
-
-
-def test_pipes_and_hashes_inside_a_fenced_block_survive():
-    md = "```\n| a | b |\n#### heading-looking\n```"
-    assert markdown_to_chat(md) == md
-
-
-def test_an_unterminated_fence_is_left_verbatim():
-    # No closing ``` -> not a fence match -> emitted unchanged (malformed -> raw).
-    md = "```python\nprint('hi')\nno closing fence"
-    assert markdown_to_chat(md) == md
-
-
-def test_multiple_code_spans_are_restored_in_order():
-    md = "first `one` then `two` then ```\nthree\n``` done"
-    out = markdown_to_chat(md)
-    assert "`one`" in out and "`two`" in out and "```\nthree\n```" in out
 
 
 # --- headings + bullets ---------------------------------------------------------
@@ -206,8 +210,7 @@ def test_a_heading_at_any_level_loses_all_of_its_hashes():
 
 def test_bold_at_the_start_of_a_line_is_not_a_bullet():
     # ``**bold**`` (no space after the marker) must not be read as a list item.
-    out = markdown_to_chat("**bold** line")
-    assert not out.startswith("- ")
+    assert markdown_to_chat("**bold** line") == "*bold* line"
 
 
 # --- tables ---------------------------------------------------------------------
@@ -218,11 +221,6 @@ def test_each_table_row_becomes_its_own_labeled_line():
     assert markdown_to_chat(md) == "*Name:* Alice, *Age:* 30\n*Name:* Bob, *Age:* 25"
 
 
-def test_a_table_with_a_ragged_row_falls_back_to_the_raw_block():
-    md = "| a | b |\n| --- | --- |\n| onlyone |"
-    assert markdown_to_chat(md) == md  # column count mismatch -> raw block
-
-
 def test_the_text_surrounding_a_table_is_preserved():
     md = "before\n\n| H | V |\n| --- | --- |\n| k | 1 |\n\nafter"
     out = markdown_to_chat(md)
@@ -230,11 +228,6 @@ def test_the_text_surrounding_a_table_is_preserved():
     assert out.endswith("\n\nafter")
     assert "*H:* k" in out
     assert "|" not in out.split("after")[0].split("before")[1]  # no pipes left in the table region
-
-
-def test_pipes_without_a_separator_row_are_not_a_table():
-    md = "| just | pipes |\n| no | separator |"
-    assert markdown_to_chat(md) == md
 
 
 # --- math -----------------------------------------------------------------------

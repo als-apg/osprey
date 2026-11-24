@@ -48,35 +48,21 @@ class TestARIELException:
         exc = ARIELException("Test error", ErrorCategory.DATABASE, details)
         assert exc.technical_details == details
 
-    def test_is_retriable_database(self) -> None:
-        """Test is_retriable for DATABASE category."""
-        exc = ARIELException("DB error", ErrorCategory.DATABASE)
-        assert exc.is_retriable is True
-
-    def test_is_retriable_embedding(self) -> None:
-        """Test is_retriable for EMBEDDING category."""
-        exc = ARIELException("Embedding error", ErrorCategory.EMBEDDING)
-        assert exc.is_retriable is True
-
-    def test_is_retriable_search(self) -> None:
-        """Test is_retriable for SEARCH category."""
-        exc = ARIELException("Search error", ErrorCategory.SEARCH)
-        assert exc.is_retriable is False
-
-    def test_is_retriable_ingestion(self) -> None:
-        """Test is_retriable for INGESTION category."""
-        exc = ARIELException("Ingestion error", ErrorCategory.INGESTION)
-        assert exc.is_retriable is False
-
-    def test_is_retriable_configuration(self) -> None:
-        """Test is_retriable for CONFIGURATION category."""
-        exc = ARIELException("Config error", ErrorCategory.CONFIGURATION)
-        assert exc.is_retriable is False
-
-    def test_is_retriable_timeout(self) -> None:
-        """Test is_retriable for TIMEOUT category."""
-        exc = ARIELException("Timeout error", ErrorCategory.TIMEOUT)
-        assert exc.is_retriable is False
+    @pytest.mark.parametrize(
+        ("category", "retriable"),
+        [
+            pytest.param(ErrorCategory.DATABASE, True, id="database"),
+            pytest.param(ErrorCategory.EMBEDDING, True, id="embedding"),
+            pytest.param(ErrorCategory.SEARCH, False, id="search"),
+            pytest.param(ErrorCategory.INGESTION, False, id="ingestion"),
+            pytest.param(ErrorCategory.CONFIGURATION, False, id="configuration"),
+            pytest.param(ErrorCategory.TIMEOUT, False, id="timeout"),
+        ],
+    )
+    def test_is_retriable(self, category, retriable) -> None:
+        """Only DATABASE and EMBEDDING errors are retriable."""
+        exc = ARIELException("error", category)
+        assert exc.is_retriable is retriable
 
 
 class TestDatabaseConnectionError:

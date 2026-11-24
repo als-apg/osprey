@@ -98,23 +98,27 @@ def test_input_files_caps_ingest_false_not_counted():
     validate_input_files(specs)
 
 
-def test_input_files_caps_image_per_file_boundary_ok():
-    validate_input_files([_Spec("image/png", _b64(MAX_IMAGE_BYTES))])
+@pytest.mark.parametrize(
+    ("mime", "cap"),
+    [
+        pytest.param("image/png", MAX_IMAGE_BYTES, id="image"),
+        pytest.param("text/csv", MAX_TEXT_BYTES, id="text"),
+    ],
+)
+def test_input_files_caps_per_file_boundary_ok(mime, cap):
+    validate_input_files([_Spec(mime, _b64(cap))])
 
 
-def test_input_files_caps_image_per_file_exceeded():
+@pytest.mark.parametrize(
+    ("mime", "cap"),
+    [
+        pytest.param("image/png", MAX_IMAGE_BYTES, id="image"),
+        pytest.param("application/json", MAX_TEXT_BYTES, id="text"),
+    ],
+)
+def test_input_files_caps_per_file_exceeded(mime, cap):
     with pytest.raises(InputFilesError) as ei:
-        validate_input_files([_Spec("image/png", _b64(MAX_IMAGE_BYTES + 1))])
-    assert ei.value.detail == DETAIL_CAP_EXCEEDED
-
-
-def test_input_files_caps_text_per_file_boundary_ok():
-    validate_input_files([_Spec("text/csv", _b64(MAX_TEXT_BYTES))])
-
-
-def test_input_files_caps_text_per_file_exceeded():
-    with pytest.raises(InputFilesError) as ei:
-        validate_input_files([_Spec("application/json", _b64(MAX_TEXT_BYTES + 1))])
+        validate_input_files([_Spec(mime, _b64(cap + 1))])
     assert ei.value.detail == DETAIL_CAP_EXCEEDED
 
 

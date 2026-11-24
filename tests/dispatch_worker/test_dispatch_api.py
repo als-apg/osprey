@@ -586,18 +586,13 @@ def test_dashboard_runs_requires_auth(client):
 
 def test_dashboard_runs_with_auth(client):
     # Seed one run via the API.
-    client.post(
-        "/dispatch",
-        json={"prompt": "do it", "allowed_tools": ["Read"]},
-        headers=_auth(),
-    )
+    seeded = _dispatch(client)
     resp = client.get("/dashboard/runs", headers=_auth())
     assert resp.status_code == 200
     runs = resp.json()
     assert isinstance(runs, list)
-    assert len(runs) >= 1
-    assert "run_id" in runs[0]
-    assert "status" in runs[0]
+    assert seeded in {r["run_id"] for r in runs}
+    assert all("status" in r for r in runs)
 
 
 def test_dashboard_runs_carries_the_session_and_the_owner(client):

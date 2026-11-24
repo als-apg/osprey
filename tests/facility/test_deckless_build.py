@@ -141,22 +141,33 @@ def test_a_start_value_suppresses_seed_missing(tmp_path: Path) -> None:
     assert _lines(report) == []
 
 
-def test_start_value_above_its_limits_stops(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("channel", "start", "line"),
+    [
+        pytest.param(
+            "SRC",
+            12.0,
+            "facility: seed-invalid: channel SRC — nominal 12 lies above `max_value` 10; "
+            "fix: move the operating point inside [min_value, max_value], or widen the limits "
+            "record",
+            id="above",
+        ),
+        pytest.param(
+            "STORED",
+            1.5,
+            "facility: seed-invalid: channel STORED — nominal 1.5 lies below `min_value` 5; "
+            "fix: move the operating point inside [min_value, max_value], or widen the limits "
+            "record",
+            id="below",
+        ),
+    ],
+)
+def test_start_value_outside_its_limits_stops(
+    tmp_path: Path, channel: str, start: float, line: str
+) -> None:
     tree = _tree()
-    _wired(tree, "SRC")["engine"]["start"] = 12.0
-    assert _lines(_run(tmp_path, tree)) == [
-        "facility: seed-invalid: channel SRC — nominal 12 lies above `max_value` 10; "
-        "fix: move the operating point inside [min_value, max_value], or widen the limits record"
-    ]
-
-
-def test_start_value_below_its_limits_stops(tmp_path: Path) -> None:
-    tree = _tree()
-    _wired(tree, "STORED")["engine"]["start"] = 1.5
-    assert _lines(_run(tmp_path, tree)) == [
-        "facility: seed-invalid: channel STORED — nominal 1.5 lies below `min_value` 5; "
-        "fix: move the operating point inside [min_value, max_value], or widen the limits record"
-    ]
+    _wired(tree, channel)["engine"]["start"] = start
+    assert _lines(_run(tmp_path, tree)) == [line]
 
 
 def test_start_value_absent_starts_at_zero_and_zero_outside_band_stops(tmp_path: Path) -> None:

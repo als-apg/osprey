@@ -179,14 +179,31 @@ class TestLogbookCompose:
         assert "beam" in data["tags"]
         assert entry.id in data["artifact_ids"]
 
-    def test_compose_markdown_fenced_json(self, app_client):
-        """LLM wrapping JSON in ```json fences must not cause a 503."""
+    @pytest.mark.parametrize(
+        ("title", "llm_text", "subject"),
+        [
+            # LLM wrapping JSON in ```json fences
+            pytest.param(
+                "Beam Current Plot",
+                '```json\n{"subject": "Beam analysis", "details": "Stable beam.", "tags": ["beam"]}\n```',
+                "Beam analysis",
+                id="markdown_fenced_json",
+            ),
+            # LLM adding conversational preamble before the JSON
+            pytest.param(
+                "Test Plot",
+                'Here is the logbook entry:\n{"subject": "Test", "details": "Details.", "tags": ["test"]}',
+                "Test",
+                id="json_with_preamble",
+            ),
+        ],
+    )
+    def test_compose_reads_json_the_llm_wrapped(self, app_client, title, llm_text, subject):
+        """JSON the LLM wrapped in fences or a preamble must not cause a 503."""
         store = app_client.app.state.artifact_store
-        entry = _make_artifact(store, title="Beam Current Plot")
+        entry = _make_artifact(store, title=title)
 
-        # Simulate LLM returning JSON wrapped in markdown code fences
-        fenced_response = '```json\n{"subject": "Beam analysis", "details": "Stable beam.", "tags": ["beam"]}\n```'
-        mock_llm = AsyncMock(return_value=fenced_response)
+        mock_llm = AsyncMock(return_value=llm_text)
 
         p1, p2 = _patch_model_resolution()
         with p1, p2, patch("osprey.models.completion.aget_chat_completion", mock_llm):
@@ -197,27 +214,7 @@ class TestLogbookCompose:
 
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
         data = resp.json()
-        assert data["subject"] == "Beam analysis"
-
-    def test_compose_json_with_preamble(self, app_client):
-        """LLM adding preamble text before JSON must not cause a 503."""
-        store = app_client.app.state.artifact_store
-        entry = _make_artifact(store, title="Test Plot")
-
-        # Simulate LLM adding conversational preamble before JSON
-        preamble_response = 'Here is the logbook entry:\n{"subject": "Test", "details": "Details.", "tags": ["test"]}'
-        mock_llm = AsyncMock(return_value=preamble_response)
-
-        p1, p2 = _patch_model_resolution()
-        with p1, p2, patch("osprey.models.completion.aget_chat_completion", mock_llm):
-            resp = app_client.post(
-                "/api/logbook/compose",
-                json={"artifact_id": entry.id},
-            )
-
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.json()}"
-        data = resp.json()
-        assert data["subject"] == "Test"
+        assert data["subject"] == subject
 
 
 class TestLogbookSubmit:
@@ -929,12 +926,19 @@ class TestTranscriptDirIsResolvedOnce:
     def _get_user_prompt(self, mock_llm) -> str:
         return mock_llm.call_args.kwargs["chat_request"].messages[1].content
 
-    def test_create_app_resolves_the_agent_project_dir_up_front(self, tmp_path):
+    def test_create_app_resolves_the_agent_project_dir_up_front(self, tmp_path, monkeypatch):
         from osprey.interfaces.artifacts.app import create_app
 
-        app = create_app(workspace_root=tmp_path)
+        # The agent's project dir is the rendered config's directory, wherever
+        # the gallery itself was launched from.
+        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "render" / "config.yml"))
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
 
-        assert getattr(app.state, "agent_project_dir", None) is not None
+        app = create_app(workspace_root=tmp_path / "workspace")
+
+        assert app.state.agent_project_dir == tmp_path / "render"
 
     def test_compose_reads_the_session_of_app_state_not_cwd(
         self, tmp_path, monkeypatch, session_record

@@ -31,33 +31,62 @@ class TestContainerFallbackUrls:
     """The fallback table: other host classes, in the old order, without duplicates."""
 
     @pytest.mark.parametrize(
-        "base_url,expected",
+        ("base_url", "default_port", "expected"),
         [
-            (
+            pytest.param(
                 "http://localhost:11434",
+                11434,
                 ["http://host.docker.internal:11434", "http://host.containers.internal:11434"],
+                id="localhost",
             ),
-            (
+            pytest.param(
                 "http://host.containers.internal:11434",
+                11434,
                 ["http://host.docker.internal:11434", "http://localhost:11434"],
+                id="host_containers_internal",
             ),
-            (
+            pytest.param(
                 "http://host.docker.internal:11434",
+                11434,
                 ["http://host.containers.internal:11434", "http://localhost:11434"],
+                id="host_docker_internal",
             ),
-            (
+            pytest.param(
                 "http://remote.example:11434",
+                11434,
                 [
                     "http://localhost:11434",
                     "http://host.docker.internal:11434",
                     "http://host.containers.internal:11434",
                 ],
+                id="remote",
+            ),
+            # 127.0.0.1 is a local host and falls back onto both container hosts.
+            pytest.param(
+                "http://127.0.0.1:11434",
+                11434,
+                ["http://host.docker.internal:11434", "http://host.containers.internal:11434"],
+                id="loopback_ip_is_local",
+            ),
+            # A local URL without a port falls back on the default port.
+            pytest.param(
+                "http://localhost",
+                8080,
+                ["http://host.docker.internal:8080", "http://host.containers.internal:8080"],
+                id="missing_port_takes_default",
+            ),
+            # A container URL keeps its scheme and path on every fallback.
+            pytest.param(
+                "https://host.docker.internal:9000/v1",
+                11434,
+                ["https://host.containers.internal:9000/v1", "https://localhost:9000/v1"],
+                id="scheme_and_path_kept_for_container_classes",
             ),
         ],
     )
-    def test_fallback_branches(self, base_url, expected):
+    def test_fallback_branches(self, base_url, default_port, expected):
         """Each host class yields its exact ordered fallback list."""
-        assert container_fallback_urls(base_url, 11434) == expected
+        assert container_fallback_urls(base_url, default_port) == expected
 
     def test_custom_port_is_kept(self):
         """A local URL on 8080 falls back on 8080, never on the default port."""
@@ -67,27 +96,6 @@ class TestContainerFallbackUrls:
             "http://host.containers.internal:8080",
         ]
         assert not any("11434" in url for url in result)
-
-    def test_loopback_ip_is_local(self):
-        """127.0.0.1 is a local host and falls back onto both container hosts."""
-        assert container_fallback_urls("http://127.0.0.1:11434", 11434) == [
-            "http://host.docker.internal:11434",
-            "http://host.containers.internal:11434",
-        ]
-
-    def test_missing_port_takes_default(self):
-        """A local URL without a port falls back on the default port."""
-        assert container_fallback_urls("http://localhost", 8080) == [
-            "http://host.docker.internal:8080",
-            "http://host.containers.internal:8080",
-        ]
-
-    def test_scheme_and_path_kept_for_container_classes(self):
-        """A container URL keeps its scheme and path on every fallback."""
-        assert container_fallback_urls("https://host.docker.internal:9000/v1", 11434) == [
-            "https://host.containers.internal:9000/v1",
-            "https://localhost:9000/v1",
-        ]
 
     def test_remote_with_path_gets_plain_fallbacks(self):
         """A remote https URL with a path falls back to plain http on the default port."""

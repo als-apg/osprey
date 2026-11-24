@@ -104,6 +104,63 @@ class TestRead:
 
 
 class TestRefusedTables:
+    @pytest.mark.parametrize(
+        ("text", "filename", "spec", "line"),
+        [
+            pytest.param(
+                "type,subject\nx,a\n",
+                "relations.csv",
+                RELATIONS,
+                "facility: source-invalid: path relations.csv — has no `object` column; "
+                "fix: add the column `object`",
+                id="a_missing_required_column",
+            ),
+            pytest.param(
+                "type,subject,object,subject\nx,a,b,c\n",
+                "relations.csv",
+                RELATIONS,
+                "facility: source-invalid: path relations.csv — names column `subject` twice; "
+                "fix: keep one",
+                id="a_repeated_column",
+            ),
+            pytest.param(
+                "type,subject,object\npart_of,a,b,c\npart_of,a,b\n",
+                "relations.csv",
+                RELATIONS,
+                "facility: source-invalid: path relations.csv — holds more cells than the header "
+                "names (3) (relations.csv row 2); fix: fill one cell per header column",
+                id="a_row_with_extra_cells",
+            ),
+            pytest.param(
+                "\n\n",
+                "relations.csv",
+                RELATIONS,
+                "facility: source-invalid: path relations.csv — holds no header row; "
+                "fix: add a header row naming `type`, `subject`, `object`",
+                id="an_empty_file",
+            ),
+            pytest.param(
+                "place,locator\nSR,p. 4\n",
+                "places.csv",
+                PLACES,
+                "facility: source-invalid: column document — a citation with no document "
+                "(`locator` filled) (places.csv row 2); "
+                "fix: fill `document`, or empty the citation columns",
+                id="a_citation_with_no_document",
+            ),
+            pytest.param(
+                "place,document,imported\nSR,D1,13/11/2026\n",
+                "places.csv",
+                PLACES,
+                "facility: source-invalid: imported 13/11/2026 — not an ISO date "
+                "(places.csv row 2); fix: write `imported` as YYYY-MM-DD",
+                id="an_imported_that_is_no_iso_date",
+            ),
+        ],
+    )
+    def test_is_refused(self, tmp_path: Path, text: str, filename: str, spec, line: str) -> None:
+        assert _refused(_csv(tmp_path, text, filename), spec) == [line]
+
     def test_an_unknown_column_is_refused(self, tmp_path: Path) -> None:
         lines = _refused(_csv(tmp_path, "type,subject,object,colour\nx,a,b,red\n"))
         assert len(lines) == 1
@@ -112,37 +169,12 @@ class TestRefusedTables:
             "fix: remove the column; the columns are type, subject, object,"
         )
 
-    def test_a_missing_required_column_is_refused(self, tmp_path: Path) -> None:
-        assert _refused(_csv(tmp_path, "type,subject\nx,a\n")) == [
-            "facility: source-invalid: path relations.csv — has no `object` column; "
-            "fix: add the column `object`"
-        ]
-
-    def test_a_repeated_column_is_refused(self, tmp_path: Path) -> None:
-        assert _refused(_csv(tmp_path, "type,subject,object,subject\nx,a,b,c\n")) == [
-            "facility: source-invalid: path relations.csv — names column `subject` twice; "
-            "fix: keep one"
-        ]
-
-    def test_a_row_with_extra_cells_is_refused(self, tmp_path: Path) -> None:
-        path = _csv(tmp_path, "type,subject,object\npart_of,a,b,c\npart_of,a,b\n")
-        assert _refused(path) == [
-            "facility: source-invalid: path relations.csv — holds more cells than the header "
-            "names (3) (relations.csv row 2); fix: fill one cell per header column"
-        ]
-
     def test_non_utf8_input_is_refused(self, tmp_path: Path) -> None:
         path = tmp_path / "relations.csv"
         path.write_bytes("type,subject,object\npart_of,Pr\xfcf,b\n".encode("latin-1"))
         [line] = _refused(path)
         assert line.startswith("facility: source-invalid: path relations.csv — is not UTF-8: ")
         assert line.endswith("; fix: save it as UTF-8")
-
-    def test_an_empty_file_is_refused(self, tmp_path: Path) -> None:
-        assert _refused(_csv(tmp_path, "\n\n")) == [
-            "facility: source-invalid: path relations.csv — holds no header row; "
-            "fix: add a header row naming `type`, `subject`, `object`"
-        ]
 
     def test_an_empty_required_cell_refuses_the_row_only(self, tmp_path: Path) -> None:
         refusals = Refusals()
@@ -153,21 +185,6 @@ class TestRefusedTables:
         assert [e.format_message() for e in refusals.errors()] == [
             "facility: source-invalid: column subject — empty required cell "
             "(relations.csv row 2); fix: fill `subject` or remove the row"
-        ]
-
-    def test_a_citation_with_no_document_is_refused(self, tmp_path: Path) -> None:
-        path = _csv(tmp_path, "place,locator\nSR,p. 4\n", "places.csv")
-        assert _refused(path, PLACES) == [
-            "facility: source-invalid: column document — a citation with no document "
-            "(`locator` filled) (places.csv row 2); "
-            "fix: fill `document`, or empty the citation columns"
-        ]
-
-    def test_an_imported_that_is_no_iso_date_is_refused(self, tmp_path: Path) -> None:
-        path = _csv(tmp_path, "place,document,imported\nSR,D1,13/11/2026\n", "places.csv")
-        assert _refused(path, PLACES) == [
-            "facility: source-invalid: imported 13/11/2026 — not an ISO date "
-            "(places.csv row 2); fix: write `imported` as YYYY-MM-DD"
         ]
 
     def test_refusals_given_are_appended_to_and_nothing_raises(self, tmp_path: Path) -> None:

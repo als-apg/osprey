@@ -111,14 +111,16 @@ def test_an_empty_override_is_unset_for_both_readers(monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------------------
 
 
-def test_build_model_keeps_what_the_call_site_pinned(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("pinned", "expected"),
+    [
+        pytest.param("claude-opus-5", "claude-opus-5", id="keeps-what-the-call-site-pinned"),
+        pytest.param(None, "claude-haiku-5-5", id="names-no-model-builds-with-haiku"),
+    ],
+)
+def test_build_model_without_a_forced_model(monkeypatch, pinned, expected) -> None:
     monkeypatch.delenv(FORCE_MODEL_ENV, raising=False)
-    assert build_model("claude-opus-5") == "claude-opus-5"
-
-
-def test_a_call_site_that_names_no_model_builds_with_haiku(monkeypatch) -> None:
-    monkeypatch.delenv(FORCE_MODEL_ENV, raising=False)
-    assert build_model(None) == "claude-haiku-5-5"
+    assert build_model(pinned) == expected
 
 
 @pytest.mark.parametrize("pinned", [None, "claude-opus-5"])
@@ -682,21 +684,38 @@ class TestLiveStreamOutcome:
     def _report(when: str, outcome: str, text: str = "") -> SimpleNamespace:
         return SimpleNamespace(when=when, outcome=outcome, longrepr=text)
 
-    def test_a_setup_failure_is_an_error_even_when_it_names_a_timeout(self) -> None:
-        report = self._report("setup", "failed", "VA did not answer within 180 s: Timeout")
-        assert e2e_conftest._live_outcome(report) == "error"
-
-    def test_a_setup_failure_is_an_error_even_with_the_timeout_signature(self) -> None:
-        report = self._report("setup", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
-        assert e2e_conftest._live_outcome(report) == "error"
-
-    def test_a_call_past_the_cap_is_a_timeout(self) -> None:
-        report = self._report("call", "failed", "Failed: Timeout (>1800s) from pytest-timeout.")
-        assert e2e_conftest._live_outcome(report) == "timeout"
-
-    def test_a_call_whose_source_says_timeout_is_a_failure(self) -> None:
-        report = self._report("call", "failed", "timeout = 5\nassert answer == 3")
-        assert e2e_conftest._live_outcome(report) == "failed"
+    @pytest.mark.parametrize(
+        ("when", "longrepr", "expected"),
+        [
+            pytest.param(
+                "setup",
+                "VA did not answer within 180 s: Timeout",
+                "error",
+                id="setup-failure-naming-a-timeout-is-an-error",
+            ),
+            pytest.param(
+                "setup",
+                "Failed: Timeout (>1800s) from pytest-timeout.",
+                "error",
+                id="setup-failure-with-the-timeout-signature-is-an-error",
+            ),
+            pytest.param(
+                "call",
+                "Failed: Timeout (>1800s) from pytest-timeout.",
+                "timeout",
+                id="call-past-the-cap-is-a-timeout",
+            ),
+            pytest.param(
+                "call",
+                "timeout = 5\nassert answer == 3",
+                "failed",
+                id="call-whose-source-says-timeout-is-a-failure",
+            ),
+        ],
+    )
+    def test_live_outcome_of_a_failure(self, when, longrepr, expected) -> None:
+        report = self._report(when, "failed", longrepr)
+        assert e2e_conftest._live_outcome(report) == expected
 
     def test_other_outcomes_pass_through(self) -> None:
         assert e2e_conftest._live_outcome(self._report("call", "passed")) == "passed"

@@ -846,10 +846,12 @@ def test_the_attached_start_hands_off_inside_its_open_phase(reporter, monkeypatc
     while the phase is open -- and it deliberately leaves it open, so an
     ``execvpe`` that raises (a missing compose binary) still gets its ``✗``.
     """
-    _exec_spy(reporter, monkeypatch)
+    manager = _exec_spy(reporter, monkeypatch)
 
     _start(_repo(tmp_path), detached=False)
 
+    # Without the hand-off having run, an open phase would prove nothing.
+    manager.hand_off.assert_called_once_with()
     assert reporter._phase is not None, "the hand-off closed the phase it committed"
 
 

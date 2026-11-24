@@ -97,9 +97,36 @@ def _write(path: Path, entries: list[dict]) -> Path:
 
 
 class TestIsBookkeepingEntry:
-    def test_meta_entry(self):
-        """An entry flagged isMeta is bookkeeping whatever it holds."""
-        assert is_bookkeeping_entry(_slash_command(_ts(0), "model")) is True
+    @pytest.mark.parametrize(
+        ("entry", "expected"),
+        [
+            # An entry flagged isMeta is bookkeeping whatever it holds.
+            pytest.param(_slash_command(_ts(0), "model"), True, id="meta"),
+            # Captured slash-command output is bookkeeping.
+            pytest.param(_command_stdout(_ts(1), "Set model to sonnet"), True, id="stdout"),
+            # Captured slash-command errors are bookkeeping.
+            pytest.param(
+                _user(
+                    _ts(1), f"{LOCAL_COMMAND_STDERR_PREFIX}no such command</local-command-stderr>"
+                ),
+                True,
+                id="stderr",
+            ),
+            # The cancellation marker is bookkeeping.
+            pytest.param(_user(_ts(2), f"{INTERRUPT_MARKER}]"), True, id="interrupt"),
+            # A real prompt is not bookkeeping.
+            pytest.param(_user(_ts(0), "What is the beam current?"), False, id="ordinary-user"),
+            # An assistant reply is not bookkeeping.
+            pytest.param(_assistant(_ts(1), "500 mA."), False, id="assistant"),
+            # A tool-result-only entry carries no text and is not bookkeeping.
+            pytest.param(_tool_result(_ts(1), "tu-1", "500"), False, id="tool-result-only"),
+            # A non-dict entry is rejected rather than raising.
+            pytest.param("not an entry", False, id="non-dict"),
+        ],
+    )
+    def test_is_bookkeeping_entry(self, entry, expected):
+        """Slash-command echoes, their captured output and the interrupt marker are bookkeeping."""
+        assert is_bookkeeping_entry(entry) is expected
 
     @pytest.mark.parametrize(
         "text",
@@ -116,40 +143,6 @@ class TestIsBookkeepingEntry:
     def test_command_echo_without_meta_flag(self, text):
         """The slash-command echo counts even when isMeta is absent."""
         assert is_bookkeeping_entry(_user(_ts(0), text)) is True
-
-    def test_local_command_stdout(self):
-        """Captured slash-command output is bookkeeping."""
-        assert is_bookkeeping_entry(_command_stdout(_ts(1), "Set model to sonnet")) is True
-
-    def test_local_command_stderr(self):
-        """Captured slash-command errors are bookkeeping."""
-        entry = _user(
-            _ts(1), f"{LOCAL_COMMAND_STDERR_PREFIX}no such command</local-command-stderr>"
-        )
-
-        assert is_bookkeeping_entry(entry) is True
-
-    def test_interrupt_marker(self):
-        """The cancellation marker is bookkeeping."""
-        entry = _user(_ts(2), f"{INTERRUPT_MARKER}]")
-
-        assert is_bookkeeping_entry(entry) is True
-
-    def test_ordinary_user_message(self):
-        """A real prompt is not bookkeeping."""
-        assert is_bookkeeping_entry(_user(_ts(0), "What is the beam current?")) is False
-
-    def test_assistant_message(self):
-        """An assistant reply is not bookkeeping."""
-        assert is_bookkeeping_entry(_assistant(_ts(1), "500 mA.")) is False
-
-    def test_tool_result_only_entry(self):
-        """A tool-result-only entry carries no text and is not bookkeeping."""
-        assert is_bookkeeping_entry(_tool_result(_ts(1), "tu-1", "500")) is False
-
-    def test_non_dict(self):
-        """A non-dict entry is rejected rather than raising."""
-        assert is_bookkeeping_entry("not an entry") is False  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

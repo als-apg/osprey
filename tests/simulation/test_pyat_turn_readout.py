@@ -262,3 +262,47 @@ def test_without_faults_the_arrays_are_the_ones_of_a_perfect_monitor() -> None:
     same = arrays(readout, tone_on=True, faults=lambda x, y: (x, y))
     for one, other in zip(plain, same, strict=True):
         np.testing.assert_array_equal(one, other)
+
+
+def test_a_sum_gain_of_one_is_the_perfect_monitors_sum_bit_for_bit() -> None:
+    readout = quiet(position_noise=1e-5, sum_noise=0.01, floor_noise=1e-3, tone_amplitude=1.0)
+    alive = np.linspace(1.0, 0.0, TURNS)
+    plain = arrays(readout, alive=alive, stored_current=0.3, tone_on=True)
+    unit = arrays(readout, alive=alive, stored_current=0.3, tone_on=True, sum_gain=1.0)
+    for one, other in zip(plain, unit, strict=True):
+        np.testing.assert_array_equal(one, other)
+
+
+def test_a_sum_gain_scales_the_injected_and_the_stored_beam_sum() -> None:
+    alive = np.linspace(1.0, 0.5, TURNS)
+    _, _, plain = arrays(quiet(), alive=alive, stored_current=0.4)
+    _, _, low = arrays(quiet(), alive=alive, stored_current=0.4, sum_gain=0.8)
+    _, _, high = arrays(quiet(), alive=alive, stored_current=0.4, sum_gain=1.2)
+    np.testing.assert_allclose(low, 0.8 * plain, rtol=1e-15)
+    np.testing.assert_allclose(high / low, 1.5, rtol=1e-14)
+    # Before the trigger the sum is the stored beam's alone.
+    np.testing.assert_allclose(high[:TRIGGER], 1.2 * 0.4 * 0.5, rtol=1e-15)
+
+
+def test_a_sum_gain_leaves_the_positions_and_their_mix_alone() -> None:
+    readout = quiet(position_noise=1e-5, floor_noise=1e-3)
+    alive = np.ones(TURNS)
+    alive[30:] = 0.0
+    x, y, _ = arrays(readout, alive=alive, stored_current=0.2)
+    x_gained, y_gained, _ = arrays(readout, alive=alive, stored_current=0.2, sum_gain=0.1)
+    np.testing.assert_array_equal(x_gained, x)
+    np.testing.assert_array_equal(y_gained, y)
+
+
+def test_the_sum_noise_is_added_after_the_gain_at_its_own_width() -> None:
+    readout = quiet(sum_noise=0.01, sum_floor=0.0)
+    _, _, clean = arrays(quiet(sum_floor=0.0))
+    _, _, plain = arrays(readout)
+    _, _, gained = arrays(readout, sum_gain=3.0)
+    np.testing.assert_allclose(gained - 3.0 * clean, plain - clean, atol=1e-14)
+    assert 0.007 < (gained - 3.0 * clean)[TRIGGER:].std() < 0.013
+
+
+def test_the_floor_holds_under_a_gained_sum() -> None:
+    _, _, total = arrays(quiet(), charge=0.01, sum_gain=0.5)
+    assert np.all(total == 0.03)

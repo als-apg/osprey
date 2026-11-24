@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from click.testing import Result
 
 from tests.facility._synthetic_trees import plain_tree
@@ -87,15 +88,16 @@ def test_an_undeclared_parent_stops_the_build(build_project: Build) -> None:
     )
 
 
-def test_septum_is_a_vocabulary_class_and_builds_without_classes_yaml(
-    build_project: Build,
+@pytest.mark.parametrize("cls", ["Septum", "Kicker"])
+def test_is_a_vocabulary_class_and_builds_without_classes_yaml(
+    build_project: Build, cls: str
 ) -> None:
-    project, result = build_project(_tree(None, "Septum"))
+    project, result = build_project(_tree(None, cls))
 
     assert result.exit_code == 0, result.output
     assert project.facility["classes"] == []
-    [septum] = [d for d in project.facility["devices"] if d["id"] == "SR/K1"]
-    assert septum["class"] == "Septum"
+    [device] = [d for d in project.facility["devices"] if d["id"] == "SR/K1"]
+    assert device["class"] == cls
 
 
 def test_a_facility_class_may_extend_the_septum(build_project: Build) -> None:
@@ -115,17 +117,6 @@ def test_the_vocabulary_declares_septum_and_the_pulse_waveform_role() -> None:
     assert classes["Septum"]["abstract"] is False
     assert classes["Septum"]["description"]
     assert roles["pulse_waveform"]["description"]
-
-
-def test_kicker_is_a_vocabulary_class_and_builds_without_classes_yaml(
-    build_project: Build,
-) -> None:
-    project, result = build_project(_tree(None, "Kicker"))
-
-    assert result.exit_code == 0, result.output
-    assert project.facility["classes"] == []
-    [kicker] = [d for d in project.facility["devices"] if d["id"] == "SR/K1"]
-    assert kicker["class"] == "Kicker"
 
 
 def test_the_vocabulary_declares_the_kicker_under_magnet() -> None:

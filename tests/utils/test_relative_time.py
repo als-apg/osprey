@@ -4,28 +4,40 @@ from datetime import UTC, datetime
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
 
-def test_resolves_days_ago_and_pins_time_of_day():
-    now = datetime(2026, 6, 13, 9, 41, 7)
-    spec = RelativeTimestamp(days_ago=2, time=dtime(3, 15, 0))
-    resolved = resolve_relative_timestamp(spec, now)
-    assert resolved == datetime(2026, 6, 11, 3, 15, 0)
-
-
-def test_days_ago_zero_is_same_date_with_pinned_time():
-    now = datetime(2026, 6, 13, 23, 59, 59)
-    spec = RelativeTimestamp(days_ago=0, time=dtime(14, 32, 0))
-    resolved = resolve_relative_timestamp(spec, now)
-    assert resolved == datetime(2026, 6, 13, 14, 32, 0)
-
-
-def test_shift_crosses_month_boundary():
-    now = datetime(2026, 3, 2, 12, 0, 0)
-    spec = RelativeTimestamp(days_ago=4, time=dtime(8, 0, 0))
-    resolved = resolve_relative_timestamp(spec, now)
-    assert resolved == datetime(2026, 2, 26, 8, 0, 0)
+@pytest.mark.parametrize(
+    ("now", "days_ago", "time", "expected"),
+    [
+        pytest.param(
+            datetime(2026, 6, 13, 9, 41, 7),
+            2,
+            dtime(3, 15, 0),
+            datetime(2026, 6, 11, 3, 15, 0),
+            id="days-ago-and-pinned-time-of-day",
+        ),
+        pytest.param(
+            datetime(2026, 6, 13, 23, 59, 59),
+            0,
+            dtime(14, 32, 0),
+            datetime(2026, 6, 13, 14, 32, 0),
+            id="days-ago-zero-is-same-date",
+        ),
+        pytest.param(
+            datetime(2026, 3, 2, 12, 0, 0),
+            4,
+            dtime(8, 0, 0),
+            datetime(2026, 2, 26, 8, 0, 0),
+            id="shift-crosses-month-boundary",
+        ),
+    ],
+)
+def test_resolves_days_ago_and_pins_time_of_day(now, days_ago, time, expected):
+    spec = RelativeTimestamp(days_ago=days_ago, time=time)
+    assert resolve_relative_timestamp(spec, now) == expected
 
 
 def test_naive_now_yields_naive_result():

@@ -9,6 +9,9 @@ the in_context size, the limits projection and
 the byte identity of the pre-LINE channel-finder index copies.
 
 The copies are read to prove nothing was lost, never to fix the index's shape.
+What the demo stopped serving is declared, row by row with its reason, in
+``demo_fingerprint_retired.json``: the frozen files keep those rows, and every
+comparison below subtracts exactly that set.
 The parity tests hold the hierarchical and middle-layer views, called as pure
 functions on the shared demo build's facility file, to those
 copies: the same address set plus the declared fingerprint additions each
@@ -70,6 +73,11 @@ REDESCRIBED_MACHINES = frozenset({"BTS"})
 #: the injector adds a sibling family; each names its family code in parentheses.
 REDESCRIBED_FAMILIES = frozenset({("BTS", "QF")})
 
+#: The pre-LINE families, by (machine, family), whose magnets share one supply
+#: and have no channel of their own: each is still a group with its frozen
+#: description, and a channel index holds no family for it.
+CHANNELLESS_FAMILIES = frozenset({("BR", "DIPOLE"), ("BR", "QD"), ("BR", "QF")})
+
 #: The element table, whose ``legacy_pv`` column names the channels the demo's
 #: injector channels stand in for; no benchmark query names one.
 ELEMENT_TABLE = REPO_ROOT / "scripts/facility_demo/injector_elements.tsv"
@@ -84,7 +92,7 @@ FAMILY_AGGREGATES: dict[str, tuple[tuple[str, str], ...]] = {
     "What are all the dipole current readbacks in the storage ring?": (
         ("SR:MAG:DIPOLE", "CURRENT:RB"),
     ),
-    "List all booster ring bend setpoints": (("BR:MAG:DIPOLE", "CURRENT:SP"),),
+    "List all booster ring horizontal corrector setpoints": (("BR:MAG:HCM", "CURRENT:SP"),),
     "Show all BPM horizontal positions in the booster-to-storage transfer line": (
         ("BTS:DIAG:BPM", "POSITION:X"),
     ),
@@ -116,6 +124,25 @@ def restated(address: str, sentence: str) -> str:
     return sentence
 
 
+#: The pre-LINE families, by (machine, family), whose description states a
+#: device count that has since changed: the frozen words and the build's.
+RECOUNTED_FAMILIES: dict[tuple[str, str], tuple[str, str]] = {
+    ("BR", "BPM"): ("8 BPMs", "20 BPMs"),
+}
+
+
+def recounted(family: tuple[str, str], description: str) -> str:
+    """A pre-LINE family description as the build states it: its device count as it is now."""
+    if family in RECOUNTED_FAMILIES:
+        old, new = RECOUNTED_FAMILIES[family]
+        assert old in description, family
+        return description.replace(old, new)
+    return description
+
+
+#: How many frozen rows the demo has retired; a retirement changes this pin.
+RETIRED_COUNT = 64
+
 FINGERPRINT_SHA256 = "644f41850784e0251ac4be0081c6891b7f933b119efc037a7455ebe89c54e9c0"
 FINGERPRINT_ROW_KEYS = ["address", "role", "value_type", "names", "description"]
 
@@ -133,6 +160,21 @@ def fingerprint_rows() -> list[dict[str, Any]]:
 
 def fingerprint_addresses() -> set[str]:
     return {row["address"] for row in fingerprint_rows()}
+
+
+def retired_rows() -> list[dict[str, str]]:
+    """The frozen rows the demo declares it no longer serves, each with its reason."""
+    return load_golden("demo_fingerprint_retired.json")["rows"]
+
+
+def retired_addresses() -> set[str]:
+    return {row["address"] for row in retired_rows()}
+
+
+def served_fingerprint_rows() -> list[dict[str, Any]]:
+    """The frozen rows the demo still serves: every one but the retired."""
+    retired = retired_addresses()
+    return [row for row in fingerprint_rows() if row["address"] not in retired]
 
 
 def in_context_golden_addresses() -> set[str]:
@@ -447,6 +489,18 @@ def test_fingerprint_additions_are_new_addresses_in_the_row_shape() -> None:
     assert not set(addresses) & fingerprint_addresses()
 
 
+def test_the_retired_rows_are_frozen_rows_each_with_its_reason_and_successor() -> None:
+    golden = load_golden("demo_fingerprint_retired.json")
+    rows = retired_rows()
+    addresses = [row["address"] for row in rows]
+    assert len(rows) == golden["count"] == RETIRED_COUNT
+    assert addresses == sorted(set(addresses))
+    assert set(addresses) <= fingerprint_addresses()
+    assert all(list(row) == ["address", "reason", "superseded_by"] for row in rows)
+    assert all(row["reason"] for row in rows)
+    assert {row["superseded_by"] for row in rows} <= addition_addresses()
+
+
 def test_in_context_size_is_frozen() -> None:
     golden = load_golden("in_context_size.json")
     assert golden["size"] == len(golden["rows"]) == 569
@@ -457,7 +511,7 @@ def test_limits_name_only_setpoints_of_the_fingerprint() -> None:
     golden = load_golden("limits.json")
     channels = golden["channels"]
     assert "defaults" not in golden
-    assert golden["count"] == len(channels) == 185
+    assert golden["count"] == len(channels) == 217
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = {row["address"] for row in rows if row["role"] == "setpoint"}
     assert set(channels) <= setpoints
@@ -483,7 +537,7 @@ def test_pre_line_in_context_index_holds_the_fingerprint_addresses() -> None:
 def test_pre_line_queries_target_fingerprint_or_addition_addresses() -> None:
     queries = pre_line_queries()
     assert len(queries) == 70
-    addresses = fingerprint_addresses() | addition_addresses()
+    addresses = (fingerprint_addresses() - retired_addresses()) | addition_addresses()
     for query in queries:
         assert query["targeted_pv"], query["user_query"]
         assert set(query["targeted_pv"]) <= addresses, query["user_query"]
@@ -612,6 +666,7 @@ def test_every_pre_line_field_sentence_survives_on_its_channels(
     lost = [
         (address, sentence)
         for address, pair in golden_leaf_sentences().items()
+        if address not in retired_addresses()
         for sentence in pair
         if restated(address, sentence) not in channels[address]["description"]
         and sentence != roles.get(channels[address].get("signal"))
@@ -626,7 +681,8 @@ def test_every_pre_line_family_description_survives_on_a_group_or_its_devices(
     facility = built_demo.facility
     groups = {group["description"] for group in facility["groups"] if "description" in group}
     devices = facility["devices"]
-    for family, description in golden_family_descriptions().items():
+    for family, frozen in golden_family_descriptions().items():
+        description = recounted(family, frozen)
         if description in groups:
             continue
         holders = [device for device in devices if device.get("description") == description]
@@ -640,7 +696,7 @@ def test_the_hierarchical_view_holds_the_pre_line_addresses(
 ) -> None:
     golden = {address for _path, address in hierarchical_leaves(pre_line_index("hierarchical"))}
     view = {address for _path, address in hierarchical_leaves(hierarchical_view)}
-    assert view == golden | addition_addresses()
+    assert view == (golden - retired_addresses()) | addition_addresses()
 
 
 @pytest.mark.slow
@@ -655,7 +711,7 @@ def test_the_middle_layer_view_holds_the_pre_line_addresses(
         for channel in built_demo.facility["channels"]
         if "device" in channel.get("on", {})
     }
-    assert view == golden | (addition_addresses() & held)
+    assert view == (golden - retired_addresses()) | (addition_addresses() & held)
 
 
 @pytest.mark.slow
@@ -684,13 +740,28 @@ def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
         kept_description = middle_layer_view[machine]["_description"]
         assert keeps_machine_description(machine, description, kept_description), machine
     for (system, family), description in golden_family_descriptions().items():
-        if f"{system}/{family}" not in kept:
+        if f"{system}/{family}" not in kept or (system, family) in CHANNELLESS_FAMILIES:
             continue
         kept_family = middle_layer_view[system][family]["_description"]
         if (system, family) in REDESCRIBED_FAMILIES:
             assert f"({family})" in kept_family, (system, family)
         else:
-            assert kept_family == description, (system, family)
+            assert kept_family == recounted((system, family), description), (system, family)
+
+
+@pytest.mark.slow
+def test_a_channelless_family_is_a_described_group_and_no_family_of_the_index(
+    built_demo: BuiltProject, middle_layer_view: dict[str, Any]
+) -> None:
+    facility = built_demo.facility
+    groups = {group["id"]: group for group in facility["groups"]}
+    bound = {(channel.get("on") or {}).get("device") for channel in facility["channels"]}
+    frozen = golden_family_descriptions()
+    for system, family in sorted(CHANNELLESS_FAMILIES):
+        group = groups[f"{system}/{family}"]
+        assert group["description"] == frozen[(system, family)], (system, family)
+        assert group["members"] and not set(group["members"]) & bound, (system, family)
+        assert family not in middle_layer_view[system], (system, family)
 
 
 @pytest.mark.slow
@@ -799,6 +870,8 @@ def test_every_pre_line_family_s_device_list_is_derived_from_places(
     derived = _derived_device_lists(built_demo.facility)
     for system, family, _golden in middle_layer_families(pre_line_index("middle_layer")):
         if (system, f"{system}/{family}") not in derived:
+            continue
+        if (system, family) in CHANNELLESS_FAMILIES:
             continue
         setup = middle_layer_view[system][family]["_setup"]
         assert len(setup["DeviceList"]) == len(setup["CommonNames"]), (system, family)

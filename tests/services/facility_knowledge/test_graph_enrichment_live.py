@@ -137,7 +137,6 @@ MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)
 WHERE d.deviceId IS NOT NULL
 WITH DISTINCT d
 RETURN count(d)                     AS total,
-       count(d.familyDescription)   AS family_described,
        count(d.systemDescription)   AS system_described,
        count(d.system)              AS with_system
 """
@@ -148,6 +147,14 @@ DEVICE_TOTAL = """
 MATCH (d:Resource)
 WHERE d.deviceId IS NOT NULL
 RETURN count(d) AS n
+"""
+
+#: Every device a described group names, bound or not: a magnet on a supply it
+#: shares has no channel of its own and is in its family all the same.
+FAMILY_DESCRIBED = """
+MATCH (d:Resource)
+WHERE d.deviceId IS NOT NULL
+RETURN count(d.familyDescription) AS n
 """
 
 DEVICE_DETAIL = """
@@ -369,8 +376,8 @@ def test_the_demo_corpus_answers_description_and_system_questions(
         devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
         device_total = devices["total"]
         assert 0 < device_total <= stored
-        assert 0 < census["family_described"] <= device_total
-        assert devices["family_described"] == census["family_described"]
+        assert 0 < census["family_described"] <= stored
+        assert _row(session, FAMILY_DESCRIBED)["n"] == census["family_described"]
         assert devices["system_described"] == device_total
         assert devices["with_system"] == device_total, (
             f"{device_total - devices['with_system']} of {device_total} devices carry "

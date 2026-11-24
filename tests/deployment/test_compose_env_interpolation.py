@@ -382,7 +382,10 @@ def test_sidecar_recreate_itself_is_never_blocked_by_the_scan(tmp_path, monkeypa
 
     provision.force_recreate_auth_sidecar({})
 
-    assert called, "a credential removal must still be put into force"
+    # Exactly one recreate, of the auth sidecar, with the stubbed argv and env.
+    assert called == [(["compose"], {}, [provision.AUTH_SERVICE_NAME])], (
+        "a credential removal must still be put into force"
+    )
 
 
 def test_password_rotation_is_refused_before_it_writes(tmp_path) -> None:

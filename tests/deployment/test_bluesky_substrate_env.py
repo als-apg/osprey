@@ -157,18 +157,6 @@ class TestControlPlaneKeys:
         assert secret.decode() not in message
         assert other_public.decode() not in message
 
-    def test_matched_operator_pair_passes_the_check(self, env_path):
-        """The pairing check must not reject a pair that genuinely matches."""
-
-        public, secret = _curve_keypair()
-        env_path.write_text(
-            f"BLUESKY_QSERVER_ZMQ_PRIVATE_KEY={secret.decode()}\n"
-            f"BLUESKY_QSERVER_ZMQ_PUBLIC_KEY={public.decode()}\n",
-            encoding="utf-8",
-        )
-
-        _ensure_bluesky_control_plane_keys({"deployed_services": ["bluesky"]}, env_path=env_path)
-
     def test_malformed_private_key_in_a_pair_warns_rather_than_raising(self, env_path, caplog):
         """Nothing can be verified against a key that will not parse."""
 

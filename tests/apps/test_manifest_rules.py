@@ -721,34 +721,33 @@ def test_an_environment_package_an_unlisted_directory_declares_is_refused(
     assert info.value.field == "environment.packages.1"
 
 
-def test_a_built_packages_optional_requirement_an_unlisted_directory_declares_is_refused(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("toml_tail", "field"),
+    [
+        pytest.param(
+            '[project.optional-dependencies]\nplot = ["numpy", "helper"]\n',
+            "project.optional-dependencies.plot.1",
+            id="optional-requirement",
+        ),
+        pytest.param(
+            '[build-system]\nrequires = ["hatchling", "helper"]\n',
+            "build-system.requires.1",
+            id="build-requirement",
+        ),
+    ],
+)
+def test_a_built_packages_optional_or_build_requirement_an_unlisted_directory_declares_is_refused(
+    tmp_path: Path, toml_tail: str, field: str
 ) -> None:
     _pyproject(tmp_path / "apps" / "helper")
     path = _pyproject(tmp_path / "apps" / "knob")
-    path.write_text(
-        path.read_text() + '[project.optional-dependencies]\nplot = ["numpy", "helper"]\n'
-    )
+    path.write_text(path.read_text() + toml_tail)
 
     err = _shadow_refused(tmp_path, [], ["knob"])
 
     assert _rules(err) == ["shadowed_package"]
     assert err.app == "knob"
-    assert err.field == "project.optional-dependencies.plot.1"
-
-
-def test_a_built_packages_build_requirement_an_unlisted_directory_declares_is_refused(
-    tmp_path: Path,
-) -> None:
-    _pyproject(tmp_path / "apps" / "helper")
-    path = _pyproject(tmp_path / "apps" / "knob")
-    path.write_text(path.read_text() + '[build-system]\nrequires = ["hatchling", "helper"]\n')
-
-    err = _shadow_refused(tmp_path, [], ["knob"])
-
-    assert _rules(err) == ["shadowed_package"]
-    assert err.app == "knob"
-    assert err.field == "build-system.requires.1"
+    assert err.field == field
 
 
 # --- installed applications -------------------------------------------------------------

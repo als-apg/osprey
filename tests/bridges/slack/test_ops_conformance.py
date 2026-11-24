@@ -1,19 +1,20 @@
 """The assembled SlackOps against the ``ChannelOps`` seam.
 
 Each member has its own suite. What is asserted here only becomes true once they sit
-on ONE class the engine holds one instance of: conformance, the parse delegation, no
-per-dispatch instance state, entry-key disjointness, and that the keys the outbound
-members read are the keys a real parse wrote.
+on ONE class the engine holds one instance of: the parse delegation, no per-dispatch
+instance state, entry-key disjointness, and that the keys the outbound members read are
+the keys a real parse wrote. Conformance to the protocol is asserted per adapter in
+:mod:`tests.bridges.test_adapter_contract`.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from osprey.bridges.core import RESERVED_ENTRY_KEYS, ChannelOps, InboundEvent, InputDownload
+from osprey.bridges.core import RESERVED_ENTRY_KEYS, InboundEvent, InputDownload
 from osprey.bridges.slack import events
 from osprey.bridges.slack.events import SL_PARENT_FILES
-from osprey.bridges.slack.ops import SlackOps, _static_conformance, quote_prefix
+from osprey.bridges.slack.ops import SlackOps, quote_prefix
 from tests.bridges.slack._posting import (
     CHAN,
     CTX,
@@ -26,7 +27,6 @@ from tests.bridges.slack._posting import (
     make_ops,
     mention_payload,
 )
-from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
 # Every attribute a constructed instance is allowed to hold. Anything else appearing here
 # is per-dispatch state on an instance several threads share.
@@ -57,25 +57,6 @@ def persisted(ops: SlackOps, wire: dict[str, Any] | None = None) -> dict[str, An
 
 def completed() -> dict[str, Any]:
     return {"status": "completed", "text_output": "42 mA", "run_id": "R1", "artifacts": []}
-
-
-# --- protocol conformance ------------------------------------------------------
-
-
-def test_the_adapter_satisfies_the_channel_ops_protocol() -> None:
-    ops, _ = make_ops()
-    assert isinstance(ops, ChannelOps)
-
-
-def test_every_protocol_member_is_present_and_callable() -> None:
-    ops, _ = make_ops()
-    for name in PROTOCOL_MEMBERS:
-        assert callable(getattr(ops, name, None)), name
-
-
-def test_static_conformance_helper_is_the_type_check_seam() -> None:
-    ops, _ = make_ops()
-    assert _static_conformance(ops) is ops
 
 
 def test_parse_event_delegates_with_the_instances_own_identity() -> None:

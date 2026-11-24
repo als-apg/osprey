@@ -15,6 +15,10 @@ node with ``groupId``, ``groupKind`` and ``hasMember``.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -208,8 +212,29 @@ def test_the_first_line_is_the_facility_file_sha256() -> None:
     assert first == HEADER_PREFIX + hashlib.sha256(facility_bytes(doc)).hexdigest()
 
 
+_GRAPH_DIGEST = """
+import hashlib, json, sys
+from osprey_facility.records import FacilityRecords
+from osprey.facility.views.graph import graph_text
+print(hashlib.sha256(graph_text(FacilityRecords(json.load(sys.stdin))).encode()).hexdigest())
+"""
+
+
 def test_equal_facility_files_give_equal_bytes() -> None:
-    assert graph_text(FacilityRecords(_doc())) == graph_text(FacilityRecords(_doc()))
+    """A rebuild is a new process with a new hash seed; the bytes must not move."""
+    runs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _GRAPH_DIGEST],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        for seed in ("1", "2", "3")
+    ]
+    digests = {run.communicate(json.dumps(_doc()))[0].strip() for run in runs}
+    assert [run.returncode for run in runs] == [0, 0, 0]
+    assert digests == {hashlib.sha256(graph_text(FacilityRecords(_doc())).encode()).hexdigest()}
 
 
 def test_a_device_carries_its_identity_place_and_position() -> None:

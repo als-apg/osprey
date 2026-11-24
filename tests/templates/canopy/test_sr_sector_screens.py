@@ -529,8 +529,16 @@ def test_the_booster_lattice_names_its_devices(channels: dict, gen: ModuleType) 
     tips = sorted(
         node["props"][gen.TOOLTIP] for node in _nodes(doc["root"]) if gen.TOOLTIP in node["props"]
     )
-    expected = set()
-    for name, record in channels.items():
-        if re.match(r"^BR:(MAG:(DIPOLE|QF|QD):\d+|DIAG:BPM:\d+):", name):
-            expected.add(record["on"]["device"])
+    # A monitor is named by its channels; a magnet shares its supply, so no
+    # channel is named after it and its device record names it.
+    expected = {
+        record["on"]["device"]
+        for name, record in channels.items()
+        if re.match(r"^BR:DIAG:BPM:\d+:", name)
+    }
+    devices = yaml.safe_load((RECORDS / "devices.yaml").read_text(encoding="utf-8"))
+    expected |= {
+        record["id"] for record in devices if re.fullmatch(r"BR/(DIPOLE|QF|QD)\d+", record["id"])
+    }
+    assert len(expected) == 76
     assert tips == sorted(expected)

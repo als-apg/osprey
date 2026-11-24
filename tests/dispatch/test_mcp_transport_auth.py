@@ -134,48 +134,29 @@ async def test_initialize_without_a_bearer_is_401(dispatcher_app, monkeypatch):
     assert response.status_code == 401
 
 
-async def test_initialize_with_the_wrong_bearer_is_401_not_500(dispatcher_app, monkeypatch):
-    """A wrong credential is a refusal, never an error the caller can mine."""
+@pytest.mark.parametrize(
+    "header",
+    [
+        # A wrong credential is a refusal, never an error the caller can mine.
+        pytest.param(f"Bearer {_TOKEN}-wrong", id="wrong-bearer-not-500"),
+        # The comparison takes bytes, so attacker-controlled text cannot raise.
+        # ``hmac.compare_digest`` refuses two ``str`` arguments unless both are
+        # ASCII-only; a bearer is whatever the caller sent, and a header byte outside
+        # ASCII survives Starlette's latin-1 decode, so comparing the decoded strings
+        # would turn a wrong credential into a 500. The header goes on the wire as
+        # raw bytes because that is the only way to send one.
+        pytest.param("Bearer tökén-ünicode".encode("latin-1"), id="non-ascii-bearer-not-500"),
+        # An empty credential is not a credential.
+        pytest.param("Bearer ", id="empty-bearer"),
+    ],
+)
+async def test_initialize_with_a_bad_bearer_is_401(dispatcher_app, monkeypatch, header):
+    """A bad bearer is refused with 401 before ``initialize``, never a 500."""
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", _TOKEN)
 
     async with _client(dispatcher_app) as client:
         response = await client.post(
-            DISPATCHER_MCP_PATH,
-            headers=_mcp_headers(f"Bearer {_TOKEN}-wrong"),
-            json=_INITIALIZE,
-        )
-
-    assert response.status_code == 401
-
-
-async def test_initialize_with_a_non_ascii_bearer_is_401_not_500(dispatcher_app, monkeypatch):
-    """The comparison takes bytes, so attacker-controlled text cannot raise.
-
-    ``hmac.compare_digest`` refuses two ``str`` arguments unless both are
-    ASCII-only; a bearer is whatever the caller sent, and a header byte outside
-    ASCII survives Starlette's latin-1 decode, so comparing the decoded strings
-    would turn a wrong credential into a 500. The header goes on the wire as
-    raw bytes because that is the only way to send one.
-    """
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", _TOKEN)
-
-    async with _client(dispatcher_app) as client:
-        response = await client.post(
-            DISPATCHER_MCP_PATH,
-            headers=_mcp_headers("Bearer tökén-ünicode".encode("latin-1")),
-            json=_INITIALIZE,
-        )
-
-    assert response.status_code == 401
-
-
-async def test_initialize_with_an_empty_bearer_is_401(dispatcher_app, monkeypatch):
-    """An empty credential is not a credential."""
-    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", _TOKEN)
-
-    async with _client(dispatcher_app) as client:
-        response = await client.post(
-            DISPATCHER_MCP_PATH, headers=_mcp_headers("Bearer "), json=_INITIALIZE
+            DISPATCHER_MCP_PATH, headers=_mcp_headers(header), json=_INITIALIZE
         )
 
     assert response.status_code == 401

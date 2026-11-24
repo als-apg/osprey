@@ -66,34 +66,25 @@ def _assert_names_values(message: str, source: str) -> None:
     assert "`never`" in message
 
 
-@pytest.mark.parametrize("kind", sorted(_KINDS))
-@pytest.mark.parametrize("label", sorted(_INVALID))
-def test_an_invalid_value_is_refused_nested(tmp_path, kind, label):
-    path = _write(
-        tmp_path,
-        _KINDS[kind],
-        f"""
+_SPELLINGS = {
+    "nested": """
         config:
           control_system:
-            writes: {_INVALID[label]}
+            writes: {value}
         """,
-    )
-    with pytest.raises(BuildProfileError) as excinfo:
-        _read_profile_document(path, source="my-doc.yml")
-    _assert_names_values(str(excinfo.value), "my-doc.yml")
+    "dotted": """
+        config:
+          control_system.writes: {value}
+        """,
+}
+"""The two ways a document spells the key, as templates over the value."""
 
 
 @pytest.mark.parametrize("kind", sorted(_KINDS))
 @pytest.mark.parametrize("label", sorted(_INVALID))
-def test_an_invalid_value_is_refused_dotted(tmp_path, kind, label):
-    path = _write(
-        tmp_path,
-        _KINDS[kind],
-        f"""
-        config:
-          control_system.writes: {_INVALID[label]}
-        """,
-    )
+@pytest.mark.parametrize("spelling", sorted(_SPELLINGS))
+def test_an_invalid_value_is_refused(tmp_path, spelling, kind, label):
+    path = _write(tmp_path, _KINDS[kind], _SPELLINGS[spelling].format(value=_INVALID[label]))
     with pytest.raises(BuildProfileError) as excinfo:
         _read_profile_document(path, source="my-doc.yml")
     _assert_names_values(str(excinfo.value), "my-doc.yml")

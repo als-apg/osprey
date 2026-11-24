@@ -3,11 +3,10 @@
 The retired spellings are read through the stable release line
 :data:`RETIRED_SPELLINGS_LAST_RELEASE_LINE` and refused in the next stable
 release, whatever its number (owner ruling 2026-11-13). The first stable
-release of a later line fails ``test_the_write_key_window_is_still_open`` and
-``test_the_approval_policy_window_is_still_open``: that release must turn every
-write-posture warning window into its refusal (drop the write-key rewrite,
-refuse a governed tool's policy instead of dropping it), then remove these
-tests.
+release of a later line fails ``test_the_write_key_window_is_still_open``: that
+release must turn every write-posture warning window into its refusal (drop the
+write-key rewrite, refuse a governed tool's policy instead of dropping it), then
+remove these tests.
 """
 
 from __future__ import annotations
@@ -63,10 +62,8 @@ def test_the_window_is_closed_on_a_stable_release_of_a_later_line(release):
 
 
 def test_the_write_key_window_is_still_open():
-    """Fails on the sunset release: refuse what the window still reads."""
-    assert retired_spellings_window_open(get_release_version())
-
-
-def test_the_approval_policy_window_is_still_open():
-    """Fails on the sunset release: refuse a governed tool's policy instead of dropping it."""
+    """Fails on the sunset release, which closes both windows at once (see
+    ``test_the_three_windows_close_together``): refuse the write keys the window
+    still reads, and refuse a governed tool's approval policy instead of
+    dropping it."""
     assert retired_spellings_window_open(get_release_version())

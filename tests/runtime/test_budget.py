@@ -38,34 +38,46 @@ class TestWriteBudget:
     def test_the_defaults_give_5_2_12_14_15(self, cfg):
         assert as_tuple(write_budget(cfg)) == (5.0, 2.0, 12.0, 14.0, 15.0)
 
-    def test_a_block_raises_the_call_bound(self):
-        budget = write_budget(config(epics={"timeout_s": 3}, virtual_accelerator={"timeout_s": 8}))
-        assert as_tuple(budget) == (8.0, 2.0, 18.0, 20.0, 21.0)
-
-    def test_the_maxima_come_from_different_blocks(self):
-        budget = write_budget(
-            config(
-                epics={"timeout_s": 3, "step_read_timeout_s": 4},
-                virtual_accelerator={"timeout_s": 7},
-            )
-        )
-        assert as_tuple(budget) == (7.0, 4.0, 18.0, 20.0, 21.0)
-
-    def test_a_block_below_the_defaults_does_not_lower_them(self):
-        budget = write_budget(config(epics={"timeout_s": 1, "step_read_timeout_s": 0.5}))
-        assert as_tuple(budget) == (5.0, 2.0, 12.0, 14.0, 15.0)
-
-    def test_the_call_bound_is_clamped_so_d_stays_within_24(self):
-        budget = write_budget(config(epics={"timeout_s": 60, "step_read_timeout_s": 4}))
-        assert as_tuple(budget) == (10.0, 4.0, 24.0, 26.0, 27.0)
-
-    def test_the_step_read_is_capped_so_the_call_bound_keeps_one_second(self):
-        budget = write_budget(config(epics={"timeout_s": 30, "step_read_timeout_s": 90}))
-        assert as_tuple(budget) == (1.0, 22.0, 24.0, 26.0, 27.0)
-
-    def test_a_long_step_read_alone_clamps_the_default_call_bound(self):
-        budget = write_budget(config(epics={"step_read_timeout_s": 90}))
-        assert (budget.T, budget.S, budget.D) == (1.0, 22.0, 24.0)
+    @pytest.mark.parametrize(
+        ("blocks", "expected"),
+        [
+            pytest.param(
+                {"epics": {"timeout_s": 3}, "virtual_accelerator": {"timeout_s": 8}},
+                (8.0, 2.0, 18.0, 20.0, 21.0),
+                id="a-block-raises-the-call-bound",
+            ),
+            pytest.param(
+                {
+                    "epics": {"timeout_s": 3, "step_read_timeout_s": 4},
+                    "virtual_accelerator": {"timeout_s": 7},
+                },
+                (7.0, 4.0, 18.0, 20.0, 21.0),
+                id="the-maxima-come-from-different-blocks",
+            ),
+            pytest.param(
+                {"epics": {"timeout_s": 1, "step_read_timeout_s": 0.5}},
+                (5.0, 2.0, 12.0, 14.0, 15.0),
+                id="a-block-below-the-defaults-does-not-lower-them",
+            ),
+            pytest.param(
+                {"epics": {"timeout_s": 60, "step_read_timeout_s": 4}},
+                (10.0, 4.0, 24.0, 26.0, 27.0),
+                id="the-call-bound-is-clamped-so-d-stays-within-24",
+            ),
+            pytest.param(
+                {"epics": {"timeout_s": 30, "step_read_timeout_s": 90}},
+                (1.0, 22.0, 24.0, 26.0, 27.0),
+                id="the-step-read-is-capped-so-the-call-bound-keeps-one-second",
+            ),
+            pytest.param(
+                {"epics": {"step_read_timeout_s": 90}},
+                (1.0, 22.0, 24.0, 26.0, 27.0),
+                id="a-long-step-read-alone-clamps-the-default-call-bound",
+            ),
+        ],
+    )
+    def test_the_blocks_give_the_budget(self, blocks, expected):
+        assert as_tuple(write_budget(config(**blocks))) == expected
 
     @pytest.mark.parametrize(
         "blocks",
@@ -119,29 +131,31 @@ class TestWriteBudget:
 
 
 class TestBoundBudget:
-    def test_a_block_below_the_budget_keeps_its_own_values(self):
-        budget = write_budget(config(epics={"timeout_s": 8, "step_read_timeout_s": 4}))
-        assert bound_budget({"timeout_s": 3, "step_read_timeout_s": 1}, budget) == (
-            3.0,
-            1.0,
-            7.0,
-        )
-
-    def test_a_block_above_the_budget_is_bounded_by_it(self):
-        budget = write_budget(config(epics={"timeout_s": 60, "step_read_timeout_s": 4}))
-        assert bound_budget({"timeout_s": 60, "step_read_timeout_s": 4}, budget) == (
-            10.0,
-            4.0,
-            24.0,
-        )
-
-    def test_a_step_read_beyond_the_cap_is_bounded_by_s(self):
-        budget = write_budget(config(epics={"timeout_s": 30, "step_read_timeout_s": 90}))
-        assert bound_budget({"timeout_s": 30, "step_read_timeout_s": 90}, budget) == (
-            1.0,
-            22.0,
-            24.0,
-        )
+    @pytest.mark.parametrize(
+        ("epics", "block", "expected"),
+        [
+            pytest.param(
+                {"timeout_s": 8, "step_read_timeout_s": 4},
+                {"timeout_s": 3, "step_read_timeout_s": 1},
+                (3.0, 1.0, 7.0),
+                id="a-block-below-the-budget-keeps-its-own-values",
+            ),
+            pytest.param(
+                {"timeout_s": 60, "step_read_timeout_s": 4},
+                {"timeout_s": 60, "step_read_timeout_s": 4},
+                (10.0, 4.0, 24.0),
+                id="a-block-above-the-budget-is-bounded-by-it",
+            ),
+            pytest.param(
+                {"timeout_s": 30, "step_read_timeout_s": 90},
+                {"timeout_s": 30, "step_read_timeout_s": 90},
+                (1.0, 22.0, 24.0),
+                id="a-step-read-beyond-the-cap-is-bounded-by-s",
+            ),
+        ],
+    )
+    def test_the_block_is_bounded_by_the_budget(self, epics, block, expected):
+        assert bound_budget(block, write_budget(config(epics=epics))) == expected
 
     @pytest.mark.parametrize("block", [None, {}])
     def test_a_block_that_declares_nothing_takes_the_defaults(self, block):
