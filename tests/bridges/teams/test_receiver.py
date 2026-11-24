@@ -391,16 +391,16 @@ class TestDecodeBody:
         msg = FakeMessage("m1")
         assert decode_body(msg) == {"type": "message", "id": "m1"}
 
-    def test_a_single_bytes_body_is_decoded(self) -> None:
-        msg = FakeMessage("m1", b'{"a": 1}', sections=False)
-        assert decode_body(msg) == {"a": 1}
-
-    def test_a_str_body_is_decoded(self) -> None:
-        msg = FakeMessage("m1", '{"a": 1}', sections=False)
-        assert decode_body(msg) == {"a": 1}
-
-    def test_a_mapping_body_is_returned_unchanged(self) -> None:
-        msg = FakeMessage("m1", {"a": 1}, sections=False)
+    @pytest.mark.parametrize(
+        "body",
+        [
+            pytest.param(b'{"a": 1}', id="single-bytes-body-is-decoded"),
+            pytest.param('{"a": 1}', id="str-body-is-decoded"),
+            pytest.param({"a": 1}, id="mapping-body-is-returned-unchanged"),
+        ],
+    )
+    def test_a_whole_body_is_decoded(self, body: Any) -> None:
+        msg = FakeMessage("m1", body, sections=False)
         assert decode_body(msg) == {"a": 1}
 
     def test_a_sequence_of_str_sections_is_joined(self) -> None:

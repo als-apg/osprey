@@ -353,16 +353,23 @@ def test_an_export_more_than_one_day_behind_is_named():
     assert "osprey agent-record export" in row.details
 
 
-def test_a_failing_export_is_named():
-    rows = _rows(_report(export={"last_error": "archive is read-only"}))
+@pytest.mark.parametrize(
+    ("export", "needle"),
+    [
+        pytest.param(
+            {"last_error": "archive is read-only"}, "archive is read-only", id="failing_export"
+        ),
+        pytest.param(
+            {"archive_error": "the archive's marks cannot be read: EACCES"},
+            "EACCES",
+            id="unreadable_archive",
+        ),
+    ],
+)
+def test_an_export_problem_is_named(export, needle):
+    rows = _rows(_report(export=export))
     row = _row(rows, "export")
-    assert row.status is Status.WARNING and "archive is read-only" in row.message
-
-
-def test_an_unreadable_archive_is_named():
-    rows = _rows(_report(export={"archive_error": "the archive's marks cannot be read: EACCES"}))
-    row = _row(rows, "export")
-    assert row.status is Status.WARNING and "EACCES" in row.message
+    assert row.status is Status.WARNING and needle in row.message
 
 
 def test_an_export_lag_unknown_while_the_backend_is_down_is_not_ok():

@@ -9,6 +9,7 @@ from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     get_cf_hier_context,
     initialize_cf_hier_context,
 )
+from osprey.services.channel_finder.feedback.store import FeedbackStore
 from osprey.utils.facility import facility_identity
 from osprey_facility.records import FacilityRecords
 from tests._facility_file import write_facility_v4
@@ -117,7 +118,8 @@ def test_registry_feedback_store_initialized(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_hier_context()
     reg = get_cf_hier_context()
-    assert reg.feedback_store is not None
+    assert isinstance(reg.feedback_store, FeedbackStore)
+    assert reg.feedback_store._path == store_path
 
 
 def test_registry_feedback_store_disabled(tmp_path, monkeypatch):

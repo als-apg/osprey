@@ -29,12 +29,24 @@ but ``injection_element`` defaulted:
   (a ``[from, to]`` range in metres from the deck's first element; the
   elements with a length whose midpoint lies in it). An element takes the
   last item that selects it, and the ring's aperture where none does;
+* ``pickup`` -- the button pickup of every monitor of the ring, in
+  :mod:`~osprey.simulation.engines.pyat_pickup`'s words: a ``round`` pipe's
+  radius, button angles and button width, or a ``table`` of button responses,
+  with the buttons each plane adds and subtracts. None when unstated: a
+  monitor then reads the beam position as it is;
+* ``pickups`` -- the pickups of single monitors, a list read in order. Each
+  item states a pickup as ``pickup`` does and names its monitors' deck
+  elements under ``elements``. A monitor takes the last item that names it,
+  and the ring's pickup where none does. A table's path is relative to the
+  directory of the model's deck;
 * ``sum_per_charge``, ``sum_per_stored``, ``sum_floor``, ``position_noise``,
   ``sum_noise``, ``floor_noise``, ``tone_period``, ``tone_amplitude`` -- the
   monitor readout, in :class:`~osprey.simulation.engines.pyat_turn_readout.TurnReadout`'s
   words.
 
-A wiring record's engine block names one of :data:`SIGNALS` by ``signal``;
+A wiring record's engine block names one of :data:`SIGNALS` by ``signal``.
+Such a record is served as the engine holds it -- a turn array's positions in
+metres, its sum in the block's sum units -- so it states no ``calibration``;
 an input's engine block names one of :data:`INPUT_SIGNALS`. The
 :data:`BEAM_SIGNALS` are the injected beam's settings a client or a scenario
 moves: ``offset_<coordinate>`` is added to the launch, and ``mismatch_x`` and
@@ -55,12 +67,14 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey_connectors.simulation.engines import field
 from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
+    from osprey.simulation.engines.pyat_pickup import Pickup
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout
 
 __all__ = [
@@ -70,12 +84,15 @@ __all__ = [
     "Aperture",
     "BEAM_SIGNALS",
     "BLOCK_KEY",
+    "ELEMENTS_KEY",
     "ElementAperture",
     "INPUT_SIGNALS",
     "LAUNCH_KEYS",
     "MISMATCH_SIGNALS",
     "MONITOR_SIGNALS",
     "OFFSET_SIGNALS",
+    "PICKUPS_KEY",
+    "PICKUP_KEY",
     "PULSED_KICK",
     "RING_SIGNALS",
     "SETTING_SIGNALS",
@@ -91,10 +108,19 @@ __all__ = [
     "normalise",
     "signal_of",
     "start_value",
+    "stated_buttons",
+    "stated_counts",
 ]
 
 #: The key of the turn-by-turn block in the ``pyat`` settings.
 BLOCK_KEY = "turn_by_turn"
+
+#: The turn-by-turn block's key for the pickup of every monitor of the ring.
+PICKUP_KEY = "pickup"
+#: Its key for the pickups of single monitors, a list read in order.
+PICKUPS_KEY = "pickups"
+#: The key of a list item that names the item's monitor elements.
+ELEMENTS_KEY = "elements"
 
 #: The launch offsets' keys, in the order pyAT tracks them.
 LAUNCH_KEYS: tuple[str, ...] = ("x", "px", "y", "py", "delta", "ct")
@@ -146,6 +172,8 @@ KEYS: frozenset[str] = frozenset(
         "jitter",
         "aperture",
         "apertures",
+        PICKUP_KEY,
+        PICKUPS_KEY,
         "tone_period",
         *_SIZE_KEYS,
         *_READOUT_DEFAULTS,
@@ -269,6 +297,9 @@ class TurnSettings:
         twiss: The optics the bunch arrives with.
         mismatch: The factor on the arriving beta function in ``x`` and
             ``y``; 1 is the stated optics.
+        pickup: The button pickup of every monitor, or ``None`` for none.
+        pickups: The pickups of single monitors, each with its deck
+            element's name, in the order stated.
     """
 
     injection_element: str
@@ -287,6 +318,20 @@ class TurnSettings:
     readout: TurnReadout
     twiss: InjectedTwiss = InjectedTwiss()
     mismatch: tuple[float, float] = (1.0, 1.0)
+    pickup: Pickup | None = None
+    pickups: tuple[tuple[str, Pickup], ...] = ()
+
+    def pickup_of(self, monitor: str) -> Pickup | None:
+        """The pickup of the monitor at deck element ``monitor``.
+
+        Returns:
+            The pickup of the last ``pickups`` item that names it, else the
+            ring's, else ``None``.
+        """
+        for element, pickup in reversed(self.pickups):
+            if element == monitor:
+                return pickup
+        return self.pickup
 
     @property
     def samples(self) -> int:
@@ -308,6 +353,49 @@ def is_turn_by_turn(settings: Any) -> bool:
         ``True`` when the ``pyat`` block states the :data:`BLOCK_KEY` block.
     """
     return _block(settings) is not None
+
+
+def stated_buttons(stated: Any) -> int | None:
+    """How many buttons a pickup statement declares, read without checking the rest.
+
+    A ``round`` pickup has one button per angle of its ``buttons`` list; a
+    ``table`` states the count as ``buttons``. ``None`` for a statement that
+    declares none, which :func:`~osprey.simulation.engines.pyat_pickup.parse` refuses.
+    """
+    if not isinstance(stated, Mapping):
+        return None
+    buttons = stated.get("buttons")
+    if stated.get("shape") == "table":
+        count = buttons if isinstance(buttons, int) and not isinstance(buttons, bool) else None
+    else:
+        count = len(buttons) if isinstance(buttons, list | tuple) else None
+    return count if count is not None and count >= 2 else None
+
+
+def stated_counts(settings: Any) -> tuple[int | None, dict[str, int]]:
+    """The button counts a turn-by-turn block declares, read without checking the rest.
+
+    Args:
+        settings: The model's settings as authored, or anything else.
+
+    Returns:
+        ``(ring, by_element)``: the count of the block's :data:`PICKUP_KEY`
+        statement, ``None`` where it states none, and the count per monitor
+        element its :data:`PICKUPS_KEY` items name, a later item replacing an
+        earlier one.
+    """
+    block = _block(settings)
+    if not isinstance(block, Mapping):
+        return None, {}
+    by_element: dict[str, int] = {}
+    listed = block.get(PICKUPS_KEY)
+    for item in listed if isinstance(listed, list | tuple) else ():
+        count = stated_buttons(item)
+        elements = item.get(ELEMENTS_KEY) if isinstance(item, Mapping) else None
+        if count is None or not isinstance(elements, list | tuple):
+            continue
+        by_element.update({element: count for element in elements if isinstance(element, str)})
+    return stated_buttons(block.get(PICKUP_KEY)), by_element
 
 
 def normalise(
@@ -336,9 +424,13 @@ def normalise(
         FacilityBuildError: ``engine-invalid`` naming the model for a block
             that is not a map, carries an unknown key, lacks or misstates
             ``injection_element``, states a value of the wrong type or range,
-            or states an ``apertures`` item that selects no element; whatever
+            states an ``apertures`` item that selects no element, or states a
+            pickup that
+            :func:`~osprey.simulation.engines.pyat_pickup.parse` refuses or
+            that names an element the deck does not hold; whatever
             ``index_of`` raises.
     """
+    from osprey.simulation.engines import pyat_pickup
     from osprey.simulation.engines.pyat_turn_readout import TurnReadout
 
     block = _block(settings)
@@ -523,6 +615,36 @@ def normalise(
     apertures = tuple(
         element_aperture(item, f"apertures[{position}]") for position, item in enumerate(items)
     )
+    directory = Path(deck).resolve().parent
+    pickup = None
+    if PICKUP_KEY in block:
+        pickup = pyat_pickup.parse(block[PICKUP_KEY], f"{where}.{PICKUP_KEY}", directory, stop)
+    listed = block.get(PICKUPS_KEY, [])
+    if not isinstance(listed, list | tuple):
+        raise stop(f"{where}.pickups is not a list", "state pickups as a list of items")
+    pickups: list[tuple[str, Pickup]] = []
+    for position, item in enumerate(listed):
+        name = f"{where}.{PICKUPS_KEY}[{position}]"
+        monitors = item.get(ELEMENTS_KEY) if isinstance(item, Mapping) else None
+        if (
+            not isinstance(monitors, list | tuple)
+            or not monitors
+            or not all(isinstance(monitor, str) and monitor for monitor in monitors)
+        ):
+            raise stop(
+                f"{name}.elements is {monitors!r}",
+                "state each item as a pickup with elements, the list of its monitors' "
+                "deck element names",
+            )
+        for monitor in monitors:
+            try:
+                select("element", monitor)
+            except ValueError as error:
+                raise stop(
+                    f"{name}: {error}", "name monitors the deck holds, or drop the item"
+                ) from error
+        stated = pyat_pickup.parse(item, name, directory, stop, extra_keys=(ELEMENTS_KEY,))
+        pickups.extend((monitor, stated) for monitor in monitors)
     sizes = {key: number(block, key, 0.0, key) for key in _SIZE_KEYS}
     readout = {key: number(block, key, default, key) for key, default in _READOUT_DEFAULTS.items()}
     return TurnSettings(
@@ -538,6 +660,8 @@ def normalise(
         aperture=aperture,
         apertures=apertures,
         readout=TurnReadout(tone_period=tone_period, **readout),
+        pickup=pickup,
+        pickups=tuple(pickups),
         **sizes,
     )
 
@@ -612,7 +736,8 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     Raises:
         ValueError: naming the address for an unknown signal; any other key
             beside ``signal``, but a pulsed kick's :data:`KICK_WORDS`; a
-            setting not wired ``direction: write``, or another signal that
+            ``calibration``, which no turn-by-turn record is read or written
+            through; a setting not wired ``direction: write``, or another signal that
             is; a monitor signal or a pulsed kick naming no single
             ``element``; a ring signal naming an element; whatever
             :func:`kick_words` refuses.
@@ -632,6 +757,12 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     )
     if extra:
         raise ValueError(f"{address} names signal {signal} beside {', '.join(extra)}")
+    if field(record, "calibration") is not None:
+        hint = "; a monitor's own sum scale is its fault `gain`" if signal == "turn_sum" else ""
+        raise ValueError(
+            f"{address}: signal {signal} states a calibration, but a turn-by-turn record is "
+            f"served as the engine holds it, through no curve; remove the calibration{hint}"
+        )
     write = field(record, "direction") == "write"
     if signal in SETTING_SIGNALS and not write:
         raise ValueError(f"{address}: signal {signal} is a setting; wire it with direction write")

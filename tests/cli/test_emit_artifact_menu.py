@@ -11,6 +11,7 @@ from osprey.cli.build_profile_emit import (
 )
 from osprey.cli.build_profile_merge import _apply_exclude
 from osprey_connectors.errors import BuildProfileError
+from tests.cli.test_emit_partition import emit_under_hash_seed
 
 
 def _emit(preset: str) -> str:
@@ -55,8 +56,11 @@ def test_empty_lists_still_offer_the_menu() -> None:
     assert "# - diagnose" in text
 
 
-def test_menu_insertion_is_deterministic() -> None:
-    assert _emit("demo") == _emit("demo")
+def test_menu_insertion_is_deterministic(tmp_path) -> None:
+    """The same bytes from interpreters that iterate sets in different orders."""
+    first = emit_under_hash_seed(["demo"], 0, tmp_path / "seed-0.json")
+    second = emit_under_hash_seed(["demo"], 1, tmp_path / "seed-1.json")
+    assert first["demo"] == second["demo"]
 
 
 def test_the_hooks_menu_offers_no_helper() -> None:

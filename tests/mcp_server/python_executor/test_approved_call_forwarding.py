@@ -916,25 +916,22 @@ def test_store_naming_code_with_a_write_switch_stamp_is_refused(
     assert refusal.message == executor.STORE_PATH_REFUSAL
 
 
-def test_store_naming_code_with_a_human_stamp_runs(
-    stamps: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "approver",
+    [
+        pytest.param(APPROVER_HUMAN, id="human"),
+        # The approver rule admits ``dispatch_policy``; a dispatch run is refused before it.
+        pytest.param(APPROVER_DISPATCH_POLICY, id="dispatch_policy-outside-a-dispatch-run"),
+    ],
+)
+def test_store_naming_code_with_a_prompted_stamp_runs(
+    stamps: Path, monkeypatch: pytest.MonkeyPatch, approver: str
 ) -> None:
+    """A stamp answered at a prompt lets code naming the store run."""
     from osprey_connectors import posture_store
 
     monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
-    _stamp(stamps, approver=APPROVER_HUMAN)
-
-    assert _store_check(_ASKING_CONFIG) is None
-
-
-def test_store_naming_code_with_a_dispatch_policy_stamp_runs_outside_a_dispatch_run(
-    stamps: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The approver rule admits ``dispatch_policy``; a dispatch run is refused before it."""
-    from osprey_connectors import posture_store
-
-    monkeypatch.delenv(posture_store.DISPATCH_RUN_ENV_VAR, raising=False)
-    _stamp(stamps, approver=APPROVER_DISPATCH_POLICY)
+    _stamp(stamps, approver=approver)
 
     assert _store_check(_ASKING_CONFIG) is None
 

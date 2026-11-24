@@ -143,6 +143,222 @@
   signal: status
   value_type: bool
   description: 'Booster ring beam position monitor 08 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:09:POSITION:X
+  'on':
+    device: BR/BPM09
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 09 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:09:POSITION:Y
+  'on':
+    device: BR/BPM09
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 09 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:09:STATUS:VALID
+  'on':
+    device: BR/BPM09
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 09 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:10:POSITION:X
+  'on':
+    device: BR/BPM10
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 10 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:10:POSITION:Y
+  'on':
+    device: BR/BPM10
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 10 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:10:STATUS:VALID
+  'on':
+    device: BR/BPM10
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 10 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:11:POSITION:X
+  'on':
+    device: BR/BPM11
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 11 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:11:POSITION:Y
+  'on':
+    device: BR/BPM11
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 11 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:11:STATUS:VALID
+  'on':
+    device: BR/BPM11
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 11 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:12:POSITION:X
+  'on':
+    device: BR/BPM12
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 12 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:12:POSITION:Y
+  'on':
+    device: BR/BPM12
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 12 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:12:STATUS:VALID
+  'on':
+    device: BR/BPM12
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 12 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:13:POSITION:X
+  'on':
+    device: BR/BPM13
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 13 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:13:POSITION:Y
+  'on':
+    device: BR/BPM13
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 13 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:13:STATUS:VALID
+  'on':
+    device: BR/BPM13
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 13 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:14:POSITION:X
+  'on':
+    device: BR/BPM14
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 14 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:14:POSITION:Y
+  'on':
+    device: BR/BPM14
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 14 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:14:STATUS:VALID
+  'on':
+    device: BR/BPM14
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 14 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:15:POSITION:X
+  'on':
+    device: BR/BPM15
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 15 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:15:POSITION:Y
+  'on':
+    device: BR/BPM15
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 15 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:15:STATUS:VALID
+  'on':
+    device: BR/BPM15
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 15 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:16:POSITION:X
+  'on':
+    device: BR/BPM16
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 16 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:16:POSITION:Y
+  'on':
+    device: BR/BPM16
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 16 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:16:STATUS:VALID
+  'on':
+    device: BR/BPM16
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 16 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:17:POSITION:X
+  'on':
+    device: BR/BPM17
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 17 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:17:POSITION:Y
+  'on':
+    device: BR/BPM17
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 17 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:17:STATUS:VALID
+  'on':
+    device: BR/BPM17
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 17 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:18:POSITION:X
+  'on':
+    device: BR/BPM18
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 18 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:18:POSITION:Y
+  'on':
+    device: BR/BPM18
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 18 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:18:STATUS:VALID
+  'on':
+    device: BR/BPM18
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 18 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:19:POSITION:X
+  'on':
+    device: BR/BPM19
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 19 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:19:POSITION:Y
+  'on':
+    device: BR/BPM19
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 19 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:19:STATUS:VALID
+  'on':
+    device: BR/BPM19
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 19 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
+- id: BR:DIAG:BPM:20:POSITION:X
+  'on':
+    device: BR/BPM20
+  signal: position_x_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 20 position horizontal. Beam position during booster cycle (millimeters). Horizontal Position (read-only): Beam X position.'
+- id: BR:DIAG:BPM:20:POSITION:Y
+  'on':
+    device: BR/BPM20
+  signal: position_y_readback
+  unit: mm
+  description: 'Booster ring beam position monitor 20 position vertical. Beam position during booster cycle (millimeters). Vertical Position (read-only): Beam Y position.'
+- id: BR:DIAG:BPM:20:STATUS:VALID
+  'on':
+    device: BR/BPM20
+  signal: status
+  value_type: bool
+  description: 'Booster ring beam position monitor 20 status valid. BPM status. Valid Data (read-only): BPM reading is valid.'
 - id: BR:DIAG:DCCT:01:CURRENT:RB
   'on':
     device: BR/DCCT01
@@ -255,6 +471,22 @@
   signal: screen_in_command
   value_type: bool
   description: 'Booster ring screen 05 paddle in command (read-write): inserts the screen into the beam.'
+- id: BR:MAG:DIPOLE-RAMP:01:CURRENT:RB
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: current_readback
+  unit: A
+  description: 'Booster ring bending magnet supply current readback (read-only): the measured current of the one supply that feeds the 24 bending magnets in series.'
+- id: BR:MAG:DIPOLE-RAMP:01:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:DIPOLE-RAMP:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/DIPOLE-RAMP01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring bending magnet supply current setpoint (read-write): the commanded current of the one supply that feeds the 24 bending magnets in series.'
 - id: BR:MAG:DIPOLE-RAMP:01:GAIN:RB
   'on':
     device: BR/DIPOLE-RAMP01
@@ -289,230 +521,358 @@
   signal: power_on_status
   value_type: bool
   description: 'Booster ring bending magnet ramp 01 on status (read-only): the ramped supply is on.'
-- id: BR:MAG:DIPOLE:01:CURRENT:RB
+- id: BR:MAG:HCM:01:CURRENT:RB
   'on':
-    device: BR/DIPOLE01
+    device: BR/HCM01
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 01 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:01:CURRENT:SP
+  description: 'Booster ring horizontal corrector 01 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:01:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:01:CURRENT:RB
+  pair: BR:MAG:HCM:01:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE01
+    device: BR/HCM01
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 01 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:01:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:01:STATUS:ON
   'on':
-    device: BR/DIPOLE01
-  signal: fault_status
+    device: BR/HCM01
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 01 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:01:STATUS:READY
+  description: 'Booster ring horizontal corrector 01 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:02:CURRENT:RB
   'on':
-    device: BR/DIPOLE01
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 01 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:02:CURRENT:RB
-  'on':
-    device: BR/DIPOLE02
+    device: BR/HCM02
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 02 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:02:CURRENT:SP
+  description: 'Booster ring horizontal corrector 02 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:02:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:02:CURRENT:RB
+  pair: BR:MAG:HCM:02:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE02
+    device: BR/HCM02
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 02 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:02:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:02:STATUS:ON
   'on':
-    device: BR/DIPOLE02
-  signal: fault_status
+    device: BR/HCM02
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 02 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:02:STATUS:READY
+  description: 'Booster ring horizontal corrector 02 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:03:CURRENT:RB
   'on':
-    device: BR/DIPOLE02
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 02 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:03:CURRENT:RB
-  'on':
-    device: BR/DIPOLE03
+    device: BR/HCM03
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 03 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:03:CURRENT:SP
+  description: 'Booster ring horizontal corrector 03 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:03:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:03:CURRENT:RB
+  pair: BR:MAG:HCM:03:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE03
+    device: BR/HCM03
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 03 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:03:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 03 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:03:STATUS:ON
   'on':
-    device: BR/DIPOLE03
-  signal: fault_status
+    device: BR/HCM03
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 03 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:03:STATUS:READY
+  description: 'Booster ring horizontal corrector 03 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:04:CURRENT:RB
   'on':
-    device: BR/DIPOLE03
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 03 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:04:CURRENT:RB
-  'on':
-    device: BR/DIPOLE04
+    device: BR/HCM04
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 04 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:04:CURRENT:SP
+  description: 'Booster ring horizontal corrector 04 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:04:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:04:CURRENT:RB
+  pair: BR:MAG:HCM:04:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE04
+    device: BR/HCM04
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 04 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:04:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 04 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:04:STATUS:ON
   'on':
-    device: BR/DIPOLE04
-  signal: fault_status
+    device: BR/HCM04
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 04 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:04:STATUS:READY
+  description: 'Booster ring horizontal corrector 04 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:05:CURRENT:RB
   'on':
-    device: BR/DIPOLE04
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 04 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:05:CURRENT:RB
-  'on':
-    device: BR/DIPOLE05
+    device: BR/HCM05
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 05 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:05:CURRENT:SP
+  description: 'Booster ring horizontal corrector 05 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:05:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:05:CURRENT:RB
+  pair: BR:MAG:HCM:05:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE05
+    device: BR/HCM05
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 05 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:05:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 05 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:05:STATUS:ON
   'on':
-    device: BR/DIPOLE05
-  signal: fault_status
+    device: BR/HCM05
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 05 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:05:STATUS:READY
+  description: 'Booster ring horizontal corrector 05 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:06:CURRENT:RB
   'on':
-    device: BR/DIPOLE05
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 05 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:06:CURRENT:RB
-  'on':
-    device: BR/DIPOLE06
+    device: BR/HCM06
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 06 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:06:CURRENT:SP
+  description: 'Booster ring horizontal corrector 06 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:06:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:06:CURRENT:RB
+  pair: BR:MAG:HCM:06:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE06
+    device: BR/HCM06
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 06 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:06:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 06 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:06:STATUS:ON
   'on':
-    device: BR/DIPOLE06
-  signal: fault_status
+    device: BR/HCM06
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 06 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:06:STATUS:READY
+  description: 'Booster ring horizontal corrector 06 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:07:CURRENT:RB
   'on':
-    device: BR/DIPOLE06
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 06 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:07:CURRENT:RB
-  'on':
-    device: BR/DIPOLE07
+    device: BR/HCM07
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 07 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:07:CURRENT:SP
+  description: 'Booster ring horizontal corrector 07 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:07:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:07:CURRENT:RB
+  pair: BR:MAG:HCM:07:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE07
+    device: BR/HCM07
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 07 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:07:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 07 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:07:STATUS:ON
   'on':
-    device: BR/DIPOLE07
-  signal: fault_status
+    device: BR/HCM07
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 07 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:07:STATUS:READY
+  description: 'Booster ring horizontal corrector 07 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:08:CURRENT:RB
   'on':
-    device: BR/DIPOLE07
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring dipole bending magnet 07 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
-- id: BR:MAG:DIPOLE:08:CURRENT:RB
-  'on':
-    device: BR/DIPOLE08
+    device: BR/HCM08
   signal: current_readback
   unit: A
-  description: 'Booster ring dipole bending magnet 08 current readback. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Readback (read-only): Measured dipole current during ramping.'
-- id: BR:MAG:DIPOLE:08:CURRENT:SP
+  description: 'Booster ring horizontal corrector 08 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:08:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:DIPOLE:08:CURRENT:RB
+  pair: BR:MAG:HCM:08:CURRENT:RB
   tolerance:
-    absolute: 0.05
+    absolute: 0.02
   'on':
-    device: BR/DIPOLE08
+    device: BR/HCM08
   signal: current_setpoint
   unit: A
-  description: 'Booster ring dipole bending magnet 08 current setpoint. Dipole excitation current (Amperes). Ramped to increase beam energy during acceleration. Current Setpoint (read-write): Programmed ramp profile for acceleration.'
-- id: BR:MAG:DIPOLE:08:STATUS:FAULT
+  description: 'Booster ring horizontal corrector 08 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:08:STATUS:ON
   'on':
-    device: BR/DIPOLE08
-  signal: fault_status
+    device: BR/HCM08
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 08 status fault. Dipole power supply status. Fault (read-only): Power supply fault detected.'
-- id: BR:MAG:DIPOLE:08:STATUS:READY
+  description: 'Booster ring horizontal corrector 08 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:09:CURRENT:RB
   'on':
-    device: BR/DIPOLE08
-  signal: ready_status
+    device: BR/HCM09
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 09 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:09:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM09
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 09 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:09:STATUS:ON
+  'on':
+    device: BR/HCM09
+  signal: power_on_status
   value_type: bool
-  description: 'Booster ring dipole bending magnet 08 status ready. Dipole power supply status. Ready (read-only): Power supply ready for ramping.'
+  description: 'Booster ring horizontal corrector 09 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:10:CURRENT:RB
+  'on':
+    device: BR/HCM10
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 10 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:10:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:10:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM10
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 10 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:10:STATUS:ON
+  'on':
+    device: BR/HCM10
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 10 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:11:CURRENT:RB
+  'on':
+    device: BR/HCM11
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 11 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:11:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:11:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM11
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 11 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:11:STATUS:ON
+  'on':
+    device: BR/HCM11
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 11 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:12:CURRENT:RB
+  'on':
+    device: BR/HCM12
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 12 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:12:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:12:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM12
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 12 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:12:STATUS:ON
+  'on':
+    device: BR/HCM12
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 12 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:13:CURRENT:RB
+  'on':
+    device: BR/HCM13
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 13 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:13:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:13:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM13
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 13 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:13:STATUS:ON
+  'on':
+    device: BR/HCM13
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 13 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:14:CURRENT:RB
+  'on':
+    device: BR/HCM14
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 14 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:14:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:14:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM14
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 14 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:14:STATUS:ON
+  'on':
+    device: BR/HCM14
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 14 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:15:CURRENT:RB
+  'on':
+    device: BR/HCM15
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 15 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:15:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:15:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM15
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 15 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:15:STATUS:ON
+  'on':
+    device: BR/HCM15
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 15 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:HCM:16:CURRENT:RB
+  'on':
+    device: BR/HCM16
+  signal: current_readback
+  unit: A
+  description: 'Booster ring horizontal corrector 16 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:HCM:16:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:HCM:16:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/HCM16
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring horizontal corrector 16 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:HCM:16:STATUS:ON
+  'on':
+    device: BR/HCM16
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring horizontal corrector 16 on status (read-only): the corrector supply is on.'
 - id: BR:MAG:KICKER:01:STATUS:ON
   'on':
     device: BR/KICKER01
@@ -535,6 +895,22 @@
   signal: voltage_setpoint
   unit: kV
   description: 'Booster ring injection kicker 01 voltage setpoint (read-write): the commanded kicker pulse voltage.'
+- id: BR:MAG:QD-RAMP:01:CURRENT:RB
+  'on':
+    device: BR/QD-RAMP01
+  signal: current_readback
+  unit: A
+  description: 'Booster ring defocusing quadrupole supply current readback (read-only): the measured current of the one supply that feeds the 16 defocusing quadrupoles.'
+- id: BR:MAG:QD-RAMP:01:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:QD-RAMP:01:CURRENT:RB
+  tolerance:
+    absolute: 0.05
+  'on':
+    device: BR/QD-RAMP01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring defocusing quadrupole supply current setpoint (read-write): the commanded current of the one supply that feeds the 16 defocusing quadrupoles.'
 - id: BR:MAG:QD-RAMP:01:GAIN:RB
   'on':
     device: BR/QD-RAMP01
@@ -569,118 +945,22 @@
   signal: power_on_status
   value_type: bool
   description: 'Booster ring defocusing quadrupole ramp 01 on status (read-only): the ramped supply is on.'
-- id: BR:MAG:QD:01:CURRENT:RB
+- id: BR:MAG:QF-RAMP:01:CURRENT:RB
   'on':
-    device: BR/QD01
+    device: BR/QF-RAMP01
   signal: current_readback
   unit: A
-  description: 'Booster ring defocusing quadrupole 01 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QD:01:CURRENT:SP
+  description: 'Booster ring focusing quadrupole supply current readback (read-only): the measured current of the one supply that feeds the 16 focusing quadrupoles.'
+- id: BR:MAG:QF-RAMP:01:CURRENT:SP
   role: setpoint
-  pair: BR:MAG:QD:01:CURRENT:RB
+  pair: BR:MAG:QF-RAMP:01:CURRENT:RB
   tolerance:
     absolute: 0.05
   'on':
-    device: BR/QD01
+    device: BR/QF-RAMP01
   signal: current_setpoint
   unit: A
-  description: 'Booster ring defocusing quadrupole 01 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QD:01:STATUS:FAULT
-  'on':
-    device: BR/QD01
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 01 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QD:01:STATUS:READY
-  'on':
-    device: BR/QD01
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 01 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QD:02:CURRENT:RB
-  'on':
-    device: BR/QD02
-  signal: current_readback
-  unit: A
-  description: 'Booster ring defocusing quadrupole 02 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QD:02:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QD:02:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QD02
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring defocusing quadrupole 02 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QD:02:STATUS:FAULT
-  'on':
-    device: BR/QD02
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 02 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QD:02:STATUS:READY
-  'on':
-    device: BR/QD02
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 02 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QD:03:CURRENT:RB
-  'on':
-    device: BR/QD03
-  signal: current_readback
-  unit: A
-  description: 'Booster ring defocusing quadrupole 03 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QD:03:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QD:03:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QD03
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring defocusing quadrupole 03 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QD:03:STATUS:FAULT
-  'on':
-    device: BR/QD03
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 03 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QD:03:STATUS:READY
-  'on':
-    device: BR/QD03
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 03 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QD:04:CURRENT:RB
-  'on':
-    device: BR/QD04
-  signal: current_readback
-  unit: A
-  description: 'Booster ring defocusing quadrupole 04 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QD:04:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QD:04:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QD04
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring defocusing quadrupole 04 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QD:04:STATUS:FAULT
-  'on':
-    device: BR/QD04
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 04 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QD:04:STATUS:READY
-  'on':
-    device: BR/QD04
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring defocusing quadrupole 04 status ready. Power supply status. Ready (read-only): Power supply ready.'
+  description: 'Booster ring focusing quadrupole supply current setpoint (read-write): the commanded current of the one supply that feeds the 16 focusing quadrupoles.'
 - id: BR:MAG:QF-RAMP:01:GAIN:RB
   'on':
     device: BR/QF-RAMP01
@@ -715,118 +995,6 @@
   signal: power_on_status
   value_type: bool
   description: 'Booster ring focusing quadrupole ramp 01 on status (read-only): the ramped supply is on.'
-- id: BR:MAG:QF:01:CURRENT:RB
-  'on':
-    device: BR/QF01
-  signal: current_readback
-  unit: A
-  description: 'Booster ring focusing quadrupole 01 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QF:01:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QF:01:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QF01
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring focusing quadrupole 01 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QF:01:STATUS:FAULT
-  'on':
-    device: BR/QF01
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 01 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QF:01:STATUS:READY
-  'on':
-    device: BR/QF01
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 01 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QF:02:CURRENT:RB
-  'on':
-    device: BR/QF02
-  signal: current_readback
-  unit: A
-  description: 'Booster ring focusing quadrupole 02 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QF:02:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QF:02:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QF02
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring focusing quadrupole 02 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QF:02:STATUS:FAULT
-  'on':
-    device: BR/QF02
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 02 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QF:02:STATUS:READY
-  'on':
-    device: BR/QF02
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 02 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QF:03:CURRENT:RB
-  'on':
-    device: BR/QF03
-  signal: current_readback
-  unit: A
-  description: 'Booster ring focusing quadrupole 03 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QF:03:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QF:03:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QF03
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring focusing quadrupole 03 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QF:03:STATUS:FAULT
-  'on':
-    device: BR/QF03
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 03 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QF:03:STATUS:READY
-  'on':
-    device: BR/QF03
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 03 status ready. Power supply status. Ready (read-only): Power supply ready.'
-- id: BR:MAG:QF:04:CURRENT:RB
-  'on':
-    device: BR/QF04
-  signal: current_readback
-  unit: A
-  description: 'Booster ring focusing quadrupole 04 current readback. Quadrupole current (Amperes). Ramped during acceleration. Readback (read-only): Measured current.'
-- id: BR:MAG:QF:04:CURRENT:SP
-  role: setpoint
-  pair: BR:MAG:QF:04:CURRENT:RB
-  tolerance:
-    absolute: 0.05
-  'on':
-    device: BR/QF04
-  signal: current_setpoint
-  unit: A
-  description: 'Booster ring focusing quadrupole 04 current setpoint. Quadrupole current (Amperes). Ramped during acceleration. Setpoint (read-write): Programmed current waveform.'
-- id: BR:MAG:QF:04:STATUS:FAULT
-  'on':
-    device: BR/QF04
-  signal: fault_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 04 status fault. Power supply status. Fault (read-only): Fault detected.'
-- id: BR:MAG:QF:04:STATUS:READY
-  'on':
-    device: BR/QF04
-  signal: ready_status
-  value_type: bool
-  description: 'Booster ring focusing quadrupole 04 status ready. Power supply status. Ready (read-only): Power supply ready.'
 - id: BR:MAG:SEPTUM:01:CURRENT:RB
   'on':
     device: BR/SEPTUM01
@@ -871,6 +1039,358 @@
   signal: power_on_status
   value_type: bool
   description: 'Booster ring extraction septum SEK on status (read-only): the septum supply is on.'
+- id: BR:MAG:VCM:01:CURRENT:RB
+  'on':
+    device: BR/VCM01
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 01 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:01:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:01:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM01
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 01 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:01:STATUS:ON
+  'on':
+    device: BR/VCM01
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 01 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:02:CURRENT:RB
+  'on':
+    device: BR/VCM02
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 02 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:02:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:02:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM02
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 02 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:02:STATUS:ON
+  'on':
+    device: BR/VCM02
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 02 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:03:CURRENT:RB
+  'on':
+    device: BR/VCM03
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 03 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:03:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:03:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM03
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 03 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:03:STATUS:ON
+  'on':
+    device: BR/VCM03
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 03 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:04:CURRENT:RB
+  'on':
+    device: BR/VCM04
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 04 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:04:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:04:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM04
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 04 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:04:STATUS:ON
+  'on':
+    device: BR/VCM04
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 04 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:05:CURRENT:RB
+  'on':
+    device: BR/VCM05
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 05 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:05:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:05:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM05
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 05 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:05:STATUS:ON
+  'on':
+    device: BR/VCM05
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 05 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:06:CURRENT:RB
+  'on':
+    device: BR/VCM06
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 06 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:06:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:06:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM06
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 06 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:06:STATUS:ON
+  'on':
+    device: BR/VCM06
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 06 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:07:CURRENT:RB
+  'on':
+    device: BR/VCM07
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 07 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:07:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:07:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM07
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 07 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:07:STATUS:ON
+  'on':
+    device: BR/VCM07
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 07 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:08:CURRENT:RB
+  'on':
+    device: BR/VCM08
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 08 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:08:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:08:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM08
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 08 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:08:STATUS:ON
+  'on':
+    device: BR/VCM08
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 08 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:09:CURRENT:RB
+  'on':
+    device: BR/VCM09
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 09 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:09:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:09:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM09
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 09 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:09:STATUS:ON
+  'on':
+    device: BR/VCM09
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 09 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:10:CURRENT:RB
+  'on':
+    device: BR/VCM10
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 10 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:10:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:10:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM10
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 10 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:10:STATUS:ON
+  'on':
+    device: BR/VCM10
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 10 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:11:CURRENT:RB
+  'on':
+    device: BR/VCM11
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 11 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:11:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:11:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM11
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 11 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:11:STATUS:ON
+  'on':
+    device: BR/VCM11
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 11 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:12:CURRENT:RB
+  'on':
+    device: BR/VCM12
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 12 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:12:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:12:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM12
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 12 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:12:STATUS:ON
+  'on':
+    device: BR/VCM12
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 12 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:13:CURRENT:RB
+  'on':
+    device: BR/VCM13
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 13 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:13:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:13:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM13
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 13 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:13:STATUS:ON
+  'on':
+    device: BR/VCM13
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 13 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:14:CURRENT:RB
+  'on':
+    device: BR/VCM14
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 14 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:14:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:14:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM14
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 14 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:14:STATUS:ON
+  'on':
+    device: BR/VCM14
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 14 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:15:CURRENT:RB
+  'on':
+    device: BR/VCM15
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 15 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:15:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:15:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM15
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 15 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:15:STATUS:ON
+  'on':
+    device: BR/VCM15
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 15 on status (read-only): the corrector supply is on.'
+- id: BR:MAG:VCM:16:CURRENT:RB
+  'on':
+    device: BR/VCM16
+  signal: current_readback
+  unit: A
+  description: 'Booster ring vertical corrector 16 current readback (read-only): the measured corrector current.'
+- id: BR:MAG:VCM:16:CURRENT:SP
+  role: setpoint
+  pair: BR:MAG:VCM:16:CURRENT:RB
+  tolerance:
+    absolute: 0.02
+  'on':
+    device: BR/VCM16
+  signal: current_setpoint
+  unit: A
+  description: 'Booster ring vertical corrector 16 current setpoint (read-write): the commanded corrector current.'
+- id: BR:MAG:VCM:16:STATUS:ON
+  'on':
+    device: BR/VCM16
+  signal: power_on_status
+  value_type: bool
+  description: 'Booster ring vertical corrector 16 on status (read-only): the corrector supply is on.'
 - id: BTS:DIAG:BPM:01:POSITION:X
   'on':
     device: BTS/BPM01

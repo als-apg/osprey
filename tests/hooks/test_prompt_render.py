@@ -46,21 +46,22 @@ def test_nested_dict_walk(render):
     assert out == "p1"
 
 
-def test_default_applies_to_a_missing_value(render):
-    out = render.render_prompt('{{ state.note | default("none") }}', input={}, state={})
-    assert out == "none"
-
-
-def test_default_applies_to_a_null_value(render):
-    out = render.render_prompt("{{ state.note | default('n/a') }}", input={}, state={"note": None})
-    assert out == "n/a"
-
-
-def test_default_applies_to_a_null_intermediate_value(render):
-    out = render.render_prompt(
-        '{{ state.plan.name | default("-") }}', input={}, state={"plan": None}
-    )
-    assert out == "-"
+@pytest.mark.parametrize(
+    ("template", "state", "expected"),
+    [
+        pytest.param('{{ state.note | default("none") }}', {}, "none", id="missing-value"),
+        pytest.param("{{ state.note | default('n/a') }}", {"note": None}, "n/a", id="null-value"),
+        pytest.param(
+            '{{ state.plan.name | default("-") }}',
+            {"plan": None},
+            "-",
+            id="null-intermediate-value",
+        ),
+    ],
+)
+def test_default_applies_to_an_absent_value(render, template, state, expected):
+    """``default`` stands in for a missing key, a null value, and a null on the path to it."""
+    assert render.render_prompt(template, input={}, state=state) == expected
 
 
 def test_null_intermediate_without_default_is_refused(render):

@@ -224,20 +224,22 @@ def a_site_registry(monkeypatch):
 class TestAuthFieldPassthrough:
     """resolve() passes auth_env_var and auth_secret_env through to spec."""
 
-    def test_cborg(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        assert spec.auth_env_var == "ANTHROPIC_AUTH_TOKEN"
-        assert spec.auth_secret_env == "CBORG_API_KEY"
-
-    def test_anthropic(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        assert spec.auth_env_var == "ANTHROPIC_API_KEY"
-        assert spec.auth_secret_env == "ANTHROPIC_API_KEY"
-
-    def test_als_apg(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, _ALS_APG)
-        assert spec.auth_env_var == "ANTHROPIC_AUTH_TOKEN"
-        assert spec.auth_secret_env == "ALS_APG_API_KEY"
+    @pytest.mark.parametrize(
+        ("provider", "api_providers", "auth_env_var", "auth_secret_env"),
+        [
+            pytest.param("cborg", None, "ANTHROPIC_AUTH_TOKEN", "CBORG_API_KEY", id="cborg"),
+            pytest.param(
+                "anthropic", None, "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", id="anthropic"
+            ),
+            pytest.param(
+                "als-apg", _ALS_APG, "ANTHROPIC_AUTH_TOKEN", "ALS_APG_API_KEY", id="als_apg"
+            ),
+        ],
+    )
+    def test_shipped_provider(self, provider, api_providers, auth_env_var, auth_secret_env):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
+        assert spec.auth_env_var == auth_env_var
+        assert spec.auth_secret_env == auth_secret_env
 
     def test_custom_provider(self):
         """Custom providers derive auth_secret_env from provider name."""

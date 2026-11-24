@@ -514,13 +514,16 @@ class TestServingRoute:
         assert resp.status_code == 200
         assert text in resp.text
 
-    def test_unknown_panel_id_is_404(self, serving_client):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("/panel-static/ghost/", id="unknown_panel_id"),
+            pytest.param("/panel-static/demo/nope.js", id="missing_file"),
+        ],
+    )
+    def test_is_404(self, serving_client, path):
         client, _ = serving_client
-        assert client.get("/panel-static/ghost/").status_code == 404
-
-    def test_missing_file_is_404(self, serving_client):
-        client, _ = serving_client
-        assert client.get("/panel-static/demo/nope.js").status_code == 404
+        assert client.get(path).status_code == 404
 
     def test_absolute_path_segment_cannot_escape(self, serving_client):
         client, _ = serving_client

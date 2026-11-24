@@ -181,8 +181,10 @@ class TestCapabilityWithRealService:
         assert retrieved["entry_id"] == "cap-integ-001"
 
     @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
-    async def test_service_search_returns_result_object(self, database_url):
-        """Service search method returns ARIELSearchResult."""
+    async def test_service_search_returns_result_object(
+        self, database_url, seed_entry_factory, seeded_prefixes
+    ):
+        """Service search method returns ARIELSearchResult holding the matching entry."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
         from osprey.services.ariel_search.models import ARIELSearchResult
 
@@ -196,11 +198,19 @@ class TestCapabilityWithRealService:
         ):
             service = await get_ariel_search_service()
 
-        result = await service.search("test query")
+        seeded_prefixes.add(CAPABILITY_PREFIX)
+        await service.repository.upsert_entry(
+            seed_entry_factory(
+                entry_id=f"{CAPABILITY_PREFIX}search-001",
+                raw_text="Capability search probe: septum kicker realigned",
+            )
+        )
+
+        result = await service.search("septum kicker realigned")
 
         assert isinstance(result, ARIELSearchResult)
-        assert hasattr(result, "entries")
-        assert hasattr(result, "answer")
+        assert f"{CAPABILITY_PREFIX}search-001" in [e["entry_id"] for e in result.entries]
+        assert result.search_modes_used == ("keyword",)
 
 
 class TestCapabilityConfig:

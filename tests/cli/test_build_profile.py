@@ -360,7 +360,9 @@ def test_demo_profile_validates() -> None:
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
     adding the bluesky_web block + the bluesky-panel web_panels ids to
-    this preset — it must keep validating once that wiring lands.
+    this preset — it must keep validating once that wiring lands. It runs on
+    the preset as shipped (bare, no overrides): the non-builtin bluesky-panel
+    ids are accepted because the preset's own bluesky_web block is present.
     """
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
@@ -461,21 +463,6 @@ class TestDemoTurnkeyPlanControlSystem:
 
     def test_demo_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
-
-
-def test_demo_turnkey_plan_preset_validates() -> None:
-    """BuildProfile.validate() passes for the preset as shipped (bare, no
-    overrides) -- the non-builtin bluesky-panel ids are accepted because
-    the preset's own bluesky_web block is present."""
-    presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
-    # `app_template:` and `facility:` are preset-side and consumed at the single
-    # read point in `_load_preset_raw`; reading the file straight off disk has to
-    # pop them too.
-    for key in PRESET_ONLY_KEYS:
-        raw.pop(key, None)
-    profile = _parse_profile(raw)
-    profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
 
 # ── Task 3.1: the ``environment:`` block ─────────────────────────────────────

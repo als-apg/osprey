@@ -4368,7 +4368,8 @@ def test_teams_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate()
 # The Teams lane's shape minus its extra: the Slack adapter's one third-party
 # need is a core dependency, so there is no install to pin. What is pinned is
 # the rest — both files leave the shared lane and arrive here, every skip
-# fails the job, no `if:` gate, and the merge gate reads the result.
+# fails the job, no `if:` gate (pinned once by the Teams test above: Slack runs
+# in the same `teams-slack-bridge-e2e` job), and the merge gate reads the result.
 
 
 def _slack_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
@@ -4394,22 +4395,6 @@ def test_slack_job_runs_both_slack_files__mutation_drops_the_module() -> None:
     assert SLACK_SMOKE_FILE in step["run"]  # the fixture half survives
     with pytest.raises(AssertionError):
         test_slack_job_runs_both_slack_files(mutated)
-
-
-def test_slack_bridge_job_runs_on_every_pull_request(workflow: dict[str, Any]) -> None:
-    """No container, image, secret or model call, so no ``if:`` gate: an added
-    one would fail nothing and quietly stop the lane on most pull requests."""
-    assert "if" not in _jobs(workflow)[SLACK_JOB], (
-        f"'{SLACK_JOB}' declares an `if:` gate: {_jobs(workflow)[SLACK_JOB].get('if')!r} — "
-        f"it spends no model tokens and pulls no image, so it runs unconditionally"
-    )
-
-
-def test_slack_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[SLACK_JOB]["if"] = FULL_CI_LABEL_CLAUSE
-    with pytest.raises(AssertionError, match="declares an `if:` gate"):
-        test_slack_bridge_job_runs_on_every_pull_request(mutated)
 
 
 # ---------------------------------------------------------------------------
@@ -7555,16 +7540,8 @@ def _collected_floor_errors(source: str, *, guard: str) -> list[str]:
     return errors
 
 
-def test_chain_boot_module_carries_its_collection_floor() -> None:
-    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
-    assert _collected_floor_errors(source, guard=_CHAIN_BOOT_FLOOR_GUARD) == []
-
-
-def test_chain_boot_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
-    source = (REPO_ROOT / CHAIN_BOOT_MODULE).read_text(encoding="utf-8")
-    guard = _CHAIN_BOOT_FLOOR_GUARD
-    assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
-    assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
+# The chain-boot module's collection floor is pinned in the live-module table, below
+# (`test_live_module_carries_its_collection_floor[chain-boot]`).
 
 
 # The measurement tools' live proofs run in the same lane as the chain: the
@@ -7680,14 +7657,24 @@ def test_als_lane_runs_on_the_stand_in__mutation_drops_the_step() -> None:
         test_als_lane_runs_on_the_stand_in_in_the_va_live_job(mutated)
 
 
-def test_als_lane_module_carries_its_collection_floor() -> None:
-    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
-    assert _collected_floor_errors(source, guard=_ALS_LANE_FLOOR_GUARD) == []
+#: The live modules that carry a collection floor, each with its own guard text.
+_FLOORED_LIVE_MODULES = [
+    pytest.param(CHAIN_BOOT_MODULE, _CHAIN_BOOT_FLOOR_GUARD, id="chain-boot"),
+    pytest.param(ALS_LANE_MODULE, _ALS_LANE_FLOOR_GUARD, id="als-lane"),
+]
 
 
-def test_als_lane_module_carries_its_collection_floor__mutation_drops_the_floor() -> None:
-    source = (REPO_ROOT / ALS_LANE_MODULE).read_text(encoding="utf-8")
-    guard = _ALS_LANE_FLOOR_GUARD
+@pytest.mark.parametrize(("module", "guard"), _FLOORED_LIVE_MODULES)
+def test_live_module_carries_its_collection_floor(module: str, guard: str) -> None:
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
+    assert _collected_floor_errors(source, guard=guard) == []
+
+
+@pytest.mark.parametrize(("module", "guard"), _FLOORED_LIVE_MODULES)
+def test_live_module_carries_its_collection_floor__mutation_drops_the_floor(
+    module: str, guard: str
+) -> None:
+    source = (REPO_ROOT / module).read_text(encoding="utf-8")
     assert _collected_floor_errors(_COLLECTED_FLOOR_RE.sub("", source), guard=guard)
     assert _collected_floor_errors(source.replace(guard, "collected"), guard=guard)
 
@@ -17579,16 +17566,16 @@ def test_the_warmup_runs_only_on_pushes_to_main(workflow: dict[str, Any]) -> Non
 
 def test_the_warmup_runs_only_on_pushes_to_main__mutation_also_runs_on_prs() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = (
-        f"{QMD_WARMUP_CONDITION} || github.event_name == 'pull_request'"
-    )
-    assert len(_warmup_problems(mutated)) == 1
+    condition = f"{QMD_WARMUP_CONDITION} || github.event_name == 'pull_request'"
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = condition
+    assert _warmup_problems(mutated) == [f"if: {condition!r}, expected {QMD_WARMUP_CONDITION!r}"]
 
 
 def test_the_warmup_runs_only_on_pushes_to_main__mutation_any_branch_push() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = "github.event_name == 'push'"
-    assert len(_warmup_problems(mutated)) == 1
+    condition = "github.event_name == 'push'"
+    _jobs(mutated)[QMD_WARMUP_JOB]["if"] = condition
+    assert _warmup_problems(mutated) == [f"if: {condition!r}, expected {QMD_WARMUP_CONDITION!r}"]
 
 
 def test_the_warmup_runs_only_on_pushes_to_main__mutation_forgets_warm_mode() -> None:
@@ -18024,18 +18011,32 @@ def test_every_external_action_is_pinned_by_commit_and_dependabot_reaches_it() -
     assert uncovered == [], f"Dependabot never updates the pins in {uncovered}"
 
 
+def _the_one_changed_line(name: str, text: str, mutated: str) -> str:
+    """The mutated line, spelled the way ``_unpinned_uses`` reports a problem."""
+    changed = [
+        (number, line)
+        for number, (before, line) in enumerate(
+            zip(text.splitlines(), mutated.splitlines(), strict=True), 1
+        )
+        if before != line
+    ]
+    assert len(changed) == 1, changed
+    number, line = changed[0]
+    return f"{name}:{number}: {line.strip()}"
+
+
 def test_every_external_action_is_pinned_by_commit__mutation_back_to_a_tag() -> None:
     text = CI_YML.read_text()
     mutated = re.sub(r"actions/checkout@[0-9a-f]{40}", "actions/checkout@v7", text, count=1)
     assert mutated != text, "no SHA-pinned checkout -- mutation is stale"
-    assert len(_unpinned_uses({"ci.yml": mutated})) == 1
+    assert _unpinned_uses({"ci.yml": mutated}) == [_the_one_changed_line("ci.yml", text, mutated)]
 
 
 def test_every_external_action_is_pinned_by_commit__mutation_drops_the_version_comment() -> None:
     text = CI_YML.read_text()
     mutated = re.sub(r"(actions/checkout@[0-9a-f]{40})\s+#[^\n]*", r"\1", text, count=1)
     assert mutated != text, "no commented checkout pin -- mutation is stale"
-    assert len(_unpinned_uses({"ci.yml": mutated})) == 1
+    assert _unpinned_uses({"ci.yml": mutated}) == [_the_one_changed_line("ci.yml", text, mutated)]
 
 
 def _expressions_in_run(docs: dict[str, Any]) -> list[str]:

@@ -691,45 +691,44 @@ def _injected_render(tmp_path: Path, config: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("config", "rendered"),
-    [({}, "1.0"), ({"simulation": {"tick_s": 0.5}}, "0.5")],
+    ("var", "config", "rendered"),
+    [
+        pytest.param("VA_POLL_INTERVAL_S", {}, "1.0", id="tick-default"),
+        pytest.param(
+            "VA_POLL_INTERVAL_S", {"simulation": {"tick_s": 0.5}}, "0.5", id="tick-configured"
+        ),
+        pytest.param("VA_FAST_INTERVAL_S", {}, "0.1", id="fast-tick-default"),
+        pytest.param(
+            "VA_FAST_INTERVAL_S",
+            {"simulation": {"fast_tick_s": 0.05}},
+            "0.05",
+            id="fast-tick-configured",
+        ),
+    ],
 )
-def test_va_compose_tick_is_the_configured_simulation_tick(
-    tmp_path: Path, config: dict[str, Any], rendered: str
+def test_va_compose_period_is_the_configured_simulation_tick(
+    tmp_path: Path, var: str, config: dict[str, Any], rendered: str
 ) -> None:
-    """``VA_POLL_INTERVAL_S`` is ``simulation.tick_s``, or the default without one."""
+    """``VA_POLL_INTERVAL_S`` is ``simulation.tick_s`` and ``VA_FAST_INTERVAL_S`` is
+    ``simulation.fast_tick_s``, or the default without one."""
     services = _injected_render(tmp_path, config)["services"]
     for service in services.values():
-        assert service["environment"]["VA_POLL_INTERVAL_S"] == rendered
-
-
-def test_va_compose_tick_ignores_a_host_env_value(tmp_path: Path) -> None:
-    """A project ``.env`` naming the variable changes nothing the render emits."""
-    (tmp_path / ".env").write_text("VA_POLL_INTERVAL_S=5\n", encoding="utf-8")
-    services = _injected_render(tmp_path, {})["services"]
-    for service in services.values():
-        assert service["environment"]["VA_POLL_INTERVAL_S"] == "1.0"
+        assert service["environment"][var] == rendered
 
 
 @pytest.mark.parametrize(
-    ("config", "rendered"),
-    [({}, "0.1"), ({"simulation": {"fast_tick_s": 0.05}}, "0.05")],
+    ("var", "default"),
+    [
+        pytest.param("VA_POLL_INTERVAL_S", "1.0", id="tick"),
+        pytest.param("VA_FAST_INTERVAL_S", "0.1", id="fast-tick"),
+    ],
 )
-def test_va_compose_fast_period_is_the_configured_simulation_fast_tick(
-    tmp_path: Path, config: dict[str, Any], rendered: str
-) -> None:
-    """``VA_FAST_INTERVAL_S`` is ``simulation.fast_tick_s``, or the default without one."""
-    services = _injected_render(tmp_path, config)["services"]
-    for service in services.values():
-        assert service["environment"]["VA_FAST_INTERVAL_S"] == rendered
-
-
-def test_va_compose_fast_period_ignores_a_host_env_value(tmp_path: Path) -> None:
+def test_va_compose_period_ignores_a_host_env_value(tmp_path: Path, var: str, default: str) -> None:
     """A project ``.env`` naming the variable changes nothing the render emits."""
-    (tmp_path / ".env").write_text("VA_FAST_INTERVAL_S=5\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"{var}=5\n", encoding="utf-8")
     services = _injected_render(tmp_path, {})["services"]
     for service in services.values():
-        assert service["environment"]["VA_FAST_INTERVAL_S"] == "0.1"
+        assert service["environment"][var] == default
 
 
 def test_va_compose_instances_differ_only_in_what_names_the_machine() -> None:

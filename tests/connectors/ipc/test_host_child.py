@@ -922,30 +922,38 @@ GATEWAYS = {
 }
 
 
-def test_selected_role_is_the_write_gateway_when_writes_are_on():
+@pytest.mark.parametrize(
+    ("address", "port", "writes_enabled", "readonly_run", "expected"),
+    [
+        pytest.param(
+            "rw.example.org", 5065, True, False, "write_access", id="write-gateway-when-writes-on"
+        ),
+        pytest.param(
+            "ro.example.org", 5064, True, True, "read_only", id="stays-read-only-in-a-readonly-run"
+        ),
+        # The rule would say read_only, but the environment names the write
+        # gateway: the report describes what was used, not what was expected.
+        pytest.param(
+            "rw.example.org",
+            5065,
+            False,
+            False,
+            "write_access",
+            id="follows-the-endpoint-that-was-actually-installed",
+        ),
+    ],
+)
+def test_selected_role(address, port, writes_enabled, readonly_run, expected):
     role = host._installed_role(
-        GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=True, readonly_run=False
+        GATEWAYS,
+        "addr_list",
+        address,
+        port,
+        writes_enabled=writes_enabled,
+        readonly_run=readonly_run,
     )
 
-    assert role == "write_access"
-
-
-def test_selected_role_stays_read_only_in_a_readonly_run():
-    role = host._installed_role(
-        GATEWAYS, "addr_list", "ro.example.org", 5064, writes_enabled=True, readonly_run=True
-    )
-
-    assert role == "read_only"
-
-
-def test_selected_role_follows_the_endpoint_that_was_actually_installed():
-    # The rule would say read_only, but the environment names the write
-    # gateway: the report describes what was used, not what was expected.
-    role = host._installed_role(
-        GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=False, readonly_run=False
-    )
-
-    assert role == "write_access"
+    assert role == expected
 
 
 def test_selected_role_is_none_when_no_gateway_was_configured():

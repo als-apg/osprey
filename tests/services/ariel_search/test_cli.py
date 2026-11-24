@@ -84,17 +84,18 @@ class TestARIELCLIGroup:
         assert "ornl_logbook" in result.output
         assert "generic_json" in result.output
 
-    def test_enhance_module_choices(self, runner):
-        """enhance command validates module choices."""
-        result = runner.invoke(ariel_group, ["enhance", "--help"])
-        assert "text_embedding" in result.output
-        assert "semantic_processor" in result.output
-
-    def test_search_mode_choices(self, runner):
-        """search command validates mode choices."""
-        result = runner.invoke(ariel_group, ["search", "--help"])
-        assert "keyword" in result.output
-        assert "semantic" in result.output
+    @pytest.mark.parametrize(
+        ("subcommand", "choices"),
+        [
+            pytest.param("enhance", ["text_embedding", "semantic_processor"], id="enhance_modules"),
+            pytest.param("search", ["keyword", "semantic"], id="search_modes"),
+        ],
+    )
+    def test_help_lists_the_option_choices(self, runner, subcommand, choices):
+        """enhance validates module choices and search validates mode choices."""
+        result = runner.invoke(ariel_group, [subcommand, "--help"])
+        for choice in choices:
+            assert choice in result.output
 
     @pytest.mark.parametrize(
         ("argv", "option"),
@@ -1352,35 +1353,35 @@ class TestStatusVocabularyLine:
             result.stdout
         )
 
-    def test_valid_vocabulary_reports_its_concept_count(self, runner, monkeypatch):
+    @pytest.mark.parametrize(
+        ("message", "vocabulary", "expected_line"),
+        [
+            pytest.param(
+                "boom",
+                {"status": "ok", "concepts": 20, "errors": []},
+                "Vocabulary: OK (20 concepts)",
+                id="valid_reports_its_concept_count",
+            ),
+            pytest.param(
+                "ARIEL not configured",
+                {"status": "disabled", "concepts": 0, "errors": []},
+                "Vocabulary: disabled",
+                id="disabled_says_so",
+            ),
+        ],
+    )
+    def test_vocabulary_line_reports_its_status(
+        self, runner, monkeypatch, message, vocabulary, expected_line
+    ):
         self._patch_status(
             monkeypatch,
-            {
-                "status": "error",
-                "message": "boom",
-                "vocabulary": {"status": "ok", "concepts": 20, "errors": []},
-            },
+            {"status": "error", "message": message, "vocabulary": vocabulary},
         )
 
         result = runner.invoke(ariel_group, ["status"])
 
         assert result.exit_code == 0
-        assert "Vocabulary: OK (20 concepts)" in flat(result.stdout)
-
-    def test_disabled_vocabulary_says_so(self, runner, monkeypatch):
-        self._patch_status(
-            monkeypatch,
-            {
-                "status": "error",
-                "message": "ARIEL not configured",
-                "vocabulary": {"status": "disabled", "concepts": 0, "errors": []},
-            },
-        )
-
-        result = runner.invoke(ariel_group, ["status"])
-
-        assert result.exit_code == 0
-        assert "Vocabulary: disabled" in flat(result.stdout)
+        assert expected_line in flat(result.stdout)
 
     def test_json_document_carries_the_vocabulary_key(self, runner, monkeypatch):
         import json as json_mod

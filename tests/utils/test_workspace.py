@@ -243,11 +243,6 @@ class TestResolveAgentDataRoot:
         monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
         assert resolve_agent_data_root() == (runtime_root / "var" / "agent_data").resolve()
 
-    def test_custom_base_dir(self, tmp_path, monkeypatch):
-        cfg = _write_repo(tmp_path, "agent_data:\n  base_dir: custom/data\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(cfg))
-        assert resolve_agent_data_root() == (tmp_path / "custom" / "data").resolve()
-
     def test_absolute_base_dir_is_left_alone(self, tmp_path, monkeypatch):
         elsewhere = tmp_path / "elsewhere"
         cfg = _write_repo(tmp_path, f"agent_data:\n  base_dir: {elsewhere}\n")

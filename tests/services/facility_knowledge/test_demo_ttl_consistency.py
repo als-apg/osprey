@@ -48,24 +48,28 @@ CHANNEL_DB_PATH = REPO_ROOT / "tests/facility/golden/cf_index_pre_line/hierarchi
 #: of the frozen demo fingerprint's shape.
 ADDITIONS_PATH = REPO_ROOT / "tests/facility/golden/demo_fingerprint_additions.json"
 
+#: The channel database's addresses the demo declares it no longer serves, each
+#: with its reason; the frozen database keeps them.
+RETIRED_PATH = REPO_ROOT / "tests/facility/golden/demo_fingerprint_retired.json"
+
 #: NARAD property namespace — the emitter binds it as ``narad_p:``.
 NARAD_PROPERTY = "https://narad.example.org/property/"
 
 #: Expected sizes, spelled out rather than derived, so a change to *both* sides
 #: at once still trips something.
 #: ``EXPECTED_CHANNELS`` counts the channel database; the view carries those and
-#: ``EXPECTED_BINDINGS`` in all, the 1783 addresses the facility adds included.
+#: ``EXPECTED_BINDINGS`` in all, the 1921 addresses the facility adds included.
 EXPECTED_CHANNELS = 2908
-EXPECTED_BINDINGS = 4691
-EXPECTED_DEVICES = 1007
+EXPECTED_BINDINGS = 4765
+EXPECTED_DEVICES = 1091
 #: Devices placed in a system: every device but the nine placed nowhere.
-EXPECTED_SYSTEM_DESCRIBED = 998
+EXPECTED_SYSTEM_DESCRIBED = 1082
 
 #: Devices carrying each device prose predicate: every device placed in a
 #: system carries its system's text, and only a device some described group names carries a
 #: family's.
 EXPECTED_DESCRIBED_DEVICES = {
-    "familyDescription": 996,
+    "familyDescription": 1080,
     "systemDescription": EXPECTED_SYSTEM_DESCRIBED,
 }
 
@@ -80,7 +84,7 @@ DEVICE_DESCRIPTION_PREDICATES = ("familyDescription", "systemDescription")
 #: and system vocabulary. Counting the distinct values, not just the triples,
 #: is what says the texts were joined by device rather than broadcast.
 EXPECTED_DISTINCT_DEVICE_TEXTS = {
-    "familyDescription": 70,
+    "familyDescription": 72,
     "systemDescription": 7,
 }
 
@@ -173,6 +177,13 @@ def additions() -> set[str]:
 
 
 @pytest.fixture(scope="module")
+def retired() -> set[str]:
+    """The channel database's addresses the facility has retired."""
+    rows = json.loads(RETIRED_PATH.read_text(encoding="utf-8"))["rows"]
+    return {row["address"] for row in rows}
+
+
+@pytest.fixture(scope="module")
 def place_bound_additions(built_demo: BuiltProject, additions: set[str]) -> set[str]:
     """The added addresses whose channel record sits on a place and names no device or signal."""
     return {
@@ -196,12 +207,13 @@ def corpus_pvs(committed_graph: Any) -> set[str]:
 
 
 def test_demo_ttl_bindings_equal_the_channel_database(
-    corpus_pvs: set[str], channel_map: dict[str, dict], additions: set[str]
+    corpus_pvs: set[str], channel_map: dict[str, dict], additions: set[str], retired: set[str]
 ) -> None:
     """Every documented channel has a binding, and every binding a channel.
 
-    The channels are the database's and the addresses the facility adds beyond
-    it, named in ``demo_fingerprint_additions.json``.
+    The channels are the database's, less the addresses the facility has
+    retired, named in ``demo_fingerprint_retired.json``, and the addresses it
+    adds beyond the database, named in ``demo_fingerprint_additions.json``.
 
     Set equality in both directions is the point. A subset in either direction
     is a real defect: a channel with no binding is invisible to a graph search
@@ -215,13 +227,13 @@ def test_demo_ttl_bindings_equal_the_channel_database(
         f"{EXPECTED_CHANNELS}. If the demo machine really did change, update the "
         "corpus and this count together."
     )
-    assert corpus_pvs == database_pvs | additions, (
+    assert retired <= database_pvs
+    served = (database_pvs - retired) | additions
+    assert corpus_pvs == served, (
         "The graph corpus and the channel database describe different machines.\n"
-        + _difference_report(
-            corpus_pvs, database_pvs | additions, "the graph view", "the channel database"
-        )
+        + _difference_report(corpus_pvs, served, "the graph view", "the channel database")
     )
-    assert len(corpus_pvs) == EXPECTED_CHANNELS + len(additions)
+    assert len(corpus_pvs) == EXPECTED_CHANNELS - len(retired) + len(additions)
 
 
 # ---------------------------------------------------------------------------

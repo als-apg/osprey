@@ -1449,8 +1449,10 @@ def test_preflight_refuses_the_open_deployment_before_any_credential_is_minted(
 
 
 def test_preflight_passes_a_render_that_denies_the_whole_egress_set(monkeypatch, tmp_path):
-    """The negative control: the shipped deny list clears this gate too, so the
-    guard cannot be passing by refusing every open deployment."""
+    """The negative control for both render guards: the entitled render shipping
+    the full deny list (shell deny included) clears the Bash/launch-token gate
+    and the open-mode egress gate, so neither guard can be passing by refusing
+    every deployment."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
 
@@ -1628,15 +1630,6 @@ def test_the_seeded_password_refusal_is_blocking_not_advisory(monkeypatch, tmp_p
     )
 
     assert not any("osprey users passwd" in advisory for advisory in advisories)
-
-
-def test_preflight_passes_a_render_that_denies_bash(monkeypatch, tmp_path):
-    """The negative control: the same entitled render shipping the shell deny
-    clears the gate, so the guard cannot be passing by refusing everything."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
-
-    provision.preflight_web_terminals(_render_roster_config(tmp_path, denies_bash=True))
 
 
 def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch, tmp_path, caplog):

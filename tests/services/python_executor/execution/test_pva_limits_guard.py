@@ -1147,35 +1147,29 @@ def test_pvaccess_put_within_limits_reaches_the_channel(monkeypatch):
     assert reads == []
 
 
-def test_pvaccess_put_out_of_bounds_raises_before_the_channel(monkeypatch):
-    """pvaPy is a PVAccess client of its own, not a p4p spelling.
-
-    A ``pvaccess.Channel`` put never passes through a p4p ``Context``, so the
-    p4p guards leave it unchecked; this is the guard that closes it.
-    """
+@pytest.mark.parametrize(
+    "setter",
+    [
+        # pvaPy is a PVAccess client of its own, not a p4p spelling. A
+        # ``pvaccess.Channel`` put never passes through a p4p ``Context``, so the
+        # p4p guards leave it unchecked; this is the guard that closes it.
+        pytest.param("put", id="put"),
+        # The typed setters are the same write under another name. pvaPy spells
+        # one setter per scalar and array kind — ``putDouble``, ``putInt``,
+        # ``putScalarArray`` — so the guard sweeps every ``put``-prefixed
+        # attribute rather than naming ``put``. Naming them would go stale
+        # against the binding, and every name missed would be an unchecked write.
+        pytest.param("putDouble", id="typed-putDouble"),
+    ],
+)
+def test_pvaccess_put_out_of_bounds_raises_before_the_channel(monkeypatch, setter):
+    """An out-of-range pvaccess write is refused before it reaches the channel."""
     writes: list = []
     mod = _install_fake_pvaccess(monkeypatch, writes)
     _run_monkeypatch(monkeypatch, _make_pva_validator())
 
     with pytest.raises(ChannelLimitsViolationError):
-        mod.Channel("TEST:MAG:SP").put(99.0)
-    assert writes == []
-
-
-def test_pvaccess_typed_put_is_refused_out_of_range(monkeypatch):
-    """The typed setters are the same write under another name.
-
-    pvaPy spells one setter per scalar and array kind — ``putDouble``,
-    ``putInt``, ``putScalarArray`` — so the guard sweeps every ``put``-prefixed
-    attribute rather than naming ``put``. Naming them would go stale against
-    the binding, and every name missed would be an unchecked write.
-    """
-    writes: list = []
-    mod = _install_fake_pvaccess(monkeypatch, writes)
-    _run_monkeypatch(monkeypatch, _make_pva_validator())
-
-    with pytest.raises(ChannelLimitsViolationError):
-        mod.Channel("TEST:MAG:SP").putDouble(99.0)
+        getattr(mod.Channel("TEST:MAG:SP"), setter)(99.0)
     assert writes == []
 
 

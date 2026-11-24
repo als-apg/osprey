@@ -1258,6 +1258,7 @@ def test_status_help_does_not_promise_a_reachability_check():
     help_text = status_verb.__doc__ or ""
 
     assert "declared to answer" in help_text
+    assert "reachab" not in help_text.lower(), "the help promises a reachability check"
 
 
 def test_logs_help_states_that_both_stacks_are_covered():

@@ -6,6 +6,8 @@ Tests cover:
 - Backward compatibility with old API
 """
 
+import logging
+
 import pytest
 
 from osprey_connectors.logger import ComponentLogger, get_logger
@@ -28,20 +30,34 @@ class TestComponentLoggerBasic:
         assert logger.component_name == "custom_logger"
         assert logger.color == "blue"
 
-    def test_basic_logging_methods(self):
-        """Test that basic logging methods work without crashing."""
+    def test_basic_logging_methods(self, caplog):
+        """Each basic logging method emits one record at its level, without streaming."""
         logger = get_logger("test_component")
 
-        # These should all work without streaming
-        logger.info("Info message")
-        logger.debug("Debug message")
-        logger.warning("Warning message")
-        logger.error("Error message")
-        logger.success("Success message")
-        logger.key_info("Key info message")
-        logger.timing("Timing message")
-        logger.approval("Approval message")
-        logger.resume("Resume message")
+        with caplog.at_level(logging.DEBUG, logger="test_component"):
+            logger.info("Info message")
+            logger.debug("Debug message")
+            logger.warning("Warning message")
+            logger.error("Error message")
+            logger.success("Success message")
+            logger.key_info("Key info message")
+            logger.timing("Timing message")
+            logger.approval("Approval message")
+            logger.resume("Resume message")
+
+        assert [
+            (r.levelno, r.getMessage()) for r in caplog.records if r.name == "test_component"
+        ] == [
+            (logging.INFO, "Info message"),
+            (logging.DEBUG, "Debug message"),
+            (logging.WARNING, "Warning message"),
+            (logging.ERROR, "Error message"),
+            (logging.INFO, "Success message"),
+            (logging.INFO, "Key info message"),
+            (logging.INFO, "Timing message"),
+            (logging.INFO, "Approval message"),
+            (logging.INFO, "Resume message"),
+        ]
 
     def test_status_without_streaming_context(self):
         """Test that status() works gracefully without streaming context."""
@@ -54,13 +70,20 @@ class TestComponentLoggerBasic:
 class TestBackwardCompatibility:
     """Test backward compatibility with old API."""
 
-    def test_critical_and_exception_methods(self):
-        """Test that critical and exception methods still work."""
+    def test_critical_and_exception_methods(self, caplog):
+        """critical() and exception() still emit one record each at their level."""
         logger = get_logger("test_component")
 
-        # These methods should still work
-        logger.critical("Critical message")
-        logger.exception("Exception message")
+        with caplog.at_level(logging.DEBUG, logger="test_component"):
+            logger.critical("Critical message")
+            logger.exception("Exception message")
+
+        assert [
+            (r.levelno, r.getMessage()) for r in caplog.records if r.name == "test_component"
+        ] == [
+            (logging.CRITICAL, "Critical message"),
+            (logging.ERROR, "Exception message"),
+        ]
 
     def test_logger_properties(self):
         """Test that logger properties are accessible."""

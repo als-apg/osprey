@@ -51,14 +51,16 @@ def test_pinned_theme_id_renders_the_terminal_theme(tmp_path):
     assert settings["theme"] == "light"
 
 
-def test_family_value_renders_no_terminal_theme(tmp_path):
-    """A family pins no mode, so the render must not invent one."""
-    settings = _regen_with_web_theme(tmp_path, "desy")
-    assert "theme" not in settings
-
-
-def test_absent_web_theme_renders_no_terminal_theme(tmp_path):
-    settings = _regen_with_web_theme(tmp_path, None)
+@pytest.mark.parametrize(
+    "web_theme",
+    [
+        # A family pins no mode, so the render must not invent one.
+        pytest.param("desy", id="family-value"),
+        pytest.param(None, id="absent-web-theme"),
+    ],
+)
+def test_a_web_theme_without_a_mode_renders_no_terminal_theme(tmp_path, web_theme):
+    settings = _regen_with_web_theme(tmp_path, web_theme)
     assert "theme" not in settings
 
 

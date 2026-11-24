@@ -4,6 +4,8 @@ Mirrors the upstream panel's ``test_helpers.py`` style, adapted
 to the core import paths and the facility-neutral structure title.
 """
 
+import pytest
+
 from osprey.interfaces.okf_panel.helpers import (
     build_structure_markdown,
     format_qmd_snippet,
@@ -51,14 +53,19 @@ def test_snippet_query_near_end_no_trailing_ellipsis():
     assert snippet.startswith("…")
 
 
-def test_snippet_query_absent_returns_empty():
-    body = "The beam current decays slowly between top-off injections."
-    assert make_snippet(body, "nonexistent phrase") == ""
-
-
-def test_snippet_empty_query_returns_empty():
-    body = "Any non-empty body text goes here for the test."
-    assert make_snippet(body, "") == ""
+@pytest.mark.parametrize(
+    ("body", "query"),
+    [
+        pytest.param(
+            "The beam current decays slowly between top-off injections.",
+            "nonexistent phrase",
+            id="query_absent",
+        ),
+        pytest.param("Any non-empty body text goes here for the test.", "", id="empty_query"),
+    ],
+)
+def test_snippet_returns_empty(body, query):
+    assert make_snippet(body, query) == ""
 
 
 def test_snippet_case_insensitive_match():
@@ -82,24 +89,33 @@ def test_snippet_collapses_whitespace_runs():
 # ---------------------------------------------------------------------------
 
 
-def test_qmd_snippet_strips_line_numbers_and_hunk_header():
-    # Shape observed from qmd 2.5.3 — a diff-hunk header on the first line and
-    # a "<n>: " prefix on every line.
-    raw = "1: @@ -1,3 @@ ...\n2: # RF System\n3: The main RF cavities run at 500 MHz."
-    assert format_qmd_snippet(raw) == "# RF System The main RF cavities run at 500 MHz."
-
-
-def test_qmd_snippet_keeps_colons_inside_the_text():
-    # Only the leading line number is a prefix; a colon in the content stays.
-    raw = "12: 0203: sr 09 magnet water leak"
-    assert format_qmd_snippet(raw) == "0203: sr 09 magnet water leak"
-
-
-def test_qmd_snippet_keeps_an_at_at_span_inside_the_text():
-    # Only a LEADING hunk header is markup; the same shape mid-line is document
-    # content, and dropping it would silently lose words from the excerpt.
-    raw = "3: use the @@here@@ marker for the interlock"
-    assert format_qmd_snippet(raw) == "use the @@here@@ marker for the interlock"
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Shape observed from qmd 2.5.3 — a diff-hunk header on the first line and
+        # a "<n>: " prefix on every line.
+        pytest.param(
+            "1: @@ -1,3 @@ ...\n2: # RF System\n3: The main RF cavities run at 500 MHz.",
+            "# RF System The main RF cavities run at 500 MHz.",
+            id="strips_line_numbers_and_hunk_header",
+        ),
+        # Only the leading line number is a prefix; a colon in the content stays.
+        pytest.param(
+            "12: 0203: sr 09 magnet water leak",
+            "0203: sr 09 magnet water leak",
+            id="keeps_colons_inside_the_text",
+        ),
+        # Only a LEADING hunk header is markup; the same shape mid-line is document
+        # content, and dropping it would silently lose words from the excerpt.
+        pytest.param(
+            "3: use the @@here@@ marker for the interlock",
+            "use the @@here@@ marker for the interlock",
+            id="keeps_an_at_at_span_inside_the_text",
+        ),
+    ],
+)
+def test_qmd_snippet(raw, expected):
+    assert format_qmd_snippet(raw) == expected
 
 
 def test_qmd_snippet_collapses_whitespace_to_one_line():

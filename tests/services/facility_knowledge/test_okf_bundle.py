@@ -164,6 +164,8 @@ class TestListConcepts:
         bundle = OKFBundle(tmp_path)
         entries = bundle.list_concepts()
 
+        # The three concept documents _make_bundle writes (the indexes are not concepts).
+        assert len(entries) == 3
         for e in entries:
             assert isinstance(e, ConceptEntry)
             assert e.concept_id

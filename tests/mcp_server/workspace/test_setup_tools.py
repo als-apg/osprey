@@ -172,38 +172,31 @@ async def test_inspect_config_content(project_dir):
 
 
 @pytest.mark.asyncio
-async def test_inspect_mcp_servers(project_dir):
-    """setup_inspect returns .mcp.json content."""
+@pytest.mark.parametrize(
+    ("section", "member"),
+    [
+        # setup_inspect returns .mcp.json content.
+        pytest.param(("mcp_servers", "mcpServers"), "workspace", id="mcp_servers"),
+        # setup_inspect lists rule files and agent files.
+        pytest.param(("rules",), "safety.md", id="rules-safety"),
+        pytest.param(("rules",), "error-handling.md", id="rules-error-handling"),
+        pytest.param(("agents",), "channel-finder.md", id="agents"),
+        # setup_inspect lists skill directories.
+        pytest.param(("skills",), "session-report", id="skills"),
+        # setup_inspect extracts hooks from settings.json.
+        pytest.param(("hooks",), "PreToolUse", id="hooks_from_settings"),
+    ],
+)
+async def test_inspect_lists_the_project_surface(project_dir, section, member):
+    """setup_inspect reports the project's MCP servers, rules, agents, skills and hooks."""
     fn = _get_setup_inspect()
     config = yaml.safe_load((project_dir / "config.yml").read_text())
     with _patch_config_path(project_dir), _patch_load_config(config):
         result = json.loads(await fn())
 
-    assert "workspace" in result["mcp_servers"]["mcpServers"]
-
-
-@pytest.mark.asyncio
-async def test_inspect_rules_and_agents(project_dir):
-    """setup_inspect lists rule files and agent files."""
-    fn = _get_setup_inspect()
-    config = yaml.safe_load((project_dir / "config.yml").read_text())
-    with _patch_config_path(project_dir), _patch_load_config(config):
-        result = json.loads(await fn())
-
-    assert "safety.md" in result["rules"]
-    assert "error-handling.md" in result["rules"]
-    assert "channel-finder.md" in result["agents"]
-
-
-@pytest.mark.asyncio
-async def test_inspect_skills(project_dir):
-    """setup_inspect lists skill directories."""
-    fn = _get_setup_inspect()
-    config = yaml.safe_load((project_dir / "config.yml").read_text())
-    with _patch_config_path(project_dir), _patch_load_config(config):
-        result = json.loads(await fn())
-
-    assert "session-report" in result["skills"]
+    for key in section:
+        result = result[key]
+    assert member in result
 
 
 @pytest.mark.asyncio
@@ -273,17 +266,6 @@ async def test_inspect_env_masking(project_dir):
     # Non-sensitive values preserved
     assert env["OSPREY_SESSION_ID"] == "session-abc"
     assert env["CLAUDE_PROJECT_DIR"] == "/some/path"
-
-
-@pytest.mark.asyncio
-async def test_inspect_hooks_from_settings(project_dir):
-    """setup_inspect extracts hooks from settings.json."""
-    fn = _get_setup_inspect()
-    config = yaml.safe_load((project_dir / "config.yml").read_text())
-    with _patch_config_path(project_dir), _patch_load_config(config):
-        result = json.loads(await fn())
-
-    assert "PreToolUse" in result["hooks"]
 
 
 # ---------------------------------------------------------------------------

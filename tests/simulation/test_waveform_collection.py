@@ -151,7 +151,8 @@ def test_prepare_without_a_waveform_handle_touches_only_the_scalar_collection():
 
     _prepare_collection(scalar)
 
-    assert scalar.indexes
+    assert (EXPIRE_FIELD, {"expireAfterSeconds": 0}) in scalar.indexes
+    assert (DATE_FIELD, {}) in scalar.indexes
 
 
 @pytest.fixture(scope="module")

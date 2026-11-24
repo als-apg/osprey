@@ -267,6 +267,7 @@ class TestRetiredPythonEnvPathIsIgnored:
         return config_file
 
     def test_old_config_loads_without_error(self, tmp_path):
+        """It loads, and the retired key's sibling ``execution_method`` survives."""
         builder = ConfigBuilder(str(self._legacy_config(tmp_path)), load_env=False)
 
         assert builder.configurable["execution"]["execution_method"] == "local"
@@ -278,11 +279,6 @@ class TestRetiredPythonEnvPathIsIgnored:
         assert "python_env_path" not in execution
         # Jupyter-era kernel/gateway descriptions: retired alongside it.
         assert "modes" not in execution
-
-    def test_sibling_execution_keys_survive(self, tmp_path):
-        builder = ConfigBuilder(str(self._legacy_config(tmp_path)), load_env=False)
-
-        assert builder.configurable["execution"]["execution_method"] == "local"
 
     def test_it_is_logged_at_debug_not_warning(self, tmp_path, caplog):
         config_file = self._legacy_config(tmp_path)

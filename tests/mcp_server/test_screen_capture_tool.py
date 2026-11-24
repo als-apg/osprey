@@ -184,10 +184,8 @@ async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_screenshot_capture()
-        with assert_raises_error(error_type="window_not_found") as _exc_ctx:
+        with assert_raises_error(error_type="window_not_found"):
             await fn(mode="window", target="NonExistentApp")
-
-    _exc_ctx["envelope"]
 
 
 async def test_screenshot_custom_filename(tmp_path, monkeypatch):
@@ -256,10 +254,8 @@ async def test_screenshot_command_failure(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_screenshot_capture()
-        with assert_raises_error(error_type="capture_error") as _exc_ctx:
+        with assert_raises_error(error_type="capture_error"):
             await fn(mode="full")
-
-    _exc_ctx["envelope"]
 
 
 async def test_screenshot_backend_unavailable(tmp_path, monkeypatch):
@@ -340,10 +336,9 @@ async def test_list_windows_backend_failure(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_list_windows()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="internal_error") as ctx:
             await fn()
-
-    _exc_ctx["envelope"]
+        assert "Swift window listing failed" in ctx["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------

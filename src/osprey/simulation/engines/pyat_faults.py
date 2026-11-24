@@ -35,6 +35,22 @@ sample by sample -- through the same monitor's same faults. Both run
 everything that monitor reports, in one order: roll, offset, polarity, noise,
 gain.
 
+**The sum of a turn-by-turn monitor has one fault, its own gain.** The
+monitor's ``turn_sum`` record carries ``gain`` (:data:`SUM_GAIN_IDENTITY`),
+held on the monitor's element as :data:`SUM_GAIN_ATTRIBUTE`
+(:func:`sum_gain`): the factor on what that monitor's sum reads of the beam,
+injected and stored, so two monitors read one charge differently. It is the
+sum's alone: no position reads it, and the position faults never reach the
+sum.
+
+**A monitor that states a pickup carries one gain per button.** Its
+``turn_sum`` record carries ``button_1`` to ``button_<N>``
+(:func:`button_field`, identity :data:`BUTTON_GAIN_IDENTITY`), held on the
+monitor's element (:func:`button_attribute`, :func:`button_gains`): the factor
+on that button's signal, before the sum and the positions are formed from the
+buttons. An imbalance between the buttons so shows as an offset in the
+positions, with no offset stated.
+
 **Element errors are keyed by the element, not by an address.** One series
 supply address feeds many magnets, so a magnet's own misalignment and its own
 multipole error cannot hang off the address. Every element a non-monitor
@@ -102,6 +118,24 @@ FAULT_SEPARATOR = "/"
 ROLL = "roll"
 ROLL_IDENTITY = 0.0
 
+#: The wiring signal of a turn-by-turn monitor's sum array, the record that
+#: carries the monitor's sum gain.
+SUM_SIGNAL = "turn_sum"
+#: The one fault field a sum record carries, and its identity: a monitor
+#: whose sum reads the beam at the ring's own sum per unit charge.
+SUM_GAIN = "gain"
+SUM_GAIN_IDENTITY = 1.0
+#: The element attribute that holds a monitor's sum gain.
+SUM_GAIN_ATTRIBUTE = "readout_gain_sum"
+#: The fault field of a pickup's button gain is this and the button's number,
+#: from 1; the sum record of a monitor that states a pickup carries one per
+#: button.
+BUTTON_GAIN_PREFIX = "button_"
+#: A button that reads the beam as its pickup states it.
+BUTTON_GAIN_IDENTITY = 1.0
+#: The element attribute of a button's gain is this and the button's number.
+BUTTON_GAIN_ATTRIBUTE_PREFIX = "readout_gain_button_"
+
 #: Engine attribute -> the supply calibration fields a setpoint on it carries.
 #: A magnet supply takes both. A cavity setpoint takes the one that names a
 #: real error of it: a frequency offset, a voltage scale error, a phase
@@ -117,6 +151,8 @@ SUPPLY_FIELDS: dict[str, tuple[str, ...]] = {
 MIN_MONITOR_GAIN = 0.1
 MAX_MONITOR_GAIN = 10.0
 MAX_MONITOR_ROLL_RAD = 0.1
+#: A button's gain, inclusive: 0 is a dead button.
+BUTTON_GAIN_BOUNDS: tuple[float, float] = (0.0, MAX_MONITOR_GAIN)
 #: A factor of -1 is a polarity flip; a magnitude beyond 5x is never a real
 #: calibration error.
 MAX_CALIBRATION_FACTOR = 5.0
@@ -454,7 +490,12 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     ``polarity`` on its own axis; each monitor element carries one ``roll``, on
     its x-axis readback or else its first one. A monitor has one readback per
     axis: a second address of the same reading is stated under the record's
-    ``also``, which this engine never sees. A setpoint (``direction: write``) on ``PolynomB`` or
+    ``also``, which this engine never sees. A turn-by-turn monitor's sum
+    record (an engine ``signal`` of :data:`SUM_SIGNAL`) carries ``gain``, the
+    monitor's sum gain; where two records read one monitor's sum, the first
+    carries it. Where the settings' turn-by-turn block states a pickup for
+    the monitor, that record also carries one gain per button,
+    ``button_1`` to ``button_<N>``. A setpoint (``direction: write``) on ``PolynomB`` or
     ``KickAngle`` carries ``cal_factor`` and ``cal_offset``; a cavity setpoint
     carries one of the two (:data:`SUPPLY_FIELDS`): ``cal_offset`` on
     ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``.
@@ -491,6 +532,7 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
         raise ErrorElementsError(problems[0])
     slots: dict[str, FaultSlot] = {}
     monitors: dict[str, dict[str, str]] = {}
+    sums: dict[str, str] = {}
     magnets: dict[str, bool] = {}
     addresses: set[str] = set()
 
@@ -510,6 +552,8 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
         element = _first_element(record)
         if element is None:
             continue
+        if _slot(block, "signal") == SUM_SIGNAL:
+            sums.setdefault(element, address)
         if not (attribute is None and axis in _AXES):
             polynomial = attribute in MULTIPOLE_PREFIXES.values()
             for bound in _bound_elements(record):
@@ -529,6 +573,15 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
             for field in READOUT_IDENTITY:
                 declare(address, field, element)
         declare(axes.get("x") or next(iter(axes.values())), ROLL, element)
+    from osprey.simulation.engines.pyat_turn_settings import stated_counts
+
+    ring_buttons, monitor_buttons = stated_counts(settings)
+    for element, address in sums.items():
+        declare(address, SUM_GAIN, element)
+        for number in range(1, (monitor_buttons.get(element, ring_buttons) or 0) + 1):
+            slots[f"{address}{FAULT_SEPARATOR}{button_field(number)}"] = FaultSlot(
+                address, button_field(number), BUTTON_GAIN_BOUNDS, element=element
+            )
     slotless = sorted(e for e in declared if e in addresses or e in monitors)
     if slotless:
         raise ErrorElementsError(
@@ -646,6 +699,46 @@ def _readout_faults(element: Any) -> dict[str, float]:
     }
     faults[ROLL] = float(getattr(element, f"readout_{ROLL}", ROLL_IDENTITY))
     return faults
+
+
+def button_field(number: int) -> str:
+    """The fault field of button ``number``'s gain, the first button 1."""
+    return f"{BUTTON_GAIN_PREFIX}{number}"
+
+
+def button_attribute(number: int) -> str:
+    """The element attribute that holds button ``number``'s gain."""
+    return f"{BUTTON_GAIN_ATTRIBUTE_PREFIX}{number}"
+
+
+def button_gains(element: Any, buttons: int) -> list[float] | None:
+    """The button gains ``element`` holds, or ``None`` where every one is 1.
+
+    Args:
+        element: A monitor's deck element.
+        buttons: How many buttons its pickup has.
+
+    Returns:
+        The gain of each button in order, 1 for one the element holds none
+        for; ``None`` where all are 1.
+    """
+    gains = [
+        float(getattr(element, button_attribute(number), BUTTON_GAIN_IDENTITY))
+        for number in range(1, buttons + 1)
+    ]
+    return None if all(gain == BUTTON_GAIN_IDENTITY for gain in gains) else gains
+
+
+def sum_gain(element: Any) -> float:
+    """The sum gain ``element`` holds; 1 where it holds none.
+
+    Args:
+        element: A monitor's deck element.
+
+    Returns:
+        The factor on the beam sum that monitor reads.
+    """
+    return float(getattr(element, SUM_GAIN_ATTRIBUTE, SUM_GAIN_IDENTITY))
 
 
 def _normal(address: str | None, width: float, t_ms: int | float) -> float:
@@ -854,6 +947,10 @@ def monitor_reads(
 
 
 __all__ = [
+    "BUTTON_GAIN_ATTRIBUTE_PREFIX",
+    "BUTTON_GAIN_BOUNDS",
+    "BUTTON_GAIN_IDENTITY",
+    "BUTTON_GAIN_PREFIX",
     "CIRCUMFERENCE_ERROR",
     "ELEMENT_SCOPE",
     "ERROR_ELEMENTS_KEY",
@@ -863,6 +960,10 @@ __all__ = [
     "MISALIGNMENT_BOUNDS",
     "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
+    "SUM_GAIN",
+    "SUM_GAIN_ATTRIBUTE",
+    "SUM_GAIN_IDENTITY",
+    "SUM_SIGNAL",
     "SUPPLY_FIELDS",
     "SUPPLY_IDENTITY",
     "bpm_read",
@@ -875,6 +976,10 @@ __all__ = [
     "multipole_field",
     "readout",
     "rolled",
+    "button_attribute",
+    "button_field",
+    "button_gains",
+    "sum_gain",
     "supply_attribute",
     "supply_calibration",
 ]

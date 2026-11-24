@@ -124,7 +124,8 @@ def test_resolve_preset_bundle_returns_the_name_and_its_app_template() -> None:
 
 def test_resolve_preset_bundle_normalizes_the_underscore_spelling() -> None:
     """Both CLI spellings of a preset resolve to the same answer."""
-    assert _resolve_preset_bundle("demo") == _resolve_preset_bundle("demo")
+    assert _resolve_preset_bundle("hello_world") == _resolve_preset_bundle("hello-world")
+    assert _resolve_preset_bundle("hello_world")[0] == "hello-world"
 
 
 def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:
@@ -216,6 +217,7 @@ DEMO_PULLABLE = [
     "data/facility/benchmarks/cross_paradigm/queries/in_context_queries.json",
     "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json",
     "data/facility/classes.yaml",
+    "data/facility/decks/BR.json",
     "data/facility/decks/BTS.json",
     "data/facility/decks/LTB.json",
     "data/facility/decks/SR.json",
@@ -246,6 +248,7 @@ DEMO_PULLABLE = [
     "data/facility/knowledge/subsystems/transport-delivery.md",
     "data/facility/knowledge/subsystems/vacuum.md",
     "data/facility/limits.yaml",
+    "data/facility/measurement/BR.yaml",
     "data/facility/measurement/BTS.yaml",
     "data/facility/measurement/LTB.yaml",
     "data/facility/measurement/SR.yaml",

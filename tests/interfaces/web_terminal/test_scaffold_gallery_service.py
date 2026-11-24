@@ -465,10 +465,9 @@ class TestComputeDiff:
         svc = ScaffoldGalleryService(project_dir)
         result = svc.compute_diff(WRITABLE_ARTIFACT)
         assert result["has_diff"] is True
-        assert result["additions"] > 0
+        assert result["additions"] == 1
         assert result["deletions"] > 0
-        assert isinstance(result["unified_diff"], str)
-        assert len(result["unified_diff"]) > 0
+        assert "\n+# Completely replaced content" in result["unified_diff"]
 
     def test_compute_diff_not_owned(self, service):
         """Diff on a non-owned artifact raises FileNotFoundError."""
@@ -489,8 +488,8 @@ class TestScaffold:
         result = detached_service.scaffold_override(WRITABLE_ARTIFACT)
 
         assert result["status"] == "claimed"
-        assert "output_path" in result
-        assert len(result["content"]) > 0
+        written = (detached_project_dir / result["output_path"]).read_text(encoding="utf-8")
+        assert result["content"] == written != ""
 
         # config.yml has the user_owned entry
         user_owned = _get_user_owned(detached_project_dir)
@@ -1173,15 +1172,19 @@ class TestCreateArtifact:
         assert "agents/legacy-agent" in _get_user_owned(detached_project_dir)
         assert (detached_project_dir / ".claude" / "agents" / "legacy-agent.md").is_file()
 
-    def test_create_artifact_invalid_category_raises(self, service):
-        """Invalid category raises ValueError."""
-        with pytest.raises(ValueError, match="Invalid category"):
-            service.create_artifact("widgets", "bad-widget")
-
-    def test_create_artifact_conflict_with_framework_raises(self, service):
-        """Creating an artifact with a framework name raises ValueError."""
-        with pytest.raises(ValueError, match="framework artifact"):
-            service.create_artifact("agents", "channel-finder")
+    @pytest.mark.parametrize(
+        ("category", "name", "match"),
+        [
+            pytest.param("widgets", "bad-widget", "Invalid category", id="invalid_category"),
+            pytest.param(
+                "agents", "channel-finder", "framework artifact", id="conflict_with_framework"
+            ),
+        ],
+    )
+    def test_create_artifact_raises(self, service, category, name, match):
+        """An invalid category, or a framework artifact's name, raises ValueError."""
+        with pytest.raises(ValueError, match=match):
+            service.create_artifact(category, name)
 
     def test_create_artifact_duplicate_raises(self, service, project_dir):
         """Creating the same artifact twice raises FileExistsError."""

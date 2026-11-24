@@ -134,9 +134,16 @@ class TestEventPositions:
         assert at == 0.5
         assert axis is t_frac
 
-    def test_offset_anchored_needs_abs_axis(self):
+    @pytest.mark.parametrize(
+        ("event", "t0"),
+        [
+            pytest.param({"at_offset": 10.0}, 100.0, id="offset-anchored"),
+            pytest.param({"at_time": "12:00:00"}, 0.0, id="time-of-day"),
+        ],
+    )
+    def test_an_absolute_event_needs_the_abs_axis(self, event, t0):
         t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"at_offset": 10.0}, t_frac, None, 100.0) == []
+        assert event_positions(event, t_frac, None, t0) == []
 
     def test_offset_anchored_with_abs_axis(self):
         t_frac = np.linspace(0.0, 1.0, 5)
@@ -146,10 +153,6 @@ class TestEventPositions:
         axis, at = positions[0]
         assert at == 110.0
         assert axis is t_abs
-
-    def test_time_of_day_needs_abs_axis(self):
-        t_frac = np.linspace(0.0, 1.0, 5)
-        assert event_positions({"at_time": "12:00:00"}, t_frac, None, 0.0) == []
 
 
 class TestDailyOccurrences:

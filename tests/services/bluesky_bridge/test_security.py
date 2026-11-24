@@ -47,18 +47,16 @@ def test_verify_launch_token_passes_on_matching_header(monkeypatch: pytest.Monke
     verify_launch_token("s3cr3t")  # must not raise
 
 
-def test_verify_launch_token_raises_403_on_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "header",
+    [pytest.param("wrong-token", id="mismatch"), pytest.param(None, id="missing-header")],
+)
+def test_verify_launch_token_raises_403(
+    monkeypatch: pytest.MonkeyPatch, header: str | None
+) -> None:
     monkeypatch.setenv(_ENV_VAR, "s3cr3t")
     with pytest.raises(HTTPException) as exc_info:
-        verify_launch_token("wrong-token")
-    assert exc_info.value.status_code == 403
-    assert exc_info.value.detail["code"] == "launch_token_invalid"
-
-
-def test_verify_launch_token_raises_403_on_missing_header(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(_ENV_VAR, "s3cr3t")
-    with pytest.raises(HTTPException) as exc_info:
-        verify_launch_token(None)
+        verify_launch_token(header)
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "launch_token_invalid"
 

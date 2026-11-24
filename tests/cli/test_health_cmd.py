@@ -167,23 +167,19 @@ def test_the_suite_runs_against_the_loaded_project_config(runner, valid_project)
 class TestExitCodes:
     """The CLI's process exit code follows the report / failure class."""
 
-    def test_exit_code_all_ok_is_0(self, runner, valid_project):
-        report = _report(_result("a", Status.OK), _result("b", Status.OK))
+    @pytest.mark.parametrize(
+        ("worst", "exit_code"),
+        [
+            pytest.param(Status.OK, 0, id="all-ok-is-0"),
+            pytest.param(Status.WARNING, 1, id="warnings-only-is-1"),
+            pytest.param(Status.ERROR, 2, id="errors-is-2"),
+        ],
+    )
+    def test_exit_code_follows_the_worst_status(self, runner, valid_project, worst, exit_code):
+        report = _report(_result("a", Status.OK), _result("b", worst))
         with _patch_suite(report):
             result = runner.invoke(health, ["--project", str(valid_project)])
-        assert result.exit_code == 0
-
-    def test_exit_code_warnings_only_is_1(self, runner, valid_project):
-        report = _report(_result("a", Status.OK), _result("b", Status.WARNING))
-        with _patch_suite(report):
-            result = runner.invoke(health, ["--project", str(valid_project)])
-        assert result.exit_code == 1
-
-    def test_exit_code_errors_is_2(self, runner, valid_project):
-        report = _report(_result("a", Status.OK), _result("b", Status.ERROR))
-        with _patch_suite(report):
-            result = runner.invoke(health, ["--project", str(valid_project)])
-        assert result.exit_code == 2
+        assert result.exit_code == exit_code
 
     def test_exit_code_unexpected_wrapper_failure_is_3(self, runner):
         # A failure anywhere in the wrapper (here: project resolution) is exit 3.
@@ -442,17 +438,18 @@ class TestTimezoneExitCode:
                 health, ["--project", str(project), "--json", "--category", "configuration"]
             )
 
-    def test_a_utc_deployment_exits_0(self, runner, tmp_path):
-        result = self._run(runner, tmp_path, "UTC")
-        assert result.exit_code == 0, result.output
+    @pytest.mark.parametrize(
+        ("zone", "exit_code", "status"),
+        [
+            pytest.param("UTC", 0, "ok", id="utc-deployment-exits-0"),
+            pytest.param("Amerika/Los_Angeles", 2, "error", id="misspelt-zone-exits-2"),
+        ],
+    )
+    def test_the_zone_sets_the_exit_code(self, runner, tmp_path, zone, exit_code, status):
+        result = self._run(runner, tmp_path, zone)
+        assert result.exit_code == exit_code, result.output
         row = _find(json.loads(result.stdout)["results"], "timezone")
-        assert row is not None and row["status"] == "ok"
-
-    def test_a_misspelt_zone_exits_2(self, runner, tmp_path):
-        result = self._run(runner, tmp_path, "Amerika/Los_Angeles")
-        assert result.exit_code == 2, result.output
-        row = _find(json.loads(result.stdout)["results"], "timezone")
-        assert row is not None and row["status"] == "error"
+        assert row is not None and row["status"] == status
 
 
 # --------------------------------------------------------------------------- #

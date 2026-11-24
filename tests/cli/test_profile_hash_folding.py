@@ -209,7 +209,8 @@ def test_unrelated_file_does_not_change_the_hash(profile):
 
 
 def test_hash_is_stable_across_repeated_calls(profile):
-    """Nothing in the fold depends on walk order or wall-clock state."""
+    """Nothing in the fold depends on walk order or wall-clock state: re-hashing
+    unchanged content must not manufacture drift on every deploy."""
     _write(profile / "rules" / "safety.md", "no writes above 1 A\n")
 
     assert compute_profile_hash(profile / "profile.yml") == compute_profile_hash(

@@ -50,8 +50,12 @@ pytestmark = [pytest.mark.slow]
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
-#: The single-pass transfer lines' decks.
-TRANSFER_DECKS = ("data/simulator/decks/BTS.json", "data/simulator/decks/LTB.json")
+#: The booster's deck and the single-pass transfer lines'.
+OTHER_DECKS = (
+    "data/simulator/decks/BR.json",
+    "data/simulator/decks/BTS.json",
+    "data/simulator/decks/LTB.json",
+)
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
 FOLLOWS = "data/simulator/follows.json"
@@ -69,6 +73,8 @@ BLUESKY = "data/bluesky_devices.yml"
 CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 GRAPH = "data/graph/facility.ttl"
 PYAML = (
+    "data/pyaml/BR/configuration.yaml",
+    "data/pyaml/BR/lattice.json",
     "data/pyaml/BTS/configuration.yaml",
     "data/pyaml/LTB/configuration.yaml",
     "data/pyaml/SR/configuration.yaml",
@@ -116,7 +122,7 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 FACILITY_FILE,
                 ADDRESSES,
                 DECK,
-                *TRANSFER_DECKS,
+                *OTHER_DECKS,
                 SCENARIOS,
                 *SCENARIO_FILES,
                 SEEDS,
@@ -147,7 +153,7 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
 
     assert addresses["schema"] == "osprey.facility.addresses/1"
     assert addresses["channels"] == sorted(channel["id"] for channel in facility["channels"])
-    assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LTB", "SR")]
+    assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BR", "BTS", "LTB", "SR")]
 
 
 def test_every_served_model_lists_its_server_health_addresses_texture_last(
@@ -157,7 +163,7 @@ def test_every_served_model_lists_its_server_health_addresses_texture_last(
 
     assert addresses["server_health"] == [
         f"ca:SIM:{name}:{signal}"
-        for name in ("BTS", "LTB", "SR", TEXTURE)
+        for name in ("BR", "BTS", "LTB", "SR", TEXTURE)
         for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
 
@@ -193,7 +199,7 @@ def test_the_demo_serves_its_deck_models_then_texture(
 
     assert served == {
         "schema": "osprey.facility.served_models/1",
-        "models": ["BTS", "LTB", "SR", TEXTURE],
+        "models": ["BR", "BTS", "LTB", "SR", TEXTURE],
     }
 
 
@@ -496,6 +502,7 @@ def test_a_deck_keeps_its_suffix(tmp_path: Path, built_demo: BuiltProject) -> No
 
     served = render_dir / "data" / "simulator" / "decks"
     assert sorted(path.name for path in served.iterdir()) == [
+        "BR.json",
         "BTS.json",
         "LTB.json",
         "SR.mat",
@@ -518,6 +525,7 @@ def test_channel_owner_is_the_wiring_model_else_texture(
     for channel in variables["channels"]:
         assert channel["owner"] == wired.get(channel["address"], TEXTURE), channel["address"]
     assert {channel["owner"] for channel in variables["channels"]} == {
+        "BR",
         "BTS",
         "LTB",
         "SR",

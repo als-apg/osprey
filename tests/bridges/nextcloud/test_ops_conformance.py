@@ -4,10 +4,9 @@ The individual members have their own suites (posting, downloads, delivery, pars
 What is asserted here is everything that only becomes true once the ten members sit on
 ONE class the engine can hold one instance of:
 
-* **conformance** — every member present, callable, and signature-compatible. The runtime
-  ``isinstance`` check only looks for the names; the full signature check is
-  ``ops._static_conformance``, which mypy verifies and which is therefore covered by the
-  repo's type-check gate rather than by an assertion here.
+* **conformance** — every member's signature against the protocol, and the
+  ``_static_conformance`` type-check seams, are asserted per adapter in
+  :mod:`tests.bridges.test_adapter_contract`.
 * **the two inbound members are wired at all.** They exist as module functions in
   :mod:`~osprey.bridges.nextcloud_talk.events` and the class delegates to them, so a
   missing delegation would leave the adapter silently ignoring every message — the engine
@@ -29,10 +28,8 @@ import pytest
 
 from osprey.bridges.core import (
     RESERVED_ENTRY_KEYS,
-    ChannelOps,
     InboundEvent,
     ReplyContext,
-    RoomRoster,
 )
 from osprey.bridges.nextcloud_talk import (
     NextcloudBridgeConfig,
@@ -47,10 +44,7 @@ from osprey.bridges.nextcloud_talk.ops import (
     NC_MESSAGE_ID,
     NC_ROOM,
     NextcloudTalkOps,
-    _static_conformance,
-    _static_room_conformance,
 )
-from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
 BOT = "osprey-bot"
 GROUP = "group1"
@@ -151,46 +145,6 @@ def _parent(**overrides):
     }
     parent.update(overrides)
     return parent
-
-
-# ==========================================================================
-# Protocol conformance
-# ==========================================================================
-
-
-def test_the_adapter_satisfies_the_channel_ops_protocol():
-    # ChannelOps is @runtime_checkable, so this is a real assertion and not a tautology
-    # about the class body — but it verifies member NAMES only. Signatures are checked
-    # statically by ops._static_conformance under mypy, and structurally below.
-    assert isinstance(_ops(), ChannelOps)
-
-
-def test_every_protocol_member_is_present_and_callable():
-    # The canonical member list is imported from the core seam's own suite rather than
-    # respelled, so a member added to the protocol fails here instead of being forgotten.
-    ops = _ops()
-    for name in PROTOCOL_MEMBERS:
-        assert callable(getattr(ops, name, None)), name
-
-
-def test_static_conformance_helper_is_the_type_check_seam():
-    """Present, and an identity — the assertion mypy makes is the point of it.
-
-    Guards against the helper being deleted as apparently-unused code: without it nothing
-    would check the full signatures at all, since the runtime protocol check does not.
-    """
-    ops = _ops()
-    assert _static_conformance(ops) is ops
-
-
-def test_the_adapter_satisfies_the_room_roster_protocol():
-    assert isinstance(_ops(), RoomRoster)
-
-
-def test_static_room_conformance_helper_is_the_type_check_seam():
-    """The same guard for the optional room-roster seam."""
-    ops = _ops()
-    assert _static_room_conformance(ops) is ops
 
 
 def test_parse_event_records_names_and_still_propagates_room_type_unresolved():

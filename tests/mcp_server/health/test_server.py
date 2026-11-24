@@ -81,16 +81,6 @@ async def test_create_server_initializes_server_context(stub_server_context):
 
 
 @pytest.mark.usefixtures("stub_server_context")
-async def test_create_server_does_not_blow_up_when_context_stubbed():
-    """create_server() completes cleanly when server_context is stubbed."""
-    from osprey.mcp_server.health.server import create_server
-
-    # Should not raise even though the real server_context may not exist yet.
-    server = create_server()
-    assert server is not None
-
-
-@pytest.mark.usefixtures("stub_server_context")
 async def test_tool_signatures_are_categories_only():
     """Both tools carry the final ``(categories: list[str] | None = None)`` signature."""
     from osprey.mcp_server.health.tools.health_check import health_check

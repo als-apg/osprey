@@ -47,9 +47,9 @@ class TestConfig:
     """Tests for configuration logic and safety defaults."""
 
     def test_optimization_config_safety_defaults(self) -> None:
-        """Ensure default configuration is valid."""
+        """Ensure default configuration is valid: a missing environment_config becomes {}."""
         config = OptimizationConfig()
-        assert config.environment_config is not None
+        assert config.environment_config == {}
 
     def test_optimization_config_preserves_provided_environment_config(self) -> None:
         """A supplied environment_config is left untouched (validator False branch)."""

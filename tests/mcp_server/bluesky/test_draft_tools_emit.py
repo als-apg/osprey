@@ -398,27 +398,21 @@ async def test_validate_plan_failure_does_not_emit():
     assert extract_response_dict(result) == _FAIL_RESP
 
 
-async def test_validate_plan_unknown_name_does_not_emit():
+@pytest.mark.parametrize(
+    ("status", "detail", "error_type"),
+    [
+        pytest.param(404, "unknown session plan 'nope'", "unknown_session_plan", id="unknown_name"),
+        pytest.param(503, "bridge down", "bluesky_bridge_error", id="bridge_error"),
+    ],
+)
+async def test_validate_plan_error_does_not_emit(status, detail, error_type):
+    """A validate call the bridge refuses raises its error and reports nothing."""
     with (
-        patch(
-            f"{_AUTHORING_MOD}._http_post_json",
-            return_value=(404, {"detail": "unknown session plan 'nope'"}),
-        ),
+        patch(f"{_AUTHORING_MOD}._http_post_json", return_value=(status, {"detail": detail})),
         patch(f"{_AUTHORING_MOD}.notify_agent_activity") as notify,
     ):
-        with assert_raises_error(error_type="unknown_session_plan"):
+        with assert_raises_error(error_type=error_type):
             await _validate_plan_fn()(name="nope")
-
-    notify.assert_not_called()
-
-
-async def test_validate_plan_bridge_error_does_not_emit():
-    with (
-        patch(f"{_AUTHORING_MOD}._http_post_json", return_value=(503, {"detail": "bridge down"})),
-        patch(f"{_AUTHORING_MOD}.notify_agent_activity") as notify,
-    ):
-        with assert_raises_error(error_type="bluesky_bridge_error"):
-            await _validate_plan_fn()(name="tiny")
 
     notify.assert_not_called()
 

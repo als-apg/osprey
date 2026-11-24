@@ -20,53 +20,45 @@ HEALTH = "osprey.models.providers.vllm.check_litellm_health"
 class TestVLLMMetadata:
     """Test vLLM provider metadata."""
 
-    def test_provider_name(self):
-        """Test provider name is set correctly."""
-        assert VLLMProviderAdapter.name == "vllm"
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("name", "vllm", id="provider_name"),
+            # vLLM needs no API key by default.
+            pytest.param("requires_api_key", False, id="does_not_require_api_key"),
+            pytest.param("requires_base_url", True, id="requires_base_url"),
+            # Supports an HTTP proxy.
+            pytest.param("supports_proxy", True, id="supports_proxy"),
+            # The default base URL points at a local vLLM server.
+            pytest.param(
+                "default_base_url",
+                "http://localhost:8000/v1",
+                id="default_base_url_is_local_server",
+            ),
+            # No default model -- what is served depends on the deployment.
+            pytest.param("default_model_id", None, id="has_no_default_model_id"),
+            # No static health-check model -- the server is queried instead.
+            pytest.param("health_check_model_id", None, id="has_no_health_check_model"),
+            # Flagged OpenAI-compatible for LiteLLM routing.
+            pytest.param("is_openai_compatible", True, id="is_openai_compatible"),
+            # Advertises constrained-decoding structured output.
+            pytest.param(
+                "supports_native_structured_output", True, id="supports_native_structured_output"
+            ),
+        ],
+    )
+    def test_declared_metadata(self, attr, expected):
+        value = getattr(VLLMProviderAdapter, attr)
+        assert value == expected
+        assert type(value) is type(expected)
 
     def test_provider_description(self):
         """Test provider has description."""
         assert "vLLM" in VLLMProviderAdapter.description
 
-    def test_does_not_require_api_key(self):
-        """Test vLLM needs no API key by default."""
-        assert VLLMProviderAdapter.requires_api_key is False
-
-    def test_requires_base_url(self):
-        """Test provider requires base URL."""
-        assert VLLMProviderAdapter.requires_base_url is True
-
-    def test_supports_proxy(self):
-        """Test provider supports HTTP proxy."""
-        assert VLLMProviderAdapter.supports_proxy is True
-
-    def test_default_base_url_is_local_server(self):
-        """Test the default base URL points at a local vLLM server."""
-        assert VLLMProviderAdapter.default_base_url == "http://localhost:8000/v1"
-
-    def test_has_no_default_model_id(self):
-        """Test no default model -- what is served depends on the deployment."""
-        assert VLLMProviderAdapter.default_model_id is None
-
-    def test_has_no_health_check_model(self):
-        """Test no static health-check model -- the server is queried instead."""
-        assert VLLMProviderAdapter.health_check_model_id is None
-
     def test_has_available_models(self):
         """Test provider lists example model families."""
         assert len(VLLMProviderAdapter.available_models) > 0
-
-    def test_is_openai_compatible(self):
-        """Test provider is flagged OpenAI-compatible for LiteLLM routing."""
-        assert VLLMProviderAdapter.is_openai_compatible is True
-
-    def test_supports_native_structured_output(self):
-        """Test provider advertises constrained-decoding structured output."""
-        assert VLLMProviderAdapter.supports_native_structured_output is True
-
-    def test_is_instantiable(self):
-        """Test adapter instantiates despite inheriting from an ABC."""
-        assert isinstance(VLLMProviderAdapter(), VLLMProviderAdapter)
 
 
 class TestVLLMExecuteCompletion:

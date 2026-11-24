@@ -44,7 +44,7 @@ async def test_entry_publish_empty_id():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(entry_id="")
 
-    _exc_ctx["envelope"]
+    assert "entry_id is required" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_entry_publish_not_found(ariel_registry):
@@ -56,10 +56,8 @@ async def test_entry_publish_not_found(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entry_publish()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(entry_id="e99")
-
-    _exc_ctx["envelope"]
 
 
 async def test_entry_publish_writes_not_supported(ariel_registry):
@@ -73,10 +71,8 @@ async def test_entry_publish_writes_not_supported(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entry_publish()
-        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+        with assert_raises_error(error_type="not_supported"):
             await fn(entry_id="e1")
-
-    _exc_ctx["envelope"]
 
 
 async def test_entry_publish_auth_required(ariel_registry):
@@ -96,10 +92,8 @@ async def test_entry_publish_auth_required(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entry_publish()
-        with assert_raises_error(error_type="auth_required") as _exc_ctx:
+        with assert_raises_error(error_type="auth_required"):
             await fn(entry_id="e1")
-
-    _exc_ctx["envelope"]
 
 
 def _published_result():

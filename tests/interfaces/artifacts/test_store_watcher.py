@@ -269,32 +269,35 @@ class TestStoreWatcher:
             watcher.stop()
 
     def test_debounce(self, tmp_path):
-        """Rapid writes within debounce window produce at most one event batch."""
-        watcher, broadcaster, _ = _make_watcher(tmp_path)
-        watcher.start()
-        try:
-            wait_for_polling_baseline(watcher._observer)
+        """Repeated reports of one change produce one event batch.
 
-            # Write the index file rapidly 3 times
-            artifacts_dir = tmp_path / "artifacts"
-            artifacts_dir.mkdir(parents=True, exist_ok=True)
-            index_file = artifacts_dir / "artifacts.json"
-            index_data = {
-                "version": 1,
-                "updated": "2024-01-01T00:00:00",
-                "entry_count": 0,
-                "entries": [],
-                "created": "2024-01-01T00:00:00",
-            }
-            for _ in range(3):
-                index_file.write_text(json.dumps(index_data))
+        Driven through the handler, not an observer: what keeps the repeats
+        quiet is the content snapshot, and a polling emitter would usually fold
+        the writes into one read and never ask.
+        """
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        external_store = ArtifactStore(workspace_root=tmp_path)
+        external_store.save_file(
+            file_content=b"<html>once</html>",
+            filename="once.html",
+            artifact_type="plot_html",
+            title="Saved Once",
+            description="written three times",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        event = FileModifiedEvent(str(tmp_path / "artifacts" / "artifacts.json"))
 
-            time.sleep(0.5)
+        handler._handle(event)
+        for _ in range(2):
+            # The same index written again, atomically, and reported again.
+            external_store._save_index()
+            handler._handle(event)
 
-            # Debounce should limit events — but at minimum no crash
-            assert broadcaster.broadcast.call_count <= 3
-        finally:
-            watcher.stop()
+        assert [call.args[0]["title"] for call in broadcaster.broadcast.call_args_list] == [
+            "Saved Once"
+        ]
 
     def test_ignores_non_index_files(self, tmp_path):
         """Writing to a non-index file in the workspace triggers no broadcast."""

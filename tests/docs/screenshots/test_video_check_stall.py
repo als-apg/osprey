@@ -38,14 +38,14 @@ def test_streamed_tokens_and_new_text_are_progress() -> None:
 
 
 @pytest.mark.parametrize(
-    "screen",
+    ("screen", "marker"),
     [
-        "Auto mode is now billed … Enter to continue · Esc to cancel",
-        " Do you want to proceed?\n ❯ 1. Yes",
+        ("Auto mode is now billed … Enter to continue · Esc to cancel", "Enter to continue"),
+        (" Do you want to proceed?\n ❯ 1. Yes", "Do you want"),
     ],
 )
-def test_a_blocking_dialog_is_named(screen) -> None:
-    assert dialog_on_screen(screen, PLOT_DIALOGS) is not None
+def test_a_blocking_dialog_is_named(screen, marker) -> None:
+    assert dialog_on_screen(screen, PLOT_DIALOGS) == marker
 
 
 def test_ordinary_output_is_no_dialog() -> None:

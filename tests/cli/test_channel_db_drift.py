@@ -19,10 +19,11 @@ profile's ``data:`` tree is not folded, so its edits are invisible to the gate.
 That is recorded in the proposal's Risks and is not asserted here — asserting it
 would pin behaviour we have chosen not to provide.
 
-The fold itself is pinned in ``test_profile_material_hash.py`` and
-``test_profile_hash_folding.py``; the refusal is pinned in
+The fold itself is pinned in ``test_profile_material_hash.py`` (an edited or
+added database under ``data:`` moves the fingerprint, an untouched one does not)
+and ``test_profile_hash_folding.py``; the refusal is pinned in
 ``tests/deployment/test_drift_refusal.py``. This file speaks only for the
-snapshot's source.
+snapshot's source: that the moved fingerprint makes a built repo refuse.
 """
 
 from __future__ import annotations
@@ -31,8 +32,6 @@ import json
 from pathlib import Path
 
 import pytest
-
-from osprey.cli.build_profile import compute_profile_hash
 
 PROFILE_YAML = "name: Facility\ndata: data\n"
 
@@ -49,32 +48,6 @@ def profile(tmp_path):
     root = tmp_path / "facility"
     _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
     return _write(root / "profile.yml", PROFILE_YAML)
-
-
-@pytest.mark.parametrize(
-    ("database", "content"),
-    [
-        # The whole decision rests on this: the snapshot's source is folded
-        # material. ``profile.yml`` is untouched — only the database the snapshot
-        # was taken from changed, which is exactly what a facility adding a
-        # channel does.
-        ("als.json", '{"channels": ["SR:BPM1"]}\n'),
-        # A new database file is new snapshot input, so it has to count as a change.
-        ("booster.json", '{"channels": []}\n'),
-    ],
-    ids=["edited", "added"],
-)
-def test_changing_a_channel_database_under_data_moves_the_fingerprint(profile, database, content):
-    before = compute_profile_hash(profile)
-
-    _write(profile.parent / "data" / "channel_databases" / database, content)
-
-    assert compute_profile_hash(profile) != before
-
-
-def test_an_untouched_channel_database_leaves_the_fingerprint_alone(profile):
-    """Without this, every start would refuse and operators would learn to bypass."""
-    assert compute_profile_hash(profile) == compute_profile_hash(profile)
 
 
 def test_a_channel_database_edit_makes_a_built_repo_refuse_to_start(profile):

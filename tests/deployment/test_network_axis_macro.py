@@ -100,9 +100,19 @@ def test_undefined_service_renders_todays_membership_block():
     assert rendered == "    restart: unless-stopped" + TODAYS_NETWORKS_BLOCK + "\n"
 
 
-def test_explicit_bridge_is_the_default_shape(net):
-    """`bridge` is the name of the behaviour the unset axis already had."""
-    assert net.network({"network": "bridge"}) == TODAYS_NETWORKS_BLOCK
+@pytest.mark.parametrize(
+    "value",
+    [
+        # `bridge` is the name of the behaviour the unset axis already had.
+        pytest.param("bridge", id="explicit-bridge"),
+        # Values are validated where the profile is parsed. Should one slip past
+        # that gate, the macro renders the network-joined shape rather than
+        # inventing a topology from a word it does not know.
+        pytest.param("somehow-not-a-mode", id="unrecognized-value"),
+    ],
+)
+def test_a_non_host_value_renders_the_default_shape(net, value):
+    assert net.network({"network": value}) == TODAYS_NETWORKS_BLOCK
 
 
 def test_host_mode_replaces_membership_with_the_host_namespace(net):
@@ -118,15 +128,6 @@ def test_indent_places_both_shapes(net, indent):
 
 def test_network_name_is_overridable(net):
     assert net.network({}, 4, "other-network") == "\n    networks:\n      - other-network"
-
-
-def test_unrecognized_value_renders_the_default_shape(net):
-    """Values are validated where the profile is parsed.
-
-    Should one slip past that gate, the macro renders the network-joined shape
-    rather than inventing a topology from a word it does not know.
-    """
-    assert net.network({"network": "somehow-not-a-mode"}) == TODAYS_NETWORKS_BLOCK
 
 
 # ---------------------------------------------------------------------------

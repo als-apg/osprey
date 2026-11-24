@@ -34,11 +34,22 @@ def _page(facility_dir: Path, relative: str, frontmatter: str, body: str = "# Bo
     path.write_text(f"---\n{frontmatter}---\n\n{body}", encoding="utf-8")
 
 
-def test_a_page_linked_to_a_missing_device_is_named(tmp_path: Path) -> None:
-    _page(tmp_path, "devices/gone.md", "type: device\ndevice_id: SR/BPM99\n")
+@pytest.mark.parametrize(
+    ("page", "device_id"),
+    [
+        pytest.param("devices/gone.md", "SR/BPM99", id="a_page_linked_to_a_missing_device"),
+        pytest.param(
+            "devices/x.md", "SR:DIAG:BPM:01:POSITION:X", id="device_id_naming_a_channel_dangles"
+        ),
+    ],
+)
+def test_a_frontmatter_device_id_the_facility_does_not_hold_is_named(
+    tmp_path: Path, page: str, device_id: str
+) -> None:
+    _page(tmp_path, page, f"type: device\ndevice_id: {device_id}\n")
 
     assert dangling_links(tmp_path, DOC) == [
-        DanglingLink("knowledge/devices/gone.md", "SR/BPM99", "frontmatter")
+        DanglingLink(f"knowledge/{page}", device_id, "frontmatter")
     ]
 
 
@@ -46,14 +57,6 @@ def test_a_page_linked_to_a_held_device_is_not_named(tmp_path: Path) -> None:
     _page(tmp_path, "devices/bpm.md", "type: device\ndevice_id: SR/BPM01\n")
 
     assert dangling_links(tmp_path, DOC) == []
-
-
-def test_device_id_naming_a_channel_dangles(tmp_path: Path) -> None:
-    _page(tmp_path, "devices/x.md", "type: device\ndevice_id: SR:DIAG:BPM:01:POSITION:X\n")
-
-    assert dangling_links(tmp_path, DOC) == [
-        DanglingLink("knowledge/devices/x.md", "SR:DIAG:BPM:01:POSITION:X", "frontmatter")
-    ]
 
 
 def test_a_body_link_to_a_missing_channel_warns(tmp_path: Path) -> None:
