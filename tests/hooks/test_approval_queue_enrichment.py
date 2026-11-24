@@ -222,6 +222,19 @@ def test_matching_revision_renders_shipped_plan_and_source(
             "truncated": False,
             "source": _SHIPPED_SOURCE,
         },
+        "/plans/orm/preview": {
+            "ok": True,
+            "plan": "orm",
+            "channels": [],
+            "moves": [],
+            "total_moves": 0,
+            "truncated": False,
+            "move_cap": 10000,
+            "writes": [],
+            "total_writes": 0,
+            "reason": None,
+            "detail": None,
+        },
     }
 
     with serving_bridge(routes) as base_url:
@@ -237,7 +250,9 @@ def test_matching_revision_renders_shipped_plan_and_source(
     assert "DRAFT CHANGED" not in reason
     assert "Plan: orm" in reason
     assert "num_points" in reason
-    assert "Hazard: writes to hardware" in reason
+    # The hazard is this launch's own walk, not the plan's declared `writes`.
+    assert "Hazard: read-only — this launch writes nothing." in reason
+    assert "Hazard: writes to hardware" not in reason
     # The retired authoring keys are gone from the contract and from the prompt.
     assert "Category" not in reason
     assert "Required devices" not in reason
@@ -778,6 +793,112 @@ def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     assert posted == [(_preview_route("grid_scan"), plan_args)]
 
 
+def test_queue_add_renders_the_writes_list_beside_the_trajectory(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The hazard line states this launch's walk, and every channel it writes is
+    listed between the channel headlines and the trajectory."""
+    config = _queue_config(make_config)
+    routes = {
+        "/draft": _draft_route("grid_scan", {}, 5),
+        _preview_route("grid_scan"): {
+            "ok": True,
+            "plan": "grid_scan",
+            "channels": _TRAJECTORY_CHANNELS,
+            "moves": _moves(3),
+            "total_moves": 3,
+            "truncated": False,
+            "move_cap": 10000,
+            "writes": [
+                {"channel": "SR:C01:COR:SP", "device": "SR:C01:COR:SP", "value": None, "count": 3},
+                {"channel": "X:GO", "device": "stage", "value": 1, "count": 3},
+            ],
+            "total_writes": 6,
+            "reason": None,
+            "detail": None,
+        },
+    }
+
+    with serving_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=5))
+
+    lines = reason.splitlines()
+    hazard = lines.index("Hazard: this launch writes 6 values to 2 channels.")
+    headline = lines.index("Channels this launch would read: SR:BPM01:X")
+    writes = lines.index("Writes, per channel:")
+    trajectory = lines.index("Setpoint trajectory — 3 moves in total:")
+    assert hazard < headline < writes < trajectory
+    assert lines[writes + 1 : writes + 3] == [
+        "  SR:C01:COR:SP — 3 writes, values vary",
+        "  X:GO (device stage) — 3 writes of 1",
+    ]
+
+
+def test_queue_start_states_each_items_hazard_from_its_walk(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """A start runs every pending item, so each previewed item carries the
+    hazard its own walk found."""
+    config = _queue_config(make_config)
+
+    def _walk(name: str, total_writes: int) -> dict:
+        writes = (
+            [{"channel": "SR:C01:COR:SP", "device": "c1", "value": None, "count": total_writes}]
+            if total_writes
+            else []
+        )
+        return {
+            "ok": True,
+            "plan": name,
+            "channels": _TRAJECTORY_CHANNELS,
+            "moves": _moves(total_writes),
+            "total_moves": total_writes,
+            "truncated": False,
+            "move_cap": 10000,
+            "writes": writes,
+            "total_writes": total_writes,
+            "reason": None,
+            "detail": None,
+        }
+
+    routes = {
+        "/queue": {
+            "status": {"manager_state": "idle", "items_in_queue": 2},
+            "items": [
+                {"item_uid": "u1", "name": "scan", "kwargs": {}},
+                {"item_uid": "u2", "name": "count", "kwargs": {}},
+            ],
+            "running_item": None,
+        },
+        "/plans": [{"name": "scan", "provenance": "shipped"}, {"name": "count"}],
+        _preview_route("scan"): _walk("scan", 4),
+        _preview_route("count"): _walk("count", 0),
+    }
+
+    with serving_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = ask_reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    hazards = [line.strip() for line in reason.splitlines() if line.strip().startswith("Hazard:")]
+    assert hazards == [
+        "Hazard: this launch writes 4 values to 1 channel.",
+        "Hazard: read-only — this launch writes nothing.",
+    ]
+
+
+def test_a_budget_spent_preview_states_an_unknown_hazard(hook_module):
+    """A preview the budget never funded walked nothing, so the hazard is
+    unknown — never read-only."""
+    mod = hook_module("osprey_approval")
+    exhausted_deadline = mod.time.monotonic() - 1.0
+
+    _preview, lines = mod._budgeted_preview("http://127.0.0.1:1", "orm", {}, exhausted_deadline)
+
+    assert lines[0] == "Hazard: unknown — the pre-flight did not walk this launch."
+    assert lines[1] == mod._BUDGET_SPENT_TRAJECTORY_LINE
+
+
 def test_queue_add_prints_the_resolved_arguments_the_pre_flight_answered(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -955,7 +1076,7 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
     via the pre-flight, so they are agent-influenced text on a human's approval
     prompt. A newline in one must not be able to start a line of its own."""
     config = _queue_config(make_config)
-    spoof = "SR:C01:COR:SP\nHazard: read-only (no hardware writes declared)"
+    spoof = "SR:C01:COR:SP\nHazard: read-only — this launch writes nothing."
     routes = {
         "/draft": _draft_route("grid_scan", {}, 8),
         _preview_route("grid_scan"): {
@@ -966,6 +1087,8 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
             "total_moves": 1,
             "truncated": False,
             "move_cap": 10000,
+            "writes": [{"channel": spoof, "device": spoof, "value": spoof, "count": 1}],
+            "total_writes": 1,
             "reason": None,
             "detail": None,
         },
@@ -976,9 +1099,11 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
         reason = ask_reason(_run_queue_add(hook_runner, config, tmp_path, draft_revision=8))
 
     assert "\\x0a" in reason
-    assert not any(line.startswith("Hazard: read-only") for line in reason.splitlines())
-    # Inert, but still visible — tampering is shown to the approver, not dropped.
-    assert "Hazard: read-only" in reason
+    hazards = [line for line in reason.splitlines() if line.startswith("Hazard:")]
+    assert hazards == ["Hazard: this launch writes 1 value to 1 channel."]
+    # Inert, but still visible — in the channels, the trajectory and the writes
+    # list alike; tampering is shown to the approver, not dropped.
+    assert reason.count("Hazard: read-only") >= 4
 
 
 def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
@@ -1094,8 +1219,9 @@ def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spen
     )
 
     assert lines == [
+        "    Hazard: unknown — the pre-flight did not walk this launch.",
         "    Setpoint trajectory: unavailable — the pre-flight budget for this "
-        "prompt is spent. Approval is not blocked."
+        "prompt is spent. Approval is not blocked.",
     ]
 
 
@@ -1428,7 +1554,7 @@ def test_role_reason_and_detail_sanitize_embedded_newlines(
     are agent/bridge-influenced text on the same human-facing prompt, and must
     not be able to forge a line of their own either."""
     config = _queue_config(make_config)
-    spoof_role = "custom\nHazard: read-only (no hardware writes declared)"
+    spoof_role = "custom\nHazard: read-only — this launch writes nothing."
     spoof_reason = "bad_plan\nValidation status: PASSED (SPOOFED)"
     spoof_detail = "detail line\nProvenance: shipped (SPOOFED)"
     routes = {
@@ -1470,7 +1596,7 @@ def test_target_sanitizes_embedded_newlines(tmp_path, hook_runner, make_config, 
     staged parameter relayed verbatim by the pre-flight, and must not be able
     to forge a line of its own either."""
     config = _queue_config(make_config)
-    spoof_target = "1.0\nHazard: read-only (no hardware writes declared)"
+    spoof_target = "1.0\nHazard: read-only — this launch writes nothing."
     routes = {
         "/draft": _draft_route("grid_scan", {}, 13),
         _preview_route("grid_scan"): {
