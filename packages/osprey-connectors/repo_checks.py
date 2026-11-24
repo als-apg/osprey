@@ -38,6 +38,20 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.archiver.ArchiverMetadata": (
         "an archiver's get_metadata answers in this type"
     ),
+    "osprey_connectors.command.CommandAct": "a caller describes the command it fires in this type",
+    "osprey_connectors.command.CommandBusyError": (
+        "a caller tells a command refused while its status is not idle from the others"
+    ),
+    "osprey_connectors.command.CommandNoEffectError": (
+        "a caller tells a command whose status never left idle from the others"
+    ),
+    "osprey_connectors.command.CommandStatusError": (
+        "a caller tells a status that cannot be watched from the others"
+    ),
+    "osprey_connectors.command.CommandTimeoutError": (
+        "a caller tells a command that did not finish in its bound from the others"
+    ),
+    "osprey_connectors.command.fire": "a caller fires a command channel and waits for its status",
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
@@ -47,6 +61,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.directory.ChannelDirectory": (
         "an out-of-tree directory backend subclasses it"
+    ),
+    "osprey_connectors.directory.ServerRow": (
+        "a directory backend's list_servers answers in this type"
     ),
     "osprey_connectors.factory.BuiltinConnector": (
         "the framework reads each built-in's fields in this type"
@@ -87,6 +104,59 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.composite.WriteRefusedError": (
         "a caller reads which channel a refused write names"
     ),
+    "osprey_connectors.simulation.engines.Calibration": (
+        "an engine names a wiring record's curve in this type"
+    ),
+    "osprey_connectors.simulation.engines.EnginePlugin": (
+        "an out-of-tree engine implements this protocol"
+    ),
+    "osprey_connectors.simulation.engines.FacilityDefectError": (
+        "an engine raises it for a request its facility file cannot answer"
+    ),
+    "osprey_connectors.simulation.engines.Linear": (
+        "an engine reads a straight-line curve in this type"
+    ),
+    "osprey_connectors.simulation.engines.NoInverse": (
+        "an engine catches a curve with no way back by this type"
+    ),
+    "osprey_connectors.simulation.engines.OPTIONAL_NAMES": (
+        "an out-of-tree engine reads the optional names it may add"
+    ),
+    "osprey_connectors.simulation.engines.REST_MASS_GEV": (
+        "an out-of-tree engine reads the electron rest mass it computes rigidity with"
+    ),
+    "osprey_connectors.simulation.engines.RIGIDITY_PER_MOMENTUM": (
+        "an out-of-tree engine converts momentum to rigidity with this factor"
+    ),
+    "osprey_connectors.simulation.engines.TIME_CONTRACT": (
+        "an out-of-tree evolving engine reads the time contract it meets"
+    ),
+    "osprey_connectors.simulation.engines.Table": ("an engine reads a sampled curve in this type"),
+    "osprey_connectors.simulation.engines.brho": (
+        "an out-of-tree engine computes a beam's rigidity with it"
+    ),
+    "osprey_connectors.simulation.engines.check_inverse": (
+        "an engine checks a record's way back with it at build"
+    ),
+    "osprey_connectors.simulation.engines.curve_from_record": (
+        "an engine reads a wiring record's curve with it"
+    ),
+    "osprey_connectors.simulation.engines.energy_factor": (
+        "an engine scales a physics value to another energy with it"
+    ),
+    "osprey_connectors.simulation.engines.evaluate": ("an engine applies a curve with it"),
+    "osprey_connectors.simulation.engines.field": (
+        "an engine reads a record's field by attribute or by key with it"
+    ),
+    "osprey_connectors.simulation.engines.shifted": (
+        "an engine moves a curve along its hardware axis with it"
+    ),
+    "osprey_connectors.simulation.engines.to_hardware": (
+        "an engine converts a physics value back to hardware units with it"
+    ),
+    "osprey_connectors.simulation.engines.to_physics": (
+        "an engine converts a hardware value to physics units with it"
+    ),
     "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
@@ -94,14 +164,23 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.servers.TEXTURE_SERVER": (
+        "a facility validator names the server of the channels no model owns"
+    ),
     "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
     "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.Channel": "a view answers a channel in this type",
     "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.IOC_HEALTH_SIGNALS": (
+        "a released framework reads SERVER_HEALTH_SIGNALS under this name"
+    ),
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PERIODIC_IOC_HEALTH": (
+        "a released framework reads PERIODIC_SERVER_HEALTH under this name"
+    ),
     "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
@@ -296,15 +375,18 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "connectors-compat-plan",
         "reads the release tags",
-        ("scripts/ci/connectors_compat_matrix.py", "pyproject.toml"),
+        (
+            "scripts/ci/compat_matrix.py",
+            "pyproject.toml",
+        ),
     ),
     Lane(
         "connectors-compat",
         "installs released frameworks",
         (
             "packages/osprey-connectors/**",
-            "scripts/ci/connectors_compat_lane.py",
-            "scripts/ci/connectors_compat_matrix.py",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
         ),
     ),
 )

@@ -29,6 +29,7 @@ import yaml
 
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_turn_readout import TurnReadout
+from osprey.simulation.engines.pyat_turn_state import ShotStatus
 from osprey_connectors.simulation.composite import Composite
 from tests.facility._turn_by_turn_fixture import (
     ARMED,
@@ -37,15 +38,18 @@ from tests.facility._turn_by_turn_fixture import (
     DECK,
     FIXTURE,
     MONITORS,
+    MONITORS_REACHED,
     PILOT_TONE,
     REQUEST,
     RF_SWITCH,
     RING,
     SAMPLES,
+    SHOT_STATUS,
     TURN_SUM,
     TURN_X,
     TURN_Y,
     TURNS,
+    TURNS_SURVIVED,
     TURNS_TRACKED,
     turn_by_turn_view,
 )
@@ -201,6 +205,9 @@ def test_an_armed_shot_publishes_its_arrays_first_then_armed_drops_to_0(view: Pa
     ring.composite.advance()
     # The arrays are readable while armed still reads 1.
     assert float(ring.read(TURNS_TRACKED)) == TURNS
+    assert float(ring.read(SHOT_STATUS)) == ShotStatus.TRACKED
+    assert float(ring.read(TURNS_SURVIVED)) == TURNS
+    assert float(ring.read(MONITORS_REACHED)) == len(MONITORS)
     x, y, total = ring.all_arrays()
     assert x.shape == y.shape == total.shape == (len(MONITORS), SAMPLES)
     assert (total > 0.5).any(axis=1).all()
@@ -208,7 +215,7 @@ def test_an_armed_shot_publishes_its_arrays_first_then_armed_drops_to_0(view: Pa
 
     landed = ring.composite.emitted()
     assert ARRAYS <= landed
-    assert TURNS_TRACKED in landed
+    assert {TURNS_TRACKED, TURNS_SURVIVED, MONITORS_REACHED, SHOT_STATUS} <= landed
     assert not set(ARMED.values()) & landed
 
     # Once the arrays are out, the next advance drops armed to 0, on its own.
@@ -427,7 +434,7 @@ def test_consecutive_shots_differ_by_jitter_and_noise_and_the_stored_sum_grows(
     (x1, y1, sum1), (x2, y2, sum2) = shots
 
     first = _sample(1, trigger)
-    for one, two, jitter in ((x1, x2, block.jitter[0]), (y1, y2, block.jitter[1])):
+    for one, two, jitter in ((x1, x2, block.jitter[0]), (y1, y2, block.jitter[2])):
         moved = np.abs(two[:, first] - one[:, first])
         # Noise alone moves a sample by about position_noise; jitter by far more.
         assert np.median(moved) > 3 * readout.position_noise
@@ -477,20 +484,24 @@ def _writes() -> list[dict[str, Any]]:
 
 
 def test_the_same_writes_give_identical_arrays_in_two_python_processes(view: Path) -> None:
+    """A fresh child process and this test process replay the same writes bit for bit.
+
+    Two independent processes are compared: the child and this one, each with
+    its own interpreter, import state and string-hash salt. A difference that
+    every second process shows is always caught. One that only some processes
+    show (it keys on per-process state such as the hash salt) is caught only
+    when the two draws differ, which is less likely than with a third process.
+    """
     names = [TURN_X["BPM01"], TURN_Y["BPM37"], TURN_SUM["BPM72"]]
     writes = _writes()
 
-    def run() -> dict[str, list[str]]:
-        done = subprocess.run(
-            [sys.executable, "-c", _CHILD, str(view), json.dumps(writes), *names],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return json.loads(done.stdout.strip().splitlines()[-1])
-
-    first, second = run(), run()
-    assert first == second
+    done = subprocess.run(
+        [sys.executable, "-c", _CHILD, str(view), json.dumps(writes), *names],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    child = json.loads(done.stdout.strip().splitlines()[-1])
 
     ring = _Ring(view)
     for step in writes:
@@ -501,7 +512,7 @@ def test_the_same_writes_give_identical_arrays_in_two_python_processes(view: Pat
             ring.composite.advance()
         ring.composite.emitted()
     here = {name: [v.hex() for v in np.asarray(ring.read(name), float).tolist()] for name in names}
-    assert here == first
+    assert here == child
     assert float(ring.read(TURNS_TRACKED)) == TURNS
 
 

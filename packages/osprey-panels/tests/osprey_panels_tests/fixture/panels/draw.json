@@ -1,0 +1,15 @@
+{
+  "colours": {
+    "quadrupole": "#2f9e52",
+    "bend": "#4c78d8",
+    "ion_pump": "#7d8a99"
+  },
+  "annotate": {
+    "quadrupole": [
+      "current_readback"
+    ],
+    "ion_pump": [
+      "vacuum_readback"
+    ]
+  }
+}

@@ -35,9 +35,9 @@ import pytest
 import yaml
 from click.testing import Result
 
-from osprey.facility import kinds
-from osprey.facility.errors import FacilityBuildError
 from osprey_connectors.simulation.view import VARIABLES_FILE
+from osprey_facility import kinds
+from osprey_facility.errors import FacilityBuildError
 from tests.facility._fixture_kind import (
     BLOCK,
     DISTRIBUTION,
@@ -73,7 +73,7 @@ MACHINE_DIR = "machine"
 
 #: The line of a listed kind nobody registers, where it stops the build.
 UNREGISTERED = (
-    f"kind {KIND} is not registered under osprey.facility.kinds by any installed package; "
+    f"kind {KIND} is not registered under osprey_facility.kinds by any installed package; "
     f"fix: install the kind's package, or remove {KIND} from `kinds`"
 )
 
@@ -128,6 +128,39 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> str:
 Deploy = Callable[..., tuple["BuiltProject", Result]]
 
 
+def _deploy(
+    parent: Path,
+    tree: dict[str, Any],
+    dependencies: list[str] | None = None,
+    *,
+    mounted: bool = False,
+) -> tuple[BuiltProject, Result]:
+    """Init a repo under *parent* holding *tree* and the package's source, and build it."""
+    from tests._builds import BuiltProject, init_project, run_build
+    from tests.facility._synthetic_trees import write_tree
+
+    repo = init_project(parent, "hello-world", "demo")
+    facility = repo / "data" / "facility"
+    shutil.rmtree(facility)
+    write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
+    if mounted:
+        (repo / MACHINE_DIR / "identity.yaml").write_text("code: fixture\n", encoding="utf-8")
+    source = repo / SOURCE
+    shutil.copytree(
+        PACKAGE_DIR / "fixture_kind_deployment",
+        source / "fixture_kind_deployment",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    (source / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
+    profile = repo / "profile.yml"
+    document = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    document["dependencies"] = [SOURCE] if dependencies is None else dependencies
+    if mounted:
+        document["machine"] = MACHINE_DIR
+    profile.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+    return BuiltProject(repo), run_build(repo)
+
+
 @pytest.fixture
 def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     """``osprey build`` of a repo holding a tree and the package's source under ``kinds/``.
@@ -137,44 +170,62 @@ def deploy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deploy:
     facts into a machine root the profile mounts.
     """
     from osprey.deployment import wheel_build
-    from tests._builds import BuiltProject, init_project, run_build
-    from tests.facility._synthetic_trees import write_tree
 
     monkeypatch.setattr(wheel_build, "_build_wheel", fake_wheel)
 
     def build(
         tree: dict[str, Any], dependencies: list[str] | None = None, *, mounted: bool = False
     ) -> tuple[BuiltProject, Result]:
-        repo = init_project(tmp_path, "hello-world", "demo")
-        facility = repo / "data" / "facility"
-        shutil.rmtree(facility)
-        write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
-        if mounted:
-            (repo / MACHINE_DIR / "identity.yaml").write_text("code: fixture\n", encoding="utf-8")
-        source = repo / SOURCE
-        shutil.copytree(
-            PACKAGE_DIR / "fixture_kind_deployment",
-            source / "fixture_kind_deployment",
-            ignore=shutil.ignore_patterns("__pycache__"),
-        )
-        (source / "pyproject.toml").write_text(PYPROJECT, encoding="utf-8")
-        profile = repo / "profile.yml"
-        document = yaml.safe_load(profile.read_text(encoding="utf-8"))
-        document["dependencies"] = [SOURCE] if dependencies is None else dependencies
-        if mounted:
-            document["machine"] = MACHINE_DIR
-        profile.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
-        return BuiltProject(repo), run_build(repo)
+        return _deploy(tmp_path, tree, dependencies, mounted=mounted)
 
     return build
 
 
-@pytest.fixture
-def built(installed: kinds.KindDeclaration, deploy: Deploy) -> BuiltProject:
-    """The fixture deployment, built, with the package installed."""
-    del installed
-    project, result = deploy(fixture_tree())
+class _Captured(logging.Handler):
+    """The message of each record at WARNING or above logged while it is attached."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.lines: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.lines.append(record.getMessage())
+
+
+@pytest.fixture(scope="module")
+def built_once(tmp_path_factory: pytest.TempPathFactory) -> tuple[BuiltProject, str]:
+    """The fixture deployment built once for the module, and what its build logged at WARNING.
+
+    The package is installed and the wheel build stood in for only while it builds, as
+    ``deploy`` does for one test; the session's reading of the entry points is dropped
+    before and after. Its readers only read the build.
+    """
+    from osprey.deployment import wheel_build
+    from tests.facility._fixture_kind import read_entry_points_afresh
+
+    captured = _Captured()
+    root_logger = logging.getLogger()
+    with pytest.MonkeyPatch.context() as patch:
+        install(patch, PACKAGE_DIR)
+        patch.setattr(wheel_build, "_build_wheel", fake_wheel)
+        level = root_logger.level
+        root_logger.setLevel(logging.WARNING)
+        root_logger.addHandler(captured)
+        try:
+            project, result = _deploy(tmp_path_factory.mktemp("built"), fixture_tree())
+        finally:
+            root_logger.removeHandler(captured)
+            root_logger.setLevel(level)
+    read_entry_points_afresh()
     assert result.exit_code == 0, result.output
+    return project, "\n".join(captured.lines)
+
+
+@pytest.fixture
+def built(installed: kinds.KindDeclaration, built_once: tuple[BuiltProject, str]) -> BuiltProject:
+    """The fixture deployment, built, with the package installed for the test."""
+    del installed
+    project, _logged = built_once
     return project
 
 
@@ -194,14 +245,11 @@ def test_osprey_build_validates_and_renders_the_deployments_kind(built) -> None:
 
 
 def test_the_package_source_under_kinds_is_no_unrecognized_root_entry(
-    installed: kinds.KindDeclaration, deploy: Deploy, caplog: pytest.LogCaptureFixture
+    built_once: tuple[BuiltProject, str],
 ) -> None:
-    del installed
-    with caplog.at_level(logging.WARNING):
-        _project, result = deploy(fixture_tree())
+    _project, logged = built_once
 
-    assert result.exit_code == 0, result.output
-    assert "unrecognized top-level" not in caplog.text, caplog.text
+    assert "unrecognized top-level" not in logged, logged
 
 
 def test_the_built_in_orm_goes_through_the_same_registry(built) -> None:
@@ -211,7 +259,7 @@ def test_the_built_in_orm_goes_through_the_same_registry(built) -> None:
     (own,) = [e for e in entry_points(group=kinds.ENTRY_POINT_GROUP) if e.name == KIND]
 
     assert orm.dist is not None and own.dist is not None
-    assert (orm.dist.name, own.dist.name) == ("osprey-framework", DISTRIBUTION)
+    assert (orm.dist.name, own.dist.name) == ("osprey-facility", DISTRIBUTION)
     assert (kinds.kind_source("orm"), kinds.kind_source(KIND)) == (
         "built-in",
         f"package {DISTRIBUTION}",
@@ -233,7 +281,9 @@ def test_the_package_is_built_to_a_wheel_the_project_image_installs(built) -> No
     assert (wheel["name"], wheel["version"]) == (DISTRIBUTION, "0.1")
     with zipfile.ZipFile(packages / wheel["wheel"]) as archive:
         entry_points = archive.read("fixture_kind_deployment-0.1.dist-info/entry_points.txt")
-    assert f"{KIND} = fixture_kind_deployment:FIXTURE_KIND" in entry_points.decode()
+    group = entry_points.decode().split(f"[{kinds.ENTRY_POINT_GROUP}]", 1)
+    assert len(group) == 2, f"the wheel names no [{kinds.ENTRY_POINT_GROUP}] group"
+    assert f"{KIND} = fixture_kind_deployment:FIXTURE_KIND" in group[1].split("\n[", 1)[0]
     assert f"{DISTRIBUTION}==0.1" in (built.build_dir / "Dockerfile").read_text("utf-8")
     assert not list(built.build_dir.rglob("osprey-local-requirements.txt"))
 
@@ -298,7 +348,10 @@ def test_the_engine_judges_the_setting_the_kind_patches(tmp_path: Path) -> None:
 
 
 def test_the_facility_added_signal_role_is_carried(built) -> None:
-    assert built.facility["signals"] == [FIXTURE_ROLE]
+    [declared] = [row for row in built.facility["signals"] if row["name"] == "fixture_role"]
+    assert declared == FIXTURE_ROLE
+    names = [row["name"] for row in built.facility["signals"]]
+    assert names == sorted(names)
     assert _channel(built.facility, "CLEAN:EN")["signal"] == "fixture_role"
     assert "fixture_role" in json.dumps(_facts(built)["vocabulary"])
 
@@ -590,6 +643,20 @@ def test_the_built_in_kinds_distribution_is_never_refused_by_the_install_check()
     refuse_unshipped_kinds([])
 
 
+@pytest.mark.usefixtures("installed")
+def test_a_kind_from_a_package_outside_the_image_is_refused_beside_the_built_ins() -> None:
+    from osprey.deployment.wheel_build import refuse_unshipped_kinds
+    from osprey_connectors.errors import BuildProfileError
+
+    with pytest.raises(BuildProfileError) as refused:
+        refuse_unshipped_kinds([])
+
+    message = str(refused.value)
+    assert f"'{KIND}' (package {DISTRIBUTION})" in message
+    assert not any(f"'{name}'" in message for name in BUILT_INS)
+    refuse_unshipped_kinds([f"{DISTRIBUTION}==0.1"])
+
+
 # --- no kind is dispatched on by name --------------------------------------------------
 
 #: The modules a kind passes through between the registry and the measure script.
@@ -600,8 +667,8 @@ KIND_HANDLING = (
     "src/osprey/mcp_server/python_executor/tools/_pyaml_measure_result.py",
     "src/osprey/mcp_server/python_executor/tools/pyaml_measure.py",
     "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
-    "src/osprey/facility/validate.py",
-    "src/osprey/facility/layers/mml/seed.py",
+    "packages/osprey-facility/src/osprey_facility/validate.py",
+    "packages/osprey-facility/src/osprey_facility/layers/mml/seed.py",
 )
 
 #: Each (module, function, word) where a kind's name is spelled for another reason.

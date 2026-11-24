@@ -36,9 +36,9 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
 from osprey.cli.validate_cmd import validate
-from osprey.facility.render import FACILITY_FILE, facility_digest
 from osprey.utils.workspace import IMAGE_DIR_NAME, PROFILE_FILENAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.render import FACILITY_FILE, facility_digest
 from tests.cli._lifecycle_build import invoke_build, profile_hash
 from tests.fixtures.machine_repository import (
     FACILITY_PATH,

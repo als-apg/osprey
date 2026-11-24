@@ -470,7 +470,7 @@ class ValidateRequest(BaseModel):
 async def get_info(request: Request):
     """Return pipeline type and pipeline-specific metadata.
 
-    With the ``pv_directory`` section configured, the payload also carries the
+    With the ``channel_directory`` section configured, the payload also carries the
     ``directory`` scope descriptor, computed per request so its label follows a
     target move; without it the key is absent and the payload is today's.
     """
@@ -480,7 +480,7 @@ async def get_info(request: Request):
         from osprey.interfaces.channel_finder.directory_api import directory_descriptor
 
         info["directory"] = await directory_descriptor(
-            request.app.state.config, request.app.state.pv_directory, service
+            request.app.state.config, request.app.state.channel_directory, service
         )
     return info
 
@@ -1028,8 +1028,8 @@ async def explore_options(request: Request, level: str, selections: str | None =
         options = db.get_options_at_level(level, parsed_selections or {})
         return {"level": level, "options": options, "total": len(options)}
 
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to get explore options")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1052,8 +1052,8 @@ async def explore_build(request: Request, selections: str):
     try:
         return db.build_existing_channels(json.loads(selections))
 
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"Invalid selections JSON: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Failed to build channels")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

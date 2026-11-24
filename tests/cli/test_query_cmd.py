@@ -22,6 +22,7 @@ from osprey.agent_runner import (
 )
 from osprey.cli.query_cmd import query
 from osprey_connectors.logger import configure_logging, get_logger
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import stub_build
 
 # ---------------------------------------------------------------------------
@@ -369,27 +370,18 @@ class TestJsonStdoutPurity:
 
 
 class TestInfraErrors:
-    def test_import_error_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            pytest.param(ImportError("claude_agent_sdk not installed"), id="import-error"),
+            pytest.param(RuntimeError("provider not configured"), id="runtime-error"),
+        ],
+    )
+    def test_infra_error_exits_usage(
+        self, runner: CliRunner, deployment: Path, exc: Exception
+    ) -> None:
         with (
-            patch(
-                "osprey.cli.query_cmd.run_query",
-                side_effect=ImportError("claude_agent_sdk not installed"),
-            ),
-            patch(
-                "osprey.cli.query_cmd.read_only_disallowed_tools",
-                return_value=["mcp__controls__channel_write"],
-            ),
-            patch("osprey.cli.query_cmd.expected_mcp_servers", return_value=set()),
-        ):
-            result = runner.invoke(query, ["--repo", str(deployment), "hello"])
-        assert result.exit_code == EXIT_USAGE
-
-    def test_runtime_error_exits_usage(self, runner: CliRunner, deployment: Path) -> None:
-        with (
-            patch(
-                "osprey.cli.query_cmd.run_query",
-                side_effect=RuntimeError("provider not configured"),
-            ),
+            patch("osprey.cli.query_cmd.run_query", side_effect=exc),
             patch(
                 "osprey.cli.query_cmd.read_only_disallowed_tools",
                 return_value=["mcp__controls__channel_write"],
@@ -479,8 +471,11 @@ class TestPinnedClaudeCodeNotInstalled:
     ) -> None:
         from osprey.agent_runner import launcher
 
-        monkeypatch.setattr(
-            "shutil.which", lambda *_a, **_k: "/usr/local/bin/claude" if found else None
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: "/usr/local/bin/claude" if found else None,
         )
         monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: found)
         run = AsyncMock()

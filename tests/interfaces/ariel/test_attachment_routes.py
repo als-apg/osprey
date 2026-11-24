@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.ariel.api import routes
 from osprey.interfaces.ariel.api.attachment_response import attachment_response
+from tests._scoped_stdlib import no_child_process
 from tests.interfaces.ariel._attachments import ATT_ID, jpeg_bytes, viewable_row
 from tests.interfaces.ariel._routes_app import routes_app
 
@@ -416,9 +417,6 @@ def test_serving_spawns_no_child_process(client, service, monkeypatch) -> None:
     from osprey.imaging import render as render_module
     from osprey.services.ariel_search.attachments import prepare as prepare_module
 
-    def forbidden(*_args, **_kwargs):
-        raise AssertionError("a viewer route must never start a child process")
-
     async def forbidden_async(*_args, **_kwargs):
         raise AssertionError("a viewer route must never start a child process")
 
@@ -426,7 +424,6 @@ def test_serving_spawns_no_child_process(client, service, monkeypatch) -> None:
     monkeypatch.setattr(asyncio, "create_subprocess_shell", forbidden_async)
     monkeypatch.setattr(render_module, "_spawn", forbidden_async)
     monkeypatch.setattr(prepare_module, "prepare_picture", forbidden_async)
-    monkeypatch.setattr("subprocess.Popen", forbidden)
 
     service.repository.get_rendition.return_value = viewable_row()
     service.repository.get_attachment_original.return_value = {
@@ -435,8 +432,11 @@ def test_serving_spawns_no_child_process(client, service, monkeypatch) -> None:
         "data": _png(),
     }
 
-    assert client.get(f"/api/attachments/{ATT_ID}/rendition").status_code == 200
-    assert client.get(f"/api/attachments/{ATT_ID}").status_code == 200
+    with no_child_process() as started:
+        assert client.get(f"/api/attachments/{ATT_ID}/rendition").status_code == 200
+        assert client.get(f"/api/attachments/{ATT_ID}").status_code == 200
 
-    service.repository.get_rendition.return_value = None
-    assert client.get(f"/api/attachments/{ATT_ID}/rendition").status_code == 404
+        service.repository.get_rendition.return_value = None
+        assert client.get(f"/api/attachments/{ATT_ID}/rendition").status_code == 404
+
+    assert started == []

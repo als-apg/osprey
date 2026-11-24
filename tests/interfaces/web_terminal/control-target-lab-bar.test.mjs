@@ -306,6 +306,7 @@ describe('import closure', () => {
       'lab-theme-follow.js',
       'modal-overlay.js',
       'posture-confirm.js',
+      'shell-reveal.js',
       'toast.js',
       'write-authorization-panel.js',
     ]);

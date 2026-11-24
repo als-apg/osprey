@@ -62,15 +62,6 @@ def test_an_entry_without_writable_fails_the_load(tmp_path):
         LimitsValidator._load_limits_database(str(limits_file))
 
 
-def test_an_entry_without_writable_fails_writable_addresses(tmp_path):
-    """The direction reader refuses the same file the write path refuses."""
-    limits_file = tmp_path / "limits.json"
-    limits_file.write_text(json.dumps({"FOO": {"min_value": 0.0, "max_value": 10.0}}))
-
-    with pytest.raises(ValueError, match="'writable'"):
-        LimitsValidator.writable_addresses(limits_file)
-
-
 def test_an_entry_that_states_writable_false_is_read_only(tmp_path):
     validator = _make_validator(
         tmp_path, {"FOO": {"writable": False, "min_value": 0.0, "max_value": 10.0}}
@@ -1843,42 +1834,3 @@ class TestLoadConfiguredDatabase:
         with pytest.raises(ChannelLimitsViolationError) as exc:
             validator.validate("FOO", 1.0)
         assert exc.value.violation_type == "LIMITS_DATABASE_UNAVAILABLE"
-
-
-class TestWritableAddresses:
-    """Per-entry writability, the rule the runtime write path uses."""
-
-    def test_each_entry_answers_for_itself(self, tmp_path):
-        limits = _write_limits(
-            tmp_path / "limits.json",
-            {
-                "SR:MAG:DIPOLE:01:CURRENT:SP": {
-                    "writable": True,
-                    "min_value": 0.0,
-                    "max_value": 1.0,
-                },
-                "SR:VAC:VALVE:01:CONTROL:OPEN": {"writable": False},
-            },
-        )
-
-        assert LimitsValidator.writable_addresses(limits) == frozenset(
-            {"SR:MAG:DIPOLE:01:CURRENT:SP"}
-        )
-
-    def test_a_top_level_defaults_key_is_refused(self, tmp_path):
-        path = tmp_path / "limits.json"
-        path.write_text(
-            json.dumps({"defaults": {"writable": True}, "SR:MAG:DIPOLE:01:CURRENT:SP": {}}),
-            encoding="utf-8",
-        )
-
-        with pytest.raises(ValueError, match="'defaults'"):
-            LimitsValidator.writable_addresses(path)
-
-    def test_non_object_payload_is_a_legible_error(self, tmp_path):
-        """A JSON list is refused by name rather than raising AttributeError later."""
-        path = tmp_path / "limits.json"
-        path.write_text(json.dumps(["nope"]), encoding="utf-8")
-
-        with pytest.raises(ValueError, match="JSON object"):
-            LimitsValidator.writable_addresses(path)

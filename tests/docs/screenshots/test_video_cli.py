@@ -10,7 +10,6 @@ at call time.
 
 from __future__ import annotations
 
-import shutil
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,6 +23,7 @@ from docs.screenshots.video_timeline import Step, Timeline
 from docs.screenshots.videos import video_named
 
 import osprey
+from tests._scoped_stdlib import scoped
 from tests.docs.screenshots.video_fixture import SECOND
 
 LANDING = video_named("landing")
@@ -51,7 +51,7 @@ def _which(missing: set[str] = frozenset(), osprey_at: Path | None = None):
 
 
 def test_video_cli_ffmpeg_missing_prints_one_skipped_line(monkeypatch, capsys):
-    monkeypatch.setattr(shutil, "which", _which(missing={"ffmpeg"}))
+    scoped(monkeypatch, cli, "shutil", which=_which(missing={"ffmpeg"}))
 
     rc = main(["video"])
 
@@ -66,7 +66,7 @@ def test_video_cli_ffmpeg_missing_prints_one_skipped_line(monkeypatch, capsys):
 
 
 def test_video_cli_ffprobe_missing_skips(monkeypatch, capsys):
-    monkeypatch.setattr(shutil, "which", _which(missing={"ffprobe"}))
+    scoped(monkeypatch, cli, "shutil", which=_which(missing={"ffprobe"}))
 
     rc = main(["video", "--theme", "dark"])
 
@@ -103,13 +103,13 @@ def test_video_cli_skip_raised_while_building_stack_is_one_line(monkeypatch, cap
 
 
 def test_video_cli_preflight_passes_for_this_repo_venv(monkeypatch):
-    monkeypatch.setattr(shutil, "which", _which())
+    scoped(monkeypatch, cli, "shutil", which=_which())
 
     cli._preflight()  # no ScreenshotSkip
 
 
 def test_video_cli_osprey_cli_outside_the_venv_skips(monkeypatch, capsys):
-    monkeypatch.setattr(shutil, "which", _which(osprey_at=Path("/opt/elsewhere/bin/osprey")))
+    scoped(monkeypatch, cli, "shutil", which=_which(osprey_at=Path("/opt/elsewhere/bin/osprey")))
 
     rc = main(["video"])
 
@@ -121,7 +121,7 @@ def test_video_cli_osprey_cli_outside_the_venv_skips(monkeypatch, capsys):
 
 
 def test_video_cli_osprey_cli_missing_skips(monkeypatch, capsys):
-    monkeypatch.setattr(shutil, "which", _which(missing={"osprey"}))
+    scoped(monkeypatch, cli, "shutil", which=_which(missing={"osprey"}))
 
     rc = main(["video"])
 
@@ -131,7 +131,7 @@ def test_video_cli_osprey_cli_missing_skips(monkeypatch, capsys):
 
 
 def test_video_cli_osprey_package_outside_the_repo_skips(monkeypatch, capsys):
-    monkeypatch.setattr(shutil, "which", _which())
+    scoped(monkeypatch, cli, "shutil", which=_which())
     monkeypatch.setattr(osprey, "__file__", "/opt/site-packages/osprey/__init__.py")
 
     rc = main(["video"])
@@ -437,15 +437,16 @@ def test_video_cli_help_lists_theme(capsys):
     assert "--theme" in capsys.readouterr().out
 
 
-def test_video_cli_rejects_unknown_theme():
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["--theme", "sepia"], id="unknown-theme"),
+        pytest.param(["--video", "nope"], id="unknown-video"),
+    ],
+)
+def test_video_cli_rejects(argv):
     with pytest.raises(SystemExit) as exc:
-        main(["video", "--theme", "sepia"])
-    assert exc.value.code == 2
-
-
-def test_video_cli_rejects_unknown_video():
-    with pytest.raises(SystemExit) as exc:
-        main(["video", "--video", "nope"])
+        main(["video", *argv])
     assert exc.value.code == 2
 
 
@@ -792,7 +793,7 @@ def test_video_cli_publishing_a_take_writes_poster_manifest_and_a_local_copy(mon
         commands.append(cmd)
         Path(cmd[-1]).write_bytes(b"poster")
 
-    monkeypatch.setattr(cli.subprocess, "run", run)
+    scoped(monkeypatch, cli, "subprocess", run=run)
     monkeypatch.setattr(video_encode, "_binary", lambda name: name)
     monkeypatch.setattr(video_encode, "probe", lambda _p: {"size": 5, "duration": 58.24})
 

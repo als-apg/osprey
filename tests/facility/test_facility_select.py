@@ -14,10 +14,11 @@ from typing import Any
 
 import pytest
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.build import build_facility
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_facility import FACILITY_FILE
+from osprey_facility.build import build_facility
+from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e._facility_select import (
     bounded_corrector_of,
     bounded_setpoint,
@@ -46,14 +47,26 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Simulato
 
 @pytest.mark.parametrize("tree", [HELLO_WORLD, EXAMPLE], ids=lambda tree: tree.name)
 def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
-    tmp_path: Path, tree: Path
+    tmp_path: Path, tree: Path, request: pytest.FixtureRequest
 ) -> None:
-    render_facility_outputs(tmp_path, build_facility(tree, project_name=tree.name), {}, tree)
-    view = SimulatorView.of_render(tmp_path)
+    if tree == EXAMPLE:
+        # The module's render of the example is this very build and render.
+        view, _ = request.getfixturevalue("example")
+    else:
+        render_facility_outputs(
+            tmp_path,
+            build_facility(tree, project_name=tree.name, extra_checks=FRAMEWORK_CHECKS),
+            {},
+            tree,
+        )
+        view = SimulatorView.of_render(tmp_path)
 
     reading = seeded_readback(view)
     assert reading in view.channels()
     assert view.seed(reading) is not None
+    # A lane compares what it reads with the seed's nominal as a number.
+    assert view.channel(reading).value_type == "float"
+    assert isinstance(view.seed(reading).get("nominal", 0.0), int | float)
 
     setpoint, value = bounded_setpoint(view)
     channel = view.channel(setpoint)
@@ -66,13 +79,17 @@ def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
 
 def test_facility_view_serves_the_trees_channels(tmp_path: Path) -> None:
     view = facility_view(HELLO_WORLD, tmp_path)
-    document = build_facility(HELLO_WORLD, project_name=HELLO_WORLD.name)
+    document = build_facility(
+        HELLO_WORLD, project_name=HELLO_WORLD.name, extra_checks=FRAMEWORK_CHECKS
+    )
     assert set(view.channels()) == {channel["id"] for channel in document["channels"]}
 
 
 def test_facility_view_creates_the_root_it_renders_into(tmp_path: Path) -> None:
     view = facility_view(HELLO_WORLD, tmp_path / "probe_view")
-    document = build_facility(HELLO_WORLD, project_name=HELLO_WORLD.name)
+    document = build_facility(
+        HELLO_WORLD, project_name=HELLO_WORLD.name, extra_checks=FRAMEWORK_CHECKS
+    )
     assert set(view.channels()) == {channel["id"] for channel in document["channels"]}
 
 

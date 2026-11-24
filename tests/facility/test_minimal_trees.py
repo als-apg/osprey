@@ -28,10 +28,10 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
-from osprey.facility import TEXTURE
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey_connectors.errors import ChannelNotFoundError
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from osprey_facility import TEXTURE
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,6 +46,7 @@ TWO_CHANNELS = {"records/channels.yaml": [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEM
 #: The simulator view's files, every one written whatever the tree holds.
 SIMULATOR_FILES = (
     "addresses.json",
+    "follows.json",
     "scenarios.json",
     "seeds.json",
     "served_models.json",
@@ -354,7 +355,7 @@ def test_two_authored_addresses_simulate_texture_alone(build_project: Build) -> 
         "schema": "osprey.facility.addresses/1",
         "channels": ["LAB:TEMP:01", "LAB:TEMP:02"],
         "status": [],
-        "ioc_health": [f"demo:SIM:{TEXTURE}:{s}" for s in ("HEARTBEAT", "UPTIME", "ENGINEER")],
+        "server_health": [f"demo:SIM:{TEXTURE}:{s}" for s in ("HEARTBEAT", "UPTIME", "ENGINEER")],
     }
     assert {c["owner"] for c in view["variables.json"]["channels"]} == {TEXTURE}
 

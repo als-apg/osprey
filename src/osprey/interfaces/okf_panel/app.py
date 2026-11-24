@@ -29,8 +29,9 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -46,6 +47,7 @@ from osprey.interfaces.okf_panel.validation import (
     log_validation_summary,
     validate_bundle,
 )
+from osprey.interfaces.opaque_origin import document_headers
 from osprey.interfaces.vendor import vendor_url
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,43 @@ _NOT_CONFIGURED_STATUS = 503
 
 # Returned by ``/api/graph`` when the deployment has no facility graph.
 _NO_GRAPH = {"error": "services.graphdb.ttl_path not configured"}
+
+# ``/api/asset`` failure status per asset error code; every failure body is
+# ``{"error": <code>}`` and carries no file content.
+_ASSET_ERROR_STATUS = {
+    "outside_bundle": 404,
+    "dot_path": 404,
+    "symlink_escape": 404,
+    "not_found": 404,
+    "not_an_image": 415,
+    "disallowed_type": 415,
+    "too_large": 413,
+}
+
+# The SVG's own policy, sent beside the shared opaque-origin one: no script
+# runs (no script source), nothing is fetched (``default-src 'none'``), and
+# inline styling and ``data:`` images and fonts still render.
+_SVG_POLICY = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+
+
+def _read_panel_image(asset):
+    """Return the bytes of a looked-up asset, or raise ``AssetError``.
+
+    Only a panel image type is served, and at most ``MAX_IMAGE_BYTES`` are
+    read: a file that grew past the limit since the lookup is ``too_large``.
+    """
+    from osprey.services.facility_knowledge.okf.assets import (
+        PANEL_IMAGE_TYPES,
+        AssetError,
+        read_asset_bytes,
+    )
+
+    if asset.type not in PANEL_IMAGE_TYPES:
+        raise AssetError("disallowed_type", f"{asset.type} is not a panel image type")
+    try:
+        return read_asset_bytes(asset)
+    except OSError as exc:
+        raise AssetError("not_found", "the file can no longer be read") from exc
 
 
 def _ranked_backend_kwargs():
@@ -153,13 +192,13 @@ def _load_facility_records():
     config itself for where the facility file sits.
 
     Returns:
-        A :class:`~osprey.facility.records.FacilityRecords`, or ``None`` when
+        A :class:`~osprey_facility.records.FacilityRecords`, or ``None`` when
         no facility file is there or it cannot be read. The reading pane then
         marks every facility link unresolved rather than failing the page.
     """
     from osprey.channel_roster.sources import facility_file_path
-    from osprey.facility.records import FacilityRecords
     from osprey_connectors.workspace import load_osprey_config
+    from osprey_facility.records import FacilityRecords
 
     # Config load included: nothing here is worth more than the reading pane.
     try:
@@ -256,7 +295,7 @@ def _facility_references(body, records):
         resolves to (empty for a dangling link), or is ``None`` when no
         facility file loaded, which ``unresolved`` then states.
     """
-    from osprey.facility.references import find_facility_links, resolved_references
+    from osprey_facility.references import find_facility_links, resolved_references
 
     found = find_facility_links(body or "", records)
     return {
@@ -291,7 +330,7 @@ def create_app(bundle_path=None, graph_path=None) -> FastAPI:
     app.state.facility_records = _load_facility_records()
     app.state.graph = _load_graph(graph_path, app.state.bundle, app.state.facility_records)
 
-    def _bundle_or_error():
+    def _bundle_or_error() -> tuple[Any, JSONResponse | None]:
         """Return ``(bundle, None)`` when configured, else ``(None, JSONResponse)``."""
         bundle = app.state.bundle
         if bundle is None:
@@ -414,6 +453,47 @@ def create_app(bundle_path=None, graph_path=None) -> FastAPI:
             )
 
         return {"query": q, "results": results}
+
+    # Plain `def` like ``api_search``: it reads the file from disk.
+    @app.get("/api/asset")
+    def api_asset(target: str = "", from_: str = Query("", alias="from")) -> Response:
+        """Serve one bundle image named by its Markdown target and embedding concept.
+
+        ``target`` is the raw target as written; ``from`` is the embedding
+        concept's id, empty for the structure overview (the bundle root). The
+        server resolves the path; an external target is ``outside_bundle``.
+        Only a panel image type within the size limit is served, read from disk
+        on every request. Every failure is ``{"error": <code>}`` with no file
+        content.
+        """
+        bundle, err = _bundle_or_error()
+        if err:
+            return err
+        from osprey.services.facility_knowledge.okf.assets import (
+            AssetError,
+            concept_dir,
+            lookup_asset,
+            resolve_image_target,
+        )
+
+        try:
+            path = resolve_image_target(target, concept_dir(bundle.root, from_))
+            if path is None:
+                raise AssetError("outside_bundle", "external target")
+            asset = lookup_asset(bundle.root, path)
+            data = _read_panel_image(asset)
+        except AssetError as exc:
+            return JSONResponse(
+                {"error": exc.code}, status_code=_ASSET_ERROR_STATUS.get(exc.code, 404)
+            )
+        response = Response(content=data, media_type=asset.mime)
+        response.headers["Cache-Control"] = "no-cache"
+        for name, value in document_headers(asset.mime).items():
+            response.headers[name] = value
+        if asset.type == "svg":
+            # A second, separate policy: the browser enforces both.
+            response.headers.append("Content-Security-Policy", _SVG_POLICY)
+        return response
 
     @app.get("/api/bundle_health")
     async def api_bundle_health():

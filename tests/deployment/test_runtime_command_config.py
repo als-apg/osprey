@@ -38,6 +38,7 @@ from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.health.probes import ProbeContext
 from osprey.health.runtime import HealthRuntime
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -59,8 +60,8 @@ def _fake_probe(monkeypatch: pytest.MonkeyPatch, healthy: set[str]) -> list[list
         rc = 0 if cmd[0] in healthy else 1
         return subprocess.CompletedProcess(cmd, rc, stdout=b"", stderr=b"")
 
-    monkeypatch.setattr(runtime_helper.shutil, "which", lambda name: f"/usr/bin/{name}")
-    monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
+    scoped(monkeypatch, runtime_helper, "shutil", which=lambda name: f"/usr/bin/{name}")
+    scoped(monkeypatch, runtime_helper, "subprocess", run=_run)
     return probed
 
 

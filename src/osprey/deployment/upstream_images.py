@@ -37,7 +37,14 @@ UPSTREAM_IMAGES = {
     "redis": "redis:7.4-alpine",
     "tiled": "ghcr.io/bluesky/tiled:0.2.18",
     "clickhouse": "clickhouse/clickhouse-server:26.8.18.2",
-    "nginx": "nginx:1.31-alpine",
+    # Pinned to the patch release, not the floating ``1.31-alpine``: a host
+    # that already holds a floating tag keeps the build it has (a local-mode
+    # deploy never re-pulls, and a mirror serves what it last copied), so a
+    # security release reaches a deployment only when the tag itself changes.
+    # 1.31.9 is the first release with the HTTP/2 fixes for CVE-2026-123007
+    # and CVE-2026-123633; the TLS listeners enable HTTP/2. Bump the patch
+    # number with each nginx security release.
+    "nginx": "nginx:1.31.9-alpine",
     # Fully qualified: the transcripts copy runs as a bare ``docker|podman
     # run``, and podman resolves an unqualified name through short-name
     # aliases or a prompt.

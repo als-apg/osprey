@@ -7,8 +7,8 @@
  * stubbed global `fetch`. The streaming tests build a fake `Response` whose
  * body yields caller-chosen string chunks; the core surface under test is that
  * a `data: {json}\n\n` frame split across two reads is buffered and delivered
- * exactly once, that heartbeat comments are ignored, and that the terminal
- * condition (`result`, or a non-`AssistantMessageError` error) ends the turn.
+ * exactly once, that heartbeat comments are ignored, and that a frame the
+ * server marks `ends_turn` ends the turn.
  *
  * Module isolation: `vi.resetModules()` + a fresh dynamic import per test. The
  * module holds no cross-call state, but this keeps each test hermetic.
@@ -76,7 +76,7 @@ function collector() {
 describe('sendPrompt: request shape', () => {
   test('POSTs prompt + chat_id as JSON to /api/chat?stream=true with the abort signal', async () => {
     const fetchMock = vi.fn(async () =>
-      streamResponse([frame({ type: 'result', is_error: false })])
+      streamResponse([frame({ type: 'result', ends_turn: true, is_error: false })])
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -102,7 +102,10 @@ describe('sendPrompt: frame parsing and dispatch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        streamResponse([frame({ type: 'text', content: 'hi' }), frame({ type: 'result' })])
+        streamResponse([
+          frame({ type: 'text', content: 'hi' }),
+          frame({ type: 'result', ends_turn: true }),
+        ])
       )
     );
 
@@ -122,7 +125,11 @@ describe('sendPrompt: frame parsing and dispatch', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        streamResponse([whole.slice(0, cut), whole.slice(cut), frame({ type: 'result' })])
+        streamResponse([
+          whole.slice(0, cut),
+          whole.slice(cut),
+          frame({ type: 'result', ends_turn: true }),
+        ])
       )
     );
 
@@ -139,7 +146,7 @@ describe('sendPrompt: frame parsing and dispatch', () => {
       frame({ type: 'session_reset' }) +
       frame({ type: 'thinking' }) +
       frame({ type: 'text', content: 'a' }) +
-      frame({ type: 'result' });
+      frame({ type: 'result', ends_turn: true });
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => streamResponse([combined]))
@@ -160,7 +167,7 @@ describe('sendPrompt: frame parsing and dispatch', () => {
           ': heartbeat\n\n',
           frame({ type: 'text', content: 'x' }),
           ': heartbeat\n\n',
-          frame({ type: 'result' }),
+          frame({ type: 'result', ends_turn: true }),
         ])
       )
     );
@@ -173,7 +180,9 @@ describe('sendPrompt: frame parsing and dispatch', () => {
   });
 
   test('joins multi-line data fields before parsing', async () => {
-    const raw = 'data: {"type":"text",\ndata: "content":"multi"}\n\n' + frame({ type: 'result' });
+    const raw =
+      'data: {"type":"text",\ndata: "content":"multi"}\n\n' +
+      frame({ type: 'result', ends_turn: true });
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => streamResponse([raw]))
@@ -191,7 +200,7 @@ describe('sendPrompt: terminal conditions', () => {
   test('a result event ends the turn and closes', async () => {
     const response = streamResponse([
       frame({ type: 'text', content: 'a' }),
-      frame({ type: 'result', is_error: false }),
+      frame({ type: 'result', ends_turn: true, is_error: false }),
       frame({ type: 'text', content: 'after-terminal' }),
     ]);
     vi.stubGlobal(
@@ -209,12 +218,12 @@ describe('sendPrompt: terminal conditions', () => {
     expect(response.reader.cancel).toHaveBeenCalled();
   });
 
-  test('a non-AssistantMessageError error ends the turn', async () => {
+  test('an error the server marks as ending the turn ends it', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         streamResponse([
-          frame({ type: 'error', error_type: 'TimeoutError', message: 'boom' }),
+          frame({ type: 'error', ends_turn: true, error_type: 'TimeoutError', message: 'boom' }),
           frame({ type: 'text', content: 'never' }),
         ])
       )
@@ -229,6 +238,7 @@ describe('sendPrompt: terminal conditions', () => {
     expect(cb.events.map((e) => e.type)).toEqual(['error']);
     expect(onError).toHaveBeenCalledWith({
       type: 'error',
+      ends_turn: true,
       error_type: 'TimeoutError',
       message: 'boom',
     });
@@ -243,7 +253,7 @@ describe('sendPrompt: terminal conditions', () => {
         streamResponse([
           frame({ type: 'error', error_type: 'AssistantMessageError', message: 'partial' }),
           frame({ type: 'text', content: 'continues' }),
-          frame({ type: 'result' }),
+          frame({ type: 'result', ends_turn: true }),
         ])
       )
     );
@@ -391,7 +401,7 @@ describe('sendPrompt: transport failures', () => {
   test('onClose fires exactly once even on a terminal-then-end stream', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => streamResponse([frame({ type: 'result' })]))
+      vi.fn(async () => streamResponse([frame({ type: 'result', ends_turn: true })]))
     );
 
     const cb = collector();
@@ -694,7 +704,7 @@ describe('fetchHistory', () => {
           { type: 'thinking', content: 'reasoning' },
           { type: 'thinking', content: '' },
           { type: 'text', content: 'because' },
-          { type: 'result', is_error: false, duration_ms: 900 },
+          { type: 'result', ends_turn: true, is_error: false, duration_ms: 900 },
         ],
       },
     ];
@@ -885,5 +895,53 @@ describe('followChat', () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     feed.close();
+  });
+
+  test('close aborts the open connection and a 204 that lands after close is not reported', async () => {
+    vi.useFakeTimers();
+    /** @type {AbortSignal[]} */
+    const signals = [];
+    /** @type {(value: any) => void} */
+    let answer = () => {};
+    const fetchMock = vi.fn(
+      (/** @type {string} */ _url, /** @type {any} */ init) =>
+        new Promise((resolve) => {
+          signals.push(init.signal);
+          answer = resolve;
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const onNoAgent = vi.fn();
+
+    const feed = chat.followChat('c', { onEvent: vi.fn(), onNoAgent });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(signals).toHaveLength(1);
+    feed.close();
+    expect(signals[0].aborted).toBe(true);
+
+    answer({ ok: true, status: 204, body: null });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(onNoAgent).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a reconnect aborts the previous connection's signal", async () => {
+    vi.useFakeTimers();
+    /** @type {AbortSignal[]} */
+    const signals = [];
+    const fetchMock = vi.fn(async (/** @type {string} */ _url, /** @type {any} */ init) => {
+      signals.push(init.signal);
+      if (signals.length === 1) throw new TypeError('network down');
+      return new Promise(() => {});
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const feed = chat.followChat('c', { onEvent: vi.fn() });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signals).toHaveLength(2);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    feed.close();
+    expect(signals[1].aborted).toBe(true);
   });
 });

@@ -321,7 +321,7 @@ def test_an_import_its_fallback_stands_in_for_is_not_reported(tmp_path: Path) ->
 
 
 def test_a_release_scan_reports_an_import_only_its_stand_in_resolves(tmp_path: Path) -> None:
-    # The shape of the PV directory shim at a floor that lacks the module: the
+    # The shape of the channel directory shim at a floor that lacks the module: the
     # framework runs, and what the import was for is switched off.
     result = _scan(
         tmp_path,
@@ -473,3 +473,85 @@ def test_the_cli_needs_trees_or_packages_not_both(argv: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         scanner.main(argv)
     assert raised.value.code == 2
+
+
+#: A synthetic facility package for the ``--target osprey_facility`` cases.
+FACILITY = {
+    "osprey_facility/__init__.py": "",
+    "osprey_facility/schema.py": "SCHEMA = {}\n",
+}
+
+
+def test_a_target_scans_the_names_taken_from_that_package(tmp_path: Path) -> None:
+    """``--target osprey_facility`` collects facility sites, resolves them against
+    the facility package and leaves the connectors' sites alone."""
+    facility = tmp_path / "facility"
+    _write(facility, FACILITY)
+    _write(
+        tmp_path / "fw",
+        {
+            "osprey/__init__.py": """\
+                from osprey_facility.schema import SCHEMA
+                from osprey_connectors.types import GONE
+                """,
+            "osprey/late.py": """\
+                def load():
+                    from osprey_facility.schema import RETIRED
+                    import osprey_facility.missing
+                    return "osprey_facility.schema:SCHEMA"
+                """,
+        },
+    )
+    result = subprocess.run(
+        [sys.executable, "-I", str(SCRIPT), str(tmp_path / "fw" / "osprey")]
+        + ["--target", "osprey_facility", "--target-path", str(facility)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert _reported(result) == [
+        "osprey/late.py:2: osprey_facility.schema:RETIRED",
+        "osprey/late.py:3: osprey_facility.missing",
+    ]
+    assert "against osprey_facility" in result.stderr
+    assert "4 sites, 2 unresolved" in result.stderr
+
+
+def test_the_connectors_stay_the_default_target(tmp_path: Path) -> None:
+    sites, _ = scanner.collect_sites(_tree(tmp_path))
+    assert {site.module.split(".")[0] for site in sites} == {"osprey_connectors"}
+    sites, _ = scanner.collect_sites(_tree(tmp_path), target="osprey_facility")
+    assert [(site.module, site.name) for site in sites] == [("osprey_facility.schema", "SCHEMA")]
+
+
+def _tree(tmp_path: Path) -> Path:
+    _write(
+        tmp_path,
+        {
+            "osprey/__init__.py": """\
+                from osprey_facility.schema import SCHEMA
+                from osprey_connectors.types import EPICS
+                """
+        },
+    )
+    return tmp_path / "osprey"
+
+
+def test_a_target_path_that_does_not_supply_the_target_is_refused(tmp_path: Path) -> None:
+    _write(tmp_path / "fw", {"osprey/__init__.py": "import osprey_facility.schema\n"})
+    (tmp_path / "empty").mkdir()
+    result = subprocess.run(
+        [sys.executable, "-I", str(SCRIPT), str(tmp_path / "fw" / "osprey")]
+        + ["--target", "osprey_facility", "--target-path", str(tmp_path / "empty")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    # Installed in this environment it imports from elsewhere; absent, not at all.
+    assert result.returncode == 1
+    assert (
+        "osprey_facility imported from" in result.stderr and "not from" in result.stderr
+    ) or "osprey_facility did not import from" in result.stderr

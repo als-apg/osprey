@@ -59,6 +59,7 @@ import { renderDrafts } from './drafts-list.js';
 import { onStripPrefChange } from './display-prefs.js';
 import { togglePopover, closePopover } from '/design-system/js/popover.js';
 import { buildFiltersPopover, buildHead, paintChipIssues } from './list-head.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @typedef {import('./store.js').State} State */
 /** @typedef {import('./advanced-options.js').Capabilities} Capabilities */
@@ -86,9 +87,12 @@ let view = null;
 /** @type {Array<() => void>} The store and display-prefs unsubscribers. */
 let unsubscribe = [];
 
-// Monotonic id of the newest list run. A listing page or a search that no
-// longer owns it paints nothing and leaves `aria-busy` alone.
-let runSeq = 0;
+// The list runs: a newer run retires this one. A listing page or a search of a
+// retired run paints nothing and leaves `aria-busy` alone; "Load more" joins the
+// run it was offered for without starting one.
+const runs = createLatestRequest();
+/** @type {import('/design-system/js/latest-request.js').LatestToken|null} */
+let run = null;
 
 // The last day separator the browse listing painted, so the next page
 // continues the day without repeating it.
@@ -205,10 +209,10 @@ function repaintLoadMore() {
 
 /**
  * Run the empty-query listing from its first page.
- * @param {number} seq
+ * @param {import('/design-system/js/latest-request.js').LatestToken} token
  * @param {State} state
  */
-async function runListing(seq, state) {
+async function runListing(token, state) {
   if (!view) return;
   paintIssues([]);
   lastDay = null;
@@ -219,13 +223,13 @@ async function runListing(seq, state) {
   try {
     result = await startListing(listingFilter(state));
   } catch (error) {
-    if (seq !== runSeq || !view) return;
+    if (!token.isCurrent() || !view) return;
     console.error('Failed to load entries:', error);
     view.body.innerHTML = renderErrorState('Failed to Load Entries', error);
     setBusy(false);
     return;
   }
-  if (!result || seq !== runSeq || !view) return;
+  if (!result || !token.isCurrent() || !view) return;
   setBusy(false);
 
   const author = scopeAuthor(state);
@@ -248,10 +252,10 @@ async function runListing(seq, state) {
  * @returns {Promise<void>}
  */
 async function onLoadMore() {
-  if (!view || !canLoadMore()) return;
+  if (!view || !run || !canLoadMore()) return;
   const info = pageInfo();
   if (info.held || info.loading) return;
-  const seq = runSeq;
+  const mine = run;
   const button = view.body.querySelector('[data-load-more]');
   button?.setAttribute('disabled', '');
   setBusy(true);
@@ -260,7 +264,7 @@ async function onLoadMore() {
   try {
     page = await loadMore();
   } catch (error) {
-    if (seq !== runSeq || !view) return;
+    if (!mine.isCurrent() || !view) return;
     console.error('Failed to load more entries:', error);
     setBusy(false);
     repaintLoadMore();
@@ -273,7 +277,7 @@ async function onLoadMore() {
       );
     return;
   }
-  if (seq !== runSeq || !view) return;
+  if (!mine.isCurrent() || !view) return;
   setBusy(false);
   const rows = view.body.querySelector('.ariel-rows');
   rows?.setAttribute('data-paged', ''); // past page 1: list-activity.js only pills
@@ -292,10 +296,10 @@ async function onLoadMore() {
 
 /**
  * Run a search for the state's query through the driver.
- * @param {number} seq
+ * @param {import('/design-system/js/latest-request.js').LatestToken} token
  * @param {State} state
  */
-async function runQuery(seq, state) {
+async function runQuery(token, state) {
   if (!view) return;
   const capabilities = view.capabilities;
   view.body.innerHTML = renderLoading('Searching...');
@@ -310,16 +314,16 @@ async function runQuery(seq, state) {
         status = s;
       },
       onResults: (results) => {
-        if (seq !== runSeq) return;
+        if (!token.isCurrent()) return;
         paintResults(results, status);
       },
     });
   } catch (error) {
-    if (seq !== runSeq || !view || isAbort(error)) return;
+    if (!token.isCurrent() || !view || isAbort(error)) return;
     console.error('Search failed:', error);
     view.body.innerHTML = renderErrorState('Search Failed', error);
   }
-  if (seq === runSeq) setBusy(false);
+  if (token.isCurrent()) setBusy(false);
 }
 
 /**
@@ -329,7 +333,8 @@ async function runQuery(seq, state) {
  */
 export function refresh() {
   if (!view) return;
-  const seq = ++runSeq;
+  const token = runs.begin();
+  run = token;
   const state = getState();
   /** @param {string} html - A still state: no request runs behind it */
   const still = (html) => {
@@ -341,7 +346,7 @@ export function refresh() {
 
   if (state.mailbox === 'drafts') {
     still('');
-    if (view) renderDrafts(view.body, () => seq === runSeq);
+    if (view) renderDrafts(view.body, token.isCurrent);
     return;
   }
   if (state.mailbox === 'mine' && !state.mineAuthor) {
@@ -357,9 +362,9 @@ export function refresh() {
   // cannot run; the newest-first listing is shown instead.
   if (!(state.query ?? '').trim() || view.blocked) {
     cancelSearch();
-    return runListing(seq, state);
+    return runListing(token, state);
   }
-  return runQuery(seq, state);
+  return runQuery(token, state);
 }
 
 // --- Pane head ---
@@ -567,7 +572,7 @@ function onStoreChange(state, _prev, changed) {
 export function initList(root, { capabilities = null } = {}) {
   unsubscribe.forEach((off) => off());
   if (view) closePopover(view.popover);
-  runSeq++;
+  runs.cancel();
   view = buildView(root, capabilities);
   bindView(view);
   paintChip();

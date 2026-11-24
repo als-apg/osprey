@@ -85,6 +85,17 @@ INSTRUCTIONS_OUTPUT = "CLAUDE.md"
 DEFAULT_CLAUDE_MD_TEMPLATE = "CLAUDE.md.j2"
 
 
+def bundled_claude_md_templates() -> tuple[str, ...]:
+    """Return the template of every bundled CLAUDE.md render, sorted."""
+    return tuple(
+        sorted(
+            a.template_path
+            for a in _get_default_artifacts()
+            if a.output_path == INSTRUCTIONS_OUTPUT
+        )
+    )
+
+
 def _get_default_artifacts() -> list[BuildArtifact]:
     """Return the declarative list of all known build artifacts."""
     return [
@@ -663,6 +674,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="virtual_accelerator",
             output_path="services/virtual_accelerator",
             description="Virtual Accelerator soft-IOC compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/server_fleet",
+            template_path="server_fleet",
+            output_path="services/server_fleet",
+            description="server fleet service compose template (the fleet snapshot refresher)",
             template_root="services",
             is_directory=True,
         ),

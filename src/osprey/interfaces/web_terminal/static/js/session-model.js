@@ -35,6 +35,7 @@
  * workspace of its own.
  */
 
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { apiRequest, createEventSource, fetchJSON, pageEventsUrl } from './api.js';
 import { getPointer, subscribe as subscribeToPointer } from './session-pointer.js';
 import { showConfirm } from './posture-confirm.js';
@@ -109,7 +110,9 @@ let refreshTimer = null;
 let lastRefreshAt = -Infinity;
 /** @type {Promise<void> | null} */
 let inFlight = null;
-let generation = 0;
+/** The model's lives: a reset retires this one, and a read of a retired life is dropped. */
+const lives = createLatestRequest();
+let life = lives.begin();
 
 const titles = createTitleChase({
   pointer: getPointer,
@@ -200,15 +203,12 @@ export function resetSessionModel() {
   loaded = [];
   pinnedListed = [];
   pinOverrides.clear();
-  nextCursor = null;
-  more = false;
+  nextCursor = inFlight = null;
+  more = firstLoaded = active = false;
   record = 'complete';
-  firstLoaded = false;
   pickId = pendingPick = null;
   lastRefreshAt = -Infinity;
-  inFlight = null;
-  generation += 1;
-  active = false;
+  life = lives.begin();
 }
 
 /** @param {string|null} key */
@@ -480,11 +480,11 @@ function listUrl(cursor, drain) {
 
 /** First page, waiting on the drain. */
 function loadFirst() {
-  const gen = generation;
+  const mine = life;
   const asOf = pinClock;
   inFlight = fetchJSON(listUrl(null, true))
     .then((body) => {
-      if (gen !== generation) return;
+      if (!mine.isCurrent()) return;
       loaded = rowsOf(body);
       takePins(body, asOf);
       nextCursor = body?.next_cursor ?? null;
@@ -495,14 +495,14 @@ function loadFirst() {
       notify('rows');
     })
     .catch((err) => {
-      if (gen !== generation) return;
+      if (!mine.isCurrent()) return;
       firstLoaded = true;
       record = 'unavailable';
       console.warn('[session-model] listing failed', err);
       notify('rows');
     })
     .finally(() => {
-      if (gen === generation) inFlight = null;
+      if (mine.isCurrent()) inFlight = null;
     });
   lastRefreshAt = Date.now();
   return inFlight;
@@ -514,7 +514,7 @@ function loadFirst() {
  */
 export async function loadMore() {
   if (!hasMore() || inFlight) return false;
-  const gen = generation;
+  const mine = life;
   const asOf = pinClock;
   const cursor = nextCursor;
   /** @type {any} */
@@ -526,9 +526,9 @@ export async function loadMore() {
     console.warn('[session-model] next page failed', err);
     return false;
   } finally {
-    if (gen === generation) inFlight = null;
+    if (mine.isCurrent()) inFlight = null;
   }
-  if (gen !== generation) return false;
+  if (!mine.isCurrent()) return false;
   const seen = new Set(loaded.map((r) => r.transcript_id));
   loaded = [...loaded, ...rowsOf(body).filter((r) => !seen.has(r.transcript_id))];
   takePins(body, asOf);
@@ -554,7 +554,7 @@ export function refresh() {
 
 async function runRefresh() {
   if (inFlight) await inFlight.catch(() => {});
-  const gen = generation;
+  const mine = life;
   const asOf = pinClock;
   lastRefreshAt = Date.now();
   /** @type {any} */
@@ -565,7 +565,7 @@ async function runRefresh() {
     console.warn('[session-model] refresh failed', err);
     return void titles.failed();
   }
-  if (gen !== generation) return;
+  if (!mine.isCurrent()) return;
   const first = rowsOf(body);
   const ids = new Set(first.map((r) => r.transcript_id));
   const rest = loaded.slice(first.length).filter((r) => !ids.has(r.transcript_id));

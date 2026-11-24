@@ -610,7 +610,7 @@ async def test_archiver_read_empty_channels():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=[], start_time="2024-01-15T10:00:00")
 
-    _exc_ctx["envelope"]
+    assert "No channels provided" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
@@ -925,7 +925,7 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
 ):
     """The data file's series entry for a zero-row channel is exactly {timestamps: [], values: []}.
 
-    Consumers like ``build_data_reader`` rely on every *requested* channel
+    Consumers like ``DATA_READER_SOURCE`` rely on every *requested* channel
     getting an entry in ``series``, even one with no data in range.
     """
     fn, connector = archiver_read_tool

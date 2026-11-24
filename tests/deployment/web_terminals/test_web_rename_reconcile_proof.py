@@ -27,7 +27,8 @@ import pytest
 
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.naming import web_container_name
-from tests._container_support import docker_cli_unavailable_reason
+from tests._container_support import docker_cli_unavailable_reason, ensure_image
+from tests.deployment.web_terminals._harness_image import NGINX_IMAGE
 
 _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason()
 
@@ -36,9 +37,20 @@ pytestmark = [
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
-# Already pulled by this directory's other dockerbuild tests; `sleep` keeps the
-# container running with no ports and no config of its own.
-_IMAGE = "nginx:1.31-alpine"
+# The perimeter tests' nginx, so a host that runs them holds it already; `sleep`
+# keeps the container running with no ports and no config of its own.
+_IMAGE = NGINX_IMAGE
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _image_present() -> None:
+    """Pull the image up front, under its own budget, if this host lacks it.
+
+    This module is not in the ``docker`` xdist group, so it can run before any
+    other test has pulled the image, and compose would then pull it inside the
+    timed ``up``, where a slow registry reads as a failed reconcile.
+    """
+    ensure_image(_IMAGE)
 
 
 def _render(compose_file: Path, names: dict[str, str]) -> None:
@@ -49,6 +61,9 @@ def _render(compose_file: Path, names: dict[str, str]) -> None:
             f"  {service}:",
             f"    image: {_IMAGE}",
             '    command: ["sleep", "600"]',
+            # init: sleep as PID 1 ignores SIGTERM, so every recreate and the
+            # final down would otherwise wait out the whole stop grace period.
+            "    init: true",
             f"    container_name: {container_name}",
         ]
     compose_file.write_text("\n".join(lines) + "\n", encoding="utf-8")

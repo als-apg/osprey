@@ -1,5 +1,6 @@
 """Tests for the sandboxed execution engine."""
 
+import ast
 import json
 import textwrap
 from datetime import datetime
@@ -36,179 +37,115 @@ async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30)
 class TestValidateSandboxCode:
     """Tests for the AST-level code validation."""
 
-    def test_validate_safe_matplotlib_code(self):
-        code = textwrap.dedent("""\
-            import numpy as np
-            import pandas as pd
-            import matplotlib.pyplot as plt
-            x = np.linspace(0, 10, 100)
-            plt.plot(x, np.sin(x))
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-        assert violations == []
-
-    def test_validate_blocks_subprocess(self):
-        code = "import subprocess\nsubprocess.run(['ls'])"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("subprocess" in v for v in violations)
-
-    def test_validate_blocks_eval(self):
-        code = "result = eval('1+1')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("eval" in v for v in violations)
-
-    def test_validate_blocks_exec(self):
-        code = "exec('import os')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("exec" in v for v in violations)
-
-    def test_validate_blocks_network(self):
-        for mod in ["requests", "urllib", "socket"]:
-            code = f"import {mod}"
-            is_safe, violations = validate_sandbox_code(code)
-            assert not is_safe, f"{mod} should be blocked"
-            assert any(mod in v for v in violations)
-
-    def test_validate_blocks_epics(self):
-        code = "import epics\nepics.caput('PV:NAME', 42)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("epics" in v for v in violations)
-
-    def test_validate_blocks_tango(self):
-        """Tango DeviceProxy and write_attribute are blocked."""
-        code = "import tango\nd = tango.DeviceProxy('motor/1')\nd.write_attribute('position', 100)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("tango" in v.lower() for v in violations)
-
-    def test_validate_blocks_opcua(self):
-        """OPC-UA module is blocked."""
-        code = "import opcua\nclient = opcua.Client('opc.tcp://localhost:4840')"
+    @pytest.mark.parametrize(
+        ("code", "needle"),
+        [
+            pytest.param(
+                "import subprocess\nsubprocess.run(['ls'])", "subprocess", id="subprocess"
+            ),
+            pytest.param("result = eval('1+1')", "eval", id="eval"),
+            pytest.param("exec('import os')", "exec", id="exec"),
+            pytest.param("import requests", "requests", id="network-requests"),
+            pytest.param("import urllib", "urllib", id="network-urllib"),
+            pytest.param("import socket", "socket", id="network-socket"),
+            pytest.param("import epics\nepics.caput('PV:NAME', 42)", "epics", id="epics"),
+            # Tango DeviceProxy and write_attribute are blocked.
+            pytest.param(
+                "import tango\nd = tango.DeviceProxy('motor/1')\nd.write_attribute('position', 100)",
+                "tango",
+                id="tango",
+            ),
+            # OPC-UA module is blocked.
+            pytest.param(
+                "import opcua\nclient = opcua.Client('opc.tcp://localhost:4840')",
+                "opcua",
+                id="opcua",
+            ),
+            # osprey.runtime write_channel API is blocked in sandbox.
+            pytest.param(
+                "write_channel('BEAM:CURRENT', 500.0)", "write_channel", id="write_channel"
+            ),
+            # LabVIEW patterns are blocked.
+            pytest.param(
+                "import labview\nlabview.SetControlValue('temperature', 350)",
+                "labview",
+                id="labview",
+            ),
+            pytest.param("__import__('os').system('ls')", "__import__", id="dunder_import"),
+            pytest.param("def foo(\n  # missing closing paren", "Syntax error", id="syntax_error"),
+            pytest.param("import os\nos.system('rm -rf /')", "os.system", id="os_system"),
+            pytest.param("compile('print(1)', '<string>', 'exec')", "compile", id="compile"),
+            pytest.param("import ctypes", "ctypes", id="ctypes"),
+            pytest.param(
+                "import shutil\nshutil.rmtree('/tmp/important')",
+                "shutil.rmtree",
+                id="shutil_rmtree",
+            ),
+        ],
+    )
+    def test_validate_blocks(self, code, needle):
+        """Code the sandbox must not run is refused, with a violation naming what was found."""
         is_safe, violations = validate_sandbox_code(code)
         assert not is_safe
-        assert any("opcua" in v.lower() for v in violations)
+        assert any(needle in v for v in violations), violations
 
-    def test_validate_blocks_write_channel(self):
-        """osprey.runtime write_channel API is blocked in sandbox."""
-        code = "write_channel('BEAM:CURRENT', 500.0)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("write_channel" in v for v in violations)
-
-    def test_validate_blocks_labview(self):
-        """LabVIEW patterns are blocked."""
-        code = "import labview\nlabview.SetControlValue('temperature', 350)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("labview" in v.lower() or "LabVIEW" in v for v in violations)
-
-    def test_validate_blocks_dunder_import(self):
-        code = "__import__('os').system('ls')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("__import__" in v for v in violations)
-
-    def test_validate_syntax_error(self):
-        code = "def foo(\n  # missing closing paren"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("Syntax error" in v for v in violations)
-
-    def test_validate_allowed_stdlib(self):
-        code = textwrap.dedent("""\
-            import json
-            import datetime
-            import math
-            import re
-            import collections
-            from pathlib import Path
-            import itertools
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-        assert violations == []
-
-    def test_validate_blocks_os_system(self):
-        code = "import os\nos.system('rm -rf /')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("os.system" in v for v in violations)
-
-    def test_validate_blocks_compile(self):
-        code = "compile('print(1)', '<string>', 'exec')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("compile" in v for v in violations)
-
-    def test_validate_blocks_ctypes(self):
-        code = "import ctypes"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("ctypes" in v for v in violations)
-
-    def test_validate_blocks_shutil_rmtree(self):
-        code = "import shutil\nshutil.rmtree('/tmp/important')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("shutil.rmtree" in v for v in violations)
-
-    def test_validate_mpl_toolkits_3d_import_allowed(self):
-        """mpl_toolkits.mplot3d must be whitelisted for 3D matplotlib plots."""
-        code = textwrap.dedent("""\
-            from mpl_toolkits.mplot3d import Axes3D
-            import matplotlib.pyplot as plt
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe, f"mpl_toolkits.mplot3d should be allowed but got: {violations}"
-        assert violations == []
-
-    def test_validate_mpl_toolkits_import_styles(self):
-        """All common mpl_toolkits import patterns should pass validation."""
-        patterns = [
-            "import mpl_toolkits",
-            "from mpl_toolkits.mplot3d import Axes3D",
-            "from mpl_toolkits.mplot3d import art3d",
-            "import mpl_toolkits.mplot3d",
-        ]
-        for code in patterns:
-            is_safe, violations = validate_sandbox_code(code)
-            assert is_safe, f"Pattern '{code}' should be allowed but got: {violations}"
-
-    def test_validate_plotly_import_allowed(self):
-        code = "import plotly.graph_objects as go\nfig = go.Figure()"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_plotly_3d_scatter_allowed(self):
-        """Plotly 3D scatter imports should be allowed."""
-        code = textwrap.dedent("""\
-            import plotly.graph_objects as go
-            fig = go.Figure(data=[go.Scatter3d(x=[1,2], y=[3,4], z=[5,6])])
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_bokeh_import_allowed(self):
-        code = "from bokeh.plotting import figure\np = figure()"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_seaborn_import_allowed(self):
-        code = "import seaborn as sns"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_scipy_import_allowed(self):
-        code = "from scipy import stats"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
+    @pytest.mark.parametrize(
+        "code",
+        [
+            pytest.param(
+                textwrap.dedent("""\
+                    import numpy as np
+                    import pandas as pd
+                    import matplotlib.pyplot as plt
+                    x = np.linspace(0, 10, 100)
+                    plt.plot(x, np.sin(x))
+                """),
+                id="safe_matplotlib",
+            ),
+            pytest.param(
+                textwrap.dedent("""\
+                    import json
+                    import datetime
+                    import math
+                    import re
+                    import collections
+                    from pathlib import Path
+                    import itertools
+                """),
+                id="allowed_stdlib",
+            ),
+            # mpl_toolkits.mplot3d must be whitelisted for 3D matplotlib plots.
+            pytest.param(
+                textwrap.dedent("""\
+                    from mpl_toolkits.mplot3d import Axes3D
+                    import matplotlib.pyplot as plt
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, projection='3d')
+                """),
+                id="mpl_toolkits_3d",
+            ),
+            # All common mpl_toolkits import patterns should pass validation.
+            pytest.param("import mpl_toolkits", id="mpl_toolkits_import"),
+            pytest.param("from mpl_toolkits.mplot3d import Axes3D", id="mpl_toolkits_from_mplot3d"),
+            pytest.param("from mpl_toolkits.mplot3d import art3d", id="mpl_toolkits_art3d"),
+            pytest.param("import mpl_toolkits.mplot3d", id="mpl_toolkits_import_mplot3d"),
+            pytest.param("import plotly.graph_objects as go\nfig = go.Figure()", id="plotly"),
+            # Plotly 3D scatter imports should be allowed.
+            pytest.param(
+                textwrap.dedent("""\
+                    import plotly.graph_objects as go
+                    fig = go.Figure(data=[go.Scatter3d(x=[1,2], y=[3,4], z=[5,6])])
+                """),
+                id="plotly_3d_scatter",
+            ),
+            pytest.param("from bokeh.plotting import figure\np = figure()", id="bokeh"),
+            pytest.param("import seaborn as sns", id="seaborn"),
+            pytest.param("from scipy import stats", id="scipy"),
+        ],
+    )
+    def test_validate_allows(self, code):
+        """Plotting, analysis and stdlib imports pass, with no violation reported."""
+        assert validate_sandbox_code(code) == (True, [])
 
     def test_validate_multiple_violations(self):
         code = textwrap.dedent("""\
@@ -398,6 +335,71 @@ def test_wrapper_requires_secret_roots(tmp_path: Path) -> None:
         _create_sandbox_wrapper("x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path)
 
 
+def _data_path_constants(wrapper: str) -> list[object]:
+    """Every value a module-level statement of ``wrapper`` assigns to ``_data_path``."""
+    return [
+        node.value.value
+        for node in ast.parse(wrapper).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_data_path" for t in node.targets)
+        and isinstance(node.value, ast.Constant)
+    ]
+
+
+def test_the_data_path_is_bound_before_the_user_code(tmp_path: Path) -> None:
+    """The wrapper binds the data file at module level, ahead of the user code."""
+    data_path = str(tmp_path / "epics-site" / "beam.csv")
+    wrapper = _create_sandbox_wrapper(
+        "x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path, secret_roots=(), data_path=data_path
+    )
+
+    binding = next(
+        node
+        for node in ast.parse(wrapper).body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "_data_path" for t in node.targets)
+    )
+    assert isinstance(binding.value, ast.Constant)
+    assert binding.value.value == data_path
+    user_code_line = next(
+        number
+        for number, line in enumerate(wrapper.splitlines(), start=1)
+        if "# === USER CODE START ===" in line
+    )
+    assert binding.lineno < user_code_line
+
+
+@pytest.mark.parametrize(
+    "data_path",
+    [
+        pytest.param('x"\nimport socket\n#', id="quote-newline-import"),
+        pytest.param("/data/epics\\", id="trailing-backslash"),
+        pytest.param("'; import os; '", id="single-quote-statement"),
+    ],
+)
+def test_a_data_path_is_bound_as_one_literal(tmp_path: Path, data_path: str) -> None:
+    """Whatever the path holds, it stays inside one string literal."""
+    wrapper = _create_sandbox_wrapper(
+        "x = 1", tmp_path / "exec", tmp_path / "ws", tmp_path, secret_roots=(), data_path=data_path
+    )
+
+    assert _data_path_constants(wrapper) == [data_path]
+    socket_imports = [
+        node
+        for node in ast.walk(ast.parse(wrapper))
+        if isinstance(node, ast.Import) and any(alias.name == "socket" for alias in node.names)
+    ]
+    assert socket_imports == []
+
+
+def test_no_data_path_binds_nothing() -> None:
+    # Fixed roots: a tmp_path is named after this test and would carry the name.
+    root = Path("/sandbox-root")
+    wrapper = _create_sandbox_wrapper("x = 1", root / "exec", root / "ws", root, secret_roots=())
+
+    assert "_data_path" not in wrapper
+
+
 # ---------------------------------------------------------------------------
 # Sandbox tests
 # ---------------------------------------------------------------------------
@@ -422,16 +424,22 @@ class TestSandboxedOpen:
         test_file = workspace_root / "data" / "test.csv"
         test_file.write_text("a,b\n1,2\n")
 
-        code = f"""\
-data_path = r"{test_file}"
+        code = """\
+data_path = Path.cwd() / "_agent_data" / "data" / "test.csv"
 with open(data_path) as f:
     content = f.read()
 print(content)
 """
 
-        with patch(
-            "osprey_connectors.workspace.resolve_agent_data_root",
-            return_value=workspace_root,
+        with (
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=workspace_root,
+            ),
+            patch(
+                "osprey_connectors.workspace.resolve_project_root",
+                return_value=workspace_root.parent,
+            ),
         ):
             result = await execute_sandbox_code(code=code, execution_folder=execution_folder)
 
@@ -466,13 +474,13 @@ except PermissionError:
         project.mkdir()
         (project / ".env").write_text("API_KEY=never-leaked\n")
 
-        code = f"""\
+        code = """\
 for label, read in (
     ("BUILTINS", lambda p: open(p).read()),
     ("PATHLIB", lambda p: Path(p).read_text()),
 ):
     try:
-        print(label, "LEAKED", read(r"{project / ".env"}"))
+        print(label, "LEAKED", read(Path.cwd() / ".env"))
     except PermissionError as exc:
         print(label, "DENIED", exc)
 """
@@ -494,6 +502,62 @@ for label, read in (
         assert "LEAKED" not in result.stdout
         for label in ("BUILTINS", "PATHLIB"):
             assert f"{label} DENIED Sandbox: read denied" in result.stdout
+
+
+class TestDataSourceOutsideTheScan:
+    """A data path crosses into the sandbox as data; agent code is still scanned."""
+
+    @pytest.fixture
+    def execution_folder(self, tmp_path):
+        folder = tmp_path / "test_execution"
+        folder.mkdir()
+        return folder
+
+    @pytest.fixture
+    def workspace_root(self, tmp_path):
+        ws = tmp_path / "_agent_data"
+        ws.mkdir()
+        (ws / "data").mkdir()
+        return ws
+
+    @pytest.fixture
+    def site(self, tmp_path):
+        site = tmp_path / "epics-site"
+        site.mkdir()
+        (site / "beam.csv").write_text("a,b\n1,2\n")
+        return site
+
+    async def _run(self, code, execution_folder, workspace_root, site):
+        with (
+            patch(
+                "osprey_connectors.workspace.resolve_agent_data_root",
+                return_value=workspace_root,
+            ),
+            patch("osprey_connectors.workspace.resolve_project_root", return_value=site),
+        ):
+            return await execute_sandbox_code(
+                code=code,
+                execution_folder=execution_folder,
+                data_path=str(site / "beam.csv"),
+            )
+
+    async def test_a_data_path_under_a_scanned_word_reaches_the_code(
+        self, execution_folder, workspace_root, site
+    ):
+        result = await self._run(
+            "print(open(_data_path).read())", execution_folder, workspace_root, site
+        )
+
+        assert result.success
+        assert "a,b" in result.stdout
+
+    async def test_agent_code_naming_a_scanned_word_is_still_refused(
+        self, execution_folder, workspace_root, site
+    ):
+        result = await self._run('x = "epics"', execution_folder, workspace_root, site)
+
+        assert result.success is False
+        assert "Dangerous pattern: epics module" in result.error_message
 
 
 # ---------------------------------------------------------------------------

@@ -10,8 +10,6 @@ from typing import Any
 import pytest
 from rdflib import OWL, RDF, Graph, URIRef
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import relation_types
 from osprey.facility.views.graph import (
     PROPERTY_NAMES,
     RELATION_PREDICATES,
@@ -19,6 +17,8 @@ from osprey.facility.views.graph import (
     graph_text,
 )
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import relation_types
 from tests.facility._appendix_a import VARIANTS, appendix_a_tree, build_appendix_a
 from tests.facility._graph_relations import (
     LOCATED_IN,
@@ -153,15 +153,17 @@ class TestPredicates:
 
 
 class TestAppendixAEdges:
-    def test_the_expectation_matches_the_design_without_a_policy(
-        self, built: dict[str, dict[str, Any]]
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            pytest.param("no_policy", NO_POLICY_EDGES, id="without_a_policy"),
+            pytest.param("located_in_precedence", POLICY_EDGES, id="under_the_policy"),
+        ],
+    )
+    def test_the_expectation_matches_the_design(
+        self, built: dict[str, dict[str, Any]], key: str, expected
     ) -> None:
-        assert expected_relation_edges(built["no_policy"]) == NO_POLICY_EDGES
-
-    def test_the_expectation_matches_the_design_under_the_policy(
-        self, built: dict[str, dict[str, Any]]
-    ) -> None:
-        assert expected_relation_edges(built["located_in_precedence"]) == POLICY_EDGES
+        assert expected_relation_edges(built[key]) == expected
 
     @pytest.mark.parametrize("variant", VARIANTS)
     @pytest.mark.parametrize("settings", ALL_SETTINGS, ids=lambda s: f"{s.claims}-{s.basis}")

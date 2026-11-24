@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 
 import osprey
-from osprey.facility import wiring
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation import view as view_module
 from osprey_connectors.simulation.view import COMMAND_MARK, ENGINE_ROLES, REFRESH, Binding
+from osprey_facility import wiring
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 
 MODEL = {"name": "M", "engine": "fake"}
 WRITE = {"id": "M/M:CMD", "address": "M:CMD", "direction": "write", "element": "E"}

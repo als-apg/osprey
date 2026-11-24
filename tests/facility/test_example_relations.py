@@ -10,14 +10,13 @@ the rack layout first, and the supply lands in ``HALL/ROW3/RK07``. The cable
 nothing else. ``SR/BPM13-EL`` takes its place ``HALL/ROW3/RK08`` from its
 rack claim. With the policy taken away the two rack claims are contested,
 the supply stays unplaced and the build warns ``relation-contested`` too.
-The example renders
-in every channel-finder pipeline mode, and a fresh ``osprey init`` of the
-demo preset is still wholly bundled.
+A fresh ``osprey init`` of the demo preset is still wholly bundled. The
+example's renders in every channel-finder pipeline mode are held in
+``test_relations_compat.py``.
 """
 
 from __future__ import annotations
 
-import copy
 import shutil
 from collections import Counter
 from pathlib import Path
@@ -26,13 +25,11 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
 from osprey.facility.bundled import classify
-from osprey.facility.render import render_facility_outputs
-from osprey.facility.validate import run_stages
-from tests._builds import init_project
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS, init_project
 from tests.facility._appendix_a import CLAIM_IDS, POLICY
-from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
 EXAMPLE = TEMPLATE_ROOT / "facilities" / "example"
@@ -41,11 +38,11 @@ BUNDLED_HEADER = (
     "# Bundled with OSPREY: the example facility. Delete this line to make the file yours."
 )
 
-MODES = ("in_context", "hierarchical", "middle_layer")
-
 
 def _build(facility_dir: Path) -> tuple[dict[str, Any], list[Any]]:
-    report = run_stages(facility_dir, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        facility_dir, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     if report.failed is not None:
         raise AssertionError([error.format_message() for error in report.errors])
     document = report.validated.document
@@ -130,20 +127,6 @@ def test_without_the_policy_the_rack_claims_are_contested(
         ("relation-contested", "located_in", "device SR/QF05-PS"),
     ]
     assert _device(document, "SR/QF05-PS").get("place") is None
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("mode", MODES)
-def test_every_channel_finder_mode_builds(
-    shipped: tuple[dict[str, Any], list[Any]], tmp_path: Path, mode: str
-) -> None:
-    document, _ = shipped
-    config = copy.deepcopy(dict(IN_PROCESS_RENDER_CONFIG))
-    config["channel_finder"] = {"pipeline_mode": mode}
-    written = render_facility_outputs(
-        tmp_path, copy.deepcopy(document), config, EXAMPLE, omitted_reported=set()
-    )
-    assert written
 
 
 def test_a_fresh_init_stays_wholly_bundled(tmp_path: Path) -> None:

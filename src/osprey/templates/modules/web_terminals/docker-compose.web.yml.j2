@@ -10,6 +10,20 @@
   TEMPLATE CONTRACT (variables render.py MUST supply)
   ----------------------------------------------------------------------------
 
+    SERVICE KEYS (from render.py's `web_stack_service_names()`, the one answer
+    to which services this file renders — the deployment record and the
+    after-start check read the same answer, so no key is spelled here):
+
+    proxy_service: str, required
+      The reverse proxy's service key.
+    auth_service: str | None, required
+      The auth sidecar's service key, or None when the auth method runs no
+      sidecar ("token" or "none"). None renders NO sidecar service at all —
+      the whole block below is suppressed, byte for byte, so a deployment
+      without a login wall carries no login surface.
+    services[].service: str
+      Each roster card's terminal service key.
+
     project_name: str
       The deployment's project name, as resolve_project_name() returns it
       (e.g. "my-assistant"). Used for container_name (`<project>-web-<user>`,
@@ -245,9 +259,8 @@
       defaults to "token"). Informational — the gate below reads the derived
       boolean, never the name.
     sidecar_active: bool, required (auth_method is "password" or "oidc")
-      False renders NO `auth:` service at all — the whole block below is
-      suppressed, byte for byte, so a deployment without a login wall ("token"
-      or "none") carries no login surface.
+      Passed for contract symmetry with nginx.conf.j2; the sidecar service's
+      own gate is `auth_service` (SERVICE KEYS below).
     inject_secret, walled, token_exchange: bool, required
       The other derived booleans, passed for contract symmetry with
       nginx.conf.j2. `walled` is read in exactly one place: it gates each
@@ -365,7 +378,7 @@
       whose value is non-empty; an owner-only entry emits no line at all, and
       the sidecar resolves an absent variable as owner-only. Emitted under
       BOTH login methods, ungated exactly like the role table and for the same
-      structural reason: only the enclosing `sidecar_active` decides it.
+      structural reason: only the enclosing `auth_service` gate decides it.
     services[].access_env: str — the env-var name the above is emitted under,
       pre-resolved by render.py through roster_env.env_var_suffix(). Always
       present; read only when `access_value` is non-empty. Pre-resolved for the
@@ -574,7 +587,7 @@
 {%- import "services/_ca_bundles.j2" as ca %}
 services:
 
-  nginx:
+  {{ proxy_service }}:
     image: {{ nginx_image }}
     container_name: {{ project_name }}-nginx
     restart: unless-stopped
@@ -690,9 +703,9 @@ services:
    that ended `start_period: 10s`. Service key "auth" cannot collide with a
    roster user — users render as `web-<user>` — nor with nginx or any base
    docker-compose.yml service. #}
-{%- if sidecar_active %}
+{%- if auth_service %}
 
-  auth:
+  {{ auth_service }}:
     {#- Registry mode names the sidecar under registry.url (or the pinned
        `auth.image`); local mode leaves it unset and the runtime build produces
        this tag (see AUTH SIDECAR contract above). A registry-mode deployment
@@ -927,7 +940,7 @@ services:
    role.
 
    Ungated on the method, unlike the `claims:` family above: the enclosing
-   `sidecar_active` around this whole service is what keeps it out of a
+   `auth_service` gate around this whole service is what keeps it out of a
    login-free deployment, and there is no method that mints a session without a
    container behind it to have been rendered. #}
 {%- for svc in services %}
@@ -969,7 +982,7 @@ services:
    exactly as it keeps a `: ` inside a role name from splitting the line.
 
    Method-UNGATED exactly like the role table above and for the same
-   structural reason: the enclosing `sidecar_active` is what keeps it out of
+   structural reason: the enclosing `auth_service` gate is what keeps it out of
    a login-free deployment, and both sidecar methods mint sessions that must
    know which cards are open to the roster. #}
 {%- for svc in services %}
@@ -1015,7 +1028,7 @@ services:
   {{ 1 / 0 }}
 {% endif %}
 
-  web-{{ svc.user }}:
+  {{ svc.service }}:
     image: {{ svc.image }}
     container_name: {{ project_name }}-web-{{ svc.user }}
     restart: unless-stopped
@@ -1414,6 +1427,15 @@ services:
          rather than half-authenticating. #}
 {%- for archiver_env in svc.archiver_credential_envs %}
       - {{ archiver_env }}={{ "${" ~ archiver_env ~ ":-}" }}
+{%- endfor %}
+      {#- The channel directory's credential variables, for a render whose
+         directory, alarm log, alarm feed or put log authenticates. The
+         consumers are the `channel-directory` MCP server and the Channels panel
+         inside this container, each reading the variable its own block names
+         under `auth:`. Per-user and `${VAR:-}` for the reasons the archiver
+         lines above give; a name those lines already carry is not repeated. #}
+{%- for directory_env in svc.channel_directory_credential_envs %}
+      - {{ directory_env }}={{ "${" ~ directory_env ~ ":-}" }}
 {%- endfor %}
     volumes:
       - {{ svc.claude_config_volume }}:/data/claude-config

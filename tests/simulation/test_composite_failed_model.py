@@ -27,7 +27,6 @@ from lume.variables import ScalarVariable, StrVariable, Variable
 from lume_pyat.exceptions import OrbitSolveError
 
 from osprey.cli.sim import sim_group
-from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey_connectors.control_system._base import WriteOutcome
 from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
@@ -36,9 +35,9 @@ from osprey_connectors.control_system._va_in_process_connector import (
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import model_status
 from osprey_connectors.simulation.composite import _STATUS_MAX_BYTES, Composite
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
-from tests._by_path import load_module
 from tests._simulator_view import view_channel
 from tests.simulation.conftest import stage_built_simulator_view
 
@@ -228,70 +227,68 @@ async def test_a_live_quadrupole_write_that_destabilises_the_orbit_is_refused(
     await connector.disconnect()
 
 
-# -- the demo's LINE -----------------------------------------------------------
+# -- the demo's BTS ------------------------------------------------------------
 
-LINE_SOURCE = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo" / "_line.py"
+GENERATORS = Path(__file__).resolve().parents[2] / "scripts" / "facility_demo"
 
 #: A single-pass loss: the element index, its ``FamName`` and the turn.
 LOST = re.compile(r"^lost at element \d+ \(\w+\) turn 0: ")
 
 
-LINE = load_module("_line", LINE_SOURCE)
+@pytest.fixture
+def losing_write(monkeypatch: pytest.MonkeyPatch) -> tuple[str, float]:
+    """The BTS corrector setpoint and the current that loses the beam on an aperture."""
+    monkeypatch.syspath_prepend(str(GENERATORS))
+    import _transfer
 
-
-def _line_corrector() -> str:
-    """The first horizontal corrector's current setpoint on the line."""
-    return next(
-        row["id"]
-        for row in LINE.channels()
-        if row.get("role") == "setpoint" and ":HCM:" in row["id"]
-    )
+    return _transfer.LOSING_CORRECTOR, _transfer.LOSING_CURRENT
 
 
 @pytest.mark.slow
-async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
-    demo_view: Path,
+async def test_a_live_bts_corrector_write_that_loses_the_beam_is_refused(
+    demo_view: Path, losing_write: tuple[str, float]
 ) -> None:
-    corrector = _line_corrector()
+    corrector, current = losing_write
     connector = await _connected(demo_view)
     composite = connector._composite
     assert composite is not None
     before = composite.held([corrector])
 
-    result = await connector.write_channel(corrector, LINE.LOSING_KICK)
+    result = await connector.write_channel(corrector, current)
 
     assert result.outcome is WriteOutcome.REFUSED
     assert result.error_message is not None
     assert LOST.match(result.error_message), result.error_message
     assert composite.held([corrector]) == before
-    assert model_status(connector, "LINE") == "ok"
+    assert model_status(connector, "BTS") == "ok"
     await connector.disconnect()
 
 
 @pytest.mark.slow
 @pytest.mark.usefixtures("contain_env_written_by_the_cli")
-def test_an_applied_line_fault_that_loses_the_beam_fails_line(
-    built_demo: BuiltProject, tmp_path: Path
+def test_an_applied_bts_fault_that_loses_the_beam_fails_bts(
+    built_demo: BuiltProject, tmp_path: Path, losing_write: tuple[str, float]
 ) -> None:
+    corrector, current = losing_write
     repo, view = stage_built_simulator_view(built_demo, tmp_path)
     _with_scenario(
         view,
         {
-            "name": "line-loss",
-            "faults": {"LINE": {"writes": {_line_corrector(): LINE.LOSING_KICK}}},
+            "name": "bts-loss",
+            "faults": {"BTS": {"writes": {corrector: current}}},
         },
     )
-    assert _composite(view).status("LINE") == "ok"
+    assert _composite(view).status("BTS") == "ok"
 
     result = CliRunner().invoke(
-        sim_group, ["apply", "--repo", str(repo), "line-loss", "--no-seed", "--yes"]
+        sim_group, ["apply", "--repo", str(repo), "bts-loss", "--no-seed", "--yes"]
     )
     failed = _composite(view)
 
     assert result.exit_code == 0, result.output
-    status = failed.status("LINE")
-    assert status.startswith("scenario line-loss: "), status
-    assert LOST.match(status.removeprefix("scenario line-loss: ")), status
+    status = failed.status("BTS")
+    assert status.startswith("scenario bts-loss: "), status
+    assert LOST.match(status.removeprefix("scenario bts-loss: ")), status
     assert failed.status("SR") == "ok"
 
 
@@ -348,7 +345,7 @@ def stub_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     real = importlib.metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection == {"group": ENTRY_POINT_GROUP, "name": "stub"}:
+        if selection == {"group": ENGINE_GROUP, "name": "stub"}:
             return [SimpleNamespace(load=lambda: STUB)]
         return real(**selection)
 

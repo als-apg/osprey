@@ -248,6 +248,7 @@ describe('with the chip mounted', () => {
     await settle();
     expect(fetchMock).toHaveBeenCalledWith('/u/alice/panel/system-health/checks', {
       cache: 'no-store',
+      signal: expect.any(AbortSignal),
     });
     expect(mod.HEALTH_API).toBe('/panel/system-health/checks');
   });
@@ -415,6 +416,28 @@ describe('while the Health panel is served', () => {
     expect(dot().classList.contains('err')).toBe(false);
     await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('a read from before the panel left, answering last, does not paint over the newer one', async () => {
+    /** @type {Array<(answer: unknown) => void>} */
+    const answers = [];
+    stubHealth(() => new Promise((resolve) => answers.push(resolve)));
+    availability.setPanelServed('system-health', true);
+    mod.initSidebarTarget();
+    await settle();
+    availability.setPanelServed('system-health', false);
+    availability.setPanelServed('system-health', true);
+    await settle();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    answers[1](reply({ results: [{ status: 'ok' }], interval_s: 30 }));
+    await settle();
+    answers[0](reply({ results: [{ status: 'error' }], interval_s: 30 }));
+    await settle();
+
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(dot().classList.contains('ok')).toBe(true);
+    expect(dot().classList.contains('err')).toBe(false);
   });
 
   test('coming back starts from checking, with one chain of reads', async () => {

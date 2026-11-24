@@ -3,7 +3,7 @@
 ``reference/contracts/facility-kinds.rst`` names the measurement-kind
 declaration's fields, the roles the pyAML view ships with their sorts, the
 member sorts, the entry-point group and the built-in kinds. Each is read here
-from :mod:`osprey.facility.kinds`, so a field, role, sort or built-in kind added
+from :mod:`osprey_facility.kinds`, so a field, role, sort or built-in kind added
 to or dropped from the code without the page following fails.
 """
 
@@ -13,7 +13,7 @@ import re
 from dataclasses import fields
 from pathlib import Path
 
-from osprey.facility import kinds
+from osprey_facility import kinds
 
 DOCS_SOURCE = Path(__file__).resolve().parents[2] / "docs" / "source"
 KINDS_PAGE = DOCS_SOURCE / "reference" / "contracts" / "facility-kinds.rst"

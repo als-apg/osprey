@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.simulation.session_artifacts import (
     PLOT_DIV_ID,
     PLOT_STEP_S,
@@ -25,7 +24,10 @@ from osprey.simulation.session_artifacts import (
     render_artifact,
     render_session_artifacts,
 )
-from osprey.simulation.sessions import (
+from osprey_connectors.config import get_facility_timezone
+from osprey_connectors.simulation.series import anchored_instant
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sessions import (
     AnswerStep,
     ArtifactSpec,
     ResolvedTurn,
@@ -34,8 +36,7 @@ from osprey.simulation.sessions import (
     parse_sessions,
     resolve,
 )
-from osprey_connectors.config import get_facility_timezone
-from osprey_connectors.simulation.series import anchored_instant
+from tests._builds import FRAMEWORK_CHECKS
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"
@@ -50,13 +51,13 @@ NAMES = ["demo-history"]
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A project whose render holds the example facility's simulator view, as a build writes it."""
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
     root = tmp_path_factory.mktemp("project")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = build_facility(TEMPLATE_FACILITY, project_name="example", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(

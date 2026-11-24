@@ -3,38 +3,108 @@
 from __future__ import annotations
 
 import ast
-import os
 import re
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from tests import _builds
-from tests._builds import fill_uv_cache, install_osprey_into, uv_path
-
-# Any request a subprocess makes goes to a port nothing listens on.
-NO_ROUTE = dict.fromkeys(
-    ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"),
-    "http://127.0.0.1:9",
-)
-NO_ROUTE["NO_PROXY"] = NO_ROUTE["no_proxy"] = ""
+from tests._builds import NO_ROUTE, OFFLINE_BUILD_ENV, fill_uv_cache, uv_path
 
 
 @pytest.mark.slow
-def test_a_build_installs_osprey_with_no_route_to_an_index(offline_build_env, tmp_path):
+def test_a_build_installs_osprey_with_no_route_to_an_index(offline_build_env):
+    """The fixture is the proof: it hands out its environment only once ``fill_uv_cache``
+    has installed osprey with it and no route to an index, and imported it, this run."""
     if uv_path() is None:
         pytest.skip("uv is not installed; a build installs with pip, which has no cache-only mode")
-    venv = tmp_path / "venv"
-    installed = install_osprey_into(venv, {**os.environ, **offline_build_env, **NO_ROUTE})
-    assert installed.returncode == 0, installed.stdout + installed.stderr
-    probe = subprocess.run(
-        [str(venv / "bin" / "python"), "-c", "import osprey"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert probe.returncode == 0, probe.stderr
+    assert offline_build_env == OFFLINE_BUILD_ENV
+
+
+@pytest.mark.parametrize("worker", [None, "gw0"], ids=["one-process", "xdist"])
+def test_the_fixture_fills_the_cache_before_it_hands_out_its_environment(
+    worker, tmp_path, monkeypatch
+):
+    """The test above trusts the fixture, so the fixture's own wiring is pinned
+    here, without an install: on either path, a fill ran in this run before the
+    environment was handed out."""
+    filled: list[Path] = []
+    monkeypatch.setattr(_builds, "uv_path", lambda: "/stand-in/uv")
+    monkeypatch.setattr(_builds, "fill_uv_cache", filled.append)
+    if worker is None:
+        monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    else:
+        monkeypatch.setenv("PYTEST_XDIST_WORKER", worker)
+    basetemp = tmp_path / "run" / "popen-gw0"
+    basetemp.mkdir(parents=True)
+    factory = SimpleNamespace(getbasetemp=lambda: basetemp)
+    assert _builds.offline_build_env.__wrapped__(factory) == OFFLINE_BUILD_ENV
+    assert filled == [basetemp], "the fixture handed out its environment without filling the cache"
+
+
+def _stand_in_install(calls: list[dict[str, str]], argv_file: Path, venv_exit: int = 0):
+    """An install that records its environment and leaves a venv whose python
+    writes its argv to *argv_file* and exits *venv_exit*."""
+
+    def install(venv: Path, env):
+        calls.append(dict(env))
+        python = venv / "bin" / "python"
+        python.parent.mkdir(parents=True, exist_ok=True)
+        python.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{argv_file}"\nexit {venv_exit}\n')
+        python.chmod(0o755)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    return install
+
+
+def test_the_cache_is_shown_to_serve_with_no_route_and_to_import_osprey(tmp_path, monkeypatch):
+    calls: list[dict[str, str]] = []
+    argv_file = tmp_path / "argv"
+    monkeypatch.setattr(_builds, "install_osprey_into", _stand_in_install(calls, argv_file))
+    (tmp_path / "parent").mkdir()
+    fill_uv_cache(tmp_path / "parent")
+    (served,) = calls
+    # Literal, so an offline environment that stopped turning uv's network off fails here.
+    assert {"UV_OFFLINE": "1", **NO_ROUTE}.items() <= served.items()
+    assert argv_file.read_text().splitlines() == ["-c", "import osprey"]
+
+
+@pytest.mark.parametrize("served_exit", [0, 1], ids=["serves", "still-does-not-serve"])
+def test_a_cold_cache_is_filled_online_then_shown_to_serve_offline(
+    served_exit, tmp_path, monkeypatch
+):
+    """A cache that cannot serve is filled by one install with the network on, and
+    then must serve a second install with it off; one that still cannot fails."""
+    calls: list[dict[str, str]] = []
+    exits = iter([1, 0, served_exit])
+    stand_in = _stand_in_install(calls, tmp_path / "argv")
+
+    def install(venv: Path, env):
+        stand_in(venv, env)
+        return subprocess.CompletedProcess([], next(exits), "", "")
+
+    monkeypatch.setattr(_builds, "install_osprey_into", install)
+    (tmp_path / "parent").mkdir()
+    if served_exit:
+        with pytest.raises(AssertionError, match="still does not serve"):
+            fill_uv_cache(tmp_path / "parent")
+    else:
+        fill_uv_cache(tmp_path / "parent")
+    probe, fill, served = calls
+    offline = {"UV_OFFLINE": "1", **NO_ROUTE}.items()
+    assert offline <= probe.items()
+    assert offline <= served.items()
+    assert not NO_ROUTE.items() <= fill.items(), "the fill must reach an index"
+
+
+def test_a_cache_install_that_does_not_import_osprey_fails(tmp_path, monkeypatch):
+    argv_file = tmp_path / "argv"
+    monkeypatch.setattr(_builds, "install_osprey_into", _stand_in_install([], argv_file, 1))
+    (tmp_path / "parent").mkdir()
+    with pytest.raises(AssertionError, match="does not import"):
+        fill_uv_cache(tmp_path / "parent")
 
 
 def test_the_cache_fill_leaves_nothing_behind(tmp_path, monkeypatch):

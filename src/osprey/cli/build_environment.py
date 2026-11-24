@@ -108,31 +108,86 @@ def detect_provider_credentials(
     """
     from osprey.models.provider_registry import get_provider_registry
 
+    sources = _credential_sources(project_path, profile_dir)
+    statuses: list[CredentialStatus] = []
+    for provider, var in get_provider_registry().api_key_env_vars().items():
+        if var is None:
+            continue
+        source = next((label for label, values in sources if values.get(var)), None)
+        statuses.append(
+            CredentialStatus(provider=provider, var=var, found=source is not None, source=source)
+        )
+    return statuses
+
+
+def _credential_sources(
+    project_path: Path, profile_dir: Path | None
+) -> list[tuple[str, Mapping[str, str]]]:
+    """Where a deployment's keys are looked for, first match first, each with its label.
+
+    The order and the reasons are :func:`detect_provider_credentials`'s; this is
+    the one reader of the three sources, so every credential check sees the same
+    files.
+    """
     build_env_path = project_path / ".env"
-    build_env = _dotenv_keys(build_env_path)
     repo_env: dict[str, str] = {}
     if profile_dir is not None:
         repo_env_path = profile_dir / ".env"
         # Skip when the repo's .env *is* the build zone's: same file, already read.
         if repo_env_path.resolve() != build_env_path.resolve():
             repo_env = _dotenv_keys(repo_env_path)
+    return [
+        ("build/.env", _dotenv_keys(build_env_path)),
+        ("repo .env", repo_env),
+        ("shell environment", os.environ),
+    ]
 
-    statuses: list[CredentialStatus] = []
-    for provider, var in get_provider_registry().api_key_env_vars().items():
-        if var is None:
-            continue
-        if var in build_env:
-            source: str | None = "build/.env"
-        elif var in repo_env:
-            source = "repo .env"
-        elif os.environ.get(var):
-            source = "shell environment"
-        else:
-            source = None
-        statuses.append(
-            CredentialStatus(provider=provider, var=var, found=source is not None, source=source)
+
+def credential_environ(project_path: Path, *, profile_dir: Path | None = None) -> dict[str, str]:
+    """The variables a deployment's keys resolve from, as one mapping.
+
+    The sources of :func:`detect_provider_credentials` in its order, empty
+    values dropped: what a ``${VAR}`` reference in the rendered config expands
+    against when the question is whether the deployment has a key.
+    """
+    merged: dict[str, str] = {}
+    for _label, values in reversed(_credential_sources(project_path, profile_dir)):
+        merged.update({key: value for key, value in values.items() if value})
+    return merged
+
+
+def report_inner_call_keys(
+    config: Mapping[str, Any], project_path: Path, *, profile_dir: Path
+) -> list[str]:
+    """Warn for each enabled feature whose own model call has no API key.
+
+    The agent's provider is covered by :func:`report_provider_credentials`; this
+    covers the features that call a model without the agent
+    (:mod:`osprey.models.inner_calls`), which a personal login does not reach.
+    Like that report it warns and never aborts.
+
+    Args:
+        config: The rendered ``config.yml``.
+        project_path: The build zone this render produced.
+        profile_dir: The deployment repo, whose ``.env`` holds its secrets.
+
+    Returns:
+        The warnings that were logged, one per feature.
+    """
+    from osprey.models.inner_calls import missing_key_warnings
+
+    warnings = missing_key_warnings(
+        config, environ=credential_environ(project_path, profile_dir=profile_dir)
+    )
+    for warning in warnings:
+        logger.warning("  ✗ %s", warning)
+    if warnings:
+        logger.warning(
+            "      These features call the model themselves, so a personal login does not "
+            "cover them. Add the key to %s to use them.",
+            profile_dir / ".env",
         )
-    return statuses
+    return warnings
 
 
 def report_provider_credentials(
@@ -955,7 +1010,7 @@ def _plan_project_venv(
 
     ``listed_kinds`` is what a caller that builds no wheel hands in for
     ``deployment_packages``: the kinds the listed packages' project files
-    declare (:func:`osprey.facility.kinds.listed_kinds`).
+    declare (:func:`osprey_facility.kinds.listed_kinds`).
     """
     import sys
 

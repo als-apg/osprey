@@ -28,6 +28,7 @@ from rich.text import Text
 
 from osprey.cli import output
 from osprey.cli.styles import Styles, data_table
+from osprey.deployment import run_once
 from osprey.deployment.compose_generator import (
     PROJECT_LABEL,
     REPO_ID_LABEL,
@@ -65,6 +66,21 @@ logger = get_logger("deployment.status")
 #: it stays one line — ``osprey logs`` has the untruncated text.
 PREFLIGHT_REASON_MAX_CHARS = 60
 
+#: The fixed opening of the pre-flight annotation in a state cell. It carries
+#: no leading space, so a cell wrapped at its edge still contains it whole.
+PREFLIGHT_ANNOTATION_PREFIX = "(preflight:"
+
+
+def preflight_annotation(reason):
+    """The text a state label appends for a pre-flight refusal *reason*.
+
+    :param reason: The refusal reason, already cut to fit the cell
+    :type reason: str
+    :return: The annotation, with the space that separates it from the label
+    :rtype: str
+    """
+    return f" {PREFLIGHT_ANNOTATION_PREFIX} {reason})"
+
 
 def _format_state(state, preflight_reason=None):
     """Format a container ``State`` value as a colored status label.
@@ -99,7 +115,7 @@ def _format_state(state, preflight_reason=None):
     else:
         label = Text(f"● {state}", style=Styles.DIM)
     if preflight_reason:
-        label.append(f" (preflight: {preflight_reason})", style=Styles.ERROR)
+        label.append(preflight_annotation(preflight_reason), style=Styles.ERROR)
     return label
 
 
@@ -462,10 +478,29 @@ def _add_container_to_table(table, container):
     table.add_row(
         _container_display_name(container),
         project_name,
-        _format_state(container.get("State", "unknown")),
+        _run_once_state(container) or _format_state(container.get("State", "unknown")),
         _format_ports(container),
         image,
     )
+
+
+def _run_once_state(container):
+    """The label of a declared run-once container that has ended as declared, else ``None``.
+
+    A container whose service is ``osprey.run-once`` (:mod:`osprey.deployment.run_once`)
+    is done when it exited 0, and, when it ``may-fail``, done with its exit code
+    when it exited otherwise. Any other end is left to :func:`_format_state`,
+    which shows it stopped.
+    """
+    declared = container_label(container, run_once.RUN_ONCE_LABEL)
+    code = run_once.exit_code(container)
+    if declared not in run_once.VALUES or code is None:
+        return None
+    if code == 0:
+        return Text("● Done", style=Styles.SUCCESS)
+    if declared == run_once.MAY_FAIL:
+        return Text(f"● Done (exit {code})", style=Styles.WARNING)
+    return None
 
 
 def _container_table(containers):

@@ -1,4 +1,4 @@
-"""A profile that spells a key the agent record replaced is refused, naming the replacement.
+"""A profile that spells a retired key is refused, naming the replacement.
 
 The retired keys live in one table,
 :data:`~osprey.agent_record.config.RETIRED_CONFIG_KEYS`, beside the block that
@@ -66,6 +66,17 @@ _SPELLED: dict[str, tuple[str, Any, str]] = {
         "https://history.example.org",
         "modules.web_terminals.history_origin",
     ),
+    "pv_directory": ("pv_directory.type", "channelfinder", "`channel_directory`"),
+    "channel_directory.display.ioc_health_suffixes": (
+        "channel_directory.display.ioc_health_suffixes.heartbeat",
+        "HEARTBEAT",
+        "channel_directory.display.server_health_suffixes",
+    ),
+    "claude_code.servers.pv-directory": (
+        "claude_code.servers.pv-directory.enabled",
+        False,
+        "claude_code.servers.channel-directory",
+    ),
 }
 
 
@@ -122,6 +133,30 @@ def test_a_retired_deployed_services_entry_is_refused(service: str) -> None:
     assert "'qmd'" not in message
 
 
+def test_a_stale_channel_directory_profile_names_every_new_key_at_once() -> None:
+    message = _refusal(
+        {
+            "pv_directory": {
+                "type": "channelfinder",
+                "display": {"ioc_health_suffixes": {"heartbeat": "HB"}},
+                "fleet": {"period_s": 60},
+            },
+            "claude_code.servers.pv-directory.enabled": False,
+        }
+    )
+
+    for named in (
+        "pv_directory.type",
+        "pv_directory.fleet.period_s",
+        "pv_directory.display.ioc_health_suffixes.heartbeat",
+        "`channel_directory`",
+        "`display.server_health_suffixes`",
+        "claude_code.servers.pv-directory.enabled",
+        "`claude_code.servers.channel-directory`",
+    ):
+        assert named in message
+
+
 def test_every_offender_is_named_at_once() -> None:
     message = _refusal(
         {
@@ -148,6 +183,14 @@ def test_every_offender_is_named_at_once() -> None:
         pytest.param({"web.feedback.github_repo": "org/repo"}, id="a-live-sibling"),
         pytest.param({"audit": {"other": 1}}, id="a-key-beside-the-retired-block"),
         pytest.param({"deployed_services": ["qmd", "graphdb"]}, id="live-services"),
+        pytest.param({"channel_directory": {"type": "channelfinder"}}, id="the-renamed-section"),
+        pytest.param(
+            {"channel_directory.display.server_health_suffixes.heartbeat": "HB"},
+            id="the-renamed-suffixes",
+        ),
+        pytest.param(
+            {"claude_code.servers.channel-directory.enabled": False}, id="the-renamed-switch"
+        ),
     ],
 )
 def test_a_key_beside_a_retired_one_is_not_refused(config: dict[str, Any]) -> None:

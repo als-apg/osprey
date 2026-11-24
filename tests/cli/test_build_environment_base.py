@@ -19,6 +19,7 @@ from osprey.cli.build_environment import _create_project_venv, _plan_project_ven
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 
 
 def _profile(
@@ -46,7 +47,7 @@ def calls(monkeypatch) -> list[list[str]]:
         recorded.append(cmd)
         return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
     return recorded
 
 
@@ -66,7 +67,7 @@ def with_uv(monkeypatch) -> str:
 def without_uv(monkeypatch) -> None:
     """Force the stdlib-venv branch by making uv undiscoverable."""
     monkeypatch.delenv("UV", raising=False)
-    monkeypatch.setattr("shutil.which", lambda name: None)
+    scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
 
 
 class TestCustomBaseInterpreter:
@@ -336,7 +337,7 @@ class TestWorkspaceMembersFromSource:
 
         install_cmd = calls[1]
         members = [str(root / "packages" / name) for name in WORKSPACE_MEMBERS]
-        assert len(members) == 3
+        assert len(members) == 4
         assert install_cmd[-(2 + len(members)) :] == [str(root), "pyepics", *members]
 
     @pytest.mark.usefixtures("without_uv")

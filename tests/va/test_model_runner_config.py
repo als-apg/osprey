@@ -382,7 +382,7 @@ def test_periodic_addresses_equal_the_chromaticity_and_moving_health_on_the_demo
     }
     moving_health = {
         address
-        for address in addresses["ioc_health"]
+        for address in addresses["server_health"]
         if address.endswith((":HEARTBEAT", ":UPTIME"))
     }
     assert chromaticity

@@ -29,6 +29,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
 )
 from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG, in_process_config, served_tree
 
 REPO = Path(__file__).resolve().parents[2]
@@ -57,13 +58,13 @@ def _journal(view: Path) -> Path:
 
 def _rebuild(view: Path) -> Path:
     """Build and render again the facility tree the view was rendered from."""
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
 
     root = view.parent.parent.parent
     facility_dir = root / "data" / "facility"
     render_dir = root / "build"
-    document = build_facility(facility_dir, project_name="served")
+    document = build_facility(facility_dir, project_name="served", extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir)
     return render_dir / "data" / "simulator"
 
@@ -87,7 +88,7 @@ async def test_a_write_the_in_process_simulator_took_is_journalled(view):
     document = json.loads(_journal(view).read_text())
     assert result.outcome is WriteOutcome.CONFIRMED
     assert document["seq"] == 1
-    assert document["writes"] == [[1, "A:SP", 4.5]]
+    assert [entry[:3] for entry in document["writes"]] == [[1, "A:SP", 4.5]]
     assert len(document["active_set_sha256"]) == 64
     await connector.disconnect()
 
@@ -100,7 +101,9 @@ async def test_a_refused_write_is_not_journalled(view, monkeypatch):
     def rejecting_set(_values):
         raise ValueError("refused by the engine")
 
-    monkeypatch.setattr(connector._composite, "set", rejecting_set)
+    # Whichever of the two the installed connectors write through.
+    for method in ("write", "set"):
+        monkeypatch.setattr(connector._composite, method, rejecting_set, raising=False)
     rejected = await connector.write_channel("A:SP", 1.0)
 
     assert readback.outcome is WriteOutcome.REFUSED
@@ -219,7 +222,7 @@ async def test_a_second_connector_keeps_what_the_first_wrote_after_a_scenario_ch
     assert (await second.read_channel("A:SP")).value == 7.0
     assert (await first.read_channel("A:SP")).value == 7.0
     writes = json.loads(_journal(view).read_text())["writes"]
-    assert [entry[1:] for entry in writes] == [["A:SP", 7.0]]
+    assert [entry[1:3] for entry in writes] == [["A:SP", 7.0]]
     await first.disconnect()
     await second.disconnect()
 
@@ -237,7 +240,8 @@ async def test_a_rewrite_of_the_same_active_set_keeps_the_session_writes(view):
     assert (await connector.read_channel("A:SP")).value == 7.0
     other = await _connected(view)
     assert (await other.read_channel("A:SP")).value == 7.0
-    assert json.loads(_journal(view).read_text())["writes"] == [[1, "A:SP", 7.0]]
+    writes = json.loads(_journal(view).read_text())["writes"]
+    assert [entry[:3] for entry in writes] == [[1, "A:SP", 7.0]]
     await connector.disconnect()
     await other.disconnect()
 

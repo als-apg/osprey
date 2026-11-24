@@ -112,6 +112,14 @@ def _render_root(root, *, rich_tracebacks: bool):
     return config
 
 
+def _render_logging(root, body: str):
+    """A render under ``root`` whose ``logging:`` section is ``body`` (indented lines)."""
+    (root / "build").mkdir(parents=True)
+    config = root / "build" / "config.yml"
+    config.write_text("logging:\n" + body)
+    return config
+
+
 class _Collected(logging.Handler):
     """Keeps every record it is handed."""
 
@@ -191,6 +199,67 @@ class TestLoggingSettingsFollowTheConfig:
         assert len(warnings) == 1
         assert "RuntimeError: config unavailable" in warnings[0].getMessage()
         assert _rich_handlers()[0].rich_tracebacks is True
+
+    def test_switches_spelled_off_as_text_read_as_off(self, tmp_path, monkeypatch):
+        """A quoted ``"false"`` or a ``${VAR:-false}`` reaches the reader as text;
+        ``bool("false")`` would turn traceback locals ON."""
+        monkeypatch.delenv("OSPREY_TEST_UNSET_SHOW_PATHS", raising=False)
+        _render_logging(
+            tmp_path,
+            '  rich_tracebacks: "false"\n'
+            '  show_traceback_locals: "false"\n'
+            '  show_full_paths: "${OSPREY_TEST_UNSET_SHOW_PATHS:-false}"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is False
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
+
+    def test_switches_spelled_on_as_text_read_as_on(self, tmp_path, monkeypatch):
+        _render_logging(
+            tmp_path,
+            '  rich_tracebacks: "yes"\n  show_traceback_locals: "true"\n  show_full_paths: "on"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+        assert handler.tracebacks_show_locals is True
+        assert handler._log_render.show_path is True
+
+    def test_a_switch_spelling_neither_on_nor_off_falls_back_to_the_safe_defaults(
+        self, tmp_path, monkeypatch, collected
+    ):
+        """Start-up does not fail over a logging key: the handler renders by the
+        defaults, locals hidden and short paths, and the operator is told which key."""
+        _render_logging(tmp_path, '  show_traceback_locals: "maybe"\n  show_full_paths: "true"\n')
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
+        warnings = [r for r in collected.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "logging.show_traceback_locals" in warnings[0].getMessage()
+
+    def test_absent_switches_keep_their_defaults(self, tmp_path, monkeypatch):
+        _render_logging(tmp_path, "  level: INFO\n")
+        monkeypatch.chdir(tmp_path)
+
+        configure_logging()
+
+        (handler,) = _rich_handlers()
+        assert handler.rich_tracebacks is True
+        assert handler.tracebacks_show_locals is False
+        assert handler._log_render.show_path is False
 
     def test_a_named_config_that_does_not_exist_is_warned_about(
         self, tmp_path, monkeypatch, collected

@@ -22,6 +22,7 @@ import pytest
 
 from osprey.deployment.runtime_helper import ComposeProvider
 from tests._by_path import load_module
+from tests._scoped_stdlib import scoped
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ci" / "podman_compose.py"
 podman_compose = load_module("podman_compose", _SCRIPT)
@@ -118,7 +119,7 @@ def test_optional_pin_without_podman_skips_the_parse(tmp_path: Path) -> None:
 
 def test_parse_check_honours_the_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv(podman_compose.SKIP_VARIABLE, "1")
-    monkeypatch.setattr(podman_compose.subprocess, "run", _unexpected)
+    scoped(monkeypatch, podman_compose, "subprocess", run=_unexpected)
     assert podman_compose.parse_check(tmp_path / "parse-check") == 0
 
 
@@ -191,7 +192,7 @@ def _fake_osprey(monkeypatch: pytest.MonkeyPatch, *, returncode: int = 0) -> lis
         calls.append(argv)
         return subprocess.CompletedProcess(argv, returncode, _DOCUMENT, "")
 
-    monkeypatch.setattr(podman_compose.subprocess, "run", run)
+    scoped(monkeypatch, podman_compose, "subprocess", run=run)
     return calls
 
 

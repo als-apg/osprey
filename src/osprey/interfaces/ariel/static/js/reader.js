@@ -19,6 +19,7 @@
  */
 
 import { entriesApi, apiUrl } from './api.js';
+import { safeHref, originalHref } from './attachment-urls.js';
 import {
   formatTimestamp,
   renderLoading,
@@ -29,6 +30,7 @@ import {
 } from './components.js';
 import { renderEntryTextHtml, renderFacilityReferencesList } from './reader-facility.js';
 import { seam, place, renderActionButtons, renderTabStrip } from './reader-seam.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * The web terminal session key from the host's last `osprey-session-change`;
@@ -47,44 +49,6 @@ export {
   registerReaderAction,
   registerReaderKey,
 } from './reader-seam.js';
-
-/**
- * One of this API's attachment routes, relative to the API base: the original
- * (`/attachments/<id>`) or its rendition (`/attachments/<id>/rendition`). The
- * id is one plain path segment, never `.` or `..`.
- */
-const ATTACHMENT_ROUTE = /^\/attachments\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+(?:\/rendition)?$/;
-
-/**
- * Turn an attachment's `display_url` into a URL safe to place in an href or
- * src, else null. An absolute http(s) URL is kept unchanged; an attachment
- * route relative to the API base is joined to the page's API base, so it
- * resolves under whatever prefix the page is served from. Every other value
- * (javascript:, data:, vbscript:, protocol-relative //host, any other path)
- * is refused.
- * @param {unknown} u - Candidate URL
- * @returns {string|null} The URL to use, or null when it is not safe
- */
-export function safeHref(u) {
-  if (typeof u !== 'string') return null;
-  if (/^https?:\/\//i.test(u)) return u;
-  if (ATTACHMENT_ROUTE.test(u)) return apiUrl(u);
-  return null;
-}
-
-/**
- * The URL of the stored original behind a rendition `display_url`
- * (`/attachments/<id>/rendition` -> `/attachments/<id>`), made safe as by
- * `safeHref`, else null.
- * @param {unknown} displayUrl - The attachment's `display_url`
- * @returns {string|null} The original's URL, or null when there is none
- */
-export function originalHref(displayUrl) {
-  const suffix = '/rendition';
-  if (typeof displayUrl !== 'string' || !ATTACHMENT_ROUTE.test(displayUrl)) return null;
-  if (!displayUrl.endsWith(suffix)) return null;
-  return safeHref(displayUrl.slice(0, -suffix.length));
-}
 
 /**
  * Render one attachment as a thumbnail card or a file card. A thumbnail is
@@ -153,13 +117,15 @@ function renderAttachmentCard(att) {
 
 /**
  * @typedef {object} ReaderState
- * @property {number} seq - Bumped by every `showInReader`/`clearReader` call;
- *   only the newest call may render or open an attachment
+ * @property {ReturnType<typeof createLatestRequest>} loads - The `showInReader`
+ *   calls: a newer call or `clearReader` retires this one, and only the current
+ *   call may render or open an attachment
  * @property {boolean} delegated - Whether the click delegation is bound
  * @property {ReaderCallbacks} callbacks - Callbacks of the newest call
  * @property {HTMLElement|null} lightbox - The lightbox this container opened
  * @property {ReaderContext|null} ctx - The shown entry's seam context
- * @property {number} tabs - Bumped by every tab switch; only the newest renders
+ * @property {ReturnType<typeof createLatestRequest>} tabs - The tab switches:
+ *   only the newest renders
  */
 
 /** @type {WeakMap<HTMLElement, ReaderState>} */
@@ -173,7 +139,14 @@ const readers = new WeakMap();
 function readerState(container) {
   let state = readers.get(container);
   if (!state) {
-    state = { seq: 0, delegated: false, callbacks: {}, lightbox: null, ctx: null, tabs: 0 };
+    state = {
+      loads: createLatestRequest(),
+      delegated: false,
+      callbacks: {},
+      lightbox: null,
+      ctx: null,
+      tabs: createLatestRequest(),
+    };
     readers.set(container, state);
   }
   return state;
@@ -265,7 +238,7 @@ function openTab(container, id) {
   );
   const grid = /** @type {HTMLElement|null} */ (container.querySelector('.entry-detail-grid'));
   if (!ctx?.isCurrent() || !panel || !grid) return;
-  const open = ++state.tabs;
+  const open = state.tabs.begin();
   for (const b of container.querySelectorAll('[data-reader-tab]')) {
     b.setAttribute('aria-selected', String(b.getAttribute('data-reader-tab') === (tab?.id ?? '')));
   }
@@ -275,7 +248,7 @@ function openTab(container, id) {
   panel.hidden = !tab;
   if (!tab) return;
   panel.innerHTML = renderLoading(`Loading ${tab.label}...`);
-  place(ctx, tab.render, panel, () => state.tabs === open);
+  place(ctx, tab.render, panel, open.isCurrent);
 }
 
 /**
@@ -323,7 +296,7 @@ export async function showInReader(container, entryId, options = {}) {
     onFollowUp,
   } = options;
   const state = readerState(container);
-  const seq = ++state.seq;
+  const token = state.loads.begin();
   state.callbacks = { onAttachmentOpen, onAttachmentClose, onSelectEntry, onFollowUp };
   bindDelegation(container);
   container.innerHTML = renderLoading('Loading entry...');
@@ -334,14 +307,14 @@ export async function showInReader(container, entryId, options = {}) {
     entry = await entriesApi.get(entryId);
     if (!entry) throw new Error(`Entry ${entryId} not found`);
   } catch (error) {
-    if (seq !== state.seq) return null;
+    if (!token.isCurrent()) return null;
     console.error('Failed to load entry:', error);
     container.innerHTML = renderErrorState('Failed to Load Entry', error);
     return null;
   }
-  if (seq !== state.seq) return null;
+  if (!token.isCurrent()) return null;
   const id = String(entry.entry_id || entryId);
-  const isCurrent = () => seq === state.seq;
+  const { isCurrent } = token;
   const ctx = { container, entry, entryId: id, callbacks: state.callbacks, isCurrent };
   state.ctx = ctx;
   renderEntryDetail(container, entry);
@@ -370,8 +343,7 @@ export async function showInReader(container, entryId, options = {}) {
  * @param {HTMLElement} container
  */
 export function clearReader(container) {
-  const state = readerState(container);
-  state.seq += 1;
+  readerState(container).loads.cancel();
   container.innerHTML = '';
 }
 
@@ -469,7 +441,10 @@ export function renderEntryDetail(container, entry) {
   const attachments = entry.attachments || [];
   const time = formatTimestamp(entry.timestamp);
 
-  const { titleHtml, bodyHtml } = renderEntryTextHtml(entry);
+  const { titleHtml, bodyHtml, rendered } = renderEntryTextHtml(entry);
+  const bodyClass = rendered
+    ? 'entry-detail-text entry-detail-text--rendered'
+    : 'entry-detail-text';
   const references = renderFacilityReferencesList(entry.facility_references);
 
   container.innerHTML = `
@@ -494,7 +469,7 @@ export function renderEntryDetail(container, entry) {
         <div class="entry-detail-main">
           <div class="entry-detail-content">
             <h3>Content</h3>
-            <div class="entry-detail-text">${bodyHtml}</div>
+            <div class="${bodyClass}">${bodyHtml}</div>
           </div>
 
           ${

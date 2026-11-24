@@ -89,9 +89,20 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("src/osprey/deployment/web_terminals/env_production.py", "migrate_users_env"): (
         "renames an existing secrets file"
     ),
-    ("src/osprey/facility/layers/relations/__init__.py", "_replace"): (
+    ("packages/osprey-facility/src/osprey_facility/layers/relations/__init__.py", "_replace"): (
         "swaps a staged layer directory into place, setting the previous one aside"
     ),
+    ("packages/osprey-panels/src/osprey_panels/_files.py", "atomic_replace"): (
+        "the panel engine's own copy of the one way; the package may not import osprey_connectors"
+    ),
+    (
+        "packages/osprey-panels/tests/osprey_panels_tests/test_emit_safety.py",
+        "test_a_symlinked_view_directory_is_refused_and_nothing_outside_is_touched",
+    ): "a test moves a written view directory aside to plant a link in its place",
+    (
+        "packages/osprey-panels/tests/osprey_panels_tests/test_emit_safety.py",
+        "test_a_symlinked_view_directory_is_a_problem_for_check",
+    ): "a test moves a written view directory aside to plant a link in its place",
     ("src/osprey/integrations/canopy/push/verbs.py", "_promote_stage"): (
         "renames a checked stage directory into place"
     ),

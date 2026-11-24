@@ -3,8 +3,10 @@
 
 Both release workflows run this before they build anything:
 ``release.yml`` (framework ``v*`` tags) names the model-spending lanes, and
-``release-connectors.yml`` (``osprey-connectors-v*`` tags) names the lanes that
-prove the connectors package on its own. Nothing in either workflow runs a test,
+``release-package.yml`` (the ``osprey-connectors-v*``, ``osprey-facility-v*`` and
+``osprey-panels-v*`` tags) names the lanes that prove the tagged component
+package on its own, read from that stream's ``required_lanes`` in
+``scripts/ci/release_streams.py``. Nothing in either workflow runs a test,
 so without this a tag can publish a tree whose lanes never ran: every
 model-spending lane is gated on the ``full-ci`` label, and ``all-checks-passed``
 counts a conditionally skipped lane as a pass.

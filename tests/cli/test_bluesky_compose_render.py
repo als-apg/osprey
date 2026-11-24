@@ -239,7 +239,10 @@ def test_queueserver_runs_the_re_manager_on_the_bridge_image(rendered: dict[str,
     queueserver = rendered["services"]["queueserver"]
     bridge = rendered["services"]["bluesky-bridge"]
     assert queueserver["image"] == bridge["image"]
-    assert "exec start-re-manager" in _manager_argv(rendered)
+    assert (
+        "exec python -m osprey.services.bluesky_bridge.qserver_supervisor -- start-re-manager"
+        in _manager_argv(rendered)
+    )
 
 
 def test_queueserver_has_no_build_block(rendered: dict[str, Any]) -> None:

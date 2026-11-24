@@ -12,11 +12,12 @@
 import { copyText } from '/design-system/js/clipboard.js';
 import { icon } from '/design-system/js/icons.js';
 import { openInfoPopover } from '/design-system/js/info-popover.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { renderState } from '/design-system/js/panel-state.js';
 import { showToast } from '/design-system/js/toast.js';
 import { configurationText, pageHtml, skeletonHtml } from './archive-render.js';
 import { fetchArchiveSummary } from './directory-api.js';
-import { NO_TARGET } from './pv-page-sections.js';
+import { NO_TARGET } from './channel-page-sections.js';
 import { messageOf } from './utils.js';
 
 /** @typedef {import('./directory-api.js').ArchiveSummary} ArchiveSummary */
@@ -26,7 +27,7 @@ import { messageOf } from './utils.js';
  * @typedef {{
  *   root: HTMLElement,
  *   summary: ArchiveSummary|null,
- *   seq: number,
+ *   reads: ReturnType<typeof createLatestRequest>,
  *   controller: AbortController,
  * }} View
  */
@@ -51,7 +52,7 @@ export function mountArchive(container) {
   container.innerHTML = skeletonHtml();
   const root = /** @type {HTMLElement} */ (container.querySelector('.archive'));
   const controller = new AbortController();
-  view = { root, summary: null, seq: 0, controller };
+  view = { root, summary: null, reads: createLatestRequest(), controller };
   root.addEventListener('click', onClick, { signal: controller.signal });
   void read();
 }
@@ -68,14 +69,14 @@ export function unmountArchive() {
 async function read() {
   if (!view) return;
   const current = view;
-  const seq = ++current.seq;
+  const token = current.reads.begin();
   if (!current.summary) showState({ icon: 'database', message: 'Reading the archive' });
   /** @type {ArchiveSummary} */
   let summary;
   try {
     summary = await fetchArchiveSummary(current.controller.signal);
   } catch (err) {
-    if (view !== current || seq !== current.seq) return;
+    if (view !== current || !token.isCurrent()) return;
     current.summary = null;
     showState({
       icon: 'triangle-alert',
@@ -85,7 +86,7 @@ async function read() {
     });
     return;
   }
-  if (view !== current || seq !== current.seq) return;
+  if (view !== current || !token.isCurrent()) return;
   if (summary.outcome === 'unavailable') {
     current.summary = null;
     const message =

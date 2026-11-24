@@ -21,7 +21,8 @@ from osprey.apps.sdk.testing import (
     with_rf,
     write_tree,
 )
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 
 __all__ = [
     "LINE_GROUPS",
@@ -37,16 +38,16 @@ __all__ = [
 
 def built_document(root: Path, tree: Mapping[str, Any]) -> tuple[dict[str, Any], Path]:
     """Write ``tree`` under ``root/data/facility`` and build its facility file in memory."""
-    from osprey.facility.build import build_facility
+    from osprey_facility.build import build_facility
 
     facility = write_tree(root / "data" / "facility", copy.deepcopy(dict(tree)))
-    return build_facility(facility, project_name="demo"), facility
+    return build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS), facility
 
 
 def view_inputs(root: Path, tree: Mapping[str, Any], served: list[str] | None = None) -> Any:
     """The view inputs of a render serving ``served`` (every model when ``None``)."""
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
+    from osprey_facility.served import resolve_served
 
     document, facility = built_document(root, tree)
     config: dict[str, Any] = {} if served is None else {"simulation": {"models": served}}

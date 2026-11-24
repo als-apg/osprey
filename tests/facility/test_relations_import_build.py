@@ -29,9 +29,10 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.layers.relations import import_relations
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.layers.relations import import_relations
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._appendix_a import POLICY, appendix_a_tree, build_appendix_a
 from tests.facility._synthetic_trees import write_tree
 
@@ -160,7 +161,9 @@ def _import_appendix(
 
 
 def _build(facility: Path) -> StageReport:
-    report = run_stages(facility, project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        facility, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.failed is None, [e.format_message() for e in report.errors]
     return report
 
@@ -360,7 +363,9 @@ class TestScale:
         imported = time.perf_counter() - start
 
         start = time.perf_counter()
-        report = run_stages(facility, project_name="p", later=LATER_STAGES)
+        report = run_stages(
+            facility, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         validated = time.perf_counter() - start
 
         assert report.failed is None, [e.format_message() for e in report.errors]

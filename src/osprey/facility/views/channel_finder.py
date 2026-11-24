@@ -88,7 +88,7 @@ every device it is an ``endpoint_of``, and so to every Family holding one of
 those devices. A channel's field is its signal. A Field lists, for each member
 in ``CommonNames`` order (members by ``s``, then id), its one channel with that
 signal, so ``ChannelNames`` aligns with ``DeviceList``, and is described by the
-vocabulary's sentence for the signal, else by the description its channels
+signal-role table's sentence for the signal, else by the description its channels
 share; a channel whose signal some member lacks or holds twice, or that has no
 signal, is its own Field keyed by its address and described by the channel.
 ``_setup`` is derived from the members, never read from them: ``CommonNames``
@@ -125,9 +125,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE
-from osprey.facility.records import FacilityRecords, is_family
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
+from osprey_facility import DEFAULT_ROLE
+from osprey_facility.records import FacilityRecords, is_family
 
 __all__ = [
     "ABSENT",
@@ -224,8 +224,8 @@ def _pipeline_mode(inputs: ViewInputs) -> str | None:
 
 def _mode_unsupported(detail: str, remedy: str) -> Exception:
     """The ``view-unsupported`` stop on the rendered ``channel_finder.pipeline_mode``."""
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.served import CONFIG_SOURCE
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.served import CONFIG_SOURCE
 
     return FacilityBuildError(
         "view-unsupported",
@@ -284,8 +284,8 @@ def _unsupported(
     record: Mapping[str, Any], record_kind: str, detail: str, remedy: str
 ) -> Exception:
     """The ``view-unsupported`` stop naming one facility record."""
-    from osprey.facility.errors import FacilityBuildError
-    from osprey.facility.validate import stating_files
+    from osprey_facility.errors import FacilityBuildError
+    from osprey_facility.validate import stating_files
 
     return FacilityBuildError(
         "view-unsupported",
@@ -475,7 +475,7 @@ def _place_keys(
 
 
 def _class_descriptions(records: FacilityRecords) -> dict[str, str]:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     descriptions = {
         str(row["name"]): str(row["description"])
@@ -887,10 +887,8 @@ def _setup(members: Sequence[Mapping[str, Any]], indices: Mapping[str, int]) -> 
 
 
 def _signal_descriptions(records: FacilityRecords) -> dict[str, str]:
-    """Each signal role's description: the vocabulary's and the facility-added ones."""
-    from osprey.facility.validate import vocabulary
-
-    rows = [*vocabulary()["signal_roles"], *(records.document.get("signals") or [])]
+    """Each signal role's description, from the document's signal-role table."""
+    rows = records.document.get("signals") or []
     return {str(row["name"]): str(row["description"]) for row in rows if row.get("description")}
 
 
@@ -913,7 +911,7 @@ def _family_fields(
 
     A channel's field key is its signal. A signal every member holds exactly
     once is one Field listing the members' channels in member order, described
-    by the vocabulary's sentence for the signal, else by the description its
+    by the signal-role table's sentence for the signal, else by the description its
     channels share. Every other channel, and one with no signal, is its own
     Field keyed by its address and described by the channel.
 

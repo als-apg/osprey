@@ -34,14 +34,14 @@ BINDING = corpora.BINDING
 
 #: Store-verified counts for the demo build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
-#: ``DEMO_DEVICES`` counts every binding owner: the 1016 typed devices and the
+#: ``DEMO_DEVICES`` counts every binding owner: the 1024 typed devices and the
 #: top place ``SR``, which carries the tune, chromaticity, user beam mode
 #: and operation-mode channels itself.
-DEMO_DEVICES = 1017
-DEMO_TYPED_DEVICES = 1016
-DEMO_BINDINGS = 4731
-DEMO_WRITE_ONLY = 674
-DEMO_READ_ONLY = 4052
+DEMO_DEVICES = 1025
+DEMO_TYPED_DEVICES = 1024
+DEMO_BINDINGS = 4765
+DEMO_WRITE_ONLY = 677
+DEMO_READ_ONLY = 4083
 DEMO_MAGNETS = 480
 #: 47 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
 #: ``ChannelBinding`` and the eight infrastructure classes whose devices bind no
@@ -500,7 +500,6 @@ class TestTheBuildsGraphView:
                 "SR",
                 "BR",
                 "BTS",
-                "LINE",
                 "GTL",
                 "LN",
                 "LTB",

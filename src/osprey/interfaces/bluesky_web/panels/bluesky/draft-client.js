@@ -39,6 +39,7 @@
 
 import { flashElement } from '/design-system/js/highlight.js';
 import { uuid4 } from '/design-system/js/uuid.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /**
  * @typedef {object} DraftSnapshot
@@ -987,12 +988,12 @@ export function createDraftClient(deps) {
   let inFlightFlush = null;
   /** @type {ReturnType<typeof setTimeout>|null} */
   let agentNoteTimer = null;
-  // Bumped on every `GET /draft` fetch this client initiates (bind, resync,
-  // gap-recovery, a 409's drop+resync). A late-resolving fetch whose epoch
-  // has since been superseded by a newer one is discarded rather than
+  // The `GET /draft` fetches this client initiates (bind, resync,
+  // gap-recovery, a 409's drop+resync): a newer one retires this one. A
+  // late-resolving fetch that is no longer current is discarded rather than
   // applied — otherwise a slow resync could reset the baseline BACKWARD over
   // a snapshot a more recent call already applied.
-  let resyncEpoch = 0;
+  const resyncs = createLatestRequest();
 
   function renderBoundIndicator() {
     deps.onBoundChange(state.bound);
@@ -1041,7 +1042,7 @@ export function createDraftClient(deps) {
   /**
    * Fetch a fresh `GET /draft` snapshot and apply it via `reduceReset` —
    * unless a newer resync/bind was started while this fetch was in flight
-   * (see `resyncEpoch` above), in which case this call's snapshot is
+   * (see `resyncs` above), in which case this call's snapshot is
    * discarded and `state` is left untouched for the newer call to own. A
    * failed fetch (e.g. a transient bridge-unreachable 502) is likewise
    * absorbed here rather than thrown — every caller of this helper is either
@@ -1053,7 +1054,7 @@ export function createDraftClient(deps) {
    * @returns {Promise<boolean>} whether this call's snapshot was applied.
    */
   async function fetchAndApplyReset() {
-    const myEpoch = ++resyncEpoch;
+    const token = resyncs.begin();
     /** @type {DraftGetResponse} */
     let snapshot;
     try {
@@ -1061,7 +1062,7 @@ export function createDraftClient(deps) {
     } catch {
       return false;
     }
-    if (myEpoch !== resyncEpoch) return false;
+    if (!token.isCurrent()) return false;
     state = reduceReset(state, snapshot);
     return true;
   }
@@ -1263,15 +1264,15 @@ export function createDraftClient(deps) {
     }
 
     if (action.type === 'reset') {
-      // A hello frame is itself a baseline reset — bump the epoch so any
+      // A hello frame is itself a baseline reset — retire the resyncs so any
       // still-in-flight `fetchAndApplyReset()` (an earlier bind/resync) is
       // treated as superseded and can never later overwrite THIS newer
       // baseline with a stale snapshot (mirrors why `fetchAndApplyReset`
-      // itself bumps the epoch before every fetch it starts; without this,
+      // itself retires the previous resync before every fetch it starts; without this,
       // a slow fetch resolving after a post-restart hello could roll the
       // revision counter backward and silently drop every subsequent frame
       // as "stale" until the next reconnect).
-      resyncEpoch++;
+      resyncs.cancel();
       await afterReset(prevState);
       return;
     }

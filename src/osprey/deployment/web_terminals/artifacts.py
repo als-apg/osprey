@@ -53,6 +53,8 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_archiver_credentials,
     renders_needing_ariel_mirror,
     renders_needing_ariel_password,
+    renders_needing_channel_directory_ca_bundles,
+    renders_needing_channel_directory_credentials,
     renders_needing_dispatcher_token,
     renders_needing_facility_bundle,
     renders_needing_graphdb_password,
@@ -1212,6 +1214,10 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
     Raises:
         BashLaunchTokenConflictError: See :func:`check_bash_launch_token_conflict`.
         OpenModeEgressError: See :func:`check_open_mode_requirements`.
+        FacilityFileError: The build's facility file cannot be read, carries a
+            header this reader does not read, or names no identity code; the
+            deploy refuses before rendering, and the message names the rebuild
+            (:func:`osprey.utils.facility.facility_name`).
     """
     from osprey.deployment.compose_generator import (
         resolve_ariel_mirror_dir,
@@ -1240,6 +1246,12 @@ def resolve_render_inputs(config: Any, repo_root: Path | str) -> dict[str, Any]:
         "graphdb_renders": renders_needing_graphdb_password(config, root),
         "archiver_credential_renders": renders_needing_archiver_credentials(config, root),
         "archiver_ca_bundle_renders": renders_needing_archiver_ca_bundles(config, root),
+        "channel_directory_credential_renders": renders_needing_channel_directory_credentials(
+            config, root
+        ),
+        "channel_directory_ca_bundle_renders": renders_needing_channel_directory_ca_bundles(
+            config, root
+        ),
         "facility_bundle_renders": renders_needing_facility_bundle(config, root),
         # A pure read, like every other disk-derived input here: the deploy path
         # provisions the bundle directory before this render (see

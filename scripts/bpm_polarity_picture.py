@@ -42,8 +42,8 @@ from typing import Any
 
 import numpy as np
 
-from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH, Binding, SimulatorView
+from osprey_facility.records import FacilityRecords
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE_FACILITY = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -80,12 +80,15 @@ class BumpTest:
 
 def render_simulator_view(facility_dir: Path, root: Path) -> Path:
     """Write ``facility_dir``'s simulator view to ``root`` and return ``root``."""
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey.registry.scenario_servers import check_scenario_servers
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
-    doc = build_facility(facility_dir, project_name="example")
+    doc = build_facility(
+        facility_dir, project_name="example", extra_checks=(check_scenario_servers,)
+    )
     config = {"control_system": {"type": "virtual_accelerator"}}
     records = FacilityRecords(doc)
     write_simulator_view(
@@ -120,8 +123,8 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     """
     import at
 
-    from osprey.simulation.engines.calibration import curve_from_record, to_physics
     from osprey.simulation.engines.pyat import response_matrix
+    from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
     scenarios = view.scenarios()
     (entry,) = [s for s in scenarios if s["name"] == scenario]

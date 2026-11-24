@@ -1,13 +1,13 @@
 """Read API over an OKF knowledge bundle directory.
 
 A bundle is a directory tree of ``.md`` files whose structure follows the
-Open Knowledge Format specification (OKF §§2–6).  This module exposes
+Open Knowledge Format specification (OKF §§2–8).  This module exposes
 three operations:
 
 * :py:meth:`OKFBundle.list_concepts` — lightweight listing from ``index.md``
-  without reading every document body (OKF §6, progressive disclosure).
+  without reading every document body (OKF §8, progressive disclosure).
 * :py:meth:`OKFBundle.read_concept` — load a single concept by ID; broken
-  cross-links in the body are tolerated (OKF §9).
+  cross-links in the body are tolerated (OKF §6.1).
 * :py:meth:`OKFBundle.search` — ranked retrieval through the qmd sidecar when
   one is deployed and answering, and a case-insensitive substring scan when it
   is not.
@@ -56,12 +56,15 @@ from typing import Any
 from urllib.parse import unquote
 
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
+from osprey.services.facility_knowledge.okf.paths import (
+    RESERVED_NAMES,
+    bundle_markdown_files,
+    concept_id_of_link,
+    load_concept,
+)
 from osprey.services.qmd import QMDClient, QMDClientError
 
 logger = logging.getLogger(__name__)
-
-# Reserved filenames that are never concepts (OKF §3.1).
-_RESERVED_NAMES: frozenset[str] = frozenset({"index.md", "log.md"})
 
 # index.md link pattern: Markdown links of the form [title](path)
 _INDEX_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
@@ -234,31 +237,53 @@ class OKFBundle:
         """List all concepts via the bundle's ``index.md`` files.
 
         Reads only ``index.md`` files (progressive disclosure — no full doc
-        reads), then falls back to a filesystem scan for any ``.md`` files
-        not covered by an index.
+        reads) for the concepts they list, then reads the frontmatter of any
+        ``.md`` file no index covers to tell whether it is a concept (OKF
+        §3.2): a file without a ``type``, such as a ``README.md``, is not. A
+        page whose frontmatter does not parse is still listed, under its
+        filename, so that a broken page is reported rather than lost.
 
         Returns:
             Entries in no guaranteed order; callers should sort as needed.
         """
         seen: set[str] = set()
         entries: list[ConceptEntry] = []
+        files = list(bundle_markdown_files(self.root))
 
         # Primary: walk every index.md in the tree for fast enumeration.
-        for idx in self.root.rglob("index.md"):
-            dir_entries = _parse_index(idx)
-            for e in dir_entries:
+        for idx in files:
+            if idx.name != "index.md":
+                continue
+            for e in _parse_index(self.root, idx):
                 if e.concept_id not in seen:
                     seen.add(e.concept_id)
                     entries.append(e)
 
-        # Fallback: any .md file not covered by the index scan above.
-        for md in self.root.rglob("*.md"):
-            if md.name in _RESERVED_NAMES:
+        # Fallback: any concept not covered by the index scan above.
+        for md in files:
+            if md.name in RESERVED_NAMES:
                 continue
             cid = _path_to_concept_id(self.root, md)
-            if cid not in seen:
+            if cid in seen:
+                continue
+            try:
+                doc = load_concept(md)
+            except (OKFDocumentError, OSError):
                 seen.add(cid)
                 entries.append(ConceptEntry(concept_id=cid, title=md.stem))
+                continue
+            if doc is None:
+                continue
+            seen.add(cid)
+            fm = doc.frontmatter
+            entries.append(
+                ConceptEntry(
+                    concept_id=cid,
+                    title=str(fm.get("title") or md.stem),
+                    description=str(fm.get("description") or ""),
+                    type=str(fm["type"]),
+                )
+            )
 
         return entries
 
@@ -266,7 +291,7 @@ class OKFBundle:
         """Read and parse a concept document by its OKF §2 ID.
 
         Cross-links embedded in the body may point to documents that do not
-        exist in this bundle; this is legal (OKF §9) and the document is
+        exist in this bundle; this is legal (OKF §6.1) and the document is
         returned as-is without resolving links.
 
         Args:
@@ -329,8 +354,9 @@ class OKFBundle:
         Falling back is silent when the deployment has no sidecar, and logs one
         warning — not one per query — when it has one that is not answering.
 
-        ``index.md`` and ``log.md`` are never returned by either backend, and
-        neither is a path that resolves outside the bundle root.
+        Only concepts are returned (OKF §3.2): never ``index.md`` or
+        ``log.md``, a file without a ``type``, a path below a name starting
+        with ``.``, or one that resolves outside the bundle root.
 
         Args:
             query: Query text. Natural language when qmd answers; a literal
@@ -366,7 +392,8 @@ class OKFBundle:
 
         A hit is dropped rather than raised on when it does not name a concept
         this bundle can serve — a reserved file, a path outside the root, a
-        document deleted since it was indexed, or one that no longer parses.
+        document deleted since it was indexed, one that no longer parses, or a
+        file that is not a concept.
         The index is a copy of the filesystem and is allowed to lag it.
 
         The daemon normalises the paths it reports, so mapping one back is not
@@ -414,8 +441,10 @@ class OKFBundle:
                 logger.warning("qmd returned a path outside the bundle root: %r", hit.file)
                 continue
             try:
-                doc = OKFDocument.parse(path.read_text(encoding="utf-8"))
+                doc = load_concept(path)
             except (OKFDocumentError, OSError):
+                continue
+            if doc is None:
                 continue
             seen.add(concept_id)
             results.append(
@@ -442,15 +471,14 @@ class OKFBundle:
         needle = query.casefold()
         results: list[OKFSearchResult] = []
 
-        for md in sorted(self.root.rglob("*.md")):
+        for md in bundle_markdown_files(self.root):
             if len(results) >= limit:
                 break
-            if md.name in _RESERVED_NAMES:
-                continue
             try:
-                text = md.read_text(encoding="utf-8")
-                doc = OKFDocument.parse(text)
+                doc = load_concept(md)
             except (OKFDocumentError, OSError):
+                continue
+            if doc is None:
                 continue
 
             haystack = _doc_haystack(doc)
@@ -555,14 +583,17 @@ def _qmd_file_to_concept_id(
 
     Returns:
         The concept ID, or ``None`` when the path names no concept — empty, a
-        reserved OKF §3.1 filename, or a normalised name that no concept (or
-        more than one) can be recovered from.
+        reserved OKF §3.1 filename, a path below a name starting with ``.``,
+        or a normalised name that no concept (or more than one) can be
+        recovered from.
     """
     raw = unquote(file).strip().lstrip("/")
     if not raw:
         return None
     posix = PurePosixPath(raw)
-    if not posix.name or posix.name in _RESERVED_NAMES:
+    if not posix.name or posix.name in RESERVED_NAMES:
+        return None
+    if any(part.startswith(".") for part in posix.parts):
         return None
     concept_id = posix.with_suffix("").as_posix() if posix.suffix else posix.as_posix()
     if not concept_id:
@@ -640,8 +671,8 @@ def _normalised_concept_index(root: Path) -> dict[str, list[str]]:
         Normalisation key to the sorted concept IDs that fold onto it.
     """
     index: dict[str, list[str]] = {}
-    for path in root.rglob("*.md"):
-        if path.name in _RESERVED_NAMES:
+    for path in bundle_markdown_files(root):
+        if path.name in RESERVED_NAMES:
             continue
         concept_id = _path_to_concept_id(root, path)
         index.setdefault(_normalised_key(concept_id), []).append(concept_id)
@@ -679,14 +710,17 @@ def _recover_normalised_concept_id(index: dict[str, list[str]], reported: str) -
     return None
 
 
-def _parse_index(index_path: Path) -> list[ConceptEntry]:
+def _parse_index(root: Path, index_path: Path) -> list[ConceptEntry]:
     """Extract concept entries from a single ``index.md`` file.
 
-    The index format used by the OKF index generator is a Markdown list of
-    links (``* [title](path)``).  We parse those links and build lightweight
-    entries without reading the linked files.
+    An index is a Markdown list of links (``* [title](path)``).  We parse
+    those links and build lightweight entries without reading the linked
+    files.  Each link resolves by OKF §6: from the bundle root when it starts
+    with ``/`` — the form the index generator writes — and from the index's
+    own directory otherwise.
 
     Args:
+        root: Bundle root.
         index_path: Path to the ``index.md`` to parse.
 
     Returns:
@@ -697,25 +731,19 @@ def _parse_index(index_path: Path) -> list[ConceptEntry]:
     except OSError:
         return []
 
+    source_dir = index_path.parent.relative_to(root).as_posix()
+    if source_dir == ".":
+        source_dir = ""
+
     entries: list[ConceptEntry] = []
     for match in _INDEX_LINK_RE.finditer(text):
         title = match.group(1).strip()
         href = match.group(2).strip()
 
-        # Skip external links and directory links (trailing /).
-        if href.startswith("http") or href.endswith("/"):
+        # External links, directories and assets name no concept.
+        concept_id = concept_id_of_link(href, source_dir=source_dir)
+        if concept_id is None:
             continue
-
-        # Normalise: strip leading slash, strip .md suffix.
-        clean = href.lstrip("/")
-        clean = clean.removesuffix(".md")
-        if not clean:
-            continue
-
-        # Resolve relative to the index's directory for nested indexes.
-        # OKF index hrefs are bundle-root-relative (leading slash stripped).
-        # We use them as-is since the generator writes root-relative paths.
-        concept_id = clean
 
         # Extract optional description: text after " - " on the same line.
         line_start = text.rfind("\n", 0, match.start()) + 1

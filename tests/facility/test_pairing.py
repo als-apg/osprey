@@ -11,8 +11,18 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.pairing import derive_pairs, signal_quantity
-from osprey.facility.validate import StageReport, run_stages, vocabulary
+from osprey_facility.pairing import (
+    FOLLOWED_DEFAULT,
+    FOLLOWED_SEED,
+    NOT_FOLLOWED,
+    derive_pairs,
+    follow_totals,
+    pair_follows,
+    signal_quantity,
+    simulated_pairs,
+)
+from osprey_facility.validate import StageReport, run_stages, vocabulary
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import TREES, BuiltModel
 
 EXAMPLE = Path(__file__).parents[2] / "src" / "osprey" / "templates" / "facilities" / "example"
@@ -39,6 +49,12 @@ PAIRINGS = {
     ("lamp_command", "lamp_status"),
     ("power_on_command", "power_on_status"),
     ("screen_in_command", "screen_in_status"),
+    ("temperature_lolo_limit_setpoint", "temperature_lolo_limit_readback"),
+    ("temperature_lo_limit_setpoint", "temperature_lo_limit_readback"),
+    ("temperature_hi_limit_setpoint", "temperature_hi_limit_readback"),
+    ("temperature_hihi_limit_setpoint", "temperature_hihi_limit_readback"),
+    ("normalized_strength_setpoint", "normalized_strength_readback"),
+    ("kick_angle_setpoint", "kick_angle_readback"),
 }
 
 #: The write-side signals no readback of the vocabulary shares a quantity with.
@@ -87,6 +103,180 @@ def test_a_signal_without_a_role_word_of_its_side_has_no_quantity() -> None:
     assert signal_quantity("position_offset", "readback") is None
     assert signal_quantity("status", "readback") is None
     assert signal_quantity(None, "setpoint") is None
+
+
+# --- simulated_pairs -------------------------------------------------------------------
+
+
+def test_the_simulation_follows_a_readback_only_from_its_one_setpoint() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_sp("SET", pair="SHARED"),
+        **_sp("RESET", pair="SHARED"),
+        **_sp("SELF", pair="SELF"),
+        **_sp("NONE"),
+        **_rb("RB"),
+        **_rb("SHARED"),
+    }
+    assert simulated_pairs(channels) == {"RB": "SP"}
+
+
+def test_the_simulation_follows_no_readback_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", value_type="enum", options=["Idle", "On"]),
+        **_rb("STS", "power_on_status", value_type="bool"),
+    }
+    assert simulated_pairs(channels) == {}
+
+
+def _follows(channels: dict[str, Any]) -> dict[tuple[str, str], tuple[str, str]]:
+    return {(f.setpoint, f.readback): (f.follow, f.why) for f in pair_follows(channels)}
+
+
+def test_each_pair_says_whether_the_simulation_follows_it_and_why() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_sp("SET", pair="SHARED"),
+        **_sp("RESET", pair="SHARED"),
+        **_sp("SELF", pair="SELF"),
+        **_sp("NONE"),
+        **_sp("CMD", "power_on_command", pair="STS", value_type="enum", options=["Idle", "On"]),
+        **_rb("RB"),
+        **_rb("SHARED"),
+        **_rb("STS", "power_on_status", value_type="bool"),
+    }
+    assert _follows(channels) == {
+        ("SP", "RB"): (
+            FOLLOWED_DEFAULT,
+            "one setpoint names the readback and the two hold values of one type",
+        ),
+        ("SET", "SHARED"): (NOT_FOLLOWED, "several setpoints name the readback"),
+        ("RESET", "SHARED"): (NOT_FOLLOWED, "several setpoints name the readback"),
+        ("CMD", "STS"): (
+            NOT_FOLLOWED,
+            "the setpoint and the readback hold values of different types",
+        ),
+    }
+    assert follow_totals(pair_follows(channels)) == {
+        FOLLOWED_DEFAULT: 1,
+        FOLLOWED_SEED: 0,
+        NOT_FOLLOWED: 3,
+    }
+
+
+def test_a_readback_seed_follows_none_stops_a_followed_pair() -> None:
+    channels = {**_sp("SP", pair="RB"), **_rb("RB", simulation={"follows": "none"})}
+    assert _follows(channels) == {("SP", "RB"): (NOT_FOLLOWED, "the readback's seed follows none")}
+    assert simulated_pairs(channels) == {}
+
+
+def test_a_readback_seed_naming_its_setpoint_makes_the_pair_followed() -> None:
+    channels = {
+        **_sp("SP", pair="RB"),
+        **_rb("RB", simulation={"follows": "SP", "noise": {"absolute": 0.1}}),
+    }
+    assert _follows(channels) == {
+        ("SP", "RB"): (FOLLOWED_SEED, "the readback's seed follows this setpoint")
+    }
+    assert simulated_pairs(channels) == {"RB": "SP"}
+
+
+def _index_follow(setpoint: dict[str, Any]) -> Any:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", **setpoint),
+        **_rb(
+            "STS",
+            "power_on_status",
+            value_type="enum",
+            options=["Off", "On"],
+            simulation={"follows": "CMD"},
+        ),
+    }
+    (follow,) = pair_follows(channels)
+    return follow, simulated_pairs(channels)
+
+
+def test_a_seed_follows_a_labelled_setpoint_of_other_labels_by_index() -> None:
+    follow, simulated = _index_follow({"value_type": "bool", "options": ["Clear", "Set"]})
+    assert (follow.follow, follow.copy) == (FOLLOWED_SEED, "index")
+    assert follow.labels == [["Clear", "Off"], ["Set", "On"]]
+    assert follow.why == "the readback's seed follows this setpoint; the state is copied by index"
+    assert simulated == {"STS": "CMD"}
+
+
+def test_a_seed_follows_a_number_setpoint_by_index() -> None:
+    follow, simulated = _index_follow({"value_type": "float"})
+    assert (follow.follow, follow.copy) == (FOLLOWED_SEED, "index")
+    assert follow.labels == [[0, "Off"], [1, "On"]]
+    assert simulated == {"STS": "CMD"}
+
+
+@pytest.mark.parametrize(
+    ("setpoint", "why"),
+    [
+        (
+            {"value_type": "enum", "options": ["A", "B", "C"]},
+            "the setpoint and the readback hold different numbers of labels",
+        ),
+        ({"value_type": "string"}, "the setpoint holds neither labels nor a number"),
+    ],
+    ids=["label-count", "string"],
+)
+def test_a_seed_cannot_follow_by_index_without_a_state_for_each_label(
+    setpoint: dict[str, Any], why: str
+) -> None:
+    follow, simulated = _index_follow(setpoint)
+    assert (follow.follow, follow.copy, follow.why) == (NOT_FOLLOWED, None, why)
+    assert simulated == {}
+
+
+def test_without_a_seed_differing_labels_are_not_followed() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", value_type="bool", options=["Clear", "Set"]),
+        **_rb("STS", "power_on_status", value_type="bool", options=["Off", "On"]),
+    }
+    (follow,) = pair_follows(channels)
+    assert (follow.follow, follow.copy) == (NOT_FOLLOWED, None)
+
+
+def test_a_followed_pair_of_one_type_copies_its_value() -> None:
+    (follow,) = pair_follows({**_sp("SP", pair="RB"), **_rb("RB")})
+    assert (follow.follow, follow.copy, follow.labels) == (FOLLOWED_DEFAULT, "value", None)
+
+
+@pytest.mark.parametrize(
+    ("setpoint", "seed"),
+    [
+        pytest.param({"value_type": "bool"}, None, id="default"),
+        pytest.param({"value_type": "bool"}, {"follows": "CMD"}, id="seed"),
+        pytest.param({"value_type": "int"}, {"follows": "CMD"}, id="seed-by-index"),
+    ],
+)
+def test_a_readback_that_states_idle_is_followed_from_no_setpoint(
+    setpoint: dict[str, Any], seed: dict[str, Any] | None
+) -> None:
+    status: dict[str, Any] = {"value_type": "bool", "idle": "OFF"}
+    if seed is not None:
+        status["simulation"] = seed
+    channels = {
+        **_sp("CMD", "power_on_command", pair="STS", **setpoint),
+        **_rb("STS", "power_on_status", **status),
+    }
+    assert _follows(channels) == {("CMD", "STS"): (NOT_FOLLOWED, "the readback states `idle`")}
+    assert simulated_pairs(channels) == {}
+
+
+def test_a_command_pairs_with_its_status_of_another_type() -> None:
+    channels = {
+        **_sp("CMD", "power_on_command", value_type="enum", options=["Idle", "On", "Off"]),
+        **_rb("STS", "power_on_status", value_type="enum", options=["Unknown", "Off", "On"]),
+    }
+    assert derive_pairs(channels) == {"CMD": "STS"}
+
+
+def test_a_setpoint_and_readback_of_another_type_do_not_pair() -> None:
+    channels = {**_sp("SP", value_type="int"), **_rb("RB")}
+    assert derive_pairs(channels) == {}
 
 
 # --- derive_pairs ----------------------------------------------------------------------
@@ -181,7 +371,9 @@ def _write(root: Path, files: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", files), project_name="my proj")
+    return run_stages(
+        _write(tmp_path / "facility", files), project_name="my proj", extra_checks=FRAMEWORK_CHECKS
+    )
 
 
 def _channels(result: StageReport) -> dict[str, dict[str, Any]]:
@@ -285,12 +477,14 @@ def test_the_demo_pairs_are_the_derived_pairs(tmp_path: Path) -> None:
     def pairs(root: Path) -> dict[str, str]:
         return {
             address: channel["pair"]
-            for address, channel in _channels(run_stages(root, project_name="demo")).items()
+            for address, channel in _channels(
+                run_stages(root, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
+            ).items()
             if channel["role"] == "setpoint"
         }
 
     authored = pairs(stated)
-    assert len(authored) == 674
+    assert len(authored) == 677
     derived_pairs = pairs(derived)
     assert {address: derived_pairs[address] for address in STATED_ONLY} == {
         address: address for address in STATED_ONLY

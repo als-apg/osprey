@@ -139,6 +139,7 @@ export const TOOL_PHRASES = Object.freeze({
   // Facility knowledge.
   list_concepts: 'browsing facility knowledge',
   read_concept: 'reading facility knowledge',
+  view_asset: 'viewing a facility knowledge image',
   draft_concept: 'drafting a facility note',
 
   // Health.

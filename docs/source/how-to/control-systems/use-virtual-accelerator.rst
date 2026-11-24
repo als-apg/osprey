@@ -534,6 +534,114 @@ A pyAT lattice
 ``decks/<model>.json``, and the container builds the model from that copy when
 ``simulation.models`` serves it. No code and no image are involved.
 
+.. _va-rf-setpoints:
+
+RF setpoints
+------------
+
+A wiring record on a cavity element sets one of three cavity attributes, in
+pyAT's words: ``Frequency`` (Hz), ``Voltage`` (V) and ``TimeLag`` (m). Each is
+a setpoint written through the record's calibration, and a record of
+direction ``read`` on the same element and attribute reads it back. With
+invented addresses, for a ring whose RF wavelength is 0.6 m:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     wiring:
+       - address: RING:RF:FREQ:SP
+         element: CAV
+         engine: {attribute: Frequency}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MHz
+       - address: RING:RF:VOLT:SP
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}  # MV
+       - address: RING:RF:VOLT:RB
+         element: CAV
+         engine: {attribute: Voltage}
+         calibration: {curve: {linear: {gain: 1.0e6, offset: 0.0}}}
+       - address: RING:RF:PHASE:SP
+         element: CAV
+         engine: {attribute: TimeLag}
+         calibration: {curve: {linear: {gain: 1.6667e-3, offset: 0.0}}}  # deg
+
+- **Phase is a calibration.** pyAT states a cavity's phase as a time lag, the
+  length by which the cavity's wave lags the reference particle. One RF
+  wavelength is 360 degrees, so a phase setpoint in degrees is a linear curve
+  of gain ``wavelength / 360``.
+- **Several cavities.** A record naming ``slices`` writes every cavity it
+  lists. A frequency or a time lag lands in full on each. A voltage lands
+  times the slice's ``weight``, so a setpoint that is the total over two
+  cavities states ``weight: 0.5`` on each.
+- **The RF switch.** On a turn-by-turn ring (:ref:`va-turn-by-turn`) the
+  ``rf_switch`` and a voltage setpoint work together: the setpoint reads what
+  was commanded whether the RF is on or off, a voltage written while the RF
+  is off is delivered when it is switched on, and a voltage of ``0`` is not
+  a switched-off RF.
+
+Each RF setpoint carries one fault (:ref:`how-to-run-scenarios`), in the
+setpoint's own unit: ``cal_offset`` on a frequency (a frequency offset) and on
+a time lag (a phase offset), ``cal_factor`` on a voltage (a scale error). The
+cavity gets the faulty value; the setpoint and its readback show what was
+commanded.
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       RING:RF:PHASE:SP: {cal_offset: 30.0}
+       RING:RF:VOLT:SP: {cal_factor: 1.02}
+       RING:RF:FREQ:SP: {cal_offset: 1.0e-4}
+
+.. _va-radiation:
+
+A radiating ring
+----------------
+
+A pyAT deck radiates through the pass methods of its elements. A deck that
+states radiating pass methods is tracked as written. For a deck that does
+not, the model's ``pyat`` settings can switch radiation on:
+
+.. code-block:: yaml
+
+   - name: RING
+     engine: pyat
+     deck: decks/RING.json
+     settings:
+       pyat:
+         radiation: true
+
+With ``radiation: true`` every bend, quadrupole, sextupole, octupole,
+multipole and wiggler of the model's copy of the deck gets its radiating
+pass method. The cavities and the deck file stay as they are. The key is a
+``true`` or ``false``; absent or ``false`` leaves the deck's own pass methods,
+so it does not strip a deck that already radiates. A ``single_pass`` model
+refuses ``true``.
+
+What changes:
+
+- The beam loses energy in every magnet and the cavity makes it up. The
+  closed orbit is the six-dimensional one at the synchronous phase, where
+  the cavity returns the energy lost per turn, and it carries the small
+  horizontal sawtooth of an energy that falls between cavities.
+- The orbit readings, the optics and the response matrix are those of the
+  radiating ring. Tracked motion is damped. The radiation is the mean energy
+  loss, without quantum excitation: a tracked bunch does not grow to an
+  equilibrium size.
+- A voltage below the energy loss per turn leaves no closed orbit. A ring
+  refuses the write that takes it there and keeps its last value; a
+  turn-by-turn ring (:ref:`va-turn-by-turn`) accepts it and its orbit
+  readings read NaN.
+- With the RF off on a turn-by-turn ring, a tracked bunch loses the energy
+  loss per turn every turn. It moves inwards by the dispersion times the
+  relative energy lost, and it is lost where that reaches a declared
+  aperture.
+- A closed-orbit solve costs several times that of the same deck without
+  radiation; tracking a shot costs about the same.
+
 .. _va-injection-chain:
 
 An injection chain
@@ -604,9 +712,45 @@ its channel:
 - ``busy``: the cycle signal, high for ``width_s`` every ``period_s`` whether
   or not a shot runs.
 
-Shots run only in the container: in process the chain serves its start
-values and a request starts nothing. What scenarios and channel faults do to
-a chain is in :ref:`scenario-channel-faults`.
+What scenarios and channel faults do to a chain is in
+:ref:`scenario-channel-faults`.
+
+.. _va-in-process-evolve:
+
+**Shots in process.** Shots run in the container. The simulator in process
+holds every time-driven model still unless it is asked otherwise: the chain
+serves its start values and a request starts nothing. A connector block that
+states ``evolve: true`` runs those models in process too:
+
+.. code-block:: yaml
+
+   control_system:
+     type: virtual_accelerator
+     connector:
+       virtual_accelerator:
+         serving: in_process
+         evolve: true
+
+A request write then takes a shot. Every read and write advances the models
+to the clock, and a subscription to a channel a shot steps fires when the
+step lands, between ticks too. Tracking a ring's shot runs inside the read,
+write or tick that reaches it, and holds the process's event loop for its
+length.
+
+The setting is for a test that drives one backend with no container
+(:doc:`/how-to/apps/build-your-own-app`), and it has a limit the container
+does not have. What a shot changed lives in the one connector that took the
+request. Connectors on one render share the setpoints written, never a shot's
+outcome:
+
+- another connector, in the same process or another, does not see the shot;
+- a connector that takes up another's writes, at its connect or after the
+  other writes, starts its models again from their start state and puts every
+  written setpoint back as a held value. A request among them reads as
+  written and starts no shot, so a shot is never taken twice.
+
+A deployment whose sessions span processes serves the simulator from its
+container.
 
 .. _va-turn-by-turn:
 
@@ -669,6 +813,12 @@ holds ``0``.
          engine: {signal: stored}
        - address: RING:TBT:TURNS
          engine: {signal: turns_tracked}
+       - address: RING:TBT:SURVIVED
+         engine: {signal: turns_survived}
+       - address: RING:TBT:REACHED
+         engine: {signal: monitors_reached}
+       - address: RING:TBT:STATUS
+         engine: {signal: shot_status}
        - address: RING:BPM1:ARM
          element: BPM1
          engine: {signal: arm}
@@ -697,18 +847,31 @@ and without ``stored_current`` there is no stored beam. Each wiring record's
 - ``armed``: whether that monitor waits for a shot.
 - ``turn_x``, ``turn_y``, ``turn_sum``: the monitor's arrays, positions in
   metres and the sum signal.
-- ``turns_tracked``: the turns the last shot tracked, the ring's; it names no
-  element.
+- ``turns_tracked``, ``turns_survived``, ``monitors_reached``,
+  ``shot_status``: the ring's read-outs of its last shot, each optional; see
+  *The shot's outcome* below. They name no element.
 - ``rf_switch``: ``0`` sets every cavity's voltage to zero, anything else
-  restores the deck's voltages. It starts at ``1`` and names no element.
+  restores the voltages the cavities had, or the one a voltage setpoint
+  (:ref:`va-rf-setpoints`) commanded meanwhile. It starts at ``1`` and names
+  no element.
 - ``pilot_tone``: non-zero turns the pilot tone on. It starts at ``0`` and
   names no element.
 - ``stored``: a setting that holds what is written and drives no physics,
   for an attenuation or a mode the software sets; it may name an element.
+- ``offset_x``, ``offset_px``, ``offset_y``, ``offset_py``, ``offset_delta``,
+  ``offset_ct``: a static injection error, added to that coordinate of
+  ``launch`` for every shot. Each starts at ``0`` and names no element.
+- ``mismatch_x``, ``mismatch_y``: the factor on the arriving beta function
+  of that plane. Each starts at the block's ``mismatch`` and names no
+  element.
+- ``pulsed_kick``: the setting of a pulsed magnet, which kicks a shot at
+  its ``element`` on the first turns only. It starts at ``0``; see *Pulsed
+  magnets* below.
 
-Declare ``arm``, ``rf_switch``, ``pilot_tone`` and ``stored`` channels
-``role: setpoint``, and each array ``value_type: waveform`` with
-``shape: [<trigger_sample + turns>]``, here ``[260]``; every other record is a
+Declare ``arm``, ``rf_switch``, ``pilot_tone``, ``stored``, ``offset_*``,
+``mismatch_*`` and ``pulsed_kick`` channels ``role: setpoint``, and each array
+``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``, here
+``[260]``; every other record is a
 plain float.
 
 **The settings.** Only ``injection_element`` is required:
@@ -738,16 +901,32 @@ plain float.
        ``delta``, ``ct``, each signed.
    * - ``emittance_x``, ``emittance_y``, ``sigma_delta``, ``sigma_z``
      - ``0``
-     - The bunch's size, matched to the optics at injection. All zero, every
-       particle starts at ``launch``.
+     - The bunch's size: emittances in metre-radians, relative energy
+       spread, bunch length in metres. All zero, every particle starts at
+       ``launch``.
+   * - ``twiss``
+     - the ring's own
+     - The optics the bunch arrives with: ``beta: [x, y]`` in metres,
+       ``alpha: [x, y]`` and ``dispersion: [x, px, y, py]``. A key left out
+       is the ring's periodic value at ``injection_element``.
+   * - ``mismatch``
+     - ``{x: 1, y: 1}``
+     - A factor above 0 on the arriving beta function of each plane.
    * - ``jitter``
      - ``{x: 5.0e-5, y: 3.0e-5}``
-     - The shot-to-shot centroid jitter's sigma, metres.
+     - The shot-to-shot centroid jitter's sigma per coordinate: ``x``,
+       ``px``, ``y``, ``py``, ``delta``, ``ct``, in ``launch``'s units. A
+       coordinate left out is ``0``, but for ``x`` and ``y``.
    * - ``aperture``
      - none
-     - ``{x, y, shape}``: positive half-axes in metres, both required, and
-       ``elliptical`` (the default) or ``rectangular``; set on every element
-       with a length.
+     - The ring's aperture, ``{x, y, shape}``: ``elliptical`` (the default)
+       or ``rectangular``, with ``x`` and ``y`` both required, each a positive
+       half-axis in metres. A rectangle may state a plane as a ``[low, high]``
+       pair of limits instead. Set on every element with a length.
+   * - ``apertures``
+     - none
+     - The apertures of single elements, a list of items read in order; see
+       *Apertures per element* below.
    * - ``sum_per_charge``
      - ``1.0``
      - Sum per unit of the shot's charge.
@@ -773,9 +952,152 @@ plain float.
      - ``1.0``
      - Pilot-tone spike size.
 
-Every number but ``launch`` is finite and not negative; an unknown key, also
-inside ``launch``, ``jitter`` or ``aperture``, stops the build. The apertures
-decide when an RF-off bunch is lost; they are the facility's to calibrate.
+Every number but ``launch``, ``alpha`` and ``dispersion`` in ``twiss``, and a
+rectangle's limits is finite and not negative; an unknown key, also inside
+``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture`` or an
+``apertures`` item, stops the build. The apertures decide when an RF-off bunch
+is lost; they are the facility's to calibrate.
+
+**Apertures per element.** A vacuum chamber is not one pipe: it narrows in the
+bends and opens to one side at a septum. ``aperture`` states the ring's
+chamber, and each ``apertures`` item states the chamber of the elements it
+selects, in the same ``shape``, ``x`` and ``y``:
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           aperture: {x: 0.012, y: 0.012}
+           apertures:
+             - {class: Dipole, x: 0.018, y: 0.005}
+             - {s: [3.2, 9.6], x: 0.020, y: 0.005}
+             - {element: SEPT, shape: rectangular, x: [-0.020, 0.006], y: 0.010}
+
+An item selects by exactly one key:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Key
+     - The elements it selects
+   * - ``class``
+     - Every element of that pyAT class, subclasses included, that has a
+       length: ``Dipole``, ``Quadrupole``, ``Sextupole``, ``Drift``.
+   * - ``element``
+     - Every deck element of that name, also one without a length.
+   * - ``s``
+     - ``[from, to]`` in metres from the deck's first element: every element
+       with a length whose midpoint lies in the range.
+
+An element takes the last item that selects it, and the ring's ``aperture``
+where no item does, so the list reads from general to specific. With no
+``aperture``, an element no item selects keeps what the deck states. An item
+that selects nothing in the deck stops the build, as does a class pyAT does
+not have or a range that ends beyond the deck.
+
+The tracker checks an aperture at the element's entrance and exit, in the
+element's own frame. So the chamber moves and rolls with an element a scenario
+misaligns: a quadrupole displaced by 1 mm carries its opening 1 mm with it. An
+element that takes no misalignment, a drift for one, keeps its chamber on the
+design axis. A cavity checks no aperture; state the chamber of the drifts
+beside it.
+
+**The injected beam.** A shot launches one bunch in six dimensions, in
+pyAT's coordinates: ``x`` and ``y`` in metres, ``px`` and ``py`` in radians,
+``delta`` the relative momentum offset and ``ct`` the path lag in metres. A
+phase of the RF is a ``ct``: one degree is the RF wavelength over 360.
+
+- **Where it starts.** The centroid is ``launch``, plus the static error the
+  ``offset_*`` records hold, plus the shot's jitter.
+- **Its jitter.** Each coordinate moves by its ``jitter`` sigma times a
+  normal draw keyed on the model and the shot number: the same shot launches
+  the same bunch in every run, and no two shots launch alike.
+- **Its shape.** The particles are a fixed Gaussian shape of the stated
+  emittances, energy spread and bunch length, placed at normal quantiles and
+  never drawn at random: 16 particles reach about 1.9 sigma and 400 about
+  3 sigma. A long bunch and a wide energy spread make
+  the turn-by-turn signal decohere within fewer turns.
+- **Its optics.** The shape is matched to the ring's periodic optics at
+  ``injection_element`` unless ``twiss`` states the optics the beam arrives
+  with. ``mismatch`` multiplies the beta function of a plane and keeps its
+  ``alpha`` and the emittance: at ``2`` the bunch is ``sqrt(2)`` wider in
+  position and as much narrower in angle, and its size beats turn by turn. A
+  ``mismatch_x`` or ``mismatch_y`` record holds the factor in place of the
+  block's. With ``beta``, ``alpha`` and ``dispersion`` all stated, no periodic
+  optics are solved: a ring whose errors leave it no closed orbit still
+  tracks the shot, and one that leaves a key to the ring fails it.
+
+Wire the static error and the mismatch as simulation-only setpoints. A
+scenario's ``overrides`` then state one machine's injection error, and a
+client moves it while the ring is served:
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           emittance_x: 2.0e-8
+           emittance_y: 2.0e-9
+           sigma_delta: 1.0e-3
+           sigma_z: 0.01
+           jitter: {x: 5.0e-5, px: 5.0e-6, y: 3.0e-5, py: 2.0e-6, delta: 1.0e-4, ct: 2.0e-4}
+           mismatch: {x: 1.0, y: 1.0}
+     wiring:
+       - address: SIM:RING:INJ:OFFSET:X
+         engine: {signal: offset_x}
+       - address: SIM:RING:INJ:OFFSET:PX
+         engine: {signal: offset_px}
+       - address: SIM:RING:INJ:MISMATCH:X
+         engine: {signal: mismatch_x}
+
+.. code-block:: yaml
+
+   # data/facility/scenarios/injection-error.yaml
+   overrides:
+     SIM:RING:INJ:OFFSET:X: 4.0e-4
+     SIM:RING:INJ:OFFSET:PX: -8.0e-5
+     SIM:RING:INJ:MISMATCH:X: 1.5
+
+The engine draws no static error: a seed's draw is the scenario author's to
+make and write down, as for magnet errors. A ``mismatch`` record written
+``0`` or below fails the next shots as any failed tracking does, until it is
+written above ``0`` again. The trajectory response matrix is computed from
+the block alone, so it starts at ``launch`` without the records' offsets.
+
+**Pulsed magnets.** An injection kicker or a pulsed septum acts on the
+arriving bunch and is off again before the stored beam would notice it. A
+``pulsed_kick`` record is its setting: the shot is kicked at the record's
+``element`` by what the record holds, and the closed orbit never is. Its
+engine block states, beside the signal:
+
+- ``plane``: ``x`` or ``y``, required.
+- ``scale``: the radians one unit of the record is worth, ``1`` by default.
+  It is the magnet's calibration, and its sign the kick's direction.
+- ``pulse``: the share of the kick the bunch meets on each turn, from the
+  first; ``[1.0]`` by default, a pulse shorter than one revolution. A
+  kicker still at 30 % when the bunch returns is ``[1.0, 0.3]``. The turns
+  after the last get no kick.
+
+.. code-block:: yaml
+
+   - name: RING
+     wiring:
+       - address: SIM:RING:INJ:KICKER:VOLTAGE
+         element: INJ_KICKER
+         engine: {signal: pulsed_kick, plane: x, scale: -2.0e-7, pulse: [1.0]}
+
+The element is one the deck's tracking gives a kick angle to: a corrector, or
+a magnet with a length such as a quadrupole of zero strength. A drift or a
+marker stops the build. The kick adds to whatever kick angle the element
+holds. A bunch launched off axis with the kicker's set point at the value
+that puts it on axis is the off-axis injection scheme; state both in a
+scenario. The trajectory response matrix is computed without pulsed kicks.
 
 **The arrays.** Each array holds ``trigger_sample + turns`` samples. The
 samples before ``trigger_sample`` see the stored beam only, and injected
@@ -786,7 +1108,21 @@ the shot's charge times the share of the bunch still alive times
 shot times ``sum_per_stored``, plus noise, floored at ``sum_floor``. Positions
 are the sum-weighted mix of the stored beam, at zero, and the bunch's
 centroid, plus ``position_noise``; where the sum is at the floor they are
-``floor_noise``. With the pilot tone on, every sample whose index is a
+``floor_noise``.
+
+A monitor reads that position through its own read-out faults: the
+``offset``, ``gain``, ``polarity``, ``noise`` and ``roll`` a scenario states
+on the monitor's orbit reading (``<orbit address>/offset`` and so on) act on
+its ``turn_x`` and ``turn_y`` arrays too, in the orbit reading's order: the
+roll turns the (x, y) pair, then the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in. A fault is stated once,
+in the unit the orbit reading publishes, and is converted to the arrays'
+metres through that reading's calibration; a monitor with no orbit reading
+wired has no fault to state. The sum carries no fault, and a sample with no
+beam reads ``floor_noise`` alone. The model's trajectory response, below, is
+the deck's and shows no read-out fault, as its orbit response shows none.
+
+With the pilot tone on, every sample whose index is a
 multiple of ``tone_period`` carries a spike in all three arrays. The noise is
 keyed on the record's address, the shot and the sample, so a shot reads the
 same in every run.
@@ -798,14 +1134,15 @@ same in every run.
   what was written; ``armed`` is the state.
 - A restore, a scenario's start state and a write a ``stuck`` or
   ``disconnected`` fault holds never arm.
-- A shot reaches the armed monitors only. Their arrays and ``turns_tracked``
-  are posted, then their ``armed`` drops to ``0``; every other monitor keeps
+- A shot reaches the armed monitors only. Their arrays and the shot's
+  read-outs are posted, then their ``armed`` drops to ``0``; every other monitor keeps
   its arrays. A shot with no monitor armed changes nothing.
 - ``armed`` at ``0`` guarantees the shot's arrays are already served, on
   Channel Access and PVAccess both, so a client may time a shot on ``armed``
   alone. A shot that arrives before the drop finds those monitors unarmed.
 - A reset or a scenario change returns every monitor to unarmed, every array
-  to zeros and ``turns_tracked`` to ``0``, and is not mistaken for a shot.
+  to zeros and every read-out of the shot to ``0``, and is not mistaken for a
+  shot.
 
 **Shots.**
 
@@ -814,17 +1151,65 @@ same in every run.
   counter that falls is not a shot.
 - A zero-charge shot is still a shot: the arrays read the floor, the noise
   and any stored beam, and ``armed`` drops.
-- A tracking that fails leaves the armed monitors' arrays at zeros and
+- A shot that is not tracked leaves the armed monitors' arrays at zeros and
   ``turns_tracked`` at ``0``; ``armed`` still drops and the ring keeps
-  serving.
+  serving. ``shot_status`` says why, below.
 - With the RF off the ring has no closed orbit: its orbit readings read NaN
   and its settings stay writable. The stored beam adds nothing to the sum, so
   the samples before the trigger read the floor, and a bunch with declared
-  apertures is lost within some hundred turns.
+  apertures is lost within some hundred turns. On a radiating ring
+  (:ref:`va-radiation`) it also loses energy every turn.
+
+**The shot's outcome.** Four records of the ring, posted with the arrays, say
+what became of the last shot that reached an armed monitor. All are ``0`` at
+the start and after a reset.
+
+- ``turns_tracked``: the turns the shot was tracked for: the block's
+  ``turns`` for a tracked shot, whatever became of the beam, and ``0`` for a
+  shot that was not tracked. It does not say the beam survived.
+- ``turns_survived``: the last turn on which at least one particle was alive
+  at the last monitor, counting turns from 1. The last monitor is, of the
+  monitors that read the shot, the one the beam meets last on its way round
+  from the injection element. ``0`` is a beam that never reached it; the
+  block's ``turns`` is a beam still there at the end. A lost particle stays
+  lost, so the beam reached that monitor on every turn up to this one.
+- ``monitors_reached``: how many of the monitors that read the shot saw at
+  least one particle alive on the first turn. The beam meets them in ring
+  order from the injection element, so with ``turns_survived`` at ``0`` the
+  beam was lost between the monitor of that number and the next.
+- ``shot_status``: how the shot ended.
+
+  .. list-table::
+     :header-rows: 1
+     :widths: 10 90
+
+     * - Value
+       - Meaning
+     * - ``0``
+       - No shot since the start or the last reset.
+     * - ``1``
+       - Tracked and read out. The beam may still be lost: read
+         ``turns_survived`` and ``monitors_reached``.
+     * - ``2``
+       - Not set up: the bunch could not be built from the ring's state and
+         settings, so nothing was tracked. A mismatch factor that is not above
+         ``0`` does this, and so does a bunch to match to the ring's own optics
+         (a ``twiss`` block that leaves a function out) on a ring that has no
+         periodic optics just then. The reason is logged as a warning.
+     * - ``3``
+       - An unexpected error in the tracking or the read-out: a defect, not
+         the beam. It is logged as an error with its traceback.
+
+With ``2`` and ``3`` the arrays are zeros and the other three records ``0``.
+Both are logged under ``simulation_turn_by_turn``, naming the model and the
+shot. All four count over the monitors that read the shot: arm every monitor
+to have them speak for the whole ring.
 
 **Cost.** Tracking runs on the serving loop, about 0.5 s for 16 particles
 over 250 turns and 34 s for 1000 particles on a ring of 72 monitors: roughly
-0.13 ms per particle and turn, growing with the deck. During it a read
+0.13 ms per particle and turn, growing with the deck. Apertures per element
+add nothing measurable to it: the tracker checks every element's opening
+either way. During it a read
 answers at once with the last posted value; a write, a model RPC call and a
 response-matrix request wait until it ends and are then served, never
 refused. A client timeout shorter than the tracking is the client's.
@@ -861,30 +1246,31 @@ orbit response alone and refuses any other kind.
 **What is not modelled.** The ring's capture or loss does not feed back into
 the chain's stored current; the stored current neither decays nor
 saturates; there is one bunch, no fill pattern; no bunch cleaning, tune scan,
-beam-based alignment or RF frequency correction. Shots run only in the
-container: in process every delivery is a baseline, so no shot is taken and
-the arrays stay zeros.
+beam-based alignment or RF frequency correction. In process a ring takes a
+shot only on a connector that states ``evolve: true``
+(:ref:`Shots in process <va-in-process-evolve>`); without it every delivery
+is a baseline, so no shot is taken and the arrays stay zeros.
 
 Another backend
 ---------------
 
 An engine OSPREY does not ship is an engine plug-in. The container looks up
-the ``engine`` each model record names in the ``osprey.simulation.engines``
-entry-point group. It calls the registered module's ``build``, which returns
+the ``engine`` each model record names in the
+``osprey_connectors.simulation.engines`` entry-point group. It calls the registered module's ``build``, which returns
 the ``LUMEModel`` serving that model's wiring over its deck. ``osprey build``
 reaches the same module through the same group when it checks the facility
 tree. The shipped ``osprey.simulation.engines.pyat`` is the reference
 implementation of the contract.
 
 1. Write the engine module to the contract
-   ``osprey.simulation.engines.EnginePlugin`` states;
+   ``osprey_connectors.simulation.engines.EnginePlugin`` states;
    ``osprey.simulation.engines.pyat`` implements it.
 2. Register it under the entry-point group in your package's metadata, and
    install the package where ``osprey build`` runs:
 
    .. code-block:: toml
 
-      [project.entry-points."osprey.simulation.engines"]
+      [project.entry-points."osprey_connectors.simulation.engines"]
       my_engine = "my_facility.engine"
 
 3. Build an image that carries OSPREY's virtual-accelerator install and your

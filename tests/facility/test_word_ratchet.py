@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -125,6 +125,37 @@ def _planted_repo(root: Path, files: Mapping[str, str]) -> Path:
     return root
 
 
+def _line_hit_path(hit: str) -> str:
+    return hit.rsplit(":", 1)[0]
+
+
+def stale_allowlist_rows(
+    root: Path,
+    allowed: Mapping[str, str],
+    hits: Callable[[Path, Mapping[str, str]], list[str]],
+    hit_path: Callable[[str], str] = _line_hit_path,
+) -> list[str]:
+    """The globs of *allowed* that cover no file *hits* reports with no allowlist.
+
+    An empty allowlist has no row to go stale, so the scan is not run.
+    """
+    if not allowed:
+        return []
+    hit_paths = {hit_path(hit) for hit in hits(root, {})}
+    stale = []
+    for glob in allowed:
+        covered = subprocess.run(
+            ["git", "ls-files", "--", f":(glob){glob}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        if not hit_paths.intersection(covered):
+            stale.append(glob)
+    return stale
+
+
 # --- the engine words -------------------------------------------------------------
 
 #: The trees the engine-word scan reads, ``*.py`` only: a vendored minified
@@ -142,7 +173,10 @@ ENGINE_SCAN_PATHS: tuple[str, ...] = (
 #: Where the engine words belong, each with why.
 ENGINE_ZONES: dict[str, str] = {
     "src/osprey/simulation/engines/**": "the engine plug-ins translate wiring into engine words",
-    "src/osprey/facility/layers/**": "the importers author a model's wiring in its engine's words",
+    "packages/osprey-connectors/src/osprey_connectors/simulation/engines.py": (
+        "the engine plug-in contract's protocol table names the engine words a plug-in reads"
+    ),
+    "packages/osprey-facility/src/osprey_facility/layers/**": "the importers author a model's wiring in its engine's words",
     "src/osprey/templates/**/data/**": "a shipped facility definition states its engine blocks",
     "src/osprey/templates/facilities/**": "a shipped facility definition states its engine blocks",
     "src/osprey/apps/sdk/testing/**": "the SDK's synthetic facility trees state their engine blocks",
@@ -150,6 +184,9 @@ ENGINE_ZONES: dict[str, str] = {
     "src/osprey/interfaces/lattice_dashboard/workers/**": "walk the pyAT elements of a deck",
     "src/osprey/mcp_server/phoebus/tools/databrowser_tools.py": "Phoebus's own plot axis key",
     "scripts/facility_demo/**": "the demo generator authors the example facility's decks in the engine's format",
+    "packages/osprey-facility/tests/osprey_facility_tests/test_fixture_mappings.py": (
+        "pins the engine blocks each fixture mapping authors"
+    ),
 }
 
 
@@ -309,18 +346,12 @@ def test_no_tracked_file_names_the_retired_word() -> None:
 
 
 def test_every_retired_word_allowlist_entry_still_matches() -> None:
-    hit_paths = {_hit_path(hit) for hit in retired_roster_hits(REPO_ROOT, allowed={})}
-    stale = []
-    for glob in {**RETIRED_ROSTER_READERS, **RETIRED_ROSTER_INTERIM}:
-        covered = subprocess.run(
-            ["git", "ls-files", "--", f":(glob){glob}"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.splitlines()
-        if not hit_paths.intersection(covered):
-            stale.append(glob)
+    stale = stale_allowlist_rows(
+        REPO_ROOT,
+        {**RETIRED_ROSTER_READERS, **RETIRED_ROSTER_INTERIM},
+        retired_roster_hits,
+        _hit_path,
+    )
     assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
 
 
@@ -511,19 +542,19 @@ def test_no_core_text_names_the_two_kind_phrase() -> None:
 
 
 def test_every_two_kind_allowlist_entry_still_matches() -> None:
-    hit_paths = {hit.rsplit(":", 1)[0] for hit in two_kind_phrase_hits(REPO_ROOT, allowed={})}
-    stale = []
-    for glob in RETIRED_TWO_KIND_READERS:
-        covered = subprocess.run(
-            ["git", "ls-files", "--", f":(glob){glob}"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.splitlines()
-        if not hit_paths.intersection(covered):
-            stale.append(glob)
+    stale = stale_allowlist_rows(REPO_ROOT, RETIRED_TWO_KIND_READERS, two_kind_phrase_hits)
     assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+def test_a_two_kind_allowlist_row_that_covers_no_hit_is_stale(tmp_path: Path) -> None:
+    """The ratchet above has nothing to check while its allowlist is empty; this
+    is the check it runs once a row is added."""
+    root = _planted_repo(
+        tmp_path, {"src/x.py": "names the tier or app file\n", "src/nomatch/x.py": "clean\n"}
+    )
+    allowed = {"src/x.py": "keeps the phrase", "src/nomatch/**": "keeps nothing"}
+
+    assert stale_allowlist_rows(root, allowed, two_kind_phrase_hits) == ["src/nomatch/**"]
 
 
 # --- the retired built-in-app phrase ----------------------------------------------
@@ -614,16 +645,17 @@ def test_no_core_text_calls_a_built_in_an_app() -> None:
 
 
 def test_every_built_in_app_allowlist_entry_still_matches() -> None:
-    hit_paths = {hit.rsplit(":", 1)[0] for hit in built_in_app_phrase_hits(REPO_ROOT, allowed={})}
-    stale = []
-    for glob in RETIRED_BUILT_IN_APP_READERS:
-        covered = subprocess.run(
-            ["git", "ls-files", "--", f":(glob){glob}"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.splitlines()
-        if not hit_paths.intersection(covered):
-            stale.append(glob)
+    stale = stale_allowlist_rows(REPO_ROOT, RETIRED_BUILT_IN_APP_READERS, built_in_app_phrase_hits)
     assert stale == [], f"allowlist rows that cover no hit any more, delete them: {stale}"
+
+
+def test_a_built_in_app_allowlist_row_that_covers_no_hit_is_stale(tmp_path: Path) -> None:
+    """The ratchet above has nothing to check while its allowlist is empty; this
+    is the check it runs once a row is added."""
+    root = _planted_repo(
+        tmp_path,
+        {"src/osprey/x.py": "the channel-finder app reads it\n", "src/nomatch/x.py": "clean\n"},
+    )
+    allowed = {"src/osprey/x.py": "keeps the phrase", "src/nomatch/**": "keeps nothing"}
+
+    assert stale_allowlist_rows(root, allowed, built_in_app_phrase_hits) == ["src/nomatch/**"]

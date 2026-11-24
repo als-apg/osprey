@@ -23,8 +23,8 @@ from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._reporters import installed
-from tests.cli._scoped_subprocess import patch_subprocess
 
 # Every wait here is a deadline an assertion polls to, never a sleep sized to
 # what the child "should" take.
@@ -136,7 +136,7 @@ def _cut_off_on_the_first_line(
 
     Returns:
         A ``Popen`` replacement for one module, to be installed with
-        :func:`~tests.cli._scoped_subprocess.patch_subprocess`.
+        :func:`~tests._scoped_stdlib.patch_subprocess`.
     """
 
     class _CutOffOnFirstLine(subprocess.Popen[str]):

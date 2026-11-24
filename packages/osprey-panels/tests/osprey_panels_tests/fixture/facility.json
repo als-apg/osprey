@@ -1,0 +1,3021 @@
+{
+  "channels": [
+    {
+      "id": "VA:XR:InjectionKnob",
+      "on": {
+        "place": "XR"
+      },
+      "pair": "VA:XR:InjectionKnob",
+      "provenance": {
+        "defaults": [
+          "pair",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "role"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "setpoint",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:BEND1 current readback",
+      "id": "XR01-BEND1:Current-RB",
+      "on": {
+        "device": "XR01:BEND1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:CH1 temperature readback",
+      "id": "XR01-CH1:Temp-RB",
+      "on": {
+        "device": "XR01:CH1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "temperature_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:CH2 temperature readback",
+      "id": "XR01-CH2:Temp-RB",
+      "on": {
+        "device": "XR01:CH2"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "temperature_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:CH3 temperature readback",
+      "id": "XR01-CH3:Temp-RB",
+      "on": {
+        "device": "XR01:CH3"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "temperature_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:IP1 vacuum readback",
+      "id": "XR01-IP1:Pressure-RB",
+      "on": {
+        "device": "XR01:IP1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "vacuum_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:IP1 status",
+      "id": "XR01-IP1:State-Sts",
+      "on": {
+        "device": "XR01:IP1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "status",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:IP2 vacuum readback",
+      "id": "XR01-IP2:Pressure-RB",
+      "on": {
+        "device": "XR01:IP2"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "vacuum_readback",
+      "value_type": "float"
+    },
+    {
+      "command": true,
+      "description": "XR01:PS1 power on command",
+      "id": "XR01-PS1:On-Cmd",
+      "on": {
+        "device": "XR01:PS1"
+      },
+      "pair": "XR01-PS1:On-Sts",
+      "provenance": {
+        "defaults": [
+          "command",
+          "description",
+          "pair",
+          "value_type"
+        ],
+        "fixes": [],
+        "rules": [
+          {
+            "fields": [
+              "pair"
+            ],
+            "rule": "the one readback of the same quantity where the setpoint sits"
+          }
+        ],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "role",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "setpoint",
+      "signal": "power_on_command",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:PS1 power on status",
+      "id": "XR01-PS1:On-Sts",
+      "on": {
+        "device": "XR01:PS1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "power_on_status",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:QD1 current readback",
+      "id": "XR01-QD1:Current-RB",
+      "on": {
+        "device": "XR01:QD1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:QD1 current setpoint",
+      "id": "XR01-QD1:Current-SP",
+      "on": {
+        "device": "XR01:QD1"
+      },
+      "pair": "XR01-QD1:Current-RB",
+      "provenance": {
+        "defaults": [
+          "description",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "pair",
+              "role",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "setpoint",
+      "signal": "current_setpoint",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:QF1 current readback (A)",
+      "id": "XR01-QF1:Current-RB",
+      "names": [
+        "XR-ML:QF1:AM"
+      ],
+      "on": {
+        "device": "XR01:QF1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "names",
+              "on",
+              "signal",
+              "unit"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "unit": "A",
+      "value_type": "float"
+    },
+    {
+      "description": "XR01:QF1 current setpoint (A)",
+      "id": "XR01-QF1:Current-SP",
+      "on": {
+        "device": "XR01:QF1"
+      },
+      "pair": "XR01-QF1:Current-RB",
+      "provenance": {
+        "defaults": [
+          "description",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "pair",
+              "role",
+              "signal",
+              "tolerance",
+              "unit"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "setpoint",
+      "signal": "current_setpoint",
+      "tolerance": {
+        "absolute": 0.05
+      },
+      "unit": "A",
+      "value_type": "float"
+    },
+    {
+      "id": "XR01:RackTemp-RB",
+      "on": {
+        "place": "XR/XR01/RK1"
+      },
+      "provenance": {
+        "defaults": [
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:BEND1 current readback",
+      "id": "XR02-BEND1:Current-RB",
+      "on": {
+        "device": "XR02:BEND1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:IP1 vacuum readback",
+      "id": "XR02-IP1:Pressure-RB",
+      "on": {
+        "device": "XR02:IP1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "vacuum_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:IP2 interlock status",
+      "id": "XR02-IP2:Interlock-Sts",
+      "on": {
+        "device": "XR02:IP2"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "interlock_status",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:IP2 vacuum readback",
+      "id": "XR02-IP2:Pressure-RB",
+      "on": {
+        "device": "XR02:IP2"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "vacuum_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:QD1 current readback",
+      "id": "XR02-QD1:Current-RB",
+      "on": {
+        "device": "XR02:QD1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:QF1 current readback",
+      "id": "XR02-QF1:Current-RB",
+      "on": {
+        "device": "XR02:QF1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "current_readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:QF1 current setpoint",
+      "id": "XR02-QF1:Current-SP",
+      "on": {
+        "device": "XR02:QF1"
+      },
+      "pair": "XR02-QF1:Current-RB",
+      "provenance": {
+        "defaults": [
+          "description",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "pair",
+              "role",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "setpoint",
+      "signal": "current_setpoint",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:SAF1 interlock status",
+      "id": "XR02-SAF1:Trip-Sts",
+      "on": {
+        "device": "XR02:SAF1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "interlock_status",
+      "value_type": "float"
+    },
+    {
+      "description": "XR02:SAF2 status",
+      "id": "XR02-SAF2:Door-Sts",
+      "on": {
+        "device": "XR02:SAF2"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "status",
+      "value_type": "float"
+    },
+    {
+      "id": "XR02:Cab1Temp-RB",
+      "on": {
+        "place": "XR/XR02/SAFE/CAB1"
+      },
+      "provenance": {
+        "defaults": [
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "value_type": "float"
+    },
+    {
+      "description": "XR09:LOOSE1 fault status",
+      "id": "XR09-LOOSE1:Fault-Sts",
+      "on": {
+        "device": "XR09:LOOSE1"
+      },
+      "provenance": {
+        "defaults": [
+          "description",
+          "role",
+          "value_type"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "on",
+              "signal"
+            ],
+            "file": "records/channels.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "role": "readback",
+      "signal": "fault_status",
+      "value_type": "float"
+    }
+  ],
+  "classes": [],
+  "devices": [
+    {
+      "class": "Dipole",
+      "id": "XR01:BEND1",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "ElectronicsChassis",
+      "id": "XR01:CH1",
+      "place": "XR/XR01/RK1",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "ElectronicsChassis",
+      "id": "XR01:CH2",
+      "place": "XR/XR01/RK1",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "ElectronicsChassis",
+      "id": "XR01:CH3",
+      "place": "XR/XR01/RK1",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Pump",
+      "groups": [
+        "XR01-VAC"
+      ],
+      "id": "XR01:IP1",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Pump",
+      "groups": [
+        "XR01-VAC"
+      ],
+      "id": "XR01:IP2",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "PowerSupply",
+      "id": "XR01:PS1",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Quadrupole",
+      "groups": [
+        "XR-QUAD"
+      ],
+      "id": "XR01:QD1",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "citations": [
+        {
+          "document": "XR-LAYOUT",
+          "locator": "sheet 1",
+          "state": "released",
+          "version": "A"
+        }
+      ],
+      "class": "Quadrupole",
+      "groups": [
+        "XR-QUAD"
+      ],
+      "id": "XR01:QF1",
+      "place": "XR/XR01",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "citations",
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Dipole",
+      "id": "XR02:BEND1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "citations": [
+        {
+          "document": "XR-LAYOUT",
+          "locator": "sheet 3",
+          "state": "released",
+          "version": "A"
+        }
+      ],
+      "class": "Infrastructure",
+      "id": "XR02:BLOCK1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "citations",
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "ElectronicsChassis",
+      "id": "XR02:CH5",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "class"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Pump",
+      "groups": [
+        "XR02-VAC"
+      ],
+      "id": "XR02:IP1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Pump",
+      "groups": [
+        "XR02-VAC"
+      ],
+      "id": "XR02:IP2",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Quadrupole",
+      "groups": [
+        "XR-QUAD"
+      ],
+      "id": "XR02:QD1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Quadrupole",
+      "groups": [
+        "XR-QUAD"
+      ],
+      "id": "XR02:QF1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Infrastructure",
+      "groups": [
+        "XR02-VAC"
+      ],
+      "id": "XR02:SAF1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Infrastructure",
+      "groups": [
+        "XR02-VAC"
+      ],
+      "id": "XR02:SAF2",
+      "place": "XR/XR02/SAFE/CAB1",
+      "provenance": {
+        "defaults": [
+          "groups"
+        ],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "citations": [
+        {
+          "document": "XR-LAYOUT",
+          "locator": "sheet 3",
+          "state": "released",
+          "version": "A"
+        }
+      ],
+      "class": "Infrastructure",
+      "id": "XR02:SHIELD1",
+      "place": "XR/XR02",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "place_from": "authored",
+        "sources": [
+          {
+            "fields": [
+              "citations",
+              "class",
+              "place"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "class": "Infrastructure",
+      "id": "XR09:LOOSE1",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "class"
+            ],
+            "file": "records/devices.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    }
+  ],
+  "documents": [
+    {
+      "id": "XR-LAYOUT",
+      "kind": "layout",
+      "system": "document-store",
+      "title": "Example ring layout"
+    },
+    {
+      "id": "XR-RACKS",
+      "kind": "rack-layout",
+      "system": "document-store",
+      "title": "Example rack elevations"
+    }
+  ],
+  "groups": [
+    {
+      "id": "XR-QUAD",
+      "kind": "family",
+      "members": [
+        "XR01:QD1",
+        "XR01:QF1",
+        "XR02:QD1",
+        "XR02:QF1"
+      ],
+      "provenance": {
+        "defaults": [
+          "kind"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "members"
+            ],
+            "file": "records/groups.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR01-VAC",
+      "kind": "family",
+      "members": [
+        "XR01:IP1",
+        "XR01:IP2"
+      ],
+      "provenance": {
+        "defaults": [
+          "kind"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "members"
+            ],
+            "file": "records/groups.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR02-VAC",
+      "kind": "family",
+      "members": [
+        "XR02:IP1",
+        "XR02:IP2",
+        "XR02:SAF1",
+        "XR02:SAF2"
+      ],
+      "provenance": {
+        "defaults": [
+          "kind"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "members"
+            ],
+            "file": "records/groups.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    }
+  ],
+  "identity": {
+    "code": "xr",
+    "name": "xr"
+  },
+  "models": [
+    {
+      "engine": "texture",
+      "name": "texture"
+    }
+  ],
+  "places": [
+    {
+      "id": "XR",
+      "level": "machine",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR01",
+      "level": "sector",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR01/RK1",
+      "level": "rack",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR02",
+      "level": "sector",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR02/RK2",
+      "level": "rack",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR02/SAFE",
+      "level": "enclosure",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    },
+    {
+      "id": "XR/XR02/SAFE/CAB1",
+      "level": "cabinet",
+      "provenance": {
+        "defaults": [],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "level"
+            ],
+            "file": "records/places.yaml",
+            "layer": "authored"
+          }
+        ]
+      }
+    }
+  ],
+  "relation_types": [
+    {
+      "description": "The subject group or place is bounded by the object device.",
+      "name": "bounded_by",
+      "object": [
+        "device"
+      ],
+      "single_per": [],
+      "subject": [
+        "group",
+        "place"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "One cable joins the two ends.",
+      "name": "cabled_to",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "attributes.cable"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device is commanded by the object application or controller.",
+      "name": "controlled_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject device is inhibited by the object interlock.",
+      "name": "interlocked_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject device sits in the object place, as a source states it.",
+      "name": "located_in",
+      "object": [
+        "place"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The two ends share a network link.",
+      "name": "networked_to",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device is a component of the object device (a module in a chassis).",
+      "name": "part_of",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject draws its electrical power from the object.",
+      "name": "powered_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject sensor is read by the object electronics.",
+      "name": "read_out_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject application runs on the object host.",
+      "name": "runs_on",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The two device records may be one device; their identity is unresolved.",
+      "name": "same_as",
+      "object": [
+        "device"
+      ],
+      "single_per": [],
+      "subject": [
+        "device"
+      ],
+      "symmetric": true
+    },
+    {
+      "description": "The subject device draws a non-electrical service (cooling water, compressed air, gas) from the object.",
+      "name": "supplied_by",
+      "object": [
+        "device"
+      ],
+      "single_per": [
+        "subject",
+        "attributes.medium"
+      ],
+      "subject": [
+        "device"
+      ],
+      "symmetric": false
+    },
+    {
+      "description": "The subject takes its trigger from the object, typically a timing channel.",
+      "name": "triggered_by",
+      "object": [
+        "device",
+        "place"
+      ],
+      "single_per": [
+        "subject",
+        "port"
+      ],
+      "subject": [
+        "device",
+        "place"
+      ],
+      "symmetric": false
+    }
+  ],
+  "relations": [
+    {
+      "attributes": {
+        "size_u": "2"
+      },
+      "id": "xr01-ch1-rack",
+      "object": {
+        "place": "XR/XR01/RK1",
+        "unit": 10
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "attributes",
+              "object",
+              "source",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "source": {
+        "document": "XR-RACKS",
+        "locator": "sheet 1",
+        "state": "released",
+        "version": "B"
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:CH1"
+      },
+      "type": "located_in"
+    },
+    {
+      "id": "xr01-ch2-rack",
+      "object": {
+        "place": "XR/XR01/RK1",
+        "unit": 20
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:CH2"
+      },
+      "type": "located_in"
+    },
+    {
+      "id": "xr01-ch2-rack-layout",
+      "object": {
+        "place": "XR/XR01/RK1",
+        "unit": 20
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "source",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "source": {
+        "document": "XR-LAYOUT",
+        "locator": "sheet 5",
+        "state": "released",
+        "version": "A"
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:CH2"
+      },
+      "type": "located_in"
+    },
+    {
+      "id": "xr01-ip1-readout",
+      "object": {
+        "device": "XR01:CH2"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:IP1"
+      },
+      "type": "read_out_by"
+    },
+    {
+      "id": "xr01-qd1-power",
+      "object": {
+        "device": "XR01:PS1"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:QD1"
+      },
+      "type": "powered_by"
+    },
+    {
+      "id": "xr01-qf1-power",
+      "object": {
+        "device": "XR01:PS1"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR01:QF1"
+      },
+      "type": "powered_by"
+    },
+    {
+      "id": "xr02-cab1-power",
+      "object": {
+        "device": "XR01:PS1"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "place": "XR/XR02/SAFE/CAB1"
+      },
+      "type": "powered_by"
+    },
+    {
+      "contests": [
+        "xr02-ch5-rack1b",
+        "xr02-ch5-rack2"
+      ],
+      "id": "xr02-ch5-rack1",
+      "object": {
+        "place": "XR/XR01/RK1",
+        "unit": 40
+      },
+      "provenance": {
+        "defaults": [
+          "contests",
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "contested",
+      "subject": {
+        "device": "XR02:CH5"
+      },
+      "type": "located_in"
+    },
+    {
+      "contests": [
+        "xr02-ch5-rack1",
+        "xr02-ch5-rack2"
+      ],
+      "id": "xr02-ch5-rack1b",
+      "object": {
+        "place": "XR/XR01/RK1",
+        "unit": 41
+      },
+      "provenance": {
+        "defaults": [
+          "contests",
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "contested",
+      "subject": {
+        "device": "XR02:CH5"
+      },
+      "type": "located_in"
+    },
+    {
+      "contests": [
+        "xr02-ch5-rack1",
+        "xr02-ch5-rack1b"
+      ],
+      "id": "xr02-ch5-rack2",
+      "object": {
+        "place": "XR/XR02/RK2",
+        "unit": 5
+      },
+      "provenance": {
+        "defaults": [
+          "contests",
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "contested",
+      "subject": {
+        "device": "XR02:CH5"
+      },
+      "type": "located_in"
+    },
+    {
+      "id": "xr02-ip1-interlock",
+      "object": {
+        "device": "XR02:SAF1"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR02:IP1"
+      },
+      "type": "interlocked_by"
+    },
+    {
+      "id": "xr02-saf2-control",
+      "object": {
+        "device": "XR01:CH3"
+      },
+      "provenance": {
+        "defaults": [
+          "standing"
+        ],
+        "fixes": [],
+        "sources": [
+          {
+            "fields": [
+              "object",
+              "subject",
+              "type"
+            ],
+            "file": "records/relations.yaml",
+            "layer": "authored"
+          }
+        ]
+      },
+      "standing": "accepted",
+      "subject": {
+        "device": "XR02:SAF2"
+      },
+      "type": "controlled_by"
+    }
+  ],
+  "scenarios": [],
+  "schema": "osprey.facility.facility/4",
+  "signals": [
+    {
+      "aliases": [],
+      "description": "AC-supply OK readback (120 V auxiliary supply healthy).",
+      "name": "ac_supply_ok_status"
+    },
+    {
+      "aliases": [],
+      "description": "Compressed-air-pressure (pneumatic actuator supply) readback.",
+      "name": "air_pressure_status"
+    },
+    {
+      "aliases": [
+        "beam intensity",
+        "wire sum",
+        "beam current",
+        "charge readback",
+        "intensity readback",
+        "BPM sum"
+      ],
+      "description": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
+      "name": "beam_intensity_readback"
+    },
+    {
+      "aliases": [
+        "beam lifetime",
+        "lifetime"
+      ],
+      "description": "Measured lifetime readback of the stored beam.",
+      "name": "beam_lifetime_readback"
+    },
+    {
+      "aliases": [
+        "blade position",
+        "scraper position",
+        "blade readback",
+        "scraper readback"
+      ],
+      "description": "Measured insertion of a scraper blade into the beam aperture.",
+      "name": "blade_position_readback"
+    },
+    {
+      "aliases": [
+        "blade setpoint",
+        "scraper setpoint",
+        "set blade position",
+        "scraper position setpoint"
+      ],
+      "description": "Commanded insertion of a scraper blade into the beam aperture.",
+      "name": "blade_position_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Fast-orbit-feedback channel-index readback for a BPM.",
+      "name": "bpm_fofb_index"
+    },
+    {
+      "aliases": [],
+      "description": "BPM acquisition sample-rate readback (configuration channel).",
+      "name": "bpm_sample_rate"
+    },
+    {
+      "aliases": [],
+      "description": "BPM sum-signal readback (intensity proxy from button electrodes).",
+      "name": "bpm_sum_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply control command (mode/enable).",
+      "name": "bulk_supply_command"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply on/off state readback.",
+      "name": "bulk_supply_on_status"
+    },
+    {
+      "aliases": [],
+      "description": "Bulk-supply DC voltage readback.",
+      "name": "bulk_supply_voltage_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Control-computer heartbeat / health readback.",
+      "name": "computer_status"
+    },
+    {
+      "aliases": [],
+      "description": "Controlled-power-mode readback for a main dipole supply.",
+      "name": "controlled_power_mode_status"
+    },
+    {
+      "aliases": [
+        "coolant flow",
+        "cooling water flow",
+        "water flow",
+        "flow readback",
+        "flow rate"
+      ],
+      "description": "Measured cooling-water flow through a device.",
+      "name": "coolant_flow_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Stored \"golden\" current setpoint reference for a powered device.",
+      "name": "current_golden_readback"
+    },
+    {
+      "aliases": [
+        "current readback",
+        "measured current",
+        "current measurement",
+        "current readout",
+        "readback current"
+      ],
+      "description": "Measured current value read back from a powered device.",
+      "name": "current_readback",
+      "title": "Current"
+    },
+    {
+      "aliases": [
+        "current setpoint",
+        "magnet setpoint",
+        "demand current",
+        "set current",
+        "current demand",
+        "setpoint current",
+        "commanded current"
+      ],
+      "description": "Commanded current value sent to a powered device.",
+      "name": "current_setpoint",
+      "title": "Setpoint"
+    },
+    {
+      "aliases": [
+        "horizontal current readback",
+        "horizontal coil readback",
+        "x current readback"
+      ],
+      "description": "Power-supply current readback of the coil that acts in the horizontal plane.",
+      "name": "current_x_readback"
+    },
+    {
+      "aliases": [
+        "horizontal current setpoint",
+        "horizontal coil setpoint",
+        "x current setpoint"
+      ],
+      "description": "Power-supply current setpoint of the coil that acts in the horizontal plane, on a device that holds one coil per plane.",
+      "name": "current_x_setpoint"
+    },
+    {
+      "aliases": [
+        "vertical current readback",
+        "vertical coil readback",
+        "y current readback"
+      ],
+      "description": "Power-supply current readback of the coil that acts in the vertical plane.",
+      "name": "current_y_readback"
+    },
+    {
+      "aliases": [
+        "vertical current setpoint",
+        "vertical coil setpoint",
+        "y current setpoint"
+      ],
+      "description": "Power-supply current setpoint of the coil that acts in the vertical plane, on a device that holds one coil per plane.",
+      "name": "current_y_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "DC-supply OK readback (24 V auxiliary supply healthy).",
+      "name": "dc_supply_ok_status"
+    },
+    {
+      "aliases": [
+        "dose rate",
+        "dose rate readback",
+        "radiation dose rate",
+        "radiation level"
+      ],
+      "description": "Measured radiation dose rate.",
+      "name": "dose_rate_readback"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 1 readback.",
+      "name": "external_interlock_1_status"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 2 readback.",
+      "name": "external_interlock_2_status"
+    },
+    {
+      "aliases": [],
+      "description": "External interlock channel 3 readback.",
+      "name": "external_interlock_3_status"
+    },
+    {
+      "aliases": [],
+      "description": "Generic device fault flag readback.",
+      "name": "fault_status"
+    },
+    {
+      "aliases": [
+        "field readback",
+        "measured field",
+        "field measurement",
+        "field readout"
+      ],
+      "description": "Measured field readback for a magnetic device.",
+      "name": "field_readback"
+    },
+    {
+      "aliases": [
+        "field setpoint",
+        "BDL setpoint",
+        "integrated field setpoint",
+        "field demand",
+        "set field"
+      ],
+      "description": "Commanded field (integrated or peak) for a magnetic device.",
+      "name": "field_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Filament warm-up / runtime timeout readback.",
+      "name": "filament_timeout_status"
+    },
+    {
+      "aliases": [
+        "firmware",
+        "firmware version",
+        "firmware revision"
+      ],
+      "description": "Firmware version a device reports of itself.",
+      "name": "firmware_version_readback",
+      "nameplate": true
+    },
+    {
+      "aliases": [
+        "frequency readback",
+        "measured frequency",
+        "frequency reading"
+      ],
+      "description": "Measured frequency.",
+      "name": "frequency_readback"
+    },
+    {
+      "aliases": [
+        "frequency setpoint",
+        "set frequency",
+        "commanded frequency",
+        "frequency demand"
+      ],
+      "description": "Commanded frequency.",
+      "name": "frequency_setpoint"
+    },
+    {
+      "aliases": [
+        "gap readback",
+        "gap",
+        "id gap",
+        "measured gap",
+        "undulator gap"
+      ],
+      "description": "Measured magnetic gap of an insertion device.",
+      "name": "gap_readback"
+    },
+    {
+      "aliases": [
+        "gap setpoint",
+        "set gap",
+        "id gap setpoint",
+        "undulator gap setpoint"
+      ],
+      "description": "Commanded magnetic gap of an insertion device.",
+      "name": "gap_setpoint"
+    },
+    {
+      "aliases": [
+        "gradient readback",
+        "cavity gradient readback",
+        "measured gradient",
+        "GMES"
+      ],
+      "description": "Measured accelerating gradient readback for an RF cavity.",
+      "name": "gradient_readback"
+    },
+    {
+      "aliases": [
+        "gradient setpoint",
+        "cavity gradient setpoint",
+        "set gradient",
+        "GSET"
+      ],
+      "description": "Commanded accelerating gradient setpoint for an RF cavity.",
+      "name": "gradient_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Beam current or supply current readback from an electron gun HVPS (mA).",
+      "name": "gun_current_readback"
+    },
+    {
+      "aliases": [],
+      "description": "High-voltage readback from an electron gun HVPS (measured kV).",
+      "name": "gun_voltage_readback"
+    },
+    {
+      "aliases": [],
+      "description": "High-voltage setpoint for an electron gun or its HVPS (preset demand, kV).",
+      "name": "gun_voltage_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Integrated beam-loss count readback from a beam loss monitor (BLM).",
+      "name": "integrated_count"
+    },
+    {
+      "aliases": [],
+      "description": "Generic interlock readback (active / cleared).",
+      "name": "interlock_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 1 readback.",
+      "name": "internal_interlock_1_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 2 readback.",
+      "name": "internal_interlock_2_status"
+    },
+    {
+      "aliases": [],
+      "description": "Internal interlock channel 3 readback.",
+      "name": "internal_interlock_3_status"
+    },
+    {
+      "aliases": [
+        "kick readback",
+        "kick angle readback",
+        "corrector angle readback",
+        "deflection readback"
+      ],
+      "description": "Deflection angle of a corrector magnet, as read back.",
+      "name": "kick_angle_readback",
+      "title": "Kick"
+    },
+    {
+      "aliases": [
+        "kick setpoint",
+        "kick angle setpoint",
+        "corrector angle setpoint",
+        "deflection setpoint"
+      ],
+      "description": "Commanded deflection angle of a corrector magnet.",
+      "name": "kick_angle_setpoint",
+      "title": "Kick"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded lamp on/off transition.",
+      "name": "lamp_command"
+    },
+    {
+      "aliases": [],
+      "description": "Illumination-lamp on/off state readback.",
+      "name": "lamp_status"
+    },
+    {
+      "aliases": [],
+      "description": "Leakage-current readback for a magnet supply.",
+      "name": "leakage_current_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Local-vs-remote control-mode readback.",
+      "name": "local_mode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Locally-measured RF-phase readback.",
+      "name": "local_phase_readback"
+    },
+    {
+      "aliases": [
+        "voltage",
+        "voltages",
+        "magnet voltage",
+        "magnet voltages",
+        "voltage readback",
+        "magnet voltage readback",
+        "driver supply voltage",
+        "high voltage readback",
+        "HV readback",
+        "D.H"
+      ],
+      "description": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
+      "name": "magnet_voltage_readback",
+      "title": "Voltage"
+    },
+    {
+      "aliases": [
+        "model",
+        "model name",
+        "device model",
+        "model number"
+      ],
+      "description": "Model name a device reports of itself.",
+      "name": "model_readback",
+      "nameplate": true
+    },
+    {
+      "aliases": [],
+      "description": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
+      "name": "modulator_state_command"
+    },
+    {
+      "aliases": [
+        "normalized strength readback",
+        "K readback",
+        "K1 readback",
+        "K2 readback",
+        "strength readback"
+      ],
+      "description": "Normalized strength of a multipole magnet, as read back.",
+      "name": "normalized_strength_readback",
+      "title": "Strength"
+    },
+    {
+      "aliases": [
+        "normalized strength setpoint",
+        "K setpoint",
+        "K1 setpoint",
+        "K2 setpoint",
+        "strength setpoint"
+      ],
+      "description": "Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.",
+      "name": "normalized_strength_setpoint",
+      "title": "Strength"
+    },
+    {
+      "aliases": [
+        "offset readback",
+        "offset",
+        "phase",
+        "measured offset",
+        "row offset"
+      ],
+      "description": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
+      "name": "offset_readback"
+    },
+    {
+      "aliases": [
+        "offset setpoint",
+        "set offset",
+        "phase setpoint",
+        "row offset setpoint"
+      ],
+      "description": "Commanded longitudinal offset (phase) of an insertion device's magnet rows.",
+      "name": "offset_setpoint"
+    },
+    {
+      "aliases": [
+        "operation mode",
+        "operating mode",
+        "machine mode",
+        "beam mode",
+        "ops mode",
+        "machine state"
+      ],
+      "description": "Current operating mode of the machine (e.g. user operation, machine development, shutdown).",
+      "name": "operation_mode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Over-temperature fault flag readback.",
+      "name": "over_temperature_status"
+    },
+    {
+      "aliases": [],
+      "description": "Stored golden RF-phase reference.",
+      "name": "phase_golden_readback"
+    },
+    {
+      "aliases": [
+        "phase readback",
+        "cavity phase readback",
+        "measured phase",
+        "PMES"
+      ],
+      "description": "Measured RF phase readback for an RF cavity.",
+      "name": "phase_readback"
+    },
+    {
+      "aliases": [
+        "phase setpoint",
+        "cavity phase setpoint",
+        "set phase",
+        "PSET"
+      ],
+      "description": "Commanded RF phase setpoint for an RF cavity.",
+      "name": "phase_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Plug-interlock readback (mating-connector presence).",
+      "name": "plug_interlock_status"
+    },
+    {
+      "aliases": [
+        "position offset",
+        "offset",
+        "beam position offset",
+        "position calibration offset"
+      ],
+      "description": "Stored offset subtracted from a measured position.",
+      "name": "position_offset"
+    },
+    {
+      "aliases": [],
+      "description": "Horizontal-position error readback (delta from golden reference).",
+      "name": "position_x_error_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Golden-orbit horizontal-position reference readback.",
+      "name": "position_x_golden_readback"
+    },
+    {
+      "aliases": [
+        "horizontal beam position",
+        "X position",
+        "XPOS",
+        "measured X",
+        "x readback",
+        "measured horizontal position",
+        "horizontal position readback",
+        "horizontal beam position readback",
+        "beam x position"
+      ],
+      "description": "Horizontal beam position readback from a beam position monitor.",
+      "name": "position_x_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS horizontal position over a 10k-sample window.",
+      "name": "position_x_rms_10k_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS horizontal position over a 200-sample window.",
+      "name": "position_x_rms_200_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Vertical-position error readback (delta from golden reference).",
+      "name": "position_y_error_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Golden-orbit vertical-position reference readback.",
+      "name": "position_y_golden_readback"
+    },
+    {
+      "aliases": [
+        "vertical beam position",
+        "Y position",
+        "YPOS",
+        "measured Y",
+        "y readback",
+        "measured vertical position",
+        "vertical position readback",
+        "vertical beam position readback",
+        "beam y position"
+      ],
+      "description": "Vertical beam position readback from a beam position monitor.",
+      "name": "position_y_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS vertical position over a 10k-sample window.",
+      "name": "position_y_rms_10k_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RMS vertical position over a 200-sample window.",
+      "name": "position_y_rms_200_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded power on/off transition for a powered device.",
+      "name": "power_on_command",
+      "title": "On command"
+    },
+    {
+      "aliases": [],
+      "description": "Power-on (energised) state readback of a powered device.",
+      "name": "power_on_status"
+    },
+    {
+      "aliases": [
+        "power readback",
+        "measured power",
+        "power reading",
+        "net power"
+      ],
+      "description": "Measured power.",
+      "name": "power_readback"
+    },
+    {
+      "aliases": [
+        "profile",
+        "beam profile",
+        "wire profile",
+        "harp profile",
+        "profile readback",
+        "transverse profile"
+      ],
+      "description": "Beam profile readback from a wire scanner or harp.",
+      "name": "profile_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-amplitude setpoint.",
+      "name": "pulse_amplitude_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-delay setpoint.",
+      "name": "pulse_delay_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-permit interlock readback.",
+      "name": "pulse_permit_status"
+    },
+    {
+      "aliases": [
+        "pulse waveform",
+        "pulse trace",
+        "pulse shape",
+        "current pulse waveform",
+        "waveform"
+      ],
+      "description": "Sampled time trace of one output pulse of a pulsed device (e.g. a septum or kicker current pulse), read as an array of samples rather than a scalar.",
+      "name": "pulse_waveform"
+    },
+    {
+      "aliases": [],
+      "description": "Modulator pulse-width setpoint.",
+      "name": "pulse_width_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded pulsing on/off transition.",
+      "name": "pulsing_command"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-on state readback.",
+      "name": "pulsing_on_status"
+    },
+    {
+      "aliases": [],
+      "description": "Pulsing-ready handshake readback.",
+      "name": "pulsing_ready_status"
+    },
+    {
+      "aliases": [
+        "ramp gain readback",
+        "measured ramp gain"
+      ],
+      "description": "Readback of the gain applied to a ramped power supply's ramp table.",
+      "name": "ramp_gain_readback"
+    },
+    {
+      "aliases": [
+        "ramp gain setpoint",
+        "ramp gain",
+        "ramp table gain",
+        "ramp scale"
+      ],
+      "description": "Commanded gain that scales the whole energy-ramp table of a ramped power supply.",
+      "name": "ramp_gain_setpoint"
+    },
+    {
+      "aliases": [
+        "ramp offset readback",
+        "measured ramp offset"
+      ],
+      "description": "Readback of the offset applied to a ramped power supply's ramp table.",
+      "name": "ramp_offset_readback"
+    },
+    {
+      "aliases": [
+        "ramp offset setpoint",
+        "ramp offset",
+        "ramp table offset"
+      ],
+      "description": "Commanded offset added to the whole energy-ramp table of a ramped power supply.",
+      "name": "ramp_offset_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded ramp-rate setpoint for a powered device's current loop.",
+      "name": "ramp_rate_setpoint",
+      "title": "Ramp rate"
+    },
+    {
+      "aliases": [],
+      "description": "Ramping-in-progress readback.",
+      "name": "ramping_status"
+    },
+    {
+      "aliases": [],
+      "description": "Device-ready handshake readback (interlocks satisfied, supplies up).",
+      "name": "ready_status"
+    },
+    {
+      "aliases": [],
+      "description": "Regulator / power-stage temperature readback.",
+      "name": "regulator_temperature_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Remotely-reported RF-phase readback.",
+      "name": "remote_phase_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Latching-fault reset command.",
+      "name": "reset_command"
+    },
+    {
+      "aliases": [],
+      "description": "RF drive-amplitude readback.",
+      "name": "rf_drive_amplitude_readback"
+    },
+    {
+      "aliases": [
+        "rf forward power",
+        "forward power",
+        "cavity forward power",
+        "CRFP"
+      ],
+      "description": "RF forward power readback at an accelerating cavity input.",
+      "name": "rf_forward_power_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Stored golden HV reference for an RF cavity.",
+      "name": "rf_hv_golden_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RF / klystron high-voltage readback.",
+      "name": "rf_hv_readback"
+    },
+    {
+      "aliases": [],
+      "description": "RF / klystron high-voltage setpoint.",
+      "name": "rf_hv_setpoint"
+    },
+    {
+      "aliases": [
+        "rf reflected power",
+        "reflected power",
+        "cavity reflected power",
+        "CRRP"
+      ],
+      "description": "RF reflected power readback from an accelerating cavity.",
+      "name": "rf_reflected_power_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded screen-insert transition.",
+      "name": "screen_in_command"
+    },
+    {
+      "aliases": [],
+      "description": "Screen-inserted state readback.",
+      "name": "screen_in_status"
+    },
+    {
+      "aliases": [],
+      "description": "Screen-extracted state readback.",
+      "name": "screen_out_status"
+    },
+    {
+      "aliases": [
+        "serial",
+        "serial number",
+        "serial no"
+      ],
+      "description": "Serial number a device reports of itself.",
+      "name": "serial_number_readback",
+      "nameplate": true
+    },
+    {
+      "aliases": [],
+      "description": "SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).",
+      "name": "sf6_pressure_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Dipole shunt-circuit state readback.",
+      "name": "shunt_status"
+    },
+    {
+      "aliases": [
+        "status",
+        "device status",
+        "state",
+        "fault status",
+        "enable status",
+        "on off status",
+        "open closed status"
+      ],
+      "description": "Generic device status (on/off/fault/enabled/disabled).",
+      "name": "status"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as read back.",
+      "name": "temperature_hi_limit_readback",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high (minor) alarm limit, as commanded.",
+      "name": "temperature_hi_limit_setpoint",
+      "title": "Hi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as read back.",
+      "name": "temperature_hihi_limit_readback",
+      "title": "Hihi"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the high-high (major) alarm limit, as commanded.",
+      "name": "temperature_hihi_limit_setpoint",
+      "title": "Hihi"
+    },
+    {
+      "aliases": [
+        "temperature limit",
+        "trip temperature",
+        "over-temperature limit",
+        "temperature threshold"
+      ],
+      "description": "Temperature above which a device's over-temperature interlock trips.",
+      "name": "temperature_limit_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as read back.",
+      "name": "temperature_lo_limit_readback",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low (minor) alarm limit, as commanded.",
+      "name": "temperature_lo_limit_setpoint",
+      "title": "Lo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as read back.",
+      "name": "temperature_lolo_limit_readback",
+      "title": "Lolo"
+    },
+    {
+      "aliases": [],
+      "description": "Temperature of the low-low (major) alarm limit, as commanded.",
+      "name": "temperature_lolo_limit_setpoint",
+      "title": "Lolo"
+    },
+    {
+      "aliases": [
+        "temperature",
+        "temperature readback",
+        "measured temperature",
+        "temperature reading"
+      ],
+      "description": "Measured temperature.",
+      "name": "temperature_readback"
+    },
+    {
+      "aliases": [
+        "temperature setpoint",
+        "set temperature",
+        "commanded temperature",
+        "temperature demand"
+      ],
+      "description": "Commanded temperature of a regulated loop (e.g. a cooling-water heater).",
+      "name": "temperature_setpoint"
+    },
+    {
+      "aliases": [],
+      "description": "Thermal/over-temperature interlock flag readback.",
+      "name": "thermal_status"
+    },
+    {
+      "aliases": [
+        "tuner readback",
+        "tuner position",
+        "measured tuner position"
+      ],
+      "description": "Measured tuner position.",
+      "name": "tuner_position_readback"
+    },
+    {
+      "aliases": [
+        "tuner setpoint",
+        "tuner position setpoint",
+        "set tuner position"
+      ],
+      "description": "Commanded tuner position.",
+      "name": "tuner_position_setpoint"
+    },
+    {
+      "aliases": [
+        "vacuum readback",
+        "pressure readback",
+        "vacuum pressure",
+        "pressure reading",
+        "vacuum reading",
+        "pressure measurement"
+      ],
+      "description": "Vacuum pressure readback from a vacuum gauge or pump.",
+      "name": "vacuum_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Cathode-side interlock / status channel for a vacuum valve.",
+      "name": "valve_cathode_status"
+    },
+    {
+      "aliases": [],
+      "description": "Downstream-side limit-switch state readback for a vacuum valve.",
+      "name": "valve_downstream_status"
+    },
+    {
+      "aliases": [],
+      "description": "Commanded valve open/close transition.",
+      "name": "valve_open_command"
+    },
+    {
+      "aliases": [
+        "valve position",
+        "valve opening",
+        "valve percent open",
+        "chilled-water valve"
+      ],
+      "description": "Measured opening of a modulating valve, in percent.",
+      "name": "valve_position_readback"
+    },
+    {
+      "aliases": [],
+      "description": "Open/closed/fault status readback for a beamline gate valve or fast valve.",
+      "name": "valve_status"
+    },
+    {
+      "aliases": [],
+      "description": "Upstream-side limit-switch state readback for a vacuum valve.",
+      "name": "valve_upstream_status"
+    },
+    {
+      "aliases": [
+        "golden voltage",
+        "voltage golden reference",
+        "reference voltage"
+      ],
+      "description": "Stored golden voltage reference.",
+      "name": "voltage_golden_readback"
+    },
+    {
+      "aliases": [
+        "measured voltage",
+        "voltage reading",
+        "readback voltage"
+      ],
+      "description": "Measured voltage.",
+      "name": "voltage_readback",
+      "title": "Voltage"
+    },
+    {
+      "aliases": [
+        "voltage setpoint",
+        "set voltage",
+        "commanded voltage",
+        "voltage demand"
+      ],
+      "description": "Commanded voltage.",
+      "name": "voltage_setpoint"
+    }
+  ]
+}

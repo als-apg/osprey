@@ -23,9 +23,11 @@ T = TypeVar("T")
 
 _TRUNCATE_LIMIT = 64
 
-# TTL every per-job key carries while its job is running. The job's heartbeat
-# (see JobTracker.refresh_heartbeat) re-applies it across the whole job:{id}:*
-# namespace each beat, so a live job's keys never lapse — but a hard-killed
+# TTL every per-job key carries while its job is running. From the claim until
+# the worker's heartbeat takes over, the launcher re-applies it across the whole
+# job:{id}:* namespace (see job_control.keep_launch_alive); from then on the
+# heartbeat (see JobTracker.refresh_heartbeat) does, each beat, so a live job's
+# keys never lapse — but a hard-killed
 # worker stops beating, and its entire footprint self-reclaims within this
 # window with no terminal sweep. Every SET write stamps it inline (SET clears
 # any prior TTL), so hot keys like status/logs/data are never left unbounded.
@@ -40,7 +42,8 @@ CREATED_STATE_TTL_SECONDS = 600
 # lingers before self-reclaiming. Long enough for the UI to fetch final
 # status/logs after a run ends, but bounded so completed-run keys don't
 # accumulate forever. Only applied once a job is terminal — never to a running
-# job, whose keys back the single active-slot guard.
+# job, whose keys back the single active-slot guard. Counted from the job's end;
+# a read never renews it.
 TERMINAL_STATE_TTL_SECONDS = 3600
 
 

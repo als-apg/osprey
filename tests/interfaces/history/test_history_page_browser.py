@@ -24,6 +24,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import re
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlsplit
@@ -35,12 +36,12 @@ from osprey.history import viewer
 from osprey.history.app import create_app
 from osprey.interfaces._serving import run_app_server
 from tests.agent_record.fakes import FakeRecordClient
-from tests.interfaces._browser import wait_for_page_ready
+from tests.interfaces._browser import _PAGE_READY_TIMEOUT_MS, wait_for_page_ready
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from playwright.sync_api import Browser, Page, Response
+    from playwright.sync_api import Browser, Page, Response, Route
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow, pytest.mark.usefixtures("watch")]
 
@@ -626,4 +627,34 @@ def test_every_page_loads_its_assets_under_the_prefix(
         "/history/static/history.css",
         "/history/static/history.js",
     } <= loaded
-    assert [entry for entry in assets if entry[0] != 200] == []
+    # A later page revalidates what an earlier one fetched: 304 is a file that
+    # loaded, from the browser's copy.
+    assert [entry for entry in assets if entry[0] not in (200, 304)] == []
+
+
+def test_a_history_page_whose_start_up_throws_is_marked_failed(
+    chromium_browser: Browser, history_url: str
+) -> None:
+    # A page of its own: the module's watched page fails on any script that throws.
+    start_up = "document.addEventListener('DOMContentLoaded', function () {"
+
+    def broken(route: Route) -> None:
+        source = route.fetch().text()
+        assert start_up in source
+        route.fulfill(
+            body=source.replace(start_up, f"{start_up}\n    throw new Error('start-up broke');"),
+            content_type="text/javascript",
+        )
+
+    context = chromium_browser.new_context()
+    try:
+        page = context.new_page()
+        page.route("**/history.js", broken)
+        page.goto(f"{history_url}/history/?as=alice", wait_until="domcontentloaded")
+        started = time.monotonic()
+        with pytest.raises(AssertionError, match="failed"):
+            wait_for_page_ready(page)
+        assert (time.monotonic() - started) * 1000 < _PAGE_READY_TIMEOUT_MS / 2
+        assert page.locator("html").get_attribute("data-page-ready") == "failed"
+    finally:
+        context.close()

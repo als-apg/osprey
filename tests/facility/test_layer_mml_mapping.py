@@ -1,4 +1,4 @@
-"""Tests for the mml layer's mapping loader (``osprey.facility.layers.mml.mapping``)."""
+"""Tests for the mml layer's mapping loader (``osprey_facility.layers.mml.mapping``)."""
 
 from __future__ import annotations
 
@@ -13,13 +13,14 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.facility.layers.mml.mapping import (
+from osprey.cli.main import facility_errors_as_click
+from osprey_facility.errors import FacilityError, ImportStop
+from osprey_facility.layers.mml.mapping import (
     MAPPING_FILE,
     Coordinates,
     EngineBlock,
     FieldRole,
     Identity,
-    ImportStop,
     MappingError,
     Problem,
     SameAs,
@@ -462,7 +463,7 @@ class TestUndecided:
         document["directions"]["QF.Setpoint"]["direction"] = None
         with pytest.raises(ImportStop) as caught:
             require_decided(parse_mapping(document))
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message().splitlines() == [
             "import mml: mapping-undecided: models.SR.wiring.QF.engine: "
             "name the attribute and index, or the axis, the model wires",
@@ -476,7 +477,8 @@ class TestUndecided:
 
         @click.command()
         def stop() -> None:
-            require_decided(mapping)
+            with facility_errors_as_click():
+                require_decided(mapping)
 
         result = CliRunner().invoke(stop)
         assert result.exit_code == 1
@@ -1191,7 +1193,7 @@ class TestDraft:
         )
 
     def test_the_nsls2_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("nsls2")
         drafted = draft_mapping(ao, ad, va)["families"]
@@ -1208,7 +1210,7 @@ class TestDraft:
         }
 
     def test_the_spear3_export_drafts_the_devices_its_fixture_mapping_answers(self) -> None:
-        from tests.facility.test_fixture_mappings import _export as fixture_export
+        from osprey_facility_tests._fixture_exports import fixture_export
 
         ao, ad, va = fixture_export("spear3")
         drafted = parse_mapping(draft_mapping(ao, ad, va)).families
@@ -1247,7 +1249,7 @@ class TestLoadOrDraft:
     def test_an_absent_mapping_is_drafted_and_stops_the_import(self, tmp_path: Path) -> None:
         with pytest.raises(ImportStop) as caught:
             load_or_draft(tmp_path, _typed_export(), va=_va())
-        assert caught.value.exit_code == 1
+        assert isinstance(caught.value, FacilityError)
         assert caught.value.format_message() == (
             "import mml: mapping-draft: imported/mml/mapping.yaml written; review it, then re-run"
         )
@@ -1283,3 +1285,154 @@ def test_an_engine_block_states_its_words_as_a_wiring_records_engine(
     block: EngineBlock, words: dict[str, Any]
 ) -> None:
     assert block.words() == words
+
+
+def _two_models() -> dict[str, Any]:
+    """Two systems carrying one quadrupole family: the first states its fields in
+    amperes, the second its setpoint in a gradient and its monitor in nothing."""
+    ao = _typed_export()
+    ao["SR"]["QF"]["Setpoint"]["HWUnits"] = "A"
+    ao["SR"]["QF"]["Monitor"]["HWUnits"] = "A"
+    ao["TL"] = {"QF": copy.deepcopy(ao["SR"]["QF"])}
+    for field_ in ("Setpoint", "Monitor"):
+        names = ao["TL"]["QF"][field_]["ChannelNames"]
+        ao["TL"]["QF"][field_]["ChannelNames"] = [f"TL-{name}" for name in names]
+    ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "T/m"
+    del ao["TL"]["QF"]["Monitor"]["HWUnits"]
+    ao["_import_order"] = ["SR", "TL"]
+    return ao
+
+
+class TestSignalPerModel:
+    def test_each_model_is_drafted_from_its_own_units(self) -> None:
+        ao = _two_models()
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert fields["Setpoint"]["by_model"] == {"TL": None}
+        assert fields["Monitor"]["signal"] == "current_readback"
+        assert fields["Monitor"]["by_model"] == {"TL": None}
+        mapping = parse_mapping(draft_mapping(ao))
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("SR") == "current_setpoint"
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("TL") is None
+        assert check_mapping(mapping, ao) == []
+
+    def test_the_family_s_lattice_type_holds_in_a_model_whose_export_omits_it(self) -> None:
+        ao = _two_models()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "A"
+        ao["TL"]["QF"]["Monitor"]["HWUnits"] = "A"
+        del ao["TL"]["QF"]["AT"]  # only the first model states the type
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert "by_model" not in fields["Setpoint"]
+
+    def test_models_that_agree_draft_one_signal_and_no_by_model(self) -> None:
+        ao = _two_models()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "Ampere"
+        ao["TL"]["QF"]["Monitor"]["HWUnits"] = "A"
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert "by_model" not in fields["Setpoint"]
+        assert "by_model" not in fields["Monitor"]
+
+    def test_a_current_given_to_a_model_whose_units_are_no_current_stops_the_import(
+        self,
+    ) -> None:
+        ao = _two_models()
+        document = draft_mapping(ao)
+        del document["families"]["QF"]["fields"]["Setpoint"]["by_model"]
+        assert _problems(document, ao) == [
+            "families.QF.fields.Setpoint: 'current_setpoint' is a current, and TL states "
+            "Setpoint in 'T/m'; answer by_model: {TL: <its signal role, or null>}"
+        ]
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {"TL": "field_setpoint"}
+        assert _problems(document, ao) == []
+        mapping = parse_mapping(document)
+        assert mapping.families["QF"].fields["Setpoint"].signal_of("TL") == "field_setpoint"
+
+    def test_a_by_model_answer_settles_a_model_even_where_it_keeps_the_current(self) -> None:
+        ao = _two_models()
+        document = draft_mapping(ao)
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {"TL": "current_setpoint"}
+        assert _problems(document, ao) == []  # the reviewer knows the units are stale
+
+    def test_a_by_model_answer_names_a_model_and_a_signal_role(self) -> None:
+        document = draft_mapping(_two_models())
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = {
+            "XX": None,
+            "TL": "gradient",
+        }
+        assert _problems(document) == [
+            "families.QF.fields.Setpoint.by_model.XX: XX is no model",
+            "families.QF.fields.Setpoint.by_model.TL: 'gradient' is no vocabulary signal role",
+        ]
+
+    def test_a_by_model_answer_that_is_no_mapping_is_refused(self) -> None:
+        document = draft_mapping(_two_models())
+        document["families"]["QF"]["fields"]["Setpoint"]["by_model"] = ["TL"]
+        with pytest.raises(MappingError, match=r"by_model: must be a mapping, got"):
+            parse_mapping(document)
+
+
+def _physics_units() -> dict[str, Any]:
+    """Two systems carrying a quadrupole and a corrector family: the first states
+    hardware in amperes, the second in a normalized strength and a kick angle."""
+    ao = _two_models()
+    ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "1/Meter^2"
+    ao["TL"]["QF"]["Monitor"]["HWUnits"] = "1/Meter^2"
+    corrector = {
+        "DeviceList": [[1, 1], [1, 2]],
+        "AT": {"ATType": "HCM", "ATIndex": [2, 8]},
+        "Setpoint": {"ChannelNames": ["HC1:SP", "HC2:SP"], "HWUnits": "A"},
+        "Monitor": {"ChannelNames": ["HC1:RB", "HC2:RB"], "HWUnits": "A"},
+    }
+    ao["SR"]["HC"] = copy.deepcopy(corrector)
+    ao["TL"]["HC"] = copy.deepcopy(corrector)
+    for field_ in ("Setpoint", "Monitor"):
+        names = ao["TL"]["HC"][field_]["ChannelNames"]
+        ao["TL"]["HC"][field_]["ChannelNames"] = [f"TL-{name}" for name in names]
+        ao["TL"]["HC"][field_]["HWUnits"] = "mrad"
+    return ao
+
+
+class TestPhysicsUnits:
+    def test_a_multipole_in_a_normalized_strength_drafts_the_strength_signals(self) -> None:
+        ao = _physics_units()
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["by_model"] == {"TL": "normalized_strength_setpoint"}
+        assert fields["Monitor"]["by_model"] == {"TL": "normalized_strength_readback"}
+        assert check_mapping(parse_mapping(draft_mapping(ao)), ao) == []
+
+    def test_a_corrector_in_an_angle_drafts_the_kick_signals(self) -> None:
+        fields = draft_mapping(_physics_units())["families"]["HC"]["fields"]
+        assert fields["Setpoint"]["signal"] == "current_setpoint"
+        assert fields["Setpoint"]["by_model"] == {"TL": "kick_angle_setpoint"}
+        assert fields["Monitor"]["by_model"] == {"TL": "kick_angle_readback"}
+
+    @pytest.mark.parametrize("unit", ["1/m^2", "m^-2", "1/m2", "1/meter^3"])
+    def test_the_strength_units_read_in_their_common_spellings(self, unit: str) -> None:
+        ao = _physics_units()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = unit
+        fields = draft_mapping(ao)["families"]["QF"]["fields"]
+        assert fields["Setpoint"]["by_model"] == {"TL": "normalized_strength_setpoint"}
+
+    def test_a_strength_unit_on_a_corrector_and_an_angle_on_a_multipole_draft_nothing(
+        self,
+    ) -> None:
+        ao = _physics_units()
+        ao["TL"]["QF"]["Setpoint"]["HWUnits"] = "mrad"
+        ao["TL"]["HC"]["Setpoint"]["HWUnits"] = "1/m^2"
+        families = draft_mapping(ao)["families"]
+        assert families["QF"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
+        assert families["HC"]["fields"]["Setpoint"]["by_model"] == {"TL": None}
+
+    def test_the_vocabulary_titles_strength_and_kick(self) -> None:
+        from osprey_facility.validate import vocabulary
+
+        titles = {row["name"]: row.get("title") for row in vocabulary()["signal_roles"]}
+        assert {n: titles[n] for n in (
+            "normalized_strength_setpoint", "normalized_strength_readback",
+            "kick_angle_setpoint", "kick_angle_readback",
+        )} == {
+            "normalized_strength_setpoint": "Strength", "normalized_strength_readback": "Strength",
+            "kick_angle_setpoint": "Kick", "kick_angle_readback": "Kick",
+        }  # fmt: skip

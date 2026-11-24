@@ -354,14 +354,16 @@ def test_a_cookie_signed_with_another_salt_is_rejected(clock: FakeClock) -> None
         SessionCodec(SECRET, clock=clock).decode(encoded)
 
 
-def test_an_empty_cookie_is_rejected(codec: SessionCodec) -> None:
-    with pytest.raises(InvalidSessionError, match="empty"):
-        codec.decode("")
-
-
-def test_garbage_is_rejected(codec: SessionCodec) -> None:
-    with pytest.raises(InvalidSessionError, match="signature verification"):
-        codec.decode("not-a-cookie")
+@pytest.mark.parametrize(
+    ("cookie", "match"),
+    [
+        pytest.param("", "empty", id="empty"),
+        pytest.param("not-a-cookie", "signature verification", id="garbage"),
+    ],
+)
+def test_a_malformed_cookie_is_rejected(codec: SessionCodec, cookie: str, match: str) -> None:
+    with pytest.raises(InvalidSessionError, match=match):
+        codec.decode(cookie)
 
 
 @pytest.mark.parametrize("version", [0, 2, "1", None])

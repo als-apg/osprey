@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -27,15 +27,17 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-accelerator-middle-layer-apg = "2026-10-18T00:00:00Z"
-lume-pva-apg = "2026-11-11T00:00:00Z"
 lume-pyat = "2026-09-18T00:00:00Z"
+lume-pva-apg = "2026-11-11T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-18T00:00:00Z"
 
 [manifest]
 members = [
     "osprey-connectors",
+    "osprey-facility",
     "osprey-framework",
     "osprey-optimizer",
+    "osprey-panels",
     "pyaml-cs-osprey",
 ]
 constraints = [
@@ -4424,11 +4426,11 @@ wheels = [
 
 [[package]]
 name = "mistune"
-version = "3.3.3"
+version = "3.3.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7b/a5/2dab368d6950e6808904dec98f54c7e726ee7be4a0c6afe00e6e011bd52d/mistune-3.3.3.tar.gz", hash = "sha256:c4c6c0c840b8637a2e9b8b6d607eb7c8f00888bf14c754409bcd339e848c2477", size = 115363, upload-time = "2026-07-09T06:18:05.268Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/92/328a294a6de83bacb95bed01f04e0eaff4e3616ee359fc821a5dfc539b02/mistune-3.3.4.tar.gz", hash = "sha256:58b5c96d6fcb61190dfe5fae498d2b2065f99cf61e9649418fd54cf1ada86dfe", size = 121426, upload-time = "2026-07-22T05:22:30.89Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/89/70/b1e4737b84163db5bb1dfde6f216dbfbf32783330a9989c965e121172830/mistune-3.3.3-py3-none-any.whl", hash = "sha256:99de1585e42dcbd826faa9e11a202727a5e202e4e4722a4c69ac1ff615793dd7", size = 63569, upload-time = "2026-07-09T06:18:03.839Z" },
+    { url = "https://files.pythonhosted.org/packages/77/e4/288365afae98953bc01de09f686f40d8ee84578135aa7767d5d4e60b5278/mistune-3.3.4-py3-none-any.whl", hash = "sha256:ee015381e955e370962968befe1d729ab60fafb6a715ac6751763fbce38c8d4a", size = 66862, upload-time = "2026-07-22T05:22:29.419Z" },
 ]
 
 [[package]]
@@ -5475,6 +5477,54 @@ dev = [
 ]
 
 [[package]]
+name = "osprey-facility"
+source = { editable = "packages/osprey-facility" }
+dependencies = [
+    { name = "numpy" },
+    { name = "osprey-connectors" },
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+mml = [
+    { name = "accelerator-toolbox" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "jsonschema" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "accelerator-toolbox", marker = "extra == 'mml'", specifier = ">=0.8.0" },
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "packaging", specifier = ">=26.3" },
+    { name = "pydantic", specifier = ">=2.11,<3" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "scipy", marker = "extra == 'mml'", specifier = ">=1.17.1" },
+]
+provides-extras = ["mml"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "jsonschema", specifier = ">=4.26,<5" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[[package]]
 name = "osprey-framework"
 source = { editable = "." }
 dependencies = [
@@ -5520,6 +5570,7 @@ dependencies = [
     { name = "opentelemetry-proto" },
     { name = "ophyd-async", extra = ["ca"] },
     { name = "osprey-connectors" },
+    { name = "osprey-facility" },
     { name = "packaging" },
     { name = "pandas" },
     { name = "pillow" },
@@ -5567,6 +5618,7 @@ all = [
     { name = "graphviz" },
     { name = "httpx2" },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "linkml" },
     { name = "mss" },
     { name = "mypy" },
@@ -5616,6 +5668,7 @@ dev = [
     { name = "docker" },
     { name = "httpx2" },
     { name = "import-linter" },
+    { name = "jsonschema" },
     { name = "linkml" },
     { name = "mypy" },
     { name = "osprey-optimizer" },
@@ -5676,6 +5729,11 @@ virtual-accelerator = [
     { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "osprey-panels" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "accelerator-commissioning", specifier = "==1.5.3" },
@@ -5727,6 +5785,8 @@ requires-dist = [
     { name = "ipywidgets" },
     { name = "itsdangerous", specifier = ">=2.2.0" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "jsonschema", marker = "extra == 'all'", specifier = ">=4.26,<5" },
+    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.26,<5" },
     { name = "jupyter-server", specifier = ">=2.21,<3" },
     { name = "jupyterlab", specifier = ">=4.6,<5" },
     { name = "linkml", marker = "extra == 'all'", specifier = "==1.11.1" },
@@ -5752,6 +5812,7 @@ requires-dist = [
     { name = "opentelemetry-proto", specifier = ">=1.44.0,<2" },
     { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
+    { name = "osprey-facility", editable = "packages/osprey-facility" },
     { name = "osprey-optimizer", marker = "extra == 'all'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'dev'", editable = "packages/osprey-optimizer" },
     { name = "osprey-optimizer", marker = "extra == 'optimizer'", editable = "packages/osprey-optimizer" },
@@ -5854,6 +5915,9 @@ requires-dist = [
 ]
 provides-extras = ["alarm-state", "all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "optimizer", "screen-capture-linux", "teams", "virtual-accelerator"]
 
+[package.metadata.requires-dev]
+dev = [{ name = "osprey-panels", editable = "packages/osprey-panels" }]
+
 [[package]]
 name = "osprey-optimizer"
 source = { editable = "packages/osprey-optimizer" }
@@ -5903,6 +5967,32 @@ requires-dist = [
     { name = "xopt", marker = "extra == 'service'", specifier = "==3.1.2" },
 ]
 provides-extras = ["service"]
+
+[[package]]
+name = "osprey-panels"
+source = { editable = "packages/osprey-panels" }
+dependencies = [
+    { name = "jsonschema" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "fonttools" },
+    { name = "pytest" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "jsonschema", specifier = ">=4.26,<5" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "fonttools" },
+    { name = "pytest" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist" },
+]
 
 [[package]]
 name = "overrides"

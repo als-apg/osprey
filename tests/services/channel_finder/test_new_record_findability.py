@@ -29,8 +29,8 @@ ASKED_FOR = {
 
 
 def _inputs(doc: dict[str, Any]) -> Any:
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views import ViewInputs
+    from osprey_facility.records import FacilityRecords
 
     return ViewInputs(
         records=FacilityRecords(doc), rendered_config={}, facility_dir=Path("."), served=[]

@@ -1910,7 +1910,7 @@ def resolve_profile_document(
         )
 
     if "data" in normalized:
-        from osprey.facility.errors import FacilityBuildError
+        from osprey_facility.errors import FacilityBuildError
 
         raise FacilityBuildError(
             "profile-invalid",
@@ -1925,7 +1925,7 @@ def resolve_profile_document(
         )
 
     if "machine" in normalized:
-        from osprey.facility.errors import FacilityBuildError
+        from osprey_facility.errors import FacilityBuildError
 
         raise FacilityBuildError(
             "profile-invalid",
@@ -2029,10 +2029,10 @@ def _fold_source_tree(
     invent a marker for it.
 
     Version-control metadata (a ``.git`` file or directory at any depth,
-    :func:`~osprey.facility.roots.is_vcs_metadata`) is never folded: a submodule
+    :func:`~osprey_facility.roots.is_vcs_metadata`) is never folded: a submodule
     or nested clone's own bookkeeping is not build input. The ``machine`` input
     (:data:`MACHINE_INPUT_LABEL`) folds only what
-    :func:`~osprey.facility.roots.is_machine_entry` admits, so the machine
+    :func:`~osprey_facility.roots.is_machine_entry` admits, so the machine
     root's own copies of the deployment content directories do not move the hash.
 
     Two limits of the walk, both deliberate:
@@ -2056,8 +2056,8 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
     from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey_facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
 
     # The machine input is listed only when mounted, so its tree folds as the
     # machine root of a mounted pair: the content root is never walked here and
@@ -2135,8 +2135,9 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     The canonical JSON alone captures what a profile says; it cannot see what
     the trees it points at contain. Without this, editing a facility's channel
     database, a rule the agent reads, or the trigger table a dispatcher fires
-    on leaves the profile hash untouched and the deploy-side staleness advisory
-    stays silent about a project that no longer matches its source.
+    on leaves the profile hash untouched and the drift check
+    (:func:`osprey.deployment.staleness.check_drift`) stays silent about a
+    project that no longer matches its source.
 
     *inputs* is :func:`profile_inputs`; every entry with a fold label is folded
     and the document entries, which the canonical JSON already covers, are not.
@@ -2783,9 +2784,10 @@ def _hash_resolved_profile(
 def compute_preset_hash(preset_name: str) -> str | None:
     """Content hash of a bundled preset as resolved (post-``extends``).
 
-    Stamped into ``.osprey-manifest.json`` at build time and compared by the
-    deploy-side staleness advisory
-    (:mod:`osprey.deployment.staleness`). Returns ``None`` when the preset is
+    Stamped into a materialized profile's provenance header (and into
+    ``.osprey-manifest.json`` for a build that resolved no profile path), and
+    compared when a repo's presets are checked for changes
+    (:mod:`osprey.cli.build_profile_updates`). Returns ``None`` when the preset is
     unknown or unreadable — callers treat that as "cannot compare", never as
     drift.
 

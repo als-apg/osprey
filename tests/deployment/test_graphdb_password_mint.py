@@ -49,8 +49,8 @@ from tests.deployment._dotenv import project_env
 PUBLISHED_DEFAULT = "ospreygraph"
 
 
-def _deploy_fixture(stub_deploy_up, monkeypatch, services):
-    """Patch deploy_up's collaborators for a project deploying ``services``.
+def _deploy_fixture(stub_start_stack, monkeypatch, services):
+    """Stub the start's host for a project deploying ``services``.
 
     The stubbed config carries a ``services.graphdb`` block whenever graphdb is
     deployed, because that block is *required* rather than defaulted: the deploy
@@ -71,17 +71,17 @@ def _deploy_fixture(stub_deploy_up, monkeypatch, services):
     # Every start builds the project image agent-record runs on; no build here.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "_stage_graphdb_store", lambda *a, **k: None)
-    return stub_deploy_up(config, seam="subprocess.run")
+    return stub_start_stack(config, seam="subprocess.run")
 
 
 @pytest.fixture
-def captured_argv(stub_deploy_up, monkeypatch):
+def captured_argv(stub_start_stack, monkeypatch):
     """A project with only 'graphdb' deployed — the minting path."""
-    return _deploy_fixture(stub_deploy_up, monkeypatch, ["graphdb"])
+    return _deploy_fixture(stub_start_stack, monkeypatch, ["graphdb"])
 
 
 @pytest.fixture
-def external_store_argv(stub_deploy_up, monkeypatch):
+def external_store_argv(stub_start_stack, monkeypatch):
     """A project with NO graphdb deployed — the external-store path.
 
     ``postgresql`` stands in for "some other service is deployed" so the deploy
@@ -89,7 +89,7 @@ def external_store_argv(stub_deploy_up, monkeypatch):
     is absent from ``deployed_services``, which is what makes GRAPHDB_PASSWORD
     validate-only rather than minted.
     """
-    return _deploy_fixture(stub_deploy_up, monkeypatch, ["postgresql"])
+    return _deploy_fixture(stub_start_stack, monkeypatch, ["postgresql"])
 
 
 @pytest.fixture(autouse=True)
@@ -111,8 +111,8 @@ def _clean_token_env(monkeypatch):
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_graphdb_deploy_mints_graphdb_password(tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+def test_graphdb_deploy_mints_graphdb_password(stubbed_start, tmp_path):
+    stubbed_start.start(detached=True, dev_mode=False)
 
     env = project_env(tmp_path)
     assert env.get("GRAPHDB_PASSWORD")
@@ -147,10 +147,10 @@ def test_minted_value_is_never_the_published_default():
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_graphdb_mint_is_idempotent(tmp_path):
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+def test_graphdb_mint_is_idempotent(stubbed_start, tmp_path):
+    stubbed_start.start(detached=True)
     first = project_env(tmp_path)
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     second = project_env(tmp_path)
 
     assert first["GRAPHDB_PASSWORD"] == second["GRAPHDB_PASSWORD"]
@@ -167,9 +167,9 @@ def test_graphdb_mint_is_idempotent(tmp_path):
     ],
 )
 @pytest.mark.usefixtures("captured_argv")
-def test_an_operator_graphdb_password_is_kept_as_written(tmp_path, password):
+def test_an_operator_graphdb_password_is_kept_as_written(stubbed_start, tmp_path, password):
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={password}\n", encoding="utf-8")
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    stubbed_start.start(detached=True)
     assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == password
 
 
@@ -186,16 +186,16 @@ def test_an_operator_graphdb_password_is_kept_as_written(tmp_path, password):
     ],
 )
 @pytest.mark.usefixtures("captured_argv")
-def test_operator_password_with_reserved_char_is_rejected(tmp_path, bad):
+def test_operator_password_with_reserved_char_is_rejected(stubbed_start, tmp_path, bad):
     """Refuse at the deploy boundary rather than let NEO4J_AUTH mis-split."""
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={bad}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
 
 @pytest.mark.parametrize("short", ["a", "short", "sevench"])
 @pytest.mark.usefixtures("captured_argv")
-def test_operator_password_under_the_neo4j_minimum_is_rejected(tmp_path, short):
+def test_operator_password_under_the_neo4j_minimum_is_rejected(stubbed_start, tmp_path, short):
     """Neo4j refuses an initial password under 8 characters and crash-loops.
 
     Nothing about a short value is malformed as a URI or as a composite half,
@@ -205,11 +205,11 @@ def test_operator_password_under_the_neo4j_minimum_is_rejected(tmp_path, short):
     assert len(short) < 8
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={short}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_published_template_default_is_refused(tmp_path):
+def test_published_template_default_is_refused(stubbed_start, tmp_path):
     """The template's ``:-`` fallback is a shared password, not a secret.
 
     It is well-formed by every format rule this var registers — that is exactly
@@ -218,22 +218,22 @@ def test_published_template_default_is_refused(tmp_path):
     """
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_rejection_never_echoes_the_password(tmp_path):
+def test_rejection_never_echoes_the_password(stubbed_start, tmp_path):
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=neo4j/secret\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
     assert "neo4j/secret" not in str(excinfo.value)
 
 
 @pytest.mark.usefixtures("captured_argv")
-def test_forbidden_rejection_never_echoes_the_default(tmp_path):
+def test_forbidden_rejection_never_echoes_the_default(stubbed_start, tmp_path):
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
     assert PUBLISHED_DEFAULT not in str(excinfo.value)
 
 
@@ -241,8 +241,8 @@ class TestExternalStore:
     """graphdb not deployed: validated when present, never minted when absent."""
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_absent_password_is_never_fabricated(self, tmp_path):
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    def test_absent_password_is_never_fabricated(self, stubbed_start, tmp_path):
+        stubbed_start.start(detached=True)
         env = project_env(tmp_path)
         assert "GRAPHDB_PASSWORD" not in env
         # The deploy still ran its own service's mint, so this is a scoped
@@ -250,14 +250,14 @@ class TestExternalStore:
         assert env.get("ARIEL_DB_PASSWORD")
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_operator_supplied_password_is_preserved(self, tmp_path):
+    def test_operator_supplied_password_is_preserved(self, stubbed_start, tmp_path):
         (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=externalstorepw\n", encoding="utf-8")
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
         assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "externalstorepw"
 
     @pytest.mark.parametrize("bad", ["neo4j/secret", "p@ssword", "short"])
     @pytest.mark.usefixtures("external_store_argv")
-    def test_malformed_operator_password_is_still_rejected(self, tmp_path, bad):
+    def test_malformed_operator_password_is_still_rejected(self, stubbed_start, tmp_path, bad):
         """A store this deploy does not run still parses the value the same way.
 
         Without the validate-only registration the var would be invisible to
@@ -267,7 +267,7 @@ class TestExternalStore:
         """
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={bad}\n", encoding="utf-8")
         with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-            container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+            stubbed_start.start(detached=True)
 
 
 class TestRegistryAgreement:
@@ -542,24 +542,28 @@ class TestExternalStoreForbiddenValue:
     """
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_the_published_default_is_refused_on_the_external_store_path(self, tmp_path):
+    def test_the_published_default_is_refused_on_the_external_store_path(
+        self, stubbed_start, tmp_path
+    ):
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-            container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+            stubbed_start.start(detached=True)
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_the_external_store_refusal_never_echoes_the_default(self, tmp_path):
+    def test_the_external_store_refusal_never_echoes_the_default(self, stubbed_start, tmp_path):
         """Same no-echo rule the minted path already holds to."""
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError) as excinfo:
-            container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+            stubbed_start.start(detached=True)
 
         assert PUBLISHED_DEFAULT not in str(excinfo.value)
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_the_refusal_is_the_forbidden_value_diagnosis_not_a_format_one(self, tmp_path):
+    def test_the_refusal_is_the_forbidden_value_diagnosis_not_a_format_one(
+        self, stubbed_start, tmp_path
+    ):
         """Two failures, two fixes — the message has to name the right one.
 
         "your password is public" and "your password has a bad character" send
@@ -568,7 +572,7 @@ class TestExternalStoreForbiddenValue:
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError) as excinfo:
-            container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+            stubbed_start.start(detached=True)
 
         message = str(excinfo.value)
         from osprey.deployment.service_tokens import _VAR_FORBIDDEN_DESCRIPTIONS
@@ -576,19 +580,21 @@ class TestExternalStoreForbiddenValue:
         assert _VAR_FORBIDDEN_DESCRIPTIONS["GRAPHDB_PASSWORD"] in message
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_a_forbidden_value_from_the_process_env_is_refused_too(self, tmp_path, monkeypatch):
+    def test_a_forbidden_value_from_the_process_env_is_refused_too(
+        self, stubbed_start, monkeypatch
+    ):
         """A shell export outranks ``.env`` for compose, so it must be checked."""
         monkeypatch.setenv("GRAPHDB_PASSWORD", PUBLISHED_DEFAULT)
 
         with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
-            container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+            stubbed_start.start(detached=True)
 
     @pytest.mark.usefixtures("external_store_argv")
-    def test_a_clean_external_password_still_passes(self, tmp_path):
+    def test_a_clean_external_password_still_passes(self, stubbed_start, tmp_path):
         """The new check must refuse the default and nothing else."""
         (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=notthedefault\n", encoding="utf-8")
 
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stubbed_start.start(detached=True)
 
         assert project_env(tmp_path)["GRAPHDB_PASSWORD"] == "notthedefault"
 

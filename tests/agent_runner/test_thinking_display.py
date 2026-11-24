@@ -50,6 +50,7 @@ from osprey.agent_runner.launcher import (
     warn_thinking_flag_withheld,
 )
 from tests._agent_cli import STUB_AGENT_CLI
+from tests._scoped_stdlib import scoped
 
 GLOBAL = "/usr/local/bin/claude"
 PIN = "2.1.300"
@@ -60,7 +61,12 @@ def installed(monkeypatch):
     """Put a ``claude`` on PATH that reports *version*; return the probe record."""
 
     def install(version, path=GLOBAL):
-        monkeypatch.setattr("shutil.which", lambda name, **_k: path if name == CLI_NAME else None)
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda name, **_k: path if name == CLI_NAME else None,
+        )
         probed: list[str] = []
 
         def probe(executable):
@@ -174,8 +180,11 @@ class TestResolveThinkingDisplay:
         assert resolve_thinking_display({}, version).flag_allowed is allowed
 
     def test_it_is_pure(self, caplog, monkeypatch):
-        monkeypatch.setattr(
-            launcher.subprocess, "run", lambda *a, **k: pytest.fail("resolve ran a process")
+        scoped(
+            monkeypatch,
+            launcher,
+            "subprocess",
+            run=lambda *a, **k: pytest.fail("resolve ran a process"),
         )
         with caplog.at_level(logging.DEBUG, logger=launcher.logger.name):
             resolve_thinking_display({}, None)

@@ -56,12 +56,20 @@ def _fresh_report_record(monkeypatch):
     monkeypatch.setattr(config, "_shell_only_reported", set())
 
 
-@pytest.fixture
-def chain(tmp_path) -> list[Path]:
+@pytest.fixture(scope="module")
+def chain(tmp_path_factory) -> list[Path]:
+    """The ``.env.shared`` and ``.env`` chain, written once for the module.
+
+    Shared by every test that takes it: they only read the two files (as
+    :func:`apply_env_chain` and :func:`load_project_dotenv` do), and the
+    once-per-file warning record they would share is reset for each test by
+    :func:`_fresh_report_record`.
+    """
+    directory = tmp_path_factory.mktemp("chain")
     shared = _write_chain(
-        tmp_path, ".env.shared", {"OSPREY_ORDINARY": "shared", "OSPREY_BOTH": "s"}
+        directory, ".env.shared", {"OSPREY_ORDINARY": "shared", "OSPREY_BOTH": "s"}
     )
-    local = _write_chain(tmp_path, ".env", {"OSPREY_BOTH": "local"})
+    local = _write_chain(directory, ".env", {"OSPREY_BOTH": "local"})
     return [shared, local]
 
 
@@ -233,19 +241,21 @@ def test_every_probe_name_is_shell_only():
 
 
 @pytest.mark.parametrize("override", [True, False])
-@pytest.mark.parametrize("name", PROBE_NAMES)
-def test_shell_value_is_kept(chain, name, override):
-    environ = {name: _shell_value(name)}
+def test_shell_value_is_kept(chain, override):
+    """Every probe name set from the shell, in one application: the chain decides
+    each name on its own, so one call answers for all of them."""
+    environ = {name: _shell_value(name) for name in PROBE_NAMES}
     apply_env_chain(environ, chain, override=override)
-    assert environ[name] == _shell_value(name)
+    replaced = [name for name in PROBE_NAMES if environ.get(name) != _shell_value(name)]
+    assert replaced == [], f"the chain replaced the shell's value of {replaced}"
 
 
 @pytest.mark.parametrize("override", [True, False])
-@pytest.mark.parametrize("name", PROBE_NAMES)
-def test_absent_name_stays_absent(chain, name, override):
+def test_absent_name_stays_absent(chain, override):
     environ: dict[str, str] = {}
     apply_env_chain(environ, chain, override=override)
-    assert name not in environ
+    set_by_chain = [name for name in PROBE_NAMES if name in environ]
+    assert set_by_chain == [], f"the chain set {set_by_chain}"
 
 
 @pytest.mark.parametrize("override", [True, False])
@@ -315,3 +325,30 @@ def test_load_project_dotenv_skips_and_does_not_record_shell_only(chain, monkeyp
     assert os.environ["OSPREY_ORDINARY"] == "shared"
     recorded = dotenv_shell_overrides()
     assert recorded == {"OSPREY_BOTH": "shell"}
+
+
+def test_load_project_dotenv_records_against_the_values_it_applied(tmp_path, monkeypatch):
+    """The shell's value is judged against what the chain applied: an inline
+    ``# comment`` is not part of the value, and a ``${VAR}`` is interpolated."""
+    (tmp_path / ".env").write_text(
+        "OSPREY_AGREES=value # note\n"
+        "OSPREY_DIFFERS=file # note\n"
+        "OSPREY_HASHED=file # note\n"
+        "OSPREY_REF=${OSPREY_BASE}/x\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(ENV_CHAIN_APPLIED_ENV, raising=False)
+    monkeypatch.setattr(config, "_dotenv_shell_overrides", {})
+    monkeypatch.setenv("OSPREY_AGREES", "value")
+    monkeypatch.setenv("OSPREY_DIFFERS", "shell")
+    monkeypatch.setenv("OSPREY_HASHED", "file # note")
+    monkeypatch.setenv("OSPREY_BASE", "/base")
+    monkeypatch.setenv("OSPREY_REF", "/base/x")
+
+    load_project_dotenv()
+
+    assert os.environ["OSPREY_AGREES"] == "value"
+    assert os.environ["OSPREY_HASHED"] == "file"
+    assert os.environ["OSPREY_REF"] == "/base/x"
+    assert dotenv_shell_overrides() == {"OSPREY_DIFFERS": "shell", "OSPREY_HASHED": "file # note"}

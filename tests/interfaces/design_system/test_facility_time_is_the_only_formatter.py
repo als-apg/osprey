@@ -15,13 +15,11 @@ told from a number's, so review still owns that form.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
-_SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
-
-_SUFFIXES = (".js", ".mjs", ".html", ".html.j2")
+from tests.interfaces.design_system._served_sources import SRC as _SRC
+from tests.interfaces.design_system._served_sources import served_sources
 
 #: The forms that format an instant in the viewer's zone. The last alternative
 #: is ``toLocaleString`` with a date option object, which leaves number
@@ -43,18 +41,6 @@ _EXEMPT = {
 }
 
 
-def _served_sources() -> list[Path]:
-    paths = []
-    for path in sorted(_SRC.rglob("*")):
-        if not path.is_file() or not path.name.endswith(_SUFFIXES):
-            continue
-        rel = path.relative_to(_SRC)
-        if "vendor" in rel.parts or path.name.endswith(".min.js"):
-            continue
-        paths.append(path)
-    return paths
-
-
 def _hits(text: str) -> list[int]:
     """The 1-based line of every match in *text*."""
     return [text.count("\n", 0, m.start()) + 1 for m in _INSTANT_FORMATTING.finditer(text)]
@@ -62,7 +48,7 @@ def _hits(text: str) -> list[int]:
 
 def test_no_served_page_formats_an_instant_itself():
     found = []
-    for path in _served_sources():
+    for path in served_sources():
         rel = path.relative_to(_SRC).as_posix()
         if rel in _EXEMPT:
             continue

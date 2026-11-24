@@ -105,7 +105,8 @@
       <input class="login-input" id="password" name="password" type="password"
              autocomplete="current-password" autofocus required>
       {%- endif %}
-      <button class="login-submit" type="submit">Unlock terminal</button>
+      <button class="login-submit" type="submit"
+              data-busy-label="Unlocking terminal&hellip;">Unlock terminal</button>
     </form>
     <a class="login-back" href="/">&larr; Choose a different user</a>
   </main>{% endblock %}

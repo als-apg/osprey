@@ -96,6 +96,7 @@ if TYPE_CHECKING:
         LimitsValidator,
     )
     from osprey_connectors.settle import Landing
+    from osprey_facility.records import FacilityRecords
 
 logger = get_logger("runtime")
 
@@ -226,8 +227,8 @@ _write_observers: "list[Callable[[str, str], None]]" = []
 SETTLE_TIMEOUT_S = 5.0
 
 #: The last facility file :func:`settle` parsed: its path, its ``st_mtime_ns``
-#: and its channel records by ``id``; read and replaced under :data:`_facility_lock`.
-_facility_parsed: "tuple[Path, int, dict[str, Mapping[str, Any]]] | None" = None
+#: and its records; read and replaced under :data:`_facility_lock`.
+_facility_parsed: "tuple[Path, int, FacilityRecords] | None" = None
 _facility_lock = threading.Lock()
 
 
@@ -1097,7 +1098,10 @@ def settle(demands: "Mapping[str, float]", *, timeout_s: float | None = None) ->
     Raises:
         FileNotFoundError: No deployment config is found, or the render has no
             facility file; nothing was read.
-        ValueError: An address is no setpoint in the facility file; nothing was read.
+        ValueError: An address is no setpoint in the facility file, or the
+            facility file cannot be read or carries a header this reader does
+            not read (the message names the rebuild, ``osprey build``); nothing
+            was read.
         SettleTimeoutError: A readback was not within its bound in time
             (:class:`osprey_connectors.settle.SettleTimeoutError`, a ``TimeoutError``).
         SettleReadError: A readback that cannot be reached, is not a channel,
@@ -1126,44 +1130,57 @@ async def _settle_async(landings: "list[Landing]", timeout_s: float) -> None:
 
 
 def _landings(demands: "Mapping[str, float]") -> "list[Landing]":
-    """One landing per setpoint that has a bound, as the render's facility file states it."""
+    """One landing per setpoint that has a bound, as the render's facility file states it.
+
+    A further address of a wiring record settles as its record.
+    """
     from osprey_connectors.settle import Landing, settle_bound
     from osprey_connectors.simulation.envelope import motion_envelope
     from osprey_connectors.types import is_simulated, resolve_control_system_type
 
-    path, channels = _facility_channels()
+    path, records = _facility_records()
     simulated: bool | None = None
     landings: list[Landing] = []
     for address, demand in demands.items():
-        channel = channels.get(address)
+        channel = records.record("channel", address)
         if channel is None or channel.get("role") != "setpoint":
             raise ValueError(f"{address} is no setpoint in {path}")
-        readback = str(channel.get("pair") or address)
+        own = records.record_address(address)
+        held = records.record("channel", own) or channel
+        pair = held.get("pair")
+        readback = str(pair) if pair and pair != own else address
         if simulated is None:
             section = _target_connector_config() or _control_system_section()
             simulated = is_simulated(resolve_control_system_type(section))
-        motion = motion_envelope(channels.get(readback, {}).get("simulation")) if simulated else 0.0
+        read = records.record("channel", readback) or {}
+        motion = motion_envelope(read.get("simulation")) if simulated else 0.0
         bound = settle_bound(
-            channel.get("tolerance"), float(demand), motion=motion, simulated=simulated
+            held.get("tolerance"), float(demand), motion=motion, simulated=simulated
         )
         if bound is not None:
             landings.append(Landing(address, readback, float(demand), bound))
     return landings
 
 
-def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
-    """The render's facility file and its channel records by ``id``.
+def _facility_records() -> "tuple[Path, FacilityRecords]":
+    """The render's facility file and its records.
 
     Parsed once per path and modification time.
 
     Raises:
         FileNotFoundError: No deployment config is found, or the render has no facility file.
+        FacilityFileError: The facility file cannot be read, is not a JSON
+            object, or carries a header this reader does not read; the message
+            names the rebuild (:class:`osprey_facility.errors.FacilityFileError`,
+            a ``ValueError``).
         ValueError: The facility file holds no ``channels`` list.
     """
     global _facility_parsed
 
     from osprey.channel_roster.sources import facility_file_path
     from osprey_connectors.config import get_full_configuration
+    from osprey_facility.reading import load_facility
+    from osprey_facility.records import FacilityRecords
 
     config = get_full_configuration()
     path = facility_file_path(config)
@@ -1177,18 +1194,14 @@ def _facility_channels() -> "tuple[Path, dict[str, Mapping[str, Any]]]":
         parsed = _facility_parsed
     if parsed is not None and parsed[0] == path and parsed[1] == mtime_ns:
         return path, parsed[2]
-    document = json.loads(path.read_text(encoding="utf-8"))
-    records = document.get("channels") if isinstance(document, dict) else None
+    document = load_facility(path)
+    records = document.get("channels")
     if not isinstance(records, list):
         raise ValueError(f"{path} holds no 'channels' list")
-    channels: dict[str, Mapping[str, Any]] = {
-        str(record["id"]): record
-        for record in records
-        if isinstance(record, dict) and "id" in record
-    }
+    held = FacilityRecords(document)
     with _facility_lock:
-        _facility_parsed = (path, mtime_ns, channels)
-    return path, channels
+        _facility_parsed = (path, mtime_ns, held)
+    return path, held
 
 
 def read_channel(channel_address: str, **kwargs) -> Any:

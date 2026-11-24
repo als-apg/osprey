@@ -136,7 +136,11 @@ describe('the context meter', () => {
       {
         role: 'assistant',
         content: '',
-        events: [{ type: 'text', content: 'Old turn.' }, reading(90), { type: 'result' }],
+        events: [
+          { type: 'text', content: 'Old turn.' },
+          reading(90),
+          { type: 'result', ends_turn: true },
+        ],
       },
     ]);
     expect(meter.hidden).toBe(true);
@@ -204,7 +208,10 @@ describe('the model tag', () => {
       {
         role: 'assistant',
         content: '',
-        events: [{ type: 'system', subtype: 'init', model: 'claude-old' }, { type: 'result' }],
+        events: [
+          { type: 'system', subtype: 'init', model: 'claude-old' },
+          { type: 'result', ends_turn: true },
+        ],
       },
     ]);
     expect(tagOf(meter).hidden).toBe(true);

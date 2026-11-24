@@ -36,11 +36,11 @@ do not attempt their work with your own tools.
 - **{{ a.name }}** — {{ a.delegation | indent(2) if a.delegation else a.description }}
 {%- endfor %}
 
-{% if "pv-directory" in enabled_servers | default([]) -%}
+{% if "channel-directory" in enabled_servers | default([]) -%}
 ## Control-System Directory
 
-The directory is the control system's own list of every channel and IOC,
-beside the curated channels. Its tools: {% for t in pv_directory_tools | default([]) %}`{{ t }}`{{ ", " if not loop.last }}{% endfor %}.
+The directory is the control system's own list of every channel and the
+server serving it, beside the curated channels. Its tools: {% for t in channel_directory_tools | default([]) %}`{{ t }}`{{ ", " if not loop.last }}{% endfor %}.
 
 - Check the curated channels first{% if channel_finder_enabled %} (through
   **channel-finder**, which searches the directory when they do not answer){% endif %}.
@@ -50,9 +50,17 @@ beside the curated channels. Its tools: {% for t in pv_directory_tools | default
   "unavailable" means the directory did not answer.
 - Build queries only from the user's words or property values the directory
   listed.
-- Whether an IOC is alive, and its engineer: open its IOC page, the
-  `links.panel` of `ioc_record`; the page reads its health channels.
-- To show a channel or IOC, call `open_panel` with the result's `links.panel`.
+{%- if channel_directory_fleet | default(false) %}
+- Which servers are down, and the fleet by host or class: `server_fleet` lists
+  every server of the session's target with its state.
+- Whether a server is alive, and its engineer: `server_record` carries its state
+  in "fleet". "unreached" and "unknown" mean the state is not known, not that
+  the server stopped.
+{%- else %}
+- Whether a server is alive, and its engineer: open its server page, the
+  `links.panel` of `server_record`; the page reads its health channels.
+{%- endif %}
+- To show a channel or server, call `open_panel` with the result's `links.panel`.
   It opens the page in a new split tile, or focuses it when it is already on
   screen.
 

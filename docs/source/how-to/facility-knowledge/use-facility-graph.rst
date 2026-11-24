@@ -258,6 +258,22 @@ file reaches the graph with:
 
    $ osprey build && osprey up
 
+The corpus is sent to the store in requests of a few megabytes each, cut
+between Turtle statements, so the heap the store needs
+(``services.graphdb.heap_max_size``) does not grow with the size of the corpus.
+A statement is never cut, and every statement that names a labelled blank node
+(``_:b0``) travels in one request, whatever its size: a corpus of your own that
+leans on labelled blank nodes is the one case where a larger heap may still be
+needed.
+
+A seed that fails does not stop the rest of the deployment from starting, and
+it does not pass for a finished one either. ``osprey up`` reports the failure
+in its step output when it happens, starts everything else, and then ends with
+the failed step as its last lines and a non-zero exit status. The store is left
+without a seed marker, so the next ``osprey up`` seeds it again. (An attached
+``osprey up``, without ``-d``, hands the terminal to the container logs and has
+no exit status of its own: there the step output is the report.)
+
 
 What the Preset Seeds
 =====================
@@ -401,17 +417,17 @@ only its own status channels. After ``osprey build`` the views hold:
      - Addresses
      - Relationship to the graph
    * - Graph view (``data/graph/facility.ttl``)
-     - 4731
-     - Build output, written from the facility file: 1027 devices, and one
-       binding per channel; the 674 setpoint channels are the write-direction
+     - 4765
+     - Build output, written from the facility file: 1091 devices, and one
+       binding per channel; the 677 setpoint channels are the write-direction
        bindings.
    * - Channel finder — hierarchical and graph builds
-     - 4731
+     - 4765
      - The same set, address for address. A graph-mode build keeps no database
        of its own: it answers out of the search index the build writes from
        the graph view.
    * - Channel finder — middle-layer build
-     - 4725
+     - 4759
      - A strict subset — every channel bound to a device. The few channels the
        facility file attaches to a place rather than a device belong to no
        family, so this view leaves them out.

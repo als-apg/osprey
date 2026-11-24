@@ -124,9 +124,9 @@ def test_the_manifest_loses_each_volatile_key_and_nothing_else() -> None:
 
 def test_a_new_key_under_creation_stays_visible() -> None:
     document = json.loads(_manifest())
-    document["creation"]["pv_directory"] = "enabled"
+    document["creation"]["channel_directory"] = "enabled"
     stable = json.loads(normalise("build/.osprey-manifest.json", json.dumps(document).encode()))
-    assert stable["creation"]["pv_directory"] == "enabled"
+    assert stable["creation"]["channel_directory"] == "enabled"
 
 
 def _agent_record(value: str, *extra: str) -> bytes:
@@ -232,12 +232,12 @@ def test_a_snapshot_sees_through_what_names_the_render(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("relative", "content"),
     [
-        ("var/pv_directory/state.db", b"new state"),
+        ("var/channel_directory/state.db", b"new state"),
         ("var/agent_data/control_target/.osprey-control-tree", b"changed"),
-        (".env", b"KEY=value\nPV_DIRECTORY_TOKEN=new\n"),
+        (".env", b"KEY=value\nCHANNEL_DIRECTORY_TOKEN=new\n"),
         (".env.lock", b"held"),
-        (".env.agent-record.login.pv-directory", b"OSPREY_AGENT_RECORD_LOGIN=x\n"),
-        (".env.agent-record.service", _agent_record("one", "PV_DIRECTORY_SECRET=x")),
+        (".env.agent-record.login.channel-directory", b"OSPREY_AGENT_RECORD_LOGIN=x\n"),
+        (".env.agent-record.service", _agent_record("one", "CHANNEL_DIRECTORY_SECRET=x")),
         (f"build/demo-new/{GRAPH_INDEX}", b"\x00a new copy"),
     ],
 )
@@ -257,8 +257,8 @@ def test_a_stray_or_changed_file_cannot_hide(tmp_path: Path, relative: str, cont
 def test_a_snapshot_sees_a_new_empty_directory(tmp_path: Path) -> None:
     repo = _tree(tmp_path / "repo", {"build/config.yml": b"key: value\n"})
     before = snapshot(repo)
-    (repo / "build" / "pv_directory").mkdir()
-    assert differing(before, snapshot(repo)) == ["build/pv_directory"]
+    (repo / "build" / "channel_directory").mkdir()
+    assert differing(before, snapshot(repo)) == ["build/channel_directory"]
 
 
 def test_a_snapshot_sees_a_symlink_and_its_target(tmp_path: Path) -> None:
@@ -374,7 +374,9 @@ def test_the_manifest_view_is_what_a_snapshot_hashes(tmp_path: Path) -> None:
 
 def test_the_configurations_add_no_directory_section() -> None:
     assert [item.name for item in CONFIGURATIONS] == ["demo", "demo-hierarchical", "hello-world"]
-    assert not any("pv_directory" in pair for item in CONFIGURATIONS for pair in item.overrides)
+    assert not any(
+        "channel_directory" in pair for item in CONFIGURATIONS for pair in item.overrides
+    )
 
 
 def test_the_hierarchical_configuration_reaches_the_profile(tmp_path: Path) -> None:

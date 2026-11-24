@@ -83,15 +83,14 @@ def test_an_undeployed_projected_row_builds_nothing() -> None:
 
 
 @pytest.fixture
-def deploy(stub_deploy_up, monkeypatch, tmp_path):
-    """Run ``deploy_up`` over a projected config, with no image build and no host."""
+def deploy(stub_start_stack, monkeypatch, tmp_path):
+    """Run ``_start_stack`` over a projected config, with no image build and no host."""
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     for name in (launch_token_env("knob-demo"), launch_token_env("viewer")):
         monkeypatch.delenv(name, raising=False)
 
     def _run(config: dict[str, Any]) -> dict[str, str]:
-        stub_deploy_up(config, seam="subprocess.run")
-        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+        stub_start_stack(config).start(detached=True)
         return project_env(tmp_path)
 
     return _run
@@ -136,9 +135,9 @@ def test_the_launch_token_mint_is_idempotent(deploy, tmp_path) -> None:
 
 OPERATOR_SECRET = "OSPREY_TERMINAL_SECRET"
 
-ALIAS: dict[str, Any] = {
+GRANTED: dict[str, Any] = {
     **KNOB,
-    "panel": {**KNOB["panel"], "roster_grant": {"single_user_alias": True}},
+    "panel": {**KNOB["panel"], "roster_grant": {}},
 }
 
 ROSTER = {"web_terminals": {"users": [{"name": "alice", "index": 0}]}}
@@ -150,9 +149,9 @@ def no_operator_secret(monkeypatch) -> None:
 
 
 @pytest.mark.usefixtures("no_operator_secret")
-def test_an_alias_panel_with_no_roster_gets_the_terminal_secret_minted(deploy, tmp_path) -> None:
+def test_a_granted_panel_with_no_roster_gets_the_terminal_secret_minted(deploy, tmp_path) -> None:
     """The panel's container reads it with no default, and ``osprey web`` reads the same file."""
-    config = _deploy_config(ALIAS)
+    config = _deploy_config(GRANTED)
     first = deploy(config)
     second = deploy(config)
     assert first.get(OPERATOR_SECRET)
@@ -164,7 +163,7 @@ def test_an_alias_panel_with_no_roster_gets_the_terminal_secret_minted(deploy, t
 @pytest.mark.usefixtures("no_operator_secret")
 def test_an_operators_own_terminal_secret_is_kept(deploy, tmp_path) -> None:
     (tmp_path / ".env").write_text(f"{OPERATOR_SECRET}=operator-chose-this\n", encoding="utf-8")
-    assert deploy(_deploy_config(ALIAS))[OPERATOR_SECRET] == "operator-chose-this"
+    assert deploy(_deploy_config(GRANTED))[OPERATOR_SECRET] == "operator-chose-this"
 
 
 @pytest.mark.usefixtures("no_operator_secret")
@@ -173,15 +172,15 @@ def test_a_panel_that_reads_no_terminal_secret_mints_none(deploy) -> None:
 
 
 @pytest.mark.usefixtures("no_operator_secret")
-def test_an_alias_panel_on_a_roster_reads_no_deployment_wide_secret() -> None:
+def test_a_granted_panel_on_a_roster_reads_no_deployment_wide_secret() -> None:
     """Each roster user's own secret is the grant there, so the shared one is not minted."""
-    config = {**_deploy_config(ALIAS), "modules": ROSTER}
+    config = {**_deploy_config(GRANTED), "modules": ROSTER}
     assert OPERATOR_SECRET not in container_lifecycle.service_token_vars(config)["knob-demo"]
 
 
 @pytest.mark.usefixtures("no_operator_secret")
-def test_an_undeployed_alias_panel_mints_no_terminal_secret() -> None:
-    config = _deploy_config(ALIAS)
+def test_an_undeployed_granted_panel_mints_no_terminal_secret() -> None:
+    config = _deploy_config(GRANTED)
     config["deployed_services"] = []
     assert "knob-demo" not in container_lifecycle.service_token_vars(config)
 

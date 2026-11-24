@@ -1,0 +1,8 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+kinds:
+- orm
+groups:
+  bpm: BR/BPM
+  hcor: BR/HCM
+  vcor: BR/VCM
+corrector_delta: 1.0e-05

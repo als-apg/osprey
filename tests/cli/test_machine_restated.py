@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from osprey.cli.profile_conventions import machine_restated_violation
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS, FacilityRoots
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS, FacilityRoots
 
 
 def _write(path: Path, text: str = "x: 1\n") -> Path:

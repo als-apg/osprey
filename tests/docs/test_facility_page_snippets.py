@@ -7,7 +7,7 @@ preset's bundled facility, ``templates/facilities/example``:
 * a block that states whole records is pasted into one scratch copy of the
   preset, at the file it belongs to, and the copy must pass the facility
   validator (the checks of ``osprey facility validate``);
-* a block that shows part of a preset record (the top-off seed, the ``LINE``
+* a block that shows part of a preset record (the top-off seed, the ``BTS``
   model) must be a subset of that record as the preset states it;
 * the channel list the page includes is imported the way ``osprey facility
   import list`` does it, into the preset with its bundled files replaced, and
@@ -36,6 +36,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"
@@ -135,6 +137,18 @@ def _dump(path: Path, data: Any) -> None:
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
 
+def _wired_in(model: str) -> Callable[[Path, Any], None]:
+    """``models.yaml`` with each of *block*'s records added to *model*'s wiring."""
+
+    def paste(path: Path, block: Any) -> None:
+        models = _load(path)
+        (named,) = [row for row in models if row.get("name") == model]
+        named["wiring"].extend(block)
+        _dump(path, models)
+
+    return paste
+
+
 def _update(path: Path, block: Any) -> None:
     """A mapping file with *block*'s keys replacing the file's."""
     data = _load(path) if path.exists() else {}
@@ -155,23 +169,48 @@ def _by(key: str) -> Callable[[Path, Any], None]:
     return paste
 
 
+def _wiring_of(model: str) -> Callable[[Path, Any], None]:
+    """``models.yaml`` with each of *block*'s slots stated on *model*'s record of that address."""
+
+    def paste(path: Path, block: Any) -> None:
+        models = _load(path)
+        (named,) = [row for row in models if row.get("name") == model]
+        for record in block:
+            (wired,) = [row for row in named["wiring"] if row["address"] == record["address"]]
+            wired.update(record)
+        _dump(path, models)
+
+    return paste
+
+
 #: Blocks that state whole records, by first line: the preset file they belong
 #: to and how they go into it.
 PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "code: ca": ("identity.yaml", _update),
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
+    "- id: BTS:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
+    "- address: BTS:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("BTS")),
     "- class: Undulator": ("classes.yaml", _by("class")),
     "- name: taper_setpoint": ("signals.yaml", _by("name")),
+    "# data/facility/imported/names/channels.yaml": (
+        "imported/names/channels.yaml",
+        _by("id"),
+    ),
     "BR:DIAG:DCCT:01:CURRENT:RB:": ("seeds.yaml", _update),
     "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
     "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),
+    "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
+    "- id: SR:MAG:QF:01:VOLTAGE:RB": ("records/channels.yaml", _by("id")),
+    "- address: SR:MAG:QF:01:VOLTAGE:RB": ("models.yaml", _wired_in("SR")),
+    "- id: SR:MAG:BEND:CURRENT:SP": ("records/channels.yaml", _by("id")),
+    "- address: SR:MAG:BEND:CURRENT:SP": ("models.yaml", _wired_in("SR")),
 }
 
 #: Blocks that show part of a preset record, by first line: the preset file.
 SUBSETS: dict[str, str] = {
     "SR:DIAG:DCCT:01:CURRENT:RB:": "seeds.yaml",
-    "- name: LINE": "models.yaml",
+    "- name: BTS": "models.yaml",
 }
 
 #: The fixes block, applied on top of the imported channel list.
@@ -190,10 +229,12 @@ CHANNEL_LIST = "examples/facility/channels.csv"
 
 def _validates(facility_dir: Path) -> str:
     """The validator's output for *facility_dir*; empty-handed when it passes."""
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = StringIO()
-    code = validate(facility_dir, project_name="ca", file=out)
+    code = validate_facility(
+        facility_dir, project_name="ca", file=out, extra_checks=FRAMEWORK_CHECKS
+    )
     return "" if code == 0 else out.getvalue() or f"exit {code}"
 
 
@@ -258,8 +299,8 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
     import click
 
     from osprey.cli.facility_cmd import _replace_or_refuse
-    from osprey.facility.layers.list import import_list
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.layers.list import import_list
+    from osprey_facility.roots import FacilityRoots
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -275,7 +316,7 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
 @pytest.mark.slow  # validating the whole preset takes a few seconds
 def test_the_relation_tables_build_on_the_preset(tmp_path: Path) -> None:
     """``osprey facility import relations`` leaves the bundled preset in place."""
-    from osprey.facility.layers.relations import import_relations
+    from osprey_facility.layers.relations import import_relations
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
@@ -323,13 +364,18 @@ def test_an_included_preset_file_is_a_bundled_file(block: Block) -> None:
 
 
 def test_the_mapping_fragments_hold_keys_the_mapping_reads() -> None:
-    from osprey.facility.layers.mml import mapping
+    from osprey_facility.layers.mml import mapping
 
-    families = _block(MML_PAGE, "families:").data["families"]
-    for raw, body in families.items():
-        path = f"families.{raw}"
-        assert set(body) <= mapping._FAMILY_REQUIRED | mapping._FAMILY_OPTIONAL, path
-        mapping._devices(body, path)
+    blocks = [block for block in _blocks(MML_PAGE) if block.first == "families:"]
+    assert blocks, f"{MML_PAGE.name}: no block opens with 'families:'"
+    for block in blocks:
+        for raw, body in block.data["families"].items():
+            path = f"families.{raw}"
+            assert set(body) <= mapping._FAMILY_REQUIRED | mapping._FAMILY_OPTIONAL, path
+            if "devices" in body:
+                mapping._devices(body, path)
+            if "fields" in body:
+                mapping._fields(body["fields"], f"{path}.fields")
 
     models = _block(MML_PAGE, "models:").data["models"]
     for raw, body in models.items():

@@ -36,7 +36,7 @@ from osprey.cli.build_profile_presets import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
-from tests.cli._lifecycle_build import invoke_build
+from tests._builds import BuiltProject
 
 pytestmark = pytest.mark.usefixtures("facility_data_tree")
 
@@ -360,7 +360,9 @@ def test_demo_profile_validates() -> None:
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
     adding the bluesky_web block + the bluesky-panel web_panels ids to
-    this preset — it must keep validating once that wiring lands.
+    this preset — it must keep validating once that wiring lands. It runs on
+    the preset as shipped (bare, no overrides): the non-builtin bluesky-panel
+    ids are accepted because the preset's own bluesky_web block is present.
     """
     presets_dir = bp._presets_dir()
     raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
@@ -379,38 +381,23 @@ def test_demo_profile_validates() -> None:
 # The demo preset now bakes the bluesky/virtual_accelerator/
 # bluesky_web injector blocks in directly (no --set flags needed),
 # so `osprey build` on the bare preset renders the full plan stack + the
-# BLUESKY panel turn-key. These tests build a demo deployment
-# repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
-# mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
-# tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
-# build/config.yml.
+# BLUESKY panel turn-key. These tests read the rendered build/config.yml of the
+# session's shared build of the bare preset (`built_demo`: `osprey init --preset
+# demo` and an in-process `osprey build --skip-deps`, Docker-free).
 
 
 @pytest.fixture(scope="module")
-def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the bare demo preset (no overrides) into a tmp repo.
+def turnkey_plan_config(built_demo: BuiltProject) -> dict:
+    """The rendered ``build/config.yml`` of the bare demo preset (no overrides).
 
-    The exemplar repo (:func:`build_exemplar_repo`) is demo's
-    profile.yml written out verbatim, so materializing it and building it is
-    the bare preset with no overrides. Module-scoped: the build is the slow
-    part (template render + service template copies) and every test in this
-    section only reads the resulting config.yml, so one build is shared
-    across assertions.
+    ``built_demo`` is ``osprey init --preset demo`` with no ``--set``, built
+    once per run, so its render is the bare preset as shipped. Its lifecycle
+    step runs, but none of the keys read here comes from it. Only the parsed
+    config is kept, and nothing writes to the shared tree.
     """
-    from tests.fixtures.lifecycle_repo import build_exemplar_repo
-
-    tmp_path = tmp_path_factory.mktemp("turnkey-plan")
-    repo = build_exemplar_repo(tmp_path / "turnkey-plan")
-    result = invoke_build(repo)
-    assert result.exit_code == 0, result.output
-    project_dir = repo / "build"
-    assert (project_dir / "config.yml").exists()
-    return project_dir
-
-
-@pytest.fixture(scope="module")
-def turnkey_plan_config(turnkey_plan_project: Path) -> dict:
-    return yaml.safe_load((turnkey_plan_project / "config.yml").read_text(encoding="utf-8"))
+    config_path = built_demo.build_dir / "config.yml"
+    config: dict = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    return config
 
 
 class TestDemoTurnkeyPlanServices:
@@ -476,22 +463,6 @@ class TestDemoTurnkeyPlanControlSystem:
 
     def test_demo_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
-
-
-@pytest.mark.usefixtures("turnkey_plan_project")
-def test_demo_turnkey_plan_preset_validates() -> None:
-    """BuildProfile.validate() passes for the preset as shipped (bare, no
-    overrides) -- the non-builtin bluesky-panel ids are accepted because
-    the preset's own bluesky_web block is present."""
-    presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
-    # `app_template:` and `facility:` are preset-side and consumed at the single
-    # read point in `_load_preset_raw`; reading the file straight off disk has to
-    # pop them too.
-    for key in PRESET_ONLY_KEYS:
-        raw.pop(key, None)
-    profile = _parse_profile(raw)
-    profile.validate(presets_dir)  # raises BuildProfileError on any issue
 
 
 # ── Task 3.1: the ``environment:`` block ─────────────────────────────────────

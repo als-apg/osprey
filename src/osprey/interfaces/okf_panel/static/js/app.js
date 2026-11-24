@@ -34,6 +34,7 @@ import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { renderState } from '/design-system/js/panel-state.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import {
   el,
   FACILITY_SCHEME,
@@ -43,10 +44,14 @@ import {
   graphTarget,
   hashChangeTarget,
   isFallback,
+  linkedConceptId,
   readPanelParams,
+  sanitizeMarkdownHtml,
   STRUCTURE_MARKER,
+  tagList,
 } from './helpers.js';
 import { createGraphView } from './graph-view.js';
+import { watchImageFailures } from './image-failures.js';
 import { currentView, graphAvailable, initViews, showView } from './views.js';
 import {
   initTree,
@@ -136,7 +141,7 @@ onHeaderAction(onPanelMenu);
  * load.
  *
  * @param {Window} [win]
- * @returns {{ sanitize: (html: string) => string } | null}
+ * @returns {{ sanitize: (html: string, config?: object) => string } | null}
  */
 export function resolveSanitizer(win = window) {
   const own = /** @type {any} */ (win).DOMPurify;
@@ -151,21 +156,27 @@ export function resolveSanitizer(win = window) {
  * ({@link resolveSanitizer}) are available, and only DOMPurify's output ever
  * reaches `innerHTML` — bundle markdown is files on disk an agent can write,
  * so raw `marked` output is untrusted HTML (`<img onerror>`, `<script>`,
- * `javascript:` links). Missing either library, or either step throwing,
+ * `javascript:` links). The sanitiser ({@link sanitizeMarkdownHtml}) also
+ * points every image at the panel's asset route or replaces it with its alt
+ * text, so nothing in a concept makes the panel contact another host.
+ * Missing either library, a DOMPurify without hooks, or either step throwing,
  * writes the source as inert `textContent` instead (the chat-render.js
  * precedent).
  *
  * @param {HTMLElement} target - its contents are replaced
  * @param {unknown} markdown - raw markdown; `null`/`undefined` render empty
+ * @param {string} [conceptId] - the concept the markdown is, which its image
+ *   targets resolve from; empty for the structure overview (the bundle root)
  * @returns {void}
  */
-export function renderMarkdownInto(target, markdown) {
+export function renderMarkdownInto(target, markdown, conceptId = '') {
   const text = markdown != null ? String(markdown) : '';
   const parser = /** @type {any} */ (globalThis).marked;
   const purify = resolveSanitizer();
   if (purify && parser && typeof parser.parse === 'function') {
     try {
-      target.innerHTML = purify.sanitize(String(parser.parse(text)));
+      const clean = sanitizeMarkdownHtml(purify, String(parser.parse(text)), conceptId);
+      target.innerHTML = clean;
       return;
     } catch {
       // Fall through to inert text.
@@ -222,6 +233,29 @@ function requireEl(id) {
    */
   let knowledgeLoc = null;
 
+  /**
+   * The navigations of the reading pane: only the newest is current, and
+   * opening the Graph view retires the one in flight. A load that is no longer
+   * current returns at its next await and draws nothing, so the pane, the
+   * breadcrumb and the history follow the newest navigation.
+   */
+  const readerNav = createLatestRequest();
+
+  /**
+   * The searches of the contents list: only the newest query is current, and
+   * clearing the field or switching views retires the one in flight, so an
+   * earlier query's answer never replaces a newer one or refills a cleared list.
+   */
+  const searches = createLatestRequest();
+
+  /**
+   * The load that has not drawn what `knowledgeLoc` names, as it was asked
+   * for: set while it is in flight, kept when the Graph view superseded it
+   * before it drew, null once the Knowledge view shows it.
+   * @type {(() => void) | null}
+   */
+  let undrawnLoad = null;
+
   const graph = graphAvailable()
     ? createGraphView({
         onPage(id) {
@@ -244,6 +278,7 @@ function requireEl(id) {
    */
   function enterView(view) {
     if (!showView(view)) return;
+    searches.cancel();
     searchInput.value = '';
     clearSearchResults();
     setContentsSearching(false);
@@ -253,11 +288,13 @@ function requireEl(id) {
   /**
    * Show the Graph view on a node's neighbourhood, or on its overview.
    * @param {string | null} node
+   * @returns {Promise<void> | undefined} settles once the graph is drawn
    */
   function openGraph(node) {
-    if (!graph) return;
+    if (!graph) return undefined;
+    readerNav.cancel();
     enterView('graph');
-    graph.show(node);
+    return graph.show(node);
   }
 
   /**
@@ -266,9 +303,19 @@ function requireEl(id) {
    */
   function showInGraph(record) {
     if (!graph) return;
+    readerNav.cancel();
     enterView('graph');
     history.pushState({ id: GRAPH_MARKER, node: null }, '', graphHash(null));
     graph.showRecord(record.kind, record.id);
+  }
+
+  /**
+   * Show the Knowledge view on what it last showed; a load the Graph view
+   * superseded before it drew starts again as it was asked for.
+   */
+  function resumeKnowledge() {
+    if (undrawnLoad) undrawnLoad();
+    else enterView('knowledge');
   }
 
   initViews({
@@ -280,7 +327,7 @@ function requireEl(id) {
       } else if (knowledgeLoc === null) {
         loadStructure();
       } else {
-        enterView('knowledge');
+        resumeKnowledge();
         history.pushState({ id: knowledgeLoc }, '', '#' + knowledgeLoc);
       }
     },
@@ -330,7 +377,9 @@ function requireEl(id) {
   function afterRender(container) {
     // Task 3.2: wire cross-link navigation for every anchor in the freshly
     // rendered container. Four classes of href:
-    //   1. in-bundle cross-links  (/^\/.+\.md$/) → intercept, loadConcept + pushState
+    //   1. in-bundle cross-links  (a .md target, from the root or relative to
+    //                             the page: linkedConceptId) → intercept,
+    //                             loadConcept + pushState
     //   2. external links         (http:// or https://) → target=_blank rel=noopener
     //   3. facility links         (facility:) → the linked record on hover; a click
     //                             shows the record in the Graph view when there is one
@@ -344,17 +393,18 @@ function requireEl(id) {
     // data-okf-wired and skip already-marked ones, so this stays correct even if
     // afterRender is ever called twice on the same container.
     if (!container) return;
+    watchImageFailures(container);
     const anchors = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('a[href]'));
     anchors.forEach(function (a) {
       if (a.dataset.okfWired === '1') return;
       const href = a.getAttribute('href') || '';
+      const id = linkedConceptId(href, readerEl.dataset.conceptId);
 
-      if (/^\/.+\.md$/.test(href)) {
+      if (id !== null) {
         // In-bundle cross-link.
         a.dataset.okfWired = '1';
         a.addEventListener('click', function (ev) {
           ev.preventDefault();
-          const id = href.replace(/^\//, '').replace(/\.md$/, '');
           loadConcept(id);
           history.pushState({ id: id }, '', '#' + id);
         });
@@ -396,7 +446,7 @@ function requireEl(id) {
       // The entry the panel opened on holds no state: it is the knowledge
       // page that was showing before the Graph view.
       if (knowledgeLoc === null) loadStructure({ push: false });
-      else enterView('knowledge');
+      else resumeKnowledge();
     }
   });
 
@@ -477,43 +527,35 @@ function requireEl(id) {
    * @param {string} id
    */
   async function loadConcept(id) {
+    const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = id;
+    undrawnLoad = () => loadConcept(id);
     showContentsFor('page');
     showOpenPage({ id, title: conceptTitles.get(id) ?? id });
     showReaderState({ icon: 'refresh', message: 'Loading the page' });
-    const retry = () => loadConcept(id);
-    let resp;
+    let resp = null;
+    let doc = null;
     try {
-      resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
+      resp = await fetch('/api/concept?id=' + encodeURIComponent(id), { signal: nav.signal });
+      if (resp.ok) doc = await resp.json();
     } catch {
-      renderLoadFailure('The page did not load', retry);
-      return;
+      /* no reply, or an unreadable one: reported below */
     }
-
-    if (resp.status === 404) {
+    if (!nav.isCurrent()) return;
+    undrawnLoad = null;
+    if (resp && resp.status === 404) {
       showReaderState({
         icon: 'search',
         message: 'No concept has this id',
         detail: id,
         action: { label: 'Browse', onClick: () => loadStructure() },
       });
-      return;
+    } else if (doc) {
+      renderConcept(doc);
+    } else {
+      renderLoadFailure('The page did not load', () => loadConcept(id));
     }
-
-    let doc = null;
-    if (resp.ok) {
-      try {
-        doc = await resp.json();
-      } catch {
-        /* unreadable: reported below */
-      }
-    }
-    if (!doc) {
-      renderLoadFailure('The page did not load', retry);
-      return;
-    }
-    renderConcept(doc);
   }
 
   // Single render path for the reading pane — always ends by calling
@@ -547,8 +589,8 @@ function requireEl(id) {
     }
 
     // Tags, if present in frontmatter.
-    const tags = fm.tags;
-    if (Array.isArray(tags) && tags.length > 0) {
+    const tags = tagList(fm.tags);
+    if (tags.length > 0) {
       const tagWrap = el('div', { class: 'concept-tags' });
       for (const tag of tags) {
         tagWrap.appendChild(el('span', { class: 'tag', text: String(tag) }));
@@ -560,7 +602,7 @@ function requireEl(id) {
     // so the gallery markdown CSS applies. Rendered through the one sanitising
     // sink (renderMarkdownInto): a bundle is files on disk an agent can write.
     const bodyEl = el('div', { class: 'osprey-md-rendered' });
-    renderMarkdownInto(bodyEl, doc.body);
+    renderMarkdownInto(bodyEl, doc.body, id);
     readerEl.appendChild(bodyEl);
 
     currentFacilityReferences = doc.facility_references || null;
@@ -580,19 +622,25 @@ function requireEl(id) {
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
+    const nav = readerNav.begin();
     enterView('knowledge');
     knowledgeLoc = STRUCTURE_MARKER;
+    undrawnLoad = () => loadStructure({ push: false, section: opts && opts.section });
     showContentsFor('browse');
     highlightStructure();
     showOpenPage(null);
     showReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
-    let data;
+    let data = null;
     try {
-      const resp = await fetch('/api/structure');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      data = await resp.json();
+      const resp = await fetch('/api/structure', { signal: nav.signal });
+      if (resp.ok) data = await resp.json();
     } catch {
+      /* no reply, or an unreadable one: reported below */
+    }
+    if (!nav.isCurrent()) return;
+    undrawnLoad = null;
+    if (!data) {
       renderLoadFailure('The overview did not load', () => loadStructure(opts));
       return;
     }
@@ -600,7 +648,7 @@ function requireEl(id) {
     delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
     const container = el('div', { class: 'osprey-md-rendered' });
-    renderMarkdownInto(container, data.markdown);
+    renderMarkdownInto(container, data.markdown, '');
     readerEl.appendChild(container);
     afterRender(container);
     const section = opts && opts.section;
@@ -629,25 +677,30 @@ function requireEl(id) {
     const q = (query || '').trim();
     // In the Graph view the field searches the graph's nodes.
     if (currentView() === 'graph') {
+      searches.cancel();
       if (graph) graph.search(q);
       return;
     }
     // The results are drawn in the contents list, so a search shows it.
     setContentsSearching(q !== '');
     if (!q) {
+      searches.cancel();
       clearSearchResults();
       return;
     }
 
+    const token = searches.begin();
     let data;
     try {
-      const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const resp = await fetch('/api/search?q=' + encodeURIComponent(q), { signal: token.signal });
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
+      if (!token.isCurrent()) return;
       renderSearchMessage('Search failed.');
       return;
     }
+    if (!token.isCurrent()) return;
     renderSearchResults(data.results || []);
   }
 
@@ -707,9 +760,11 @@ function requireEl(id) {
     const params = readPanelParams();
     const inGraph = graph ? graphTarget(params.raw) : null;
     if (inGraph) {
+      // The Knowledge view loads the overview when it is first shown.
       history.replaceState({ id: GRAPH_MARKER, node: inGraph.node }, '', graphHash(inGraph.node));
-      openGraph(inGraph.node);
-    } else if (params.concept) {
+      return openGraph(inGraph.node);
+    }
+    if (params.concept) {
       // Seed a history entry with the target id so browser back/forward returns
       // to the deep-linked concept (popstate reads ev.state.id).
       history.replaceState({ id: params.concept }, '', '#' + params.concept);
@@ -721,8 +776,13 @@ function requireEl(id) {
   const treeLoaded = loadTree();
   loadBundleHealth();
   // Ready once the contents list and the first reader content are drawn, or
-  // failed to be (index.html declares the mark pending until then).
-  void Promise.allSettled([treeLoaded, bootFromParams()]).then(() => markPageReady());
+  // drew their error state (index.html declares the mark pending until then).
+  // A start-up that throws instead keeps its rejection: nothing handles it, so
+  // the page-ready writer marks the page failed.
+  const booted = Promise.resolve(bootFromParams());
+  void Promise.allSettled([treeLoaded, booted])
+    .then(() => booted)
+    .then(() => markPageReady());
   // Embedded: the tile bar's subtitle (on a page) and its ⋯ entry.
   contributeHeader([{ kind: 'menu', ...PANEL_MENU }]);
 })();

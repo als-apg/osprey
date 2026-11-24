@@ -7,10 +7,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.sources import read_yaml
 from osprey.facility.views import view_bytes
 from osprey.facility.views.simulator import SCENARIOS_DIR, SCENARIOS_FILE, SCENARIOS_SCHEMA
 from osprey_connectors.simulation.view import SCHEMAS
+from osprey_facility.sources import read_yaml
 
 #: The documents of a texture-only view with no channels, by file name.
 _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
@@ -18,7 +18,11 @@ _MINIMAL_VIEW: Mapping[str, Mapping[str, Any]] = {
     "addresses.json": {
         "channels": [],
         "status": [],
-        "ioc_health": ["T:SIM:texture:HEARTBEAT", "T:SIM:texture:UPTIME", "T:SIM:texture:ENGINEER"],
+        "server_health": [
+            "T:SIM:texture:HEARTBEAT",
+            "T:SIM:texture:UPTIME",
+            "T:SIM:texture:ENGINEER",
+        ],
     },
     "variables.json": {
         "code": "T",
@@ -161,7 +165,7 @@ def write_texture_view(
         "addresses.json": {
             "channels": sorted(channels),
             "status": [f"T:SIM:{name}:STATUS" for name in names],
-            "ioc_health": [
+            "server_health": [
                 f"T:SIM:{name}:{signal}"
                 for name in (*names, "texture")
                 for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")

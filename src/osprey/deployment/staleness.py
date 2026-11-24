@@ -1,10 +1,10 @@
-"""Deploy-time project staleness advisory and the build-drift verdict.
+"""The build-drift verdict over a deployment repo's rendered ``build/``.
 
 ``osprey build`` stamps provenance into ``.osprey-manifest.json`` — the
 osprey version that rendered the project and a content hash of the resolved
 preset/profile (``creation.preset_hash``). This module reads that provenance
-back when the project is *deployed* and warns when the render predates the
-installed framework or preset, with the exact rebuild command as the remedy.
+back and says whether the render still matches its source, with the exact
+rebuild command as the remedy.
 
 Rationale: a rendered project is a generated artifact. Its ``config.yml``
 self-describes what to deploy, so a stale render deploys "successfully" while
@@ -13,32 +13,26 @@ anywhere. Every other drift check in the codebase renders *from*
 ``config.yml`` and therefore cannot see this; the comparison here is against
 the installed preset instead.
 
-Two readings of the same provenance live here, and they differ in severity:
+:func:`check_drift` is the one reading of that provenance, and the lifecycle
+verbs act on it: ``up``/``restart`` refuse on it, ``status`` prints it,
+``chat``/``query`` warn on it. "Cannot compare" is *not* silence: a build whose
+profile no longer parses, or which carries no fingerprint at all, is reported
+as ``UNRESOLVABLE`` so a start verb refuses rather than guessing. ``--as-built``
+is the documented escape from both refusals — ``build/`` is self-contained, so
+starting it as rendered stays a valid, knowing choice. A render stamped by a
+release older than the login vocabulary is refused the same way, ahead of the
+fingerprint, because an old-spelled profile hashes identically to its rewrite
+and the hash alone would call that render clean.
 
-- :func:`staleness_reasons` / :func:`warn_if_project_stale` — the legacy
-  advisory over a rendered project directory. Warns loudly, never fails, and
-  fails open: a project without a manifest deploys silently.
-- :func:`check_drift` — the deployment-repo verdict the lifecycle verbs act
-  on. ``up``/``restart`` refuse on it, ``status`` prints it, ``chat``/``query``
-  warn on it. Here "cannot compare" is *not* silence: a build whose profile no
-  longer parses, or which carries no fingerprint at all, is reported as
-  ``UNRESOLVABLE`` so a start verb refuses rather than guessing. ``--as-built``
-  is the documented escape from both refusals — ``build/`` is self-contained,
-  so starting it as rendered stays a valid, knowing choice. A render stamped by
-  a release older than the login vocabulary is refused the same way,
-  ahead of the fingerprint, because an old-spelled profile hashes identically
-  to its rewrite and the hash alone would call that render clean.
-
-Both read the *same* fingerprint: ``compute_profile_hash`` over the resolved
-profile document, the file material it names, and the host-variant overlay
-``.env.variant`` selects, plus the ``creation.osprey_version`` stamp. The
-variant is part of it because the overlay is part of what was rendered: without
-it, editing the selected ``profiles/<host>.yml`` — or pointing the setting at a
-different one — would leave ``build/`` reading CLEAN while it holds the render
-of an overlay nobody is using any more. There is deliberately no second hash
-mechanism — the per-key digests :func:`profile_fingerprint` derives are
-diagnostic only, used to *name* what changed, never to decide whether
-anything did.
+The fingerprint is ``compute_profile_hash`` over the resolved profile document,
+the file material it names, and the host-variant overlay ``.env.variant``
+selects, plus the ``creation.osprey_version`` stamp. The variant is part of it
+because the overlay is part of what was rendered: without it, editing the
+selected ``profiles/<host>.yml`` — or pointing the setting at a different one —
+would leave ``build/`` reading CLEAN while it holds the render of an overlay
+nobody is using any more. There is deliberately no second hash mechanism — the
+per-key digests :func:`profile_fingerprint` derives are diagnostic only, used to
+*name* what changed, never to decide whether anything did.
 """
 
 from __future__ import annotations
@@ -120,132 +114,6 @@ def _load_manifest(project_dir: Path) -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def staleness_reasons(project_dir: Path) -> list[str]:
-    """Human-readable reasons this project's render trails the installed code.
-
-    Empty list when the project is current — or when staleness cannot be
-    determined (no manifest, unknown versions, preset no longer shipped):
-    "can't compare" must never read as drift.
-
-    :param project_dir: Project root (the directory holding config.yml and
-        the manifest)
-    """
-    project_dir = Path(project_dir)
-    manifest = _load_manifest(project_dir)
-    if not manifest:
-        return []
-
-    reasons: list[str] = []
-    creation = manifest.get("creation") or {}
-
-    stored_version = creation.get("osprey_version")
-    installed_version = _installed_version()
-    if (
-        stored_version
-        and "unknown" not in (stored_version, installed_version)
-        and stored_version != installed_version
-    ):
-        reasons.append(
-            f"rendered by osprey {stored_version}; installed osprey is {installed_version}"
-        )
-
-    stored_hash = creation.get("preset_hash")
-    if stored_hash:
-        build_args = manifest.get("build_args") or {}
-        # `profile_path_abs` is preferred over `profile_path`: the latter is the
-        # string the user typed, and a relative one re-resolves against the
-        # deploy's working directory, where it names nothing. Manifests written
-        # before `profile_path_abs` existed still fall back to it. Resolved once
-        # — the comparison below and the message further down must name the same
-        # file, or the advisory would report a hash it did not compute.
-        hashed_profile = build_args.get("profile_path_abs") or build_args.get("profile_path")
-        current_hash = None
-        try:
-            from osprey.cli import build_profile
-
-            if hashed_profile:
-                # The profile comes first, including for a `--preset` build:
-                # that build rendered from the profile it materialized, so the
-                # profile is what the project must be compared against. Judging
-                # it by the bundled preset instead would stay silent on a hand
-                # edit to that profile — the very change the advisory exists to
-                # catch, since editing the profile is how a facility changes
-                # its project.
-                current_hash = build_profile.compute_profile_hash(Path(hashed_profile))
-            elif build_args.get("preset"):
-                # A preset-built project from before profile-always builds, or
-                # one whose profile path could not be recorded.
-                current_hash = build_profile.compute_preset_hash(build_args["preset"])
-        except Exception:
-            current_hash = None
-        if current_hash is not None and current_hash != stored_hash:
-            # Name what was actually compared. Saying "preset X has changed" for
-            # a project whose *profile* was edited would send the reader to the
-            # wrong file — and under profile-always builds that is the common
-            # case, since a preset build renders from a materialized profile.
-            source = hashed_profile or build_args.get("preset") or "profile"
-            kind = "profile" if hashed_profile else "preset"
-            reasons.append(f"{kind} '{source}' has changed since this project was rendered")
-
-    return reasons
-
-
-def _presets_changed(manifest: dict[str, Any]) -> bool:
-    """Whether the repo this project was rendered from has preset changes to take."""
-    build_args = manifest.get("build_args") or {}
-    profile = build_args.get("profile_path_abs") or build_args.get("profile_path")
-    if not profile:
-        return False
-    try:
-        from osprey.cli.build_profile_updates import PresetUpdateState, preset_update_status
-
-        # Only a changed preset, tracked or not: a repo with no saved copy whose
-        # presets are as it recorded them, or a preset this OSPREY does not
-        # bundle, also has a note to print and nothing to take.
-        return preset_update_status(Path(profile)).state in (
-            PresetUpdateState.CHANGED,
-            PresetUpdateState.UNTRACKED_CHANGED,
-        )
-    except Exception:  # advisory only; a comparison that fails says nothing
-        return False
-
-
-def warn_if_project_stale(project_dir: Path) -> None:
-    """Advisory: warn (never fail) when the project's render looks stale.
-
-    Called by ``osprey up`` before any container is touched, so the
-    warning lands even when the deploy then "succeeds" at deploying an
-    out-of-date service set.
-    """
-    try:
-        project_dir = Path(project_dir)
-        reasons = staleness_reasons(project_dir)
-        if not reasons:
-            return
-        manifest = _load_manifest(project_dir) or {}
-        message = (
-            f"This project looks stale ({'; '.join(reasons)}). "
-            "The deployed stack may be missing services or configuration the "
-            "current framework provides."
-        )
-        remedy = manifest.get("reproducible_command")
-        if remedy:
-            # Printed verbatim. It is the manifest's own account of how this
-            # render is reproduced, and no suffix is appended to it: a repo
-            # render is unconditional, so there is no force flag to add. When
-            # the presets the repo took have changed too, taking their changes
-            # comes first, or the re-render would repeat the old preset.
-            first = (
-                " First take the presets' changes with:\n    osprey init --revalidate\nthen r"
-                if _presets_changed(manifest)
-                else " R"
-            )
-            message += f"{first}e-render it with:\n    {remedy}\nthen re-run osprey up."
-        logger.warning(message)
-    except Exception as exc:  # advisory must never break a deploy
-        logger.debug(f"Project staleness advisory skipped: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -573,11 +441,11 @@ def check_drift(repo_root: Path) -> DriftReport:
     from the same machinery, so the answer is about content, not about
     timestamps, file order, or comments.
 
-    Unlike the legacy advisory in this module, this does **not** fail open. A
-    profile that no longer resolves, and a build that carries no fingerprint,
-    are both ``UNRESOLVABLE``: silently starting a stack nobody can vouch for
-    is the failure mode the refusal exists to prevent. ``--as-built`` remains
-    the operator's way through, since ``build/`` is self-contained.
+    This does **not** fail open. A profile that no longer resolves, and a
+    build that carries no fingerprint, are both ``UNRESOLVABLE``: silently
+    starting a stack nobody can vouch for is the failure mode the refusal
+    exists to prevent. ``--as-built`` remains the operator's way through, since
+    ``build/`` is self-contained.
 
     Args:
         repo_root: The deployment repo root — the directory holding

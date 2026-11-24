@@ -1,0 +1,5 @@
+servers:
+  - {name: SR01C-IOC1, host: ioc-sr01, class: hard, expected: running, group: storage-ring}
+  - {name: SR02C-IOC1, host: ioc-sr02, class: hard, expected: running, group: storage-ring}
+  - {name: BTS-SOFTIOC, host: srv3, class: soft, expected: stopped, group: transfer-line}
+  - {name: LAB-TEST}

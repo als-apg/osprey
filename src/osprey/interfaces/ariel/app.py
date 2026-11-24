@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import Response
+from fastapi.templating import Jinja2Templates
 
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.vendor import vendor_url
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -28,6 +30,13 @@ if TYPE_CHECKING:
 logger = get_logger("ariel")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ``index.html`` is rendered rather than served verbatim so it can name marked
+# and DOMPurify through ``vendor_url()``: the CDN by default, the locally
+# fetched ``static/vendor/`` copy under ``OSPREY_OFFLINE``. Only a template can
+# make that choice at request time.
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 #: Seconds the web app's start-up gives the ARIEL store to answer. A store that
 #: stays silent past it ends start-up, so the process exits on that line rather
@@ -434,6 +443,7 @@ def _create_lifespan(config_path: str | Path | None = None):
         # framework registry, which is what a panel outside a deployment gets.
         # A failure here is not fatal: the panel starts whatever its
         # configuration turns out to be.
+        registry_ready = False
         if state.path is None:
             logger.info("Skipping registry initialization: no usable configuration")
         else:
@@ -442,6 +452,7 @@ def _create_lifespan(config_path: str | Path | None = None):
 
                 registry = get_registry(config_path=str(state.path))
                 registry.initialize(silent=True)
+                registry_ready = True
                 logger.info("Registry initialized for ARIEL")
             except Exception as e:
                 logger.warning(f"Registry initialization failed (non-fatal): {e}")
@@ -501,6 +512,22 @@ def _create_lifespan(config_path: str | Path | None = None):
                     "============================================================"
                 )
 
+        # The providers this panel's searches and its entry inspector will ask
+        # for are imported now, before the first request and after the store
+        # deadline above has closed. A first lookup imports the provider's
+        # adapter (seconds of CPU) on this event loop, where it would hold up
+        # the timers of the requests running beside it. Without a service the
+        # panel searches nothing, so nothing is resolved. Both read the
+        # registry initialized above; when its initialization failed nothing
+        # is resolved, since each lookup would initialize it again and log the
+        # same failure, and the first request reports it as before. Nothing
+        # here raises.
+        if service is not None and registry_ready:
+            from osprey.interfaces.ariel.api.routes import resolve_inspector_providers
+
+            service.resolve_search_providers()
+            resolve_inspector_providers(ariel_config)
+
         app.state.ariel_service = service
         app.state.config_errors = config_errors
         app.state.config_status = config_status
@@ -546,9 +573,9 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     app.include_router(draft_router)
 
     @app.get("/")
-    async def root():
+    async def root(request: Request) -> Response:
         """Serve main index.html."""
-        return FileResponse(STATIC_DIR / "index.html")
+        return templates.TemplateResponse(request, "index.html")
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> HealthResponse:

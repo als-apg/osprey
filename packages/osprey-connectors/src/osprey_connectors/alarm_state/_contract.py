@@ -24,7 +24,7 @@ def severity_rank(severity: object) -> int:
 
 @dataclass(frozen=True, kw_only=True)
 class AlarmStateRecord:
-    """What one PV's alarm is now. The backend alone sets ``stale``; others pass it on."""
+    """What one channel's alarm is now. The backend alone sets ``stale``; others pass it on."""
 
     severity: str | None = None
     status: str | None = None
@@ -75,7 +75,7 @@ class AlarmStates:
 
 @dataclass(frozen=True, kw_only=True)
 class AlarmConfigRecord:
-    """One PV's place in the alarm tree."""
+    """One channel's place in the alarm tree."""
 
     in_tree: Literal["yes", "no", "unknown"]
     path: str | None = None

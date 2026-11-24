@@ -10,6 +10,7 @@ from packaging.version import Version
 
 from osprey import version as version_module
 from osprey.version import get_release_version, get_running_version, is_release
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -203,7 +204,7 @@ class TestResolutionChain:
         def _no_git(*args, **kwargs):
             raise FileNotFoundError("git")
 
-        monkeypatch.setattr(version_module.subprocess, "run", _no_git)
+        scoped(monkeypatch, version_module, "subprocess", run=_no_git)
 
         assert get_running_version() == "2026.6.2"
 
@@ -215,7 +216,7 @@ class TestResolutionChain:
         def _slow(*args, **kwargs):
             raise subprocess.TimeoutExpired(cmd="git", timeout=kwargs["timeout"])
 
-        monkeypatch.setattr(version_module.subprocess, "run", _slow)
+        scoped(monkeypatch, version_module, "subprocess", run=_slow)
 
         assert get_running_version() == "2026.6.2"
 
@@ -235,7 +236,7 @@ class TestResolutionChain:
             deadlines.append(kwargs.get("timeout"))
             return real_run(*args, **kwargs)
 
-        monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
+        scoped(monkeypatch, version_module, "subprocess", run=_recording_run)
 
         get_running_version()
         assert deadlines == [30, 30]
@@ -252,7 +253,7 @@ class TestResolutionChain:
             argvs.append(list(argv))
             return real_run(argv, *args, **kwargs)
 
-        monkeypatch.setattr(version_module.subprocess, "run", _recording_run)
+        scoped(monkeypatch, version_module, "subprocess", run=_recording_run)
 
         get_running_version()
         assert len(argvs) == 2

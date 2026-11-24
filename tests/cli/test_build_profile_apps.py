@@ -93,18 +93,18 @@ def test_a_profile_without_apps_has_none() -> None:
     assert profile.apps == {}
 
 
-def test_enabled_is_refused_naming_removal_of_the_entry() -> None:
-    message = _parse_refusal({"knob": {"enabled": True}})
+@pytest.mark.parametrize(
+    ("key", "hint"),
+    [
+        pytest.param("enabled", "remove the entry", id="enabled-names-removal-of-the-entry"),
+        pytest.param("arm_writes", "control_system.writes", id="arm-writes-names-the-tier"),
+    ],
+)
+def test_a_retired_app_key_is_refused_naming_its_fix(key: str, hint: str) -> None:
+    message = _parse_refusal({"knob": {key: True}})
 
-    assert "apps.knob.enabled" in message
-    assert "remove the entry" in message
-
-
-def test_arm_writes_is_refused_naming_the_tier() -> None:
-    message = _parse_refusal({"knob": {"arm_writes": True}})
-
-    assert "apps.knob.arm_writes" in message
-    assert "control_system.writes" in message
+    assert f"apps.knob.{key}" in message
+    assert hint in message
 
 
 @pytest.mark.parametrize("key", sorted(_KNOWN_MCP_SERVER_KEYS))

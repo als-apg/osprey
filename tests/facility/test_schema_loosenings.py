@@ -15,11 +15,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.facility.sources import SET_VALUED_SLOTS
+from osprey_facility.sources import SET_VALUED_SLOTS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SEEDS_DIR = REPO_ROOT / "scripts" / "facility_schema" / "seeds"
-SCHEMA_DIR = REPO_ROOT / "src" / "osprey" / "facility" / "schema"
+TOOLS_DIR = REPO_ROOT / "packages" / "osprey-facility" / "tools" / "facility_schema"
+SEEDS_DIR = TOOLS_DIR / "seeds"
+SCHEMA_DIR = REPO_ROOT / "packages" / "osprey-facility" / "src" / "osprey_facility" / "schema"
 
 #: The upstream commit the seeds were copied from.
 SEED_COMMIT = "02f64d5"
@@ -38,6 +39,7 @@ FACILITY_SLOTS = [
     "identity",
     "classes",
     "signals",
+    "relation_types",
     "places",
     "devices",
     "channels",
@@ -186,6 +188,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "overrides",
         "faults",
         "channel_faults",
+        "stopped_servers",
         "archiver",
         "logbook",
         "sessions",
@@ -204,6 +207,8 @@ def test_scenario_record_shape(core: dict) -> None:
     assert channel_faults["range"] == "Any" and not channel_faults.get("multivalued")
     for word in ("stuck", "frozen", "disconnected"):
         assert f"`{word}`" in channel_faults["description"]
+    stopped_servers = scenario["stopped_servers"]
+    assert stopped_servers["range"] == "string" and stopped_servers.get("multivalued")
 
 
 def test_measurement_block(core: dict) -> None:
@@ -242,7 +247,13 @@ def test_limits_are_records_only(core: dict) -> None:
 def test_every_record_kind_carries_provenance(core: dict) -> None:
     for cls in ("Place", "Device", "Channel", "Group", "Model", "Wiring", "Relation"):
         assert _attrs(core, cls)["provenance"]["range"] == "Provenance"
-    assert set(_attrs(core, "Provenance")) == {"sources", "fixes", "defaults", "place_from"}
+    assert set(_attrs(core, "Provenance")) == {
+        "sources",
+        "fixes",
+        "defaults",
+        "place_from",
+        "rules",
+    }
 
 
 def test_every_multivalued_slot_but_the_sets_keeps_source_order(core: dict) -> None:
@@ -270,7 +281,7 @@ def test_seed_declares_pulse_and_gate(core: dict) -> None:
 
 
 def _seed(**keys: object):
-    from osprey.facility.schema import core as model
+    from osprey_facility.schema import core as model
 
     return model.Seed.model_validate(keys)
 
@@ -359,7 +370,7 @@ def test_vocabulary_carries_aliases_and_property_names(vocabulary: dict) -> None
 
 # --- the loosenings table -----------------------------------------------------
 
-_SCRIPT = REPO_ROOT / "scripts" / "facility_schema" / "loosenings.py"
+_SCRIPT = TOOLS_DIR / "loosenings.py"
 _spec = importlib.util.spec_from_file_location("facility_schema_loosenings", _SCRIPT)
 assert _spec and _spec.loader
 loosenings = importlib.util.module_from_spec(_spec)

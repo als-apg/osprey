@@ -25,8 +25,8 @@ from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.claude_code import build_claude_code_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.facility.errors import FacilityBuildError
 from osprey.registry.mcp import governed_write_tools, resolve_servers
+from osprey_facility.errors import FacilityBuildError
 
 #: The presets the project ships.
 PRESETS = ("hello-world", "demo")
@@ -119,13 +119,9 @@ class TestFacilityTools:
         servers = resolve_servers({"servers": {"plc": _facility(writes=["set_output"])}}, {})
         assert "mcp__plc__set_output" in governed_write_tools(servers)
 
-    def test_writes_check_alone_is_not_governed(self) -> None:
-        spec = _facility(hooks={"pre_tool_use": ["writes_check"]})
-        servers = resolve_servers({"servers": {"plc": spec}}, {})
-        assert not any("plc" in tool for tool in governed_write_tools(servers))
-
-    def test_approval_alone_is_not_governed(self) -> None:
-        spec = _facility(hooks={"pre_tool_use": ["approval"]})
+    @pytest.mark.parametrize("hook", ["writes_check", "approval"])
+    def test_one_hook_alone_is_not_governed(self, hook: str) -> None:
+        spec = _facility(hooks={"pre_tool_use": [hook]})
         servers = resolve_servers({"servers": {"plc": spec}}, {})
         assert not any("plc" in tool for tool in governed_write_tools(servers))
 

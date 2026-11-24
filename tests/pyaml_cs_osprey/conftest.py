@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +33,7 @@ from osprey_connectors.errors import (
 )
 from osprey_connectors.workspace import reset_config_cache
 from pyaml_cs_osprey import _run
+from tests._facility_file import write_facility_v4
 
 RUNTIME_FUNCTIONS = (
     "read_channel",
@@ -350,7 +350,6 @@ def plant_facility(root: Path, channels: dict[str, tuple[str, float | None]]) ->
 
     A ``None`` tolerance plants the setpoint with its pair and no tolerance.
     """
-    path = root / "build" / "facility.json"
     records = [
         {
             "id": setpoint,
@@ -360,8 +359,7 @@ def plant_facility(root: Path, channels: dict[str, tuple[str, float | None]]) ->
         }
         for setpoint, (pair, bound) in channels.items()
     ]
-    path.write_text(json.dumps({"channels": records}), encoding="utf-8")
-    return path
+    return write_facility_v4(root / "build", {"channels": records})
 
 
 class Clock:

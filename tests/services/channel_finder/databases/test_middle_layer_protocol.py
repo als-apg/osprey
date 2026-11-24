@@ -239,13 +239,16 @@ class TestPlaceFilter:
     def test_place_and_ordinal_narrow_together(self, placed):
         assert placed.list_channel_names("R", "Q", "Current", place="R/A", devices=[2]) == ["Q3:I"]
 
-    def test_a_place_no_device_sits_in_is_refused(self, placed):
-        with pytest.raises(ValueError, match="place: R/Z"):
-            placed.list_channel_names("R", "Q", "Current", place="R/Z")
-
-    def test_a_placed_family_does_not_take_a_bare_index(self, placed):
-        with pytest.raises(ValueError, match="place: 1"):
-            placed.list_channel_names("R", "Q", "Current", place="1")
+    @pytest.mark.parametrize(
+        ("place", "match"),
+        [
+            pytest.param("R/Z", "place: R/Z", id="place-no-device-sits-in"),
+            pytest.param("1", "place: 1", id="bare-index-on-a-placed-family"),
+        ],
+    )
+    def test_a_place_the_family_does_not_list_is_refused(self, placed, place, match):
+        with pytest.raises(ValueError, match=match):
+            placed.list_channel_names("R", "Q", "Current", place=place)
 
     def test_a_family_with_no_place_list_takes_the_bare_index(self, placed):
         assert placed.list_channel_names("R", "K", "Current", place="1") == ["K1:I", "K3:I"]

@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.bluesky import (
     BLUESKY_DEVICES_FILE,
     BLUESKY_DEVICES_SCHEMA,
@@ -27,7 +26,9 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
-from tests.facility.test_cf_view_parity import fingerprint_rows, load_golden
+from osprey_facility.records import FacilityRecords
+from tests._facility_file import FACILITY_V4
+from tests.facility.test_cf_view_parity import load_golden, served_fingerprint_rows
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -73,6 +74,46 @@ def test_a_setpoint_paired_with_itself_names_no_readback() -> None:
     )
 
     assert document["settables"] == [{"name": "A:SP", "setpoint": "A:SP"}]
+
+
+def test_a_further_setpoint_is_a_settable_reading_its_records_pair() -> None:
+    document = bluesky_document(
+        FacilityRecords(
+            {
+                "channels": [
+                    _channel("A:SP", "setpoint", "A:RB"),
+                    _channel("A:RB", "readback"),
+                    _channel("RACK:SP", "setpoint", "RACK:SP"),
+                ],
+                "models": [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}],
+            }
+        )
+    )
+
+    assert document["settables"] == [
+        {"name": "A:SP", "setpoint": "A:SP", "readback": "A:RB"},
+        {"name": "RACK:SP", "setpoint": "RACK:SP", "readback": "A:RB"},
+    ]
+
+
+def test_a_further_setpoint_settles_within_its_records_tolerance() -> None:
+    document = bluesky_document(
+        FacilityRecords(
+            {
+                "channels": [
+                    {**_channel("A:SP", "setpoint", "A:RB"), "tolerance": {"absolute": 0.05}},
+                    _channel("A:RB", "readback"),
+                    _channel("RACK:SP", "setpoint", "RACK:SP"),
+                ],
+                "models": [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}],
+            }
+        )
+    )
+
+    settables = {entry["name"]: entry for entry in document["settables"]}
+    for name in ("A:SP", "RACK:SP"):
+        assert settables[name]["settle_tolerance"] == 0.05
+        assert settables[name]["readback"] == "A:RB"
 
 
 def test_an_unpaired_readback_is_a_readable() -> None:
@@ -221,6 +262,20 @@ def test_a_live_lane_warns_once_with_the_count(
     assert "bluesky_va" not in err
 
 
+def test_a_further_setpoint_of_a_toleranced_record_is_not_warned(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    doc = _toleranced()
+    doc["channels"].append(_channel("RACK:SP", "setpoint"))
+    doc["models"] = [{"name": "M", "wiring": [{"address": "A:SP", "also": ["RACK:SP"]}]}]
+    services = {"bluesky": {"settle_tolerance": 0.001}}
+    write_bluesky_view(tmp_path, _rendered(doc, services, "epics", set()))
+
+    err = capsys.readouterr().err
+    assert "2 setpoints declare no `tolerance`" in err
+    assert "RACK:SP" not in err
+
+
 def test_a_simulated_lane_does_not_warn(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     write_bluesky_view(
         tmp_path, _rendered(_toleranced(), {"bluesky": {}}, "virtual_accelerator", set())
@@ -352,7 +407,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     (view,) = [view for view in views.VIEWS if view.name == "bluesky"]
     monkeypatch.setattr(views, "VIEWS", (view,))
@@ -362,7 +417,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
         render_dir.mkdir()
         render_facility_outputs(
             render_dir,
-            {"channels": []},
+            {"schema": FACILITY_V4, "channels": []},
             {"services": {}},
             tmp_path / "facility",
             omitted_reported=reported,
@@ -398,11 +453,10 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
 def test_the_demo_view_holds_every_setpoint_and_readback(
     built_demo: BuiltProject,
 ) -> None:
-    rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
+    rows = served_fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
-    assert len(setpoints) == 674
-    assert sum(address.startswith("LINE:") for address in setpoints) == 16
+    assert len(setpoints) == 677
 
     settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 

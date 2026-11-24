@@ -1,0 +1,7 @@
+channel,record_type,drawn_as,basis,source,revision,locator
+XR01-QF1:Current-SP,ao,setpoint,stated,xr-ioc,0a1b2c3,magnetApp/Db/magnet.db:10
+XR01-QF1:Current-RB,ai,value,stated,xr-ioc,0a1b2c3,magnetApp/Db/magnet.db:20
+XR01-IP1:State-Sts,bi,state,inferred,xr-ioc,0a1b2c3,vacApp/Db/pump.db:5
+XR01-PS1:On-Cmd,bo,command,stated,xr-ioc,0a1b2c3,psApp/Db/ps.db:3
+XR02-SAF1:Trip-Sts,bi,state,stated,xr-ioc,0a1b2c3,safApp/Db/saf.db:1
+VA:XR:InjectionKnob,ao,setpoint,stated,xr-ioc,0a1b2c3,vaApp/Db/va.db:1

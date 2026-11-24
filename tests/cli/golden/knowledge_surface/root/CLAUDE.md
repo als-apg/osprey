@@ -40,7 +40,7 @@ do not attempt their work with your own tools.
   For ANY plot, chart, dashboard, report, or slide — even a one-liner like sin(x) — delegate to **data-visualizer**. Do NOT call `create_static_plot`, `create_interactive_plot`, `create_dashboard`, `create_document`, `mcp__python__execute`, `mcp__python__execute_file`, or `Write` yourself; only the subagent has the sandboxed environment for control-room-ready output.
 
 - **facility-knowledge** — Looks up facility-specific documented knowledge: subsystem descriptions, device specifications, operational procedures, safety rules, physics references, and terminology.
-  For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content.
+  For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content. You may call `view_asset` yourself with an image path **facility-knowledge** returned; finding images stays delegated.
   Documented vs. computed: a *documented* design fact or piece of terminology — a nominal value, a naming convention, "what does X mean" — comes from **facility-knowledge** (it wins whenever the knowledge bundle carries the value). Anything that requires *computing* on the lattice model — orbit, tunes, optics functions, response matrices — goes to **pyat-specialist**, not here.
 
 - **facility-knowledge-graph** — The machine's structure, from the facility knowledge graph: which devices exist, where they sit along the beam, what a device exposes, which channels read vs write, device classes and counts.
@@ -54,14 +54,15 @@ do not attempt their work with your own tools.
 
 ## Control-System Directory
 
-The directory is the control system's own list of every channel and IOC, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `directory_properties`, `directory_search`, `ioc_record`, `pv_record`.
+The directory is the control system's own list of every channel and the server serving it, beside the curated channels. Its tools: `active_alarms`, `alarm_config`, `alarm_state`, `channel_record`, `directory_properties`, `directory_search`, `server_fleet`, `server_record`.
 
 - Check the curated channels first (through **channel-finder**, which searches the directory when they do not answer).
 - Directory names are the control system's own, not curated: say so when you report one.
 - A "no_match" answer is not evidence that a channel does not exist; "unavailable" means the directory did not answer.
 - Build queries only from the user's words or property values the directory listed.
-- Whether an IOC is alive, and its engineer: `ioc_record` names its health channels; read them with `channel_read`. An advancing HEARTBEAT means alive.
-- To show a channel or IOC, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
+- Which servers are down, and the fleet by host or class: `server_fleet` lists every server of the session's target with its state.
+- Whether a server is alive, and its engineer: `server_record` carries its state in "fleet"; do not read its heartbeat. "unreached" and "unknown" mean the state is not known, not that the server stopped.
+- To show a channel or server, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
 
 ## Measurements
 

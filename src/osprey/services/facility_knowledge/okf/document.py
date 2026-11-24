@@ -1,7 +1,7 @@
 """OKF document model: parse, serialize, and validate facility knowledge documents.
 
 An OKF document is a Markdown file with a YAML frontmatter block, following the
-Open Knowledge Format specification (OKF §9).  The frontmatter is delimited
+Open Knowledge Format specification (OKF §4).  The frontmatter is delimited
 by ``---`` lines, exactly like Jekyll / Hugo front matter.
 
 Example document::
@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 import yaml
 
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 
 _FRONTMATTER_DELIM = "---"
 
@@ -104,14 +104,17 @@ class OKFDocument:
     def validate(self, level: ValidationLevel = "authoring") -> None:
         """Validate this document's frontmatter against the specified OKF level.
 
-        Two named levels are supported (OKF §9):
+        Two named levels are supported:
 
-        * ``"consuming"`` — tolerant reader check: only a non-empty ``type``
-          field is required.  Use this when ingesting documents from external
-          or untrusted sources.
-        * ``"authoring"`` — strict author check: ``type``, ``title``, and
-          ``description`` must all be present and non-empty.  ``timestamp`` is
-          **not** required, so freshly-seeded stub documents remain valid.
+        * ``"consuming"`` — what OKF itself asks of a concept (OKF §4.1): only
+          a non-empty ``type`` field is required.  Use this when ingesting
+          documents from external or untrusted sources.
+        * ``"authoring"`` — OSPREY's stricter bar for pages written here:
+          ``type``, ``title``, and ``description`` must all be present and
+          non-empty, because the index and the agent's listing are built from
+          them.  The provenance, trust and lifecycle families (OKF §5) are
+          optional at both levels, so freshly-seeded stub documents remain
+          valid.
 
         Args:
             level: Validation strictness level — ``"consuming"`` or

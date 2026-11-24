@@ -9,8 +9,8 @@ fail-closed static check in isolation:
 - a missing ``manifest.json`` errors;
 - a schema-invalid manifest folds the manifest validator's errors in;
 - a manifest whose ``entry`` file is absent errors;
-- an entry HTML missing the design-system ``<link>`` or the theme-boot
-  ``<script>`` errors;
+- an entry HTML missing the design-system ``<link>``, the theme-boot
+  ``<script>`` or the page-ready mark errors;
 - a raw hex color literal in the HTML/CSS is flagged with its location,
   while a ``var(--…)``-only panel and a hex-shaped *fragment* anchor
   (``href="#section"``) do not false-positive;
@@ -26,13 +26,19 @@ from pathlib import Path
 
 import pytest
 
+import osprey
 from osprey.interfaces.design_system import panels as panels_pkg
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import (
     MANIFEST_FILENAME,
+    PanelConsequence,
     PanelFinding,
     PanelRule,
     PanelValidationError,
+    _main,
     assert_valid_panel,
+    refusing,
+    validate_entry,
     validate_panel,
 )
 
@@ -43,20 +49,26 @@ _TOKENS_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/tokens.css">'
 _BASE_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/base.css">'
 _PRIMITIVES_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/primitives.css">'
 _FONTS_CSS_TAG = '<link rel="stylesheet" href="/static/fonts/fonts.css">'
+_MARK_TAG = (
+    '<script type="module">import { markPageReady } from '
+    "'/design-system/js/page-ready.js'; markPageReady();</script>"
+)
 
 
 def _compliant_html(*, body: str = "") -> str:
     """A minimal, fully-compliant panel entry HTML document."""
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en">\n'
+        '<html lang="en" data-page-ready="pending">\n'
         "<head>\n"
         '<meta charset="UTF-8">\n'
         f"{_THEME_BOOT_TAG}\n"
+        f"{WRITER_TAG}\n"
         f"{_TOKENS_CSS_TAG}\n"
         f"{_BASE_CSS_TAG}\n"
         f"{_PRIMITIVES_CSS_TAG}\n"
         f"{_FONTS_CSS_TAG}\n"
+        f"{_MARK_TAG}\n"
         "<style>\n"
         "  body { background: var(--bg-primary); color: var(--text-primary); }\n"
         "</style>\n"
@@ -115,6 +127,43 @@ def _rules(errors: list[PanelFinding]) -> set[PanelRule]:
 def test_fully_compliant_panel_has_no_errors(tmp_path: Path) -> None:
     panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
     assert validate_panel(panel) == []
+
+
+def test_a_panel_that_never_marks_itself_ready_is_a_finding(tmp_path: Path) -> None:
+    html = (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        f"{_THEME_BOOT_TAG}\n{_TOKENS_CSS_TAG}\n{_BASE_CSS_TAG}\n"
+        f"{_PRIMITIVES_CSS_TAG}\n{_FONTS_CSS_TAG}\n"
+        "</head>\n<body></body>\n</html>\n"
+    )
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    [error] = validate_panel(panel)
+
+    assert error.rule is PanelRule.PAGE_READY
+    assert "never sets the page-ready mark" in error.message
+
+
+def test_a_panel_that_does_not_load_the_writer_first_is_a_finding(tmp_path: Path) -> None:
+    html = _compliant_html().replace(f"{WRITER_TAG}\n", "")
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    [error] = validate_panel(panel)
+
+    assert error.rule is PanelRule.PAGE_READY
+    assert WRITER_TAG in error.message
+
+
+def test_validate_entry_judges_a_page_with_no_manifest(tmp_path: Path) -> None:
+    panel = tmp_path / "panel"
+    panel.mkdir()
+    entry = panel / "index.html"
+    entry.write_text(_compliant_html(), encoding="utf-8")
+
+    assert validate_entry(entry, panel) == []
+    assert _rules(validate_panel(panel)) == {PanelRule.MANIFEST_MISSING}
 
 
 def test_assert_valid_panel_does_not_raise_for_compliant_panel(tmp_path: Path) -> None:
@@ -201,13 +250,23 @@ def test_missing_entry_file_errors(tmp_path: Path) -> None:
 # --- Check 2: design-system linked --------------------------------------------
 
 
-def test_missing_design_system_link_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_TOKENS_CSS_TAG, "")
+@pytest.mark.parametrize(
+    ("tag", "rule"),
+    [
+        pytest.param(
+            _TOKENS_CSS_TAG, PanelRule.MISSING_DESIGN_SYSTEM_LINK, id="design_system_link"
+        ),
+        pytest.param(_THEME_BOOT_TAG, PanelRule.MISSING_THEME_BOOT, id="theme_boot_script"),
+        pytest.param(_FONTS_CSS_TAG, PanelRule.MISSING_FONT_LINK, id="font_link"),
+    ],
+)
+def test_missing_tag_errors(tmp_path: Path, tag: str, rule: PanelRule) -> None:
+    html = _compliant_html().replace(tag, "")
     panel = _write_panel(tmp_path / "panel", entry_html=html)
 
     errors = validate_panel(panel)
 
-    assert _rules(errors) == {PanelRule.MISSING_DESIGN_SYSTEM_LINK}
+    assert _rules(errors) == {rule}
 
 
 @pytest.mark.parametrize("tag", [_BASE_CSS_TAG, _PRIMITIVES_CSS_TAG])
@@ -227,24 +286,6 @@ def test_a_panel_linking_only_the_token_sheet_is_refused(tmp_path: Path) -> None
     errors = validate_panel(panel)
 
     assert [error.rule for error in errors] == [PanelRule.MISSING_DESIGN_SYSTEM_LINK] * 2
-
-
-def test_missing_theme_boot_script_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_THEME_BOOT_TAG, "")
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    errors = validate_panel(panel)
-
-    assert _rules(errors) == {PanelRule.MISSING_THEME_BOOT}
-
-
-def test_missing_font_link_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_FONTS_CSS_TAG, "")
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    errors = validate_panel(panel)
-
-    assert _rules(errors) == {PanelRule.MISSING_FONT_LINK}
 
 
 def test_design_system_link_matches_regardless_of_attribute_order(tmp_path: Path) -> None:
@@ -320,19 +361,19 @@ def test_var_token_only_panel_passes_hex_check(tmp_path: Path) -> None:
     assert validate_panel(panel) == []
 
 
-def test_hex_shaped_fragment_anchor_does_not_false_positive(tmp_path: Path) -> None:
-    # A fragment link with a non-hex character in its name must not be read
-    # as a color -- the classic false-positive shape the pattern guards.
-    html = _compliant_html(body='<a href="#section">jump</a>')
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    assert validate_panel(panel) == []
-
-
-def test_html_numeric_entity_does_not_false_positive(tmp_path: Path) -> None:
-    # &#160; / &#8212; are numeric character references, not colors, even
-    # though their digits are hex-shaped -- the (?<!&) guard must skip them.
-    html = _compliant_html(body="<p>a&#160;b&#8212;c</p>")
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A fragment link with a non-hex character in its name must not be read
+        # as a color -- the classic false-positive shape the pattern guards.
+        pytest.param('<a href="#section">jump</a>', id="hex_shaped_fragment_anchor"),
+        # &#160; / &#8212; are numeric character references, not colors, even
+        # though their digits are hex-shaped -- the (?<!&) guard must skip them.
+        pytest.param("<p>a&#160;b&#8212;c</p>", id="html_numeric_entity"),
+    ],
+)
+def test_does_not_false_positive(tmp_path: Path, body: str) -> None:
+    html = _compliant_html(body=body)
     panel = _write_panel(tmp_path / "panel", entry_html=html)
 
     assert validate_panel(panel) == []
@@ -389,6 +430,172 @@ def test_panel_error_str_renders_source_and_message(tmp_path: Path) -> None:
 
     assert str(error) == f"{error.source}: {error.message}"
     assert str(panel) in str(error)
+
+
+# --- Each rule's consequence, and the class rule that only reports -------------
+
+
+def test_every_rule_states_its_consequence() -> None:
+    assert all(isinstance(rule.consequence, PanelConsequence) for rule in PanelRule)
+    reporting = {rule for rule in PanelRule if rule.consequence is PanelConsequence.REPORT}
+    assert reporting == {PanelRule.UNDEFINED_CLASS}
+    assert PanelRule("undefined_class") is PanelRule.UNDEFINED_CLASS
+    assert PanelRule.PAGE_READY.value == "page_ready"
+    assert str(PanelRule.PAGE_READY) == "page_ready"
+
+
+def test_a_class_with_no_rule_is_one_report_only_finding(tmp_path: Path) -> None:
+    panel = _write_panel(
+        tmp_path / "panel", entry_html=_compliant_html(body='<p class="knob-dial"></p>')
+    )
+
+    [finding] = validate_panel(panel)
+
+    assert finding.rule is PanelRule.UNDEFINED_CLASS
+    assert finding.message == (
+        "no rule in the panel's or the linked design-system stylesheets for class knob-dial"
+    )
+    assert finding.source == str(panel / "index.html")
+    assert refusing([finding]) == []
+    assert_valid_panel(panel)  # no exception
+
+
+def test_a_style_block_an_own_sheet_and_a_linked_design_system_sheet_each_define_a_class(
+    tmp_path: Path,
+) -> None:
+    html = _compliant_html(
+        body='<p class="in-style"></p><p class="in-sheet"></p><p class="osprey-card"></p>'
+    ).replace(
+        "</head>",
+        '<link rel="stylesheet" href="panel.css">\n'
+        "<style>.in-style { display: grid; }</style>\n</head>",
+    )
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=html,
+        extra_files={"panel.css": ".in-sheet { display: grid; }\n"},
+    )
+
+    assert validate_panel(panel) == []
+
+
+def test_a_design_system_sheet_the_page_does_not_link_defines_nothing(tmp_path: Path) -> None:
+    html = _compliant_html(body='<p class="osprey-card"></p>').replace(
+        f"{_PRIMITIVES_CSS_TAG}\n", ""
+    )
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    assert _rules(validate_panel(panel)) == {
+        PanelRule.MISSING_DESIGN_SYSTEM_LINK,
+        PanelRule.UNDEFINED_CLASS,
+    }
+
+
+def test_classes_a_script_sets_need_a_rule_and_classes_it_only_reads_do_not(
+    tmp_path: Path,
+) -> None:
+    main_js = (
+        "// node.className = 'commented';\n"
+        "node.className = 'knob';\n"
+        "node.classList.toggle('knob-on', on);\n"
+        "const row = make('tr', { class: 'osprey-card knob-row' });\n"
+        'host.innerHTML = `<span class="knob-unit">${unit}</span>`;\n'
+        "if (node.classList.contains('knob-hook')) node.classList.remove('knob-stale');\n"
+    )
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(),
+        extra_files={"panel.css": ".knob { display: grid; }\n", "main.js": main_js},
+    )
+
+    [finding] = validate_panel(panel)
+
+    assert finding.source == str(panel / "main.js")
+    assert finding.message.endswith("for class knob-on, knob-row, knob-unit")
+
+
+def test_a_vendor_file_sets_no_class_the_rule_reads(tmp_path: Path) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    (panel / "vendor").mkdir()
+    (panel / "vendor" / "lib.js").write_text("el.className = 'lib-x';\n", encoding="utf-8")
+
+    assert validate_panel(panel) == []
+
+
+@pytest.mark.parametrize("name", ["notes.html", "extra.mjs", "node_modules/pkg/extra.mjs"])
+def test_a_file_only_the_class_rule_reads_that_is_not_utf8_refuses_nothing(
+    tmp_path: Path, name: str
+) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    extra = panel / name
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_bytes('<p class="caf\xe9">caf\xe9</p>\n'.encode("latin-1"))
+
+    assert refusing(validate_panel(panel)) == []
+    assert_valid_panel(panel)
+
+
+def test_a_directory_named_like_a_page_sets_no_class(tmp_path: Path) -> None:
+    panel = _write_panel(tmp_path / "panel", entry_html=_compliant_html())
+    (panel / "docs.html").mkdir()
+
+    assert validate_panel(panel) == []
+
+
+def test_the_style_blocks_of_an_entry_page_of_any_suffix_define_its_classes(
+    tmp_path: Path,
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_name="index.htm",
+        entry_html=_compliant_html(
+            body='<style>.knob-dial { color: var(--text); }</style><p class="knob-dial"></p>'
+        ),
+    )
+
+    assert validate_panel(panel) == []
+
+
+def test_assert_valid_panel_raises_for_refusing_findings_only(tmp_path: Path) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(body='<p class="knob-dial" style="color: #123456;"></p>'),
+    )
+
+    assert _rules(validate_panel(panel)) == {PanelRule.RAW_HEX_COLOR, PanelRule.UNDEFINED_CLASS}
+    with pytest.raises(PanelValidationError) as excinfo:
+        assert_valid_panel(panel)
+    assert {error.rule for error in excinfo.value.errors} == {PanelRule.RAW_HEX_COLOR}
+
+
+def test_the_validator_command_passes_a_panel_whose_findings_only_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel", entry_html=_compliant_html(body='<p class="knob-dial"></p>')
+    )
+
+    assert _main([str(panel)]) == 0
+
+    out, err = capsys.readouterr()
+    [line] = err.splitlines()
+    assert line.endswith("[undefined_class: report]")
+    assert out == f"PANEL OK: {panel}\n"
+
+
+def test_the_validator_command_fails_on_a_refusing_finding_and_counts_only_those(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    panel = _write_panel(
+        tmp_path / "panel",
+        entry_html=_compliant_html(body='<p class="knob-dial" style="color: #123456;"></p>'),
+    )
+
+    assert _main([str(panel)]) == 1
+
+    lines = capsys.readouterr().err.splitlines()
+    assert lines[-1] == f"PANEL INVALID: 1 error(s) in {panel}"
+    assert any(line.endswith("class knob-dial [undefined_class: report]") for line in lines)
 
 
 # --- Integration: the shipped reference panel and non-compliant fixtures ------
@@ -481,7 +688,7 @@ def test_assert_valid_panel_raises_for_bad_manifest_fixture() -> None:
 
 
 def test_missing_stylesheets_is_the_one_link_rule() -> None:
-    """The sheets a page does not link, in PANEL_STYLESHEETS order; the app check reads this."""
+    """The sheets a page does not link, in PANEL_STYLESHEETS order; the link rule reads this."""
     from osprey.interfaces.design_system.panels.validator import (
         PANEL_STYLESHEETS,
         missing_stylesheets,
@@ -492,3 +699,51 @@ def test_missing_stylesheets_is_the_one_link_rule() -> None:
 
     assert missing_stylesheets(html) == [base]
     assert missing_stylesheets("") == list(PANEL_STYLESHEETS)
+
+
+# --- Every page the package ships as a panel ----------------------------------
+
+_PACKAGE = Path(osprey.__file__).resolve().parent
+
+
+def _shipped_panel_pages() -> list[tuple[Path, Path]]:
+    """Each shipped panel's ``(entry page, panel directory)``: the bundles a manifest
+    describes, then the applications' panels, which have none."""
+    bundles = [
+        (
+            manifest.parent / json.loads(manifest.read_text(encoding="utf-8"))["entry"],
+            manifest.parent,
+        )
+        for manifest in sorted(_PACKAGE.rglob(MANIFEST_FILENAME))
+        if "node_modules" not in manifest.parts and "vendor" not in manifest.parts
+    ]
+    apps = [
+        (index, index.parent)
+        for index in sorted(
+            [
+                *_PACKAGE.glob("apps/*/panel/index.html"),
+                *_PACKAGE.glob("profiles/presets/apps/*/panel/index.html"),
+            ]
+        )
+    ]
+    return bundles + apps
+
+
+def _panel_name(page: Path) -> str:
+    """The panel's own name: the directory above a generic ``panel/`` or ``static/``."""
+    panel_dir = page.parent
+    return panel_dir.parent.name if panel_dir.name in ("panel", "static") else panel_dir.name
+
+
+def test_the_shipped_panel_pages_are_found() -> None:
+    names = {_panel_name(entry) for entry, _ in _shipped_panel_pages()}
+    assert {"reference", "bluesky", "optimizer", "health", "scaffold-app", "orbit-bump"} <= names
+
+
+@pytest.mark.parametrize(
+    ("entry", "panel_dir"),
+    _shipped_panel_pages(),
+    ids=lambda value: value.relative_to(_PACKAGE).as_posix(),
+)
+def test_no_shipped_panel_page_has_a_refusing_finding(entry: Path, panel_dir: Path) -> None:
+    assert refusing(validate_entry(entry, panel_dir)) == []

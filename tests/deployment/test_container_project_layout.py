@@ -529,7 +529,9 @@ def built_repo(tmp_path_factory) -> Path:
     ``seed_env=True`` because a repo with no ``.env`` cannot show that the
     contexts carry none: the secret has to exist to be kept out. A developer's
     own Claude Code files sit at the root for the same reason, so every context
-    below is read off a repo that has them.
+    below is read off a repo that has them. So do a regenerable log and byte-code
+    file under ``data/``, a fold input, which the build must drop before it
+    stamps (:func:`test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped`).
     """
     from tests.fixtures.lifecycle_repo import (
         EXEMPLAR_DIRNAME,
@@ -543,6 +545,11 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
+    data_root = repo / "data"
+    assert data_root.is_dir(), "the exemplar must have a data tree for the regenerable pin"
+    (data_root / "ingest.log").write_text("2026-01-01 loaded\n", encoding="utf-8")
+    (data_root / "__pycache__").mkdir(exist_ok=True)
+    (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
     with contextlib.chdir(repo), preserved_environ():
         result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
     assert result.exit_code == 0, result.output
@@ -553,35 +560,6 @@ def _contexts(repo: Path) -> dict[str, Path]:
     """Every image context the build produced, by image project name."""
     image_dir = repo / BUILD_DIR_NAME / IMAGE_DIR_NAME
     return {entry.name: entry for entry in sorted(image_dir.iterdir()) if entry.is_dir()}
-
-
-def _staleness_reasons_as_the_container_sees_them(context: Path, scratch: Path) -> list[str]:
-    """Run the staleness advisory over a context as if it were mounted at ``/app/<name>``.
-
-    The advisory hashes the profile ``build_args.profile_path_abs`` names. In a
-    context that path is the CONTAINER's, which on this machine is nothing at
-    all — and "nothing at all" makes the advisory fail open and return no
-    reasons, which would make a test of it vacuous. So the manifest's container
-    paths are re-pointed at the copy of that same tree sitting here, which is
-    exactly the file the container would be hashing.
-
-    Only the manifest is copied because that is all
-    :func:`~osprey.deployment.staleness.staleness_reasons` reads.
-    """
-    from osprey.deployment.staleness import build_manifest_path, staleness_reasons
-
-    manifest_path = build_manifest_path(context)
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    runtime_root = f"/app/{context.name}"
-    build_args = manifest.get("build_args") or {}
-    for key in ("profile_path", "profile_path_abs"):
-        value = build_args.get(key)
-        if isinstance(value, str) and value.startswith(f"{runtime_root}/"):
-            build_args[key] = str(context / value[len(runtime_root) + 1 :])
-
-    scratch.mkdir(parents=True, exist_ok=True)
-    (scratch / manifest_path.name).write_text(json.dumps(manifest), encoding="utf-8")
-    return staleness_reasons(scratch)
 
 
 @pytest.mark.slow
@@ -754,24 +732,16 @@ def test_every_launched_process_in_a_context_names_the_image_interpreter(
 
 @pytest.mark.slow
 @pytest.mark.parametrize("tier", [None, *RENDER_WRITES])
-def test_a_produced_context_reports_neither_drift_nor_staleness(
-    built_repo: Path, tier: str | None, tmp_path: Path
-) -> None:
-    """An untouched image reports itself untouched — by BOTH readers, not just the gate.
+def test_a_produced_context_reports_no_drift(built_repo: Path, tier: str | None) -> None:
+    """An untouched image reports itself untouched.
 
-    Two independent things read a build's provenance inside a container and an
-    operator meets both: :func:`check_drift`, the gate every lifecycle verb goes
-    through, and :func:`staleness_reasons`, the advisory behind the warning
-    ``osprey up`` prints. They must agree, and on a freshly built
-    image the agreement they owe is "nothing has changed".
-
-    They agree only if they hash the SAME file. The gate reads ``profile.yml``
-    off the repo root; the advisory reads whatever ``build_args.profile_path_abs``
-    names — so for a render image, pointing that at the render DELTA (the file
-    the render came from) hashes the delta against a stamp taken from the root
-    profile, and every render container prints "profile has changed" on a build
-    nobody touched, forever. A false drift report is the one thing the whole
-    relocation exists to prevent, and an advisory that cries wolf on every
+    :func:`check_drift`, the gate every lifecycle verb goes through, reads a
+    build's provenance inside a container, and on a freshly built image the
+    answer it owes is "nothing has changed". It hashes ``profile.yml`` off the
+    repo root against the stamp, so that stamp must be taken from the same
+    file: a render image stamped from the render DELTA would report drift on a
+    build nobody touched, forever. A false drift report is the one thing the
+    whole relocation exists to prevent, and a gate that cries wolf on every
     container is how operators learn to ignore the real one.
     """
     from osprey.deployment.staleness import DriftState, check_drift
@@ -782,8 +752,6 @@ def test_a_produced_context_reports_neither_drift_nor_staleness(
     report = check_drift(context)
     assert report.state is DriftState.CLEAN, report.message
     assert report.changed_keys == ()
-
-    assert _staleness_reasons_as_the_container_sees_them(context, tmp_path / name) == []
 
 
 @pytest.mark.slow
@@ -818,7 +786,7 @@ def test_the_hashed_profile_is_the_repos_own_and_the_recorded_one_is_the_render_
 
 @pytest.mark.slow
 def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
-    tmp_path_factory,
+    built_repo: Path,
 ) -> None:
     """What the ``.dockerignore`` excludes is gone from the context BEFORE the stamp.
 
@@ -834,26 +802,15 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     (so the image and the context hold the same tree), and the stamp still
     matches that tree (so the fingerprint was taken after the removal, not
     before). Reversing the order passes the first and fails the second.
+
+    The files are planted in :func:`built_repo` before its build; the repo's own
+    ``.dockerignore`` pin below keeps a build of its own, because a planted log
+    is folded into the repo's fingerprint and would move it off the stamp.
     """
     from osprey.deployment.staleness import DriftState, check_drift
-    from tests.fixtures.lifecycle_repo import (
-        EXEMPLAR_DIRNAME,
-        build_exemplar_repo,
-        preserved_environ,
-    )
 
-    repo = build_exemplar_repo(tmp_path_factory.mktemp("regenerable") / EXEMPLAR_DIRNAME)
-    data_root = repo / "data"
-    assert data_root.is_dir(), "the exemplar must have a data tree for this pin to mean anything"
-    (data_root / "ingest.log").write_text("2026-01-01 loaded\n", encoding="utf-8")
-    (data_root / "__pycache__").mkdir(exist_ok=True)
-    (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
-
-    with contextlib.chdir(repo), preserved_environ():
-        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
-    assert result.exit_code == 0, result.output
-
-    for name, context in _contexts(repo).items():
+    assert (built_repo / "data" / "ingest.log").is_file(), "the regenerable plant is gone"
+    for name, context in _contexts(built_repo).items():
         shipped = sorted(
             str(path.relative_to(context))
             for path in context.rglob("*")

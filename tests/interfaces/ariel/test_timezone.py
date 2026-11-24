@@ -85,8 +85,12 @@ def test_web_localizes_all_three_timestamp_fields():
 
 @pytest.mark.usefixtures("facility_tokyo")
 def test_web_handles_naive_or_missing_gracefully():
-    """Naive datetimes degrade to str (no crash); the response stays a string."""
+    """A naive datetime is facility-local wall clock (never UTC or the box ``$TZ``);
+    a missing one stays missing."""
     entry = _entry()
     entry["timestamp"] = datetime(2026, 6, 1, 0, 0, 0)  # naive
     web = _entry_to_response(entry, **_NO_ROWS)
-    assert isinstance(web.timestamp, str)
+    assert web.timestamp == "2026-06-01T00:00:00+09:00"
+
+    entry["timestamp"] = None
+    assert _entry_to_response(entry, **_NO_ROWS).timestamp is None

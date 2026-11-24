@@ -30,6 +30,7 @@ from osprey.apps.manifest import launch_token_env
 from osprey.apps.sdk import OWNER_STATE_KEY, ResponseMatrix, WriteVerdictView
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.interfaces.common_middleware import WebAuthMiddleware
+from tests._facility_file import write_facility_v4
 from tests._simulator_view import view_channel
 
 #: The two periodic rings of the synthetic facility, in facility order.
@@ -164,7 +165,7 @@ def _render(root: Path, periodic: tuple[str, ...]) -> Path:
         ],
         "channels": records,
     }
-    (root / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(root, facility)
     facts = zero_source_facts({"code": "TEST", "name": "Test", "description": None})
     facts["models"] = [
         {"name": LINE, "engine": "pyat", "served": True, "solve": "single_pass"},
@@ -304,11 +305,14 @@ def test_a_facility_with_only_a_transfer_line_offers_no_model(no_ring) -> None:
     assert ring.offered_models(no_ring) == []
 
 
-def test_the_example_facility_offers_its_storage_ring_and_no_transfer_line(
+def test_the_example_facility_offers_its_two_rings_and_no_transfer_line(
     built_demo,
 ) -> None:
     render = Path(built_demo.build_dir)
-    assert ring.offered_models(render) == ["SR"]
+    assert ring.offered_models(render) == ["BR", "SR"]
+    booster = ring.ring_view("BR", render)
+    assert [len(booster.plane(plane).bpms) for plane in ("x", "y")] == [20, 20]
+    assert [len(booster.plane(plane).correctors) for plane in ("x", "y")] == [16, 16]
 
 
 # -- the backend ----------------------------------------------------------------------

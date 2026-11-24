@@ -14,12 +14,13 @@ import pytest
 import yaml
 from rdflib import OWL, RDF, Graph, Literal, URIRef
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.records import FacilityRecords, is_family
-from osprey.facility.validate import run_stages
 from osprey.facility.views.channel_finder import middle_layer_families
 from osprey.facility.views.graph import graph_text
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.records import FacilityRecords, is_family
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._appendix_a import appendix_a_tree, build_appendix_a
 from tests.facility._graph_relations import NARAD_P
@@ -85,10 +86,18 @@ class TestTheSlot:
     ) -> None:
         assert _group(built[kind])["kind"] == kind
 
-    def test_an_unstated_kind_is_not_written(self, built: dict[str | None, dict[str, Any]]) -> None:
+    def test_an_unstated_kind_is_written_as_a_default_family(
+        self, built: dict[str | None, dict[str, Any]]
+    ) -> None:
         group = _group(built[None])
-        assert "kind" not in group
-        assert "kind" not in (group.get("provenance") or {}).get("defaults", [])
+        assert group["kind"] == "family"
+        assert "kind" in group["provenance"]["defaults"]
+
+    @pytest.mark.parametrize("kind", ["family", "section"])
+    def test_a_stated_kind_is_not_a_default(
+        self, built: dict[str | None, dict[str, Any]], kind: str
+    ) -> None:
+        assert "kind" not in (_group(built[kind]).get("provenance") or {}).get("defaults", [])
 
     def test_an_unstated_kind_is_a_family(self) -> None:
         assert is_family({"id": "G"})
@@ -98,7 +107,9 @@ class TestTheSlot:
     def test_another_kind_stops_the_build(self, tmp_path: Path) -> None:
         root = tmp_path / "facility"
         write_tree(root, _tree("zone"))
-        report = run_stages(root, project_name="p", later=LATER_STAGES)
+        report = run_stages(
+            root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
         assert report.failed is not None
         messages = [error.format_message() for error in report.errors]
         assert any("groups.0.kind" in m and "'family' or 'section'" in m for m in messages), (

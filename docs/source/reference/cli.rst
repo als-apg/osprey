@@ -108,6 +108,12 @@ output, and durable state:
      build/                         rendered by `osprey build`; gitignored
      var/                           agent memory and audit log; gitignored
 
+An active ``dispatch:`` or ``va_archiver:`` block is written whole, so that
+its run limits and identity can be read and changed where the block sits: each
+key the preset leaves unstated appears at its default, with a one-line comment.
+Keys the build derives (the ports it takes from ``port_base``, the archiver
+host) or that have no default are left out.
+
 ``git init`` and an initial commit run at the end, unless a git repository
 already encloses the target or ``--no-git`` is given.
 
@@ -507,11 +513,18 @@ Stop this deployment, keeping all data. It renders nothing; destroying data is
 
 If ``build/`` is gone or was never rendered, ``down`` does not re-derive the
 compose files from ``profile.yml`` — those describe what would be started now,
-not what is running. Instead it stops the containers this repository labelled as
-its own, which is the recovery path for a ``build/`` deleted while the stack was
-up. Containers are labelled when they are *created*, so a stack started before
-this labelling existed cannot be found that way; run ``osprey build`` to restore
-``build/`` and ``down`` works normally again.
+not what is running. Instead it stops the services the last start recorded, in
+the compose project it recorded. That is the recovery path for a ``build/``
+deleted while the stack was up.
+
+While another checkout of this repository holds the project name, ``down``
+refuses, names that copy, and stops nothing.
+
+A deployment whose record names no services, or a repository with no record, is
+stopped by the label this repository put on its containers. Containers are
+labelled when they are *created*, so a stack started before this labelling
+existed cannot be found that way; run ``osprey build`` to restore ``build/`` and
+``down`` works normally again.
 
 osprey restart
 --------------
@@ -564,7 +577,8 @@ osprey reset
 Wipe this deployment back to a fresh state. It stops the stack, removes the
 containers, volumes and images of this deployment, destroys the
 agent's memory under ``var/agent_data/``, strips the tokens ``osprey up`` minted
-out of ``.env``, and deletes ``build/`` and ``var/deployment.json``.
+out of ``.env``, and deletes ``build/``, ``var/deployment.json`` and
+``var/host-network-ports.json``.
 
 What survives, the plan lists before you confirm:
 
@@ -1142,7 +1156,9 @@ up`` seeds the store from that view. See
 
 ``osprey knowledge validate [BUNDLE]``
    Check every document in a bundle against the OKF format, including each
-   ``index.md`` against its directory.
+   ``index.md`` against its directory. An embedded image that is missing, of a
+   disallowed type, over 10 MB or without alt text gets a warning, one line
+   per problem, and does not fail the bundle.
 
 ``osprey knowledge seed-from-ttl BUNDLE [--ttl PATH] [--force] [--repo DIRECTORY]``
    Write stub concept documents into a bundle from the build's graph view,
@@ -1177,11 +1193,14 @@ is :doc:`/how-to/apps/index`.
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
    ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` loads the design-system ``tokens.css``,
-   ``base.css`` and ``primitives.css`` and every class the panel sets has a CSS
-   rule, ESLint over ``panel/`` when it holds JS, and Vitest over
-   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
-   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   three design-system sheets, the theme boot script, the font sheet, no raw hex
+   colour, the page-ready mark, no module of its own loaded ``async``), ESLint
+   over ``panel/`` when it holds JS, and
+   Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every
+   violation with its application, field and rule, and exits 1. A panel rule that
+   only reports (a class with no CSS rule) is printed as
+   ``[undefined_class: report]`` and does not fail the check. An ``apps/<name>/`` the block
    does not name is reported and not checked. An application an installed package
    ships is checked too; its violations name the
    distribution (``<dist>:<module path>/<file>``). The JS checks execute the
@@ -1196,11 +1215,23 @@ osprey facility
 
 Check and show the facility description under ``data/facility/`` and import
 an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
+The operator screens drawn from the built facility are written by
+``osprey-panels``, a command of its own: see :ref:`reference-osprey-panels`.
 
-``osprey facility validate [--repo DIRECTORY]``
+``osprey facility validate [--repo DIRECTORY] [--all-limits]``
    Run every check ``osprey build`` makes of ``data/facility/`` and render the
    facility views against the repo's main profile in a temporary directory.
-   Nothing is written into the repo. A clean tree exits 0, and each model with
+   Nothing is written into the repo. A clean tree reports two limits findings
+   on stderr, each a ``limits:`` count line and one indented line per
+   address, sorted: the setpoints with no limits record (the target serves
+   them writable with no range when ``control_system.limits_checking.mode`` is
+   ``optional``, and refuses writes to them otherwise), and the limits records
+   that lack what would make their setpoint writable (the missing
+   ``min_value`` or ``max_value`` of a float or int setpoint, ``writable: true``
+   on any other), each with the bounds it does state and what it lacks; a
+   record that says ``writable: false`` is not listed. A finding lists its first ten addresses and counts the
+   rest; ``--all-limits`` lists every one. The findings change nothing,
+   the exit code included, and a finding with no address is not printed. A clean tree exits 0, and each model with
    a kept ``imported/mml/<model>.response.json`` prints one
    ``response check <model>: …`` line on stderr, pass or fail; a failing check
    exits 1 before the render. When the check left rows out of the comparison,
@@ -1208,6 +1239,10 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    left out and the count per reason (unwired, no width, unsolved, table
    calibration); it does not change the verdict or the exit code:
    ``response check <model>: left out <n> rows (<k> unwired, <j> no width, <u> unsolved, <t> table calibration)``.
+   Each model with a deck gets ``length`` (its beam path in metres) and
+   ``periodic`` (``true`` for a ring, ``false`` for a line) in the facility file,
+   from the deck; a model with a deck that states either stops with
+   ``model-conflict``, and a model without one may state them.
    A device whose stated ``s`` lies outside its periodic model's deck is placed
    modulo the deck's length, and both ``osprey build`` and this command print
    one ``facility: place-wrapped: device <id> — …; fix: …`` warning per device
@@ -1343,11 +1378,15 @@ an export into it. See :doc:`/how-to/import-mml-export` for the import end to en
    ``model`` (the model whose deck ``s`` is measured in), in any order. A file
    whose first row names no ``address`` column holds one address per line.
    ``s`` and ``model`` are the position of the row's device: for each device a
-   row states ``s`` for, the import writes ``{id, s}``, plus ``model`` when
+   row names, the import writes ``id``, ``s`` where stated and ``model`` when
    stated, to ``data/facility/imported/list/devices.yaml``, and no other
    device field, so the device merges with one another source declares, or is
-   created holding only its position. ``osprey build`` places it by the span
-   of its model containing ``s``. A row that names both a device and a place,
+   created holding only its id and position. A list naming no device leaves
+   no ``devices.yaml``. ``osprey build`` places a device with an ``s`` by the
+   span of its model containing it. When ``records/devices.yaml`` or another
+   layer declares devices and a listed device is in none of them, one stderr
+   line names it: ``import list: declared by this list only: <ids>``.
+   A row that names both a device and a place,
    states a role other than ``setpoint``, ``readback`` or ``none``, has no
    address or repeats one, states ``s`` or ``model`` with no device, or
    states an ``s`` that is not a finite number, a row with more cells than
@@ -1574,7 +1613,12 @@ Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
    and the like) and start anyway. Without it, a failed check refuses the start.
 
 ``osprey web stop [--repo DIRECTORY]``
-   Stop a background web terminal server.
+   Stop a background web terminal server. Returns once the server and the
+   processes it started have exited, waiting up to 60 seconds. A process that
+   outlives the server is ended with SIGTERM, then SIGKILL; one that cannot be
+   ended is named and the command exits 1. A server still running after the
+   wait is named and left alone, and the command exits 1; its PID file is
+   kept, so ``osprey web stop`` can be run again.
 
 ``osprey web sessions``
    Group for the commands that manage the sessions kept on disk.
@@ -1843,3 +1887,8 @@ Environment Variables
 
 The variables the CLI reads, and where they belong, are listed in
 :doc:`/reference/configuration/environment-variables`.
+
+.. toctree::
+   :hidden:
+
+   osprey-panels

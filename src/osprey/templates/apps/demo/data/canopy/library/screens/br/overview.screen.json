@@ -301,13 +301,13 @@
             "fallback": "#1f62c4",
             "fallbackDark": "#6e9fff"
           },
-          "rotation": 30.6,
+          "rotation": 26.2,
           "tooltip": "BR/QF01"
         },
         "geometry": {
-          "x": 334,
-          "y": 126.2,
-          "width": 5,
+          "x": 323.6,
+          "y": 120,
+          "width": 3,
           "height": 15
         }
       },
@@ -316,24 +316,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 39.5,
-          "tooltip": "BR/DIPOLE01"
+          "rotation": 28.2,
+          "tooltip": "BR/QD01"
         },
         "geometry": {
-          "x": 349.1,
-          "y": 143.8,
-          "width": 18,
-          "height": 10
+          "x": 328.7,
+          "y": 122.6,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -341,24 +341,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 48.3,
-          "tooltip": "BR/QD01"
+          "rotation": 31.1,
+          "tooltip": "BR/DIPOLE01"
         },
         "geometry": {
-          "x": 374.5,
-          "y": 159.5,
-          "width": 5,
-          "height": 15
+          "x": 333.4,
+          "y": 129.5,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -366,24 +366,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 57.2,
-          "tooltip": "BR/DIPOLE02"
+          "rotation": 34.1,
+          "tooltip": "BR/QD02"
         },
         "geometry": {
-          "x": 383.9,
-          "y": 183,
-          "width": 18,
-          "height": 10
+          "x": 343.8,
+          "y": 131.7,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -391,24 +391,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 120.6,
-          "tooltip": "BR/QF02"
+          "rotation": 37.1,
+          "tooltip": "BR/DIPOLE02"
         },
         "geometry": {
-          "x": 393.8,
-          "y": 359,
-          "width": 5,
-          "height": 15
+          "x": 348,
+          "y": 139.4,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -416,24 +416,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 129.5,
-          "tooltip": "BR/DIPOLE03"
+          "rotation": 40,
+          "tooltip": "BR/QF02"
         },
         "geometry": {
-          "x": 372.2,
-          "y": 383.1,
-          "width": 18,
-          "height": 10
+          "x": 357.9,
+          "y": 142.3,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -441,24 +441,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 138.3,
-          "tooltip": "BR/QD02"
+          "rotation": 43,
+          "tooltip": "BR/DIPOLE03"
         },
         "geometry": {
-          "x": 360.5,
-          "y": 399.5,
-          "width": 5,
-          "height": 15
+          "x": 361.5,
+          "y": 150.7,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -466,24 +466,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 147.2,
-          "tooltip": "BR/DIPOLE04"
+          "rotation": 46,
+          "tooltip": "BR/QD03"
         },
         "geometry": {
-          "x": 333,
-          "y": 417.9,
-          "width": 18,
-          "height": 10
+          "x": 370.7,
+          "y": 154.4,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -491,24 +491,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 30.6,
-          "tooltip": "BR/QF03"
+          "rotation": 48.9,
+          "tooltip": "BR/DIPOLE04"
         },
         "geometry": {
-          "x": 161,
-          "y": 418.8,
-          "width": 5,
-          "height": 15
+          "x": 373.7,
+          "y": 163.4,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -516,24 +516,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 39.5,
-          "tooltip": "BR/DIPOLE05"
+          "rotation": 51.9,
+          "tooltip": "BR/QF03"
         },
         "geometry": {
-          "x": 132.9,
-          "y": 406.2,
-          "width": 18,
-          "height": 10
+          "x": 382.3,
+          "y": 167.6,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -541,24 +541,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 48.3,
-          "tooltip": "BR/QD03"
+          "rotation": 54.9,
+          "tooltip": "BR/DIPOLE05"
         },
         "geometry": {
-          "x": 120.5,
-          "y": 385.5,
-          "width": 5,
-          "height": 15
+          "x": 384.6,
+          "y": 177.2,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -566,24 +566,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 57.2,
-          "tooltip": "BR/DIPOLE06"
+          "rotation": 57.9,
+          "tooltip": "BR/QD04"
         },
         "geometry": {
-          "x": 98.1,
-          "y": 367,
-          "width": 18,
-          "height": 10
+          "x": 392.4,
+          "y": 182.1,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -591,24 +591,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Quadrupole",
-            "fallback": "#1f62c4",
-            "fallbackDark": "#6e9fff"
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
           },
-          "rotation": 120.6,
-          "tooltip": "BR/QF04"
+          "rotation": 60.8,
+          "tooltip": "BR/DIPOLE06"
         },
         "geometry": {
-          "x": 101.2,
-          "y": 186,
-          "width": 5,
-          "height": 15
+          "x": 393.9,
+          "y": 192.1,
+          "width": 9,
+          "height": 10
         }
       },
       {
@@ -616,24 +616,24 @@
         "type": "rectangle",
         "props": {
           "lineColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
           "fill": true,
           "fillColor": {
-            "$role": "Dipole",
-            "fallback": "#e08e00",
-            "fallbackDark": "#f5b73d"
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
           },
-          "rotation": 129.5,
-          "tooltip": "BR/DIPOLE07"
+          "rotation": 63.8,
+          "tooltip": "BR/QF04"
         },
         "geometry": {
-          "x": 109.8,
-          "y": 166.9,
-          "width": 18,
-          "height": 10
+          "x": 401,
+          "y": 197.4,
+          "width": 3,
+          "height": 15
         }
       },
       {
@@ -651,18 +651,43 @@
             "fallback": "#1f62c4",
             "fallbackDark": "#6e9fff"
           },
-          "rotation": 138.3,
-          "tooltip": "BR/QD04"
+          "rotation": 116.2,
+          "tooltip": "BR/QF05"
         },
         "geometry": {
-          "x": 134.5,
-          "y": 145.5,
-          "width": 5,
+          "x": 401,
+          "y": 347.6,
+          "width": 3,
           "height": 15
         }
       },
       {
         "id": "w-020",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 118.2,
+          "tooltip": "BR/QD05"
+        },
+        "geometry": {
+          "x": 398.4,
+          "y": 352.7,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-021",
         "type": "rectangle",
         "props": {
           "lineColor": {
@@ -676,18 +701,993 @@
             "fallback": "#e08e00",
             "fallbackDark": "#f5b73d"
           },
-          "rotation": 147.2,
-          "tooltip": "BR/DIPOLE08"
+          "rotation": 121.1,
+          "tooltip": "BR/DIPOLE07"
         },
         "geometry": {
-          "x": 149,
-          "y": 132.1,
-          "width": 18,
+          "x": 391,
+          "y": 362.9,
+          "width": 9,
           "height": 10
         }
       },
       {
-        "id": "w-021",
+        "id": "w-022",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 124.1,
+          "tooltip": "BR/QD06"
+        },
+        "geometry": {
+          "x": 389.3,
+          "y": 367.8,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-023",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 127.1,
+          "tooltip": "BR/DIPOLE08"
+        },
+        "geometry": {
+          "x": 381.1,
+          "y": 377.5,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-024",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 130,
+          "tooltip": "BR/QF06"
+        },
+        "geometry": {
+          "x": 378.7,
+          "y": 381.9,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-025",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 133,
+          "tooltip": "BR/DIPOLE09"
+        },
+        "geometry": {
+          "x": 369.8,
+          "y": 391,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-026",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 136,
+          "tooltip": "BR/QD07"
+        },
+        "geometry": {
+          "x": 366.6,
+          "y": 394.7,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-027",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 138.9,
+          "tooltip": "BR/DIPOLE10"
+        },
+        "geometry": {
+          "x": 357.1,
+          "y": 403.2,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-028",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 141.9,
+          "tooltip": "BR/QF07"
+        },
+        "geometry": {
+          "x": 353.4,
+          "y": 406.3,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-029",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 144.9,
+          "tooltip": "BR/DIPOLE11"
+        },
+        "geometry": {
+          "x": 343.3,
+          "y": 414.1,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-030",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 147.9,
+          "tooltip": "BR/QD08"
+        },
+        "geometry": {
+          "x": 338.9,
+          "y": 416.4,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-031",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 150.8,
+          "tooltip": "BR/DIPOLE12"
+        },
+        "geometry": {
+          "x": 328.4,
+          "y": 423.4,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-032",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 153.8,
+          "tooltip": "BR/QF08"
+        },
+        "geometry": {
+          "x": 323.6,
+          "y": 425,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-033",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 26.2,
+          "tooltip": "BR/QF09"
+        },
+        "geometry": {
+          "x": 173.4,
+          "y": 425,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-034",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 28.2,
+          "tooltip": "BR/QD09"
+        },
+        "geometry": {
+          "x": 168.3,
+          "y": 422.4,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-035",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 31.1,
+          "tooltip": "BR/DIPOLE13"
+        },
+        "geometry": {
+          "x": 157.6,
+          "y": 420.5,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-036",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 34.1,
+          "tooltip": "BR/QD10"
+        },
+        "geometry": {
+          "x": 153.2,
+          "y": 413.3,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-037",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 37.1,
+          "tooltip": "BR/DIPOLE14"
+        },
+        "geometry": {
+          "x": 143,
+          "y": 410.6,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-038",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 40,
+          "tooltip": "BR/QF10"
+        },
+        "geometry": {
+          "x": 139.1,
+          "y": 402.7,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-039",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 43,
+          "tooltip": "BR/DIPOLE15"
+        },
+        "geometry": {
+          "x": 129.5,
+          "y": 399.3,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-040",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 46,
+          "tooltip": "BR/QD11"
+        },
+        "geometry": {
+          "x": 126.3,
+          "y": 390.6,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-041",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 48.9,
+          "tooltip": "BR/DIPOLE16"
+        },
+        "geometry": {
+          "x": 117.3,
+          "y": 386.6,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-042",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 51.9,
+          "tooltip": "BR/QF11"
+        },
+        "geometry": {
+          "x": 114.7,
+          "y": 377.4,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-043",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 54.9,
+          "tooltip": "BR/DIPOLE17"
+        },
+        "geometry": {
+          "x": 106.4,
+          "y": 372.8,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-044",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 57.9,
+          "tooltip": "BR/QD12"
+        },
+        "geometry": {
+          "x": 104.6,
+          "y": 362.9,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-045",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 60.8,
+          "tooltip": "BR/DIPOLE18"
+        },
+        "geometry": {
+          "x": 97.1,
+          "y": 357.9,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-046",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 63.8,
+          "tooltip": "BR/QF12"
+        },
+        "geometry": {
+          "x": 96,
+          "y": 347.6,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-047",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 116.2,
+          "tooltip": "BR/QF13"
+        },
+        "geometry": {
+          "x": 96,
+          "y": 197.4,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-048",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 118.2,
+          "tooltip": "BR/QD13"
+        },
+        "geometry": {
+          "x": 98.6,
+          "y": 192.3,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-049",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 121.1,
+          "tooltip": "BR/DIPOLE19"
+        },
+        "geometry": {
+          "x": 100,
+          "y": 187.1,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-050",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 124.1,
+          "tooltip": "BR/QD14"
+        },
+        "geometry": {
+          "x": 107.7,
+          "y": 177.2,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-051",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 127.1,
+          "tooltip": "BR/DIPOLE20"
+        },
+        "geometry": {
+          "x": 109.9,
+          "y": 172.5,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-052",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 130,
+          "tooltip": "BR/QF14"
+        },
+        "geometry": {
+          "x": 118.3,
+          "y": 163.1,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-053",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 133,
+          "tooltip": "BR/DIPOLE21"
+        },
+        "geometry": {
+          "x": 121.2,
+          "y": 159,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-054",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 136,
+          "tooltip": "BR/QD15"
+        },
+        "geometry": {
+          "x": 130.4,
+          "y": 150.3,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-055",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 138.9,
+          "tooltip": "BR/DIPOLE22"
+        },
+        "geometry": {
+          "x": 133.9,
+          "y": 146.8,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-056",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 141.9,
+          "tooltip": "BR/QF15"
+        },
+        "geometry": {
+          "x": 143.6,
+          "y": 138.7,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-057",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 144.9,
+          "tooltip": "BR/DIPOLE23"
+        },
+        "geometry": {
+          "x": 147.7,
+          "y": 135.9,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-058",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 147.9,
+          "tooltip": "BR/QD16"
+        },
+        "geometry": {
+          "x": 158.1,
+          "y": 128.6,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-059",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Dipole",
+            "fallback": "#e08e00",
+            "fallbackDark": "#f5b73d"
+          },
+          "rotation": 150.8,
+          "tooltip": "BR/DIPOLE24"
+        },
+        "geometry": {
+          "x": 162.6,
+          "y": 126.6,
+          "width": 9,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-060",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "fill": true,
+          "fillColor": {
+            "$role": "Quadrupole",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "rotation": 153.8,
+          "tooltip": "BR/QF16"
+        },
+        "geometry": {
+          "x": 173.4,
+          "y": 120,
+          "width": 3,
+          "height": 15
+        }
+      },
+      {
+        "id": "w-061",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:01:STATUS:VALID",
@@ -711,7 +1711,7 @@
         }
       },
       {
-        "id": "w-022",
+        "id": "w-062",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:02:STATUS:VALID",
@@ -728,14 +1728,14 @@
           "tooltip": "BR/BPM02"
         },
         "geometry": {
-          "x": 380,
-          "y": 200.8,
+          "x": 337.5,
+          "y": 151.8,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-023",
+        "id": "w-063",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:03:STATUS:VALID",
@@ -752,14 +1752,14 @@
           "tooltip": "BR/BPM03"
         },
         "geometry": {
-          "x": 380,
-          "y": 349.2,
+          "x": 353.9,
+          "y": 166.1,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-024",
+        "id": "w-064",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:04:STATUS:VALID",
@@ -776,14 +1776,14 @@
           "tooltip": "BR/BPM04"
         },
         "geometry": {
-          "x": 319.2,
-          "y": 410,
+          "x": 368.2,
+          "y": 182.5,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-025",
+        "id": "w-065",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:05:STATUS:VALID",
@@ -800,14 +1800,14 @@
           "tooltip": "BR/BPM05"
         },
         "geometry": {
-          "x": 170.8,
-          "y": 410,
+          "x": 380,
+          "y": 200.8,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-026",
+        "id": "w-066",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:06:STATUS:VALID",
@@ -824,14 +1824,14 @@
           "tooltip": "BR/BPM06"
         },
         "geometry": {
-          "x": 110,
+          "x": 380,
           "y": 349.2,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-027",
+        "id": "w-067",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:07:STATUS:VALID",
@@ -848,14 +1848,14 @@
           "tooltip": "BR/BPM07"
         },
         "geometry": {
-          "x": 110,
-          "y": 200.8,
+          "x": 368.2,
+          "y": 367.5,
           "width": 10,
           "height": 10
         }
       },
       {
-        "id": "w-028",
+        "id": "w-068",
         "type": "pv-led",
         "props": {
           "pv": "BR:DIAG:BPM:08:STATUS:VALID",
@@ -872,6 +1872,294 @@
           "tooltip": "BR/BPM08"
         },
         "geometry": {
+          "x": 353.9,
+          "y": 383.9,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-069",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:09:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM09"
+        },
+        "geometry": {
+          "x": 337.5,
+          "y": 398.2,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-070",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:10:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM10"
+        },
+        "geometry": {
+          "x": 319.2,
+          "y": 410,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-071",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:11:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM11"
+        },
+        "geometry": {
+          "x": 170.8,
+          "y": 410,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-072",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:12:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM12"
+        },
+        "geometry": {
+          "x": 152.5,
+          "y": 398.2,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-073",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:13:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM13"
+        },
+        "geometry": {
+          "x": 136.1,
+          "y": 383.9,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-074",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:14:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM14"
+        },
+        "geometry": {
+          "x": 121.8,
+          "y": 367.5,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-075",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:15:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM15"
+        },
+        "geometry": {
+          "x": 110,
+          "y": 349.2,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-076",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:16:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM16"
+        },
+        "geometry": {
+          "x": 110,
+          "y": 200.8,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-077",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:17:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM17"
+        },
+        "geometry": {
+          "x": 121.8,
+          "y": 182.5,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-078",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:18:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM18"
+        },
+        "geometry": {
+          "x": 136.1,
+          "y": 166.1,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-079",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:19:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM19"
+        },
+        "geometry": {
+          "x": 152.5,
+          "y": 151.8,
+          "width": 10,
+          "height": 10
+        }
+      },
+      {
+        "id": "w-080",
+        "type": "pv-led",
+        "props": {
+          "pv": "BR:DIAG:BPM:20:STATUS:VALID",
+          "onColor": {
+            "$role": "Led_On",
+            "fallback": "#56a64b",
+            "fallbackDark": "#73bf69"
+          },
+          "offColor": {
+            "$role": "Led_Off",
+            "fallback": "#ecedef",
+            "fallbackDark": "#22252b"
+          },
+          "tooltip": "BR/BPM20"
+        },
+        "geometry": {
           "x": 170.8,
           "y": 140,
           "width": 10,
@@ -879,7 +2167,7 @@
         }
       },
       {
-        "id": "w-029",
+        "id": "w-081",
         "type": "group-box",
         "props": {
           "title": "Ramps"
@@ -892,7 +2180,7 @@
         },
         "children": [
           {
-            "id": "w-030",
+            "id": "w-082",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:DIPOLE-RAMP:01:STATUS:ON",
@@ -915,7 +2203,7 @@
             }
           },
           {
-            "id": "w-031",
+            "id": "w-083",
             "type": "text-label",
             "props": {
               "text": "dipole",
@@ -940,7 +2228,7 @@
             }
           },
           {
-            "id": "w-032",
+            "id": "w-084",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:QF-RAMP:01:STATUS:ON",
@@ -963,7 +2251,7 @@
             }
           },
           {
-            "id": "w-033",
+            "id": "w-085",
             "type": "text-label",
             "props": {
               "text": "QF",
@@ -988,7 +2276,7 @@
             }
           },
           {
-            "id": "w-034",
+            "id": "w-086",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:QD-RAMP:01:STATUS:ON",
@@ -1011,7 +2299,7 @@
             }
           },
           {
-            "id": "w-035",
+            "id": "w-087",
             "type": "text-label",
             "props": {
               "text": "QD",
@@ -1038,7 +2326,7 @@
         ]
       },
       {
-        "id": "w-036",
+        "id": "w-088",
         "type": "group-box",
         "props": {
           "title": "Injection \u00b7 extraction"
@@ -1051,7 +2339,7 @@
         },
         "children": [
           {
-            "id": "w-037",
+            "id": "w-089",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:SEPTUM:01:STATUS:ON",
@@ -1074,7 +2362,7 @@
             }
           },
           {
-            "id": "w-038",
+            "id": "w-090",
             "type": "text-label",
             "props": {
               "text": "septum 1",
@@ -1099,7 +2387,7 @@
             }
           },
           {
-            "id": "w-039",
+            "id": "w-091",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:SEPTUM:02:STATUS:ON",
@@ -1122,7 +2410,7 @@
             }
           },
           {
-            "id": "w-040",
+            "id": "w-092",
             "type": "text-label",
             "props": {
               "text": "septum 2",
@@ -1147,7 +2435,7 @@
             }
           },
           {
-            "id": "w-041",
+            "id": "w-093",
             "type": "pv-led",
             "props": {
               "pv": "BR:MAG:KICKER:01:STATUS:ON",
@@ -1170,7 +2458,7 @@
             }
           },
           {
-            "id": "w-042",
+            "id": "w-094",
             "type": "text-label",
             "props": {
               "text": "kicker",
@@ -1197,7 +2485,7 @@
         ]
       },
       {
-        "id": "w-043",
+        "id": "w-095",
         "type": "group-box",
         "props": {
           "title": "Beam current (DCCT)"
@@ -1210,7 +2498,7 @@
         },
         "children": [
           {
-            "id": "w-044",
+            "id": "w-096",
             "type": "text-label",
             "props": {
               "text": "Current",
@@ -1235,7 +2523,7 @@
             }
           },
           {
-            "id": "w-045",
+            "id": "w-097",
             "type": "pv-label",
             "props": {
               "pv": "BR:DIAG:DCCT:01:CURRENT:RB",
@@ -1263,7 +2551,7 @@
             }
           },
           {
-            "id": "w-046",
+            "id": "w-098",
             "type": "text-label",
             "props": {
               "text": "Reading valid",
@@ -1288,7 +2576,7 @@
             }
           },
           {
-            "id": "w-047",
+            "id": "w-099",
             "type": "pv-led",
             "props": {
               "pv": "BR:DIAG:DCCT:01:STATUS:VALID",

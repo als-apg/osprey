@@ -18,14 +18,21 @@ it would have to parse.
 
 from __future__ import annotations
 
+import io
+from dataclasses import MISSING, fields
+
 import pytest
 import yaml
 
 from osprey.cli import build_profile_emit
 from osprey.cli.build_profile import list_presets, resolve_build_profile
+from osprey.cli.build_profile_archiver import VAArchiverConfig, parse_va_archiver_block
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
-from osprey.cli.build_profile_merge import compute_preset_hash
+from osprey.cli.build_profile_load import _parse_profile
+from osprey.cli.build_profile_merge import _resolve_extends, compute_preset_hash
 from osprey.cli.build_profile_presets import _load_preset_raw, list_tiers
+from osprey.cli.build_profile_schema import DispatchConfig
+from osprey.port_layout import is_layout_port_field
 from osprey_connectors.errors import BuildProfileError
 from tests.fixtures.lifecycle_repo import lay_preset_applications
 
@@ -244,3 +251,178 @@ def test_layer_files_carry_their_provenance_block(preset: str) -> None:
 
     assert provenance == {"preset": stem, "preset_hash": compute_preset_hash(preset)}
     assert provenance["preset_hash"].startswith("sha256:")
+
+
+# ---------------------------------------------------------------------------
+# Active opt-in blocks are written whole, at the values they build with
+# ---------------------------------------------------------------------------
+
+_OPT_IN_BLOCKS = {"dispatch": DispatchConfig, "va_archiver": VAArchiverConfig}
+
+
+def test_an_active_block_carries_its_code_defaults() -> None:
+    """Each key with a concrete default that the demo preset leaves unstated is
+    written at that default; a port derived from the port base, an empty or
+    unset default and a required key are written only when the preset states
+    them."""
+    emitted = yaml.safe_load(_standalone(HOST_PRESET))
+    raw, anchor = _load_preset_raw(HOST_PRESET)
+    preset = _resolve_extends(raw, anchor, [])
+
+    for block, cls in _OPT_IN_BLOCKS.items():
+        for field in fields(cls):
+            if field.name in preset[block]:
+                continue
+            key = f"{block}.{field.name}"
+            if field.default in (MISSING, None, "") or is_layout_port_field(field):
+                assert field.name not in emitted[block], key
+            else:
+                assert emitted[block][field.name] == field.default, key
+
+
+def test_a_written_dispatch_block_states_the_stride_but_not_the_derived_ports() -> None:
+    """The worker port spacing is a rule the block declares, so it is written;
+    the dispatcher and first worker ports are derived from the port base, so
+    they are not."""
+    text = _standalone(HOST_PRESET)
+    dispatch = yaml.safe_load(text)["dispatch"]
+
+    assert dispatch["worker_port_stride"] == DispatchConfig.worker_port_stride
+    line = next(
+        line for line in text.splitlines() if line.strip().startswith("worker_port_stride:")
+    )
+    assert "#" in line
+    assert "dispatcher_port" not in dispatch
+    assert "worker_port_base" not in dispatch
+    assert "bus_port" not in dispatch
+
+
+def test_a_stated_value_is_kept_over_the_default() -> None:
+    """A value the operator states is written as stated, with no comment added."""
+    text = emit_standalone_profile_yaml(
+        HOST_PRESET, ("dispatch.max_turns=40",), "Emitted", project_name="emitted"
+    )
+
+    assert yaml.safe_load(text)["dispatch"]["max_turns"] == 40
+    line = next(line for line in text.splitlines() if line.strip().startswith("max_turns:"))
+    assert "#" not in line
+
+
+def test_an_absent_block_gets_no_defaults() -> None:
+    """A preset without the blocks emits neither as an active key."""
+    emitted = yaml.safe_load(_standalone("hello-world"))
+
+    assert "dispatch" not in emitted
+    assert "va_archiver" not in emitted
+
+
+def test_the_written_defaults_build_what_the_unstated_block_builds() -> None:
+    """Writing the defaults out changes nothing the block builds."""
+    emitted = yaml.safe_load(_standalone(HOST_PRESET))
+    raw, anchor = _load_preset_raw(HOST_PRESET)
+    preset = _resolve_extends(raw, anchor, [])
+
+    assert (
+        _parse_profile({"name": "x", "dispatch": emitted["dispatch"]}).dispatch
+        == _parse_profile({"name": "x", "dispatch": preset["dispatch"]}).dispatch
+    )
+    assert parse_va_archiver_block(
+        {"name": "x", "va_archiver": emitted["va_archiver"]}
+    ) == parse_va_archiver_block({"name": "x", "va_archiver": preset["va_archiver"]})
+
+
+@pytest.mark.parametrize("block", sorted(_OPT_IN_BLOCKS))
+def test_every_key_an_active_block_writes_has_a_note(block: str) -> None:
+    """The notes cover exactly the keys the block is written with, none of them derived."""
+    cls, notes = build_profile_emit._BLOCK_KEY_NOTES[block]
+    written = build_profile_emit._written_defaults(cls)
+
+    assert cls is _OPT_IN_BLOCKS[block]
+    assert set(notes) == set(written)
+    assert not {f.name for f in fields(cls) if is_layout_port_field(f)} & set(written)
+    assert not {"host", "freshness_channel"} & set(written)
+
+
+@pytest.mark.parametrize(
+    ("block", "edit"),
+    [("dispatch", "dispatch.triggers=x"), ("va_archiver", "va_archiver.retention_days=3")],
+)
+def test_a_set_created_block_lands_under_its_section_header(block: str, edit: str) -> None:
+    """A block the command line adds is written in its own slot: under its
+    section header and prose, between the neighbouring slots, in place of its
+    commented example — with the same content and the same notes as before."""
+    text = emit_standalone_profile_yaml("hello-world", (edit,), "Emitted", project_name="emitted")
+    lines = text.splitlines()
+    templates = build_profile_emit._COMMENTED_TEMPLATES
+    header = templates[block][0].splitlines()
+
+    # (a) the header once, its prose, then the live block.
+    assert lines.count(header[0]) == 1
+    start = lines.index(header[0])
+    assert lines[start : start + len(header)] == header
+    assert lines[start + len(header)] == f"{block}:"
+
+    # (b) between the nearest written slot headers before and after it.
+    order = build_profile_emit._COMMENTED_TEMPLATE_ORDER
+    written = [
+        lines.index(rule)
+        for rule in (templates[field][0].splitlines()[0] for field in order)
+        if rule in lines
+    ]
+    assert written == sorted(written)
+    position = written.index(start)
+    assert 0 < position < len(written) - 1
+    assert written[position - 1] < start < written[position + 1]
+
+    # (c) the commented example is gone.
+    assert not [line for line in lines if line.startswith(f"# {block}:")]
+
+    # (d) the content is the stated key plus every written default.
+    stated, _sep, value = edit.removeprefix(f"{block}.").partition("=")
+    cls, notes = build_profile_emit._BLOCK_KEY_NOTES[block]
+    assert yaml.safe_load(text)[block] == {
+        **build_profile_emit._written_defaults(cls),
+        stated: yaml.safe_load(value),
+    }
+
+    # (e) every written default keeps its note; the stated value carries none.
+    body = lines[start + len(header) + 1 :]
+    for key in notes:
+        line = next(line for line in body if line.startswith(f"  {key}:"))
+        if key == stated:
+            assert "#" not in line, line
+        else:
+            assert line.endswith(f"# {notes[key]}"), line
+
+    # The text round-trips through the emitter's own YAML unchanged.
+    buffer = io.StringIO()
+    build_profile_emit._yaml.dump(build_profile_emit._yaml.load(text), buffer)
+    assert buffer.getvalue() == text
+
+
+def test_the_archiver_example_states_the_dataclass_defaults() -> None:
+    """The commented ``va_archiver:`` example shows each knob at the value it builds with."""
+    _header, example = build_profile_emit._COMMENTED_TEMPLATES["va_archiver"]
+    lines = example.splitlines()
+    start = lines.index("# va_archiver:")
+    body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
+    example = yaml.safe_load(body)["va_archiver"]
+    defaults = {f.name: f.default for f in fields(VAArchiverConfig)}
+
+    for key in (
+        "retention_days",
+        "hot_span_hours",
+        "hot_cadence_sec",
+        "tail_cadence_sec",
+        "recorder_cadence_sec",
+        "recorder_tail_cadence_sec",
+        "recorder_poll_sec",
+        "database",
+        "collection",
+        "compression",
+        "username",
+        "auth_database",
+        "password_env",
+        "timeout_sec",
+    ):
+        assert example[key] == defaults[key], key

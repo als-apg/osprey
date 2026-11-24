@@ -6,7 +6,7 @@ image drift), the ``preflight_web_terminals`` auth-credential provisioning
 (mint order and the fail-closed gate), and the auth sidecar's image
 production (registry-mode sidecar image name, local-mode build, pull
 scoping) plus the shared force-recreate primitive. The
-deploy_up-entry orchestration that wires the provisioning modules together
+``_start_stack`` orchestration that wires the provisioning modules together
 lives in ``tests/deployment/test_container_lifecycle.py``; the split-out
 provisioning steps have their own modules and test files
 (``test_render_images.py``, ``test_env_production.py``,
@@ -38,6 +38,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.services.auth_sidecar.roster_env import PW_HASH_VAR_PREFIX
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
+from tests._scoped_stdlib import scoped
 from tests.deployment._fake_run import completed
 
 # The unwritable-path cases below rely on the OS honoring a read-only mode.
@@ -67,7 +68,7 @@ def test_deploy_down_web_terminals_runs_compose_down_on_web_file(monkeypatch, tm
         recorded["env"] = kwargs.get("env")
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
 
     provision.deploy_down_web_terminals(
@@ -102,7 +103,7 @@ def test_deploy_down_web_terminals_noop_without_web_file(monkeypatch, tmp_path):
     def _unexpected_run(cmd, **kwargs):
         raise AssertionError(f"unexpected subprocess.run: {cmd}")
 
-    monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
+    scoped(monkeypatch, provision, "subprocess", run=_unexpected_run)
 
     provision.deploy_down_web_terminals({"project_name": "myproj"}, dict(os.environ), [])
 
@@ -114,7 +115,7 @@ def test_deploy_down_web_terminals_noop_without_web_file(monkeypatch, tmp_path):
 _WEB_COMPOSE = (
     "services:\n"
     "  nginx:\n"
-    "    image: nginx:1.31-alpine\n"
+    "    image: nginx:1.31.9-alpine\n"
     "    container_name: als-nginx\n"
     "  web-alice:\n"
     "    image: reg/web-terminal:latest\n"
@@ -156,7 +157,7 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
     _patch_ids(
         monkeypatch,
         image_ids={
-            "nginx:1.31-alpine": "idnginx",
+            "nginx:1.31.9-alpine": "idnginx",
             "reg/web-terminal:latest": "idNEW",
             "reg/web-terminal-analysis:latest": "idbob",
         },
@@ -172,7 +173,8 @@ def test_reconcile_force_recreates_only_drifted_services(monkeypatch, tmp_path):
         recorded.append((cmd, kwargs.get("env")))
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
@@ -197,7 +199,7 @@ def test_reconcile_noop_when_all_images_match(monkeypatch, tmp_path):
     _write_web_compose(tmp_path)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
     ids = {
-        "nginx:1.31-alpine": "idnginx",
+        "nginx:1.31.9-alpine": "idnginx",
         "reg/web-terminal:latest": "idalice",
         "reg/web-terminal-analysis:latest": "idbob",
     }
@@ -210,7 +212,7 @@ def test_reconcile_noop_when_all_images_match(monkeypatch, tmp_path):
     def _unexpected_run(cmd, **kwargs):
         raise AssertionError(f"unexpected subprocess.run: {cmd}")
 
-    monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
+    scoped(monkeypatch, provision, "subprocess", run=_unexpected_run)
 
     provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
@@ -227,7 +229,7 @@ def test_reconcile_skipped_entirely_on_docker(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provision, "get_image_id", _boom)
     monkeypatch.setattr(provision, "get_container_image_id", _boom)
-    monkeypatch.setattr(provision.subprocess, "run", _boom)
+    scoped(monkeypatch, provision, "subprocess", run=_boom)
 
     provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
@@ -241,7 +243,7 @@ def test_reconcile_skips_service_on_inspect_error_without_raising(monkeypatch, t
     _patch_ids(
         monkeypatch,
         image_ids={
-            "nginx:1.31-alpine": "idnginx",
+            "nginx:1.31.9-alpine": "idnginx",
             "reg/web-terminal:latest": None,  # image inspect failed / never pulled
             "reg/web-terminal-analysis:latest": "idbob",
         },
@@ -255,7 +257,7 @@ def test_reconcile_skips_service_on_inspect_error_without_raising(monkeypatch, t
     def _unexpected_run(cmd, **kwargs):
         raise AssertionError(f"unexpected subprocess.run: {cmd}")
 
-    monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
+    scoped(monkeypatch, provision, "subprocess", run=_unexpected_run)
 
     # No raise, no compose invocation.
     provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
@@ -271,7 +273,7 @@ def test_reconcile_skipped_when_compose_file_unreadable(monkeypatch, tmp_path):
         raise AssertionError("must not inspect or run compose when the file is unreadable")
 
     monkeypatch.setattr(provision, "get_image_id", _boom)
-    monkeypatch.setattr(provision.subprocess, "run", _boom)
+    scoped(monkeypatch, provision, "subprocess", run=_boom)
 
     provision._reconcile_web_stack_recreates({}, _WEB_CMD, _RUN_ENV)
 
@@ -1014,7 +1016,8 @@ def _stub_web_stack(monkeypatch, tmp_path):
         recorded.append(list(cmd))
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["docker", "compose"])
     monkeypatch.setattr(provision, "runtime_env", lambda config, env, **kw: dict(env))
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
@@ -1043,7 +1046,7 @@ def test_local_mode_web_stack_never_pulls_the_local_auth_image(monkeypatch, tmp_
     assert any(cmd[-2:] == ["up", "-d"] for cmd in recorded)
 
 
-def test_deploy_up_force_recreates_nginx(monkeypatch, tmp_path):
+def test_deploy_up_web_terminals_force_recreates_nginx(monkeypatch, tmp_path):
     """The build stage regenerates ``build/`` from scratch (rmtree + render),
     so a running nginx's file bind mounts (nginx.conf, landing.html) point at
     the PREVIOUS render's inodes. ``nginx -s reload`` re-reads the dead inode
@@ -1084,7 +1087,8 @@ def test_local_mode_builds_the_auth_image_before_any_compose_invocation(monkeypa
         order.append("compose")
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     provision.deploy_up_web_terminals(_sidecar_config("local"), [], False, {}, [])
 
@@ -1103,7 +1107,8 @@ def test_force_recreate_auth_sidecar_targets_only_the_sidecar_service(monkeypatc
         recorded.append({"cmd": list(cmd), "env": kwargs.get("env")})
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
     # The pre-recreate render is pinned by its own tests below; this one is
     # about the compose argv, so keep the stub config renderable-free.
@@ -1154,7 +1159,8 @@ def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, 
         order.append("recreate")
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
 
     provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
@@ -1181,7 +1187,8 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
         recreated.append(list(cmd))
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config=None: ["podman", "compose"])
 
     with caplog.at_level("WARNING"):
@@ -1191,7 +1198,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
     assert "Could not re-render" in caplog.text
 
 
-def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation(
+def test_deploy_up_web_terminals_renders_the_artifacts_before_any_web_stack_compose_invocation(
     monkeypatch, tmp_path
 ):
     """Ordering is what makes the digest label trustworthy: the render digests
@@ -1210,7 +1217,8 @@ def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation
         order.append("compose")
         return completed()
 
-    monkeypatch.setattr(provision.subprocess, "run", _fake_run)
+    scoped(monkeypatch, provision, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     provision.deploy_up_web_terminals(
         _sidecar_config("registry", auth_image="reg/auth:1"), [], False, {}, []
@@ -1230,7 +1238,7 @@ def test_force_recreate_auth_sidecar_is_a_warning_not_a_failure_without_a_stack(
     def _unexpected_run(cmd, **kwargs):
         raise AssertionError(f"unexpected subprocess.run: {cmd}")
 
-    monkeypatch.setattr(provision.subprocess, "run", _unexpected_run)
+    scoped(monkeypatch, provision, "subprocess", run=_unexpected_run)
 
     with caplog.at_level("WARNING"):
         provision.force_recreate_auth_sidecar({"project_name": "myproj"}, [])
@@ -1441,8 +1449,10 @@ def test_preflight_refuses_the_open_deployment_before_any_credential_is_minted(
 
 
 def test_preflight_passes_a_render_that_denies_the_whole_egress_set(monkeypatch, tmp_path):
-    """The negative control: the shipped deny list clears this gate too, so the
-    guard cannot be passing by refusing every open deployment."""
+    """The negative control for both render guards: the entitled render shipping
+    the full deny list (shell deny included) clears the Bash/launch-token gate
+    and the open-mode egress gate, so neither guard can be passing by refusing
+    every deployment."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
 
@@ -1620,15 +1630,6 @@ def test_the_seeded_password_refusal_is_blocking_not_advisory(monkeypatch, tmp_p
     )
 
     assert not any("osprey users passwd" in advisory for advisory in advisories)
-
-
-def test_preflight_passes_a_render_that_denies_bash(monkeypatch, tmp_path):
-    """The negative control: the same entitled render shipping the shell deny
-    clears the gate, so the guard cannot be passing by refusing everything."""
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(provision, "ensure_env_production", lambda config, root: None)
-
-    provision.preflight_web_terminals(_render_roster_config(tmp_path, denies_bash=True))
 
 
 def test_preflight_with_dangerously_allow_bash_proceeds_and_says_so(monkeypatch, tmp_path, caplog):

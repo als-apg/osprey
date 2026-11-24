@@ -282,16 +282,21 @@ def test_panel_mounts_are_registered_on_composed_app() -> None:
     assert "/bluesky" in mounted_paths
 
 
-def test_every_response_forbids_browser_caching() -> None:
-    """Panel assets ship unversioned filenames (panel.js), so any cached copy
-    silently survives a container rebuild; the no-cache header is what makes a
-    redeploy actually reach the operator's browser. Blanket: static panel
-    bundles, design-system assets, and live JSON alike."""
+def test_no_response_is_reused_without_asking_the_server() -> None:
+    """Panel assets ship unversioned filenames (panel.js), so a copy the browser
+    reused on its own would silently survive a container rebuild. The panel
+    page and live JSON are never stored; a design-system file may be kept but
+    is revalidated against its content on every use, so a redeploy still
+    reaches the operator's browser."""
     with TestClient(app) as client:
-        for path in ("/bluesky/", "/health", "/design-system/css/tokens.css"):
+        for path, cache_control in (
+            ("/bluesky/", "no-cache, no-store, must-revalidate"),
+            ("/health", "no-cache, no-store, must-revalidate"),
+            ("/design-system/css/tokens.css", "no-cache"),
+        ):
             response = client.get(path)
             assert response.status_code == 200, path
-            assert response.headers["cache-control"] == "no-cache, no-store, must-revalidate", path
+            assert response.headers["cache-control"] == cache_control, path
 
 
 # ---------------------------------------------------------------------------

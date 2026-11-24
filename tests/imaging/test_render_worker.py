@@ -25,11 +25,12 @@ import pytest
 from PIL import Image
 
 from osprey.imaging import render_worker
-from osprey.imaging.formats import ACCEPTED, CONTENT_SKIP_REASONS, sniff
+from osprey.imaging.formats import ACCEPTED, CONTENT_SKIP_REASONS, RENDITION_MAX_BYTES, sniff
 from osprey.imaging.render_worker import (
     PIXEL_LIMIT,
     PROGRESSIVE_MAX_COEF_BYTES,
     handle,
+    handle_request,
     handshake,
     harden,
     jpeg_has_multiple_scans,
@@ -41,7 +42,7 @@ from .conftest import encode, flat_jpeg, patch_jpeg_size, patch_png_size, tiny_j
 
 LINUX = sys.platform.startswith("linux")
 WORKER_ARGS = [sys.executable, "-I", "-m", "osprey.imaging.render_worker"]
-HEADER_KEYS = {"ok", "format", "w", "h", "mode", "mime", "reason"}
+HEADER_KEYS = {"ok", "format", "w", "h", "mode", "mime", "reason", "resized"}
 # Pillow imports defusedxml (its XMP parser) when it is installed.
 ALLOWED_THIRD_PARTY_ROOTS = {"PIL", "defusedxml"}
 ALLOWED_OSPREY_MODULES = {
@@ -93,6 +94,7 @@ def assert_refused(reply: tuple[dict, bytes], reason: str) -> None:
         "mode": None,
         "mime": None,
         "reason": reason,
+        "resized": None,
     }
     assert body == b""
 
@@ -115,8 +117,8 @@ class Worker:
         )
         self.ready = json.loads(self.proc.stdout.readline())
 
-    def render(self, data: bytes) -> tuple[dict, bytes]:
-        self.proc.stdin.write(frame(data))
+    def render(self, data: bytes, budget: int = 0) -> tuple[dict, bytes]:
+        self.proc.stdin.write(frame(struct.pack(">I", budget) + data))
         self.proc.stdin.flush()
         line = self.proc.stdout.readline()
         assert line, self.proc.stderr.read().decode()
@@ -755,4 +757,149 @@ def test_real_worker_process_state_on_linux(worker):
     assert core.split()[4:6] == ["0", "0"]
     cpu = next(line for line in limits.splitlines() if line.startswith("Max cpu time"))
     assert cpu.split()[3:5] == ["3060", "3060"]
+    assert worker.close() == 0
+
+
+# -- byte budget and ``resized`` -----------------------------------------------------
+
+BUDGET = 64 * 1024
+
+
+def budget_render(data: bytes, max_bytes: int | None) -> tuple[dict, bytes]:
+    return parse_reply(handle(data, max_bytes))
+
+
+def test_a_photographic_picture_over_the_budget_comes_back_within_it():
+    data = encode(noise("RGB", (640, 480)), "PNG")
+    default_header, default_body = render(data)
+    assert len(default_body) > BUDGET
+
+    header, body = budget_render(data, BUDGET)
+
+    assert_rendition(header, body, mime="image/jpeg", mode="RGB")
+    assert len(body) <= BUDGET
+    # A reduction only the budget forced is not a resize.
+    assert default_header["resized"] is False
+    assert header["resized"] is False
+
+
+def test_a_picture_with_alpha_over_the_budget_is_flattened_onto_white():
+    im = noise("RGBA", (400, 400))
+    # The left half fully transparent: it must come back white.
+    im.paste((0, 0, 0, 0), (0, 0, 200, 400))
+    data = encode(im, "PNG")
+    default_header, default_body = render(data)
+    assert default_header["mode"] == "RGBA"
+    assert len(default_body) > BUDGET
+
+    header, body = budget_render(data, BUDGET)
+
+    assert_rendition(header, body, mime="image/jpeg", mode="RGB")
+    assert len(body) <= BUDGET
+    assert header["resized"] is False
+    decoded = Image.open(BytesIO(body)).convert("RGB")
+    x, y = decoded.width // 8, decoded.height // 2
+    assert all(channel >= 240 for channel in decoded.getpixel((x, y)))
+
+
+def test_a_grey_picture_with_alpha_is_flattened_to_grey():
+    im = noise("LA", (500, 500))
+    data = encode(im, "PNG")
+    header, body = budget_render(data, 16 * 1024)
+    assert_rendition(header, body, mime="image/jpeg", mode="L")
+    assert len(body) <= 16 * 1024
+
+
+def test_a_rendition_within_the_budget_is_the_default_one():
+    data = encode(noise("RGB", (64, 48)), "PNG")
+    assert handle(data, RENDITION_MAX_BYTES) == handle(data)
+    assert handle(data, 10 * 1024 * 1024) == handle(data)
+
+
+def test_no_budget_in_the_request_is_the_default_handling():
+    data = encode(noise("RGB", (640, 480)), "PNG")
+    assert handle_request(struct.pack(">I", 0) + data) == handle(data)
+    assert handle_request(struct.pack(">I", BUDGET) + data) == handle(data, BUDGET)
+
+
+def test_a_request_too_short_for_its_budget_is_refused():
+    assert_refused(parse_reply(handle_request(b"\0\0")), "not_an_image")
+
+
+def test_a_budget_no_encoding_can_meet_is_rendition_too_large():
+    data = encode(noise("RGB", (640, 480)), "PNG")
+    assert_refused(budget_render(data, 100), "rendition_too_large")
+
+
+@pytest.mark.parametrize("max_bytes", [None, BUDGET])
+def test_a_small_picture_at_its_own_size_is_not_resized(max_bytes):
+    header, body = budget_render(encode(Image.new("RGB", (32, 24), "red"), "PNG"), max_bytes)
+    assert_rendition(header, body, mime="image/png", mode="RGB")
+    assert (header["w"], header["h"]) == (32, 24)
+    assert header["resized"] is False
+
+
+@pytest.mark.parametrize("max_bytes", [None, BUDGET])
+def test_the_maximum_side_downsize_is_a_resize(max_bytes):
+    data = encode(Image.new("RGB", (2000, 100), "red"), "PNG")
+    header, _ = budget_render(data, max_bytes)
+    assert header["w"] == 1024
+    assert header["resized"] is True
+
+
+def test_a_large_jpeg_is_measured_against_its_stored_size():
+    # 4096 px drafts to 2048 then thumbnails; the stored size is the reference.
+    data = encode(Image.new("RGB", (4096, 512), "red"), "JPEG")
+    header, _ = render(data)
+    assert header["resized"] is True
+
+
+@pytest.mark.parametrize("orientation", [3, 6, 8])
+def test_an_exif_rotation_is_a_resize(orientation):
+    exif = Image.Exif()
+    exif[0x0112] = orientation
+    data = encode(Image.new("RGB", (40, 30), "red"), "JPEG", exif=exif)
+    header, _ = render(data)
+    assert header["resized"] is True
+
+
+def test_an_upright_exif_orientation_is_not_a_resize():
+    exif = Image.Exif()
+    exif[0x0112] = 1
+    data = encode(Image.new("RGB", (40, 30), "red"), "JPEG", exif=exif)
+    header, _ = render(data)
+    assert (header["w"], header["h"]) == (40, 30)
+    assert header["resized"] is False
+
+
+@pytest.mark.parametrize(
+    ("im", "fmt"),
+    [
+        (Image.new("P", (32, 24)), "PNG"),
+        (Image.new("1", (32, 24)), "PNG"),
+        (Image.new("I;16", (32, 24)), "PNG"),
+        (Image.new("CMYK", (32, 24)), "JPEG"),
+    ],
+    ids=["palette", "bilevel", "16-bit", "cmyk"],
+)
+def test_a_mode_conversion_is_a_resize(im, fmt):
+    header, _ = render(encode(im, fmt))
+    assert header["ok"] is True
+    assert header["resized"] is True
+
+
+@pytest.mark.parametrize("mode", ["RGB", "RGBA", "L", "LA"])
+def test_a_rendition_mode_kept_is_not_a_resize(mode):
+    header, _ = render(encode(Image.new(mode, (32, 24)), "PNG"))
+    assert header["mode"] == mode
+    assert header["resized"] is False
+
+
+def test_a_real_worker_honours_the_budget_in_the_request(worker):
+    data = encode(noise("RGB", (640, 480)), "PNG")
+    header, body = worker.render(data, BUDGET)
+    assert_rendition(header, body, mime="image/jpeg")
+    assert len(body) <= BUDGET
+    assert header["resized"] is False
+    assert worker.render(data) == render(data)
     assert worker.close() == 0

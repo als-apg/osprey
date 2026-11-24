@@ -128,13 +128,16 @@ class TestGraphCatalog:
 class TestGraphResolved:
     """The resolved server dict has the correct shape for template rendering."""
 
-    def test_disabled_without_a_configured_graph_store(self):
-        graph = _get_graph(resolve_servers({}, render_ctx()))
-        assert graph["enabled"] is False
-
-    def test_enabled_when_the_context_declares_a_graph_store(self):
-        graph = _get_graph(resolve_servers({}, _configured_ctx()))
-        assert graph["enabled"] is True
+    @pytest.mark.parametrize(
+        ("make_ctx", "enabled"),
+        [
+            pytest.param(render_ctx, False, id="disabled-without-a-configured-graph-store"),
+            pytest.param(_configured_ctx, True, id="enabled-when-the-context-declares-one"),
+        ],
+    )
+    def test_enabled_only_with_a_graph_store_and_never_custom(self, make_ctx, enabled):
+        graph = _get_graph(resolve_servers({}, make_ctx()))
+        assert (graph["enabled"], graph["is_custom"]) == (enabled, False)
 
     def test_command_uses_python_env(self):
         ctx = _configured_ctx(current_python_env="/custom/python3")
@@ -163,10 +166,6 @@ class TestGraphResolved:
         cfg = {"servers": {"graph": {"enabled": False}}}
         graph = _get_graph(resolve_servers(cfg, _configured_ctx()))
         assert graph["enabled"] is False
-
-    def test_is_not_custom(self):
-        graph = _get_graph(resolve_servers({}, _configured_ctx()))
-        assert graph["is_custom"] is False
 
 
 # ---------------------------------------------------------------------------

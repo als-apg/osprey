@@ -2,10 +2,10 @@
 
 The package a deployment ships beside its facility tree (``data/facility/`` in
 the deployment repository, not a mounted machine repository): it registers the
-measurement kind ``fixture_kind`` under ``osprey.facility.kinds`` and the engine
+measurement kind ``fixture_kind`` under ``osprey_facility.kinds`` and the engine
 ``fixture_ring`` (:mod:`fixture_kind_deployment.engine`) under
-``osprey.simulation.engines``, and it imports OSPREY only through
-:mod:`osprey.facility.kinds`.
+``osprey_connectors.simulation.engines``, and it imports OSPREY only through
+:mod:`osprey_facility.kinds`.
 
 The kind is shaped from what a turn-by-turn measurement needs, under its own
 names:
@@ -37,7 +37,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from osprey.facility.kinds import KindDeclaration, KindStop, KindTool, ViewContext, ViewSection
+from osprey_facility.kinds import KindDeclaration, KindStop, KindTool, ViewContext, ViewSection
 
 #: The kind's name, as a measurement file lists it.
 KIND = "fixture_kind"

@@ -14,8 +14,9 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   split device.
 * :class:`KickVariable` -- the same conversion onto ``KickAngle``, shared out
   over the slices by their weights.
-* :class:`RFVariable` -- a frequency, written to every cavity the record
-  names.
+* :class:`RFVariable` -- a cavity's frequency or time lag, written to every
+  cavity the record names; :class:`RFVoltageVariable` -- its voltage, which
+  the RF switch holds while it is off.
 * :class:`MonitorVariable` -- a solved orbit reading on the record's
   ``axis``, in the hardware units the facility publishes it in.
 * :class:`EnergyVariable` -- the deck energy (``attribute: energy``, no
@@ -24,11 +25,12 @@ orbit -- lives here, and every bit of it is read from the wiring record (its
   no element): zero sets every cavity's voltage to zero, anything else puts
   back the voltages the deck holds. :func:`rf_on` reads it as a boolean.
 * :class:`TurnSetpointVariable` -- a turn-by-turn setting (``signal: arm``,
-  ``pilot_tone`` or ``stored``) that holds what is written and touches no
-  element. :func:`pilot_tone_on` reads the tone as a boolean.
+  ``pilot_tone``, ``stored``, ``pulsed_kick``, or one of the injected beam's
+  ``offset_<coordinate>`` and ``mismatch_<plane>``) that holds what is
+  written and touches no element. :func:`pilot_tone_on` reads the tone as a boolean.
 * :class:`TurnStateVariable` and :class:`TurnArrayVariable` -- a turn-by-turn
-  ring's model state (``armed``, ``turns_tracked``; ``turn_x``, ``turn_y``,
-  ``turn_sum``), read-only, each reading the turn state its model binds it to.
+  ring's model state (``armed`` and the last shot's read-outs; ``turn_x``,
+  ``turn_y``, ``turn_sum``), read-only, each reading the turn state its model binds it to.
 
 :func:`variable_from_wiring` picks the class from the engine block; the
 engine's build constructs the RF switch itself, from the model's lattice.
@@ -53,7 +55,7 @@ declares the value and leaves computing it to the model that owns it.
 **Beam rigidity is the coupling between them.** A calibration states its
 physics value at the energy the deck was built for. A record the control
 system scales with the rigidity (``energy_scaling: brho``) is worth
-:func:`~osprey.simulation.engines.calibration.energy_factor` of that at any
+:func:`~osprey_connectors.simulation.engines.energy_factor` of that at any
 other energy, so two writes have to agree: a setpoint write applies the factor
 for the energy the lattice is at *now*, and an energy write rescales every
 rigidity-scaled field already on the lattice. The lattice then ends in the
@@ -69,7 +71,7 @@ actually on the machine.
 
 **Back to hardware units is one rule.** The record's ``calibration.inverse``
 when it states one, else the algebraic inverse of a ``linear`` curve
-(:func:`~osprey.simulation.engines.calibration.to_hardware`). A ``table``
+(:func:`~osprey_connectors.simulation.engines.to_hardware`). A ``table``
 without an ``inverse``, or a linear gain of 0, has no way back, and a variable
 built on one is refused at construction.
 """
@@ -77,6 +79,7 @@ built on one is refused at construction.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from lume.actions import ReadOnlyActionMixin, WritableActionMixin
@@ -90,7 +93,16 @@ from lume_pyat.actions import (
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
-from osprey.simulation.engines.calibration import (
+from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
+from osprey.simulation.engines.pyat_turn_settings import (
+    ARRAY_SIGNALS,
+    PULSED_KICK,
+    SETTING_SIGNALS,
+    SHOT_SIGNALS,
+    SIGNALS,
+    kick_words,
+)
+from osprey_connectors.simulation.engines import (
     Calibration,
     check_inverse,
     curve_from_record,
@@ -99,8 +111,6 @@ from osprey.simulation.engines.calibration import (
     to_hardware,
     to_physics,
 )
-from osprey.simulation.engines.pyat_faults import magnet_cal, multipole_error, supply_calibration
-from osprey.simulation.engines.pyat_turn_settings import ARRAY_SIGNALS, SETTING_SIGNALS, SIGNALS
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
@@ -123,6 +133,12 @@ ENERGY_ATTRIBUTE = "energy"
 #: strength's polynomial coefficient.
 KICK_ATTRIBUTE = "KickAngle"
 FREQUENCY_ATTRIBUTE = "Frequency"
+VOLTAGE_ATTRIBUTE = "Voltage"
+TIME_LAG_ATTRIBUTE = "TimeLag"
+
+#: The cavity attribute the RF switch keeps a cavity's voltage in while the
+#: cavity is off, and NaN while it is on. No pyAT pass method reads it.
+HELD_VOLTAGE = "switch_held_voltage"
 
 #: The engine-block signal of the ring's RF switch.
 RF_SWITCH_SIGNAL = "rf_switch"
@@ -155,6 +171,39 @@ def _energy_scaling(record: Any) -> EnergyScaling:
     if word == "none":
         return "none"
     raise ValueError(f"wiring {_record_id(record)}: energy_scaling is {word!r}; use brho or none")
+
+
+@dataclass(frozen=True)
+class ReadbackCalibration:
+    """The calibration of a readback that states another than its setpoint's.
+
+    Attributes:
+        curve: The readback's unit to physics, as the record states it at the
+            deck energy.
+        inverse: Physics back to the readback's unit, the record's
+            ``calibration.inverse``; ``None`` where the record states none,
+            and the way back is then the algebraic inverse of a linear
+            ``curve``.
+        energy_scaling: ``"brho"`` where the physics value the curve states
+            moves with the beam rigidity, else ``"none"``. Always ``"none"``
+            on a readback of a deck property.
+    """
+
+    curve: Calibration
+    inverse: Calibration | None = None
+    energy_scaling: EnergyScaling = "none"
+
+    @classmethod
+    def from_wiring(cls, record: Any) -> ReadbackCalibration | None:
+        """A record's calibration; ``None`` for a record stating none.
+
+        Raises:
+            ValueError: the record states an unknown ``energy_scaling``.
+        """
+        curve, inverse = _curves(record)
+        if curve is None:
+            return None
+        return cls(curve=curve, inverse=inverse, energy_scaling=_energy_scaling(record))
 
 
 def _slice_curves(record: Any) -> tuple[Calibration | None, ...]:
@@ -368,10 +417,18 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
             curve = self.calibration if own is None else own
             weighted = to_physics(curve, delivered) * factor * binding.weight
             if binding.index is None:
-                setattr(element, binding.attribute, weighted)
+                self._put(element, binding.attribute, weighted)
             else:
                 error = multipole_error(element, binding.attribute, binding.index)
                 getattr(element, binding.attribute)[binding.index] = weighted + error
+
+    def _put(self, element: Any, attribute: str, value: float) -> None:
+        """Write a whole-attribute value onto one bound element."""
+        setattr(element, attribute, value)
+
+    def _held(self, element: Any, attribute: str) -> Any:
+        """What one bound element holds on the attribute."""
+        return getattr(element, attribute)
 
     def _get(self, simulator: PyATSimulator) -> float:
         """Return the hardware value the lattice is presently holding.
@@ -382,7 +439,7 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         """
         first = self.bindings[0]
         element = simulator.element(first.element_name)
-        held = getattr(element, first.attribute)
+        held = self._held(element, first.attribute)
         if first.index is not None:
             held = held[first.index] - multipole_error(element, first.attribute, first.index)
         physics = float(held) / first.weight
@@ -407,6 +464,35 @@ class CalibratedSetpoint(PyATWritableScalarVariable):
         if self.inverse is None:
             return float(value)
         return self._hardware(to_physics(self.calibration, value))
+
+    def readback_through(
+        self, simulator: PyATSimulator, value: float, own: ReadbackCalibration
+    ) -> float:
+        """What a readback stating its own calibration reads once ``value`` is written.
+
+        ``value`` goes forward through this setpoint's curve to the physics
+        value, and back through the readback's own way to the readback's unit:
+        :meth:`readback` with the readback's reverse path in place of the
+        setpoint's. Where the two scale with the rigidity alike the factors
+        cancel, as they do there; where only one does, the physics value is
+        carried from the one's energy to the other's at the energy the lattice
+        is at.
+
+        Args:
+            simulator: the simulator, read for the lattice's present energy
+                only when the two calibrations scale differently.
+            value: the hardware value written to this setpoint.
+            own: the readback's calibration.
+
+        Returns:
+            The value to serve on the readback address, in the readback's unit.
+        """
+        physics = to_physics(self.calibration, value)
+        if own.energy_scaling != self.energy_scaling:
+            energy_gev = float(simulator.lattice.energy) / EV_PER_GEV
+            factor = energy_factor(energy_gev, self.deck_energy_gev)
+            physics = physics * factor if self.energy_scaling == "brho" else physics / factor
+        return to_hardware(own.curve, own.inverse, physics)
 
     def rescale(self, elements: Mapping[str, Any], factor: float) -> None:
         """Multiply every bound field by ``factor``, at unchanged hardware value.
@@ -483,12 +569,56 @@ class KickVariable(CalibratedSetpoint):
 
 
 class RFVariable(CalibratedSetpoint):
-    """The cavity frequency, written to every cavity the record names.
+    """A cavity setpoint, written to every cavity the record names.
 
-    One setpoint over every cavity, each of them carrying the whole frequency:
-    the cavities of one lattice run at one frequency, so the slices replicate
-    it exactly as a split magnet's pieces replicate a strength.
+    ``Frequency`` and ``TimeLag`` are one setpoint over every cavity, each of
+    them carrying the whole value: the cavities of one lattice run at one
+    frequency, so the slices replicate it exactly as a split magnet's pieces
+    replicate a strength.
+
+    ``TimeLag`` is pyAT's: a length, in metres, by which the cavity's wave
+    lags the reference particle. A facility that sets a phase states the
+    conversion as the record's calibration -- one RF wavelength per 360
+    degrees.
     """
+
+
+def _held_voltage(cavity: Any) -> float:
+    """The voltage the RF switch holds for ``cavity``; NaN while the cavity is on."""
+    return float(getattr(cavity, HELD_VOLTAGE, math.nan))
+
+
+class RFVoltageVariable(RFVariable):
+    """The cavity voltage, shared over the cavities the record names.
+
+    A voltage *is* divisible: the beam gains the sum of what the cavities
+    give, so a setpoint that is the total over ``n`` cavities gives each slice
+    its share as the slice's weight, exactly as a kick is shared.
+
+    The RF switch owns the same attribute. While it holds a cavity off, the
+    cavity's ``Voltage`` is zero and the commanded voltage sits in
+    :data:`HELD_VOLTAGE`; a write then lands there and a read comes from
+    there, so the setpoint reads what was commanded whatever the switch says,
+    and switching on delivers the voltage last commanded.
+    """
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:
+        """The bound voltages, and the held voltage of every cavity a switch seeded."""
+        targets = super().snapshot_targets(simulator)
+        held = [
+            (index, HELD_VOLTAGE)
+            for index, _ in targets
+            if index is not None and hasattr(simulator.lattice[index], HELD_VOLTAGE)
+        ]
+        return [*targets, *held]
+
+    def _put(self, element: Any, attribute: str, value: float) -> None:
+        on = math.isnan(_held_voltage(element))
+        setattr(element, attribute if on else HELD_VOLTAGE, value)
+
+    def _held(self, element: Any, attribute: str) -> Any:
+        held = _held_voltage(element)
+        return getattr(element, attribute) if math.isnan(held) else held
 
 
 class MonitorVariable(PyATReadOnlyScalarVariable):
@@ -744,6 +874,27 @@ class EnergyVariable(PyATLatticeScalarVariable):
         for variable in self._scaled:
             variable.rescale(elements, factor)
 
+    def readback_through(self, value: float, own: ReadbackCalibration) -> float:
+        """What a readback stating its own calibration reads once ``value`` is written.
+
+        ``value`` goes forward through this knob's curve, and that curve value
+        goes back through the readback's own way to the readback's unit. It is
+        the curve's own value, not the energy the lattice is put at: the two
+        differ by the constant ``E_deck / curve(I_nom)`` wherever the curve's
+        absolute scale and the deck disagree, and a facility states the
+        readback's curve against the setpoint's curve, which it knows, not
+        against the deck. So the reading follows the setpoint as the two
+        curves say, whatever the deck's energy is, and no rigidity enters.
+
+        Args:
+            value: the hardware value written to this knob.
+            own: the readback's calibration.
+
+        Returns:
+            The value to serve on the readback address, in the readback's unit.
+        """
+        return to_hardware(own.curve, own.inverse, to_physics(self.calibration, value))
+
     def _energy_gev(self, value: float) -> float:
         """The beam energy ``value`` on the bend implies, in GeV."""
         reference = to_physics(self.calibration, self.nominal)
@@ -753,29 +904,30 @@ class EnergyVariable(PyATLatticeScalarVariable):
 class RFSwitchVariable(PyATLatticeScalarVariable):
     """The ring's RF switch: zero turns every cavity off, anything else on.
 
-    Off writes a voltage of zero on every ``at.RFCavity``; on writes back the
-    voltage each cavity held in the deck, captured once at construction from
-    the model's own lattice, so off then on restores them exactly however
-    often it is repeated. The deck voltages are a construction constant, not
-    a retained setpoint: the lattice still carries the switch's state.
+    Off moves every ``at.RFCavity``'s voltage into the cavity's
+    :data:`HELD_VOLTAGE` and writes zero in its place; on moves it back, so
+    off then on restores the voltages exactly however often either is
+    repeated. A voltage setpoint written while the switch is off lands in the
+    held attribute (:class:`RFVoltageVariable`), and on delivers it. The
+    lattice carries the whole state: a cavity is off exactly while it holds a
+    voltage there, which is why a voltage setpoint of zero is still on.
 
-    It touches nothing but the cavity voltages -- not the ring energy the
-    lattice-level base writes -- and declares exactly those as its snapshot
-    targets, so a batch the model rolls back puts the voltages back too.
+    It touches nothing but those two cavity attributes -- not the ring energy
+    the lattice-level base writes -- and declares exactly those as its
+    snapshot targets, so a batch the model rolls back puts them back too.
 
     Attributes:
-        deck_voltages: Each cavity's deck voltage, in volts, keyed by its
-            index in the lattice.
+        cavities: The index of every cavity in the lattice.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    deck_voltages: dict[int, float]
+    cavities: tuple[int, ...]
 
     @model_validator(mode="after")
     def _check_the_cavities(self) -> RFSwitchVariable:
         """Refuse a switch with no cavity to switch."""
-        if not self.deck_voltages:
+        if not self.cavities:
             raise ValueError(f"RF switch {self.name!r}: the deck holds no RF cavities to switch")
         return self
 
@@ -789,7 +941,8 @@ class RFSwitchVariable(PyATLatticeScalarVariable):
             record: The wiring record: ``address``, the engine block's
                 ``signal: rf_switch`` and no element, and the computed
                 ``default`` -- on (``1``) when it states none.
-            lattice: The model's own lattice, still at the deck's voltages.
+            lattice: The model's own lattice, every cavity on. Each cavity
+                is given its :data:`HELD_VOLTAGE` attribute, at NaN.
             **scalar_fields: ``ScalarVariable`` fields, each winning over the
                 one the record states.
 
@@ -803,33 +956,44 @@ class RFSwitchVariable(PyATLatticeScalarVariable):
 
         fields = _scalar_fields(record, scalar_fields, writable=True)
         fields.setdefault("default_value", SIGNALS[RF_SWITCH_SIGNAL])
-        voltages = {
-            index: float(element.Voltage)
-            for index, element in enumerate(lattice)
-            if isinstance(element, pyat.RFCavity)
-        }
-        if not voltages:
+        cavities = tuple(
+            index for index, element in enumerate(lattice) if isinstance(element, pyat.RFCavity)
+        )
+        if not cavities:
             raise ValueError(
                 f"wiring {_record_id(record)}: the RF switch needs RF cavities; the deck holds none"
             )
-        return cls(deck_voltages=voltages, **fields)
+        for index in cavities:
+            setattr(lattice[index], HELD_VOLTAGE, math.nan)
+        return cls(cavities=cavities, **fields)
 
     def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
-        """Every cavity's ``Voltage``, in ring order: all a write touches."""
-        return [(index, "Voltage") for index in self.deck_voltages]
+        """Every cavity's voltage and held voltage, in ring order: all a write touches."""
+        return [
+            (index, attribute)
+            for index in self.cavities
+            for attribute in (VOLTAGE_ATTRIBUTE, HELD_VOLTAGE)
+        ]
 
     def _set(self, simulator: PyATSimulator, value: float) -> None:
-        """Zero every cavity's voltage for ``0``; else restore the deck's."""
+        """Hold every cavity's voltage and zero it for ``0``; else put it back."""
         ring = simulator.lattice
         on = value != 0.0
-        for index, voltage in self.deck_voltages.items():
-            ring[index].Voltage = voltage if on else 0.0
+        for index in self.cavities:
+            cavity = ring[index]
+            held = _held_voltage(cavity)
+            if on and not math.isnan(held):
+                cavity.Voltage = held
+                setattr(cavity, HELD_VOLTAGE, math.nan)
+            elif not on and math.isnan(held):
+                setattr(cavity, HELD_VOLTAGE, float(cavity.Voltage))
+                cavity.Voltage = 0.0
 
     def _get(self, simulator: PyATSimulator) -> float:
-        """``1.0`` when any cavity holds a voltage, else ``0.0``."""
+        """``0.0`` when every cavity's voltage is held, else ``1.0``."""
         ring = simulator.lattice
         return (
-            1.0 if any(float(ring[index].Voltage) != 0.0 for index in self.deck_voltages) else 0.0
+            1.0 if any(math.isnan(_held_voltage(ring[index])) for index in self.cavities) else 0.0
         )
 
 
@@ -859,7 +1023,8 @@ def variable_from_wiring(
     * ``axis`` and no ``attribute``: a :class:`MonitorVariable`;
     * ``attribute: energy`` and no element: the :class:`EnergyVariable`;
     * ``attribute: KickAngle``: a :class:`KickVariable`;
-    * ``attribute: Frequency``: an :class:`RFVariable`;
+    * ``attribute: Frequency`` or ``TimeLag``: an :class:`RFVariable`;
+    * ``attribute: Voltage``: an :class:`RFVoltageVariable`;
     * any other attribute on an element or slices: a :class:`StrengthVariable`.
 
     A record naming no element, no slices and no deck property (an optics
@@ -892,8 +1057,10 @@ def variable_from_wiring(
     kind: type[CalibratedSetpoint] = StrengthVariable
     if attribute == KICK_ATTRIBUTE:
         kind = KickVariable
-    elif attribute == FREQUENCY_ATTRIBUTE:
+    elif attribute in (FREQUENCY_ATTRIBUTE, TIME_LAG_ATTRIBUTE):
         kind = RFVariable
+    elif attribute == VOLTAGE_ATTRIBUTE:
+        kind = RFVoltageVariable
     return kind.from_wiring(record, deck_energy_gev=deck_energy_gev, **scalar_fields)
 
 
@@ -1037,7 +1204,11 @@ class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
 
 
 class TurnSetpointVariable(PyATLatticeScalarVariable):
-    """A turn-by-turn setting that holds what is written: ``arm``, ``pilot_tone``, ``stored``.
+    """A turn-by-turn setting that holds what is written.
+
+    ``arm``, ``pilot_tone``, ``stored``, and what every shot reads: the
+    injected beam's ``offset_<coordinate>`` and ``mismatch_<plane>``, and a
+    pulsed magnet's ``pulsed_kick``.
 
     It touches no element and no ring quantity -- no snapshot targets, a write
     that does nothing to the lattice -- so the model serves it from the value
@@ -1048,14 +1219,20 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
 
     Attributes:
         signal: The engine block's signal.
-        monitor: The monitor element the record names, or ``None`` for a
-            record of the whole ring.
+        monitor: The element the record names -- a monitor, or a pulsed
+            kick's magnet -- or ``None`` for a record of the whole ring.
+        plane: A pulsed kick's plane, 0 for horizontal and 1 for vertical.
+        scale: The radians one unit of a pulsed kick's record is worth.
+        pulse: The share of a pulsed kick the bunch meets on each turn.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     signal: str
     monitor: str | None = None
+    plane: int | None = None
+    scale: float = 1.0
+    pulse: tuple[float, ...] = (1.0,)
 
     @model_validator(mode="after")
     def _check_the_signal(self) -> TurnSetpointVariable:
@@ -1083,6 +1260,9 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
         signal = str(field(field(record, "engine"), "signal"))
         fields.setdefault("default_value", SIGNALS.get(signal, 0.0))
         element = field(record, "element")
+        if signal == PULSED_KICK:
+            plane, scale, pulse = kick_words(record)
+            fields.update(plane=plane, scale=scale, pulse=pulse)
         return cls(signal=signal, monitor=None if element is None else str(element), **fields)
 
     def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:  # noqa: ARG002
@@ -1101,24 +1281,31 @@ class TurnSetpointVariable(PyATLatticeScalarVariable):
         raise NotImplementedError(f"{self.name!r} holds what is written; read it from the model")
 
 
+#: The signals a :class:`TurnStateVariable` reads: ``armed`` and the shot read-outs.
+_TurnStateSignal = Literal[
+    "armed", "turns_tracked", "turns_survived", "monitors_reached", "shot_status"
+]
+
+
 class TurnStateVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
-    """A scalar of a turn-by-turn ring's turn state: ``armed`` or ``turns_tracked``.
+    """A scalar of a turn-by-turn ring's turn state: ``armed`` or a read-out of the last shot.
 
     Model state, not a setting: it is read-only, so a write is refused and
     neither ``reset`` nor a restore touches it. It reads the turn state the
     model binds it to (:meth:`bind`) on every read, never a solve: ``armed``
-    is ``1.0`` while its monitor is armed, ``turns_tracked`` the turns of the
-    last tracked shot.
+    is ``1.0`` while its monitor is armed; each of the shot read-outs
+    (:data:`~osprey.simulation.engines.pyat_turn_settings.SHOT_SIGNALS`) is
+    the turn state's field of that name.
 
     Attributes:
         signal: The engine block's signal.
-        monitor: The monitor element, for ``armed``; ``None`` for
-            ``turns_tracked``.
+        monitor: The monitor element, for ``armed``; ``None`` for a shot
+            read-out.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    signal: Literal["armed", "turns_tracked"]
+    signal: _TurnStateSignal
     monitor: str | None = None
     read_only: bool = True
 
@@ -1135,9 +1322,9 @@ class TurnStateVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
             RuntimeError: no turn state is bound.
         """
         state = _bound(self.name, self._state)
-        if self.signal == "turns_tracked":
-            return float(state.turns_tracked)
-        return 1.0 if state.monitors[str(self.monitor)].armed else 0.0
+        if self.signal == "armed":
+            return 1.0 if state.monitors[str(self.monitor)].armed else 0.0
+        return float(getattr(state, self.signal))
 
 
 class TurnArrayVariable(PyATReadOnlyNDVariable):
@@ -1218,12 +1405,12 @@ def turn_variable_from_wiring(record: Any, *, samples: int, **scalar_fields: Any
             shape=(samples,),
             unit=field(record, "unit"),
         )
-    if signal in ("armed", "turns_tracked"):
+    if signal == "armed" or signal in SHOT_SIGNALS:
         if signal == "armed" and monitor is None:
             raise ValueError(f"wiring {_record_id(record)}: signal armed names no monitor")
         return TurnStateVariable(
             name=address,
-            signal=cast("Literal['armed', 'turns_tracked']", signal),
+            signal=cast("_TurnStateSignal", signal),
             monitor=monitor,
             unit=field(record, "unit"),
         )
@@ -1258,7 +1445,9 @@ __all__ = [
     "PyATWritableEnumVariable",
     "RFSwitchVariable",
     "RFVariable",
+    "RFVoltageVariable",
     "RF_SWITCH_SIGNAL",
+    "ReadbackCalibration",
     "StrengthVariable",
     "TurnArrayVariable",
     "TurnSetpointVariable",

@@ -138,42 +138,26 @@ def test_report_empty_counts() -> None:
 # --- exit_code --------------------------------------------------------------
 
 
-def test_exit_code_all_ok() -> None:
-    rep = CheckReport(results=[CheckResult("a", "c", Status.OK, "m")])
-    assert rep.exit_code == 0
-
-
-def test_exit_code_warnings_only() -> None:
-    rep = CheckReport(results=[CheckResult("a", "c", Status.WARNING, "m")])
-    assert rep.exit_code == 1
-
-
-def test_exit_code_errors_dominate_warnings() -> None:
-    rep = CheckReport(
-        results=[
-            CheckResult("a", "c", Status.WARNING, "m"),
-            CheckResult("b", "c", Status.ERROR, "m"),
-        ]
+def _report_of(*statuses: Status) -> CheckReport:
+    return CheckReport(
+        results=[CheckResult(f"r{i}", "c", st, "m") for i, st in enumerate(statuses)]
     )
-    assert rep.exit_code == 2
 
 
-def test_exit_code_skips_do_not_affect_exit() -> None:
-    rep = CheckReport(
-        results=[
-            CheckResult("a", "c", Status.OK, "m"),
-            CheckResult("b", "c", Status.SKIP, "m"),
-        ]
-    )
-    assert rep.exit_code == 0
+@pytest.mark.parametrize(
+    ("statuses", "exit_code"),
+    [
+        pytest.param((Status.OK,), 0, id="all_ok"),
+        pytest.param((Status.WARNING,), 1, id="warnings_only"),
+        pytest.param((Status.WARNING, Status.ERROR), 2, id="errors_dominate_warnings"),
+        pytest.param((Status.OK, Status.SKIP), 0, id="skips_do_not_affect_exit"),
+    ],
+)
+def test_exit_code(statuses, exit_code) -> None:
+    assert _report_of(*statuses).exit_code == exit_code
 
 
 # --- summary_line -----------------------------------------------------------
-
-
-def test_summary_line_all_passed() -> None:
-    rep = CheckReport(results=[CheckResult("a", "c", Status.OK, "m")])
-    assert rep.summary_line() == "1/1 checks passed"
 
 
 def test_summary_line_skip_clause() -> None:
@@ -184,21 +168,19 @@ def test_summary_line_skip_clause() -> None:
     assert rep.summary_line() == "10/15 checks passed (5 skipped)"
 
 
-def test_summary_line_warning_singular_and_plural() -> None:
-    one = CheckReport(results=[CheckResult("a", "c", Status.WARNING, "m")])
-    assert one.summary_line() == "0/1 checks passed (1 warning)"
-    two = CheckReport(
-        results=[
-            CheckResult("a", "c", Status.WARNING, "m"),
-            CheckResult("b", "c", Status.WARNING, "m"),
-        ]
-    )
-    assert two.summary_line() == "0/2 checks passed (2 warnings)"
-
-
-def test_summary_line_error_singular_and_plural() -> None:
-    one = CheckReport(results=[CheckResult("a", "c", Status.ERROR, "m")])
-    assert one.summary_line() == "0/1 checks passed (1 error)"
+@pytest.mark.parametrize(
+    ("statuses", "line"),
+    [
+        pytest.param((Status.OK,), "1/1 checks passed", id="all_passed"),
+        pytest.param((Status.WARNING,), "0/1 checks passed (1 warning)", id="warning_singular"),
+        pytest.param(
+            (Status.WARNING, Status.WARNING), "0/2 checks passed (2 warnings)", id="warning_plural"
+        ),
+        pytest.param((Status.ERROR,), "0/1 checks passed (1 error)", id="error_singular"),
+    ],
+)
+def test_summary_line_counts(statuses, line) -> None:
+    assert _report_of(*statuses).summary_line() == line
 
 
 def test_summary_line_warnings_errors_skips_order() -> None:

@@ -314,6 +314,14 @@ services:
       {{ lane_key | upper }}_BRIDGE_URL: http://{{ lane_key | replace('_', '-') }}-bridge:{{ services[lane_key].port }}
 {%- endif %}
 {%- endfor %}
+{#- The server fleet service by its compose name, when it is bridged beside this
+    bridged worker. A worker on the host reaches it on the loopback port its
+    config names; a fleet service on the host beside a bridged worker is
+    refused at build (osprey.deployment.reach.fleet_network_errors). #}
+{%- set fleet = services.server_fleet | default({}, true) %}
+{%- if 'server_fleet' in (deployed_services | default([])) and (fleet.network | default('bridge', true)) != 'host' %}
+      SERVER_FLEET_URL: http://server-fleet:{{ fleet.port | default(osprey_ports.server_fleet, true) }}
+{%- endif %}
 {%- endif %}
 {#- Address of the archiver store, for the same reason and by the same
     convention as the bridge URL above: whichever address is the

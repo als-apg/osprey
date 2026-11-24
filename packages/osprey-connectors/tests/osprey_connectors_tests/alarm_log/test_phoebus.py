@@ -418,7 +418,7 @@ async def test_the_allowed_requests_admit_the_routes_and_refuse_a_walk():
     transport = ReadOnlyTransport(
         {"url": "https://alarm-logger.demo.lab/"},
         PhoebusAlarmLogger.ALLOWED_REQUESTS,
-        where="pv_directory.alarm_log.settings",
+        where="channel_directory.alarm_log.settings",
     )
     assert transport._allows("GET", "/")
     assert transport._allows("GET", "/search/alarm")

@@ -1861,7 +1861,8 @@ def test_the_queueserver_applies_its_lane_identity_before_the_manager_starts(
     assert script.startswith(
         f"python {CONTROL_IDENTITY_CONTAINER_PATH} apply --uid 0 --name {identity}"
         f' || echo "WARNING: control identity {identity} not applied; this lane writes as root"'
-        " >&2; exec start-re-manager"
+        " >&2; exec python -m osprey.services.bluesky_bridge.qserver_supervisor"
+        " -- start-re-manager"
     )
     subprocess.run(["sh", "-n", "-c", script], check=True, timeout=60)
 
@@ -1872,10 +1873,16 @@ def test_the_manager_starts_whether_or_not_the_rename_lands(
 ) -> None:
     """Run the rendered command with stub `python` and `start-re-manager` on
     PATH: the manager starts after a landed rename and after a failed one, and
-    only the failure prints the warning."""
+    only the failure prints the warning. The stub `python` stands in for the
+    supervisor too: it runs the command after `--`."""
     script = _two_lane_identity_doc()["services"]["queueserver"]["command"][2]
     stub_python = tmp_path / "python"
-    stub_python.write_text(f"#!/bin/sh\nexit {rename_exit}\n")
+    stub_python.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = -m ] && [ "$2" = osprey.services.bluesky_bridge.qserver_supervisor ]'
+        ' && [ "$3" = -- ]; then shift 3; exec "$@"; fi\n'
+        f"exit {rename_exit}\n"
+    )
     stub_manager = tmp_path / "start-re-manager"
     stub_manager.write_text('#!/bin/sh\necho "manager started"\n')
     for stub in (stub_python, stub_manager):

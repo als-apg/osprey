@@ -521,8 +521,12 @@ def test_validate_reports_duplicate_names() -> None:
 def test_validate_never_raises_on_arbitrary_input() -> None:
     """``validate_device_document`` reports, never raises -- the build turns its
     list into a refusal message and needs no try/except around it."""
-    for doc in ("a string", 17, [], {"settables": None}, {"settables": [[]]}, object()):
-        assert isinstance(validate_device_document(doc), list)
+    for doc in ("a string", 17, [], {"settables": [[]]}, object()):
+        problems = validate_device_document(doc)
+        assert isinstance(problems, list)
+        assert problems, f"{doc!r} was accepted"
+    # A section set to null is an absent section, and a partial document is valid.
+    assert validate_device_document({"settables": None}) == []
 
 
 # --- from a parsed spec to a built device -----------------------------------

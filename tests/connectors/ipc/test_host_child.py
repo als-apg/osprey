@@ -54,6 +54,10 @@ from osprey_connectors.ipc import _frames as frames
 from osprey_connectors.ipc import _host as host
 from osprey_connectors.refusals import refusal_phrase
 from osprey_connectors_tests._harness import write_control_context
+from osprey_connectors_tests._harness._guards import (
+    RUN_CONFIG_ENV_VARS,
+    SESSION_POSTURE_ENV_VARS,
+)
 from osprey_connectors_tests._write_fakes import arm_switch
 from tests._child_stubs import CHILD_STUBS
 from tests._live import wait_until
@@ -247,9 +251,48 @@ def child(tmp_path):
 
 @pytest.fixture
 def ready_child(child):
-    """A child that has already answered its init frame."""
+    """A child that has already answered its init frame, torn down with the test.
+
+    For a test that closes, disconnects or otherwise ends the child, and for
+    one whose request must be the first a fresh child serves (``spawn_probe``).
+    """
     child.init()
     return child
+
+
+@pytest.fixture(scope="module")
+def _module_child(tmp_path_factory):
+    # Module scope sets this up before the per-test environment guards run, so
+    # the child is spawned with what they clear already cleared: a developer's
+    # exported project config or session posture must not reach it.
+    with pytest.MonkeyPatch.context() as scrubbed:
+        for name in (*RUN_CONFIG_ENV_VARS, *SESSION_POSTURE_ENV_VARS):
+            scrubbed.delenv(name, raising=False)
+        spawned = Child(cwd=tmp_path_factory.mktemp("shared_child"))
+    try:
+        spawned.init()
+        yield spawned
+    finally:
+        spawned.close()
+
+
+@pytest.fixture
+def shared_child(_module_child):
+    """One initialised child for the module's tests that leave it as they found it.
+
+    Shared by tests that only send requests whose replies they read in full:
+    reads, pings, refused writes (no config is in reach, so the tier is
+    ``never`` and nothing is written) and refused requests. None closes its
+    stdin, disconnects, kills or reconfigures the child. The ``spawn_probe``
+    tests are not among them: the probe is what the parent runs against a
+    freshly spawned child, so each runs as the first request on its own. Each
+    test starts on a live child with no earlier frame still queued.
+    """
+    assert _module_child.proc.poll() is None, (
+        f"the shared child exited. stderr:\n{_module_child.stderr()}"
+    )
+    _module_child.quiet(seconds=0)
+    return _module_child
 
 
 def _marks_until(read_fd, last, timeout=CHILD_STARTUP_TIMEOUT_S):
@@ -393,8 +436,8 @@ def test_inherited_epics_variables_do_not_survive_into_the_child(tmp_path):
 # ------------------------------------------------------------------- reads
 
 
-def test_read_channel_returns_a_channel_value(ready_child):
-    frame = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+def test_read_channel_returns_a_channel_value(shared_child):
+    frame = shared_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ResultFrame)
     value = frame.value
@@ -403,38 +446,38 @@ def test_read_channel_returns_a_channel_value(ready_child):
     assert value.metadata.units == "mA"
 
 
-def test_validate_channel_is_served(ready_child):
-    frame = ready_child.call("validate_channel", channel_address="SR:BEAM:CURRENT")
+def test_validate_channel_is_served(shared_child):
+    frame = shared_child.call("validate_channel", channel_address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ResultFrame)
     assert frame.value is True
 
 
-def test_ping_answers_with_the_childs_pid(ready_child):
-    frame = ready_child.call("ping")
+def test_ping_answers_with_the_childs_pid(shared_child):
+    frame = shared_child.call("ping")
 
     assert isinstance(frame, frames.ResultFrame)
-    assert frame.value == ready_child.proc.pid
+    assert frame.value == shared_child.proc.pid
 
 
-def test_a_batched_read_of_n_channels_is_one_round_trip(ready_child):
+def test_a_batched_read_of_n_channels_is_one_round_trip(shared_child):
     channels = [f"SR:BPM:{index}:X" for index in range(6)]
 
-    request_id = ready_child.send("read_multiple_channels", channel_addresses=channels)
-    frame = ready_child.next_frame()
+    request_id = shared_child.send("read_multiple_channels", channel_addresses=channels)
+    frame = shared_child.next_frame()
 
     assert frame.request_id == request_id
     assert sorted(frame.value) == sorted(channels)
     assert all(isinstance(value, ChannelValue) for value in frame.value.values())
     # One request in, one result out: the fan-out happened inside the child.
-    ready_child.quiet()
+    shared_child.quiet()
 
 
 # ------------------------------------------------------------------ writes
 
 
-def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_child):
-    frame = ready_child.call("write_channel", channel_address="SR:CORR:1:SP", value=0.5)
+def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(shared_child):
+    frame = shared_child.call("write_channel", channel_address="SR:CORR:1:SP", value=0.5)
 
     result = frame.value
     assert isinstance(result, ChannelWriteResult)
@@ -446,8 +489,8 @@ def test_write_on_a_writes_disabled_deployment_returns_the_refused_result(ready_
     assert refusal_phrase("tier_never") in result.error_message
 
 
-def test_write_multiple_channels_refuses_every_operation(ready_child):
-    frame = ready_child.call(
+def test_write_multiple_channels_refuses_every_operation(shared_child):
+    frame = shared_child.call(
         "write_multiple_channels",
         operations=[["SR:CORR:1:SP", 0.5], ["SR:CORR:2:SP", 0.25]],
     )
@@ -536,24 +579,24 @@ def test_a_probe_with_a_bound_that_is_not_positive_is_refused_and_the_child_keep
     assert isinstance(follow_up.value, ChannelValue)
 
 
-def test_a_reply_frame_sent_to_the_child_is_ignored_and_the_child_keeps_serving(ready_child):
-    ready_child.proc.stdin.write(frames.encode_result("req-stray", 1))
-    ready_child.proc.stdin.flush()
+def test_a_reply_frame_sent_to_the_child_is_ignored_and_the_child_keeps_serving(shared_child):
+    shared_child.proc.stdin.write(frames.encode_result("req-stray", 1))
+    shared_child.proc.stdin.flush()
 
-    ready_child.quiet()
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    shared_child.quiet()
+    follow_up = shared_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
-    assert "ignoring unexpected ResultFrame frame" in ready_child.stderr()
+    assert "ignoring unexpected ResultFrame frame" in shared_child.stderr()
 
 
-def test_an_unknown_method_is_refused_without_killing_the_child(ready_child):
-    frame = ready_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
+def test_an_unknown_method_is_refused_without_killing_the_child(shared_child):
+    frame = shared_child.call("subscribe", channel_address="SR:BEAM:CURRENT")
 
     assert isinstance(frame, frames.ErrorFrame)
     assert isinstance(frame.exception, ConnectorInternalError)
     assert "subscribe" in frame.message
 
-    follow_up = ready_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
+    follow_up = shared_child.call("read_channel", channel_address="SR:BEAM:CURRENT")
     assert isinstance(follow_up.value, ChannelValue)
 
 
@@ -879,30 +922,38 @@ GATEWAYS = {
 }
 
 
-def test_selected_role_is_the_write_gateway_when_writes_are_on():
+@pytest.mark.parametrize(
+    ("address", "port", "writes_enabled", "readonly_run", "expected"),
+    [
+        pytest.param(
+            "rw.example.org", 5065, True, False, "write_access", id="write-gateway-when-writes-on"
+        ),
+        pytest.param(
+            "ro.example.org", 5064, True, True, "read_only", id="stays-read-only-in-a-readonly-run"
+        ),
+        # The rule would say read_only, but the environment names the write
+        # gateway: the report describes what was used, not what was expected.
+        pytest.param(
+            "rw.example.org",
+            5065,
+            False,
+            False,
+            "write_access",
+            id="follows-the-endpoint-that-was-actually-installed",
+        ),
+    ],
+)
+def test_selected_role(address, port, writes_enabled, readonly_run, expected):
     role = host._installed_role(
-        GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=True, readonly_run=False
+        GATEWAYS,
+        "addr_list",
+        address,
+        port,
+        writes_enabled=writes_enabled,
+        readonly_run=readonly_run,
     )
 
-    assert role == "write_access"
-
-
-def test_selected_role_stays_read_only_in_a_readonly_run():
-    role = host._installed_role(
-        GATEWAYS, "addr_list", "ro.example.org", 5064, writes_enabled=True, readonly_run=True
-    )
-
-    assert role == "read_only"
-
-
-def test_selected_role_follows_the_endpoint_that_was_actually_installed():
-    # The rule would say read_only, but the environment names the write
-    # gateway: the report describes what was used, not what was expected.
-    role = host._installed_role(
-        GATEWAYS, "addr_list", "rw.example.org", 5065, writes_enabled=False, readonly_run=False
-    )
-
-    assert role == "write_access"
+    assert role == expected
 
 
 def test_selected_role_is_none_when_no_gateway_was_configured():

@@ -86,6 +86,7 @@ from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.types import configured_targets, tier_writes
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.cli._template_projects import graph_permission_entries
 from tests.fixtures.lifecycle_repo import build_exemplar_repo
@@ -321,13 +322,13 @@ HOST_SERVERS = (
     "graph",
     "bluesky",
     "health",
-    "pv-directory",
+    "channel-directory",
 )
 # Which host servers each shared login keeps; every other host server is switched off.
 APP_SERVERS_ON = {
     "logbook": {"osprey_workspace", "ariel", "graph"},
     "knowledge": {"osprey_workspace", "osprey_facility_knowledge", "channel-finder", "graph"},
-    "channel-finder": {"osprey_workspace", "channel-finder", "pv-directory"},
+    "channel-finder": {"osprey_workspace", "channel-finder", "channel-directory"},
 }
 
 
@@ -1113,22 +1114,27 @@ class TestDemoTiersAndApps:
         )
         assert sorted(wt["shared"]) == list(SHARED_LOGIN_NAMES)
 
-    def test_readonly_disables_writes(self, layers: dict[str, BuildProfile]) -> None:
-        profile = layers["tiers/readonly"]
-        assert profile.name == "OSPREY Demo (Read-Only)"
+    @pytest.mark.parametrize(
+        ("layer", "name", "writes"),
+        [
+            pytest.param(
+                "readonly", "OSPREY Demo (Read-Only)", "never", id="readonly-disables-writes"
+            ),
+            pytest.param(
+                "readwrite", "OSPREY Demo (Read-Write)", "asked", id="readwrite-arms-the-simulator"
+            ),
+        ],
+    )
+    def test_a_person_tier_sets_only_the_write_posture(
+        self, layers: dict[str, BuildProfile], layer: str, name: str, writes: str
+    ) -> None:
+        profile = layers[f"tiers/{layer}"]
+        assert profile.name == name
         assert _profile_data_bundle(profile) == "demo"
-        assert profile.config.get(WRITES_KEY) == "never"
+        assert profile.config.get(WRITES_KEY) == writes
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         # Flat dotted key, never nested YAML under config:.
-        assert "control_system" not in _own_config("tiers", "readonly")
-
-    def test_readwrite_arms_the_simulator(self, layers: dict[str, BuildProfile]) -> None:
-        profile = layers["tiers/readwrite"]
-        assert profile.name == "OSPREY Demo (Read-Write)"
-        assert _profile_data_bundle(profile) == "demo"
-        assert profile.config.get(WRITES_KEY) == "asked"
-        assert not _posture_keys(profile.config) - {WRITES_KEY}
-        assert "control_system" not in _own_config("tiers", "readwrite")
+        assert "control_system" not in _own_config("tiers", layer)
 
     def test_admin_lifts_the_deployment_floor(self, layers: dict[str, BuildProfile]) -> None:
         """The admin tier is readwrite plus deployment editing at the ceiling
@@ -1492,6 +1498,9 @@ class TestDemoTiersAndApps:
             "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
+            # The demo turns the server fleet on; the tier's `server_fleet` tool
+            # dials the host's fleet service.
+            "server_fleet": {"port": host["services"]["server_fleet"]["port"]},
         }
         assert "archiver_recorder" in host["services"]
         assert config["services"]["qmd"]["port"] == QMD_DEFAULT_PORT
@@ -1656,14 +1665,14 @@ class TestDemoTiersAndApps:
         self, built_layered_stack: Path
     ) -> None:
         """The channel-finder login is the hierarchical, file-based channel
-        finder plus the PV directory it keeps: no graph — the store is not
+        finder plus the channel directory it keeps: no graph — the store is not
         dialled and the server is not rendered — no logbook, no control system.
         """
         project = _render_dir(built_layered_stack, "channel-finder")
         assert project.is_dir(), "the channel-finder login was never rendered"
 
         servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
-        assert set(servers) == {"channel-finder", "osprey_workspace", "pv-directory"}
+        assert set(servers) == {"channel-finder", "osprey_workspace", "channel-directory"}
         config = yaml.safe_load((project / "config.yml").read_text(encoding="utf-8"))
         assert config["channel_finder"]["pipeline_mode"] == "hierarchical"
         assert config["web"]["default_panel"] == "channel-finder"
@@ -2006,7 +2015,7 @@ class TestWebTerminalContextShipped:
                 seeded.append(input)
             return subprocess.CompletedProcess(argv, returncode=0, stdout=b"", stderr=b"")
 
-        monkeypatch.setattr(seeding.subprocess, "run", _fake_run)
+        scoped(monkeypatch, seeding, "subprocess", run=_fake_run)
         monkeypatch.setattr(seeding, "get_runtime_command", lambda config=None: ["docker"])
         monkeypatch.setattr(seeding, "runtime_env", lambda config, base_env=None, **kw: {})
         monkeypatch.chdir(repo)

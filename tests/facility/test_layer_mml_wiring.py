@@ -2,13 +2,12 @@
 
 Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's layer mapping. The cases that only read a clean import of a
-whole tree share one import of it per module, and the parse of its records.
+whole tree share the run's one import of it (``mml_imported``), and the parse
+of its records.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import shutil
 from collections import Counter
@@ -20,14 +19,16 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml import decks
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop, read_mapping
-from osprey.facility.layers.mml.wiring import _Derived, _kept, _one_way
-from osprey.simulation.engines.calibration import Linear, Table
-from tests.fixtures.mml._trees import SUPPORTED
+from osprey_connectors.simulation.engines import Linear, Table
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml import decks
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+from osprey_facility.layers.mml.wiring import _Derived, _kept, _one_way
+from osprey_facility_tests._mml_trees import SUPPORTED
+from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
 
-#: The module's readers share one import per tree, which only holds on one worker.
+#: The module's transfer-line fixture is made once per module, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_wiring")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -53,7 +54,7 @@ def _facility(root: Path, tree: str, edit: Edit | None = None) -> Path:
     facility = root / "data" / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
-    document = yaml.safe_load((FIXTURES / tree / MAPPING_FILE).read_text(encoding="utf-8"))
+    document = load_yaml(FIXTURES / tree / MAPPING_FILE)
     if edit is not None:
         edit(document)
     target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
@@ -72,8 +73,7 @@ def _exports(root: Path, tree: str, stems: tuple[str, ...], drop: tuple[str, ...
 
 
 def _models(facility: Path) -> dict[str, dict[str, Any]]:
-    rows = yaml.safe_load((facility / LAYER_DIR / "models.yaml").read_text(encoding="utf-8"))
-    return {row["name"]: row for row in rows}
+    return {row["name"]: row for row in read_yaml(facility / LAYER_DIR / "models.yaml")}
 
 
 def _layer_files(facility: Path) -> list[str]:
@@ -90,51 +90,42 @@ def _stops(root: Path, tree: str, stems: tuple[str, ...], edit: Edit, drop: tupl
 
 
 class _Imported:
-    """A whole tree imported into a fresh facility: what it wrote, printed and holds.
+    """A whole tree's clean import: what it wrote, printed and holds.
 
     Every case that reads it only reads: none writes under ``facility`` or
-    changes a parsed record, so one import serves them all.
+    changes a parsed record, so the run's one import serves them all.
     """
 
-    def __init__(self, root: Path, tree: str) -> None:
-        self.facility = _facility(root, tree)
-        printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
-            self.written = import_mml(
-                [FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], self.facility
-            )
-        self.printed = printed.getvalue()
+    def __init__(self, imported: MmlImport) -> None:
+        self._imported = imported
+        self.facility = imported.facility
+        self.written = imported.written
+        self.printed = imported.printed
 
-    @cached_property
+    @property
     def model_rows(self) -> list[dict[str, Any]]:
         """The rows of ``models.yaml``, in the order the import wrote them."""
-        return yaml.safe_load(
-            (self.facility / LAYER_DIR / "models.yaml").read_text(encoding="utf-8")
-        )
+        rows: list[dict[str, Any]] = self._imported.rows("models.yaml")
+        return rows
 
     @cached_property
     def models(self) -> dict[str, dict[str, Any]]:
         return {row["name"]: row for row in self.model_rows}
 
-    @cached_property
+    @property
     def channel_rows(self) -> list[dict[str, Any]]:
-        return yaml.safe_load(
-            (self.facility / LAYER_DIR / "channels.yaml").read_text(encoding="utf-8")
-        )
+        rows: list[dict[str, Any]] = self._imported.rows("channels.yaml")
+        return rows
 
 
 @pytest.fixture(scope="module")
-def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
-    """Each tree imported on its first request, then served to every reader."""
+def imports(mml_imported: Callable[[str], MmlImport]) -> Callable[[str], _Imported]:
+    """Each tree's clean import, read on its first request, then served to every reader."""
     done: dict[str, _Imported] = {}
-    # Made during setup, so the trees imported on demand belong to this fixture.
-    parent = tmp_path_factory.mktemp("imports")
 
     def imported(tree: str) -> _Imported:
         if tree not in done:
-            root = parent / tree
-            root.mkdir()
-            done[tree] = _Imported(root, tree)
+            done[tree] = _Imported(mml_imported(tree))
         return done[tree]
 
     return imported
@@ -181,8 +172,8 @@ def test_every_entry_names_its_deck_between_engine_and_settings(imported: _Impor
 def test_every_written_deck_is_the_served_deck_of_its_export(
     tree: str, imported: _Imported
 ) -> None:
-    from osprey.facility.layers.mml.importer import read_exports
-    from osprey.facility.layers.mml.loaders.mat import load_lattice
+    from osprey_facility.layers.mml.importer import read_exports
+    from osprey_facility.layers.mml.loaders.mat import load_lattice
 
     mapping = read_mapping(FIXTURES / tree / MAPPING_FILE)
     for stem in TREES[tree]:
@@ -199,7 +190,7 @@ def test_every_written_deck_is_the_served_deck_of_its_export(
 def test_the_spear3_energy_knob_drives_the_deck_energy_through_its_energy_table(
     imports: Callable[[str], _Imported],
 ) -> None:
-    from osprey.simulation.engines.calibration import curve_from_record, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, to_hardware
 
     wiring = _spear3_wiring(imports)
     knob = wiring["MS1-BD:CurrSetpt"]
@@ -234,7 +225,7 @@ def _spear3_wiring(imports: Callable[[str], _Imported]) -> dict[str, dict[str, A
 def test_a_series_member_follows_its_own_row_from_its_own_nominal(
     imports: Callable[[str], _Imported],
 ) -> None:
-    from osprey.simulation.engines.calibration import curve_from_record, evaluate, to_hardware
+    from osprey_connectors.simulation.engines import curve_from_record, evaluate, to_hardware
 
     record = _spear3_wiring(imports)["MS1-QDZ:CurrSetpt"]
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))

@@ -25,6 +25,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from tests._builds import FRAMEWORK_CHECKS
+
 __all__ = [
     "ARMED",
     "ARMS",
@@ -36,14 +38,17 @@ __all__ = [
     "FIXTURE",
     "INPUTS",
     "MONITORS",
+    "MONITORS_REACHED",
     "PILOT_TONE",
     "REQUEST",
     "RF_SWITCH",
     "RING",
     "SAMPLES",
     "SHOT",
+    "SHOT_STATUS",
     "STORED",
     "TURNS",
+    "TURNS_SURVIVED",
     "TURNS_TRACKED",
     "TURN_SUM",
     "TURN_X",
@@ -102,10 +107,13 @@ TURN_X = _per_monitor("TBT:X")
 TURN_Y = _per_monitor("TBT:Y")
 TURN_SUM = _per_monitor("TBT:SUM")
 
-#: The ring's RF switch, pilot tone and turns tracked.
+#: The ring's RF switch, pilot tone and read-outs of the last shot.
 RF_SWITCH = "SR:RF:SWITCH"
 PILOT_TONE = "SR:DIAG:TBT:PILOT"
 TURNS_TRACKED = "SR:DIAG:TBT:TURNS"
+TURNS_SURVIVED = "SR:DIAG:TBT:SURVIVED"
+MONITORS_REACHED = "SR:DIAG:TBT:REACHED"
+SHOT_STATUS = "SR:DIAG:TBT:STATUS"
 
 #: The two records that hold what is written.
 STORED = ("SR:DIAG:TBT:STORED:01", "SR:DIAG:TBT:STORED:02")
@@ -128,15 +136,17 @@ def turn_by_turn_view(root: Path) -> Path:
     Returns:
         The render's simulator view, ``root/build/data/simulator``.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
     facility_dir = root / "data" / "facility"
     shutil.copytree(FIXTURE, facility_dir)
     render_dir = root / "build"
     render_dir.mkdir(parents=True)
-    document = build_facility(facility_dir, project_name="turn-by-turn")
+    document = build_facility(
+        facility_dir, project_name="turn-by-turn", extra_checks=FRAMEWORK_CHECKS
+    )
     render_facility_outputs(
         render_dir, document, IN_PROCESS_RENDER_CONFIG, facility_dir, omitted_reported=_REPORTED
     )

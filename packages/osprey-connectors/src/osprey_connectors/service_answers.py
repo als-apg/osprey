@@ -84,18 +84,35 @@ class Source:
 
 @dataclass(frozen=True, kw_only=True)
 class BackendSpec:
-    """One backend to build; ``service_targets`` makes these from the config."""
+    """One backend to build; ``service_targets`` makes these from the config.
+
+    ``section`` is the config key the spec was read under: ``channel_directory``,
+    or ``pv_directory`` from a config that still spells the section that way. It
+    says where the spec came from, not what it builds, so two specs that differ
+    only in it are equal.
+    """
 
     kind: Literal["directory", "alarm_log", "alarm_state", "put_log"]
     type: str
     target: ControlTarget
     settings: Mapping[str, object]
     rehearsal: bool
+    section: str = field(default="channel_directory", compare=False)
+
+    @property
+    def settings_key(self) -> str:
+        """The config key of ``settings``, as a settings error names it.
+
+        ``<section>.settings`` for the directory and ``<section>.<kind>.settings``
+        for the kinds beneath it, with the section spelled as the config spelled it.
+        """
+        block = self.section if self.kind == "directory" else f"{self.section}.{self.kind}"
+        return f"{block}.settings"
 
 
 @dataclass(frozen=True, kw_only=True)
 class HistoryPage(Generic[_RowT]):
-    """Logged rows of one PV. No rows means nothing was logged, not that nothing happened.
+    """Logged rows of one channel. No rows means nothing was logged, not that nothing happened.
 
     ``rows`` are the records of the kind that answered.
     """

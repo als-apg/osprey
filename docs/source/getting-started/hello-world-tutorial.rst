@@ -344,12 +344,16 @@ the shipped file:
    }
 
 That file is generated output: edit ``limits.yaml`` and rebuild. A profile
-that ships its own ``channel_limits.json`` stops the build. ``writable: true`` may be
-left out, and it cannot stand in for the bounds: a setpoint record without both
-``min_value`` and ``max_value`` is written ``writable: false``, so a record is
-either bounded or a block. ``confirm: true``, the value a record gets when it does not state
-one, means every write is checked: the connector reads the channel back once
-and compares what it finds with the value that was sent, so a write that did
+that ships its own ``channel_limits.json`` stops the build. On a float or int setpoint the
+bounds decide, so a record is either bounded or a block: with both
+``min_value`` and ``max_value`` it is written ``writable: true`` and need not
+say so, and without both it is written ``writable: false``. ``writable: true``
+cannot stand in for the bounds: stating it on a float or int setpoint without
+both stops the build. A bool, enum, string or waveform setpoint has no bounds
+and is writable only when its record says ``writable: true``. ``confirm: true``, the value a record gets when it does not state
+one (a command that states ``timeout_s`` gets ``confirm: false``: its status
+confirms the write), means every write is checked: the connector reads the
+channel back once and compares what it finds with the value that was sent, so a write that did
 not land is reported rather than assumed.
 
 Channels not listed here are written with no limits — the preset sets

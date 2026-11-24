@@ -49,6 +49,7 @@ from typing import Any, Literal
 
 import yaml
 
+from tests._builds import FRAMEWORK_CHECKS
 from tests._preset_data import packaged_facility_dir
 from tests.facility._synthetic_trees import write_tree
 
@@ -234,11 +235,11 @@ def build_appendix_a(
     Returns:
         The built facility document.
     """
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.validate import run_stages
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.validate import run_stages
 
     write_tree(root, appendix_a_tree(variant) if tree is None else tree)
-    report = run_stages(root, project_name="p", later=LATER_STAGES)
+    report = run_stages(root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS)
     if report.failed is not None:
         raise AssertionError([error.format_message() for error in report.errors])
     document = report.validated.document

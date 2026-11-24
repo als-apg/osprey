@@ -119,7 +119,7 @@ def _bundle(render: Path) -> Path:
     root = render / "data" / "knowledge"
     (root / "devices").mkdir(parents=True)
     (root / "index.md").write_text("# Index\n")
-    (root / "devices" / "rf.md").write_text("# RF\n")
+    (root / "devices" / "rf.md").write_text("---\ntype: Device\n---\n\n# RF\n")
     for path in root.rglob("*.md"):
         os.utime(path, (_NOW - 7200, _NOW - 7200))
     return root
@@ -153,7 +153,7 @@ def test_a_bundle_matching_the_render(tmp_path):
 def test_an_edited_bundle_differs_from_the_render(tmp_path):
     root = _bundle(tmp_path)
     _stamp(tmp_path)
-    (root / "devices" / "rf.md").write_text("# RF edited\n")
+    (root / "devices" / "rf.md").write_text("---\ntype: Device\n---\n\n# RF edited\n")
     bundle = _rows(_OKF, cwd=tmp_path)["okf.bundle"]
 
     assert bundle.status is Status.WARNING

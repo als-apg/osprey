@@ -115,20 +115,16 @@ def test_regen_index_idempotent(okf_bundle: Path) -> None:
 
 
 def test_regen_index_no_bundle_and_no_config_errors() -> None:
-    """``regen-index`` without an arg and no config setting exits nonzero."""
+    """``regen-index`` without an arg and no config setting is a usage error."""
     runner = CliRunner()
     # Patch get_config_value to return None so the fallback path is exercised.
     import unittest.mock as mock
 
-    with mock.patch(
-        "osprey.cli.knowledge_cmd.knowledge.commands",
-        wraps=knowledge.commands,
-    ):
-        with mock.patch("osprey.cli.knowledge_cmd.get_config_value", return_value=None):
-            result = runner.invoke(knowledge, ["regen-index"])
+    with mock.patch("osprey.cli.knowledge_cmd.get_config_value", return_value=None):
+        result = runner.invoke(knowledge, ["regen-index"])
 
-    # Should exit non-zero or print an error message.
-    assert result.exit_code != 0 or "Error" in (result.output or "")
+    assert result.exit_code == 2, result.output
+    assert "facility_knowledge.bundle_path is not set" in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +164,7 @@ def test_validate_broken_concept_doc_exits_nonzero(okf_bundle: Path) -> None:
 
 def test_validate_broken_index_md_exits_nonzero(okf_bundle: Path) -> None:
     """``validate`` flags an index.md with disallowed frontmatter."""
-    # A sub-directory index.md must NOT have frontmatter (OKF §6).
+    # A sub-directory index.md must NOT have frontmatter (OKF §8).
     bad_index = okf_bundle / "concepts" / "index.md"
     bad_index.parent.mkdir(parents=True, exist_ok=True)
     bad_index.write_text(
@@ -318,8 +314,43 @@ def test_validate_passes_after_regen_index(okf_bundle: Path) -> None:
     assert result.exit_code == 0, result.output
 
 
+def test_validate_accepts_a_bundle_with_files_that_are_not_concepts(okf_bundle: Path) -> None:
+    """A README, a log and bundle metadata are valid OKF v0.3, and the README is named."""
+    (okf_bundle / "README.md").write_text("# About this bundle\n", encoding="utf-8")
+    (okf_bundle / "log.md").write_text(
+        "# Directory Update Log\n\n## 2026-05-22\n* **Creation**: beam.\n", encoding="utf-8"
+    )
+    (okf_bundle / ".drafts").mkdir()
+    (okf_bundle / ".drafts" / "wip.md").write_text("---\ntype: Concept\n---\n", encoding="utf-8")
+    (okf_bundle / "index.md").write_text(
+        '---\nokf_version: "0.3"\ntitle: Test bundle\nlicense: CC-BY-4.0\n---\n', encoding="utf-8"
+    )
+    runner = CliRunner()
+    assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
+
+    result = runner.invoke(knowledge, ["validate", str(okf_bundle)])
+
+    assert result.exit_code == 0, result.output
+    assert "README.md" in result.output
+    assert "not served as concepts" in result.output
+    assert "wip.md" not in result.output
+    assert "title: Test bundle" in (okf_bundle / "index.md").read_text(encoding="utf-8")
+
+
+def test_validate_refuses_frontmatter_in_a_log(okf_bundle: Path) -> None:
+    """OKF §9: ``log.md`` has no frontmatter."""
+    runner = CliRunner()
+    assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
+    (okf_bundle / "log.md").write_text("---\ntype: Log\n---\n\n# Log\n", encoding="utf-8")
+
+    result = runner.invoke(knowledge, ["validate", str(okf_bundle)])
+
+    assert result.exit_code != 0
+    assert "log.md" in result.output
+
+
 def test_validate_reports_a_bad_index_once(okf_bundle: Path) -> None:
-    """An index that breaks OKF §6 is one failed file, not a second drift line."""
+    """An index that breaks OKF §8 is one failed file, not a second drift line."""
     runner = CliRunner()
     assert runner.invoke(knowledge, ["regen-index", str(okf_bundle)]).exit_code == 0
     (okf_bundle / "concepts" / "index.md").write_text(

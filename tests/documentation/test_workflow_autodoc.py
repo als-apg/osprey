@@ -20,6 +20,7 @@ pytest.importorskip("sphinx", reason="Sphinx is required for workflow autodoc te
 docs_ext_path = Path(__file__).parent.parent.parent / "docs" / "source" / "_ext"
 sys.path.insert(0, str(docs_ext_path))
 
+from docutils import nodes as docutils_nodes
 from workflow_autodoc import (
     WorkflowListDirective,
     WorkflowSummaryDirective,
@@ -235,12 +236,14 @@ class TestWorkflowListDirective:
         with patch.object(Path, "__truediv__", return_value=tmp_path / "nonexistent"):
             nodes = mock_directive.run()
 
-        # Should return a warning node
-        assert len(nodes) > 0
+        # Should return a warning node naming the missing directory
+        assert len(nodes) == 1
+        assert isinstance(nodes[0], docutils_nodes.warning)
+        assert "Workflows directory not found" in nodes[0].astext()
 
-    def test_workflow_list_with_workflows(self, mock_directive, tmp_path):
-        """Test workflow list generation with actual workflow files."""
-        # Create test workflow files
+    @staticmethod
+    def _run_over_two_workflows(mock_directive, tmp_path):
+        """Run the directive over two workflows of different categories and a README."""
         workflows_dir = tmp_path / "workflows"
         workflows_dir.mkdir()
 
@@ -281,27 +284,33 @@ Description two.
             with patch.object(Path, "exists", return_value=True):
                 with patch.object(Path, "glob", return_value=list(workflows_dir.glob("*.md"))):
                     nodes = mock_directive.run()
+        return nodes
 
-        # Should return nodes for the workflows (excluding README.md)
-        assert len(nodes) > 0
+    def test_workflow_list_with_workflows(self, mock_directive, tmp_path):
+        """Test workflow list generation with actual workflow files."""
+        nodes = self._run_over_two_workflows(mock_directive, tmp_path)
 
-    def test_workflow_list_filtered_by_category(self, mock_directive):
+        # Should render one section per workflow, excluding README.md (which
+        # would render as a section titled after its stem)
+        text = "\n".join(node.astext() for node in nodes)
+        assert len(nodes) == 2
+        assert "Workflow One" in text
+        assert "Workflow Two" in text
+        assert "README" not in text
+
+    def test_workflow_list_filtered_by_category(self, mock_directive, tmp_path):
         """Test workflow list filtering by category."""
         mock_directive.options["category"] = "code-quality"
 
-        # Test would involve similar mocking as above
-        # This is a placeholder for the concept
-        assert "category" in mock_directive.options
+        nodes = self._run_over_two_workflows(mock_directive, tmp_path)
+
+        text = "\n".join(node.astext() for node in nodes)
+        assert "Workflow One" in text
+        assert "Workflow Two" not in text
 
 
 class TestSphinxIntegration:
     """Test Sphinx integration."""
-
-    def test_setup_function_exists(self):
-        """Test that the setup function is properly defined."""
-        from workflow_autodoc import setup
-
-        assert callable(setup)
 
     def test_setup_returns_dict(self):
         """Test that setup returns the expected dictionary."""

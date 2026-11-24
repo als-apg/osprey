@@ -1,0 +1,3637 @@
+"""The facility build's checks, run in fixed stages.
+
+A stage runs only when every earlier stage is clean::
+
+    S1 load        per-file parse, unknown keys, computed slots, PN_LOCAL,
+                   model names equal but for case          (sources.py)
+    S2 combine     layer merge and fixes.yaml              (combine.py)
+    S3 schema      the combined file against the generated model
+    S4 references  every id a record names exists; device classes and
+                   signal roles are known
+    S5 records     pair (stated, or derived by the build), value, limits
+                   and seed rules; relation claim shape
+    S6 compute     relation standing, spans, places, wiring,
+                   engines                                 (later stages)
+    S7 views       the views the profile asks for          (later stages)
+
+``validate`` returns every error of the first failing stage, sorted by (table
+row, record kind, id); ``build`` stops on the first of those lines. Each fault
+yields one line of one kind: a slot naming a missing id is ``reference-missing``
+only, because S5 never runs on a file whose references do not resolve, and a
+non-float channel with motion is ``value-invalid`` only.
+
+Every error is a ``FacilityBuildError``; the stages collect them and never
+assemble a line by hand.
+"""
+
+from __future__ import annotations
+
+import copy
+import itertools
+import json
+import math
+import numbers
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
+from functools import cache, cached_property
+from importlib import resources
+from pathlib import Path
+from typing import Any
+
+from osprey_connectors.settle import declared_tolerance
+from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
+from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
+from osprey_connectors.simulation.values import is_waveform
+from osprey_facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
+from osprey_facility.combine import FIXES_FILE, CombineResult, combine
+from osprey_facility.errors import (
+    FacilityBuildError,
+    FacilityBuildWarning,
+    exact_number,
+    quoted_slots,
+)
+from osprey_facility.pairing import (
+    COPY_INDEX,
+    FOLLOWS_NONE,
+    NOT_FOLLOWED,
+    index_copy,
+    labels_of,
+    must_agree,
+    pair_follows,
+    same_type,
+    seed_follows,
+)
+from osprey_facility.records import ChannelSelection, FacilityRecords
+from osprey_facility.relations import shape_problems
+from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
+from osprey_facility.sources import Sources, group_families, load_sources
+
+__all__ = [
+    "FACILITY_HEADER",
+    "LIMIT_BOUNDS",
+    "STAGES",
+    "Stage",
+    "StageReport",
+    "Validated",
+    "check_commands",
+    "check_measurement",
+    "check_records",
+    "check_references",
+    "check_schema",
+    "known_classes",
+    "need",
+    "ordered_slots",
+    "paired_nominal_error",
+    "record_missing",
+    "record_writable",
+    "relation_types",
+    "run_stages",
+    "schema_document",
+    "signal_roles",
+    "sort_errors",
+    "stating_files",
+    "tolerance_bound",
+    "tolerance_warnings",
+    "validate",
+    "vocabulary",
+]
+
+#: The stages, in the order they run.
+STAGES: tuple[str, ...] = (
+    "load",
+    "combine",
+    "schema",
+    "references",
+    "records",
+    "compute",
+    "views",
+)
+
+#: The header of the combined facility file.
+FACILITY_HEADER = "osprey.facility.facility/4"
+
+#: The order errors print in: one entry per row of the error table.
+_TABLE_ROWS: tuple[tuple[str, ...], ...] = (
+    ("source-invalid",),
+    ("layer-conflict", "layer-duplicate"),
+    (
+        "fix-missing",
+        "fix-stale",
+        "fix-duplicate",
+        "fix-computed",
+        "fix-authored",
+        "fix-referenced",
+    ),
+    ("reference-missing",),
+    ("relation-invalid",),
+    ("class-unknown",),
+    ("pair-invalid",),
+    ("command-invalid",),
+    ("value-invalid",),
+    ("seed-invalid", "seed-missing"),
+    ("limit-invalid",),
+    ("place-conflict", "span-invalid", "wiring-conflict"),
+    ("engine-missing", "engine-invalid"),
+    ("model-conflict",),
+)
+_ROW: dict[str, int] = {kind: row for row, kinds in enumerate(_TABLE_ROWS) for kind in kinds}
+
+#: The seed keys that give a channel a value of its own, which a followed readback
+#: cannot keep: a write to its setpoint replaces the held value.
+_OWN_VALUE_KEYS = ("topoff", "topoff_lifetime", "linear", "pulse")
+
+#: The largest number of labels a bool or enum channel carries.
+_MAX_OPTIONS = 16
+#: The longest label, in ASCII characters.
+_MAX_LABEL = 25
+#: The most decimals a float channel's display shows: a double carries no more
+#: than 17 significant digits.
+_MAX_PRECISION = 17
+
+#: The channel slots every address of one wiring record states alike, each with
+#: the value a channel stating none has.
+_SAME_VARIABLE_SLOTS: dict[str, Any] = {
+    "role": DEFAULT_ROLE,
+    "value_type": "float",
+    "options": None,
+    "shape": None,
+}
+#: How ``idle`` is typed by its status; the schema description and the docs row say the same.
+_IDLE_TYPING = (
+    "a label on a bool or enum channel, an integer on an int, a number on a float, "
+    "text on a string; a waveform channel is never a status"
+)
+#: The two edges of a limits record's range; a float or int setpoint is writable only with both.
+_LIMIT_EDGES = ("min_value", "max_value")
+#: The bound slots of a limits record, in the order the limits document writes them.
+LIMIT_BOUNDS = (*_LIMIT_EDGES, "max_step")
+#: The value types a limits record bounds; every other type carries no bounds.
+_NUMERIC_TYPES = ("float", "int")
+_MOTION = ("noise", "drift")
+#: The two terms a ``noise`` record states exactly one of.
+_NOISE_TERMS = ("absolute", "relative")
+_RELATIVE = "relative"
+_RELATIVE_NOMINAL = (
+    "a relative `noise` is taken of the seed's `nominal`, which this seed does not state"
+)
+
+
+# --- stage results ---------------------------------------------------------------
+
+
+@dataclass
+class Validated:
+    """What the stages have produced so far.
+
+    Attributes:
+        facility_dir: The machine root: the ``data/facility`` directory, or
+            the profile's ``machine:`` root when mounted.
+        project_name: The project's name; the zero-source identity folds it.
+        sources: What S1 read.
+        combined: What S2 combined.
+        document: The combined file with its header and identity, the shape
+            S3 validated; set once S2 is clean.
+        warnings: The warnings the stages found, in the order found; a stage
+            appends, none removes.
+        content_dir: The content root, where the deployment's ``knowledge/``,
+            ``ariel/`` and ``benchmarks/`` are read; ``None`` means
+            ``facility_dir``, a single tree.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey_facility.kinds.judged_here`).
+        extra_checks: The checks the caller supplies, run by the compute stage
+            after its scenario checks, their errors joining that stage's.
+    """
+
+    facility_dir: Path
+    project_name: str
+    sources: Sources | None = None
+    combined: CombineResult | None = None
+    document: dict[str, Any] | None = None
+    warnings: list[FacilityBuildWarning] = field(default_factory=list)
+    content_dir: Path | None = None
+    judges_kinds: bool = True
+    extra_checks: Sequence[Stage] = ()
+
+    @property
+    def content_root(self) -> Path:
+        """The directory the deployment's content is read from."""
+        return self.content_dir if self.content_dir is not None else self.facility_dir
+
+
+#: A later stage: reads what the earlier stages produced, returns its errors.
+Stage = Callable[[Validated], list[FacilityBuildError]]
+
+
+@dataclass
+class StageReport:
+    """The outcome of running the stages.
+
+    Attributes:
+        failed: The first stage with an error, or ``None`` when every stage ran
+            clean.
+        errors: Every error of that stage, sorted by ``sort_errors``.
+        validated: What the stages that ran produced.
+    """
+
+    failed: str | None
+    errors: list[FacilityBuildError]
+    validated: Validated = field(repr=False)
+
+    @property
+    def ok(self) -> bool:
+        """True when every stage ran clean."""
+        return self.failed is None
+
+    def raise_first(self) -> None:
+        """Raise the first error, as ``build`` stops on it.
+
+        Raises:
+            FacilityBuildError: The first sorted error, when any stage failed.
+        """
+        if self.errors:
+            raise self.errors[0]
+
+
+def sort_errors(errors: Iterable[FacilityBuildError]) -> list[FacilityBuildError]:
+    """Sort errors by (table row, record kind, id), keeping ties in found order.
+
+    Args:
+        errors: The errors of one stage.
+
+    Returns:
+        A new sorted list.
+    """
+    return sorted(
+        errors, key=lambda e: (_ROW.get(e.kind, len(_TABLE_ROWS)), e.record_kind, e.record_id)
+    )
+
+
+def run_stages(
+    facility_dir: Path,
+    *,
+    project_name: str,
+    later: Sequence[tuple[str, Stage]] = (),
+    content_dir: Path | None = None,
+    judges_kinds: bool = True,
+    extra_checks: Sequence[Stage],
+) -> StageReport:
+    """Run S1 to S5, then each later stage, stopping at the first that fails.
+
+    Args:
+        facility_dir: The machine root, the ``data/facility`` directory of a
+            single tree; a missing one is zero sources.
+        project_name: The project's name, folded into the identity code when
+            there is no ``identity.yaml``.
+        later: ``(stage name, check)`` for the stages after S5, in order.
+        content_dir: The content root when mounted; ``None`` means
+            ``facility_dir``.
+        judges_kinds: Whether this tree is where its listed kinds are judged
+            (:func:`osprey_facility.kinds.judged_here`).
+        extra_checks: Checks the caller supplies, run by the compute stage
+            after its scenario checks; the framework passes its scenario
+            server check here.
+
+    Returns:
+        The first failing stage and all of its errors, or a clean report.
+    """
+    validated = Validated(
+        facility_dir,
+        project_name,
+        content_dir=content_dir,
+        judges_kinds=judges_kinds,
+        extra_checks=tuple(extra_checks),
+    )
+    loaded = load_sources(facility_dir)
+    validated.sources = loaded.sources
+    if loaded.errors:
+        return _failed("load", loaded.errors, validated)
+    combined = combine(loaded.sources)
+    validated.combined = combined
+    if combined.errors:
+        return _failed("combine", combined.errors, validated)
+    validated.warnings.extend(combined.warnings)
+    document = schema_document(combined.document, loaded.sources, project_name=project_name)
+    validated.document = document
+    checks: list[tuple[str, Stage]] = [
+        ("schema", lambda v: check_schema(need(v.document), need(v.sources))),
+        ("references", lambda v: check_references(need(v.sources), need(v.combined))),
+        ("records", lambda v: check_records(need(v.document))),
+        *later,
+    ]
+    for name, check in checks:
+        errors = check(validated)
+        if errors:
+            return _failed(name, errors, validated)
+    return StageReport(None, [], validated)
+
+
+def need(value: Any) -> Any:
+    """Return what an earlier stage produced.
+
+    Args:
+        value: A slot of ``Validated``.
+
+    Returns:
+        ``value`` itself.
+
+    Raises:
+        RuntimeError: The slot is still empty: a stage ran before the stage
+            that produces its input.
+    """
+    if value is None:
+        raise RuntimeError("a stage ran before the stage that produces its input")
+    return value
+
+
+def _failed(stage: str, errors: list[FacilityBuildError], validated: Validated) -> StageReport:
+    return StageReport(stage, sort_errors(errors), validated)
+
+
+def validate(
+    facility_dir: Path,
+    *,
+    project_name: str,
+    extra_checks: Sequence[Stage],
+) -> tuple[int, list[str]]:
+    """Check a facility directory; print nothing.
+
+    Args:
+        facility_dir: The ``data/facility`` directory.
+        project_name: The project's name.
+        extra_checks: Checks the caller supplies (:func:`run_stages`).
+
+    Returns:
+        The exit code, 0 when every stage is clean and else 1, and the lines
+        to show: every error of the first failing stage, or the warnings of
+        the build when the directory is clean.
+    """
+    from osprey_facility.build import LATER_STAGES
+
+    result = run_stages(
+        facility_dir, project_name=project_name, later=LATER_STAGES, extra_checks=extra_checks
+    )
+    if not result.ok:
+        return 1, [error.format_message() for error in result.errors]
+    return 0, [warning.line for warning in result.validated.warnings]
+
+
+# --- vocabulary --------------------------------------------------------------------
+
+
+@cache
+def vocabulary() -> dict[str, Any]:
+    """The generated vocabulary table.
+
+    Returns:
+        The table read from ``schema/_generated/vocabulary.json``: ``classes``,
+        ``signal_roles`` and ``properties`` rows of ``{name, aliases, ...}``, and
+        ``relations`` rows of ``{name, description, subject, object, symmetric,
+        single_per}``.
+    """
+    table = resources.files("osprey_facility.schema._generated") / "vocabulary.json"
+    data: dict[str, Any] = json.loads(table.read_text(encoding="utf-8"))
+    return data
+
+
+def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The vocabulary's signal roles joined with the facility-added ones.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        Every signal role a channel may carry.
+    """
+    names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
+    names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
+    return frozenset(names)
+
+
+def relation_types() -> dict[str, dict[str, Any]]:
+    """The vocabulary's relation types, keyed by name.
+
+    Returns:
+        Each ``relations`` row of the vocabulary table under its ``name``: the end
+        kinds ``subject`` and ``object``, ``symmetric``, and the ``single_per``
+        key fields, lists in their stated order.
+    """
+    return {row["name"]: row for row in vocabulary()["relations"]}
+
+
+def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The vocabulary's device classes joined with the facility-added ones.
+
+    Args:
+        classes: ``classes.yaml``'s records.
+
+    Returns:
+        Every class name a device may carry.
+    """
+    names = {row["name"] for row in vocabulary()["classes"]}
+    names.update(str(row["class"]) for row in classes if isinstance(row.get("class"), str))
+    return frozenset(names)
+
+
+# --- ordered slots -----------------------------------------------------------------
+
+
+@cache
+def ordered_slots() -> frozenset[tuple[str, str]]:
+    """The multivalued slots whose order carries meaning, as ``(class, slot)``.
+
+    Read from the generated model: a slot is ordered when its field's
+    ``linkml_meta`` sets ``list_elements_ordered``. Every other multivalued slot
+    is one of ``sources.SET_VALUED_SLOTS``.
+
+    Returns:
+        The ordered slots of every class of the facility file.
+    """
+    import pydantic
+
+    from osprey_facility.schema import core
+
+    ordered = set()
+    for name, cls in sorted(vars(core).items()):
+        if not (isinstance(cls, type) and issubclass(cls, pydantic.BaseModel)):
+            continue
+        if cls.__module__ != core.__name__:
+            continue
+        for slot, info in cls.model_fields.items():
+            extra = info.json_schema_extra
+            meta = extra.get("linkml_meta", {}) if isinstance(extra, dict) else {}
+            if isinstance(meta, dict) and meta.get("list_elements_ordered"):
+                ordered.add((name, slot))
+    return frozenset(ordered)
+
+
+# --- S3: schema --------------------------------------------------------------------
+
+
+def schema_document(
+    document: Mapping[str, Any], sources: Sources, *, project_name: str
+) -> dict[str, Any]:
+    """The combined file with its header and identity filled.
+
+    ``identity`` is ``identity.yaml``'s record, or ``{code, name}`` folded from
+    the project name when there is none. Neither argument is modified.
+
+    Args:
+        document: S2's combined document.
+        sources: What S1 read.
+        project_name: The project's name.
+
+    Returns:
+        A new document that starts with ``schema`` and ``identity``.
+    """
+    body = copy.deepcopy(dict(document))
+    body.pop("identity", None)
+    if sources.identity is not None:
+        identity = copy.deepcopy(sources.identity)
+    else:
+        identity = {"code": fold_code(project_name), "name": project_name}
+    return {"schema": FACILITY_HEADER, "identity": identity, **body}
+
+
+def check_schema(document: Mapping[str, Any], sources: Sources) -> list[FacilityBuildError]:
+    """Validate the filled document against the generated model (stage S3).
+
+    Each failing path is one ``source-invalid`` line naming the dotted path. The
+    slots typed ``Any`` (scenario ``overrides`` and ``faults``, a measurement
+    file's ``groups`` and ``instruments``) are checked for their shape here too.
+
+    Args:
+        document: The document from ``schema_document``.
+        sources: What S1 read, to name each path's source file.
+
+    Returns:
+        Every error, one per path.
+    """
+    failures: dict[tuple[Any, ...], Mapping[str, Any]] = {}
+    for loc, item in _model_failures(document):
+        failures.setdefault(_path(loc), item)
+    errors = [_schema_error(document, sources, loc, item) for loc, item in failures.items()]
+    for index, scenario in enumerate(document.get("scenarios") or []):
+        if not isinstance(scenario, dict):
+            continue
+        rel = _scenario_file(scenario)
+        for slot, depth in (("overrides", 1), ("faults", 2)):
+            value = scenario.get(slot)
+            if value is not None and not _mapping_of_depth(value, depth):
+                shape = "a mapping" if depth == 1 else "a mapping of model to a mapping"
+                errors.append(
+                    FacilityBuildError(
+                        "source-invalid",
+                        f"scenarios.{index}.{slot}",
+                        [rel],
+                        f"write `{slot}` in {rel} as {shape}",
+                        record_kind="path",
+                        detail=f"{rel} `{slot}` is not {shape}",
+                    )
+                )
+    for index, model in enumerate(document.get("models") or []):
+        measurement = model.get("measurement") if isinstance(model, dict) else None
+        if isinstance(measurement, dict):
+            errors.extend(_measurement_shape(index, str(model.get("name")), measurement))
+    return errors
+
+
+def _model_failures(document: Mapping[str, Any]) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    """Every failure of the generated model on ``document``, with its full location.
+
+    The same failures ``Facility.model_validate(document)`` raises, found record
+    by record: validating the whole file at once builds a model object for
+    every record before it is thrown away, which for a large facility is the
+    biggest allocation of the build. The facility model checks each record list
+    item by item and checks nothing across items, so each list of records is
+    validated one record at a time and the rest of the file with those lists
+    empty; each failure's location is the one the whole-file validation gives.
+
+    Args:
+        document: The document from ``schema_document``.
+
+    Yields:
+        ``(loc, error)`` per failure: the full location, and pydantic's error.
+    """
+    from osprey_facility.schema import Facility
+
+    lists = _record_lists()
+    rest = dict(document)
+    for name in lists:
+        if isinstance(rest.get(name), list):
+            rest[name] = []
+    yield from _failures_of(Facility, rest, ())
+    for name, model in lists.items():
+        records = document.get(name)
+        if isinstance(records, list):
+            for index, record in enumerate(records):
+                yield from _failures_of(model, record, (name, index))
+
+
+def _failures_of(
+    model: Any, value: Any, prefix: tuple[Any, ...]
+) -> Iterator[tuple[tuple[Any, ...], Any]]:
+    import pydantic
+
+    try:
+        model.model_validate(value)
+    except pydantic.ValidationError as exc:
+        for item in exc.errors():
+            yield (*prefix, *item["loc"]), {**item, "loc": (*prefix, *item["loc"])}
+
+
+@cache
+def _record_lists() -> dict[str, Any]:
+    """The facility model's fields that are lists of records, and each record's model.
+
+    Read from the generated model: a field annotated ``Optional[list[M]]`` with
+    ``M`` a model.
+    """
+    import typing
+
+    import pydantic
+
+    from osprey_facility.schema import Facility
+
+    found: dict[str, Any] = {}
+    for name, info in Facility.model_fields.items():
+        for member in typing.get_args(info.annotation) or (info.annotation,):
+            if typing.get_origin(member) is list:
+                (item,) = typing.get_args(member)
+                if isinstance(item, type) and issubclass(item, pydantic.BaseModel):
+                    found[info.alias or name] = item
+    return found
+
+
+#: Each open map of a measurement file, what it is keyed by, what each value is, and the test.
+_MEASUREMENT_MAPS: tuple[tuple[str, str, str, Any], ...] = (
+    (
+        "groups",
+        "role",
+        "a group id or a list of group ids",
+        lambda v: (
+            isinstance(v, str) or (isinstance(v, list) and all(isinstance(i, str) for i in v))
+        ),
+    ),
+    ("instruments", "role", "a channel address", lambda v: isinstance(v, str)),
+    ("kind_blocks", "kind", "a mapping", lambda v: isinstance(v, dict)),
+)
+
+
+def _measurement_shape(
+    index: int, model: str, measurement: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A measurement file's open maps: each a mapping of role to what the role names."""
+    rel = f"measurement/{model}.yaml"
+    for slot, key, shape, fits in _MEASUREMENT_MAPS:
+        value = measurement.get(slot)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            bad: list[str | None] = [None]
+        else:
+            bad = [str(role) for role, named in value.items() if not fits(named)]
+        for role in bad:
+            where = slot if role is None else f"{slot}.{role}"
+            wanted = f"a mapping of {key} to {shape}" if role is None else shape
+            yield FacilityBuildError(
+                "source-invalid",
+                f"models.{index}.measurement.{where}",
+                [rel],
+                f"write `{where}` in {rel} as {wanted}",
+                record_kind="path",
+                detail=f"{rel} `{where}` is not {wanted}",
+            )
+
+
+def _mapping_of_depth(value: Any, depth: int) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return depth == 1 or all(_mapping_of_depth(v, depth - 1) for v in value.values())
+
+
+#: The tags pydantic appends to a location for each member of a union.
+_UNION_TAGS = frozenset({"str", "float", "int", "bool", "LinearTerm"})
+
+
+def _path(loc: Sequence[Any]) -> tuple[Any, ...]:
+    """A location without the union-member tags, so one path is one line."""
+    for position, part in enumerate(loc):
+        if position >= 2 and part in _UNION_TAGS:
+            return tuple(loc[:position])
+    return tuple(loc)
+
+
+def _schema_error(
+    document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...], item: Mapping[str, Any]
+) -> FacilityBuildError:
+    dotted = ".".join(str(part) for part in loc)
+    files = _path_files(document, sources, loc)
+    where = ", ".join(files)
+    slot = str(loc[-1]) if loc else "the file"
+    message = str(item.get("msg", "is invalid"))
+    message = message[:1].lower() + message[1:]
+    if item.get("type") == "missing":
+        remedy = f"add `{slot}` to {where}"
+    elif item.get("type") == "extra_forbidden":
+        remedy = f"remove `{slot}` from {where}"
+    else:
+        remedy = f"correct `{slot}` in {where}"
+    return FacilityBuildError(
+        "source-invalid",
+        dotted,
+        files,
+        remedy,
+        record_kind="path",
+        detail=f"{where}: {message}",
+    )
+
+
+_TOP_SLOT_FILES = {
+    "limits": "limits.yaml",
+    "classes": "classes.yaml",
+    "signals": "signals.yaml",
+    "identity": "identity.yaml",
+    "documents": "documents.yaml",
+}
+
+
+def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...]) -> list[str]:
+    """The source files the value at a location came from."""
+    if not loc:
+        return ["facility"]
+    top = loc[0]
+    if top in _TOP_SLOT_FILES:
+        return [_TOP_SLOT_FILES[str(top)]]
+    items = document.get(str(top))
+    if len(loc) < 2 or not isinstance(items, list) or not isinstance(loc[1], int):
+        return ["facility"]
+    record = items[loc[1]] if loc[1] < len(items) else None
+    if not isinstance(record, dict):
+        return ["facility"]
+    if top == "scenarios":
+        return [_scenario_file(record)]
+    rest = loc[2:]
+    if (
+        top == "models"
+        and rest[:1] == ("measurement",)
+        and record.get("name") in (sources.measurement)
+    ):
+        return [f"measurement/{record['name']}.yaml"]
+    if top == "models" and rest[:1] == ("wiring",) and len(rest) >= 2:
+        wiring = record.get("wiring") or []
+        position = rest[1]
+        if isinstance(position, int) and position < len(wiring):
+            record, rest = wiring[position], rest[2:]
+    if (
+        top == "channels"
+        and rest[:1] == ("simulation",)
+        and str(record.get("id")) in (sources.seeds)
+    ):
+        return ["seeds.yaml"]
+    return stating_files(record, str(rest[0]) if rest else None)
+
+
+def _scenario_file(scenario: Mapping[str, Any]) -> str:
+    return f"scenarios/{scenario.get('name')}.yaml"
+
+
+def stating_files(
+    record: Mapping[str, Any], slot: str | None, fallback: str = FIXES_FILE
+) -> list[str]:
+    """The files that state a slot of a combined record.
+
+    Args:
+        record: A record carrying its ``provenance`` block.
+        slot: The slot, or ``None`` for every file of the record.
+        fallback: The file named when no source states the record at all.
+
+    Returns:
+        The stating files, sorted; fixes.yaml for a slot only a fix wrote;
+        else every file of the record, or ``fallback``.
+    """
+    provenance = record.get("provenance")
+    sources = provenance.get("sources", []) if isinstance(provenance, dict) else []
+    stating = sorted(
+        {
+            str(source["file"])
+            for source in sources
+            if isinstance(source, dict) and (slot is None or slot in source.get("fields", ()))
+        }
+    )
+    if stating:
+        return stating
+    fixes = provenance.get("fixes") if isinstance(provenance, dict) else None
+    if fixes:
+        return [FIXES_FILE]
+    every = sorted({str(s["file"]) for s in sources if isinstance(s, dict)})
+    return every or [fallback]
+
+
+# --- the combined file, indexed ------------------------------------------------------
+
+
+class _Index:
+    """The combined document's records by id, and who wires what."""
+
+    def __init__(self, document: Mapping[str, Any]) -> None:
+        self.document = document
+        self.places = _by_key(document.get("places"), "id")
+        self.devices = _by_key(document.get("devices"), "id")
+        self.channels = _by_key(document.get("channels"), "id")
+        self.groups = _by_key(document.get("groups"), "id")
+        self.models = _by_key(document.get("models"), "name")
+        self.relations = _by_key(document.get("relations"), "id")
+        self.documents = _by_key(document.get("documents"), "id")
+        self.wiring: list[tuple[str, dict[str, Any]]] = []
+        self.wired: dict[str, set[str]] = {}
+        for name, model in sorted(self.models.items()):
+            for entry in model.get("wiring") or []:
+                if isinstance(entry, dict):
+                    self.wiring.append((name, entry))
+                    for address in wiring_addresses(entry):
+                        self.wired.setdefault(address, set()).add(name)
+        limits = document.get("limits")
+        records = limits.get("records") if isinstance(limits, dict) else None
+        self.limits: list[dict[str, Any]] = [r for r in records or [] if isinstance(r, dict)]
+        self.former: dict[str, str] = {}
+        for address, channel in sorted(self.channels.items()):
+            for old in channel.get("former_addresses") or []:
+                self.former.setdefault(str(old), address)
+
+
+def _by_key(rows: Any, key: str) -> dict[str, dict[str, Any]]:
+    return {
+        str(row[key]): row
+        for row in rows or []
+        if isinstance(row, dict) and isinstance(row.get(key), str)
+    }
+
+
+# --- S4: references ------------------------------------------------------------------
+
+
+def check_references(sources: Sources, combined: CombineResult) -> list[FacilityBuildError]:
+    """Check that every id a record names exists (stage S4).
+
+    Every referencing slot of the file is checked, plus the entries the combine
+    attaches by address or model name without checking them (``seeds.yaml``,
+    measurement files). Each id a relation claim's ends state resolves to its
+    kind; when ``documents.yaml`` declares documents, each claim's
+    ``source.document`` and each device and place citation and scheme-name
+    source names a declared one. A missing id is ``reference-missing``, naming the file
+    and field, and the new address when the id is a channel's former address or
+    the fix when a ``drop`` removed it. A device class or a channel signal the
+    vocabulary does not know is ``class-unknown``.
+
+    Args:
+        sources: What S1 read.
+        combined: What S2 combined, with its ``dropped`` records.
+
+    Returns:
+        Every error found.
+    """
+    return list(_References(sources, combined).run())
+
+
+class _References:
+    def __init__(self, sources: Sources, combined: CombineResult) -> None:
+        self.sources = sources
+        self.dropped = combined.dropped
+        self.index = _Index(combined.document)
+
+    def run(self) -> Iterator[FacilityBuildError]:
+        yield from self._classes()
+        yield from self._places()
+        yield from self._devices()
+        yield from self._channels()
+        yield from self._groups()
+        yield from self._wiring()
+        yield from self._seeds()
+        yield from self._limits()
+        yield from self._scenarios()
+        yield from self._measurement()
+        yield from self._relations()
+        yield from self._citations()
+
+    def _exists(self, kind: str, rid: str) -> bool:
+        table = {
+            "place": self.index.places,
+            "device": self.index.devices,
+            "channel": self.index.channels,
+            "group": self.index.groups,
+            "model": self.index.models,
+            "document": self.index.documents,
+        }[kind]
+        return rid in table
+
+    def _known_channel(self, address: str) -> bool:
+        """True for a channel, a channel a fix dropped, or a former address."""
+        return (
+            address in self.index.channels
+            or ("channel", address) in self.dropped
+            or address in self.index.former
+        )
+
+    def _missing(
+        self,
+        record_kind: str,
+        record_id: str,
+        files: Sequence[str],
+        slot: str,
+        kind: str,
+        target: Any,
+    ) -> Iterator[FacilityBuildError]:
+        """Yield one ``reference-missing`` when ``target`` names no record."""
+        target = str(target)
+        if self._exists(kind, target):
+            return
+        where = f"{', '.join(files)} `{slot}` names {kind} {target}"
+        remedy = f"add {kind} {target} or correct `{slot}`"
+        drop = self.dropped.get((kind, target))
+        moved = self.index.former.get(target) if kind == "channel" else None
+        if drop is not None:
+            detail = (
+                f"{where}, dropped by fix {drop['op']} {drop['kind']} {drop['id']}: {drop['why']}"
+            )
+            remedy = "remove the entry or drop the fix"
+            files = [*files, FIXES_FILE]
+        elif moved is not None:
+            detail = f"{where}, which does not exist; channel {moved} lists it in former_addresses"
+            remedy = f"point `{slot}` at {moved}"
+        else:
+            detail = f"{where}, which does not exist"
+        yield FacilityBuildError(
+            "reference-missing", record_id, files, remedy, record_kind=record_kind, detail=detail
+        )
+
+    def _classes(self) -> Iterator[FacilityBuildError]:
+        known = set(known_classes())
+        for row in self.sources.classes:
+            name = str(row.get("class"))
+            parent = row.get("parent")
+            if parent not in known:
+                yield FacilityBuildError(
+                    "class-unknown",
+                    name,
+                    ["classes.yaml"],
+                    "name a vocabulary class or a class listed earlier in classes.yaml",
+                    record_kind="class",
+                    detail=f"classes.yaml `parent` {parent} is neither a vocabulary class "
+                    "nor an earlier facility-added class",
+                )
+            known.add(name)
+
+    def _places(self) -> Iterator[FacilityBuildError]:
+        for pid, place in sorted(self.index.places.items()):
+            if "/" in pid:
+                parent = pid.rsplit("/", 1)[0]
+                if parent not in self.index.places:
+                    files = stating_files(place, None)
+                    yield from self._missing("place", pid, files, "id", "place", parent)
+            span = place.get("span")
+            if isinstance(span, dict) and "model" in span:
+                files = stating_files(place, "span")
+                yield from self._missing("place", pid, files, "span.model", "model", span["model"])
+
+    def _devices(self) -> Iterator[FacilityBuildError]:
+        known = known_classes(self.sources.classes)
+        for did, device in sorted(self.index.devices.items()):
+            if "place" in device:
+                files = stating_files(device, "place")
+                yield from self._missing("device", did, files, "place", "place", device["place"])
+            if "model" in device:
+                files = stating_files(device, "model")
+                yield from self._missing("device", did, files, "model", "model", device["model"])
+            cls = device.get("class")
+            if cls is not None and cls not in known:
+                yield FacilityBuildError(
+                    "class-unknown",
+                    did,
+                    stating_files(device, "class"),
+                    "use a vocabulary class or add it to classes.yaml",
+                    record_kind="device",
+                    detail=f"class {cls} is in neither the vocabulary nor classes.yaml",
+                )
+
+    def _channels(self) -> Iterator[FacilityBuildError]:
+        roles = signal_roles(self.sources.signals)
+        for address, channel in sorted(self.index.channels.items()):
+            on = channel.get("on")
+            if isinstance(on, dict):
+                for kind in ("device", "place"):
+                    if kind in on:
+                        files = stating_files(channel, "on")
+                        yield from self._missing(
+                            "channel", address, files, f"on.{kind}", kind, on[kind]
+                        )
+            if "pair" in channel:
+                files = stating_files(channel, "pair")
+                yield from self._missing(
+                    "channel", address, files, "pair", "channel", channel["pair"]
+                )
+            for device in channel.get("endpoint_of") or []:
+                files = stating_files(channel, "endpoint_of")
+                yield from self._missing("channel", address, files, "endpoint_of", "device", device)
+            simulation = channel.get("simulation")
+            linear = simulation.get("linear") if isinstance(simulation, dict) else None
+            if isinstance(linear, dict):
+                files = self._seed_files(channel)
+                for source in sorted(linear, key=str):
+                    yield from self._missing(
+                        "channel", address, files, "simulation.linear", "channel", source
+                    )
+            yield from self._seed_inputs(address, channel)
+            signal = channel.get("signal")
+            if signal is not None and signal not in roles:
+                yield FacilityBuildError(
+                    "class-unknown",
+                    address,
+                    stating_files(channel, "signal"),
+                    "use a vocabulary signal role, add it to signals.yaml or remove `signal`",
+                    record_kind="channel",
+                    detail=f"signal {signal} is in neither the vocabulary nor signals.yaml",
+                )
+
+    def _seed_inputs(
+        self, address: str, channel: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """The channels a seed's ``pulse`` and ``gate`` read exist."""
+        files = self._seed_files(channel)
+        for slot, source in _seed_inputs(channel.get("simulation")):
+            yield from self._missing(
+                "channel", address, files, f"simulation.{slot}", "channel", source
+            )
+
+    def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
+        if str(channel.get("id")) in self.sources.seeds:
+            return ["seeds.yaml"]
+        return stating_files(channel, "simulation")
+
+    def _groups(self) -> Iterator[FacilityBuildError]:
+        for gid, group in sorted(self.index.groups.items()):
+            for member in group.get("members") or []:
+                files = stating_files(group, "members")
+                yield from self._missing("group", gid, files, "members", "device", member)
+
+    def _wiring(self) -> Iterator[FacilityBuildError]:
+        for _model, entry in self.index.wiring:
+            wid = str(entry.get("id"))
+            address = entry.get("address")
+            yield from self._missing(
+                "wiring", wid, stating_files(entry, "address"), "address", "channel", address
+            )
+            for name in wiring_addresses(entry)[1:] if isinstance(address, str) else ():
+                yield from self._missing(
+                    "wiring", wid, stating_files(entry, "also"), "also", "channel", name
+                )
+            channel = self.index.channels.get(str(address), {})
+            on = channel.get("on")
+            own = on.get("device") if isinstance(on, dict) else None
+            filled = "slices.device" in _provenance_defaults(entry)
+            for piece in entry.get("slices") or []:
+                if not isinstance(piece, dict) or "device" not in piece:
+                    continue
+                if filled and piece["device"] == own:
+                    continue
+                yield from self._missing(
+                    "wiring",
+                    wid,
+                    stating_files(entry, "slices"),
+                    "slices.device",
+                    "device",
+                    piece["device"],
+                )
+
+    def _seeds(self) -> Iterator[FacilityBuildError]:
+        for address in sorted(self.sources.seeds):
+            yield from self._missing("seed", address, ["seeds.yaml"], "address", "channel", address)
+
+    def _limits(self) -> Iterator[FacilityBuildError]:
+        for record in self.index.limits:
+            address = str(record.get("address"))
+            yield from self._missing(
+                "limit", address, ["limits.yaml"], "records.address", "channel", address
+            )
+
+    def _scenarios(self) -> Iterator[FacilityBuildError]:
+        for scenario in self.sources.scenarios:
+            name = str(scenario["name"])
+            files = [f"scenarios/{name}.yaml"]
+            overrides = scenario.get("overrides")
+            for address in sorted(overrides if isinstance(overrides, dict) else (), key=str):
+                yield from self._missing("scenario", name, files, "overrides", "channel", address)
+            for entry in scenario.get("archiver") or []:
+                if isinstance(entry, dict) and "channel" in entry:
+                    yield from self._missing(
+                        "scenario", name, files, "archiver.channel", "channel", entry["channel"]
+                    )
+            for slot in ("couple", "noise"):
+                block = scenario.get(slot)
+                for address in sorted(block if isinstance(block, dict) else (), key=str):
+                    yield from self._missing("scenario", name, files, slot, "channel", address)
+            still = scenario.get("still")
+            listed = still if isinstance(still, list) else ()
+            for address in sorted({entry for entry in listed if isinstance(entry, str)}):
+                yield from self._missing("scenario", name, files, "still", "channel", address)
+            for entry in listed:
+                for kind in ("model", "place", "group") if isinstance(entry, dict) else ():
+                    if isinstance(entry.get(kind), str):
+                        yield from self._missing(
+                            "scenario", name, files, "still", kind, entry[kind]
+                        )
+            channel_faults = scenario.get("channel_faults")
+            for address in sorted(
+                channel_faults if isinstance(channel_faults, dict) else (), key=str
+            ):
+                yield from self._missing(
+                    "scenario", name, files, "channel_faults", "channel", address
+                )
+            faults = scenario.get("faults")
+            if not isinstance(faults, dict):
+                continue
+            for model in sorted(faults, key=str):
+                if not self._exists("model", str(model)):
+                    yield from self._missing("scenario", name, files, "faults", "model", model)
+                    continue
+                engine = "engine" in self.index.models[str(model)]
+                targets = faults[model]
+                for target in sorted(targets if isinstance(targets, dict) else (), key=str):
+                    if engine and not self._known_channel(str(target)):
+                        # A key naming no channel is an engine variable, which
+                        # the engine check of the compute stage resolves.
+                        continue
+                    yield from self._missing(
+                        "scenario", name, files, f"faults.{model}", "channel", target
+                    )
+
+    def _measurement(self) -> Iterator[FacilityBuildError]:
+        for model, measurement in sorted(self.sources.measurement.items()):
+            files = [f"measurement/{model}.yaml"]
+            if not self._exists("model", model):
+                yield from self._missing("measurement", model, files, "file name", "model", model)
+                continue
+            groups = measurement.get("groups")
+            for role, value in sorted((groups if isinstance(groups, dict) else {}).items()):
+                for group in group_families(value):
+                    yield from self._missing(
+                        "measurement", model, files, f"groups.{role}", "group", group
+                    )
+            instruments = measurement.get("instruments")
+            for role, address in sorted(
+                (instruments if isinstance(instruments, dict) else {}).items()
+            ):
+                yield from self._missing(
+                    "measurement", model, files, f"instruments.{role}", "channel", address
+                )
+
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """Each stated end id of a claim, and its source document, exists."""
+        for rid, claim in sorted(self.index.relations.items()):
+            for end in ("subject", "object"):
+                stated = claim.get(end)
+                if not isinstance(stated, dict):
+                    continue
+                files = stating_files(claim, end)
+                for kind in ("device", "place", "group"):
+                    if kind in stated:
+                        yield from self._missing(
+                            "relation", rid, files, f"{end}.{kind}", kind, stated[kind]
+                        )
+            if self.index.documents:
+                yield from self._cited(
+                    "relation", rid, claim, "source", "source.document", [claim.get("source")]
+                )
+
+    def _citations(self) -> Iterator[FacilityBuildError]:
+        """Each device and place citation and scheme-name source names a document.
+
+        Checked only when ``documents.yaml`` declares documents.
+        """
+        if not self.index.documents:
+            return
+        for record_kind, records in (("device", self.index.devices), ("place", self.index.places)):
+            for rid, record in sorted(records.items()):
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "citations",
+                    "citations.document",
+                    record.get("citations") or [],
+                )
+                aliases = record.get("scheme_names") or []
+                yield from self._cited(
+                    record_kind,
+                    rid,
+                    record,
+                    "scheme_names",
+                    "scheme_names.source.document",
+                    [a.get("source") for a in aliases if isinstance(a, dict)],
+                )
+
+    def _cited(
+        self,
+        record_kind: str,
+        record_id: str,
+        record: Mapping[str, Any],
+        top: str,
+        slot: str,
+        citations: Any,
+    ) -> Iterator[FacilityBuildError]:
+        files = stating_files(record, top)
+        for citation in citations:
+            if isinstance(citation, dict) and "document" in citation:
+                yield from self._missing(
+                    record_kind, record_id, files, slot, "document", citation["document"]
+                )
+
+
+def _provenance_defaults(record: Mapping[str, Any]) -> list[str]:
+    provenance = record.get("provenance")
+    defaults = provenance.get("defaults") if isinstance(provenance, dict) else None
+    return list(defaults or [])
+
+
+# --- S5: record rules ----------------------------------------------------------------
+
+
+def _relation_slot(detail: str) -> str | None:
+    """The claim slot a ``relation-invalid`` detail is about, or ``None`` for the claim."""
+    if detail.startswith("`subject` and `object`"):
+        return None
+    for slot in ("subject", "object", "basis"):
+        if detail.startswith(f"`{slot}`"):
+            return slot
+    if "`attributes." in detail:
+        return "attributes"
+    return None
+
+
+def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check the pair, value, limits and seed rules (stage S5).
+
+    The pair is the one a source states, or the one the build derived.
+
+    Runs only on a file whose references resolve. The stops are
+    ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
+    (all but the nominal band, which needs the computed operating point), and
+    ``relation-invalid`` for a relation claim whose shape breaks a rule.
+    A further address of a wiring record (under ``also``) states no
+    ``tolerance``: the record's holds under each of its addresses.
+
+    Args:
+        document: The document S3 validated.
+
+    Returns:
+        Every error found.
+    """
+    return list(_Records(document).run())
+
+
+def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check each command's ``timeout_s`` and its status's ``idle`` together.
+
+    A command that states ``timeout_s`` pairs with a readback, its status, that
+    states ``idle``; a command whose status states ``idle`` states
+    ``timeout_s``. ``idle`` sits only on a readback a command pairs with and is
+    typed by that channel; ``timeout_s`` sits only on a command and is a finite
+    number > 0. A limits record states no ``confirm: true`` on a command with
+    ``timeout_s``: the wait for its status confirms the write. A status that
+    states ``idle`` states no ``follows`` naming a setpoint; the simulation never
+    follows it. A further address of a wiring record (under ``also``) states
+    neither ``timeout_s`` nor ``idle``: the record's own hold under each of
+    its addresses. Runs once commands are marked, so the stop is
+    ``command-invalid`` alone.
+
+    Args:
+        document: The combined document, its commands marked ``command: true``.
+
+    Returns:
+        Every error found.
+    """
+    return list(_Records(document).commands())
+
+
+class _Records:
+    def __init__(self, document: Mapping[str, Any]) -> None:
+        self.index = _Index(document)
+        self.scenarios = [s for s in document.get("scenarios") or [] if isinstance(s, dict)]
+        # Channels whose value_type, options or shape is wrong: their values
+        # cannot be coerced, so no value rule runs on them.
+        self.broken: set[str] = set()
+        self.rosters: dict[str, FaultRoster | None] = {}
+
+    def run(self) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.values import coerce
+
+        self.coerce = coerce
+        for address, channel in sorted(self.index.channels.items()):
+            yield from self._value_shape(address, channel)
+        for address, channel in sorted(self.index.channels.items()):
+            yield from self._seed(address, channel)
+        yield from self._linear_cycles()
+        yield from self._gate_cycles()
+        yield from self._pairs()
+        for address, channel in sorted(self.index.channels.items()):
+            if "tolerance" not in channel:
+                continue
+            if address in self._further:
+                yield from self._on_further(
+                    "value-invalid", ("tolerance",), address, channel, *self._further[address]
+                )
+            elif address not in self.broken:
+                yield from self._tolerance(address, channel)
+        yield from self._wiring()
+        yield from self._limits()
+        yield from self._scenarios()
+        yield from self._relations()
+
+    def commands(self) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.values import coerce
+
+        self.coerce = coerce
+        channels = self.index.channels
+        status_of = {
+            address: str(channel.get("pair", address))
+            for address, channel in sorted(channels.items())
+            if channel.get("command") is True
+        }
+        awaited = {status for address, status in status_of.items() if status != address}
+        further = self._further
+        for address, channel in sorted(channels.items()):
+            if address in further:
+                yield from self._on_further(
+                    "command-invalid", ("timeout_s", "idle"), address, channel, *further[address]
+                )
+                continue
+            yield from self._bound(address, channel, status_of.get(address))
+            if "idle" in channel:
+                yield from self._idle(address, channel, awaited)
+        for record in self.index.limits:
+            address = str(record.get("address"))
+            own = further[address][1] if address in further else address
+            bounded = own in status_of and "timeout_s" in channels[own]
+            if bounded and record.get("confirm") is True:
+                yield self._error(
+                    "command-invalid",
+                    "limit",
+                    address,
+                    ["limits.yaml"],
+                    "`confirm: true` on a command that states `timeout_s`"
+                    if own == address
+                    else "`confirm: true` on a further address of a command that states "
+                    "`timeout_s`",
+                    f"remove `confirm`; the wait for {status_of[own]} confirms the write",
+                )
+
+    @cached_property
+    def _further(self) -> dict[str, tuple[str, str]]:
+        """A further address of a wiring record is that record under another name.
+
+        Each further address, by the wiring record's id and ``address`` it names.
+        """
+        further: dict[str, tuple[str, str]] = {}
+        for _, entry in self.index.wiring:
+            own, *names = wiring_addresses(entry)
+            for name in names:
+                if name != own:
+                    further.setdefault(name, (str(entry.get("id")), own))
+        return further
+
+    def _on_further(
+        self,
+        code: str,
+        keys: tuple[str, ...],
+        address: str,
+        channel: Mapping[str, Any],
+        wid: str,
+        own: str,
+    ) -> Iterator[FacilityBuildError]:
+        """A record fact is stated on a wiring record's ``address`` only."""
+        for key in keys:
+            if key in channel:
+                yield self._error(
+                    code,
+                    "channel",
+                    address,
+                    stating_files(channel, key),
+                    f"`{key}` on {address}, which wiring record {wid} states under `also`",
+                    f"state `{key}` on {own} only; it holds under each of its addresses",
+                )
+
+    def _bound(
+        self, address: str, channel: Mapping[str, Any], status: str | None
+    ) -> Iterator[FacilityBuildError]:
+        """A command's ``timeout_s`` and its status's ``idle`` are stated together."""
+        bound: Any = channel.get("timeout_s")
+        files = stating_files(channel, "timeout_s")
+        if status is None:
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    "`timeout_s` on a channel that is no command",
+                    "remove `timeout_s`; only a command states how long one act may take",
+                )
+            return
+        if status != address and is_waveform(self._type(status)):
+            if "timeout_s" in channel:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"`timeout_s` on a command whose status {status} is a waveform channel",
+                    f"pair {address} with a status that is no waveform, or remove `timeout_s`",
+                )
+            return
+        if "timeout_s" not in channel:
+            if status != address and "idle" in self.index.channels[status]:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, None),
+                    f"a command whose status {status} states `idle` states no `timeout_s`",
+                    f"state `timeout_s` on {address}",
+                )
+        elif not (_finite(bound) and bound > 0):
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` {bound!r} is not a finite number > 0",
+                "state `timeout_s` as the longest one act may take, in seconds",
+            )
+        elif status == address:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`timeout_s` on a command that is its own pair",
+                "name the readback that reads the act as `pair`, and state `idle` on it",
+            )
+        elif "idle" not in self.index.channels[status]:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`timeout_s` on a command whose status {status} states no `idle`",
+                f"state `idle` on {status}",
+            )
+
+    def _idle(
+        self, address: str, channel: Mapping[str, Any], awaited: set[str]
+    ) -> Iterator[FacilityBuildError]:
+        """``idle`` sits on a readback a command pairs with, typed by the channel."""
+        follows = seed_follows(channel)
+        if follows is not None and follows != FOLLOWS_NONE:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                self._seed_files(channel),
+                f"`follows` names {follows} on a status that states `idle`; a followed status "
+                f"holds each write to {follows} and never returns to `idle` by itself",
+                "remove `follows`; a status that states `idle` is never followed",
+            )
+        files = stating_files(channel, "idle")
+        role = channel.get("role", DEFAULT_ROLE)
+        if role != "readback":
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                f"`idle` on a {role} channel",
+                "remove `idle`; only a readback a command pairs with states it",
+            )
+        elif address not in awaited:
+            yield self._error(
+                "command-invalid",
+                "channel",
+                address,
+                files,
+                "`idle` on a readback no command pairs with",
+                f"remove `idle`, or name {address} as a command's `pair`",
+            )
+        else:
+            problem = self._idle_problem(address, channel["idle"])
+            if problem is not None:
+                yield self._error(
+                    "command-invalid",
+                    "channel",
+                    address,
+                    files,
+                    problem,
+                    f"type `idle` by the channel: {_IDLE_TYPING}",
+                )
+
+    def _idle_problem(self, address: str, idle: Any) -> str | None:
+        """Why ``idle`` does not fit its channel's type, or ``None``."""
+        value_type = self._type(address)
+        if is_waveform(value_type):
+            return f"`idle` on waveform channel {address}; a waveform channel is never a status"
+        prefix = f"`idle` of {value_type} channel {address} is {idle!r}"
+        if value_type == "string":
+            if not isinstance(idle, str):
+                return f"{prefix}, not text"
+        elif value_type == "float":
+            if not _finite(idle):
+                return f"{prefix}, not a number"
+        elif value_type == "int":
+            if not _finite(idle) or _non_integral(idle):
+                return f"{prefix}, not an integer"
+        elif self._label_refusal(address, idle) is not None:
+            return f"{prefix}, not a label"
+        return None
+
+    # --- helpers -------------------------------------------------------------------
+
+    def _error(
+        self,
+        kind: str,
+        record_kind: str,
+        record_id: str,
+        files: Sequence[str],
+        detail: str,
+        remedy: str,
+    ) -> FacilityBuildError:
+        return FacilityBuildError(
+            kind, record_id, files, remedy, record_kind=record_kind, detail=detail
+        )
+
+    def _type(self, address: str) -> str:
+        return str(self.index.channels[address].get("value_type", "float"))
+
+    def _coerce(self, address: str, value: Any) -> tuple[Any, str | None]:
+        """The coerced value, or the reason coercion refused it."""
+        channel = self.index.channels[address]
+        try:
+            return (
+                self.coerce(
+                    value,
+                    self._type(address),
+                    channel.get("options"),
+                    channel.get("shape"),
+                ),
+                None,
+            )
+        except ValueError as exc:
+            return None, str(exc)
+
+    def _seed_files(self, channel: Mapping[str, Any]) -> list[str]:
+        return stating_files(channel, "simulation")
+
+    # --- relation claims -------------------------------------------------------------
+
+    def _relations(self) -> Iterator[FacilityBuildError]:
+        """One ``relation-invalid`` per shape rule a claim breaks.
+
+        Each line names the files that state the slot at fault: the end for an
+        end problem, ``basis`` for an inferred claim without a rule,
+        ``attributes`` for a required attribute, the whole claim otherwise.
+        """
+        types = relation_types()
+        for rid, claim in sorted(self.index.relations.items()):
+            for detail, remedy in shape_problems(claim, types):
+                yield self._error(
+                    "relation-invalid",
+                    "relation",
+                    rid,
+                    stating_files(claim, _relation_slot(detail)),
+                    detail,
+                    remedy,
+                )
+
+    # --- value type, options, shape ------------------------------------------------
+
+    def _value_shape(
+        self, address: str, channel: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        value_type = self._type(address)
+        options = channel.get("options")
+        shape = channel.get("shape")
+        problem = None
+        if value_type in LABELLED_TYPES:
+            problem = _options_problem(value_type, options)
+        elif options is not None:
+            problem = f"a {value_type} channel carries `options`"
+        if problem is None:
+            if is_waveform(value_type):
+                if not shape or any(n <= 0 for n in shape):
+                    problem = "a waveform channel needs `shape`, a list of positive ints"
+            elif shape is not None:
+                problem = f"a {value_type} channel carries `shape`"
+        precision = channel.get("precision")
+        if problem is None and precision is not None:
+            if value_type != "float":
+                problem = f"a {value_type} channel carries `precision`"
+            elif type(precision) is not int or not 0 <= precision <= _MAX_PRECISION:
+                problem = f"`precision` is not an int from 0 to {_MAX_PRECISION}"
+            if problem is not None:
+                self.broken.add(address)
+                yield self._error(
+                    "value-invalid",
+                    "channel",
+                    address,
+                    stating_files(channel, "precision"),
+                    problem,
+                    f"state `precision`, an int from 0 to {_MAX_PRECISION}, only on float channels",
+                )
+                return
+        if problem is not None:
+            self.broken.add(address)
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                stating_files(channel, "options" if "options" in problem else "shape"),
+                problem,
+                "state `options` only on bool and enum channels and `shape` only on waveforms",
+            )
+
+    # --- seeds ---------------------------------------------------------------------
+
+    def _seed(self, address: str, channel: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        seed = channel.get("simulation")
+        if not isinstance(seed, dict):
+            return
+        files = self._seed_files(channel)
+        value_type = self._type(address)
+        role = channel.get("role")
+        if value_type != "float":
+            carried = [key for key in (*_MOTION, "clamp", "linear") if key in seed]
+            if carried:
+                yield self._error(
+                    "value-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"a {value_type} channel carries {quoted_slots(carried)}; motion, `clamp` and "
+                    "`linear` apply to float channels only",
+                    f"remove {quoted_slots(carried)}",
+                )
+        else:
+            drift = seed.get("drift")
+            if isinstance(drift, dict) and not drift.get("period_s", 0) > 0:
+                yield self._error(
+                    "value-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"`drift.period_s` is {drift.get('period_s')}, not above 0",
+                    "set `drift.period_s` above 0",
+                )
+            if "clamp" in seed:
+                problem = _clamp_problem(seed["clamp"])
+                if problem is not None:
+                    yield self._error(
+                        "value-invalid",
+                        "channel",
+                        address,
+                        files,
+                        problem,
+                        "write `clamp` as [low, high] with low <= high; either side may be null",
+                    )
+            if "linear" in seed:
+                yield from self._linear(address, seed, files)
+            if isinstance(seed.get("noise"), dict):
+                yield from self._noise_record(address, seed, files)
+            motion = [key for key in _MOTION if key in seed]
+            if role == "setpoint" and motion:
+                yield self._error(
+                    "seed-invalid",
+                    "channel",
+                    address,
+                    files,
+                    f"a setpoint carries {quoted_slots(motion)}",
+                    f"remove {quoted_slots(motion)}; a setpoint holds the value written to it",
+                )
+        if "nominal" in seed and "linear" not in seed:
+            yield from self._nominal(address, seed["nominal"], files)
+        if isinstance(seed.get("pulse"), dict):
+            yield from self._pulse(address, seed["pulse"], files)
+        if isinstance(seed.get("gate"), dict):
+            yield from self._gate(address, seed["gate"], files)
+        if isinstance(seed.get("topoff"), dict):
+            yield from self._topoff(address, seed, files)
+        if isinstance(seed.get("topoff_lifetime"), dict):
+            yield from self._topoff_lifetime(address, seed["topoff_lifetime"], files)
+
+    def _noise_record(
+        self, address: str, seed: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A seed's ``noise`` states one term; a relative one needs the seed's ``nominal``."""
+        stated = [term for term in _NOISE_TERMS if term in seed["noise"]]
+        if len(stated) != 1:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"`noise` states {_terms_stated(list(seed['noise']))}",
+                "write `noise: {absolute: <sigma>}` or `noise: {relative: <fraction>}`",
+            )
+            return
+        if stated == [_RELATIVE] and not _numeric(seed.get("nominal")):
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                _RELATIVE_NOMINAL,
+                "state `absolute`, or give the seed a `nominal`",
+            )
+
+    def _nominal(
+        self, address: str, nominal: Any, files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        wired = self.index.wired.get(address)
+        if wired:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                f"a `nominal` on a channel model {', '.join(sorted(wired))} wires",
+                "remove `nominal`; the operating point comes from the deck",
+            )
+            return
+        yield from self._value("channel", address, files, "nominal", address, nominal)
+
+    def _value(
+        self,
+        record_kind: str,
+        record_id: str,
+        files: Sequence[str],
+        slot: str,
+        address: str,
+        value: Any,
+    ) -> Iterator[FacilityBuildError]:
+        """Coerce one seed nominal, override or fault value by its channel's type."""
+        if address in self.broken:
+            return
+        value_type = self._type(address)
+        if value_type == "int" and _non_integral(value):
+            yield self._error(
+                "seed-invalid",
+                record_kind,
+                record_id,
+                files,
+                f"`{slot}` of int channel {address} is {value}, not integral",
+                f"write an integral `{slot}`",
+            )
+            return
+        _coerced, refusal = self._coerce(address, value)
+        if refusal is not None:
+            yield self._error(
+                "value-invalid",
+                record_kind,
+                record_id,
+                files,
+                f"`{slot}` of channel {address}: {refusal}",
+                f"write a {value_type} value for `{slot}`",
+            )
+
+    def _linear(
+        self, address: str, seed: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        problems = []
+        if "nominal" in seed:
+            problems.append("carries `nominal` beside `linear`")
+        for source in sorted(seed["linear"], key=str):
+            source = str(source)
+            if source in self.index.wired:
+                problems.append(f"`linear` input {source} is wired")
+            elif self._type(source) != "float":
+                problems.append(f"`linear` input {source} is {self._type(source)}, not float")
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "take `linear` inputs from unwired float channels and drop `nominal`",
+            )
+
+    def _linear_cycles(self) -> Iterator[FacilityBuildError]:
+        graph: dict[str, list[str]] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            seed = channel.get("simulation")
+            linear = seed.get("linear") if isinstance(seed, dict) else None
+            if isinstance(linear, dict) and self._type(address) == "float":
+                graph[address] = sorted(str(source) for source in linear)
+        reported: set[frozenset[str]] = set()
+        for start in sorted(graph):
+            cycle = _cycle_from(graph, start)
+            if cycle is None or frozenset(cycle) in reported or min(cycle) != start:
+                continue
+            reported.add(frozenset(cycle))
+            yield self._error(
+                "value-invalid",
+                "channel",
+                start,
+                self._seed_files(self.index.channels[start]),
+                f"`linear` inputs form a cycle: {' -> '.join([*cycle, start])}",
+                "break the cycle",
+            )
+
+    def _pulse(
+        self, address: str, pulse: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``pulse`` traces a waveform from an unwired float driver and bool enable."""
+        value_type = self._type(address)
+        if not is_waveform(value_type):
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `pulse`; `pulse` applies to waveform "
+                "channels only",
+                "remove `pulse`, or make the channel a waveform",
+            )
+            return
+        problems = []
+        for slot, wanted in (("driver", "float"), ("enable", "bool")):
+            source = str(pulse.get(slot))
+            if source in self.index.wired:
+                problems.append(f"`pulse.{slot}` {source} is wired")
+            elif self._type(source) != wanted:
+                problems.append(f"`pulse.{slot}` {source} is {self._type(source)}, not {wanted}")
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "take `pulse.driver` from an unwired float channel and `pulse.enable` from an "
+                "unwired bool channel",
+            )
+
+    def _topoff(
+        self, address: str, seed: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``topoff`` decays and refills an unwired float channel; it holds its level."""
+        wired = self.index.wired.get(address)
+        if wired:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                f"a `topoff` on a channel model {', '.join(sorted(wired))} wires",
+                "remove `topoff`; the model computes the channel's value",
+            )
+            return
+        value_type = self._type(address)
+        if value_type != "float":
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `topoff`; `topoff` applies to float channels only",
+                "remove `topoff`, or make the channel a float",
+            )
+            return
+        if "nominal" in seed:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                address,
+                files,
+                "carries `nominal` beside `topoff`",
+                "remove `nominal`; a `topoff` channel holds the level its decay averages to",
+            )
+        topoff = seed["topoff"]
+        problems = [
+            f"`topoff.{slot}` is {topoff.get(slot)}, not above 0"
+            for slot in ("lifetime_h", "period_s")
+            if not (_finite(topoff.get(slot)) and topoff[slot] > 0)
+        ]
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "set `topoff.lifetime_h` and `topoff.period_s` above 0",
+            )
+
+    def _topoff_lifetime(
+        self, address: str, lifetime: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``topoff_lifetime`` reads the lifetime of the ``topoff`` seed ``of`` names."""
+        source = str(lifetime.get("of"))
+        channel = self.index.channels.get(source)
+        if channel is None:
+            problem = f"`topoff_lifetime.of` {source} is no channel"
+        else:
+            seed = channel.get("simulation")
+            if isinstance(seed, dict) and isinstance(seed.get("topoff"), dict):
+                return
+            problem = f"`topoff_lifetime.of` {source} has no `topoff` seed"
+        yield self._error(
+            "seed-invalid",
+            "channel",
+            address,
+            files,
+            problem,
+            "name in `topoff_lifetime.of` a channel whose seed carries `topoff`",
+        )
+
+    def _gate(
+        self, address: str, gate: Mapping[str, Any], files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """A ``gate`` reads unwired bool or enum inputs; ``gated`` is typed by its channel."""
+        value_type = self._type(address)
+        if value_type not in GATED_TYPES:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                f"a {value_type} channel carries `gate`; `gate` applies to float, int, bool "
+                "and enum channels",
+                "remove `gate`",
+            )
+            return
+        problems = []
+        inputs = gate.get("inputs")
+        for source, label in sorted((inputs if isinstance(inputs, dict) else {}).items()):
+            source = str(source)
+            if source in self.index.wired:
+                problems.append(f"`gate` input {source} is wired")
+            elif self._type(source) not in LABELLED_TYPES:
+                problems.append(f"`gate` input {source} is {self._type(source)}, not bool or enum")
+            elif source not in self.broken:
+                refusal = self._label_refusal(source, label)
+                if refusal is not None:
+                    problems.append(f"`gate` input {source} blocking label `{label}`: {refusal}")
+        if address not in self.broken:
+            problem = self._gated_problem(address, gate.get("gated"))
+            if problem is not None:
+                problems.append(problem)
+        if problems:
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "; ".join(problems),
+                "take `gate` inputs from unwired bool or enum channels, each with one of its "
+                "labels, and type `gated` by the channel: a factor > 0 on a float, a label on a "
+                "bool or enum, an integer on an int",
+            )
+
+    def _label_refusal(self, address: str, label: Any) -> str | None:
+        """Why ``label`` is not one of a bool or enum channel's labels, or ``None``."""
+        if not isinstance(label, str):
+            return f"{label!r} is not a label"
+        return self._coerce(address, label)[1]
+
+    def _gated_problem(self, address: str, gated: Any) -> str | None:
+        """Why ``gated`` does not fit its channel's type, or ``None``."""
+        value_type = self._type(address)
+        prefix = f"`gate.gated` of {value_type} channel {address} is {gated!r}"
+        if value_type == "float":
+            if not (_finite(gated) and gated > 0):
+                return f"{prefix}, not a factor > 0"
+        elif value_type == "int":
+            if not _finite(gated) or _non_integral(gated):
+                return f"{prefix}, not an integer"
+        elif self._label_refusal(address, gated) is not None:
+            return f"{prefix}, not a label"
+        return None
+
+    def _gate_cycles(self) -> Iterator[FacilityBuildError]:
+        graph: dict[str, list[str]] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            seed = channel.get("simulation")
+            gate = seed.get("gate") if isinstance(seed, dict) else None
+            inputs = gate.get("inputs") if isinstance(gate, dict) else None
+            if isinstance(inputs, dict):
+                graph[address] = sorted(str(source) for source in inputs)
+        reported: set[frozenset[str]] = set()
+        for start in sorted(graph):
+            cycle = _cycle_from(graph, start)
+            if cycle is None or frozenset(cycle) in reported or min(cycle) != start:
+                continue
+            reported.add(frozenset(cycle))
+            yield self._error(
+                "value-invalid",
+                "channel",
+                start,
+                self._seed_files(self.index.channels[start]),
+                f"`gate` inputs form a cycle: {' -> '.join([*cycle, start])}",
+                "break the cycle",
+            )
+
+    def _refused_addresses(self) -> dict[str, str]:
+        """The channels whose archived history is derived, each with what derives it.
+
+        A pulse's driver and enable and every gate input shape the history of
+        another channel; an archiver event on one would leave that history out
+        of step with it.
+        """
+        refused: dict[str, str] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            for slot, source in _seed_inputs(channel.get("simulation")):
+                if slot.startswith("pulse."):
+                    reason = f"the `{slot}` of {address}"
+                else:
+                    reason = f"a `gate` input of {address}"
+                refused.setdefault(source, reason)
+        return refused
+
+    # --- pairs ---------------------------------------------------------------------
+
+    def _pairs(self) -> Iterator[FacilityBuildError]:
+        """Each setpoint's ``pair`` names a readback it agrees with. Several setpoints
+        may name one readback. The checks of what the simulation does (one model,
+        the start value) apply only to a pair the simulation follows
+        (:func:`~osprey_facility.pairing.pair_follows`)."""
+        named: dict[str, list[str]] = {}
+        for address, channel in sorted(self.index.channels.items()):
+            role = channel.get("role", DEFAULT_ROLE)
+            if role != "setpoint":
+                if "pair" in channel:
+                    yield self._error(
+                        "pair-invalid",
+                        "channel",
+                        address,
+                        stating_files(channel, "pair"),
+                        f"a `pair` on a {role} channel",
+                        "remove `pair`; only a setpoint names its readback",
+                    )
+                continue
+            pair = str(channel.get("pair", address))
+            if pair != address:
+                named.setdefault(pair, []).append(address)
+        follows = pair_follows(self.index.channels)
+        followed = {f.readback: f.setpoint for f in follows if f.follow != NOT_FOLLOWED}
+        by_index = {f.readback for f in follows if f.copy == COPY_INDEX}
+        for pair, setpoints in sorted(named.items()):
+            for address in setpoints:
+                channel = self.index.channels[address]
+                yield from self._pair(address, channel, pair, simulated=pair in followed)
+        yield from self._follows(named)
+        yield from self._followed_own_values(followed)
+        for readback in sorted(by_index):
+            yield from self._index_start(followed[readback], readback)
+
+    def _followed_own_values(self, followed: Mapping[str, str]) -> Iterator[FacilityBuildError]:
+        """A readback the simulation follows takes its setpoint's value, so its seed
+        states no value of its own."""
+        for readback, setpoint in sorted(followed.items()):
+            channel = self.index.channels[readback]
+            seed = channel.get("simulation")
+            if not isinstance(seed, dict):
+                continue
+            for key in _OWN_VALUE_KEYS:
+                if key in seed:
+                    yield self._error(
+                        "seed-invalid",
+                        "channel",
+                        readback,
+                        self._seed_files(channel),
+                        f"`{key}` on a readback the simulation follows from {setpoint}; a write "
+                        f"to {setpoint} would replace the value `{key}` gives it",
+                        f"state `follows: none` on {readback}, or remove `{key}`",
+                    )
+
+    def _follows(self, named: Mapping[str, list[str]]) -> Iterator[FacilityBuildError]:
+        """A seed's ``follows`` names the one setpoint that pairs with its readback, or ``none``."""
+        for address, channel in sorted(self.index.channels.items()):
+            follows = seed_follows(channel)
+            if follows is None:
+                continue
+            # A `follows` naming a setpoint on a status that states `idle` is
+            # refused by `check_commands`.
+            if "idle" in channel and follows != FOLLOWS_NONE:
+                continue
+            setpoints = sorted(named.get(address, ()))
+            problem = remedy = None
+            if not setpoints:
+                problem = "`follows` on a channel no setpoint names as its `pair`"
+                remedy = "remove `follows`"
+            elif len(setpoints) > 1:
+                problem = (
+                    f"`follows` on a readback several setpoints name ({', '.join(setpoints)}); "
+                    "the simulation follows it from none of them"
+                )
+                remedy = "remove `follows`"
+            elif follows == FOLLOWS_NONE:
+                continue
+            elif follows != setpoints[0]:
+                problem = f"`follows` names {follows}, whose `pair` is not {address}"
+                remedy = f"name {setpoints[0]}, whose `pair` is {address}, or `none`"
+            elif not same_type(self.index.channels[follows], channel):
+                problem, remedy = _follows_across_types(
+                    follows, self.index.channels[follows], address, channel
+                )
+            if problem is not None and remedy is not None:
+                yield self._error(
+                    "seed-invalid", "channel", address, self._seed_files(channel), problem, remedy
+                )
+
+    def _pair(
+        self, address: str, channel: Mapping[str, Any], pair: str, *, simulated: bool
+    ) -> Iterator[FacilityBuildError]:
+        files = stating_files(channel, "pair")
+        target = self.index.channels[pair]
+        target_role = target.get("role", DEFAULT_ROLE)
+        if target_role != "readback":
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"`pair` names {target_role} channel {pair}",
+                _pair_remedy(
+                    address,
+                    channel,
+                    "name a readback, or remove `pair` to pair the setpoint with itself",
+                ),
+            )
+            return
+        differing = [
+            slot
+            for slot in ("value_type", "options", "shape")
+            if channel.get(slot) != target.get(slot)
+        ]
+        if differing and must_agree(channel, target):
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"setpoint and pair {pair} differ in {quoted_slots(differing)}",
+                _pair_remedy(
+                    address,
+                    channel,
+                    f"give {address} and {pair} the same {quoted_slots(differing)}",
+                ),
+            )
+            return
+        unit, theirs = channel.get("unit"), target.get("unit")
+        if unit and theirs and unit != theirs:
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"`unit` {unit} differs from its pair {pair}'s {theirs}",
+                _pair_remedy(address, channel, f"give {address} and {pair} the same `unit`"),
+            )
+            return
+        if not simulated or differing:
+            return
+        own = self.index.wired.get(address, set())
+        theirs = self.index.wired.get(pair, set())
+        if own and theirs and own != theirs and len(own) == 1 and len(theirs) == 1:
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                address,
+                files,
+                f"model {', '.join(sorted(own))} wires the setpoint and model "
+                f"{', '.join(sorted(theirs))} its pair {pair}",
+                _pair_remedy(address, channel, "wire the setpoint and its pair in the same model"),
+            )
+            return
+        yield from self._paired_seed(address, pair)
+
+    def _paired_seed(self, setpoint: str, readback: str) -> Iterator[FacilityBuildError]:
+        """At start a paired readback holds its setpoint's value."""
+        seed = self.index.channels[readback].get("simulation")
+        if not isinstance(seed, dict) or "nominal" not in seed:
+            return
+        if setpoint in self.index.wired or readback in self.index.wired:
+            return
+        if setpoint in self.broken or readback in self.broken:
+            return
+        mine, refused = self._coerce(readback, seed["nominal"])
+        if refused is not None:
+            return
+        setpoint_seed = self.index.channels[setpoint].get("simulation")
+        if isinstance(setpoint_seed, dict) and "nominal" in setpoint_seed:
+            theirs, refused = self._coerce(setpoint, setpoint_seed["nominal"])
+            if refused is not None:
+                return
+        else:
+            from osprey_connectors.simulation.values import zero
+
+            channel = self.index.channels[setpoint]
+            theirs = zero(self._type(setpoint), channel.get("options"), channel.get("shape"))
+        if mine != theirs:
+            yield paired_nominal_error(
+                readback,
+                seed["nominal"],
+                setpoint,
+                theirs,
+                self._seed_files(self.index.channels[readback]),
+                derived=_derived_pair(self.index.channels[setpoint]),
+            )
+
+    def _start_value(self, address: str) -> tuple[Any, bool]:
+        """A channel's start value from its seed, else its type's zero; and whether it was read."""
+        seed = self.index.channels[address].get("simulation")
+        if isinstance(seed, dict) and "nominal" in seed:
+            value, refused = self._coerce(address, seed["nominal"])
+            return value, refused is None
+        from osprey_connectors.simulation.values import zero
+
+        channel = self.index.channels[address]
+        return zero(self._type(address), channel.get("options"), channel.get("shape")), True
+
+    def _index_start(self, setpoint: str, readback: str) -> Iterator[FacilityBuildError]:
+        """A readback copied by index starts at the state its setpoint's start value names."""
+        if setpoint in self.index.wired or readback in self.index.wired:
+            return
+        if setpoint in self.broken or readback in self.broken:
+            return
+        theirs, read = self._start_value(setpoint)
+        if not read:
+            return
+        labels = labels_of(self.index.channels[readback]) or []
+        mine = labels_of(self.index.channels[setpoint])
+        index = mine.index(str(theirs)) if mine is not None else _as_index(theirs, len(labels))
+        files = self._seed_files(self.index.channels[readback])
+        if index is None:
+            yield self._error(
+                "seed-invalid",
+                "channel",
+                readback,
+                files,
+                f"the start value {theirs} of {setpoint} is no index of {readback}'s "
+                f"{len(labels)} labels",
+                f"start {setpoint} at an integer from 0 to {len(labels) - 1}",
+            )
+            return
+        seed = self.index.channels[readback].get("simulation")
+        if not isinstance(seed, dict) or "nominal" not in seed:
+            return
+        own, refused = self._coerce(readback, seed["nominal"])
+        if refused is None and own != labels[index]:
+            yield paired_nominal_error(readback, seed["nominal"], setpoint, labels[index], files)
+
+    # --- tolerance -----------------------------------------------------------------
+
+    def _tolerance(self, address: str, channel: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """A setpoint's ``tolerance``: its slot, its record, and its readback's motion inside it."""
+        files = stating_files(channel, "tolerance")
+        role = channel.get("role", DEFAULT_ROLE)
+        value_type = self._type(address)
+        problem: str | None = None
+        remedy = ""
+        pair = str(channel.get("pair", address))
+        unit = channel.get("unit")
+        record = channel["tolerance"]
+        stated = [term for term in _NOISE_TERMS if term in record]
+        if role != "setpoint" or value_type != "float":
+            problem = f"a `tolerance` on a {value_type if role == 'setpoint' else role} channel"
+            remedy = "remove `tolerance`; only a float setpoint carries one"
+        elif not unit:
+            problem = "a `tolerance` on a channel that states no `unit`"
+            remedy = "state the channel's `unit`; the tolerance is in it"
+        elif pair != address and not self.index.channels[pair].get("unit"):
+            problem = f"its pair {pair} states no `unit`"
+            remedy = f"state {pair}'s `unit`; the tolerance is in it"
+        elif len(stated) != 1:
+            problem = f"`tolerance` states {_terms_stated(list(record))}"
+            remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"
+        elif not _finite(record[stated[0]]):
+            problem = f"`tolerance.{stated[0]}` is {record[stated[0]]!r}, not a finite number"
+            remedy = "write `tolerance: {absolute: <x>}` or `tolerance: {relative: <fraction>}`"
+        if problem is not None:
+            yield self._error("value-invalid", "channel", address, files, problem, remedy)
+            return
+        seed = channel.get("simulation")
+        nominal = seed.get("nominal") if isinstance(seed, dict) else None
+        if stated == [_RELATIVE] and not _numeric(nominal):
+            yield self._error(
+                "value-invalid",
+                "channel",
+                address,
+                files,
+                "a relative `tolerance` is taken of the setpoint's seed `nominal`, which it does "
+                "not state",
+                "state `absolute`, or give the setpoint a seed `nominal`",
+            )
+            return
+        yield from self._seed_inside_tolerance(address, pair, str(unit), files)
+
+    def _seed_inside_tolerance(
+        self, setpoint: str, readback: str, unit: str, files: list[str]
+    ) -> Iterator[FacilityBuildError]:
+        """The readback's declared motion stays inside its setpoint's tolerance."""
+        from osprey_connectors.simulation.envelope import motion_envelope
+
+        channel = self.index.channels[setpoint]
+        bound = tolerance_bound(channel)
+        readback_channel = self.index.channels[readback]
+        try:
+            envelope = motion_envelope(readback_channel.get("simulation"))
+        except ValueError:
+            return
+        if bound is None or envelope <= bound:
+            return
+        yield self._error(
+            "seed-invalid",
+            "channel",
+            setpoint,
+            sorted({*files, *self._seed_files(readback_channel)}),
+            f"the simulated readback {readback} moves up to {envelope:g} {unit}, more than "
+            f"{setpoint} settles within ({bound:g} {unit})",
+            "lower the seed's `noise`/`drift`, or widen `tolerance`",
+        )
+
+    # --- wiring --------------------------------------------------------------------
+
+    def _wiring(self) -> Iterator[FacilityBuildError]:
+        for model, entry in self.index.wiring:
+            wid = str(entry.get("id"))
+            if _single_pass_optics(self.index.models[model], entry):
+                yield self._error(
+                    "engine-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "engine"),
+                    f"{entry.get('address')}: a single_pass model serves no tunes or chromaticity",
+                    "remove the record from the model's wiring",
+                )
+                continue
+            slices = entry.get("slices")
+            if "element" in entry and slices is not None:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "slices"),
+                    "states both `element` and `slices`",
+                    "keep one of `element` and `slices`",
+                )
+                continue
+            bad = [
+                piece.get("weight")
+                for piece in slices or []
+                if isinstance(piece, dict) and not _usable_weight(piece.get("weight", 1))
+            ]
+            if bad:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "slices"),
+                    f"slice weight {', '.join(str(w) for w in bad)} is zero or not finite",
+                    "give every slice a finite, non-zero weight",
+                )
+                continue
+            # The first slice is the one read back through `calibration.inverse`,
+            # so it converts through `calibration.curve` and states no curve of its own.
+            if slices and isinstance(slices[0], dict) and slices[0].get("curve") is not None:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    stating_files(entry, "slices"),
+                    "the first slice states a `curve`",
+                    "drop `curve` from the first slice; it converts through `calibration.curve`",
+                )
+                continue
+            yield from self._also(wid, entry)
+            channel = self.index.channels.get(str(entry.get("address")), {})
+            endpoints = channel.get("endpoint_of") or []
+            # A record naming no element drives a property of the whole deck,
+            # which every endpoint device shares; there is no slice to name one in.
+            if endpoints and ("element" in entry or slices):
+                named = {p.get("device") for p in slices or [] if isinstance(p, dict)}
+                unnamed = [d for d in endpoints if d not in named]
+                if unnamed:
+                    yield self._error(
+                        "pair-invalid",
+                        "wiring",
+                        wid,
+                        stating_files(entry, "slices"),
+                        f"`endpoint_of` device {', '.join(unnamed)} is named by no slice",
+                        "name each `endpoint_of` device in a slice, or remove it from `endpoint_of`",
+                    )
+
+    def _also(self, wid: str, entry: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
+        """Each `also` name is a channel like the record's own, with no motion of its own."""
+        address, *further = wiring_addresses(entry)
+        channel = self.index.channels[address]
+        files = stating_files(entry, "also")
+        for name in further:
+            if name == address:
+                # Named twice by one record: the compute stage's wiring-conflict.
+                continue
+            other = self.index.channels[name]
+            differing = [
+                slot
+                for slot, default in _SAME_VARIABLE_SLOTS.items()
+                if channel.get(slot, default) != other.get(slot, default)
+            ]
+            unit, theirs = channel.get("unit"), other.get("unit")
+            if unit and theirs and unit != theirs:
+                differing.append("unit")
+            if differing:
+                yield self._error(
+                    "pair-invalid",
+                    "wiring",
+                    wid,
+                    files,
+                    f"`also` names {name}, which differs from {address} in "
+                    f"{quoted_slots(differing)}",
+                    f"give {address} and {name} the same {quoted_slots(differing)}, or remove "
+                    f"{name} from `also`",
+                )
+            elif other.get("simulation") is not None:
+                yield self._error(
+                    "seed-invalid",
+                    "wiring",
+                    wid,
+                    sorted({*files, *self._seed_files(other)}),
+                    f"`also` names {name}, which carries a seed",
+                    f"remove the seed of {name}; it serves the value of {address}, motion included",
+                )
+            else:
+                yield from self._also_pair(wid, files, address, channel, name, other)
+
+    @cached_property
+    def _named_as_pair(self) -> dict[str, list[str]]:
+        """The channels naming each address as their ``pair``, sorted, less the
+        further addresses of wiring records, whose own stop names their ``pair``."""
+        further = {name for _, entry in self.index.wiring for name in wiring_addresses(entry)[1:]}
+        named: dict[str, list[str]] = {}
+        for address, fields in sorted(self.index.channels.items()):
+            pair = fields.get("pair")
+            if isinstance(pair, str) and pair != address and address not in further:
+                named.setdefault(pair, []).append(address)
+        return named
+
+    def _also_pair(
+        self,
+        wid: str,
+        files: list[str],
+        address: str,
+        channel: Mapping[str, Any],
+        name: str,
+        other: Mapping[str, Any],
+    ) -> Iterator[FacilityBuildError]:
+        """A record's pair is stated on its ``address`` and names a record's ``address``.
+
+        The build pairs channels by the names they state, so a pair stated on a
+        further address, or naming one, would leave the record unpaired.
+        """
+        pair = channel.get("pair", address)
+        theirs = other.get("pair", name)
+        if theirs != name:
+            pair_files = sorted({*files, *stating_files(other, "pair")})
+            if theirs == pair:
+                # Several setpoints may name one readback, which the simulation
+                # then follows from none; two addresses of one record are one setpoint.
+                detail = (
+                    f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
+                    "would count as shared by two setpoints and follow neither"
+                )
+                remedy = (
+                    f"remove `pair` from {name}; {pair} follows the record under each of its "
+                    "addresses"
+                )
+            elif pair == address:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address} states none"
+                )
+                remedy = f"state `pair: {theirs}` on {address} and remove `pair` from {name}"
+            else:
+                detail = (
+                    f"`also` names {name}, whose `pair` is {theirs}, while {address}'s is {pair}"
+                )
+                remedy = f"remove `pair` from {name}; the record's pair is the one {address} states"
+            if _derived_pair(other):
+                remedy = (
+                    f"state `pair: {name}` on {name}; the record's pair is the one {address} states"
+                )
+            yield self._error("pair-invalid", "wiring", wid, pair_files, detail, remedy)
+        for setpoint in self._named_as_pair.get(name, ()):
+            fields = self.index.channels[setpoint]
+            yield self._error(
+                "pair-invalid",
+                "channel",
+                setpoint,
+                sorted({*stating_files(fields, "pair"), *files}),
+                f"`pair` names {name}, which wiring record {wid} states under `also`",
+                _pair_remedy(setpoint, fields, f"name {address} as the pair"),
+            )
+
+    # --- limits --------------------------------------------------------------------
+
+    def _limits(self) -> Iterator[FacilityBuildError]:
+        for record in self.index.limits:
+            address = str(record.get("address"))
+            channel = self.index.channels[address]
+            value_type = self._type(address)
+            files = ["limits.yaml"]
+            if record.get("writable") is True and channel.get("role") != "setpoint":
+                yield self._error(
+                    "limit-invalid",
+                    "limit",
+                    address,
+                    files,
+                    f"`writable: true` on a {channel.get('role', DEFAULT_ROLE)} channel",
+                    "remove `writable`; only a setpoint is writable",
+                )
+            bounds = [slot for slot in LIMIT_BOUNDS if record.get(slot) is not None]
+            missing = record_missing(record, str(channel.get("role")), value_type)
+            if record.get("writable") is True and missing:
+                yield self._error(
+                    "limit-invalid",
+                    "limit",
+                    address,
+                    files,
+                    f"`writable: true` on a {value_type} setpoint without both `min_value` and "
+                    "`max_value`",
+                    "state `min_value` and `max_value`",
+                )
+            if bounds and value_type not in _NUMERIC_TYPES:
+                yield self._error(
+                    "value-invalid",
+                    "limit",
+                    address,
+                    files,
+                    f"{quoted_slots(bounds)} on a {value_type} channel",
+                    f"remove {quoted_slots(bounds)}; a {value_type} channel carries `writable` and "
+                    "`confirm` only",
+                )
+            elif value_type == "int":
+                fractional = [slot for slot in bounds if _non_integral(record[slot])]
+                if fractional:
+                    shown = ", ".join(f"`{slot}` {record[slot]}" for slot in fractional)
+                    yield self._error(
+                        "limit-invalid",
+                        "limit",
+                        address,
+                        files,
+                        f"{shown} on an int channel is not integral",
+                        "write integral bounds",
+                    )
+
+    # --- scenarios -----------------------------------------------------------------
+
+    def _scenarios(self) -> Iterator[FacilityBuildError]:
+        records = {str(r.get("address")): r for r in self.index.limits}
+        refused = self._refused_addresses()
+        for scenario in self.scenarios:
+            name = str(scenario.get("name"))
+            files = [_scenario_file(scenario)]
+            yield from self._archiver_events(name, files, scenario.get("archiver"), refused)
+            overrides = scenario.get("overrides") or {}
+            for address, value in sorted(overrides.items(), key=lambda kv: str(kv[0])):
+                yield from self._override(name, files, str(address), value, records)
+            noise = scenario.get("noise")
+            for address, entry in sorted(
+                noise.items() if isinstance(noise, dict) else (), key=lambda kv: str(kv[0])
+            ):
+                yield from self._scenario_noise(name, files, str(address), entry)
+            yield from self._still(name, files, scenario)
+            yield from self._channel_faults(name, files, scenario.get("channel_faults"))
+            yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
+            faults = scenario.get("faults") or {}
+            for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
+                for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):
+                    if str(address) not in self.index.channels:
+                        continue
+                    yield from self._fault(name, files, str(model), str(address), value, records)
+
+    def _archiver_events(
+        self, name: str, files: list[str], entries: Any, refused: Mapping[str, str]
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``archiver`` steps no channel another channel's history derives from."""
+        for entry in entries if isinstance(entries, list) else ():
+            channel = entry.get("channel") if isinstance(entry, dict) else None
+            if not isinstance(channel, str) or channel not in refused:
+                continue
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`archiver` steps {channel}, {refused[channel]}",
+                f"remove the `archiver` entry for {channel}; its history is the seed's",
+            )
+
+    def _still(
+        self, name: str, files: list[str], scenario: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``still``: ``all``, or float readings and well-formed selections.
+
+        A scenario sets the motion of no reading it stills here by address; the
+        render checks what a selection resolves to.
+        """
+        still = scenario.get("still")
+        if still is None:
+            return
+        if still != STILL_ALL and (
+            not isinstance(still, list)
+            or not still
+            or not all(isinstance(entry, str | dict) for entry in still)
+        ):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` is {still!r}, neither `{STILL_ALL}` nor a list of addresses and "
+                "selections",
+                f"write `still: {STILL_ALL}` or a list of addresses and selections",
+            )
+            return
+        listed = () if still == STILL_ALL else still
+        for entry in listed:
+            if isinstance(entry, dict):
+                yield from self._still_selection(name, files, entry)
+        stilled = {entry for entry in listed if isinstance(entry, str)}
+        for address in sorted(stilled):
+            if address in self.index.channels and self._type(address) != "float":
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`still` lists {address}, a {self._type(address)} channel",
+                    f"remove {address} from `still`; only a float reading moves",
+                )
+        for slot in ("noise", "couple"):
+            block = scenario.get(slot)
+            for address in sorted(block if isinstance(block, dict) else (), key=str):
+                if still == STILL_ALL or str(address) in stilled:
+                    yield self._error(
+                        "value-invalid",
+                        "scenario",
+                        name,
+                        files,
+                        f"`{slot}.{address}` sets the motion of a reading `still` stills",
+                        "a scenario either stills a reading or sets its motion",
+                    )
+
+    def _still_selection(
+        self, name: str, files: list[str], entry: Mapping[str, Any]
+    ) -> Iterator[FacilityBuildError]:
+        """One selection of a scenario's ``still``: the read model's selection builds from it."""
+        keys = {field.name for field in dataclass_fields(ChannelSelection)}
+        unknown = sorted(str(key) for key in entry if key not in keys)
+        if unknown:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r} has no key `{unknown[0]}`",
+                f"use only {', '.join(field.name for field in dataclass_fields(ChannelSelection))}",
+            )
+            return
+        try:
+            ChannelSelection(**entry)
+        except ValueError as refusal:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`still` selection {entry!r}: {refusal}",
+                "correct this selection in `still`",
+            )
+
+    def _channel_faults(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``channel_faults``: each a fault word on a channel of its roles."""
+        from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS
+
+        if block is None:
+            return
+        if not isinstance(block, dict) or not all(
+            isinstance(address, str) and isinstance(word, str) for address, word in block.items()
+        ):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`channel_faults` is {block!r}, not a mapping of address to fault",
+                "write `channel_faults: {<address>: stuck | frozen | disconnected}`",
+            )
+            return
+        for address, word in sorted(block.items()):
+            slot = f"channel_faults.{address}"
+            fault = CHANNEL_FAULTS.get(word)
+            if fault is None:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`{slot}` is `{word}`",
+                    "write one of " + ", ".join(f"`{known}`" for known in CHANNEL_FAULTS),
+                )
+                continue
+            if address not in self.index.channels:
+                continue
+            role = self.index.channels[address].get("role", DEFAULT_ROLE)
+            if role not in fault.roles:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`{slot}` is `{word}` on a {role} channel",
+                    "`stuck` faults a setpoint, `frozen` a reading, `disconnected` any channel",
+                )
+
+    def _stopped_servers(
+        self, name: str, files: list[str], block: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's ``stopped_servers``: each the name of a simulated IOC the facility can serve.
+
+        Which models a render serves is the render's to know, so a name of a
+        model it leaves unserved is refused there (``views/simulator.py``).
+        """
+        if block is None:
+            return
+        if not isinstance(block, list) or not all(isinstance(ioc, str) for ioc in block):
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`stopped_servers` is {block!r}, not a list of simulated IOC names",
+                f"write `stopped_servers: [sim-<model>, ...]` or `[{TEXTURE_SERVER}]`",
+            )
+            return
+        known = served_servers(
+            model_name
+            for model_name, model in self.index.models.items()
+            if model.get("engine") not in (None, "texture")
+        )
+        for ioc in block:
+            if ioc not in known:
+                yield self._error(
+                    "value-invalid",
+                    "scenario",
+                    name,
+                    files,
+                    f"`stopped_servers` names `{ioc}`, which no simulated IOC is",
+                    "write one of " + ", ".join(f"`{served}`" for served in sorted(known)),
+                )
+
+    def _scenario_noise(
+        self, name: str, files: list[str], address: str, entry: Any
+    ) -> Iterator[FacilityBuildError]:
+        """A scenario's noise record for one channel, in the seed's grammar."""
+        slot = f"noise.{address}"
+        legacy = [key for key in ("noise", "noise_abs") if isinstance(entry, dict) and key in entry]
+        if not isinstance(entry, dict) or legacy:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` states {quoted_slots(legacy)}"
+                if legacy
+                else f"`{slot}` is {entry!r}, not a noise record",
+                f"write `{address}: {{absolute: <sigma>}}`",
+            )
+            return
+        stated = [term for term in _NOISE_TERMS if term in entry]
+        problem = None
+        if len(stated) != 1 or len(entry) != 1:
+            problem = f"`{slot}` states {_terms_stated(list(entry))}"
+        elif not _finite(entry[stated[0]]) or entry[stated[0]] < 0:
+            problem = f"`{slot}.{stated[0]}` is {entry[stated[0]]!r}, not a finite number >= 0"
+        if problem is not None:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                problem,
+                f"write `{address}: {{absolute: <sigma>}}` or `{address}: {{relative: <fraction>}}`",
+            )
+            return
+        seed = self.index.channels[address].get("simulation")
+        nominal = seed.get("nominal") if isinstance(seed, dict) else None
+        if stated == [_RELATIVE] and not _numeric(nominal):
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}`: {_RELATIVE_NOMINAL}",
+                "state `absolute`, or give the seed a `nominal`",
+            )
+
+    def _override(
+        self,
+        name: str,
+        files: list[str],
+        address: str,
+        value: Any,
+        records: Mapping[str, Mapping[str, Any]],
+    ) -> Iterator[FacilityBuildError]:
+        slot = f"overrides.{address}"
+        channel = self.index.channels[address]
+        role = channel.get("role", DEFAULT_ROLE)
+        wired = self.index.wired.get(address)
+        if wired and role != "setpoint":
+            models = ", ".join(sorted(wired))
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` names an output of model {models}",
+                f"fault model {models} instead",
+            )
+            return
+        refused = list(self._value("scenario", name, files, slot, address, value))
+        if refused:
+            yield from refused
+            return
+        record = records.get(address)
+        if (
+            role == "setpoint"
+            and record is not None
+            and not record_writable(record, role, self._type(address))
+        ):
+            yield self._error(
+                "seed-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` writes {address}, which limits.yaml locks",
+                f"remove `{slot}`, or make {address} writable in limits.yaml",
+            )
+            return
+        yield from self._band(name, files, slot, address, value, record)
+
+    def _band(
+        self,
+        name: str,
+        files: list[str],
+        slot: str,
+        address: str,
+        value: Any,
+        record: Mapping[str, Any] | None,
+    ) -> Iterator[FacilityBuildError]:
+        """Hold a scenario value on a setpoint to its limits record's band."""
+        if record is None or self._type(address) not in _NUMERIC_TYPES:
+            return
+        if self.index.channels[address].get("role") != "setpoint":
+            return
+        number, refusal = self._coerce(address, value)
+        if refusal is not None:
+            return
+        low, high = record.get("min_value"), record.get("max_value")
+        if low is not None and number < low:
+            side, bound = "below `min_value`", low
+        elif high is not None and number > high:
+            side, bound = "above `max_value`", high
+        else:
+            return
+        yield self._error(
+            "seed-invalid",
+            "scenario",
+            name,
+            [*files, "limits.yaml"],
+            f"`{slot}` {exact_number(number)} lies {side} {exact_number(bound)}",
+            "write a value inside [min_value, max_value], or widen the limits record",
+        )
+
+    def _fault(
+        self,
+        name: str,
+        files: list[str],
+        model: str,
+        address: str,
+        value: Any,
+        records: Mapping[str, Mapping[str, Any]],
+    ) -> Iterator[FacilityBuildError]:
+        from osprey_connectors.simulation.channel_faults import STUCK
+
+        slot = f"faults.{model}.{address}"
+        if value == STUCK:
+            yield self._error(
+                "value-invalid",
+                "scenario",
+                name,
+                files,
+                f"`{slot}` is `{STUCK}`",
+                f"move it to `channel_faults: {{{address}: {STUCK}}}`",
+            )
+            return
+        if isinstance(value, dict):
+            roster = self._roster(model)
+            if roster is not None and roster.refusal is None:
+                yield from map_fault_errors(name, files, model, address, value, roster)
+            return
+        refused = list(self._value("scenario", name, files, slot, address, value))
+        if refused:
+            yield from refused
+            return
+        yield from self._band(name, files, slot, address, value, records.get(address))
+
+    def _roster(self, model: str) -> FaultRoster | None:
+        if model not in self.rosters:
+            self.rosters[model] = fault_roster(self.index.models[model], self.index.channels)
+        return self.rosters[model]
+
+
+def check_measurement(validated: Validated) -> list[FacilityBuildError]:
+    """Hold each measurement file to the kinds it allows (the stage after compute).
+
+    Runs once every wiring slot is filled, so a group or instrument is judged
+    by the setpoints and readbacks its model actually wires. A group plays one
+    group role; only ``hcor`` and ``vcor`` may name the same group. Every kind
+    the file allows is a registered kind (:mod:`osprey_facility.kinds`). Every
+    role the file names under ``groups`` or ``instruments`` is one the pyAML
+    view ships or one a listed kind declares, named in the map its sort says
+    (:func:`osprey_facility.kinds.member_sorts`); each
+    member the kind declares is judged by its requirement: ``wired`` must be
+    named by the file and wired by the model, ``exists`` named and present in
+    the facility, ``optional`` either absent or present. A ``single_pass``
+    model allows only the kinds that run single pass, every step or settle key
+    the kind's tool takes must be stated. A listed kind's own sub-block
+    ``kind_blocks.<kind>`` (absent: empty) is validated by the kind's
+    ``measurement_schema``, and only a block it admits is handed, with the
+    document, to the kind's ``build_stops`` hook.
+
+    A listed kind no installed package registers stops a tree where kinds are
+    judged (:func:`osprey_facility.kinds.judged_here`). In a machine tree on
+    its own the kind is deferred with a ``kind-deferred`` warning, and its
+    block and the roles nobody here declares are left to the deployment that
+    mounts the tree.
+
+    Args:
+        validated: What the earlier stages produced.
+
+    Returns:
+        Every stop: ``value-invalid`` naming a kind the registry refuses or a
+        role no listed kind declares, ``reference-missing`` naming a kind no
+        installed package registers or
+        the kind and the member it lacks, ``value-invalid`` naming the kind and
+        the key it lacks, what its schema or its hook refuses or a sub-block
+        it takes none of, or the two group roles that name one group.
+    """
+    document: dict[str, Any] = need(validated.document)
+    if validated.judges_kinds:
+        return list(_measurement_stops(document))
+    deferred: list[FacilityBuildWarning] = []
+    stops = list(_measurement_stops(document, deferred))
+    validated.warnings.extend(deferred)
+    return stops
+
+
+def _groups_text(value: Any) -> str:
+    """``group X`` for a role naming one group, ``groups X, Y`` for several."""
+    families = group_families(value)
+    if len(families) == 1:
+        return f"group {families[0]}"
+    return f"groups {', '.join(families)}"
+
+
+def _measurement_stops(
+    document: dict[str, Any],
+    deferred: list[FacilityBuildWarning] | None = None,
+) -> Iterator[FacilityBuildError]:
+    from osprey_facility.kinds import (
+        ENTRY_POINT_GROUP,
+        KindRegistryError,
+        kind_source,
+        member_sorts,
+        registered,
+    )
+    from osprey_facility.measurement_groups import (
+        GROUP_ROLES,
+        ROLE_PLANES,
+        measurement_groups,
+        tune_references,
+    )
+
+    try:
+        declared = registered()
+    except KindRegistryError as refused:
+        yield FacilityBuildError(
+            "value-invalid",
+            refused.kind,
+            [refused.source],
+            refused.remedy,
+            record_kind="measurement kind",
+            detail=f"{refused.detail}; declared by {refused.source}",
+        )
+        return
+    single_pass_kinds = [name for name, declaration in declared.items() if declaration.single_pass]
+    blocked: set[str] = set()
+    records = FacilityRecords(document)
+    channels = {str(channel["id"]) for channel in document.get("channels") or []}
+    for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
+        measurement = model.get("measurement")
+        if not isinstance(measurement, dict):
+            continue
+        name = str(model["name"])
+        files = [f"measurement/{name}.yaml"]
+        groups_named = measurement.get("groups") or {}
+        instruments = measurement.get("instruments") or {}
+        wired = {str(entry.get("address")) for entry in model.get("wiring") or []}
+        for first, second in itertools.combinations(
+            [role for role in GROUP_ROLES if role in groups_named], 2
+        ):
+            shared = sorted(
+                set(group_families(groups_named[first])) & set(group_families(groups_named[second]))
+            )
+            if not shared or {first, second} == set(ROLE_PLANES):
+                continue
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"name a group of its own for each of `groups.{first}` and `groups.{second}`; "
+                f"only {' and '.join(f'`groups.{role}`' for role in ROLE_PLANES)} may name "
+                "one group",
+                record_kind="measurement",
+                detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
+            )
+        sorts = member_sorts(
+            declared[str(kind)] for kind in measurement.get("kinds") or [] if str(kind) in declared
+        )
+        # A machine tree on its own: the kind's package is the mounting
+        # deployment's, so the kind is judged there.
+        unjudged = sorted(
+            str(kind)
+            for kind in measurement.get("kinds") or []
+            if deferred is not None and str(kind) not in declared
+        )
+        if deferred is not None:
+            deferred.extend(
+                FacilityBuildWarning(
+                    "kind-deferred",
+                    "measurement",
+                    name,
+                    f"kind {kind} is registered by no installed package; its roles and "
+                    "`kind_blocks` entry are judged where its app is mounted",
+                    "validate the deployment that mounts this machine and lists the kind's package",
+                )
+                for kind in unjudged
+            )
+        yield from _unsorted_roles(
+            name, files, groups_named, instruments, sorts, undeclared=not unjudged
+        )
+        grouped = measurement_groups(records, name, sorts)
+        blocks = measurement.get("kind_blocks") or {}
+        listed = {str(kind) for kind in measurement.get("kinds") or []}
+        for kind in sorted(set(blocks) - listed, key=str):
+            yield FacilityBuildError(
+                "value-invalid",
+                name,
+                files,
+                f"remove `kind_blocks.{kind}`, or list {kind} in `kinds`",
+                record_kind="measurement",
+                detail=f"`kind_blocks.{kind}` is the block of a kind the file does not list",
+            )
+        for kind in measurement.get("kinds") or []:
+            declaration = declared.get(str(kind))
+            if declaration is None:
+                if str(kind) in unjudged:
+                    continue
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} is not registered under {ENTRY_POINT_GROUP} by any installed "
+                    "package",
+                    f"install the kind's package, or remove {kind} from `kinds`",
+                )
+                continue
+            if not declaration.single_pass and _single_pass(model):
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} needs a periodic solve; model {name} solves single_pass",
+                    f"remove {kind} from `kinds`; a single_pass model allows "
+                    f"{' and '.join(single_pass_kinds) or 'no kind'} alone",
+                )
+                continue
+            for member, requirement in declaration.members.items():
+                is_group = sorts[member] != "instrument"
+                slot = f"groups.{member}" if is_group else f"instruments.{member}"
+                named = groups_named.get(member) if is_group else instruments.get(member)
+                if named is None:
+                    if requirement != "optional":
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`, which the file does not name",
+                            f"name `{slot}`, or remove {kind} from `kinds`",
+                        )
+                    continue
+                if requirement != "wired":
+                    if not is_group and str(named) not in channels:
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`; {named} is no channel of the facility",
+                            f"name a channel of the facility as `{slot}`",
+                        )
+                    continue
+                if is_group and not grouped.get(member):
+                    plane = ROLE_PLANES.get(member)
+                    wiring = (
+                        "monitor"
+                        if sorts[member] == "monitors"
+                        else f"{plane}-plane setpoint"
+                        if plane
+                        else "setpoint"
+                    )
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; {_groups_text(named)} holds no {wiring} "
+                        f"model {name} wires",
+                        f"name a group holding a {wiring} model {name} wires as `{slot}`",
+                    )
+                elif not is_group and str(named) not in wired:
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
+                        f"wire {named} in model {name}, or name a channel it wires as `{slot}`",
+                    )
+                elif member == "tune" and tune_references(records, name, str(named)) is None:
+                    yield _measurement_missing(
+                        name,
+                        f"kind {kind} needs `{slot}`; {named} reads one plane and model {name} "
+                        "wires no single reading of the other plane to pair it with",
+                        f"wire the other plane's tune reading in model {name}, or name a reading "
+                        f"of both planes as `{slot}`",
+                    )
+            for key in declaration.tool_keys:
+                if key not in measurement:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"state `{key}`, or remove {kind} from `kinds`",
+                        record_kind="measurement",
+                        detail=f"kind {kind} needs `{key}`, which the file does not state",
+                    )
+            block = blocks.get(str(kind))
+            block_refusals = _block_stops(name, files, declaration, block)
+            if block_refusals:
+                blocked.add(str(kind))
+                yield from block_refusals
+            elif declaration.build_stops is not None:
+                try:
+                    stops = [
+                        (str(stop.remedy), str(stop.detail))
+                        for stop in declaration.build_stops(document, block or {})
+                    ]
+                except Exception as error:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        f"make the build_stops hook of kind {kind} ({kind_source(str(kind))}) "
+                        "accept every block its measurement schema admits",
+                        record_kind="measurement",
+                        detail=(
+                            f"kind {kind}'s build_stops hook fails on this file's block: "
+                            f"{type(error).__name__}: {error}"
+                        ),
+                    )
+                    continue
+                for remedy, detail in stops:
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        remedy,
+                        record_kind="measurement",
+                        detail=f"kind {kind}: {detail}",
+                    )
+    yield from _kind_facts_stops(document, {k: v for k, v in declared.items() if k not in blocked})
+
+
+def _kind_facts_stops(
+    document: dict[str, Any], declared: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A kind's facts writer failing on a model's block."""
+    from osprey_facility.kinds import KindFactsError, kind_source, written_facts
+
+    try:
+        written_facts(document, declared)
+    except KindFactsError as failed:
+        yield FacilityBuildError(
+            "value-invalid",
+            failed.model,
+            [f"measurement/{failed.model}.yaml"],
+            f"make the facts writer of kind {failed.kind} ({kind_source(failed.kind)}) "
+            "accept every block its measurement schema admits",
+            record_kind="measurement",
+            detail=f"kind {failed.kind}'s facts writer fails on this file's block: {failed.cause}",
+        )
+
+
+def _block_stops(
+    model: str, files: list[str], declaration: Any, block: Any
+) -> list[FacilityBuildError]:
+    """What a listed kind refuses in its own sub-block; an absent block is an empty one."""
+    from osprey_facility.kinds import block_admitted, block_problems
+
+    if block_admitted(declaration, block):
+        return []
+    kind = declaration.name
+    if declaration.measurement_schema is None:
+        return [
+            FacilityBuildError(
+                "value-invalid",
+                model,
+                files,
+                f"remove `kind_blocks.{kind}`",
+                record_kind="measurement",
+                detail=f"kind {kind} declares no measurement schema, so it takes no block",
+            )
+        ]
+    return [
+        FacilityBuildError(
+            "value-invalid",
+            model,
+            files,
+            f"correct `kind_blocks.{kind}` as kind {kind}'s measurement schema states",
+            record_kind="measurement",
+            detail=f"`kind_blocks.{problem}`",
+        )
+        for problem in block_problems(declaration, {} if block is None else block)
+    ]
+
+
+def _unsorted_roles(
+    model: str,
+    files: list[str],
+    groups_named: Mapping[str, Any],
+    instruments: Mapping[str, Any],
+    sorts: Mapping[str, str],
+    *,
+    undeclared: bool,
+) -> Iterator[FacilityBuildError]:
+    """A role neither the pyAML view nor a listed kind declares, or named in the other map.
+
+    ``undeclared`` is off for a file listing a deferred kind, whose roles
+    nobody here can tell from a role no kind declares.
+    """
+    for slot, named, other in (
+        ("groups", groups_named, "instruments"),
+        ("instruments", instruments, "groups"),
+    ):
+        for role in sorted(named, key=str):
+            sort = sorts.get(str(role))
+            if sort is None:
+                if not undeclared:
+                    continue
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"remove `{slot}.{role}`, or list a kind that declares {role} in `kinds`",
+                    record_kind="measurement",
+                    detail=f"`{slot}.{role}` names a role no listed kind declares",
+                )
+            elif (sort == "instrument") != (slot == "instruments"):
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"move `{slot}.{role}` to `{other}.{role}`",
+                    record_kind="measurement",
+                    detail=(f"`{slot}.{role}` names a role whose kind names it under `{other}`"),
+                )
+
+
+def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildError:
+    return FacilityBuildError(
+        "reference-missing",
+        model,
+        [f"measurement/{model}.yaml"],
+        remedy,
+        record_kind="measurement",
+        detail=detail,
+    )
+
+
+def _as_index(value: Any, count: int) -> int | None:
+    """``value`` as an index of ``count`` labels: an integral, finite number in range."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value) or not float(value).is_integer():
+        return None
+    index = int(value)
+    return index if 0 <= index < count else None
+
+
+def _follows_across_types(
+    setpoint: str, mine: Mapping[str, Any], readback: str, theirs: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """The refusal of ``follows`` across types, or ``(None, None)`` when the state copies by index."""
+    labels, _why = index_copy(mine, theirs)
+    if labels is not None:
+        return None, None
+    own = labels_of(theirs)
+    if own is None:
+        return (
+            f"`follows` names {setpoint}, which holds values of another type; "
+            "the simulation copies the setpoint's value",
+            f"give {setpoint} and {readback} one type, or remove `follows`",
+        )
+    other = labels_of(mine)
+    if other is not None:
+        return (
+            f"`follows` names {setpoint}, which holds {len(other)} labels to {readback}'s "
+            f"{len(own)}; the state is copied by index",
+            f"give {setpoint} and {readback} as many labels, or remove `follows`",
+        )
+    return (
+        f"`follows` names {setpoint}, which holds neither labels nor a number; the state "
+        "is copied by index",
+        f"give {setpoint} labels or a number type, or remove `follows`",
+    )
+
+
+def paired_nominal_error(
+    readback: str,
+    nominal: Any,
+    setpoint: str,
+    theirs: Any,
+    files: Sequence[str],
+    *,
+    derived: bool = False,
+) -> FacilityBuildError:
+    """The stop for a paired readback whose ``nominal`` is not its setpoint's value.
+
+    Args:
+        readback: The readback's address.
+        nominal: The readback's stated ``nominal``.
+        setpoint: The address of the setpoint it pairs with.
+        theirs: The setpoint's start value.
+        files: The files that state the readback's seed.
+        derived: True when the build derived the pair, so the remedy also names
+            the explicit way out.
+
+    Returns:
+        A ``seed-invalid`` line naming the readback.
+    """
+    remedy = f"remove `nominal` from {readback}; a paired readback starts at its setpoint's value"
+    if derived:
+        remedy += _UNPAIR.format(address=setpoint)
+    return FacilityBuildError(
+        "seed-invalid",
+        readback,
+        files,
+        remedy,
+        record_kind="channel",
+        detail=f"`nominal` {nominal} differs from its setpoint {setpoint}'s {theirs}",
+    )
+
+
+#: The remedy's tail for a pair the build derived: the explicit way out.
+_UNPAIR = "; or state `pair: {address}` on {address} to leave it unpaired"
+
+
+def _derived_pair(channel: Mapping[str, Any]) -> bool:
+    """True when the build derived a setpoint's ``pair``."""
+    provenance = channel.get("provenance")
+    defaults = provenance.get("defaults", []) if isinstance(provenance, dict) else []
+    return "pair" in defaults
+
+
+def _pair_remedy(address: str, channel: Mapping[str, Any], remedy: str) -> str:
+    """A pair stop's remedy, naming the explicit way out when the pair is derived."""
+    return remedy + _UNPAIR.format(address=address) if _derived_pair(channel) else remedy
+
+
+def _single_pass(model: Mapping[str, Any]) -> bool:
+    """True when a model's ``pyat`` settings solve one pass through a line."""
+    settings = model.get("settings")
+    block = settings.get("pyat") if isinstance(settings, dict) else None
+    return isinstance(block, dict) and block.get("solve") == "single_pass"
+
+
+#: pyAT's optics attributes, a private copy of
+#: :data:`osprey.simulation.engines.pyat.OPTICS_ATTRIBUTES`, so that checking
+#: a wiring entry does not import the lattice engine.
+_PYAT_OPTICS_ATTRIBUTES: dict[str, str] = {"tune": "tunes", "chromaticity": "chromaticity"}
+
+
+def _single_pass_optics(model: Mapping[str, Any], entry: Mapping[str, Any]) -> bool:
+    """True when a single-pass ``pyat`` model's wiring entry reads tunes or chromaticity.
+
+    Only a ``pyat`` model has optics attributes; any other engine's entry is
+    never read for them.
+    """
+    if model.get("engine") != "pyat" or not _single_pass(model):
+        return False
+    return _reads_plane_optics(entry, _PYAT_OPTICS_ATTRIBUTES)
+
+
+def _reads_plane_optics(entry: Mapping[str, Any], attributes: Iterable[str]) -> bool:
+    """True when a wiring entry names no element and reads one of ``attributes``."""
+    if entry.get("element") is not None or entry.get("slices"):
+        return False
+    engine = entry.get("engine")
+    return isinstance(engine, dict) and engine.get("attribute") in set(attributes)
+
+
+def _options_problem(value_type: str, options: Any) -> str | None:
+    if not options:
+        return f"a {value_type} channel has no `options`"
+    labels = [str(label) for label in options]
+    if value_type == "bool" and len(labels) != 2:
+        return f"a bool channel has {len(labels)} `options`, not 2"
+    if value_type == "enum" and len(labels) < 2:
+        return "an enum channel has fewer than 2 `options`"
+    if len(labels) > _MAX_OPTIONS:
+        return f"`options` has {len(labels)} labels, more than {_MAX_OPTIONS}"
+    long = [label for label in labels if len(label) > _MAX_LABEL or not label.isascii()]
+    if long:
+        return f"`options` label {long[0]} is not ASCII of at most {_MAX_LABEL} characters"
+    if len(set(labels)) != len(labels):
+        return "`options` repeats a label"
+    return None
+
+
+def _clamp_problem(clamp: Any) -> str | None:
+    if not isinstance(clamp, list) or len(clamp) != 2:
+        return f"`clamp` {clamp} is not [low, high]"
+    for side in clamp:
+        if side is not None and not (_finite(side)):
+            return f"`clamp` side {side} is not a finite number or null"
+    low, high = clamp
+    if low is not None and high is not None and low > high:
+        return f"`clamp` low {low} is above high {high}"
+    return None
+
+
+#: The most setpoint addresses a lane's tolerance warning lists.
+_WARNED_ADDRESSES = 10
+
+
+def tolerance_warnings(
+    records: FacilityRecords, lanes: Sequence[tuple[str, bool, float]]
+) -> list[str]:
+    """What a render's Bluesky lanes should know about the declared tolerances.
+
+    Two kinds of warning, each one string: a scenario that, active on its own,
+    moves a toleranced setpoint's readback beyond the tolerance, so its moves
+    time out while it is active; and, per lane that does not serve the
+    simulator, the count of float setpoints that declare no ``tolerance`` and
+    so settle within the lane's floor (a further address of a wiring record
+    counts as its record), the first line followed by up to
+    :data:`_WARNED_ADDRESSES` of their addresses, one per line. A scenario's
+    ``still`` counts as the simulator view writes it
+    (:func:`~osprey_facility.simulated.resolved_still`), so a reading
+    it stills, by ``all``, address or selection, moves nothing.
+
+    Args:
+        records: The facility file's records.
+        lanes: Each lane as ``(service key, serves the simulator, floor)``.
+
+    Returns:
+        The warnings, scenario lines first.
+    """
+    from osprey_connectors.simulation.envelope import active_envelopes
+    from osprey_facility.simulated import resolved_still
+
+    document = records.document
+    channels = _by_key(document.get("channels"), "id")
+    seeds = {
+        address: channel["simulation"]
+        for address, channel in channels.items()
+        if isinstance(channel.get("simulation"), Mapping)
+    }
+    scenarios = {
+        str(scenario["name"]): (
+            scenario
+            if scenario.get("still") is None
+            else {**scenario, "still": resolved_still(records, scenario)}
+        )
+        for scenario in document.get("scenarios") or []
+        if isinstance(scenario, Mapping) and "name" in scenario
+    }
+    toleranced = {
+        address: bound
+        for address, channel in sorted(channels.items())
+        if (bound := tolerance_bound(channel)) is not None
+    }
+    lines: list[str] = []
+    for name in sorted(scenarios):
+        envelopes = active_envelopes(seeds, scenarios, [name])
+        for setpoint, bound in toleranced.items():
+            channel = channels[setpoint]
+            readback = str(channel.get("pair", setpoint))
+            envelope = envelopes.get(readback, 0.0)
+            if envelope > bound:
+                unit = channel.get("unit", "")
+                lines.append(
+                    f"scenario {name} moves {readback} up to {envelope:g} {unit}, beyond "
+                    f"{setpoint}'s tolerance {bound:g} {unit}; its moves time out while it is "
+                    "active"
+                )
+    bare = [
+        address
+        for address, channel in sorted(channels.items())
+        if channel.get("role") == "setpoint"
+        and channel.get("value_type", "float") == "float"
+        and not channel.get("tolerance")
+        and records.record_address(address) == address
+    ]
+    for key, simulated, floor in lanes:
+        if simulated or not bare:
+            continue
+        listed = "".join(f"\n{address}" for address in bare[:_WARNED_ADDRESSES])
+        more = len(bare) - _WARNED_ADDRESSES
+        lines.append(
+            f"{len(bare)} setpoints declare no `tolerance`; on lane {key} they settle within the "
+            f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
+        )
+    return lines
+
+
+def record_missing(record: Mapping[str, Any], role: str, value_type: str) -> tuple[str, ...] | None:
+    """The slots a channel's limits record must still state for the channel to be writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        None for any role but setpoint and for ``writable: false``: no
+        slot the record lacks makes it writable. Otherwise the slots it
+        lacks, empty when it is writable: on a float or int channel the
+        unstated edges of ``min_value`` and ``max_value``; on any other,
+        ``("writable",)`` unless it says ``writable: true``.
+    """
+    if role != "setpoint" or record.get("writable") is False:
+        return None
+    if value_type in _NUMERIC_TYPES:
+        return tuple(edge for edge in _LIMIT_EDGES if record.get(edge) is None)
+    return () if record.get("writable") is True else ("writable",)
+
+
+def record_writable(record: Mapping[str, Any], role: str, value_type: str) -> bool:
+    """Whether a channel's limits record leaves it writable.
+
+    Args:
+        record: The channel's limits record.
+        role: The channel's role; only a setpoint is ever writable.
+        value_type: The channel's value type.
+
+    Returns:
+        False for any role but setpoint and for ``writable: false``; on a
+        numeric channel, whether the record carries both ``min_value`` and
+        ``max_value``; on any other, whether it says ``writable: true``.
+    """
+    return record_missing(record, role, value_type) == ()
+
+
+def tolerance_bound(channel: Mapping[str, Any]) -> float | None:
+    """A setpoint's tolerance in its unit at its operating point.
+
+    Args:
+        channel: A setpoint channel record.
+
+    Returns:
+        ``absolute``, or ``relative`` times ``|nominal|`` of the setpoint's
+        seed; None when the channel states no tolerance or a relative one
+        without a numeric ``nominal``.
+    """
+    record = channel.get("tolerance")
+    if not isinstance(record, Mapping):
+        return None
+    seed = channel.get("simulation")
+    nominal = seed.get("nominal") if isinstance(seed, Mapping) else None
+    if not _numeric(nominal):
+        nominal = None
+    if nominal is None:
+        return declared_tolerance(record, 0.0) if "absolute" in record else None
+    return declared_tolerance(record, float(nominal))
+
+
+def _terms_stated(keys: Sequence[str]) -> str:
+    """What a noise record states other than exactly one term, for its error line."""
+    unknown = [str(key) for key in keys if key not in _NOISE_TERMS]
+    if unknown:
+        return f"{quoted_slots(unknown)}, not `absolute` or `relative`"
+    if not keys:
+        return "neither `absolute` nor `relative`"
+    return "both `absolute` and `relative`"
+
+
+def _numeric(value: Any) -> bool:
+    """A real number other than a bool."""
+    return isinstance(value, numbers.Real) and not isinstance(value, bool)
+
+
+def _finite(value: Any) -> bool:
+    return isinstance(value, numbers.Real) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _non_integral(value: Any) -> bool:
+    """A finite number with a fractional part."""
+    return _finite(value) and not float(value).is_integer()
+
+
+def _usable_weight(weight: Any) -> bool:
+    return _finite(weight) and weight != 0
+
+
+def _seed_inputs(seed: Any) -> list[tuple[str, str]]:
+    """``(slot, address)`` for each channel a seed's ``pulse`` and ``gate`` read."""
+    if not isinstance(seed, dict):
+        return []
+    found: list[tuple[str, str]] = []
+    pulse = seed.get("pulse")
+    if isinstance(pulse, dict):
+        found.extend(
+            (f"pulse.{slot}", str(pulse[slot])) for slot in ("driver", "enable") if slot in pulse
+        )
+    gate = seed.get("gate")
+    inputs = gate.get("inputs") if isinstance(gate, dict) else None
+    if isinstance(inputs, dict):
+        found.extend(("gate.inputs", str(source)) for source in sorted(inputs, key=str))
+    return found
+
+
+def _cycle_from(graph: Mapping[str, list[str]], start: str) -> list[str] | None:
+    """The first cycle through ``start`` in depth-first order, or ``None``."""
+    path = [start]
+    seen = {start}
+
+    def walk(node: str) -> list[str] | None:
+        for nxt in graph.get(node, ()):
+            if nxt == start:
+                return list(path)
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            path.append(nxt)
+            found = walk(nxt)
+            if found is not None:
+                return found
+            path.pop()
+        return None
+
+    return walk(start)

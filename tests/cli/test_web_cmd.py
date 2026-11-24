@@ -9,9 +9,11 @@ root holds ``.env`` and the detached server's PID/log pair under ``var/``.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
+from osprey.cli import web_cmd
 from osprey.cli.web_cmd import (
     _STARTUP_LINE,
     DECLARED_BIND_ENV,
@@ -36,8 +39,8 @@ from osprey.cli.web_cmd import (
 )
 from osprey.port_layout import default_port
 from osprey_connectors_tests._harness._ports import bound_socket, reserved_port
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 #: The port ``osprey web`` serves on at the default base — the layout's ``web``
 #: slot, index 0. Named rather than spelled so these calls stay the ones the
@@ -653,20 +656,236 @@ def test_detach_shows_url_and_pid(
 # -- stop -------------------------------------------------------------------
 
 
-def test_stop_kills_process(monkeypatch, runner, deployment):
-    seed_pid(deployment, "12345")
-    log_path = deployment / LOG_FILE
-    log_path.write_text("some log")
+#: A stand-in server: prints ``ready``, then on SIGTERM takes a second to exit.
+_SLOW_TO_EXIT = """
+import signal, sys, time
+def _bye(*_):
+    time.sleep(1.0)
+    sys.exit(0)
+signal.signal(signal.SIGTERM, _bye)
+print("ready", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+#: A stand-in server that ignores SIGTERM.
+_IGNORES_SIGTERM = """
+import signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+print("ready", flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+#: A stand-in server that starts a process in a session of its own which
+#: ignores SIGTERM, prints that process's pid, and exits on SIGTERM.
+_LEAVES_A_CHILD = """
+import signal, subprocess, sys, time
+child = subprocess.Popen(
+    [sys.executable, "-c",
+     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)"],
+    start_new_session=True,
+)
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+
+#: A stand-in server that ignores SIGTERM and starts a process in a session
+#: of its own which ignores SIGTERM too, and prints that process's pid.
+_IGNORES_SIGTERM_AND_LEAVES_A_CHILD = """
+import signal, subprocess, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+child = subprocess.Popen(
+    [sys.executable, "-c",
+     "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)"],
+    start_new_session=True,
+)
+print(child.pid, flush=True)
+while True:
+    time.sleep(0.05)
+"""
+
+
+@contextlib.contextmanager
+def _stand_in_server(root: Path, script: str, *, as_server: bool = False):
+    """Run *script* as the detached server *root*'s PID file names; yield it and its first line.
+
+    With *as_server* the stand-in runs under the command line the detached
+    launch gives this repo's server, so ``web stop`` can prove it is one.
+    """
+    argv = [sys.executable, "-c", script]
+    if as_server:
+        argv += [*web_cmd._SERVER_ARGV, "--repo", str(root.resolve())]
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, start_new_session=True)
+    others: list[int] = []
+    try:
+        assert proc.stdout is not None
+        line = proc.stdout.readline().strip()
+        if line.isdigit():
+            others.append(int(line))
+        seed_pid(root, str(proc.pid))
+        (root / LOG_FILE).write_text("some log")
+        yield proc, line
+    finally:
+        for pgid in (proc.pid, *others):
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(pgid, signal.SIGKILL)
+        proc.wait()
+
+
+def test_stop_reports_stopped_only_after_the_server_exits(monkeypatch, runner, deployment):
     monkeypatch.chdir(deployment)
 
-    with patch("osprey.cli.web_cmd.os.kill") as mock_kill:
+    with _stand_in_server(deployment, _SLOW_TO_EXIT) as (proc, _):
         result = runner.invoke(web, ["stop"])
 
-    mock_kill.assert_called_once_with(12345, signal.SIGTERM)
-    assert result.exit_code == 0
-    assert "Stopped" in result.output
+        assert proc.poll() is not None
+    assert result.exit_code == 0, result.output
+    assert f"Stopped web terminal (PID {proc.pid})." in result.output
     assert not (deployment / PID_FILE).exists()
-    assert not log_path.exists()
+    assert not (deployment / LOG_FILE).exists()
+
+
+def test_stop_names_a_server_that_ignores_sigterm_and_keeps_its_files(
+    monkeypatch, runner, deployment
+):
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _IGNORES_SIGTERM) as (proc, _):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is None
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert f"PID {proc.pid}" in result.output
+    assert (deployment / PID_FILE).exists()
+    assert (deployment / LOG_FILE).exists()
+
+
+def test_stop_ends_a_started_process_that_outlives_the_server(monkeypatch, runner, deployment):
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _LEAVES_A_CHILD, as_server=True) as (proc, child_pid):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is not None
+        assert not web_cmd._server_alive(int(child_pid))
+    assert result.exit_code == 0, result.output
+    assert f"Stopped web terminal (PID {proc.pid})." in result.output
+    assert child_pid in result.output
+    assert not (deployment / PID_FILE).exists()
+    assert not (deployment / LOG_FILE).exists()
+
+
+def test_stop_only_names_what_outlived_a_process_it_cannot_prove_is_the_server(
+    monkeypatch, runner, deployment
+):
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _LEAVES_A_CHILD) as (proc, child_pid):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is not None
+        assert web_cmd._server_alive(int(child_pid))
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert child_pid in result.output
+    assert not (deployment / PID_FILE).exists()
+
+
+def test_stop_leaves_the_processes_of_a_server_that_is_still_running(
+    monkeypatch, runner, deployment
+):
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    script = _IGNORES_SIGTERM_AND_LEAVES_A_CHILD
+    with _stand_in_server(deployment, script, as_server=True) as (proc, child_pid):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is None
+        assert web_cmd._server_alive(int(child_pid))
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert f"PID {proc.pid}" in result.output
+    assert (deployment / PID_FILE).exists()
+    assert (deployment / LOG_FILE).exists()
+
+
+@pytest.mark.parametrize("left", ["survivors", "unknown"])
+def test_stop_exits_1_for_a_process_it_could_not_end(monkeypatch, runner, deployment, left):
+    from osprey.interfaces.web_terminal import process_tree
+    from osprey.interfaces.web_terminal.process_tree import Ending
+
+    def could_not_end(groups):
+        if left == "survivors":
+            return Ending(ended=tuple(groups), survivors=tuple(groups))
+        return Ending(unknown=tuple(groups))
+
+    monkeypatch.setattr(process_tree, "end_groups", could_not_end)
+    monkeypatch.setattr(web_cmd, "_STOP_WAIT_S", 1.0)
+    monkeypatch.chdir(deployment)
+
+    with _stand_in_server(deployment, _LEAVES_A_CHILD, as_server=True) as (proc, child_pid):
+        result = runner.invoke(web, ["stop"])
+
+        assert proc.poll() is not None
+    assert result.exit_code == 1, result.output
+    assert "Stopped" not in result.output
+    assert child_pid in result.output
+    assert not (deployment / PID_FILE).exists()
+    assert (deployment / LOG_FILE).exists()
+    if left == "unknown":
+        assert "may still be running" in result.output
+
+
+def test_the_recorded_pid_is_this_repos_server_only_by_its_command_line(tmp_path):
+    from osprey.deployment.process_table import ProcessRow
+
+    root = tmp_path.resolve()
+    launch = " ".join(
+        [sys.executable, *web_cmd._SERVER_ARGV, "--host", "127.0.0.1", "--skip-preflight"]
+    )
+
+    def row(command: str) -> ProcessRow:
+        return ProcessRow(pid=42, ppid=1, pgid=42, started=1.0, command=command, state="running")
+
+    assert web_cmd._is_this_repos_server(row(f"{launch} --repo {root}"), root)
+    assert not web_cmd._is_this_repos_server(row(f"{launch} --repo {root / 'other'}"), root)
+    assert not web_cmd._is_this_repos_server(row(f"{launch} --repo {root}x"), root)
+    assert not web_cmd._is_this_repos_server(
+        row(f"{sys.executable} -m osprey.cli.main chat --repo {root}"), root
+    )
+    assert not web_cmd._is_this_repos_server(row(f"{launch} --repo {root} --port 1"), root)
+    assert not web_cmd._is_this_repos_server(None, root)
+
+
+def test_a_survivor_is_named_only_by_the_members_still_running():
+    from osprey.cli.web_cmd import _running_members
+    from osprey.deployment.process_table import ProcessRow
+    from osprey.interfaces.web_terminal.process_tree import ProcessGroup
+
+    group = ProcessGroup(
+        pgid=500, members=((500, 1.0), (501, 2.0), (502, 3.0)), label="sidecar", command="sidecar"
+    )
+    gone = ProcessGroup(pgid=600, members=((600, 4.0),), label="other", command="other")
+    rows = {
+        500: ProcessRow(
+            pid=500, ppid=1, pgid=500, started=1.0, command="sidecar", state="sleeping"
+        ),
+        501: ProcessRow(pid=501, ppid=500, pgid=500, started=2.0, command="x", state="zombie"),
+        502: ProcessRow(pid=502, ppid=1, pgid=777, started=9.0, command="reused", state="running"),
+    }
+
+    survivors = _running_members([group, gone], rows)
+
+    assert [(g.pgid, g.members) for g in survivors] == [(500, ((500, 1.0),))]
 
 
 def test_stop_no_pid_file(monkeypatch, runner, deployment):
@@ -846,7 +1065,6 @@ class TestPreflightCompanionPortCollision:
         """
         import inspect
 
-        from osprey.cli import web_cmd
         from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
         from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 

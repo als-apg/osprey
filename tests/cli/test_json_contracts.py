@@ -373,15 +373,15 @@ def facility_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def _invoke_facility(runner: CliRunner, repo: Path, hook: Callable[[], None], *args: str) -> Result:
     """Run ``facility show --json`` over the probe repo, hooked at the views' render."""
     from osprey.cli.facility_cmd import facility
-    from osprey.facility import render
+    from osprey.facility.views import outputs as facility_outputs
 
-    real = render.render_facility_outputs
+    real = facility_outputs.render_facility_outputs
 
     def _render(*a: Any, **kw: Any) -> list[Path]:
         hook()
         return real(*a, **kw)
 
-    with patch.object(render, "render_facility_outputs", _render):
+    with patch.object(facility_outputs, "render_facility_outputs", _render):
         return runner.invoke(facility, ["show", "--repo", str(repo), "--json", *args])
 
 
@@ -556,7 +556,7 @@ def test_facility_show_prints_its_counted_notice_while_stdout_parses(
 
 #: The notes the pyAML view prints, one per served deck model with no measurement file.
 #: The demo's deck models, each of which loses its measurement file in the probe.
-_DECK_MODELS = ("BTS", "LINE", "LTB", "SR")
+_DECK_MODELS = ("BR", "BTS", "LTB", "SR")
 _PYAML_OMITTED_NOTES = tuple(
     f"pyAML view omitted for {model}: no measurement/{model}.yaml" for model in _DECK_MODELS
 )

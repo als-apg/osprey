@@ -1,0 +1,1 @@
+The second limits finding of `osprey facility validate` lists every limits record that serves its setpoint not writable, each with what it lacks: a missing `min_value` or `max_value` on a float or int setpoint, `writable: true` on any other. A record marked `writable: false` is no longer listed.

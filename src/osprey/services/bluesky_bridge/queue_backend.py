@@ -44,6 +44,7 @@ layer reads both from it and puts the code on the wire.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import logging
@@ -131,6 +132,30 @@ def _external_parameter_schemas() -> dict[str, dict[str, Any]]:
         except Exception as exc:
             logger.warning("parameter schema for %r unreadable (%s); serving un-grafted", key, exc)
     return schemas
+
+
+def _decoded_default(text: Any) -> dict[str, Any]:
+    """The schema keywords stating a manager-encoded default, or none.
+
+    The manager sends each default as Python literal text. A string, boolean
+    or number decodes to its value and JSON type, so a form shows and sends
+    what the plan declared. Anything else — text that is not a literal, a
+    value that is not text, ``None`` or a container — states nothing, and the
+    plan applies its own default when the field is left blank.
+    """
+    if not isinstance(text, str):
+        return {}
+    try:
+        value = ast.literal_eval(text)
+    except Exception:
+        return {}
+    if isinstance(value, bool):
+        return {"default": value, "type": "boolean"}
+    if isinstance(value, int | float):
+        return {"default": value, "type": "number"}
+    if isinstance(value, str):
+        return {"default": value, "type": "string"}
+    return {}
 
 
 # The item-metadata key carrying OSPREY's own run id through queueserver and
@@ -247,6 +272,7 @@ REASON_INTERRUPTED_ITEM_IN_QUEUE = "interrupted_item_in_queue"
 REASON_MANAGER_NOT_IDLE = "manager_not_idle"
 REASON_QUEUE_CHANGED_SINCE_APPROVAL = "queue_changed_since_approval"
 REASON_UNKNOWN_DEVICE = "unknown_device"
+REASON_PLAN_REGISTRY_UNREADABLE = "plan_registry_unreadable"
 REASON_STALE_DRAFT_REVISION = "stale_draft_revision"
 REASON_DRAFT_REVISION_ALREADY_LAUNCHED = "draft_revision_already_launched"
 REASON_SESSION_PLAN_UNVALIDATED = "session_plan_unvalidated"
@@ -305,6 +331,7 @@ REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
         REASON_MANAGER_NOT_IDLE: ReasonRecord(409, False),
         REASON_QUEUE_CHANGED_SINCE_APPROVAL: ReasonRecord(409, False),
         REASON_UNKNOWN_DEVICE: ReasonRecord(400, False),
+        REASON_PLAN_REGISTRY_UNREADABLE: ReasonRecord(503, True),
         REASON_STALE_DRAFT_REVISION: ReasonRecord(409, False),
         REASON_DRAFT_REVISION_ALREADY_LAUNCHED: ReasonRecord(409, False),
         REASON_SESSION_PLAN_UNVALIDATED: ReasonRecord(409, False),
@@ -909,7 +936,10 @@ class QueueBackend:
         scanned from disk. Upstream *describes* parameters (name, default,
         per-parameter docs) but publishes no typed model, so the schema here
         is derived: an object whose properties carry those descriptions, with
-        a parameter that declares no default listed as required. Provenance is
+        a parameter that declares no default listed as required. Upstream
+        sends each default as Python literal text, decoded here into a value
+        and its type; a default the form cannot carry is left to the plan,
+        and that parameter stays optional. Provenance is
         ``"facility"`` — the facility authored these plans, whatever host they
         run on.
 
@@ -933,7 +963,7 @@ class QueueBackend:
                 if param.get("description"):
                     prop["description"] = str(param["description"])
                 if "default" in param:
-                    prop["default"] = param["default"]
+                    prop.update(_decoded_default(param["default"]))
                 else:
                     required.append(pname)
                 properties[pname] = prop

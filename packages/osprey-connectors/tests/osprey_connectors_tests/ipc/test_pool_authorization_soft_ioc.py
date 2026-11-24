@@ -55,12 +55,22 @@ FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 @pytest.fixture
 def iocs(tmp_path, ioc_prefix):
-    """The read gateway's IOC and the write gateway's, serving this test's prefix."""
-    read = SoftIOC(tmp_path, "read", ioc_prefix, SEED_READ)
+    """The read gateway's IOC and the write gateway's, serving this test's prefix.
+
+    Both start before either is waited for, so their start-ups overlap.
+    """
+    read = SoftIOC(tmp_path, "read", ioc_prefix, SEED_READ, wait=False)
     try:
-        write = SoftIOC(tmp_path, "write", ioc_prefix, SEED_WRITE)
+        write = SoftIOC(tmp_path, "write", ioc_prefix, SEED_WRITE, wait=False)
     except BaseException:
         read.stop()
+        raise
+    try:
+        read.wait_until_serving()
+        write.wait_until_serving()
+    except BaseException:
+        read.stop()
+        write.stop()
         raise
     yield read, write
     read.stop()

@@ -9,8 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.validate import FACILITY_HEADER
-from osprey.utils.facility import FacilityFileError, facility_identity, facility_name
+from osprey.utils.facility import facility_identity, facility_name
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.validate import FACILITY_HEADER
+from tests._facility_file import write_facility_document
 
 
 def _write_facility_file(render_root: Path, identity: object) -> None:
@@ -92,7 +94,11 @@ def test_an_unreadable_file_is_refused(tmp_path: Path):
     ("content", "match"),
     [
         pytest.param("{not json", r"facility\.json.*not JSON", id="not-json"),
-        pytest.param("[]", r"facility\.json.*names no identity code", id="not-an-object"),
+        pytest.param(
+            "[]",
+            r"facility\.json is a list, not a JSON object -- rebuild with osprey build",
+            id="not-an-object",
+        ),
     ],
 )
 def test_a_file_that_cannot_hold_an_identity_is_refused(tmp_path: Path, content: str, match: str):
@@ -100,6 +106,43 @@ def test_a_file_that_cannot_hold_an_identity_is_refused(tmp_path: Path, content:
 
     with pytest.raises(FacilityFileError, match=match):
         facility_identity(tmp_path, "demo")
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_is_refused_naming_the_rebuild(tmp_path: Path):
+    path = write_facility_document(
+        tmp_path, {"identity": {"code": "demo"}}, schema="osprey.facility.facility/3"
+    )
+
+    with pytest.raises(FacilityFileError) as raised:
+        facility_identity(tmp_path, "demo")
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_a_facility_file_without_a_header_is_refused_naming_the_rebuild(tmp_path: Path):
+    write_facility_document(tmp_path, {"identity": {"code": "demo"}}, schema=None)
+
+    with pytest.raises(
+        FacilityFileError, match="without a schema header.*rebuild with osprey build"
+    ):
+        facility_identity(tmp_path, "demo")
+
+
+@pytest.mark.foreign_header
+def test_the_facility_name_of_a_v3_facility_file_is_refused_naming_the_rebuild(tmp_path: Path):
+    write_facility_document(
+        tmp_path,
+        {"identity": {"code": "demo", "name": "Demo"}},
+        schema="osprey.facility.facility/3",
+    )
+
+    with pytest.raises(FacilityFileError, match="rebuild with osprey build"):
+        facility_name(tmp_path, "demo")
 
 
 def test_a_file_without_an_identity_code_is_refused(tmp_path: Path):
@@ -115,7 +158,7 @@ def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Pat
         "from pathlib import Path\n"
         "from osprey.utils.facility import facility_identity\n"
         f"facility_identity(Path({str(tmp_path)!r}), 'demo')\n"
-        "print('osprey.facility.build' in sys.modules)\n"
+        "print('osprey_facility.build' in sys.modules)\n"
     )
 
     result = subprocess.run(
@@ -123,3 +166,11 @@ def test_reading_the_identity_leaves_the_facility_build_unimported(tmp_path: Pat
     )
 
     assert result.stdout.strip() == "False"
+
+
+def test_the_facility_file_error_lives_with_the_facility_errors() -> None:
+    import osprey.utils.facility as identity_module
+
+    assert issubclass(FacilityFileError, ValueError)
+    assert FacilityFileError.__module__ == "osprey_facility.errors"
+    assert "FacilityFileError" not in identity_module.__all__

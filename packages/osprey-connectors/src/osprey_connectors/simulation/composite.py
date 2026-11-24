@@ -4,8 +4,9 @@
 ``data/simulator/`` and serves its channels through two kinds of child:
 
 * one **physics child** per served model whose engine is not ``texture``,
-  built by the engine plug-in the ``osprey.simulation.engines`` entry-point
-  group names, through ``build(model, wiring, deck, settings, active=...)``;
+  built by the engine plug-in the
+  :data:`~osprey_connectors.simulation.engines.ENGINE_GROUP` entry-point group
+  names, through ``build(model, wiring, deck, settings, active=...)``;
 * the **texture**, a :class:`~osprey_connectors.simulation.texture.TextureModel`
   holding every other channel and the motion of all of them.
 
@@ -15,7 +16,15 @@ child's own variables that no channel names (faults, optics) are reached as
 ``<model>/<name>`` through :meth:`Composite.model_get` and
 :meth:`Composite.model_set` only.
 
-**IOC health.** ``supported_variables`` also holds the view's ``ioc_health``
+**Several addresses of one record.** A wiring record of a physics child may
+state further addresses under ``also``. Each is a channel of the view, and the
+composite serves it as the record's ``address``: a read of it is that
+address's read at the same instant, motion, readout and channel fault
+included; a write to it is a write to that address; and it is emitted and
+moving when that address is. No child and no texture channel is keyed by a
+further address.
+
+**Server health.** ``supported_variables`` also holds the view's server health
 addresses, ``<code>:SIM:<model>:<signal>``, read-only and served for every model
 the view lists whether or not it is built: ``HEARTBEAT`` counts the whole seconds
 since the composite started, ``UPTIME`` is those seconds, both on its clock, and
@@ -130,6 +139,8 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
+from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -177,9 +188,6 @@ __all__ = [
 ]
 
 logger = get_logger("simulation_composite")
-
-#: The entry-point group every engine plug-in registers under.
-_ENGINE_GROUP = "osprey.simulation.engines"
 
 #: The serving instances a model log record names.
 _INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
@@ -261,11 +269,11 @@ def _for_variable(variable: Variable, value: object) -> object:
     return value
 
 
-def _ioc_health_variable(address: str, signal: str) -> Variable:
-    """The read-only variable of one IOC health address.
+def _server_health_variable(address: str, signal: str) -> Variable:
+    """The read-only variable of one server health address.
 
     Raises:
-        ViewSchemaError: ``signal`` is not an IOC health signal.
+        ViewSchemaError: ``signal`` is not a server health signal.
     """
     if signal == HEARTBEAT:
         return IntVariable(name=address, default_value=0, read_only=True)
@@ -273,7 +281,7 @@ def _ioc_health_variable(address: str, signal: str) -> Variable:
         return ScalarVariable(name=address, default_value=0.0, unit="s", read_only=True)
     if signal == ENGINEER:
         return StrVariable(name=address, default_value=_DEMO_ENGINEER, read_only=True)
-    raise ViewSchemaError(f"{address} is not an IOC health address: rebuild with osprey build")
+    raise ViewSchemaError(f"{address} is not a server health address: rebuild with osprey build")
 
 
 def _producers_first(children: Mapping[str, _Child]) -> list[str]:
@@ -301,7 +309,7 @@ def _producers_first(children: Mapping[str, _Child]) -> list[str]:
 
 
 class _Engine(Protocol):
-    """An engine plug-in, as the ``osprey.simulation.engines`` group names it.
+    """An engine plug-in, as the :data:`ENGINE_GROUP` entry-point group names it.
 
     Its optional functions (``error_text``, ``readout``, ``take_inputs`` and
     the time contract) are looked up by name.
@@ -416,6 +424,7 @@ class Composite(LUMEModel):
         self._moving: frozenset[str] = frozenset()
         self._held_writes: frozenset[str] = frozenset()
         self._faulted: dict[str, ChannelFault] = {}
+        self._stopped: frozenset[str] = frozenset()
         self._fault_severity: dict[str, str] = {}
         self._snapshot: dict[str, object] = {}
         self._texture_demands: dict[str, object] = {}
@@ -431,9 +440,19 @@ class Composite(LUMEModel):
         physics = sorted(models)
 
         self._texture = TextureModel(variables, view.document(SEEDS_FILE), clock=clock)
+        #: Each further address a served record states, mapped to the record's
+        #: address, and each such record's further addresses.
+        self._record_of: dict[str, str] = {}
+        self._further: dict[str, tuple[str, ...]] = {}
+        for name in physics:
+            for binding in models[name].bindings:
+                if binding.also:
+                    self._further[binding.address] = binding.also
+                    self._record_of.update(dict.fromkeys(binding.also, binding.address))
         self._owner: dict[str, str] = {
             address: (owner if (owner := str(record.get("owner"))) in physics else TEXTURE_OWNER)
             for address, record in self._channels.items()
+            if address not in self._record_of
         }
         children = {name: self._child(models[name]) for name in physics}
         for child in children.values():
@@ -449,27 +468,35 @@ class Composite(LUMEModel):
         self._status: dict[str, str] = {
             address: name for name, address in view.status_addresses().items()
         }
-        self._ioc_health: dict[str, str] = {
+        self._server_health: dict[str, str] = {
             address: signal
-            for signals in view.ioc_health_by_model().values()
+            for signals in view.server_health_by_model().values()
             for signal, address in signals.items()
         }
+        #: Every address of the view, by the simulated server serving it.
+        self._server_addresses: dict[str, frozenset[str]] = server_addresses(
+            physics,
+            {address: str(record.get("owner")) for address, record in self._channels.items()},
+            view.status_addresses(),
+            view.server_health_by_model(),
+        )
 
         self._variables: dict[str, Variable] = {}
         for address in view.channels():
-            if self._owner[address] == TEXTURE_OWNER:
+            own = self._record_of.get(address, address)
+            if self._owner[own] == TEXTURE_OWNER:
                 self._variables[address] = self._texture.supported_variables[address]
             else:
-                child = self._children[self._owner[address]]
+                child = self._children[self._owner[own]]
                 self._variables[address] = channel_variable(
-                    self._channels[address], self._start_value(child, address)
+                    self._channels[address], self._start_value(child, own)
                 )
         for address in self._status:
             self._variables[address] = StrVariable(
                 name=address, default_value=STATUS_OK, read_only=True
             )
-        for address, signal in self._ioc_health.items():
-            self._variables[address] = _ioc_health_variable(address, signal)
+        for address, signal in self._server_health.items():
+            self._variables[address] = _server_health_variable(address, signal)
 
         self._signature: tuple[str, int] | None | bool = False
         self._refresh()
@@ -533,11 +560,11 @@ class Composite(LUMEModel):
         Raises:
             LookupError: No plug-in is registered under that name.
         """
-        found = metadata.entry_points(group=_ENGINE_GROUP, name=name)
+        found = metadata.entry_points(group=ENGINE_GROUP, name=name)
         for entry in found:
             engine: _Engine = entry.load()
             return engine
-        raise LookupError(f"no simulation engine {name!r} is registered in {_ENGINE_GROUP}")
+        raise LookupError(f"no simulation engine {name!r} is registered in {ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
         """Build a child at its active state; a raise leaves it failed with the engine's text.
@@ -679,6 +706,10 @@ class Composite(LUMEModel):
         for child in self._children.values():
             self._advance_child(child, t_s)
 
+    def now(self) -> float:
+        """The clock's reading, in epoch seconds: the instant deadlines are measured from."""
+        return float(self._clock())
+
     def advance(self) -> None:
         """Advance every time-driven child to the clock; nothing unless built to evolve."""
         self._refresh()
@@ -717,7 +748,20 @@ class Composite(LUMEModel):
                 fired.update(str(address) for address in addresses)
             except Exception as exc:
                 self._fail(child, exc)
-        return frozenset(fired)
+        return self._with_further(fired)
+
+    def _own(self, names: Sequence[str]) -> list[str]:
+        """The addresses ``names`` are served as, each once, in first-named order."""
+        if not self._record_of:
+            return list(names)
+        return list(dict.fromkeys(self._record_of.get(name, name) for name in names))
+
+    def _with_further(self, addresses: Iterable[str]) -> frozenset[str]:
+        """``addresses`` and every further address their records state."""
+        named = frozenset(addresses)
+        if not self._further:
+            return named
+        return named.union(*(self._further.get(address, ()) for address in named))
 
     def _client_write(self, forwarded: Mapping[str, Mapping[str, object]], t_s: float) -> None:
         """Hand each child the client writes that reached its model."""
@@ -771,6 +815,7 @@ class Composite(LUMEModel):
         noise: dict[str, NoiseRecord] = {}
         still: set[str] = set()
         channel_faults: dict[str, str] = {}
+        stopped_servers: set[str] = set()
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
         for name in active:
@@ -790,6 +835,7 @@ class Composite(LUMEModel):
             noise.update(scenario.get("noise") or {})
             still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
+            stopped_servers.update(str(server) for server in scenario.get("stopped_servers") or ())
 
         resolved: dict[str, list[ResolvedCoupling]] = {}
         for address, terms in couple.items():
@@ -827,6 +873,21 @@ class Composite(LUMEModel):
             child.last_good = {}
             self._build(child)
         self._apply_channel_faults(channel_faults)
+        self._apply_stopped_servers(stopped_servers)
+
+    def _apply_stopped_servers(self, stopped_servers: set[str]) -> None:
+        """Stop the named simulated servers: none of their addresses answers a reader."""
+        stopped: set[str] = set()
+        for server in sorted(stopped_servers):
+            addresses = self._server_addresses.get(server)
+            if addresses is None:
+                logger.warning(
+                    f"Ignoring stopped server {server!r}: the view serves no such server"
+                )
+                continue
+            stopped.update(addresses)
+        self._stopped = frozenset(stopped)
+        self._moving = self._moving - self._stopped
 
     def _child_active(
         self,
@@ -870,6 +931,7 @@ class Composite(LUMEModel):
             if fault.write:
                 held.add(str(address))
             pair = str(channel.get("pair") or address)
+            pair = self._record_of.get(pair, pair)
             if fault.read is None:
                 continue
             if pair != address and pair in self._channels:
@@ -892,7 +954,7 @@ class Composite(LUMEModel):
     @property
     @override
     def supported_variables(self) -> dict[str, Variable]:
-        """Every channel, status and IOC health address of the view, by address."""
+        """Every channel, status and server health address of the view, by address."""
         return self._variables
 
     @property
@@ -915,7 +977,18 @@ class Composite(LUMEModel):
         term moves it.
         """
         self._refresh()
-        return self._moving
+        return self._with_further(self._moving)
+
+    def stopped(self) -> frozenset[str]:
+        """The addresses of the simulated servers the active scenarios stop.
+
+        A reader of one of them gets no answer: the in-process connector
+        raises, the served virtual accelerator withholds its reply. The
+        composite itself still computes them, so a channel answers with its
+        current value, never a frozen one, once its server is no longer stopped.
+        """
+        self._refresh()
+        return self._stopped
 
     def texture_reach(self) -> dict[str, frozenset[str]]:
         """What a write to each settable texture channel can change, by address.
@@ -963,23 +1036,23 @@ class Composite(LUMEModel):
     def _partition(
         self, names: Sequence[str]
     ) -> tuple[dict[str, object], list[str], dict[str, list[str]]]:
-        """Split names into the status and IOC health values, the texture's and each child's."""
+        """Split names into the status and server health values, the texture's and each child's."""
         statuses: dict[str, object] = {}
         texture: list[str] = []
         physics: dict[str, list[str]] = {}
         for name in names:
             if name in self._status:
                 statuses[name] = self._children[self._status[name]].status
-            elif name in self._ioc_health:
-                statuses[name] = self._ioc_health_value(self._ioc_health[name])
+            elif name in self._server_health:
+                statuses[name] = self._server_health_value(self._server_health[name])
             elif self._owner[name] == TEXTURE_OWNER:
                 texture.append(name)
             else:
                 physics.setdefault(self._owner[name], []).append(name)
         return statuses, texture, physics
 
-    def _ioc_health_value(self, signal: str) -> str | int | float:
-        """The value an IOC health signal serves at this instant."""
+    def _server_health_value(self, signal: str) -> str | int | float:
+        """The value a server health signal serves at this instant."""
         if signal == ENGINEER:
             return _DEMO_ENGINEER
         uptime = max(float(self._clock()) - self._started_s, 0.0)
@@ -990,15 +1063,16 @@ class Composite(LUMEModel):
         self._refresh()
         t_s = float(self._clock())
         self._advance(t_s)
-        outputs = self._served(names, t_s)
-        outputs.update(self._held_demands(names))
-        for name in names:
+        own = self._own(names)
+        outputs = self._served(own, t_s)
+        outputs.update(self._held_demands(own))
+        for name in own:
             fault = self._faulted.get(name)
             if fault is not None and fault.read is not None:
                 outputs[name] = fault.read(
                     channel_value_type(self._channels[name]), self._snapshot.get(name)
                 )
-        return {name: outputs[name] for name in names}
+        return {name: outputs[self._record_of.get(name, name)] for name in names}
 
     def _served(self, names: list[str], t_s: float) -> dict[str, object]:
         """The channels as served at ``t_s`` without the channel faults."""
@@ -1129,16 +1203,19 @@ class Composite(LUMEModel):
         """The channels a read of ``address`` reads with it, ``address`` among them.
 
         A monitor plane of a physics child is read with its partner planes;
-        any other channel alone.
+        any other channel alone. A further address of a record stands in its
+        group where the record's address does.
 
         Raises:
             ValueError: ``address`` is not a channel of the view.
         """
         self._require([address])
-        owner = self._owner[address]
-        if owner == TEXTURE_OWNER or not self._is_moving_readback(address):
+        own = self._record_of.get(address, address)
+        owner = self._owner[own]
+        if owner == TEXTURE_OWNER or not self._is_moving_readback(own):
             return (address,)
-        return self._children[owner].partners.get(address, (address,))
+        group = self._children[owner].partners.get(own, (own,))
+        return tuple(address if name == own else name for name in group)
 
     def readings(
         self, levels: Mapping[str, float | npt.NDArray[np.float64]], t_s: object
@@ -1163,12 +1240,18 @@ class Composite(LUMEModel):
             ValueError: A name is not a float channel of the view, or a
                 monitor plane's partner has no level.
         """
-        names = sorted(levels)
-        self._require(names)
-        for name in names:
+        named = sorted(levels)
+        self._require(named)
+        for name in named:
             channel = self._channels.get(name)
             if channel is None or not is_float_channel(channel):
                 raise ValueError(f"{name} is not a float channel of the view")
+        # A further address reads as its record's address does on the level
+        # given for it; the level of the record's own address stands over it.
+        given = dict(levels)
+        levels = {self._record_of.get(name, name): given[name] for name in reversed(named)}
+        levels.update({name: given[name] for name in named if name not in self._record_of})
+        names = sorted(levels)
         self._refresh()
         times = np.asarray(t_s, dtype=np.float64).reshape(-1)
         out: dict[str, npt.NDArray[np.float64]] = {}
@@ -1192,7 +1275,7 @@ class Composite(LUMEModel):
                 out.update({name: np.full(times.shape, math.nan) for name in owned})
             else:
                 out.update(self._moving_readbacks(child, owned, times))
-        return {name: out[name] for name in names}
+        return {name: out[self._record_of.get(name, name)] for name in named}
 
     def held(self, names: Sequence[str]) -> dict[str, object]:
         """Each channel's held value: no motion, no readout, no clamp.
@@ -1200,10 +1283,10 @@ class Composite(LUMEModel):
         A texture channel returns the value the texture holds; a physics
         channel its child's plain read; a setpoint the active scenarios hold
         the value last written to it; a faulted reading its unfaulted value;
-        a status address its status; an IOC health address its value now.
+        a status address its status; a server health address its value now.
 
         Args:
-            names: Channel, status or IOC health addresses.
+            names: Channel, status or server health addresses.
 
         Returns:
             The value by address, in its stored representation.
@@ -1211,8 +1294,9 @@ class Composite(LUMEModel):
         Raises:
             ValueError: A name is not a channel or status address of the view.
         """
-        wanted = list(names)
-        self._require(wanted)
+        named = list(names)
+        self._require(named)
+        wanted = self._own(named)
         self._refresh()
         self._advance(float(self._clock()))
         outputs, texture, physics = self._partition(wanted)
@@ -1225,7 +1309,7 @@ class Composite(LUMEModel):
             else:
                 outputs.update(read)
         outputs.update(self._held_demands(wanted))
-        return {name: outputs[name] for name in wanted}
+        return {name: outputs[self._record_of.get(name, name)] for name in named}
 
     def output_severity(self, names: Sequence[str]) -> dict[str, dict[str, str]]:
         """The condition of each named channel whose child failed or whose fault reports one.
@@ -1241,11 +1325,12 @@ class Composite(LUMEModel):
         self._refresh()
         severities: dict[str, dict[str, str]] = {}
         for name in names:
-            child = self._children.get(self._owner.get(name, TEXTURE_OWNER))
+            own = self._record_of.get(name, name)
+            child = self._children.get(self._owner.get(own, TEXTURE_OWNER))
             if child is not None and child.model is None:
                 severities[name] = {"condition": _UDF}
-            elif name in self._fault_severity:
-                severities[name] = {"condition": self._fault_severity[name]}
+            elif own in self._fault_severity:
+                severities[name] = {"condition": self._fault_severity[own]}
         return severities
 
     def status(self, model: str) -> str:
@@ -1266,7 +1351,8 @@ class Composite(LUMEModel):
 
         Args:
             values_by_name: Values by channel address; a waveform as a flat or
-                nested list.
+                nested list. A further address of a record writes the record's
+                address; of two values for one record the later stands.
 
         Raises:
             WriteRefusedError: (a ``ValueError``) A name is not a channel of the
@@ -1275,13 +1361,31 @@ class Composite(LUMEModel):
                 ``address`` names the channel when one channel was refused.
             ReadOnlyError: A name is not a settable channel.
         """
-        self._write(values_by_name, client=True)
+        self.write(values_by_name)
+
+    def write(self, values_by_name: Mapping[str, object]) -> float:
+        """Write channels as :meth:`set` does; returns the instant of the write.
+
+        The instant is read once from the composite's clock. The texture is
+        told of the write at it, whichever model serves each channel: every
+        response a command fires runs from it, and a journal of the write
+        records it. A write a channel fault holds fires nothing.
+
+        Returns:
+            The instant of the write, in epoch seconds.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        return self._write(values_by_name, client=True)
 
     def restore(self, values_by_name: Mapping[str, object]) -> None:
         """Put channels back as :meth:`set` writes them, without a client write.
 
-        For a rollback or a replay: the children's models take the values, and
-        no engine is told a client wrote them.
+        For a rollback: the children's models take the values, no engine is
+        told a client wrote them, and no response fires. A journal is put back
+        by :meth:`replay`.
 
         Raises:
             WriteRefusedError: As :meth:`set`.
@@ -1289,33 +1393,88 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=False)
 
-    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> None:
+    def replay(self, entries: Sequence[tuple[str, object, float | None]]) -> None:
+        """Put journalled writes back, without a client write.
+
+        Each entry is ``(address, value, t_s)``, in the order it was written,
+        with the instant it was written at or ``None``. A physics child takes
+        each of its channels' last value, as :meth:`restore` puts it; the
+        texture is told of every entry in order, whichever model serves it,
+        and fires each command's responses at the entry's instant
+        (:meth:`TextureModel.replay`). An entry a channel fault holds is put
+        back as a held write and fires nothing.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
         self._refresh()
+        latest: dict[str, values.StoredValue] = {}
+        told: list[tuple[str, values.StoredValue, float | None]] = []
+        for name, value, t_s in entries:
+            own, stored = self._coerced(name, value)
+            if own not in self._held_writes:
+                told.append((own, stored, t_s))
+            if own in self._held_writes or self._owner[own] != TEXTURE_OWNER:
+                latest[own] = stored
+        if latest or told:
+            self._apply(latest, float(self._clock()), client=False, told=told)
+
+    def _coerced(self, name: str, value: object) -> tuple[str, values.StoredValue]:
+        """The address ``name`` is served as and ``value`` stored for its channel.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        variable = self._variables.get(name)
+        if variable is None:
+            raise WriteRefusedError(
+                f"Variable '{name}' is not supported by the model.", address=name
+            )
+        if variable.read_only:
+            raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
+        channel = self._channels[name]
+        try:
+            stored = values.coerce(
+                value.tolist() if isinstance(value, np.ndarray) else value,
+                channel.get("value_type"),
+                channel.get("options"),
+                channel.get("shape"),
+            )
+            variable.validate_value(_for_variable(variable, stored))
+        except ValueError as exc:
+            raise WriteRefusedError(str(exc), address=name) from exc
+        return self._record_of.get(name, name), stored
+
+    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> float:
+        """Write channels at one reading of the clock; returns that reading.
+
+        A client write is told to the texture at the reading, a restore with
+        no instant.
+        """
+        self._refresh()
+        t_s = float(self._clock())
         if not values_by_name:
-            return
+            return t_s
         coerced: dict[str, values.StoredValue] = {}
         for name, value in values_by_name.items():
-            variable = self._variables.get(name)
-            if variable is None:
-                raise WriteRefusedError(
-                    f"Variable '{name}' is not supported by the model.", address=name
-                )
-            if variable.read_only:
-                raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
-            channel = self._channels[name]
-            try:
-                coerced[name] = values.coerce(
-                    value.tolist() if isinstance(value, np.ndarray) else value,
-                    channel.get("value_type"),
-                    channel.get("options"),
-                    channel.get("shape"),
-                )
-                variable.validate_value(_for_variable(variable, coerced[name]))
-            except ValueError as exc:
-                raise WriteRefusedError(str(exc), address=name) from exc
-        t_s = float(self._clock())
+            own, coerced[own] = self._coerced(name, value)
+        self._apply(coerced, t_s, client=client, at=t_s if client else None)
+        return t_s
+
+    def _apply(
+        self,
+        coerced: Mapping[str, values.StoredValue],
+        t_s: float,
+        *,
+        client: bool,
+        at: float | None = None,
+        told: Sequence[tuple[str, values.StoredValue, float | None]] | None = None,
+    ) -> None:
+        """Advance to ``t_s``, write the coerced values, then deliver and report."""
         self._advance(t_s)
-        forwarded = self._forward(coerced)
+        forwarded = self._forward(coerced, at=at, told=told)
         if not self._evolve:
             for child in self._children.values():
                 self._deliver(child, t_s)
@@ -1324,35 +1483,60 @@ class Composite(LUMEModel):
 
     @override
     def _set(self, values_by_name: dict[str, values.StoredValue]) -> None:
-        self._forward(values_by_name)
+        self._forward(
+            {self._record_of.get(name, name): value for name, value in values_by_name.items()},
+            at=float(self._clock()),
+        )
 
     def _forward(
-        self, values_by_name: Mapping[str, values.StoredValue]
+        self,
+        values_by_name: Mapping[str, values.StoredValue],
+        *,
+        at: float | None,
+        told: Sequence[tuple[str, values.StoredValue, float | None]] | None = None,
     ) -> dict[str, dict[str, values.StoredValue]]:
-        """Write the children, then the texture; returns what reached each child's model."""
+        """Write the children, then tell the texture; returns what reached each child's model.
+
+        The texture holds its channels' values and takes every write no
+        channel fault holds as an act, whichever model serves it: the write of
+        ``values_by_name`` made at ``at``, or, for a replay, the ``told``
+        entries in order at their instants.
+        """
         batches: dict[str, dict[str, values.StoredValue]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
         forwarded: dict[str, dict[str, values.StoredValue]] = {}
-        texture = batches.get(TEXTURE_OWNER) or {}
-        demands = {name: value for name, value in texture.items() if name in self._held_writes}
-        writing: Mapping[str, values.StoredValue] = {}
+        demands = {
+            name: value
+            for name, value in (batches.get(TEXTURE_OWNER) or {}).items()
+            if name in self._held_writes
+        }
+        writing: Mapping[str, object] = {}
         try:
             for model, child in self._children.items():
                 if model in batches:
                     writing = batches[model]
                     restore, forwarded[model] = self._set_child(child, writing)
                     restores.append(restore)
-            forward = {name: value for name, value in texture.items() if name not in demands}
-            if forward:
-                writing = forward
-                self._texture.set(
-                    {
-                        name: _for_variable(self._texture.supported_variables[name], value)
-                        for name, value in forward.items()
-                    }
+            if told is not None:
+                writing = {name: value for name, value, _t_s in told}
+                self._texture.replay(
+                    [(name, self._for_texture(name, value), t_s) for name, value, t_s in told]
                 )
+            else:
+                acts = {
+                    name: self._for_texture(name, value)
+                    for name, value in values_by_name.items()
+                    if name not in self._held_writes
+                }
+                if acts:
+                    writing = {
+                        name: value
+                        for name, value in acts.items()
+                        if self._owner[name] == TEXTURE_OWNER
+                    } or acts
+                    self._texture.write(acts, at=at)
         except Exception as exc:
             for restore in reversed(restores):
                 restore()
@@ -1362,6 +1546,11 @@ class Composite(LUMEModel):
             raise WriteRefusedError(str(exc) or type(exc).__name__, address=address) from exc
         self._texture_demands.update(demands)
         return forwarded
+
+    def _for_texture(self, name: str, value: values.StoredValue) -> object:
+        """``value`` as the texture takes it: a texture channel's in its variable's form."""
+        variable = self._texture.supported_variables.get(name)
+        return value if variable is None else _for_variable(variable, value)
 
     def _set_child(
         self, child: _Child, batch: Mapping[str, values.StoredValue]

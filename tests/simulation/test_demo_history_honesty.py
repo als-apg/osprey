@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.simulation.apply import (
     _dense_documents,
     _recomputed_values,
@@ -36,10 +35,12 @@ from osprey.simulation.apply import (
     persisted_scenario_anchor,
 )
 from osprey.simulation.session_artifacts import PLOT_DIV_ID, render_session_artifacts
-from osprey.simulation.sessions import parse_sessions, resolve
 from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.simulation.series import anchored_instant
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sessions import parse_sessions, resolve
+from tests._builds import FRAMEWORK_CHECKS
 
 TEMPLATE_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
 SCENARIO_FILE = TEMPLATE_FACILITY / "scenarios" / "demo-history.yaml"
@@ -61,13 +62,13 @@ HORIZON_START = ANCHOR.timestamp() - 30 * 86400
 @pytest.fixture(scope="module")
 def project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The example facility's simulator view, with the set applied at ``ANCHOR``."""
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
     root = tmp_path_factory.mktemp("project")
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = build_facility(TEMPLATE_FACILITY, project_name="example", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root / "data" / "simulator",
         ViewInputs(
@@ -112,6 +113,16 @@ def _axis_seconds(axis: list[str]) -> list[float]:
     return [datetime.fromisoformat(stamp).replace(tzinfo=tz).timestamp() for stamp in axis]
 
 
+#: The plot's time axis, what the rewrite stores there and over which windows, and the base
+#: seed's values there: ``(seconds, seeded, spans, base)``.
+ArchiveAtPlot = tuple[
+    list[float],
+    dict[str, dict[int, Any]],
+    dict[str, tuple[float, float]],
+    dict[str, list[Any]],
+]
+
+
 def _seeded(
     project: Path, config: dict, epochs: list[float]
 ) -> tuple[dict[str, dict[int, Any]], dict[str, tuple[float, float]]]:
@@ -153,6 +164,14 @@ def _base(project: Path, epochs: list[float]) -> dict[str, list[Any]]:
         return archive.samples([DCCT, SR07], epochs)
 
 
+@pytest.fixture(scope="module")
+def archive_at_plot(project: Path, config: dict, plot) -> ArchiveAtPlot:
+    """The archive at the loss plot's instants, computed once for the tests that read it."""
+    seconds = _axis_seconds(plot[DCCT]["x"])
+    seeded, spans = _seeded(project, config, seconds)
+    return seconds, seeded, spans, _base(project, seconds)
+
+
 # ---------------------------------------------------------------------------
 # One clock
 # ---------------------------------------------------------------------------
@@ -173,13 +192,10 @@ def test_the_burst_is_at_1432_yesterday_in_the_facility_zone() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_archived_values_are_the_plotted_values(project: Path, config: dict, plot) -> None:
-    seconds = _axis_seconds(plot[DCCT]["x"])
+def test_the_archived_values_are_the_plotted_values(archive_at_plot: ArchiveAtPlot, plot) -> None:
+    seconds, seeded, spans, base = archive_at_plot
     assert _axis_seconds(plot[SR07]["x"]) == seconds
     event = _event_instant()
-
-    seeded, spans = _seeded(project, config, seconds)
-    base = _base(project, seconds)
 
     for pv in (DCCT, SR07):
         low, high = spans[pv]
@@ -200,13 +216,11 @@ def test_the_archived_values_are_the_plotted_values(project: Path, config: dict,
 
 
 def test_the_archive_drops_and_spikes_at_the_plotted_instant(
-    project: Path, config: dict, plot
+    archive_at_plot: ArchiveAtPlot, plot
 ) -> None:
     event = _event_instant()
-    seconds = _axis_seconds(plot[DCCT]["x"])
+    seconds, seeded, _spans, base = archive_at_plot
     at = seconds.index(event)
-    seeded, _spans = _seeded(project, config, seconds)
-    base = _base(project, seconds)
     # Only the stretch around the burst, where the two scenarios' events cannot mix.
     near = [i for i, t in enumerate(seconds) if abs(t - event) <= NEAR_S]
     at = near.index(at)

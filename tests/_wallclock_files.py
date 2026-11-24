@@ -1,16 +1,19 @@
-"""Which test files carry the ``wallclock`` marker, read off their source.
+"""Which test files hold an image-free ``wallclock`` budget, read off their source.
 
-The image-free wall-clock budgets run alone, in a pytest process that collects
-only the files this module names (``scripts/repo_checks.py``,
-``pytest-wallclock-unit``), not the whole tree it would otherwise import to
-pick a handful of tests. A budget added anywhere is still timed with no new
-wiring, because the files are found when the check runs.
+A wall-clock budget runs alone, in one of two serial checks placed by the image
+marker. ``pytest-wallclock-unit`` (``scripts/repo_checks.py``) times the
+image-free budgets (:data:`IMAGE_FREE`) and collects only the files this module
+names, not the whole tree it would otherwise import to pick a handful of tests.
+``pytest-wallclock`` times the budgets that need the sidecar image
+(:data:`IMAGE_BOUND`) under :data:`IMAGE_ROOT`, in the job that builds it. A
+budget added anywhere is still timed with no new wiring, because the files are
+found when the check runs.
 
 A text scan can miss a marker applied out of sight, by a conftest hook or a
 mark imported under another name. :func:`unscanned` holds the scan to what
 pytest actually marks: the root conftest calls it on every collection, before
-any deselection, so a sweep that collects a marked test in a file the scan does
-not name stops.
+any deselection, so a run that collects a marked test neither check would time,
+or one whose file the scan places in the wrong check, stops.
 
 The scan covers every root the parallel sweep collects, read from the sweep's
 one statement (``UNIT_SELECTION`` in ``scripts/repo_checks.py``), so a budget in
@@ -32,19 +35,31 @@ from pathlib import Path
 from types import ModuleType
 
 MARKER = "wallclock"
+#: The marker of a test that needs the sidecar image built.
+IMAGE_MARKER = "dockerbuild"
+#: The one path the image check collects; an image-bound budget lives under it.
+IMAGE_ROOT = "tests/integration"
+#: The two checks' selections. Complementary, so each marked test is selected
+#: by exactly one of them.
+IMAGE_FREE = f"{MARKER} and not {IMAGE_MARKER}"
+IMAGE_BOUND = f"{MARKER} and {IMAGE_MARKER}"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The module that states the sweep's selection, whose roots the scan covers.
 SWEEP_MODULE = "scripts/repo_checks.py"
-#: Left out of the scan: their budgets need the sidecar image, and the
-#: qmd-sidecar-e2e job and the ``pytest-wallclock`` check time them.
-EXCLUDED = ("tests/e2e", "tests/integration")
-#: The marker applied in the file: as a decorator, on a ``pytestmark`` line, or
-#: as a line of its own inside a ``pytestmark`` list. Anchored at the start of
-#: a line so a test that only spells the marker in a string is not read as a
-#: carrier.
-MARK_RE = re.compile(
-    rb"^[ \t]*(?:@|pytestmark\b.*?)?pytest\.mark\." + MARKER.encode() + rb"\b", re.MULTILINE
-)
+
+
+def _mark_re(marker: str) -> re.Pattern[bytes]:
+    """*marker* applied in a file: as a decorator, on a ``pytestmark`` line, or
+    as a line of its own inside a ``pytestmark`` list. Anchored at the start of
+    a line so a test that only spells the marker in a string is not read as a
+    carrier."""
+    return re.compile(
+        rb"^[ \t]*(?:@|pytestmark\b.*?)?pytest\.mark\." + marker.encode() + rb"\b", re.MULTILINE
+    )
+
+
+MARK_RE = _mark_re(MARKER)
+IMAGE_MARK_RE = _mark_re(IMAGE_MARKER)
 
 
 def _load(path: Path, name: str) -> ModuleType:
@@ -72,54 +87,92 @@ def sweep_roots() -> tuple[str, ...]:
     return tuple(root.rstrip("/") for root in checks.UNIT_SELECTION.roots)
 
 
+def _under(relative: str, top: str) -> bool:
+    top = top.rstrip("/")
+    return relative == top or relative.startswith(f"{top}/")
+
+
 def _scanned(relative: str, roots: Iterable[str]) -> bool:
-    """Whether *relative* lies under one of *roots* and outside :data:`EXCLUDED`."""
-    under = any(relative.startswith(f"{root.rstrip('/')}/") for root in roots)
-    return under and not any(relative == d or relative.startswith(f"{d}/") for d in EXCLUDED)
+    """Whether *relative* lies under one of *roots*."""
+    return any(_under(relative, root) for root in roots)
+
+
+def _applies(data: bytes, marker: str, pattern: re.Pattern[bytes]) -> bool:
+    # The literal every match spells; a file without it skips the regex.
+    return b"pytest.mark." + marker.encode() in data and pattern.search(data) is not None
 
 
 def carries_marker(path: Path) -> bool:
     """Whether the source of *path* applies the marker, as the scan reads it."""
-    return MARK_RE.search(path.read_bytes()) is not None
+    return _applies(path.read_bytes(), MARKER, MARK_RE)
+
+
+def image_free(path: Path) -> bool:
+    """Whether the source of *path* applies the marker and not the image marker:
+    a file the image-free check collects."""
+    data = path.read_bytes()
+    return _applies(data, MARKER, MARK_RE) and not _applies(data, IMAGE_MARKER, IMAGE_MARK_RE)
 
 
 def marked_files(root: Path = REPO_ROOT, roots: Iterable[str] | None = None) -> list[str]:
-    """The ``test_*.py`` files under *roots* (the sweep's, by default) outside
-    :data:`EXCLUDED` whose source applies the marker, repository-relative and
-    sorted."""
+    """The ``test_*.py`` files under *roots* (the sweep's, by default) that the
+    image-free check collects, placed by the image marker: their source applies
+    the marker and not the image marker. Repository-relative and sorted."""
     roots = tuple(sweep_roots() if roots is None else roots)
     found = set()
     for top in roots:
         for path in (root / top).rglob("test_*.py"):
-            relative = path.relative_to(root).as_posix()
-            if "__pycache__" in path.parts or not _scanned(relative, roots):
+            if "__pycache__" in path.parts:
                 continue
-            if carries_marker(path):
-                found.add(relative)
+            if image_free(path):
+                found.add(path.relative_to(root).as_posix())
     return sorted(found)
 
 
 def unscanned(
-    marked: Iterable[Path], root: Path = REPO_ROOT, roots: Iterable[str] | None = None
+    marked: Iterable[tuple[Path, bool]], root: Path = REPO_ROOT, roots: Iterable[str] | None = None
 ) -> list[str]:
-    """The files of *marked* (the files of the tests pytest gave the marker)
-    that the scan does not name, each with what to do about it.
+    """The files of *marked* that neither check, placed by the image marker,
+    would time once, each with what to do about it.
 
-    Only files under *roots* (the sweep's, by default) outside :data:`EXCLUDED`
-    count: the others are timed by checks that select over their directories.
-    Empty means every marked test collected is in a file :func:`marked_files`
-    names.
+    *marked* holds one ``(path, image_bound)`` pair per test pytest gave the
+    marker: the test's file and whether pytest also gave it the image marker.
+    Only files under *roots* (the sweep's, by default) count. An image-free test
+    belongs in a file :func:`marked_files` names, and an image-bound one in a
+    file it does not name, under :data:`IMAGE_ROOT`. Empty means every marked
+    test collected is where its check looks.
     """
     roots = tuple(sweep_roots() if roots is None else roots)
     problems = []
-    for path in sorted(set(marked)):
+    for path, image_bound in sorted(set(marked)):
         try:
             relative = path.resolve().relative_to(root).as_posix()
         except ValueError:
             continue
         if not _scanned(relative, roots):
             continue
-        if not (path.name.startswith("test_") and carries_marker(path)):
+        is_test = path.name.startswith("test_")
+        named = is_test and image_free(path)
+        if image_bound and not _under(relative, IMAGE_ROOT):
+            problems.append(
+                f"{relative} holds a {MARKER} test marked {IMAGE_MARKER} outside "
+                f"{IMAGE_ROOT}/, where pytest-wallclock does not look, so no check "
+                f"times it: move the file under {IMAGE_ROOT}/"
+            )
+        elif image_bound and named:
+            problems.append(
+                f"{relative} holds a {MARKER} test pytest marks {IMAGE_MARKER} out of "
+                f"the sight of the scan in tests/_wallclock_files.py, which hands the "
+                f"file to pytest-wallclock-unit, a check that builds no image: apply "
+                f"{IMAGE_MARKER} in the file, on its pytestmark line"
+            )
+        elif not image_bound and not named and is_test and carries_marker(path):
+            problems.append(
+                f"{relative} mixes {MARKER} tests with and without {IMAGE_MARKER}, so "
+                f"no check times the ones without it: put {IMAGE_MARKER} on the "
+                f"module's pytestmark line"
+            )
+        elif not image_bound and not named:
             problems.append(
                 f"{relative} holds a {MARKER}-marked test that the scan in "
                 f"tests/_wallclock_files.py does not find, so pytest-wallclock-unit "

@@ -143,6 +143,32 @@
       cursor: pointer;
     }
     .login-submit:hover { filter: brightness(1.08); }
+    /* The form is on its way: the frame's script sets aria-busy on submit. */
+    .login-submit[aria-busy="true"] {
+      cursor: progress;
+      filter: none;
+      opacity: 0.85;
+    }
+    .login-submit[aria-busy="true"]::before {
+      content: "";
+      display: inline-block;
+      width: 0.8em;
+      height: 0.8em;
+      margin-right: 0.55em;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      vertical-align: -0.1em;
+      animation: login-spin 0.8s linear infinite;
+    }
+    @keyframes login-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .login-submit[aria-busy="true"]::before {
+        animation: none;
+        border-right-color: currentColor;
+        opacity: 0.6;
+      }
+    }
     .login-back {
       display: block;
       margin-top: 1.5rem;
@@ -168,6 +194,40 @@
       event.preventDefault();
       field.form.requestSubmit();
     }, true);
+    {#- The busy state. A sign-in is a plain form POST, so on a slow link
+        nothing on the page changes until the redirect lands; the submit
+        button says so instead, and a second submit is dropped. Without
+        script the form posts as before. `data-busy-label` is the page's own
+        wording for its verb. #}
+    function setBusy(button, busy) {
+      if (busy) {
+        button.setAttribute("data-idle-label", button.textContent);
+        button.textContent = button.getAttribute("data-busy-label") || button.textContent;
+        button.setAttribute("aria-busy", "true");
+      } else if (button.hasAttribute("data-idle-label")) {
+        button.textContent = button.getAttribute("data-idle-label");
+        button.removeAttribute("data-idle-label");
+        button.removeAttribute("aria-busy");
+      }
+      button.disabled = busy;
+    }
+    document.addEventListener("submit", function (event) {
+      var button = event.target.querySelector(".login-submit");
+      if (!button || event.defaultPrevented) return;
+      if (button.getAttribute("aria-busy") === "true") {
+        event.preventDefault();
+        return;
+      }
+      setBusy(button, true);
+    });
+    {#- A page restored from the back/forward cache comes back as it was
+        left: busy, with a disabled button. #}
+    window.addEventListener("pageshow", function (event) {
+      if (!event.persisted) return;
+      document.querySelectorAll('.login-submit[aria-busy="true"]').forEach(function (button) {
+        setBusy(button, false);
+      });
+    });
     {#- The page-ready mark (design-system/js/page-ready.js). The sidecar
         serves no static files, so the frame sets the one attribute itself,
         as its last statement. #}

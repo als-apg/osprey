@@ -45,7 +45,11 @@ def test_probe_records_its_temporary_root(tmp_path_factory: pytest.TempPathFacto
     if not probe:
         pytest.skip(f"runs only inside a nested run that sets {_PROBE_KEY}")
     probe_dir = Path(probe)
-    (probe_dir / f"root-{os.getpid()}").write_text(str(tmp_path_factory.getbasetemp()))
+    # Written whole, then renamed: the outer test polls for this file, and a plain
+    # write_text shows it empty for a moment, which reads back as Path(".").
+    pending = probe_dir / f"pending-{os.getpid()}"
+    pending.write_text(str(tmp_path_factory.getbasetemp()))
+    os.replace(pending, probe_dir / f"root-{os.getpid()}")
     if os.environ.get(_HOLD_KEY) == "1":
         deadline = time.monotonic() + STALL_SECONDS
         while not (probe_dir / "release").exists():

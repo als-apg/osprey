@@ -10,16 +10,12 @@ Two halves, because the field has two contracts:
   list) yields ``render=None`` and the plan still registers. A drawing concern
   must never cost an operator a launchable plan.
 - **Static** — the field is typed against the plan's *own* ``SchemaT``, so a
-  ``render()`` that takes ``dict[str, Any]`` instead of its PARAMS is a mypy
-  error rather than a surprise at the first poll tick. Nothing at runtime can
-  observe that, so it is pinned by running mypy over a fixture snippet.
-
-The snippet check carries its own vacuity guard (see
-`test_the_snippet_check_actually_resolves_planspec`): a snippet that cannot
-resolve ``osprey``, or a config that silences missing imports again, degrades
-`PlanSpec` to ``Any``, and every type assertion below it passes for the wrong
-reason. The positive control asserts the revealed type is
-the real parameterized class, not ``Any``.
+  ``render()`` that takes ``dict[str, Any]`` instead of its PARAMS, or a row
+  list instead of a `RowWindow`, is a mypy error rather than a surprise at the
+  first poll tick. Nothing at runtime can observe that, so the type check
+  proves it instead: `tests/type_contracts/planspec_render.py` holds the cases,
+  and the lint job's type check over ``[tool.mypy] files`` fails if one of them
+  stops holding.
 
 All plan files here are pure pydantic/stdlib — no bluesky import — so this
 suite runs in the bluesky-less lane alongside `test_plan_loader_layered.py`.
@@ -28,15 +24,11 @@ suite runs in the bluesky-less lane alongside `test_plan_loader_layered.py`.
 from __future__ import annotations
 
 import logging
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-import osprey
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.figure import (
     REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS,
@@ -48,11 +40,6 @@ from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
 
 _LOGGER_NAME = "osprey.services.bluesky_bridge.plan_loader"
-
-# `osprey.__file__` is the running interpreter's answer, so these stay correct
-# inside a worktree (where a repo-relative path would point at the main checkout).
-_SRC_ROOT = Path(osprey.__file__).parents[1]
-_REPO_ROOT = _SRC_ROOT.parent
 
 # The trusted tiers, the ones whose `render()` the bridge is willing to run.
 _TRUSTED_TIERS: tuple[Provenance, ...] = ("shipped", "preset", "facility")
@@ -317,129 +304,3 @@ def test_legacy_module_render_survives_provenance_normalization(tmp_path: Path) 
     assert spec.provenance == "facility"
     assert spec.render is not None
     assert spec.render(_empty_window(), spec.schema()).source == "tiled"
-
-
-# ==========================================================================
-# The static contract
-# ==========================================================================
-
-_SNIPPET_PREAMBLE = (
-    "from __future__ import annotations\n\n"
-    "from typing import Any\n\n"
-    "from pydantic import BaseModel\n\n"
-    "from osprey.services.bluesky_bridge.figure import Figure, RowWindow\n"
-    "from osprey.services.bluesky_bridge.plan_types import PlanSpec\n\n\n"
-    "class DemoParams(BaseModel):\n"
-    "    amplitude: float = 1.0\n\n\n"
-    "def build_plan(devices: dict[str, Any], params: DemoParams) -> Any:\n"
-    "    return None\n\n\n"
-)
-
-_WELL_TYPED_SNIPPET = (
-    _SNIPPET_PREAMBLE + "def render(window: RowWindow, params: DemoParams) -> Figure:\n"
-    '    return Figure(partial=False, source="live")\n\n\n'
-    "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
-    "reveal_type(SPEC)  # noqa: F821\n"
-)
-
-_MIS_TYPED_SNIPPET = (
-    _SNIPPET_PREAMBLE + "def render(window: RowWindow, params: dict[str, Any]) -> Figure:\n"
-    '    return Figure(partial=False, source="live")\n\n\n'
-    "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
-)
-
-_ROW_LIST_SNIPPET = (
-    _SNIPPET_PREAMBLE + "def render(rows: list[dict[str, Any]], params: DemoParams) -> Figure:\n"
-    '    return Figure(partial=False, source="live")\n\n\n'
-    "SPEC = PlanSpec(name='demo', plan=build_plan, schema=DemoParams, render=render)\n"
-)
-
-
-@pytest.fixture(scope="module")
-def mypy_output(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """Both snippets checked in one mypy pass — the process start dominates the cost.
-
-    ``MYPYPATH`` is set explicitly: the snippets live outside the source tree, and
-    an unresolved ``osprey`` would make `PlanSpec` ``Any`` and every assertion
-    here vacuous.
-    """
-    snippet_dir = tmp_path_factory.mktemp("render_typing")
-    (snippet_dir / "well_typed.py").write_text(_WELL_TYPED_SNIPPET)
-    (snippet_dir / "mis_typed.py").write_text(_MIS_TYPED_SNIPPET)
-    (snippet_dir / "row_list.py").write_text(_ROW_LIST_SNIPPET)
-
-    env = dict(os.environ)
-    env["MYPYPATH"] = str(_SRC_ROOT)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "mypy",
-            "--config-file",
-            str(_REPO_ROOT / "pyproject.toml"),
-            "--no-incremental",
-            str(snippet_dir),
-        ],
-        capture_output=True,
-        text=True,
-        cwd=str(_REPO_ROOT),
-        env=env,
-        timeout=300,
-    )
-    assert "No module named mypy" not in result.stderr, (
-        "mypy is not installed in this environment, so the static half of this "
-        f"contract cannot be checked at all:\n{result.stderr}"
-    )
-    return result.stdout + result.stderr
-
-
-def test_the_snippet_check_actually_resolves_planspec(mypy_output: str) -> None:
-    """The vacuity guard, and the reason this test exists at all.
-
-    Without `MYPYPATH`, mypy resolves nothing and reports ``Revealed type is
-    "Any"`` — under which the mis-typed snippet below type-checks clean and the
-    whole static contract silently stops being enforced.
-    """
-    assert "PlanSpec[well_typed.DemoParams]" in mypy_output, (
-        "mypy did not resolve PlanSpec to the real parameterized class — every "
-        f"static assertion in this module would be vacuous:\n{mypy_output}"
-    )
-
-
-def test_a_render_typed_against_its_own_params_type_checks(mypy_output: str) -> None:
-    """The positive control: the contract is satisfiable, not merely strict."""
-    offending = [
-        line for line in mypy_output.splitlines() if "well_typed.py" in line and "error:" in line
-    ]
-    assert not offending, "\n".join(offending)
-
-
-def test_a_render_taking_dict_instead_of_its_params_fails_mypy(mypy_output: str) -> None:
-    """The point of typing the field: `render()` is handed a validated PARAMS
-    instance, and a plan that annotates it ``dict[str, Any]`` would fail at the
-    first poll tick of a live run. mypy is where that gets caught."""
-    offending = [
-        line
-        for line in mypy_output.splitlines()
-        if "mis_typed.py" in line and "error:" in line and 'Argument "render"' in line
-    ]
-    assert offending, (
-        "a render() annotated dict[str, Any] instead of its PARAMS type-checked "
-        f"clean — the field's SchemaT parameterization is not biting:\n{mypy_output}"
-    )
-
-
-def test_a_render_taking_a_row_list_instead_of_a_window_fails_mypy(mypy_output: str) -> None:
-    """The static half of the row-list refusal. `plan_loader._resolve_render`
-    catches this at load time by inspecting the signature, but that costs the
-    operator the figure; mypy catches it while the plan is still being written,
-    which is where a plan author would rather hear it."""
-    offending = [
-        line
-        for line in mypy_output.splitlines()
-        if "row_list.py" in line and "error:" in line and 'Argument "render"' in line
-    ]
-    assert offending, (
-        "a render() still taking list[dict[str, Any]] type-checked clean against "
-        f"PlanSpec.render — the RowWindow cutover is not pinned statically:\n{mypy_output}"
-    )

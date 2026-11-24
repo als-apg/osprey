@@ -3,7 +3,8 @@
 The generator's ``injector`` mode merges the storage ring's injection septa SEK
 and SEN into ``records/`` and ``seeds.yaml``. On a copy of the committed tree
 with the septa removed it writes the committed records back, every other record
-byte-equal; run twice on the committed tree it changes nothing. It writes no
+byte-equal; run on the committed tree it changes nothing, so a second run changes
+nothing either. It writes no
 limits: the demo ``limits.yaml`` holds only its teaching records. The septa
 are texture rows: no model wires them, every setpoint and on-status carries a
 seed, and the SEK current pulse is a ``pulse`` waveform driven by the SEK
@@ -39,6 +40,7 @@ import io
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 from types import ModuleType
@@ -47,8 +49,9 @@ from typing import Any
 import pytest
 
 from osprey.facility.bundled import header_line
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import read_yaml
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import read_yaml
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility.test_cf_view_parity import fingerprint_rows
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -126,9 +129,15 @@ BOOSTER_FAMILIES = ("KICKER", "SEPTUM", "TV", "DIPOLE-RAMP", "QF-RAMP", "QD-RAMP
 
 
 def _is_booster(record_id: str) -> bool:
-    """A booster record the generator emits: a channel, device or group of a new family."""
+    """A booster record the generator emits: a channel, device or group of a new family.
+
+    Each ramped supply's current pair is on a device of these families and is
+    the booster model's, not the table's.
+    """
     if record_id.startswith("BR:"):
-        return record_id.split(":")[2] in BOOSTER_FAMILIES
+        parts = record_id.split(":")
+        model_owned = parts[2].endswith("-RAMP") and parts[4] == "CURRENT"
+        return parts[2] in BOOSTER_FAMILIES and not model_owned
     if record_id.startswith("BR/"):
         return record_id[3:].rstrip("0123456789") in BOOSTER_FAMILIES
     return False
@@ -204,13 +213,29 @@ def _reseed() -> ModuleType:
     return module
 
 
-@pytest.fixture
-def stripped(tmp_path: Path) -> Path:
-    """A copy of the committed example tree with every generated record removed.
+@dataclass(frozen=True)
+class Merged:
+    """The stripped tree after one run of the ``injector`` mode.
 
-    A record the generator rewrites in place is left as a stub instead.
+    Attributes:
+        tree: The tree, as the run left it.
+        records: Each of :data:`RECORDS` as the stripped tree held it before the run.
+        limits: ``limits.yaml`` as the stripped tree held it before the run.
     """
-    tree = tmp_path / "example"
+
+    tree: Path
+    records: dict[str, str]
+    limits: bytes
+
+
+@pytest.fixture(scope="module")
+def merged(tmp_path_factory: pytest.TempPathFactory) -> Merged:
+    """A copy of the committed example tree with every generated record removed, then merged.
+
+    A record the generator rewrites in place is left as a stub instead. The
+    generator runs once; every case of it reads that run.
+    """
+    tree = tmp_path_factory.mktemp("injector") / "example"
     shutil.copytree(EXAMPLE, tree)
     for rel in RECORDS:
         path = tree / rel
@@ -218,7 +243,10 @@ def stripped(tmp_path: Path) -> Path:
     seeds = (tree / "seeds.yaml").read_text(encoding="utf-8")
     kept = [chunk for chunk in _top_level_keys(seeds) if not _is_generated(chunk.split(":\n")[0])]
     (tree / "seeds.yaml").write_text("".join(kept), "utf-8")
-    return tree
+    records = {rel: (tree / rel).read_text(encoding="utf-8") for rel in RECORDS}
+    limits = (tree / "limits.yaml").read_bytes()
+    _run_injector(tree)
+    return Merged(tree, records, limits)
 
 
 def _top_level_keys(text: str) -> list[str]:
@@ -235,39 +263,37 @@ def _top_level_keys(text: str) -> list[str]:
 # --- the generator -----------------------------------------------------------------
 
 
-def test_the_injector_mode_writes_the_committed_records(stripped: Path) -> None:
-    _run_injector(stripped)
+def test_the_injector_mode_writes_the_committed_records(merged: Merged) -> None:
     for rel in RECORDS:
-        assert (stripped / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
+        assert (merged.tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
 
 
-def test_the_injector_mode_writes_the_committed_seed_keys(stripped: Path) -> None:
-    _run_injector(stripped)
-    written = read_yaml((stripped / "seeds.yaml").read_text(encoding="utf-8"))
+def test_the_injector_mode_writes_the_committed_seed_keys(merged: Merged) -> None:
+    written = read_yaml((merged.tree / "seeds.yaml").read_text(encoding="utf-8"))
     for address, seed in _committed("seeds.yaml").items():
         owned = {key: seed[key] for key in ("nominal", "pulse", "gate") if key in seed}
         if _is_generated(address) and owned:
             assert written[address] == owned, address
 
 
-def test_the_injector_mode_leaves_every_other_record_byte_equal(stripped: Path) -> None:
-    before = {rel: (stripped / rel).read_text(encoding="utf-8") for rel in RECORDS}
-    _run_injector(stripped)
+def test_the_injector_mode_leaves_every_other_record_byte_equal(merged: Merged) -> None:
     for rel in RECORDS:
-        after = (stripped / rel).read_text(encoding="utf-8")
-        assert _without_generated(after) == _without_generated(before[rel]), rel
+        after = (merged.tree / rel).read_text(encoding="utf-8")
+        assert _without_generated(after) == _without_generated(merged.records[rel]), rel
 
 
-def test_the_injector_mode_leaves_the_limits_untouched(stripped: Path) -> None:
-    before = (stripped / "limits.yaml").read_bytes()
-    _run_injector(stripped)
-    assert (stripped / "limits.yaml").read_bytes() == before
+def test_the_injector_mode_leaves_the_limits_untouched(merged: Merged) -> None:
+    assert (merged.tree / "limits.yaml").read_bytes() == merged.limits
 
 
 def test_the_injector_mode_is_idempotent(tmp_path: Path) -> None:
+    """One run on the committed tree writes it back unchanged.
+
+    The mode writes only :data:`MERGED`, so a second run starts from the same
+    tree and writes the same bytes again.
+    """
     tree = tmp_path / "example"
     shutil.copytree(EXAMPLE, tree)
-    _run_injector(tree)
     _run_injector(tree)
     for rel in [*MERGED, "limits.yaml"]:
         assert (tree / rel).read_bytes() == (EXAMPLE / rel).read_bytes(), rel
@@ -431,10 +457,13 @@ def test_the_middle_layer_view_keys_both_septa_under_the_septum_family() -> None
 
 
 def test_the_example_tree_validates() -> None:
-    from osprey.facility.validate import validate
+    from osprey.cli.facility_report import validate_facility
 
     out = io.StringIO()
-    assert validate(EXAMPLE, project_name="example", file=out) == 0, out.getvalue()
+    assert (
+        validate_facility(EXAMPLE, project_name="example", file=out, extra_checks=FRAMEWORK_CHECKS)
+        == 0
+    ), out.getvalue()
     assert "seed-missing" not in out.getvalue()
     assert "seed-invalid" not in out.getvalue()
 
@@ -449,10 +478,20 @@ EXCERPT_OF = {"GTB/gtblattice.m": "gtblattice_excerpt.m"}
 
 
 def _facility_demo(name: str) -> ModuleType:
-    """A ``scripts/facility_demo`` module, imported by the bare name the generator uses."""
-    if str(SOURCES) not in sys.path:
+    """A ``scripts/facility_demo`` module, imported by the bare name the generator uses.
+
+    The modules import their siblings by bare name at import time, so the
+    ``sys.path`` entry is held only while the import runs and never leaks into
+    later tests on the worker.
+    """
+    added = str(SOURCES) not in sys.path
+    if added:
         sys.path.insert(0, str(SOURCES))
-    return importlib.import_module(name)
+    try:
+        return importlib.import_module(name)
+    finally:
+        if added:
+            sys.path.remove(str(SOURCES))
 
 
 def _table_addresses() -> set[str]:
@@ -600,9 +639,8 @@ def test_the_table_lists_correctors_and_monitors_in_parsed_beam_order(section: s
     assert table == parsed
 
 
-def test_the_injector_mode_writes_the_gtl_and_ln_seed_nominals(stripped: Path) -> None:
-    _run_injector(stripped)
-    written = read_yaml((stripped / "seeds.yaml").read_text(encoding="utf-8"))
+def test_the_injector_mode_writes_the_gtl_and_ln_seed_nominals(merged: Merged) -> None:
+    written = read_yaml((merged.tree / "seeds.yaml").read_text(encoding="utf-8"))
     for address in _standin_channels():
         committed = _committed("seeds.yaml").get(address, {})
         if "nominal" in committed:
@@ -923,9 +961,9 @@ def test_each_new_booster_family_has_a_one_line_group() -> None:
     assert len(groups["BR/TV"]["members"]) == 5
 
 
-def test_no_booster_channel_has_a_limits_record() -> None:
+def test_no_booster_table_channel_has_a_limits_record() -> None:
     addresses = [record["address"] for record in _committed("limits.yaml")["records"]]
-    assert [address for address in addresses if address.startswith("BR:")] == []
+    assert [address for address in addresses if _is_booster(address)] == []
 
 
 # --- the hand-authored descriptions ------------------------------------------------

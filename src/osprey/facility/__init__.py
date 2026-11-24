@@ -1,47 +1,5 @@
-"""The facility file: authored and imported sources built into one description.
+"""The framework side of the facility file: its views, panels and settings.
 
-``PN_LOCAL`` is the shape every identity ``code`` and model name must take, so a
-code can name IRIs, status channels and the graph token without escaping.
+The description itself (schema, layers, validation, kinds) is the
+:mod:`osprey_facility` package.
 """
-
-from __future__ import annotations
-
-import re
-
-__all__ = ["DEFAULT_ROLE", "FACILITY_FILE", "PN_LOCAL", "STILL_ALL", "TEXTURE", "fold_code"]
-
-PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-#: The facility file's name at the root of every render.
-FACILITY_FILE = "facility.json"
-
-#: The built-in model that holds every channel no other model wires.
-TEXTURE = "texture"
-
-#: The role of a channel record that states none, as the schema's ``role`` slot defines it.
-DEFAULT_ROLE = "readback"
-
-#: The ``still`` value that stills every float reading of the scenario stating it.
-STILL_ALL = "all"
-
-_OUTSIDE_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]")
-
-
-def fold_code(name: str) -> str:
-    """Fold a free-form name into a ``PN_LOCAL`` identity code.
-
-    Every character outside ``[A-Za-z0-9_]`` becomes ``_``, and ``x`` is
-    prefixed when the result is empty or starts with a digit, so the result
-    always fully matches ``PN_LOCAL``.
-
-    Args:
-        name: The name to fold, such as a project name.
-
-    Returns:
-        The folded code, e.g. ``my proj`` -> ``my_proj``, ``1st-lab`` ->
-        ``x1st_lab``, ``als.u`` -> ``als_u``.
-    """
-    code = _OUTSIDE_PN_LOCAL.sub("_", name)
-    if not code or code[0].isdigit():
-        code = "x" + code
-    return code

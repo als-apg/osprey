@@ -484,7 +484,7 @@ async def test_channels_and_pattern_error():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=["TEST:PV"], pattern="TEST:.*")
 
-    _exc_ctx["envelope"]
+    assert "Cannot combine 'channels'" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_channels_and_name_contains_error():
@@ -493,7 +493,7 @@ async def test_channels_and_name_contains_error():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=["TEST:PV"], name_contains="TEST")
 
-    _exc_ctx["envelope"]
+    assert "Cannot combine 'channels'" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_pattern_and_name_contains_error():
@@ -502,7 +502,7 @@ async def test_pattern_and_name_contains_error():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(pattern="TEST:.*", name_contains="TEST")
 
-    _exc_ctx["envelope"]
+    assert "Cannot combine 'pattern'" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_invalid_filter_error():

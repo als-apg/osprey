@@ -31,11 +31,15 @@ into a cached lookup.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from .plan_validation import hash_plan_body
 from .session_dir import resolve_session_plan_dir
 from .validation_record import validation_records
+
+if TYPE_CHECKING:
+    from .plan_types import PlanSpec
 
 
 def _request_field(request: Any, field: str, default: Any = None) -> Any:
@@ -183,7 +187,7 @@ def _assert_limits_readable_if_writable() -> None:
         )
 
 
-def _validate_launchable_request(request: Any) -> None:
+def _validate_launchable_request(request: Any, plans: Mapping[str, PlanSpec[Any]]) -> None:
     """Refuse to enqueue a session/unreviewed plan with no CURRENT passing validation record.
 
     Defense-in-depth alongside the session-layer LOAD gate
@@ -191,16 +195,21 @@ def _validate_launchable_request(request: Any) -> None:
     unvalidated session/unreviewed file out of `get_facility_plans().plans`
     entirely, so in the common case this validator finds nothing to reject.
     It exists for the narrow race the load gate can't close on its own — the
-    `PlanSpec` `get_facility_plans()` returned to resolve this run's
-    `plan_name` moments earlier could be stale by the time launch runs (e.g.
-    the session file was edited in between) — so this independently re-reads
-    the file straight from `resolve_session_plan_dir()` and re-hashes its
-    CURRENT content with `hash_plan_body`, the same normalization the record
-    was keyed on, rather than trusting the earlier snapshot.
+    `PlanSpec` in *plans* could be stale by the time launch runs (e.g. the
+    session file was edited after the registry was read) — so this
+    independently re-reads the file straight from `resolve_session_plan_dir()`
+    and re-hashes its CURRENT content with `hash_plan_body`, the same
+    normalization the record was keyed on, rather than trusting the earlier
+    snapshot.
+
+    *plans* is the one reading of the plan registry the enqueue took
+    (`get_facility_plans().plans`); this gate, the argument resolution and the
+    device check all judge that same reading, so one enqueue never judges two
+    registries.
 
     Raises `HTTPException(409, ...)` for any plan name backed by a file in
     `resolve_session_plan_dir()` whose current content has no passing
-    record — whether or not `get_facility_plans()` currently registers it. The
+    record — whether or not *plans* registers it. The
     refusal body is the queue surface's contract shape, NOT a bare string: this
     gate runs on the enqueue path ahead of `session_upload`'s own
     admissibility check, so for an edited-after-pass session plan it is the
@@ -222,9 +231,7 @@ def _validate_launchable_request(request: Any) -> None:
     if not plan_name:
         return
 
-    from .plan_loader import get_facility_plans
-
-    spec = get_facility_plans().plans.get(plan_name)
+    spec = plans.get(plan_name)
     plan_path = resolve_session_plan_dir() / f"{plan_name}.py"
     if spec is not None:
         is_session = spec.provenance in ("session", "unreviewed")

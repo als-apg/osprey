@@ -10,11 +10,14 @@ specs say over a real wire.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import signal
 import struct
 import time
+from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -56,7 +59,20 @@ def _records() -> list[RecordSpec]:
 
 @pytest.fixture
 def ioc(tmp_path):
+    """An IOC of the test's own, for a test that kills, restarts or puts to it."""
     with SoftIOC(_records(), workdir=tmp_path) as running:
+        yield running
+
+
+@pytest.fixture(scope="module")
+def shared_ioc(tmp_path_factory):
+    """One IOC for the module's read-only tests.
+
+    Shared by tests that only look at it -- its session, its environment, a
+    second ``start`` it refuses, CA searches and PVA gets -- and never put to
+    a record, kill, restart or stop it, so each finds the records at their seeds.
+    """
+    with SoftIOC(_records(), workdir=tmp_path_factory.mktemp("shared_ioc")) as running:
         yield running
 
 
@@ -106,11 +122,31 @@ class TestRecords:
 
 
 class TestPorts:
-    def test_probed_ports_are_distinct_and_never_occupied(self):
+    def test_probed_ports_are_distinct_and_never_occupied(self, monkeypatch):
+        """The harness hands back every occupied port before any other, and then
+        one free port twice: a host's ephemeral range practically never holds an
+        occupied port, and the harness never hands out a port twice, so without
+        this a probe that took whatever it was handed would pass."""
+        from osprey_connectors_tests._harness import _ports
+
+        real = _ports.hold_ports
+        feed: list[int] = []
+
+        def occupied_first(count: int) -> list[int]:
+            assert count == 1
+            return [feed.pop(0)] if feed else real(count)
+
+        monkeypatch.setattr(_ports, "hold_ports", occupied_first)
+        feed[:] = sorted(OCCUPIED_PORTS)
+        assert probe_free_port() not in OCCUPIED_PORTS
+        assert feed == [], "the probe returned before it was handed every occupied port"
+        (spare,) = real(1)
         for _ in range(20):
+            feed[:] = [*sorted(OCCUPIED_PORTS), spare, spare]
             ports = IOCPorts.probe()
-            assert len(ports.as_set()) == 4
+            assert len(ports.as_set()) == 4, f"the probe took {spare} twice: {ports}"
             assert not ports.as_set() & OCCUPIED_PORTS
+            assert feed == [], "the probe returned before it was handed the spare port twice"
 
     def test_probe_honours_an_exclude_set(self):
         first = probe_free_port()
@@ -123,10 +159,10 @@ class TestPorts:
 
 
 class TestLifecycle:
-    def test_ioc_leads_its_own_session_and_serves_ca(self, ioc):
-        assert ioc.running
-        assert os.getsid(ioc.pid) == ioc.pid != os.getsid(0)
-        ioc.wait_ca_listening(timeout=1.0)
+    def test_ioc_leads_its_own_session_and_serves_ca(self, shared_ioc):
+        assert shared_ioc.running
+        assert os.getsid(shared_ioc.pid) == shared_ioc.pid != os.getsid(0)
+        shared_ioc.wait_ca_listening(timeout=1.0)
 
     def test_300_records_are_ready_within_the_budget(self, tmp_path):
         names = [f"SOFTIOC:SMOKE:AI{i:03d}" for i in range(300)]
@@ -155,9 +191,9 @@ class TestLifecycle:
         ioc.restart()
         assert ca_raw_search(ioc.host, ioc.ports.ca_server, [ALARMED]) == {ALARMED}
 
-    def test_start_twice_is_refused(self, ioc):
+    def test_start_twice_is_refused(self, shared_ioc):
         with pytest.raises(SoftIOCError, match="already running"):
-            ioc.start()
+            shared_ioc.start()
 
     def test_a_broken_db_fails_on_its_exit_with_the_output(self, tmp_path):
         """A broken database fails on the IOC's exit, never on the readiness deadline; the reason says which, so no clock is needed."""
@@ -189,29 +225,39 @@ class TestLifecycle:
         assert not soft.running
         assert not workdir.exists()
 
-    def test_client_env_points_ca_and_pva_at_this_ioc_only(self, ioc):
-        udp = ioc.client_env()
+    def test_client_env_points_ca_and_pva_at_this_ioc_only(self, shared_ioc):
+        udp = shared_ioc.client_env()
         assert udp["EPICS_CA_ADDR_LIST"] == "127.0.0.1"
-        assert udp["EPICS_CA_SERVER_PORT"] == str(ioc.ports.ca_server)
+        assert udp["EPICS_CA_SERVER_PORT"] == str(shared_ioc.ports.ca_server)
         assert udp["EPICS_CA_AUTO_ADDR_LIST"] == udp["EPICS_PVA_AUTO_ADDR_LIST"] == "NO"
         assert "EPICS_CA_NAME_SERVERS" not in udp
-        tcp = ioc.client_env(name_server=True)
-        assert tcp["EPICS_CA_NAME_SERVERS"] == ioc.ca_address
+        tcp = shared_ioc.client_env(name_server=True)
+        assert tcp["EPICS_CA_NAME_SERVERS"] == shared_ioc.ca_address
         assert tcp["EPICS_CA_ADDR_LIST"] == ""
+
+
+@contextlib.contextmanager
+def _pva_context(ioc: SoftIOC) -> Iterator[Any]:
+    """A PVA client context that reaches ``ioc`` only."""
+    from p4p.client.thread import Context
+
+    env = ioc.client_env()
+    conf = {key: value for key, value in env.items() if key.startswith("EPICS_PVA_")}
+    context = Context("pva", conf=conf, useenv=False)
+    try:
+        yield context
+    finally:
+        context.close()
 
 
 class TestPvaWire:
     """The records behave as specified when read over a real PVA wire."""
 
     @pytest.fixture
-    def ctxt(self, ioc):
-        from p4p.client.thread import Context
-
-        env = ioc.client_env()
-        conf = {key: value for key, value in env.items() if key.startswith("EPICS_PVA_")}
-        context = Context("pva", conf=conf, useenv=False)
-        yield context
-        context.close()
+    def ctxt(self, shared_ioc):
+        """A client of the shared IOC, for the tests that only get."""
+        with _pva_context(shared_ioc) as context:
+            yield context
 
     def test_ai_value_and_display(self, ctxt):
         value = ctxt.get(PLAIN, timeout=5.0)
@@ -224,11 +270,13 @@ class TestPvaWire:
         assert value.raw.value.index == 1
         assert list(value.raw.value.choices) == ["Off", "On", "Fault"]
 
-    def test_only_the_record_with_hhsv_alarms_above_hihi(self, ctxt):
-        ctxt.put(ALARMED, 20.0, timeout=5.0)
-        ctxt.put(PLAIN, 20.0, timeout=5.0)
-        assert ctxt.get(ALARMED, timeout=5.0).severity == 2  # MAJOR
-        assert ctxt.get(PLAIN, timeout=5.0).severity == 0
+    def test_only_the_record_with_hhsv_alarms_above_hihi(self, ioc):
+        # Puts change the records, so this test has an IOC of its own.
+        with _pva_context(ioc) as ctxt:
+            ctxt.put(ALARMED, 20.0, timeout=5.0)
+            ctxt.put(PLAIN, 20.0, timeout=5.0)
+            assert ctxt.get(ALARMED, timeout=5.0).severity == 2  # MAJOR
+            assert ctxt.get(PLAIN, timeout=5.0).severity == 0
 
 
 # ---------------------------------------------------------------------------
@@ -237,22 +285,27 @@ class TestPvaWire:
 
 
 class TestCaRawSearch:
-    def test_served_names_are_answered_and_unserved_are_not(self, ioc):
-        found = ca_raw_search(ioc.host, ioc.ports.ca_server, [PLAIN, UNSERVED, MODE])
+    def test_served_names_are_answered_and_unserved_are_not(self, shared_ioc):
+        found = ca_raw_search(shared_ioc.host, shared_ioc.ports.ca_server, [PLAIN, UNSERVED, MODE])
         assert found == {PLAIN, MODE}
 
-    def test_returns_as_soon_as_every_name_is_answered(self, ioc):
+    def test_returns_as_soon_as_every_name_is_answered(self, shared_ioc):
         started = time.monotonic()
-        assert ca_raw_search(ioc.host, ioc.ports.ca_server, [PLAIN], timeout=5.0) == {PLAIN}
+        assert ca_raw_search(shared_ioc.host, shared_ioc.ports.ca_server, [PLAIN], timeout=5.0) == {
+            PLAIN
+        }
         assert time.monotonic() - started < 2.0
 
-    def test_unserved_only_waits_out_the_timeout_and_answers_nothing(self, ioc):
+    def test_unserved_only_waits_out_the_timeout_and_answers_nothing(self, shared_ioc):
         started = time.monotonic()
-        assert ca_raw_search(ioc.host, ioc.ports.ca_server, [UNSERVED], timeout=0.3) == set()
+        assert (
+            ca_raw_search(shared_ioc.host, shared_ioc.ports.ca_server, [UNSERVED], timeout=0.3)
+            == set()
+        )
         assert 0.25 <= time.monotonic() - started < 2.0
 
-    def test_duplicate_names_are_searched_once(self, ioc):
-        assert ca_raw_search(ioc.host, ioc.ports.ca_server, [PLAIN, PLAIN]) == {PLAIN}
+    def test_duplicate_names_are_searched_once(self, shared_ioc):
+        assert ca_raw_search(shared_ioc.host, shared_ioc.ports.ca_server, [PLAIN, PLAIN]) == {PLAIN}
 
     def test_a_closed_port_is_an_empty_set(self):
         assert ca_raw_search("127.0.0.1", probe_free_port(), [PLAIN]) == set()

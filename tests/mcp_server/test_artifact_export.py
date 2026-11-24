@@ -6,6 +6,8 @@ from unittest.mock import patch
 import pytest
 
 from osprey.mcp_server.export.converter import (
+    BROWSER_INSTALL_COMMAND,
+    BROWSER_MISSING_MESSAGE,
     PageNotLoadedError,
     PlaywrightNotInstalledError,
     PlotNotDrawnError,
@@ -91,10 +93,8 @@ async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
 
     with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(artifact_id="nonexistent-id")
-
-    _exc_ctx["envelope"]
 
 
 async def test_export_non_html_artifact(tmp_path, monkeypatch):
@@ -113,14 +113,12 @@ async def test_export_non_html_artifact(tmp_path, monkeypatch):
 
     with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
-        with assert_raises_error(error_type="conversion_not_supported") as _exc_ctx:
+        with assert_raises_error(error_type="conversion_not_supported"):
             await fn(artifact_id=entry.id)
-
-    _exc_ctx["envelope"]
 
 
 async def test_export_playwright_missing(tmp_path, monkeypatch):
-    """Missing Playwright raises dependency_missing error."""
+    """A missing browser answers dependency_missing with the converter's sentence."""
     monkeypatch.chdir(tmp_path)
 
     store = ArtifactStore(workspace_root=tmp_path)
@@ -134,7 +132,7 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
     )
 
     async def raise_pw_error(*args, **kwargs):
-        raise PlaywrightNotInstalledError("Playwright not installed")
+        raise PlaywrightNotInstalledError(BROWSER_MISSING_MESSAGE)
 
     with (
         patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
@@ -147,7 +145,14 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
         with assert_raises_error(error_type="dependency_missing") as _exc_ctx:
             await fn(artifact_id=entry.id)
 
-    _exc_ctx["envelope"]
+    envelope = _exc_ctx["envelope"]
+    assert envelope["error_type"] == "dependency_missing"
+    assert envelope["error_message"] == BROWSER_MISSING_MESSAGE
+    assert BROWSER_INSTALL_COMMAND in envelope["error_message"]
+    # The command lives in the message; no suggestion repeats it.
+    suggestions = envelope["suggestions"]
+    assert not any("pip install playwright" in s for s in suggestions), suggestions
+    assert not any("playwright install" in s for s in suggestions), suggestions
 
 
 @pytest.mark.parametrize(

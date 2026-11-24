@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
+from tests._scoped_stdlib import scoped
 from tests.conftest import GATEWAY_ORIGIN
 
 # import-time required because scripts/ is not a package: matrix.py is loaded
@@ -100,16 +101,17 @@ def test_resolve_key_missing_is_empty(monkeypatch):
 # --- route derivation -------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("model_id", "provider", "route"),
+    [
+        pytest.param("gpt-oss-20b", "cborg", "proxy", id="openai-is-proxy"),
+        pytest.param("claude-sonnet-4-6", "als-apg", "direct", id="anthropic-is-direct"),
+    ],
+)
 @pytest.mark.usefixtures("keys")
-def test_route_openai_is_proxy():
-    cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
-    assert cell.route == "proxy"
-
-
-@pytest.mark.usefixtures("keys")
-def test_route_anthropic_is_direct():
-    cell = matrix.build_cell(_cfg(), {"id": "claude-sonnet-4-6", "provider": "als-apg"}, 1)
-    assert cell.route == "direct"
+def test_route_follows_the_provider_protocol(model_id, provider, route):
+    cell = matrix.build_cell(_cfg(), {"id": model_id, "provider": provider}, 1)
+    assert cell.route == route
 
 
 @pytest.mark.usefixtures("keys")
@@ -523,7 +525,7 @@ def test_run_cell_tells_the_worker_where_the_results_go(tmp_path, monkeypatch):
         seen.update(env)
         return 0
 
-    monkeypatch.setattr(matrix.subprocess, "call", fake_call)
+    scoped(monkeypatch, matrix, "subprocess", call=fake_call)
     cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
     results = tmp_path / "smoke"
     results.mkdir()

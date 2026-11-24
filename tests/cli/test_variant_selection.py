@@ -46,6 +46,7 @@ from osprey.deployment.staleness import DriftState, check_drift, profile_fingerp
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.errors import BuildProfileError
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build_in, rendered_config, stub_build
 
 
@@ -75,30 +76,29 @@ class TestReadSetting:
     def test_absent_file_is_no_variant(self, repo: Path) -> None:
         assert read_variant_setting(repo) is None
 
-    def test_reads_the_key(self, repo: Path) -> None:
-        write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
-        assert read_variant_setting(repo) == "teststand"
-
-    def test_env_file_syntax_is_honored(self, repo: Path) -> None:
-        """Comments, an ``export`` prefix, and quoted values, like any ``.env``."""
-        write_setting(
-            repo,
-            f'# which overlay this host builds\nexport {VARIANT_SETTING_KEY}="control-room"\n',
-        )
-        assert read_variant_setting(repo) == "control-room"
-
-    def test_other_keys_are_ignored(self, repo: Path) -> None:
-        write_setting(repo, f"SOMETHING_ELSE=1\n{VARIANT_SETTING_KEY}=teststand\n")
-        assert read_variant_setting(repo) == "teststand"
-
-    def test_file_without_the_key_is_no_variant(self, repo: Path) -> None:
-        write_setting(repo, "# nothing selected yet\n")
-        assert read_variant_setting(repo) is None
-
-    def test_empty_value_is_no_variant(self, repo: Path) -> None:
-        """An emptied setting means "build the tracked profile", not a variant named ''."""
-        write_setting(repo, f"{VARIANT_SETTING_KEY}=\n")
-        assert read_variant_setting(repo) is None
+    @pytest.mark.parametrize(
+        ("content", "expected"),
+        [
+            pytest.param(f"{VARIANT_SETTING_KEY}=teststand\n", "teststand", id="reads-the-key"),
+            # Comments, an ``export`` prefix, and quoted values, like any ``.env``.
+            pytest.param(
+                f'# which overlay this host builds\nexport {VARIANT_SETTING_KEY}="control-room"\n',
+                "control-room",
+                id="env-file-syntax-is-honored",
+            ),
+            pytest.param(
+                f"SOMETHING_ELSE=1\n{VARIANT_SETTING_KEY}=teststand\n",
+                "teststand",
+                id="other-keys-are-ignored",
+            ),
+            pytest.param("# nothing selected yet\n", None, id="file-without-the-key-is-no-variant"),
+            # An emptied setting means "build the tracked profile", not a variant named ''.
+            pytest.param(f"{VARIANT_SETTING_KEY}=\n", None, id="empty-value-is-no-variant"),
+        ],
+    )
+    def test_reads_what_the_file_says(self, repo: Path, content: str, expected: str | None) -> None:
+        write_setting(repo, content)
+        assert read_variant_setting(repo) == expected
 
     def test_setting_path_is_at_the_repo_root(self, repo: Path) -> None:
         assert variant_setting_path(repo) == repo / VARIANT_SETTING_FILENAME
@@ -240,7 +240,7 @@ class TestGitTrackedProbe:
         def explode(*args: object, **kwargs: object) -> None:
             raise FileNotFoundError("git")
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", explode)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=explode)
 
         selection = resolve_variant_selection(repo)
 
@@ -258,7 +258,7 @@ class TestGitTrackedProbe:
         def hang(cmd: list[str], **kwargs: object) -> None:
             raise subprocess.TimeoutExpired(cmd, _GIT_PROBE_TIMEOUT_S)
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", hang)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=hang)
 
         selection = resolve_variant_selection(repo)
 
@@ -277,7 +277,7 @@ class TestGitTrackedProbe:
         def fail(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             return subprocess.CompletedProcess(args, 128, "", "fatal: boom\n")
 
-        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", fail)
+        scoped(monkeypatch, "osprey.cli.variant_selection", "subprocess", run=fail)
 
         selection = resolve_variant_selection(repo)
 

@@ -92,12 +92,39 @@ def _write_compose(tmp_path, name, services):
     return str(path)
 
 
+@pytest.fixture(autouse=True)
+def reserved_ports(monkeypatch):
+    """The ports this test owns; only these can read as taken.
+
+    The preflight probes every binding it derives, including ports a test never
+    set (a service's other published port, a layout default). Anything else
+    listening on the machine running the test would then read as a conflict the
+    test did not stage. Every probe of a port outside this set reads free; a
+    port in it goes to the real connect, so a test that closes its listener
+    still sees the real "free" afterwards. A test that patches ``_port_is_free``
+    itself overrides this wrapper.
+
+    Yields:
+        The mutable set of reserved ports; a test adds each port it binds.
+    """
+    reserved = set()
+    real_probe = host_ports._port_is_free
+
+    def probe(host_ip, host_port):
+        return host_port not in reserved or real_probe(host_ip, host_port)
+
+    monkeypatch.setattr(host_ports, "_port_is_free", probe)
+    return reserved
+
+
 @pytest.fixture
-def listening_port():
+def listening_port(reserved_ports):
     """Bind, listen, and yield a loopback ``(socket, port)``; close on teardown."""
     with bound_socket() as sock:
         sock.listen(1)
-        yield sock, sock.getsockname()[1]
+        port = sock.getsockname()[1]
+        reserved_ports.add(port)
+        yield sock, port
 
 
 class TestParsing:
@@ -1139,6 +1166,126 @@ class TestHostNetworkConflicts:
 
         assert find_port_conflicts([binding], project_name="proj", config=_host_config()) == []
 
+    @staticmethod
+    def _own_host_dispatcher(monkeypatch):
+        """``ps`` shows this deployment's host-network event dispatcher, which maps no port."""
+        ps_json = json.dumps(
+            {
+                "Names": "proj-event-dispatcher",
+                "Ports": "",
+                "Networks": "host",
+                "Labels": (
+                    "com.docker.compose.project=proj,com.docker.compose.service=event-dispatcher"
+                ),
+            }
+        )
+        monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
+
+    def test_leaving_the_host_network_on_a_new_port_is_not_excused(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        conflicts = find_port_conflicts(
+            [binding],
+            project_name="proj",
+            config=_host_config(),
+            last_host_ports={"event-dispatcher": frozenset({port + 1})},
+        )
+        assert [(c.kind, c.holder) for c in conflicts] == [("external", "an unknown host process")]
+
+    def test_leaving_the_host_network_on_the_recorded_port_is_excused(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        assert (
+            find_port_conflicts(
+                [binding],
+                project_name="proj",
+                config=_host_config(),
+                last_host_ports={"event-dispatcher": frozenset({port})},
+            )
+            == []
+        )
+
+    def test_a_host_network_service_moving_its_port_is_not_excused(
+        self, monkeypatch, listening_port
+    ):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        config = _host_config(event_dispatcher={"network": "host", "port": port})
+
+        conflicts = find_port_conflicts(
+            [],
+            project_name="proj",
+            config=config,
+            last_host_ports={"event-dispatcher": frozenset({port + 1})},
+        )
+        assert [(c.service, c.kind) for c in conflicts] == [("event-dispatcher", "external")]
+
+    def test_a_port_recorded_for_another_service_is_not_excused(self, monkeypatch, listening_port):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        conflicts = find_port_conflicts(
+            [binding],
+            project_name="proj",
+            config=_host_config(),
+            last_host_ports={"graphdb": frozenset({port})},
+        )
+        assert [c.kind for c in conflicts] == ["external"]
+
+    def test_no_recorded_ports_keep_the_service_excuse(self, monkeypatch, listening_port):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        assert (
+            find_port_conflicts(
+                [binding], project_name="proj", config=_host_config(), last_host_ports=None
+            )
+            == []
+        )
+
+    def test_every_port_recorded_for_the_service_is_excused(self, monkeypatch, reserved_ports):
+        with bound_socket() as first, bound_socket() as second, bound_socket() as third:
+            for sock in (first, second, third):
+                sock.listen(1)
+            ports = [sock.getsockname()[1] for sock in (first, second, third)]
+            reserved_ports.update(ports)
+            self._own_host_dispatcher(monkeypatch)
+            bindings = [
+                HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+                for port in ports
+            ]
+
+            conflicts = find_port_conflicts(
+                bindings,
+                project_name="proj",
+                config=_host_config(),
+                last_host_ports={"event-dispatcher": frozenset(ports[:2])},
+            )
+        assert [(c.host_port, c.kind) for c in conflicts] == [(ports[2], "external")]
+
+    def test_a_service_recorded_with_no_ports_excuses_nothing(self, monkeypatch, listening_port):
+        _, port = listening_port
+        self._own_host_dispatcher(monkeypatch)
+        binding = HostPortBinding("event-dispatcher", "127.0.0.1", port, port, "dc.yml")
+
+        conflicts = find_port_conflicts(
+            [binding],
+            project_name="proj",
+            config=_host_config(),
+            last_host_ports={"event-dispatcher": frozenset()},
+        )
+        assert [c.kind for c in conflicts] == ["external"]
+
     def test_own_bridge_container_does_not_excuse_a_listener_on_its_new_published_port(
         self, monkeypatch, listening_port
     ):
@@ -1241,6 +1388,11 @@ class TestHostNetworkConflicts:
         )
         monkeypatch.setattr(host_ports, "_run_runtime_ps", lambda config=None: ps_json)
         config = _host_config(graphdb={"network": "host", "port_host": port})
+        # The HTTP default is derived too; only the reserved port_host can read taken.
+        assert {b.host_port for b in derive_host_network_bindings(config)} == {
+            port,
+            default_port("graphdb_http"),
+        }
 
         conflicts = find_port_conflicts([], project_name="proj", config=config)
         assert [(c.service, c.kind) for c in conflicts] == [("graphdb", "external")]
@@ -2079,6 +2231,64 @@ class TestTheHostLocalRecordIsTakenOver:
         )
 
         assert [c.service for c in conflicts] == ["postgresql"]
+
+
+class TestLastStartHostPorts:
+    """The host ports the last passing start bound, kept for the next preflight."""
+
+    def test_written_ports_read_back(self, tmp_path):
+        host_ports.write_host_network_ports(
+            tmp_path, {"event-dispatcher": [9191, 9190], "nginx": [8443]}
+        )
+
+        assert host_ports.read_host_network_ports(tmp_path) == {
+            "event-dispatcher": frozenset({9190, 9191}),
+            "nginx": frozenset({8443}),
+        }
+
+    def test_an_absent_file_reads_as_unknown(self, tmp_path):
+        assert host_ports.read_host_network_ports(tmp_path) is None
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "{not json",
+            "[9190]",
+            '{"event-dispatcher": "9190"}',
+            '{"event-dispatcher": [true]}',
+        ],
+        ids=["corrupt", "list", "str-value", "bool-port"],
+    )
+    def test_a_file_that_is_not_one_reads_as_unknown(self, tmp_path, text):
+        path = tmp_path / host_ports.HOST_NETWORK_PORTS_RELPATH
+        path.parent.mkdir(parents=True)
+        path.write_text(text)
+
+        assert host_ports.read_host_network_ports(tmp_path) is None
+
+    def test_the_file_is_readable_by_every_account(self, tmp_path):
+        path = host_ports.write_host_network_ports(tmp_path, {"nginx": [8443]})
+
+        assert path == tmp_path / host_ports.HOST_NETWORK_PORTS_RELPATH
+        assert path.stat().st_mode & 0o777 == 0o644
+
+    def test_host_network_ports_cover_every_derived_family(self):
+        config = _web_config(["alice"], auth={"method": "password"})
+        config["services"] = {"event_dispatcher": {"network": "host"}}
+        derived = (
+            derive_host_network_bindings(config)
+            + derive_web_terminal_bindings(config)
+            + derive_history_origin_bindings(config)
+        )
+
+        ports = host_ports.host_network_ports(config)
+
+        assert {"event-dispatcher", "web-alice", "nginx"} <= set(ports)
+        assert all("_" not in service for service in ports)
+        assert {(s, p) for s, found in ports.items() for p in found} == {
+            (b.service.replace("_", "-"), b.host_port) for b in derived
+        }
+        assert all(found == sorted(found) for found in ports.values())
 
 
 class TestDispatchBusBindings:

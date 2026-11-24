@@ -24,8 +24,9 @@ class. ``unplaced_devices`` counts by class the devices that sit in no place.
 facility-added class: ``count`` devices, the ``aliases`` the vocabulary and
 ``classes.yaml`` give the class in their authored spelling, and ``groups``, the
 sorted ids of the groups holding one of its devices. ``vocabulary`` counts the
-channels by role and by signal, with each signal's vocabulary description, the
-setpoints paired with a readback and the channels that carry no signal.
+channels by role and by signal, with each signal's description from the
+document's signal-role table, the setpoints paired with a readback and the
+channels that carry no signal.
 ``models`` lists every model with its ``engine``, whether the render serves it
 and its engine's ``solve`` setting. ``measurement_models`` holds one record per
 pyAML view the render carries, ``{path, sha256, files, kinds, names,
@@ -33,11 +34,11 @@ instruments, rf}``: the configuration's path under the render and its digest,
 the digest of each other file of the view by its name in the view's directory,
 and the model's kind block (:func:`osprey.facility.views.pyaml.kind_records`),
 where each listed kind's ``facts_writer`` output for the model's sub-block is
-the kind's ``facts`` (:func:`osprey.facility.kinds.written_facts`), present only
+the kind's ``facts`` (:func:`osprey_facility.kinds.written_facts`), present only
 when the kind wrote some; the facts view is written after the pyAML view and
 reads it from disk.
 ``measurement_kinds`` is every registered measurement kind's row
-(:func:`osprey.facility.kinds.kind_table_row`), a model's ``kinds`` the subset
+(:func:`osprey_facility.kinds.kind_table_row`), a model's ``kinds`` the subset
 its measurement file allows; a render with no pyAML view has none. ``channel_count`` counts the channels, and
 ``snapshot`` is ``null``.
 
@@ -61,10 +62,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey.facility.views.channel_finder import hierarchy_levels
+from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "CONFIGURATION_FILE",
@@ -99,28 +100,77 @@ NO_CLASS = "-"
 #: The page's template, relative to the packaged templates directory.
 FACTS_TEMPLATE = "claude_code/_facility_facts.md.j2"
 
-#: The facility file last parsed and the document it parsed to: every render of
-#: one build carries byte-equal ``facility.json``, so it is parsed once and the
-#: views it is handed to see one document, whose wiring they memoize.
-_parsed: tuple[bytes, dict[str, Any]] | None = None
+#: The digest of the facility file last parsed and the document it parsed to:
+#: every render of one build carries byte-equal ``facility.json``, so it is
+#: parsed once and the views it is handed to see one document, whose wiring they
+#: memoize. Keyed by digest, so the memo does not also hold the file's bytes.
+_parsed: tuple[str, dict[str, Any]] | None = None
+
+
+def parsed_facility_file(path: Path) -> Any:
+    """``facility.json`` at ``path``, as :func:`parsed_facility` gives it, checked.
+
+    A file holding the bytes the build serialised gives the build's document
+    without being read into memory (:func:`~osprey_facility.render.serialised_file_document`);
+    any other file is read and parsed. Either way the document is handed back
+    only once :func:`~osprey_facility.reading.check_header` has passed it, so
+    the shared parse never gives a caller a document whose header it does not
+    read.
+
+    Args:
+        path: The facility file.
+
+    Returns:
+        The parsed document, a JSON object whose ``schema`` header is in
+        :data:`~osprey_facility.reading.READS`; shared, so callers read it and
+        never change it.
+
+    Raises:
+        OSError: The file cannot be read; :exc:`FileNotFoundError` when it is
+            not there.
+        ValueError: The bytes are not UTF-8 JSON.
+        FacilityFileError: The document is not a JSON object or carries a
+            header outside :data:`~osprey_facility.reading.READS`; the message
+            names ``path`` and the rebuild. A :exc:`ValueError`.
+    """
+    from osprey_facility.reading import check_header
+    from osprey_facility.render import serialised_file_document
+
+    document = serialised_file_document(path)
+    if document is None:
+        document = parsed_facility(path.read_bytes())
+    check_header(document, str(path))
+    return document
 
 
 def parsed_facility(raw: bytes) -> Any:
     """``facility.json`` parsed from its bytes, once for each new bytes.
+
+    The header is not checked here: :func:`parsed_facility_file`, the one
+    caller, checks it on every document this returns.
 
     Args:
         raw: The file's bytes.
 
     Returns:
         The parsed document, shared with every caller handed the same bytes;
-        callers read it and never change it.
+        callers read it and never change it. Bytes the build serialised from
+        its own document give that document back
+        (:func:`~osprey_facility.render.serialised_document`), unparsed.
 
     Raises:
         ValueError: The bytes are not UTF-8 JSON.
     """
+    from osprey_facility.render import serialised_document
+
+    built = serialised_document(raw)
+    if built is not None:
+        return built
     global _parsed
-    if _parsed is None or _parsed[0] != raw:
-        _parsed = (raw, json.loads(raw.decode("utf-8")))
+    digest = hashlib.sha256(raw).hexdigest()
+    if _parsed is None or _parsed[0] != digest:
+        _parsed = None  # the previous document goes before the next is parsed
+        _parsed = (digest, json.loads(raw.decode("utf-8")))
     return _parsed[1]
 
 
@@ -198,7 +248,7 @@ def _authored_aliases(
 
 def _device_classes(records: FacilityRecords) -> dict[str, dict[str, Any]]:
     """Each device class with its count, authored aliases and groups."""
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     added = records.document.get("classes") or []
     aliases = _authored_aliases(vocabulary(), added)
@@ -229,9 +279,7 @@ def _device_classes(records: FacilityRecords) -> dict[str, dict[str, Any]]:
 
 def _vocabulary(records: FacilityRecords) -> dict[str, Any]:
     """The roles and signals the channels use, counted."""
-    from osprey.facility.validate import vocabulary
-
-    rows = [*vocabulary()["signal_roles"], *(records.document.get("signals") or [])]
+    rows = records.document.get("signals") or []
     described = {str(row["name"]): row.get("description") for row in rows}
     roles: dict[str, int] = defaultdict(int)
     signals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -360,8 +408,17 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
             a facts file nor a facility file.
 
     Returns:
-        The render's ``data/facility_facts.json``, or the zero-source facts
-        when the render holds none, it cannot be parsed or it lacks a key.
+        The render's ``data/facility_facts.json``; when the render holds none,
+        it cannot be parsed or it lacks a key, the zero-source facts of the
+        identity the render's facility file records, or of the project when
+        there is no facility file.
+
+    Raises:
+        FacilityFileError: The facts file is not used and the facility file
+            the identity falls back to is there but cannot be read, is not a
+            JSON object, carries a header this reader does not read, or names
+            no identity code; the message names the rebuild
+            (:func:`~osprey.utils.facility.facility_identity`).
     """
     path = Path(render_root) / "data" / FACTS_FILE
     try:
@@ -382,8 +439,8 @@ def read_facts(render_root: Path, project_name: str) -> dict[str, Any]:
     if document is not None:
         logger.warning("The facility facts %s are not a facts document", path)
 
-    from osprey.facility import fold_code
     from osprey.utils.facility import facility_identity
+    from osprey_facility import fold_code
 
     identity = facility_identity(Path(render_root), project_name) or {
         "code": fold_code(project_name),
@@ -435,7 +492,7 @@ def measurement_records(
                 list(found[view.name]["files"]),
             )
     if records is not None and found:
-        from osprey.facility.kinds import registered, written_facts
+        from osprey_facility.kinds import registered, written_facts
 
         for kind, by_model in written_facts(records.document, registered()).items():
             for model, facts in by_model.items():
@@ -537,7 +594,7 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
         The files written, sorted.
     """
     project_name = inputs.rendered_config.get("project_name")
-    from osprey.facility.kinds import kind_table_row, registered
+    from osprey_facility.kinds import kind_table_row, registered
 
     models = measurement_records(root, inputs.records)
     declared = registered() if models else {}

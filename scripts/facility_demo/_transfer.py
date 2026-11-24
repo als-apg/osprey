@@ -31,6 +31,11 @@ so ``LTB:BPM#3`` is ``BPM3`` and ``LTB:Q11#1`` is ``Q11``. :func:`element_name`
 maps an element table ``deck_element`` to that name. Drifts keep their MML
 token, which may repeat.
 
+Every BTS quadrupole carries an elliptical aperture, ``QUAD_APERTURE``, the
+demo's own: a large enough corrector kick loses the particle on it before the
+end of the line, while the nominal trajectory and the orbit-response steps
+stay far inside. LTB carries none.
+
 The four septa -- BTS ``SEN``, ``SEK``, ``SIK`` and ``SIN`` -- are ordinary
 bends here at their MML angles: fixed deck elements that no channel drives.
 
@@ -93,10 +98,11 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+import _deck
 import _elements
-import _line
 import _mml
 import _standin
+import _tree
 
 #: The transfer lines this module builds, in beam order.
 SECTIONS = ("LTB", "BTS")
@@ -112,6 +118,17 @@ END_MARKER = "END"
 
 #: Integration steps of every quadrupole and bend.
 STEPS = 10
+
+#: Horizontal and vertical semi-axes, in m, of the elliptical aperture every
+#: quadrupole of a deck carries; a section not named here has none. The value
+#: is the demo's own, the bore of a transfer-line vacuum pipe: MML states no
+#: physical aperture.
+QUAD_APERTURE: dict[str, tuple[float, float]] = {"BTS": (0.02, 0.02)}
+
+#: A BTS corrector setpoint and a current for it, in A and inside its limits,
+#: that loses the beam on a quadrupole aperture.
+LOSING_CORRECTOR = "BTS:MAG:VCM:03:CURRENT:SP"
+LOSING_CURRENT = 9.0
 
 #: Launch Twiss parameters at each deck's start marker, ``(x, y)`` per plane
 #: and ``(eta_x, eta_px, eta_y, eta_py)`` for dispersion, from MML's
@@ -157,83 +174,48 @@ def element_name(deck_element: str, section: _mml.Section) -> str:
     raise ValueError(f"{deck_element} is not an element of {section.name}")
 
 
-def _marker(name: str) -> dict[str, Any]:
-    return {"FamName": name, "Length": 0.0, "PassMethod": "IdentityPass", "Class": "Marker"}
-
-
-def _monitor(name: str) -> dict[str, Any]:
-    return {"FamName": name, "Length": 0.0, "PassMethod": "IdentityPass", "Class": "Monitor"}
-
-
-def _drift(name: str, length: float) -> dict[str, Any]:
-    return {"FamName": name, "Length": length, "PassMethod": "DriftPass", "Class": "Drift"}
-
-
-def _corrector(name: str, length: float) -> dict[str, Any]:
-    return {
-        "FamName": name,
-        "Length": length,
-        "PassMethod": "CorrectorPass",
-        "KickAngle": [0.0, 0.0],
-        "Class": "Corrector",
-    }
-
-
-def _quadrupole(name: str, length: float, k: float) -> dict[str, Any]:
-    return {
-        "FamName": name,
-        "Length": length,
-        "PassMethod": "StrMPoleSymplectic4Pass",
-        "MaxOrder": 1,
-        "NumIntSteps": STEPS,
-        "PolynomA": [0.0, 0.0],
-        "PolynomB": [0.0, k],
-        "K": k,
-        "Class": "Quadrupole",
-    }
-
-
 def _bend(name: str, definition: _mml.Definition) -> dict[str, Any]:
-    return {
-        "FamName": name,
-        "Length": definition.length,
-        "PassMethod": "BndMPoleSymplectic4Pass",
-        "BendingAngle": definition.angle,
-        "EntranceAngle": definition.entrance_angle,
-        "ExitAngle": definition.exit_angle,
-        "MaxOrder": 1,
-        "NumIntSteps": STEPS,
-        "PolynomA": [0.0, 0.0],
-        "PolynomB": [0.0, definition.k],
-        "K": definition.k,
-        "Class": "Bend",
-    }
+    return _deck.bend(
+        name,
+        definition.length,
+        definition.angle,
+        entrance_angle=definition.entrance_angle,
+        exit_angle=definition.exit_angle,
+        k=definition.k,
+        steps=STEPS,
+    )
 
 
-def _element(element: _mml.Element, name: str) -> dict[str, Any]:
+def _element(element: _mml.Element, name: str, section: str) -> dict[str, Any]:
     definition = element.definition
     if element.type == "drift":
-        return _drift(name, definition.length)
+        return _deck.drift(name, definition.length)
     if element.type == "corrector":
-        return _corrector(name, definition.length)
+        return _deck.corrector(name, definition.length)
     if element.type == "quadrupole":
-        return _quadrupole(name, definition.length, definition.k)
+        return _deck.quadrupole(
+            name,
+            definition.length,
+            definition.k,
+            steps=STEPS,
+            aperture=QUAD_APERTURE.get(section),
+        )
     if element.type in ("rbend", "sbend"):
         return _bend(name, definition)
     if element.kind == "monitor":
-        return _monitor(name)
+        return _deck.monitor(name)
     if element.type in ("marker", "aperture"):
-        return _marker(name)
+        return _deck.marker(name)
     raise ValueError(f"{element.deck_element}: no deck element for MML type {element.type!r}")
 
 
 def elements(section: _mml.Section) -> list[dict[str, Any]]:
     """``section``'s deck elements in beam order, between its start and end markers."""
-    line = [_element(element, name) for element, name in _named(section)]
+    line = [_element(element, name, section.name) for element, name in _named(section)]
     if line[0]["FamName"] != START_MARKER or line[0]["Class"] != "Marker":
         raise ValueError(f"{section.name}: the MML line does not open with a START marker")
     if line[-1]["FamName"] != END_MARKER:
-        line.append(_marker(END_MARKER))
+        line.append(_deck.marker(END_MARKER))
     names = [item["FamName"] for item in line if item["Class"] != "Drift"]
     repeated = sorted(name for name, count in Counter(names).items() if count > 1)
     if repeated:
@@ -243,21 +225,12 @@ def elements(section: _mml.Section) -> list[dict[str, Any]]:
 
 def deck(section: _mml.Section) -> dict[str, Any]:
     """The pyAT JSON document of ``section``'s line at the demo energy."""
-    return {
-        "atjson": 1,
-        "elements": elements(section),
-        "properties": {
-            "name": section.name,
-            "energy": ENERGY[section.name],
-            "particle": {"name": "relativistic", "rest_energy": 0.0, "charge": -1.0},
-            "periodicity": 1,
-        },
-    }
+    return _deck.document(section.name, ENERGY[section.name], elements(section))
 
 
 def deck_text(section: _mml.Section) -> str:
     """The deck file's exact text."""
-    return json.dumps(deck(section), indent=2) + "\n"
+    return _deck.text(deck(section))
 
 
 def write_decks(tree: Path, root: Path | None = _mml.MML_ROOT) -> list[Path]:
@@ -607,27 +580,21 @@ def _golden(rows: list[_elements.ElementRow]) -> dict[str, float]:
     return out
 
 
-def _calibration(gain: float, offset: float, scaling: str) -> dict[str, Any]:
-    if gain == 0.0:
-        raise ValueError("a calibration gain of 0 has no inverse")
-    return {"curve": {"linear": {"gain": gain, "offset": offset}}, "energy_scaling": scaling}
-
-
 def _row_calibration(
     row: _elements.ElementRow, element: dict[str, Any], golden: float | None
 ) -> dict[str, Any]:
     key = _engine_key(row)
     if key.startswith("bpm_"):
-        return _calibration(BPM_GAIN, 0.0, "none")
+        return _deck.linear_calibration(BPM_GAIN, 0.0, "none")
     if golden is None or (golden == 0.0 and key in ("quad", "dipole")):
         raise ValueError(f"{row.demo_name}: no nonzero golden current for {row.deck_element}")
     if key in ("hcm", "vcm"):
         gain = CORRECTOR_GAIN[row.section]
-        return _calibration(gain, -gain * golden if golden else 0.0, "none")
+        return _deck.linear_calibration(gain, -gain * golden if golden else 0.0, "none")
     if key == "quad":
-        return _calibration(element["PolynomB"][1] / golden, 0.0, "brho")
+        return _deck.linear_calibration(element["PolynomB"][1] / golden, 0.0, "brho")
     curvature = element["BendingAngle"] / element["Length"]
-    return _calibration(curvature / golden, -curvature, "brho")
+    return _deck.linear_calibration(curvature / golden, -curvature, "brho")
 
 
 def wiring(
@@ -707,7 +674,7 @@ def wired_addresses() -> set[str]:
     return {row.demo_name for row in table_rows() if row.wired}
 
 
-def _strip_nominals(path: Path, addresses: set[str]) -> None:
+def strip_nominals(path: Path, addresses: set[str]) -> None:
     """Remove ``nominal`` from the seeds of ``addresses``; drop an entry left empty."""
     import yaml
 
@@ -724,7 +691,7 @@ def _strip_nominals(path: Path, addresses: set[str]) -> None:
             entry.pop("nominal", None)
         if entry:
             document[address] = {key: entry[key] for key in reseed.KEY_ORDER if key in entry}
-    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    text = _tree.origin_line() + yaml.safe_dump(document, sort_keys=False)
     path.write_text(text, encoding="utf-8")
 
 
@@ -736,7 +703,7 @@ def write_sources(tree: Path) -> None:
     nominals are removed. Every other record keeps its text.
     """
     decks = {section: read_deck(tree, section) for section in SECTIONS}
-    _line._merge(
+    _tree.merge(
         tree / "models.yaml",
         [model(section, decks[section]) for section in SECTIONS],
         "name",
@@ -745,15 +712,15 @@ def write_sources(tree: Path) -> None:
     for section in SECTIONS:
         path = tree / "measurement" / f"{section}.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_line._dump(measurement(section)), encoding="utf-8")
+        path.write_text(_tree.dump(measurement(section)), encoding="utf-8")
     places_path = tree / "records" / "places.yaml"
     spanned = [
         {**record, "span": _span(record["id"])}
-        for record in _line._load(places_path)
+        for record in _tree.load(places_path)
         if record["id"] in SECTIONS
     ]
-    _line._merge(places_path, spanned, "id", ordered=False)
-    _strip_nominals(tree / "seeds.yaml", wired_addresses())
+    _tree.merge(places_path, spanned, "id", ordered=False)
+    strip_nominals(tree / "seeds.yaml", wired_addresses())
 
 
 if __name__ == "__main__":

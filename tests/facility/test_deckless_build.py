@@ -19,8 +19,9 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.validate import StageReport, run_stages
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 MODEL = "CHAIN"
 
@@ -93,7 +94,12 @@ def _write(root: Path, tree: dict[str, Any]) -> Path:
 
 
 def _run(tmp_path: Path, tree: dict[str, Any], *, later=LATER_STAGES) -> StageReport:
-    return run_stages(_write(tmp_path / "facility", tree), project_name="p", later=later)
+    return run_stages(
+        _write(tmp_path / "facility", tree),
+        project_name="p",
+        later=later,
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
 
 def _lines(report: StageReport) -> list[str]:
@@ -112,7 +118,9 @@ def _records(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def test_deckless_engine_model_builds_with_each_setpoint_started(tmp_path: Path) -> None:
-    document = build_facility(_write(tmp_path / "facility", _tree()), project_name="p")
+    document = build_facility(
+        _write(tmp_path / "facility", _tree()), project_name="p", extra_checks=FRAMEWORK_CHECKS
+    )
     records = _records(document)
     for address, start in STARTS.items():
         assert records[address]["default"] == start, address
@@ -133,22 +141,33 @@ def test_a_start_value_suppresses_seed_missing(tmp_path: Path) -> None:
     assert _lines(report) == []
 
 
-def test_start_value_above_its_limits_stops(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("channel", "start", "line"),
+    [
+        pytest.param(
+            "SRC",
+            12.0,
+            "facility: seed-invalid: channel SRC — nominal 12 lies above `max_value` 10; "
+            "fix: move the operating point inside [min_value, max_value], or widen the limits "
+            "record",
+            id="above",
+        ),
+        pytest.param(
+            "STORED",
+            1.5,
+            "facility: seed-invalid: channel STORED — nominal 1.5 lies below `min_value` 5; "
+            "fix: move the operating point inside [min_value, max_value], or widen the limits "
+            "record",
+            id="below",
+        ),
+    ],
+)
+def test_start_value_outside_its_limits_stops(
+    tmp_path: Path, channel: str, start: float, line: str
+) -> None:
     tree = _tree()
-    _wired(tree, "SRC")["engine"]["start"] = 12.0
-    assert _lines(_run(tmp_path, tree)) == [
-        "facility: seed-invalid: channel SRC — nominal 12 lies above `max_value` 10; "
-        "fix: move the operating point inside [min_value, max_value], or widen the limits record"
-    ]
-
-
-def test_start_value_below_its_limits_stops(tmp_path: Path) -> None:
-    tree = _tree()
-    _wired(tree, "STORED")["engine"]["start"] = 1.5
-    assert _lines(_run(tmp_path, tree)) == [
-        "facility: seed-invalid: channel STORED — nominal 1.5 lies below `min_value` 5; "
-        "fix: move the operating point inside [min_value, max_value], or widen the limits record"
-    ]
+    _wired(tree, channel)["engine"]["start"] = start
+    assert _lines(_run(tmp_path, tree)) == [line]
 
 
 def test_start_value_absent_starts_at_zero_and_zero_outside_band_stops(tmp_path: Path) -> None:
@@ -222,8 +241,9 @@ def test_wiring_rules_do_not_load_the_lattice_engine(
 
 #: sha256 of the lattice-only tree's facility file, compact sorted-key JSON,
 #: frozen from the build before deckless start values existed (that build's
-#: file plus the empty ``signals`` list every facility file now carries).
-LATTICE_ONLY_DIGEST = "8ff8047ac41363377d26495a922297cd0aeab130ab556ce1f479a7b48c2d375e"
+#: file plus the ``length`` and ``periodic`` each deck model now carries, and the
+#: ``/4`` header with its ``signals`` and ``relation_types`` vocabulary tables).
+LATTICE_ONLY_DIGEST = "1522bbc8589c220f31785cf66b1ea77e05c2360b1b6fce5fc49eab43a2e839ef"
 
 
 def _lattice_tree() -> dict[str, Any]:
@@ -255,7 +275,7 @@ def test_lattice_only_facility_builds_byte_identical(tmp_path: Path) -> None:
     from tests.facility._synthetic_trees import write_tree
 
     root = write_tree(tmp_path / "facility", _lattice_tree())
-    document = build_facility(root, project_name="p")
+    document = build_facility(root, project_name="p", extra_checks=FRAMEWORK_CHECKS)
     optics = _records(document)["QP:SP"]
     assert "default" not in optics
     assert "default" not in optics["provenance"]["defaults"]

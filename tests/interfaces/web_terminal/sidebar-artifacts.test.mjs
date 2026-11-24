@@ -1056,18 +1056,26 @@ describe('the viewer', () => {
 describe('live updates', () => {
   const count = (/** @type {string} */ sid) =>
     sessionRowEl(sid).querySelector('.osprey-tree-n')?.textContent;
+  /** The server's summary once a frame landed. @param {string} sid @param {Record<string, number>} forms */
+  const serverCounts = (sid, forms) => {
+    const total = Object.values(forms).reduce((a, b) => a + b, 0);
+    server.summary.counts[sid] = { total, by_form: forms };
+  };
 
   test('a duplicate frame is counted once', async () => {
     await boot();
     const fresh = art('n1', 'plots', '2026-10-30T11:30:00Z');
+    serverCounts(T1, { documents: 1, plots: 2, runs: 1 });
     frame({ type: 'artifact', ...fresh });
     frame({ type: 'artifact', ...fresh });
     await settle();
     expect(count(T1)).toBe('4');
+    expect(requests('/session-summary')).toHaveLength(2);
   });
 
   test('the preview then the result of one exec_id count once, and the status follows', async () => {
     await boot();
+    serverCounts(T1, { documents: 1, plots: 1, runs: 2 });
     frame({
       type: 'artifact',
       ...art('pv', 'runs', '2026-10-30T11:40:00Z', {
@@ -1114,6 +1122,8 @@ describe('live updates', () => {
 
   test('an owner change re-places the entry and its count', async () => {
     await boot();
+    serverCounts(T1, { documents: 1, runs: 1 });
+    serverCounts(T2, { plots: 3 });
     frame({ type: 'artifact_updated', ...A2, owner: T2 });
     await settle();
     expect(count(T1)).toBe('2');

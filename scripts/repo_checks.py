@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import functools
 import glob
 import importlib.util
 import os
@@ -71,9 +72,16 @@ class UnitSelection:
 
 #: The tests that pin this declaration and the repository-wide rules, and
 #: every test that reads the whole tests tree: a change anywhere in the tree
-#: can break them, so no change selection may leave them out.
+#: can break them, so no change selection may leave them out. Two rules read
+#: the repository by other means than a glob or a walk, which the tree-reader
+#: scan sees, and are listed by hand: the guard that only the view reader and
+#: writer open a view file (a ``git grep`` of the sources and the tests), and
+#: the docs snippet ratchet (it reads every docs page and the tests its ledger
+#: names).
 INVARIANT_TESTS = (
     "tests/docs/test_shipped_identity_literals.py",
+    "tests/docs/test_snippet_coverage.py",
+    "tests/connectors/test_view_reader_only.py",
     "tests/scripts/test_ruff_file_selection.py",
     "tests/scripts/test_check.py",
     "tests/scripts/test_changelog_fragments.py",
@@ -82,11 +90,15 @@ INVARIANT_TESTS = (
     "tests/interfaces/test_js_module_tests.py",
     "tests/interfaces/test_page_ready_guard.py",
     "tests/interfaces/test_page_ready_pages.py",
+    "tests/facility/test_no_old_facility_paths.py",
+    "tests/facility/test_package_boundary.py",
+    "tests/facility/test_reader_coverage.py",
     "tests/deployment/test_ci_workflow_wiring.py",
     "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",
+    "tests/infrastructure/test_no_wide_stdlib_patch.py",
     "tests/infrastructure/test_stand_in_canaries.py",
     "tests/test_offline_build_env.py",
     "tests/test_api_marker_placement.py",
@@ -337,7 +349,7 @@ _MACOS_RUNS = (
     "tests/cli/test_agent_record_cmd.py::test_export_on_a_no_stack_project_runs_catch_up_and_leaves_no_process",
     "tests/cli/test_agent_record_cmd.py::test_health_on_a_no_stack_project_answers_from_the_record_and_leaves_no_process",
     "tests/cli/test_build_lifecycle_drain.py",
-    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_intact_after_a_build",
+    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_in_place_at_the_last_rename_and_intact_after_the_build",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_present_build_wins_over_leftovers",
     "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_incoming_render_is_adopted_when_build_is_gone",
@@ -359,6 +371,7 @@ _MACOS_RUNS = (
     "tests/connectors/ipc/test_pool.py::test_a_wedged_child_is_killed_and_replaced",
     "tests/connectors/ipc/test_pool.py::test_children_do_not_outlive_a_parent_that_is_killed",
     "tests/connectors/ipc/test_pool.py::test_close_during_a_start_leaves_nothing_running",
+    "tests/connectors/ipc/test_pool.py::test_close_lets_a_call_in_flight_finish_and_the_child_exit_on_its_own",
     "tests/connectors/ipc/test_pool.py::test_close_stops_every_child",
     "tests/connectors/ipc/test_pool.py::test_close_with_a_call_in_flight_fails_it_as_stopped",
     "tests/connectors/ipc/test_pool.py::test_failed_starts_leave_no_unhandled_asyncio_errors",
@@ -622,10 +635,18 @@ _MACOS_RUNS = (
     "tests/test_e2e_chart_value_reading_build.py",
 )
 
+#: The sweep's roots. An explicit path replaces testpaths, so each package's own
+#: suite runs only where it is named; the ``rest-b`` shard takes what the other
+#: shards leave of them.
+_SWEEP_ROOTS = (
+    "tests/",
+    "packages/osprey-connectors/tests",
+    "packages/osprey-facility/tests",
+    "packages/osprey-panels/tests",
+)
+
 UNIT_SELECTION = UnitSelection(
-    # An explicit path replaces testpaths, so the connectors package's own
-    # suite runs only where it is named.
-    roots=("tests/", "packages/osprey-connectors/tests"),
+    roots=_SWEEP_ROOTS,
     ignores=(
         ("tests/e2e", "e2e-tests"),
         ("tests/va/test_apply_fault.py", "live-ca"),
@@ -633,22 +654,22 @@ UNIT_SELECTION = UnitSelection(
         ("tests/va/test_timed_passes_live.py", "live-ca"),
         ("tests/va/test_injection_live.py", "live-ca"),
         ("tests/va/test_turn_by_turn_live.py", "live-ca"),
+        ("tests/va/test_stopped_servers_live.py", "live-ca"),
+        ("tests/va/test_server_fleet_live.py", "live-ca"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
     ),
-    # A `canopy` test needs CANOPY installed and refuses to skip; the CANOPY
-    # integration's `canopy-contract` check runs them.
-    marker="not pty and not wallclock and not canopy",
-    quick_marker="not pty and not wallclock and not canopy and not slow",
+    # A `wheel_build` test reads a built facility or panels wheel; the package's
+    # standalone CI job builds one and runs them. A `canopy` test needs CANOPY installed and
+    # refuses to skip; the CANOPY integration's `canopy-contract` check runs them.
+    marker="not pty and not wallclock and not wheel_build and not canopy",
+    quick_marker="not pty and not wallclock and not wheel_build and not canopy and not slow",
     shards={
         "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
         "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (
-            ("tests/", "packages/osprey-connectors/tests"),
-            ("tests/cli", *_REST_A, *_REST_C),
-        ),
+        "rest-b": (_SWEEP_ROOTS, ("tests/cli", *_REST_A, *_REST_C)),
         "rest-c": (_REST_C, ()),
     },
     subsets={"macos": _MACOS_RUNS},
@@ -689,6 +710,36 @@ def _guard() -> ModuleType | None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+#: Owns which folders hold release notes: each tree's changelog and fragments.
+CHANGELOG_MODULE = "changelog_fragments.py"
+
+
+@functools.cache
+def _changelog_fragments() -> ModuleType:
+    """The changelog tool, loaded by path from beside this module."""
+    # The tool is this checkout's code, as this module is.
+    spec = importlib.util.spec_from_file_location(
+        "_repo_checks_changelog_fragments", Path(__file__).resolve().parent / CHANGELOG_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load scripts/{CHANGELOG_MODULE}")
+    module = importlib.util.module_from_spec(spec)
+    # Registered before exec: its dataclasses resolve their annotations through
+    # their module's entry in sys.modules.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _changelog_paths() -> tuple[tuple[str, ...], frozenset[str]]:
+    """Every tree's fragment directory, as a path prefix, and every tree's changelog."""
+    tool = _changelog_fragments()
+    return (
+        tuple(f"{tree.prefix}{tool.FRAGMENT_DIR}/" for tree in tool.TREES),
+        frozenset(f"{tree.prefix}{tool.CHANGELOG}" for tree in tool.TREES),
+    )
 
 
 def _hosted_outside_sweep(path: str) -> bool:
@@ -951,10 +1002,14 @@ def _select_pytest(
 ) -> Selection:
     chosen: list[str] = []
     sources: dict[str, tuple[str, set[str] | None]] = {}
+    fragment_dirs, changelogs = _changelog_paths()
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         suffix = PurePosixPath(path).suffix
         if _hosted_outside_sweep(path):
+            continue
+        # The changelog tool owns which folders hold release notes; no test reads them.
+        if path.startswith(fragment_dirs) or path in changelogs:
             continue
         if suffix == ".py":
             root = _sweep_root(path)
@@ -1108,8 +1163,9 @@ def _pytest_command(
 WALLCLOCK_FILES_MODULE = "tests/_wallclock_files.py"
 
 
-def wallclock_unit_files() -> list[str]:
-    """The files the image-free wall-clock budgets live in, read off the tree."""
+@functools.cache
+def _wallclock_files() -> ModuleType:
+    """The scan module, which states where each wall-clock budget is timed."""
     # The scanner is this checkout's code; the tree it reads is the root's.
     spec = importlib.util.spec_from_file_location(
         "wallclock_files", Path(__file__).resolve().parents[1] / WALLCLOCK_FILES_MODULE
@@ -1118,7 +1174,12 @@ def wallclock_unit_files() -> list[str]:
         raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.marked_files(kit.ROOT, UNIT_SELECTION.roots)
+    return module
+
+
+def wallclock_unit_files() -> list[str]:
+    """The files the image-free wall-clock budgets live in, read off the tree."""
+    return _wallclock_files().marked_files(kit.ROOT, UNIT_SELECTION.roots)
 
 
 def _wallclock_unit_command(
@@ -1131,16 +1192,21 @@ def _wallclock_unit_command(
     """Only the marked files, selected by the marker: collecting the whole tree
     to pick a handful of tests cost about a minute. No file found falls back
     to the tree, where the marker selects nothing and the run says so."""
-    files = wallclock_unit_files() or ["tests/", "--ignore=tests/e2e", "--ignore=tests/integration"]
-    argv = [*check.argv, *files, "-m", "wallclock", *flags, *written]
+    files = wallclock_unit_files() or [*UNIT_SELECTION.roots]
+    argv = [*check.argv, *files, "-m", _wallclock_files().IMAGE_FREE, *flags, *written]
     return [kit.bounded(check.bound_s, argv)]
 
 
-#: The connectors wheel's import walk, shared with release-connectors.yml so the
-#: wheel a connectors tag publishes passes the check every pull request runs.
-#: Run with ``-I`` by the bare venv's interpreter: neither the checkout nor
-#: ``PYTHONPATH`` can lend it a module the wheel does not ship.
-LEAN_IMPORT_WALK = "scripts/ci/connectors_lean_import_walk.py"
+#: The component wheels' import walk, called with a stream key of
+#: scripts/ci/release_streams.py. Shared with release-package.yml and ci.yml's
+#: ``osprey-panels-standalone`` job, so the wheel a tag publishes passes the
+#: check every pull request runs. Run with ``-I`` by the bare venv's
+#: interpreter: neither the checkout nor ``PYTHONPATH`` can lend it a module the
+#: wheel does not ship.
+LEAN_IMPORT_WALK = "scripts/ci/lean_import_walk.py"
+
+#: Run ``-I`` by the facility venv: the installed wheel reports its own version.
+FACILITY_VERSION_PROBE = "import osprey_facility; print(osprey_facility.__version__)"
 
 #: Run by a venv holding the framework, connectors and pyaml-cs-osprey wheels.
 PYAML_WHEEL_PROBE = """\
@@ -1191,7 +1257,7 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         "{scratch}/lean/bin/python",
         "dist/osprey_connectors-*.whl",
     ),
-    ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK),
+    ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK, "connectors"),
     ("uv", "build", "--package", "osprey-optimizer"),
     ("uv", "venv", "{scratch}/optimizer", "--python", "3.11"),
     (
@@ -1199,12 +1265,24 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         *("dist/osprey_connectors-*.whl", "dist/osprey_optimizer-*.whl"),
     ),
     ("{scratch}/optimizer/bin/python", "-c", OPTIMIZER_BASE_PROBE),
+    ("uv", "build", "--package", "osprey-facility"),
+    ("uvx", "twine", "check", "dist/osprey_facility-*.tar.gz", "dist/osprey_facility-*.whl"),
+    ("uv", "venv", "{scratch}/facility", "--python", "3.11"),
+    # The wheel and its extra as separate parts, with the local connectors wheel
+    # named and on --find-links: no OSPREY package resolves from PyPI.
+    (
+        *("uv", "pip", "install", "--python", "{scratch}/facility/bin/python"),
+        *("--find-links", "dist", "dist/osprey_connectors-*.whl"),
+        *("dist/osprey_facility-*.whl", "osprey-facility[mml]"),
+    ),
+    ("{scratch}/facility/bin/python", "-I", LEAN_IMPORT_WALK, "facility"),
+    ("{scratch}/facility/bin/python", "-I", "-c", FACILITY_VERSION_PROBE),
     ("uv", "build", "--package", "pyaml-cs-osprey"),
     ("uv", "venv", "{scratch}/pyaml", "--python", "3.11"),
     (
         *("uv", "pip", "install", "--python", "{scratch}/pyaml/bin/python"),
         *("dist/osprey_framework-*.whl", "dist/osprey_connectors-*.whl"),
-        "dist/pyaml_cs_osprey-*.whl",
+        *("dist/osprey_facility-*.whl", "dist/pyaml_cs_osprey-*.whl"),
     ),
     ("{scratch}/pyaml/bin/python", "-c", PYAML_WHEEL_PROBE),
 )
@@ -1719,8 +1797,15 @@ VENUES = {
 # ---------------------------------------------------------------------------
 # The checks
 
-#: The wall-clock suite; its leading paths are what its Docker hook reads.
-WALLCLOCK_ARGV = (*UV_RUN, "pytest", "tests/integration", "-m", "wallclock")
+#: The wall-clock budgets that need the sidecar image; its leading paths are
+#: what its Docker hook reads.
+WALLCLOCK_ARGV = (
+    *UV_RUN,
+    "pytest",
+    _wallclock_files().IMAGE_ROOT,
+    "-m",
+    _wallclock_files().IMAGE_BOUND,
+)
 
 CHECKS: tuple[Check, ...] = (
     Check("lockfile", "invariant", BOTH, ("uv", "lock", "--check"), needs=("uv",)),
@@ -1909,13 +1994,14 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # A wall-clock budget timed beside loaded workers measures the workers, so
-    # the sweep deselects the marker and this suite runs alone.
+    # the sweep deselects the marker and the budgets run alone; these are the
+    # ones that need the sidecar image, timed in the job that builds it.
     Check(
         "pytest-wallclock",
         "tests",
         FULL,
         WALLCLOCK_ARGV,
-        scope=("tests/integration/**", "*.py", "pyproject.toml", "uv.lock"),
+        scope=(f"{_wallclock_files().IMAGE_ROOT}/**", "*.py", "pyproject.toml", "uv.lock"),
         needs=("free-space", "uv", "install-current"),
         selected_needs=_docker_group_needs(lambda _context: _pytest_paths(WALLCLOCK_ARGV)),
         bound_s=900,
@@ -1924,8 +2010,8 @@ CHECKS: tuple[Check, ...] = (
         exec_flags=True,
     ),
     # The image-free budgets: every wallclock test under the sweep's roots
-    # outside tests/integration, whose budgets need the sidecar image and are
-    # timed by pytest-wallclock.
+    # that does not carry the image marker; the ones that do are timed by
+    # pytest-wallclock, in the job that builds the image.
     # The files are found by a scan of the tree when the check runs, so a budget
     # added anywhere is timed alone with no new wiring, and the run collects
     # those files rather than the whole tree.
@@ -1983,6 +2069,8 @@ CHECKS: tuple[Check, ...] = (
             "tests/va/test_timed_passes_live.py",
             "tests/va/test_injection_live.py",
             "tests/va/test_turn_by_turn_live.py",
+            "tests/va/test_stopped_servers_live.py",
+            "tests/va/test_server_fleet_live.py",
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),
@@ -2159,11 +2247,29 @@ LANES: tuple[Lane, ...] = (
         (
             "src/osprey/**",
             "packages/pyaml-cs-osprey/**",
+            "packages/osprey-facility/**",
             "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
             "tests/connectors/**",
             "tests/registry/**",
-            "scripts/ci/connectors_compat_lane.py",
-            "scripts/ci/connectors_compat_matrix.py",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
+            "pyproject.toml",
+            "uv.lock",
+        ),
+    ),
+    Lane(
+        "framework-at-facility-floor",
+        "installs the published facility floor",
+        (
+            "src/osprey/**",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
+            "tests/cli/test_facility_validate.py",
+            "tests/cli/test_facility_name_resolution.py",
+            "tests/cli/test_facility_error_output.py",
+            "tests/cli/test_facility_cmd_machine_root.py",
+            "tests/build_pipeline/test_facility_render_roots.py",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
             "pyproject.toml",
             "uv.lock",
         ),
@@ -2213,6 +2319,7 @@ LANES: tuple[Lane, ...] = (
                 "web_terminals/test_skills_overlay_discovery.py",
                 "web_terminals/test_loopback_chokepoint.py",
                 "web_terminals/test_session_restart_e2e.py",
+                "web_terminals/test_web_stop_e2e.py",
                 "web_terminals/test_terminal_auth_e2e.py",
                 "web_terminals/test_render_permissions_scripted.py",
                 "claude_code/test_chat_approval_gates_scripted.py",
@@ -2351,6 +2458,7 @@ LANES: tuple[Lane, ...] = (
         "test_scenario_reload.py",
         "test_sim_apply_va.py",
         "test_va_put_surface.py",
+        "test_va_labelled_follow.py",
         "test_planted_journal.py",
         "test_substrate_parity.py",
         "test_chain_boot.py",
@@ -2387,7 +2495,7 @@ OFF_CI = "off-ci"
 E2E_OFF_CI: dict[str, str] = {
     "tests/e2e/test_watchdog_live.py": "spends a direct-route key per call; run by hand",
     "tests/e2e/tier2/test_chart_value_reading.py": "deploys a full stack; benchmark board only",
-    "tests/e2e/tier2/test_pv_directory_agentic.py": "deploys a full stack; benchmark board only",
+    "tests/e2e/tier2/test_channel_directory_agentic.py": "deploys a full stack; benchmark board only",
 }
 
 

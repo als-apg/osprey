@@ -9,17 +9,16 @@ import pytest
 
 
 def _exec_data_reader(data_source: str) -> object:
-    """Generate and execute the data reader code, returning the `data` variable."""
-    from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+    """Execute the data reader against ``data_source``, returning the `data` variable."""
+    from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
-    code = build_data_reader(data_source)
-    ns = {"pd": pd}
-    exec(code, ns)
+    ns = {"pd": pd, "_data_path": data_source}
+    exec(DATA_READER_SOURCE, ns)
     return ns["data"]
 
 
 class TestBuildDataReaderJSON:
-    """Test JSON branch of build_data_reader()."""
+    """Test JSON branch of the data reader (``DATA_READER_SOURCE``)."""
 
     def test_archiver_format_produces_timeseries_dataframe(self, tmp_path: Path):
         """Archiver JSON: {_osprey_metadata, data: {query, dataframe: {split}}}."""
@@ -299,16 +298,15 @@ class TestBuildDataReaderSandboxSafety:
         from osprey.mcp_server.workspace.execution.sandbox_executor import (
             validate_sandbox_code,
         )
-        from osprey.mcp_server.workspace.tools._viz_common import build_data_reader
+        from osprey.mcp_server.workspace.tools._viz_common import DATA_READER_SOURCE
 
-        code = build_data_reader("/tmp/whatever.json")
-        is_safe, violations = validate_sandbox_code(code)
+        is_safe, violations = validate_sandbox_code(DATA_READER_SOURCE)
 
         assert is_safe, violations
 
 
 class TestBuildDataReaderCSV:
-    """Test CSV branch of build_data_reader()."""
+    """Test CSV branch of the data reader (``DATA_READER_SOURCE``)."""
 
     def test_csv_loads_dataframe(self, tmp_path: Path):
         fp = tmp_path / "data.csv"

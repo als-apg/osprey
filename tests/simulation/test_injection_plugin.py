@@ -15,9 +15,9 @@ from typing import Any
 
 import pytest
 
-from osprey.facility.errors import FacilityBuildError
-from osprey.simulation.engines import ENTRY_POINT_GROUP, TIME_CONTRACT, EnginePlugin
 from osprey.simulation.engines import injection as engine
+from osprey_connectors.simulation.engines import ENGINE_GROUP, TIME_CONTRACT, EnginePlugin
+from osprey_facility.errors import FacilityBuildError
 
 MODEL = "CHAIN"
 T0 = 1024.0
@@ -81,7 +81,7 @@ def _settings_without(key: str) -> dict[str, Any]:
 
 class TestEntryPoint:
     def test_group_loads_the_module(self):
-        loaded = entry_points(group=ENTRY_POINT_GROUP)["injection"].load()
+        loaded = entry_points(group=ENGINE_GROUP)["injection"].load()
         assert loaded is importlib.import_module("osprey.simulation.engines.injection")
 
     def test_satisfies_the_contract(self):

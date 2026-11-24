@@ -1,6 +1,8 @@
 """Builds the facility tests make of their own trees.
 
 ``build_project`` builds a small project whose ``data/facility/`` a test writes.
+``built_machineless``, a demo repo with no machine in it built once per run, is
+read by the modules that need a machineless build.
 The shared demo build, ``built_demo``, lives in
 ``tests/_builds.py``, beside :class:`BuiltProject`, which the facility modules
 import from here. ``mml_built``, each MML fixture tree built once per session,
@@ -12,7 +14,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 import yaml
@@ -20,7 +22,7 @@ from click.testing import Result
 
 from tests._builds import BuiltProject, init_project, run_build
 from tests.facility._fixture_kind import read_entry_points_afresh
-from tests.facility._mml_built import mml_built  # noqa: F401 - the session MML builds
+from tests.facility._mml_built import *  # noqa: F403 - the session MML imports and builds
 from tests.facility._synthetic_trees import write_tree
 
 __all__ = ["BuiltProject"]
@@ -80,3 +82,61 @@ def _deep_merge(base: Mapping[str, Any], over: Mapping[str, Any]) -> dict[str, A
         else:
             merged[key] = value
     return merged
+
+
+#: The machineless build's project name, which ``osprey init`` takes from the repo's name.
+MACHINELESS_PROJECT = "machineless"
+
+#: Under xdist, the file in the run's shared base temp directory that names the
+#: machineless repo and holds what its build printed.
+SHARED_MACHINELESS_BUILD_RECORD = "built-machineless.pickle"
+
+
+class MachinelessBuild(NamedTuple):
+    """The machineless demo repo, built, and what its build printed.
+
+    Attributes:
+        repo: The repo; tests read it and never write to it.
+        exit_code: The build's exit code.
+        output: What the build printed, stdout and stderr together.
+        stderr: What the build printed on stderr.
+    """
+
+    repo: Path
+    exit_code: int
+    output: str
+    stderr: str
+
+
+def _build_machineless(parent: Path) -> tuple[Path, int, str, str]:
+    """Init the machineless demo repo under *parent* and ``osprey build`` it.
+
+    The build skips the dependency install and the profile's lifecycle hooks; the demo
+    preset's one hook, ``pre_build`` ``canopy-payload``, stages a payload no facility
+    output reads. The result is plain values, so it pickles across xdist workers.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+    from tests._builds import init_machineless
+
+    repo = init_machineless(parent, MACHINELESS_PROJECT)
+    result = CliRunner().invoke(
+        cli, ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"]
+    )
+    return repo, result.exit_code, result.output, result.stderr
+
+
+@pytest.fixture(scope="session")
+def built_machineless(tmp_path_factory: pytest.TempPathFactory) -> MachinelessBuild:
+    """A demo repo with no machine in it, built once per run.
+
+    Tests read it and never write to it. Under xdist the workers share one build in
+    the run's base temp directory, as they share ``built_demo``.
+    """
+    from tests._builds import _built_once
+
+    made = _built_once(
+        tmp_path_factory, "built-machineless", SHARED_MACHINELESS_BUILD_RECORD, _build_machineless
+    )
+    return MachinelessBuild(*made)

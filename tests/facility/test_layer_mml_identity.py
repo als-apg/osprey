@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from collections import Counter
+from collections.abc import Callable
 from functools import reduce
 from itertools import permutations
 from pathlib import Path
@@ -21,16 +21,19 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.family import FamilyView
-from osprey.facility.layers.mml.identity import (
+from osprey_facility.errors import ImportStop
+from osprey_facility.layers.mml.family import FamilyView
+from osprey_facility.layers.mml.identity import (
     axis_twins,
     common_class,
     device_ids,
     endpoints,
 )
-from osprey.facility.layers.mml.importer import LAYER_DIR, import_mml
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, Coordinates, ImportStop, SameAs
-from osprey.facility.validate import run_stages
+from osprey_facility.layers.mml.importer import LAYER_DIR, import_mml
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, Coordinates, SameAs
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
+from tests.facility._mml_built import MmlImport, load_yaml, read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "mml"
@@ -41,17 +44,10 @@ TREES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _import(root: Path, tree: str) -> Path:
-    facility = root / "data" / "facility"
-    target = facility / MAPPING_FILE
-    target.parent.mkdir(parents=True)
-    shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
-    import_mml([FIXTURES / tree / f"{stem}.ao.json" for stem in TREES[tree]], facility)
-    return facility
-
-
 def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    """The layer's record file ``name``, parsed once; the caller only reads it."""
+    rows: list[dict[str, Any]] = read_yaml(facility / LAYER_DIR / name)
+    return rows
 
 
 def _by_id(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -64,18 +60,19 @@ def _ao(stem: str) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module", params=sorted(TREES))
-def imported(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp(request.param), request.param)
+def imported(request: pytest.FixtureRequest, mml_imported: Callable[[str], MmlImport]) -> Path:
+    """Each tree's one import of the run; the cases only read it."""
+    return mml_imported(request.param).facility
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("spear3-only"), "spear3")
+def spear3(mml_imported: Callable[[str], MmlImport]) -> Path:
+    return mml_imported("spear3").facility
 
 
 @pytest.fixture(scope="module")
-def nsls2(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("nsls2-only"), "nsls2")
+def nsls2(mml_imported: Callable[[str], MmlImport]) -> Path:
+    return mml_imported("nsls2").facility
 
 
 # -- CommonName by position ---------------------------------------------------
@@ -132,8 +129,7 @@ def test_families_naming_one_device_share_it(nsls2: Path) -> None:
 
 
 def test_each_address_is_written_once(imported: Path) -> None:
-    text = (imported / LAYER_DIR / "channels.yaml").read_text(encoding="utf-8")
-    ids = Counter(row["id"] for row in yaml.safe_load(text))
+    ids = Counter(row["id"] for row in _rows(imported, "channels.yaml"))
     assert [address for address, count in ids.items() if count > 1] == []
 
 
@@ -200,7 +196,7 @@ def test_slots_repeating_a_common_name_are_one_device(nsls2: Path) -> None:
 
 
 def test_the_imported_tree_states_no_id_twice(imported: Path) -> None:
-    report = run_stages(imported, project_name="demo")
+    report = run_stages(imported, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert [e.format_message() for e in report.errors if e.kind == "layer-duplicate"] == []
     assert report.failed != "load"
 
@@ -497,7 +493,7 @@ def test_a_nameless_family_the_mapping_leaves_out_stops_the_import(tmp_path: Pat
     facility = tmp_path / "data" / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
-    document = yaml.safe_load((FIXTURES / "nsls2" / MAPPING_FILE).read_text(encoding="utf-8"))
+    document = load_yaml(FIXTURES / "nsls2" / MAPPING_FILE)
     del document["families"]["BPMy"]["devices"]
     target.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
     with pytest.raises(ImportStop) as stop:

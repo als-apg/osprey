@@ -18,6 +18,9 @@ Documentation: <https://als-apg.github.io/osprey/latest/how-to/control-systems/u
 pip install osprey-connectors
 ```
 
+Releases are cut from `osprey-connectors-vYYYY.M.P` tags by
+`.github/workflows/release-package.yml`.
+
 [Use the Connectors Without the Framework](https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors-standalone.html)
 reads a control system and its archiver from a script of your own, and says
 what needs a deployment.
@@ -41,12 +44,14 @@ A connector is built by `ConnectorFactory` from its registered type name, after
 | archiver | `mock_archiver` | The simulated machine's history (needs a facility built by `osprey build`) |
 | directory | `channelfinder` | A ChannelFinder directory service |
 | alarm_state | `phoebus_alarm_server` | A Phoebus alarm server's Kafka topic (needs `osprey-connectors[alarm-state]`) |
+| alarm_state | `osprey_alarm_relay` | The same state over HTTP, from `python -m osprey_connectors.alarm_state.relay` run beside the broker |
 | alarm_log | `phoebus_alarm_logger` | A Phoebus alarm logger |
 | put_log | `caputlog` | A caPutLog put-history service |
 
 The directory, alarm and put-log kinds are built from a `BackendSpec` by
 `ConnectorFactory.create_service`; `service_targets` makes the specs of a
-deployment's `pv_directory` section, per control target. A backend of your own
+deployment's `channel_directory` section, per control target (a config that
+still spells the section `pv_directory` is read under that key). A backend of your own
 registers with `register_service(kind, name, cls)` or is named by dotted path.
 
 A type name that holds a dot, such as `my_site.connectors.MyConnector`, is
@@ -73,7 +78,7 @@ Most modules are their own API, each imported by its own path:
 | Building connectors | `factory` (the factory and the built-in registry), `types` (the type names), `connection` (an outbound connection block's address, bound, login and CA), `call_timeout` (a connector call's bound) |
 | Configuration | `config`, `workspace` (where a process finds its config and agent data), `dotenv` (the deployment's env chain), `yaml_loader` |
 | Errors and logging | `errors`, `logger`, `log_filter` |
-| Writing safely | `posture_env` (the read-only run), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle) |
+| Writing safely | `posture_env` (the read-only run), `posture_store` (the write switch), `write_authorization` (a program's bounded write authorization), `refusals` (why a write was refused and who can lift it), `session_hold` (a session whose writes are held), `control_context`, `write_target` (which machine a write tool writes to), `settle` (waiting for a readback to settle), `command` (firing a command and waiting for its status) |
 | The deployment's machines | `simulator` (its virtual accelerator), `standin` (its stand-in soft IOC), `archive_targets` (which machines its archive serves), `honesty` (the one connector pairing a deployment may not have) |
 | Supervising connector processes | `process` (starting and stopping child processes), `recovery` (what to do about a failed connector call) |
 | Read-only services | `service_answers` (what every service backend answers), `service_targets` (which source answers each kind on each target) |

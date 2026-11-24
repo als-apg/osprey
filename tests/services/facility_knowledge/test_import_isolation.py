@@ -11,11 +11,13 @@ lazily inside the functions that dial the store. Importing any of those modules
 — or constructing the graph MCP server — must never pull in either driver, even
 transitively, so that the common runtime path has no rdflib or neo4j dependency.
 
-Each test spawns a fresh subprocess so that rdflib/neo4j already loaded by
+Each check runs in a fresh subprocess so that rdflib/neo4j already loaded by
 pytest (or a previously-run test) cannot cause a false pass. Both detectors are
 negative-controlled (:class:`TestIsolationDetectorsFire`) so a guard that has
 gone blind — an uninstalled package, a broken template — fails loudly instead of
-passing vacuously.
+passing vacuously. The children start without coverage's hand-off
+(``tests/_coverage_handoff.py``): what they report is ``sys.modules``, and the
+modules they import are measured in-process by their own tests.
 
 This module also holds the **driver-API floor** check
 (:class:`TestDriverApiFloor`): an AST walk over every graph module asserting it
@@ -27,12 +29,13 @@ from __future__ import annotations
 import ast
 import functools
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests._coverage_handoff import without_coverage_handoff
 
 #: Repo root, from ``tests/services/facility_knowledge/`` up three levels.
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -65,22 +68,21 @@ def _run_absent_check(
             leaks too.
         setup: Python source executed before the check — an import statement, or
             a few lines that also construct something.
-        env: Environment overlay on top of ``os.environ``. A ``None`` value
-            removes that variable from the child's environment.
+        env: Environment overlay on top of ``os.environ`` (less coverage's
+            hand-off). A ``None`` value removes that variable from the child's
+            environment.
 
     Returns:
         Tuple of ``(package_absent, stderr_output)``. *package_absent* is True
         when *setup* did not pull the package in as a side-effect.
     """
     code = _ABSENT_CHECK_TEMPLATE.format(setup=setup, package=package)
-    child_env: dict[str, str] | None = None
-    if env is not None:
-        child_env = dict(os.environ)
-        for key, value in env.items():
-            if value is None:
-                child_env.pop(key, None)
-            else:
-                child_env[key] = value
+    child_env = without_coverage_handoff()
+    for key, value in (env or {}).items():
+        if value is None:
+            child_env.pop(key, None)
+        else:
+            child_env[key] = value
     result = subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -125,16 +127,36 @@ def _driver_report(import_stmt: str) -> tuple[dict[str, list[str]] | None, str]:
         capture_output=True,
         text=True,
         timeout=SUBPROCESS_TIMEOUT_S,
+        env=without_coverage_handoff(),
     )
     if result.returncode != 0:
         return None, result.stderr
     return json.loads(result.stdout.strip().splitlines()[-1]), result.stderr
 
 
-def _run_driver_check(package: str, import_stmt: str) -> tuple[bool, str]:
-    """Whether *package* (one of :data:`_DRIVERS`) stayed out after *import_stmt*."""
+def _import_problem(import_stmt: str, package: str) -> str | None:
+    """Why *package* (one of :data:`_DRIVERS`) is not known absent after *import_stmt*, or ``None``.
+
+    The one verdict every plain import check reads, so the detector controls
+    (:class:`TestIsolationDetectorsFire`, through :func:`_run_driver_check`)
+    exercise the same code the per-module tests judge by. It reads the cached
+    child, so the rdflib and neo4j checks of one statement share one fresh
+    interpreter, and keeps the two ways to fail apart in the message: the
+    import itself failed (the child's traceback), or it succeeded and left the
+    driver loaded.
+    """
     report, stderr = _driver_report(import_stmt)
-    return report is not None and not report[package], stderr
+    if report is None:
+        return f"the import failed before the check ran:\n{stderr}"
+    if report[package]:
+        return f"{package} leaked into sys.modules: {report[package]}"
+    return None
+
+
+def _run_driver_check(package: str, import_stmt: str) -> tuple[bool, str]:
+    """Whether *package* (one of :data:`_DRIVERS`) stayed out after *import_stmt*, per :func:`_import_problem`."""
+    _, stderr = _driver_report(import_stmt)
+    return _import_problem(import_stmt, package) is None, stderr
 
 
 def _run_isolation_check(import_stmt: str) -> tuple[bool, str]:
@@ -205,6 +227,7 @@ def _run_multi_absent_check(packages: tuple[str, ...], setup: str) -> tuple[bool
         capture_output=True,
         text=True,
         timeout=SUBPROCESS_TIMEOUT_S,
+        env=without_coverage_handoff(),
     )
     return result.returncode == 0, result.stderr
 
@@ -260,13 +283,9 @@ REQUIRED_GRAPH_MCP_MODULES = frozenset(
     }
 )
 
-#: Constructing the server: ``create_server()`` primes config and calls
-#: ``initialize_server_context()``, which resolves the connection but does not
-#: dial it — the driver is created on the first query.
-_CREATE_SERVER_SETUP = "from osprey.mcp_server.graph.server import create_server\ncreate_server()\n"
-
-#: Same, but tolerating the exception raised when no project config exists at
-#: all: the point of that variant is the driver, not the construction outcome.
+#: Constructing the server with no project config at all, tolerating the
+#: exception that raises: the point of that variant is the driver, not the
+#: construction outcome.
 _CREATE_SERVER_NO_CONFIG_SETUP = (
     "try:\n"
     "    from osprey.mcp_server.graph.server import create_server\n"
@@ -276,16 +295,61 @@ _CREATE_SERVER_NO_CONFIG_SETUP = (
 )
 
 
-@pytest.fixture
-def minimal_config_env(tmp_path: Path) -> dict[str, str | None]:
+#: Constructing the server on a config: ``create_server()`` primes config and
+#: calls ``initialize_server_context()``, which resolves the connection but does
+#: not dial it — the driver is created on the first query. The child reports
+#: what each step left in ``sys.modules`` rather than asserting, so each test
+#: reads its own fact.
+_CREATE_SERVER_REPORT = """\
+import json
+import sys
+def _loaded(package):
+    prefix = package + "."
+    return sorted(m for m in sys.modules if m == package or m.startswith(prefix))
+from osprey.mcp_server.graph.server import create_server
+create_server()
+_report = {"after_create": {p: _loaded(p) for p in ("rdflib", "neo4j")}}
+from osprey.mcp_server.graph.server_context import get_server_context
+_report["configured_is_false"] = get_server_context().configured is False
+_report["after_context"] = {p: _loaded(p) for p in ("rdflib", "neo4j")}
+print(json.dumps(_report))
+"""
+
+
+@pytest.fixture(scope="module")
+def minimal_config_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str | None]:
     """A project config with no ``services.graphdb`` block, as env overrides.
 
     The graph context must resolve this to "not configured" by reading alone —
-    without importing the driver and without touching the network.
+    without importing the driver and without touching the network. Module
+    scoped: the one child below reads it and nothing writes to it.
     """
-    config = tmp_path / "config.yml"
-    config.write_text(f"project_root: {tmp_path}\n", encoding="utf-8")
+    root = tmp_path_factory.mktemp("minimal-config")
+    config = root / "config.yml"
+    config.write_text(f"project_root: {root}\n", encoding="utf-8")
     return {"CONFIG_FILE": str(config), "OSPREY_CONFIG": str(config)}
+
+
+@pytest.fixture(scope="module")
+def create_server_report(minimal_config_env: dict[str, str | None]) -> dict:
+    """``create_server()`` on the minimal config, run once in a fresh interpreter.
+
+    The three tests that construct the server read three facts of the same run:
+    both drivers' modules right after the construction, whether the context then
+    resolved to not-configured, and neo4j's modules after that. A run that
+    raised, or outlived :data:`SUBPROCESS_TIMEOUT_S`, fails each of them.
+    """
+    env = without_coverage_handoff()
+    env.update({k: v for k, v in minimal_config_env.items() if v is not None})
+    result = subprocess.run(
+        [sys.executable, "-c", _CREATE_SERVER_REPORT],
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT_S,
+        env=env,
+    )
+    assert result.returncode == 0, f"constructing the graph server failed:\n{result.stderr}"
+    return json.loads(result.stdout.strip().splitlines()[-1])
 
 
 @pytest.fixture
@@ -297,15 +361,14 @@ def no_config_env() -> dict[str, str | None]:
 class TestRdflibImportIsolation:
     """rdflib must not appear in sys.modules after importing the runtime read path."""
 
-    def test_mcp_server_facility_knowledge_does_not_import_rdflib(self):
-        """Importing osprey.mcp_server.facility_knowledge must not pull in rdflib."""
-        ok, stderr = _run_isolation_check("import osprey.mcp_server.facility_knowledge")
-        assert ok, f"rdflib leaked after importing mcp_server.facility_knowledge:\n{stderr}"
-
-    def test_services_facility_knowledge_does_not_import_rdflib(self):
-        """Importing osprey.services.facility_knowledge must not pull in rdflib."""
-        ok, stderr = _run_isolation_check("import osprey.services.facility_knowledge")
-        assert ok, f"rdflib leaked after importing services.facility_knowledge:\n{stderr}"
+    @pytest.mark.parametrize(
+        "module",
+        ["osprey.mcp_server.facility_knowledge", "osprey.services.facility_knowledge"],
+    )
+    def test_facility_knowledge_does_not_import_rdflib(self, module: str):
+        """Importing *module* must not pull in rdflib."""
+        ok, stderr = _run_isolation_check(f"import {module}")
+        assert ok, f"rdflib leaked after importing {module}:\n{stderr}"
 
     def test_services_facility_knowledge_does_not_export_seeder(self):
         """The services.facility_knowledge __init__ must not re-export the seeder.
@@ -330,6 +393,7 @@ class TestRdflibImportIsolation:
             capture_output=True,
             text=True,
             timeout=120,
+            env=without_coverage_handoff(),
         )
         assert result.returncode == 0, (
             f"Seeder leaked into facility_knowledge namespace:\n{result.stderr}"
@@ -362,6 +426,7 @@ class TestRdflibImportIsolation:
             capture_output=True,
             text=True,
             timeout=120,
+            env=without_coverage_handoff(),
         )
         assert result.returncode == 0, (
             f"graph_seeder leaked into facility_knowledge namespace:\n{result.stderr}"
@@ -376,20 +441,18 @@ class TestNeo4jImportIsolation:
     ``TestRdflibImportIsolation`` above to pin that contract.
     """
 
-    def test_mcp_server_facility_knowledge_does_not_import_neo4j(self):
-        """Importing osprey.mcp_server.facility_knowledge must not pull in neo4j."""
-        ok, stderr = _run_neo4j_isolation_check("import osprey.mcp_server.facility_knowledge")
-        assert ok, f"neo4j leaked after importing mcp_server.facility_knowledge:\n{stderr}"
-
-    def test_services_facility_knowledge_does_not_import_neo4j(self):
-        """Importing osprey.services.facility_knowledge must not pull in neo4j."""
-        ok, stderr = _run_neo4j_isolation_check("import osprey.services.facility_knowledge")
-        assert ok, f"neo4j leaked after importing services.facility_knowledge:\n{stderr}"
-
-    def test_services_graph_store_does_not_import_neo4j(self):
-        """Importing osprey.services.graph_store must not pull in neo4j."""
-        ok, stderr = _run_neo4j_isolation_check("import osprey.services.graph_store")
-        assert ok, f"neo4j leaked after importing services.graph_store:\n{stderr}"
+    @pytest.mark.parametrize(
+        "module",
+        [
+            "osprey.mcp_server.facility_knowledge",
+            "osprey.services.facility_knowledge",
+            "osprey.services.graph_store",
+        ],
+    )
+    def test_read_path_module_does_not_import_neo4j(self, module: str):
+        """Importing *module* must not pull in neo4j."""
+        ok, stderr = _run_neo4j_isolation_check(f"import {module}")
+        assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
 
 
 class TestIsolationDetectorsFire:
@@ -442,44 +505,47 @@ class TestGraphMcpServerDriverIsolation:
         missing = REQUIRED_GRAPH_MCP_MODULES - set(GRAPH_MCP_MODULES)
         assert not missing, f"module discovery missed graph modules: {sorted(missing)}"
 
+    @pytest.mark.parametrize("lib", ["neo4j", "rdflib"])
     @pytest.mark.parametrize("module", GRAPH_MCP_MODULES)
-    def test_graph_module_does_not_import_neo4j(self, module: str):
-        """Importing any graph MCP module must leave neo4j out of sys.modules."""
-        ok, stderr = _run_neo4j_isolation_check(f"import {module}")
-        assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
+    def test_graph_module_does_not_import_the_driver(self, module: str, lib: str):
+        """Importing any graph MCP module must leave *lib* out of sys.modules."""
+        problem = _import_problem(f"import {module}", lib)
+        assert problem is None, f"importing {module}: {problem}"
 
-    @pytest.mark.parametrize("module", GRAPH_MCP_MODULES)
-    def test_graph_module_does_not_import_rdflib(self, module: str):
-        """Importing any graph MCP module must leave rdflib out of sys.modules."""
-        ok, stderr = _run_isolation_check(f"import {module}")
-        assert ok, f"rdflib leaked after importing {module}:\n{stderr}"
+    def test_an_import_that_loads_the_driver_and_then_fails_reads_as_a_failed_import(self):
+        """The per-module check's control for an import that raises part-way.
 
-    def test_create_server_does_not_import_neo4j(self, minimal_config_env):
+        The statement loads neo4j and then raises, as a module whose body
+        imports the driver before it breaks would: the verdict must be a
+        failure that says the import failed and carries the child's
+        traceback, for both drivers — not a pass, and not an error in the
+        verdict itself.
+        """
+        statement = "import neo4j.exceptions\nraise ImportError('broke after loading the driver')"
+        for package in _DRIVERS:
+            problem = _import_problem(statement, package)
+            assert problem is not None, f"a failed import passed the {package} check"
+            assert problem.startswith("the import failed before the check ran"), problem
+            assert "ImportError: broke after loading the driver" in problem, problem
+
+    @pytest.mark.parametrize("lib", ["neo4j", "rdflib"])
+    def test_create_server_does_not_import_the_driver(self, create_server_report, lib: str):
         """create_server() reads config only — the driver is built on first query."""
-        ok, stderr = _run_absent_check("neo4j", _CREATE_SERVER_SETUP, env=minimal_config_env)
-        assert ok, f"neo4j leaked while constructing the graph server:\n{stderr}"
+        leaked = create_server_report["after_create"][lib]
+        assert not leaked, f"{lib} leaked while constructing the graph server: {leaked}"
 
-    def test_create_server_does_not_import_rdflib(self, minimal_config_env):
-        """create_server() must not pull in rdflib either."""
-        ok, stderr = _run_absent_check("rdflib", _CREATE_SERVER_SETUP, env=minimal_config_env)
-        assert ok, f"rdflib leaked while constructing the graph server:\n{stderr}"
-
-    def test_create_server_resolves_not_configured_without_dialing(self, minimal_config_env):
+    def test_create_server_resolves_not_configured_without_dialing(self, create_server_report):
         """A config with no services.graphdb block resolves by reading, not dialing.
 
         ``configured`` must come out False, the driver must still be unimported,
         and the whole thing must finish well inside the subprocess timeout — a
         hang here would mean the context tried to reach the store at startup.
         """
-        ok, stderr = _run_absent_check(
-            "neo4j",
-            _CREATE_SERVER_SETUP
-            + "from osprey.mcp_server.graph.server_context import get_server_context\n"
-            "assert get_server_context().configured is False, "
-            "'a config without services.graphdb must resolve to not-configured'\n",
-            env=minimal_config_env,
+        assert create_server_report["configured_is_false"], (
+            "a config without services.graphdb must resolve to not-configured"
         )
-        assert ok, f"graph server startup misbehaved without a graphdb block:\n{stderr}"
+        leaked = create_server_report["after_context"]["neo4j"]
+        assert not leaked, f"neo4j leaked while the graph server context resolved: {leaked}"
 
     def test_create_server_without_any_config_does_not_import_neo4j(self, no_config_env):
         """With no project config at all, startup fails — but never via the driver.
@@ -602,28 +668,27 @@ class TestChannelFinderAppImportIsolation:
         )
         return {"CONFIG_FILE": str(config), "OSPREY_CONFIG": str(config)}
 
-    def test_creating_the_app_does_not_import_rdflib(self, graph_config_env):
-        """``create_app`` must not pull the parser in through a module-level import."""
-        ok, stderr = _run_absent_check("rdflib", _CREATE_CF_APP_SETUP, env=graph_config_env)
-        assert ok, f"rdflib leaked while creating the channel finder app:\n{stderr}"
-
-    def test_creating_the_app_does_not_import_duckdb(self, graph_config_env):
-        """The index driver stays behind the open: constructing the app never loads it.
-
-        The routes import the index's absence type and the taxonomy helpers at
-        module scope; that is safe only while the reader keeps the driver
-        import inside the open. A file-backed channel finder must never pay
-        for DuckDB, and this is the check that would notice a module-level
-        import creeping in. The serve check stays rdflib-only: an app that
-        opens a present index legitimately imports the driver.
-        """
-        ok, stderr = _run_absent_check("duckdb", _CREATE_CF_APP_SETUP, env=graph_config_env)
-        assert ok, f"duckdb leaked while creating the channel finder app:\n{stderr}"
-
-    def test_serving_the_graph_paradigm_does_not_import_rdflib(self, graph_config_env):
-        """Coming up in graph mode must read the index, never the corpus."""
-        ok, stderr = _run_absent_check("rdflib", _SERVE_CF_APP_GRAPH_SETUP, env=graph_config_env)
-        assert ok, f"rdflib leaked while serving the graph paradigm:\n{stderr}"
+    @pytest.mark.parametrize(
+        ("lib", "setup"),
+        [
+            # ``create_app`` must not pull the parser in through a module-level import.
+            pytest.param("rdflib", _CREATE_CF_APP_SETUP, id="create-rdflib"),
+            # The index driver stays behind the open: constructing the app never
+            # loads it. The routes import the index's absence type and the taxonomy
+            # helpers at module scope; that is safe only while the reader keeps the
+            # driver import inside the open. A file-backed channel finder must never
+            # pay for DuckDB, and this is the check that would notice a module-level
+            # import creeping in. The serve case stays rdflib-only: an app that
+            # opens a present index legitimately imports the driver.
+            pytest.param("duckdb", _CREATE_CF_APP_SETUP, id="create-duckdb"),
+            # Coming up in graph mode must read the index, never the corpus.
+            pytest.param("rdflib", _SERVE_CF_APP_GRAPH_SETUP, id="serve-graph-rdflib"),
+        ],
+    )
+    def test_the_app_does_not_import_the_library(self, graph_config_env, lib: str, setup: str):
+        """Building (and, for graph mode, serving) the app must leave *lib* unimported."""
+        ok, stderr = _run_absent_check(lib, setup, env=graph_config_env)
+        assert ok, f"{lib} leaked while bringing up the channel finder app:\n{stderr}"
 
 
 # ---------------------------------------------------------------------------

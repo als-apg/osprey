@@ -26,8 +26,9 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
    cd osprey
 
    # The package versions come from the upstream release tags: the framework's
-   # v* and osprey-connectors' own osprey-connectors-v* tags. A fork or mirror
-   # that lacks them builds osprey-connectors as 0.0.postN.
+   # v* and each component's own osprey-connectors-v*, osprey-facility-v* and
+   # osprey-panels-v* tags. A fork or mirror that lacks them builds those
+   # packages as 0.0.postN.
    git remote add upstream https://github.com/als-apg/osprey.git
    git fetch --tags upstream
 
@@ -130,10 +131,12 @@ declared trees. CI and both tiers of ``scripts/check.py`` run the same check thr
 packages the ``dev`` extra declares (fix: ``uv sync --extra dev``). There is no list of
 tolerated errors: an error is fixed where it is reported.
 
-The check's targets are declared in ``pyproject.toml``: it covers the framework source
-and the connectors package together, and the gate reads that same list, so CI and a local
-run check the same trees. A run that names a single file is for a quick look only — it
-resolves less than the full run and reports errors the full run does not.
+The check's targets are declared in ``pyproject.toml``: the framework source, the packages
+under ``packages/``, and ``tests/type_contracts/``, whose files prove a typing property only
+the type check can see, such as a field that must refuse a mis-typed callback. The gate
+reads that same list, so CI and a local run check the same trees. A run that names a single
+file is for a quick look only — it resolves less than the full run and reports errors the
+full run does not.
 
 Testing
 ^^^^^^^

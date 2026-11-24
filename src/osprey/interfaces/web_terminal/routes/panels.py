@@ -7,12 +7,13 @@ import contextlib
 import hashlib
 import ipaddress
 import logging
+import os
 import re
 import socket
 import time
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -67,6 +68,9 @@ from osprey.profiles.web_panels import (
     panel_labels,
 )
 from osprey.registry.web import panel_url_state_attr
+
+if TYPE_CHECKING:
+    from osprey.interfaces.web_terminal.panel_discovery import RefusedPanel
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +361,29 @@ def _loopback_backend_ports(request: Request, panel_ids: Iterable[str]) -> dict[
     return ports
 
 
+def _project_relative(source: str, project_dir: str | None) -> str:
+    """*source* without the project directory's prefix; unchanged outside it."""
+    if project_dir is None:
+        return source
+    prefix = f"{project_dir.rstrip(os.sep)}{os.sep}"
+    return source.removeprefix(prefix)
+
+
+def _refused_json(refused: RefusedPanel, project_dir: str | None) -> dict:
+    """One refused panel as the panels list carries it to the browser."""
+    return {
+        "id": refused.id,
+        "findings": [
+            {
+                "rule": str(finding.rule),
+                "message": finding.message,
+                "source": _project_relative(finding.source, project_dir),
+            }
+            for finding in refused.findings
+        ],
+    }
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -371,6 +398,8 @@ async def get_panels(request: Request):
         {
             "enabled":  [...],          # list of enabled builtin panel id strings
             "custom":   [...],          # custom panel dicts (url rewritten to /panel/<id>)
+            "refused":  [...],          # bundles under panels/ not served:
+                                        # [{"id", "findings": [{"rule", "message", "source"}]}]
             "default":  str|None,       # profile-pinned cold-load focus target
             "visible":  [...],          # enabled + custom ids minus hidden: true panels
             "active":   str|None,       # currently focused panel id
@@ -403,6 +432,15 @@ async def get_panels(request: Request):
     "layout": <dock layout>}``: ``layout`` is the collection form, each tile
     naming one panel id in its ``tabs``, pruned to the panels known now and
     normalised, and ``panels`` the panels it places, in reading order.
+
+    ``refused`` names every bundle under ``panels/`` that discovery judged and
+    did not serve. An entry's ``id`` is the bundle's directory name, and its
+    ``findings`` are every reason, in check order: the panel validator's
+    findings, or discovery's own (``entry_outside_bundle``, ``id_reserved``,
+    ``id_taken``, ``uninspectable``). A ``source`` is relative to the project
+    directory, ``:line`` kept. It is ``[]`` when discovery is off
+    (``web.allow_runtime_panels`` false: nothing was judged), and a refusal
+    naming a panel withheld from this caller is left out, as that panel is.
 
     ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
     route enforces, so the frontend can show or hide the "new panel from URL" input
@@ -463,6 +501,12 @@ async def get_panels(request: Request):
         {**{k: v for k, v in cp.items() if k != "access"}, "url": _browser_panel_url(cp)}
         for cp in custom_raw
         if cp["id"] not in withheld
+    ]
+    project_cwd = getattr(request.app.state, "project_cwd", None)
+    refused = [
+        _refused_json(r, project_cwd)
+        for r in getattr(request.app.state, "refused_panels", ())
+        if r.id not in withheld and r.claims not in withheld
     ]
     default = getattr(request.app.state, "default_panel", None)
     visible = [
@@ -544,6 +588,7 @@ async def get_panels(request: Request):
     return {
         "enabled": enabled,
         "custom": custom,
+        "refused": refused,
         "default": default,
         "visible": visible,
         "active": active,

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.references import find_facility_references
 from osprey.services.ariel_search.ingestion import facility_references
 from osprey.simulation.apply import active_logbook_entries
+from osprey_facility.records import FacilityRecords
+from osprey_facility.references import find_facility_references
+from tests._facility_file import write_facility_document, write_facility_v4
 
 _IDENTIFIER_EDGE = "_"
 
@@ -48,6 +50,35 @@ def test_a_broken_facility_file_means_no_facility_records_and_a_warning(
     assert _records_at(caplog) is None
     lines = [r for r in caplog.records if str(broken) in r.getMessage()]
     assert [r.levelno for r in lines] == [logging.WARNING]
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_means_no_facility_records_and_a_warning(
+    monkeypatch, tmp_path, caplog
+) -> None:
+    path = write_facility_document(
+        tmp_path, {"channels": [{"id": "SR:X"}]}, schema="osprey.facility.facility/3"
+    )
+    _config_for(monkeypatch, tmp_path)
+    monkeypatch.setattr("osprey.channel_roster.sources.facility_file_path", lambda _c: path)
+
+    assert _records_at(caplog) is None
+    lines = [r for r in caplog.records if str(path) in r.getMessage()]
+    assert [r.levelno for r in lines] == [logging.WARNING]
+    assert "this reader reads osprey.facility.facility/4" in lines[0].getMessage()
+    assert "rebuild with osprey build" in lines[0].getMessage()
+
+
+def test_a_v4_facility_file_gives_its_records(monkeypatch, tmp_path, caplog) -> None:
+    path = write_facility_v4(tmp_path, {"channels": [{"id": "SR:X"}]})
+    _config_for(monkeypatch, tmp_path)
+    monkeypatch.setattr("osprey.channel_roster.sources.facility_file_path", lambda _c: path)
+
+    records = _records_at(caplog)
+
+    assert records is not None
+    assert records.record("channel", "SR:X") is not None
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def _is_identifier(character: str) -> bool:

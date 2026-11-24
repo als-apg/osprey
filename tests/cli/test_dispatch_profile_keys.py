@@ -86,6 +86,32 @@ def test_max_turns_defaults_when_unstated() -> None:
     assert profile.dispatch.max_turns == DispatchConfig.max_turns
 
 
+def test_unstated_limits_take_the_dataclass_defaults() -> None:
+    """The run budgets an unstated key builds with are the ones `osprey init` writes."""
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert profile.dispatch.timeout_sec == DispatchConfig.timeout_sec
+    assert profile.dispatch.inactivity_sec == DispatchConfig.inactivity_sec
+    assert profile.dispatch.max_turns == DispatchConfig.max_turns
+
+
+@pytest.mark.parametrize(
+    "key", ["worker_count", "workspace_mode", "channel_strip_prefix", "network"]
+)
+def test_an_unstated_key_takes_the_dataclass_default(
+    key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unstated key builds with the `DispatchConfig` value, whatever that value is."""
+    sentinel = {"worker_count": 7, "workspace_mode": "shared", "network": "host"}.get(key, "X:")
+    monkeypatch.setattr(DispatchConfig, key, sentinel)
+
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert getattr(profile.dispatch, key) == sentinel
+
+
 def test_max_turns_is_read_from_the_block() -> None:
     """An authored ceiling survives parsing."""
     profile = _parse_profile({"name": "x", "dispatch": {"max_turns": 60}})
@@ -217,7 +243,8 @@ def _emitted_dispatch_example() -> dict[str, Any]:
     """Parse the commented ``dispatch:`` example ``osprey init`` emits."""
     from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
 
-    lines = _COMMENTED_TEMPLATES["dispatch"].splitlines()
+    _header, example = _COMMENTED_TEMPLATES["dispatch"]
+    lines = example.splitlines()
     start = lines.index("# dispatch:")
     body = "\n".join(line.removeprefix("#").removeprefix(" ") for line in lines[start:])
     return yaml.safe_load(body)
@@ -231,9 +258,19 @@ def test_the_emitted_example_names_the_conventional_trigger_file() -> None:
     assert PROFILE_TRIGGERS_FILENAME in KNOWN_ROOT_ENTRIES
 
 
+def test_the_emitted_example_states_the_run_limits() -> None:
+    """The example writes each per-run budget at the value an unstated key builds with."""
+    example = _emitted_dispatch_example()["dispatch"]
+
+    assert example["timeout_sec"] == DispatchConfig.timeout_sec
+    assert example["inactivity_sec"] == DispatchConfig.inactivity_sec
+    assert example["max_turns"] == DispatchConfig.max_turns
+
+
 def test_the_emitted_example_calls_facility_name_an_override() -> None:
     """The example names no config or profile key for the dashboard's name."""
-    from osprey.cli.build_profile_emit import _COMMENTED_TEMPLATES
+    from osprey.cli.build_profile_emit import _commented_template
 
-    assert "facility.name" not in _COMMENTED_TEMPLATES["dispatch"]
-    assert "facility_name" not in _COMMENTED_TEMPLATES["dispatch"]
+    template = _commented_template("dispatch")
+    assert "facility.name" not in template
+    assert "facility_name" not in template

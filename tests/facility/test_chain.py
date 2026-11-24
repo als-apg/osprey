@@ -41,6 +41,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import FIXTURES, export_files
 
 # One worker builds the chain: the module-scoped fixture is one chain per
@@ -84,6 +85,7 @@ VIEW_FILES: dict[str, tuple[str, ...]] = {
         "simulator/addresses.json",
         "simulator/decks/LTB.json",
         "simulator/decks/StorageRing.json",
+        "simulator/follows.json",
         "simulator/scenarios.json",
         "simulator/seeds.json",
         "simulator/served_models.json",
@@ -194,9 +196,9 @@ def run_chain(root: Path, config: Mapping[str, Any], *, passes: int = 2) -> Chai
         The finished chain, with one :class:`Pass` per run.
     """
     from osprey.cli.main import cli
-    from osprey.facility.build import build_facility
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     root.mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
@@ -220,7 +222,7 @@ def run_chain(root: Path, config: Mapping[str, Any], *, passes: int = 2) -> Chai
         )
         assert "Traceback" not in result.output
         assert result.exit_code == 0, f"osprey facility import mml:\n{result.output}"
-        document = build_facility(facility, project_name=PROJECT)
+        document = build_facility(facility, project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS)
         render_facility_outputs(render, document, config, facility)
         records.append(Pass(sources=_files(facility, root), rendered=_files(render, render)))
     return Chain(root=root, document=document, passes=tuple(records))
@@ -235,7 +237,7 @@ def chain(tmp_path_factory: pytest.TempPathFactory) -> Chain:
 @pytest.fixture(scope="module")
 def middle_layer(chain: Chain, tmp_path_factory: pytest.TempPathFactory) -> Path:
     """The chain's facility file rendered once more, under the middle-layer index."""
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
 
     render = tmp_path_factory.mktemp("chain-middle-layer")
     render_facility_outputs(render, chain.document, MIDDLE_LAYER, chain.facility)
@@ -244,7 +246,7 @@ def middle_layer(chain: Chain, tmp_path_factory: pytest.TempPathFactory) -> Path
 
 def _layer(chain: Chain) -> Path:
     """The directory the import wrote its records under."""
-    from osprey.facility.layers.mml.importer import LAYER_DIR
+    from osprey_facility.layers.mml.importer import LAYER_DIR
 
     return chain.facility / LAYER_DIR
 
@@ -298,7 +300,7 @@ class TestTheLayers:
         top of ``data/facility/`` merge as the authored one. Every one of them
         is named by the provenance of some record.
         """
-        from osprey.facility.sources import AUTHORED
+        from osprey_facility.sources import AUTHORED
 
         on_disk = {path.name for path in (chain.facility / "imported").iterdir() if path.is_dir()}
         on_disk.add(AUTHORED)
@@ -351,7 +353,7 @@ class TestTheViews:
         self, chain: Chain, tmp_path: Path
     ) -> None:
         """A tree that tags no channel ``in_context`` indexes every channel."""
-        from osprey.facility.render import render_facility_outputs
+        from osprey.facility.views.outputs import render_facility_outputs
 
         assert not any("in_context" in (c.get("tags") or []) for c in chain.document["channels"])
 
@@ -462,7 +464,7 @@ def _paired_import(root: Path, tree: str, edit: Any = None, deck: Path | None = 
         The result of the one ``osprey facility import mml`` call.
     """
     from osprey.cli.main import cli
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     (ao,) = export_files(tree)
     stem = ao.name.removesuffix(".ao.json")
@@ -500,7 +502,7 @@ class TestTheDeckBesideAnExport:
         self, tmp_path: Path
     ) -> None:
         """The spear3 export beside the nsls2 deck stops on the element count, writing nothing."""
-        from osprey.facility.layers.mml.mapping import MAPPING_FILE
+        from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
         result = _paired_import(
             tmp_path, "spear3", deck=FIXTURES / "nsls2" / "nsls2.storagering.lattice.mat"

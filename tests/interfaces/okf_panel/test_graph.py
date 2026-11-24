@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views.graph import graph_text
 from osprey.interfaces.okf_panel.app import create_app
 from osprey.interfaces.okf_panel.graph import (
@@ -25,6 +26,8 @@ from osprey.interfaces.okf_panel.graph import (
     page_references,
     read_graph,
 )
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER
 
 BUNDLE = Path(__file__).parent / "fixtures" / "bundle"
 
@@ -147,8 +150,28 @@ def test_a_classless_device_is_a_device_node_and_its_place_keeps_its_own(tmp_pat
     assert located == [[box[0], places[0], "locatedIn"]]
 
 
+_READ_GRAPH = """
+import json, sys
+from pathlib import Path
+from osprey.interfaces.okf_panel.graph import read_graph
+print(json.dumps(read_graph(Path(sys.argv[1]))))
+"""
+
+
 def test_the_payload_is_the_same_on_every_read(ttl):
-    assert read_graph(ttl) == read_graph(ttl)
+    """A restart is a new process with a new hash seed; the payload must not move."""
+    runs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _READ_GRAPH, str(ttl)],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        for seed in ("1", "2", "3")
+    ]
+    payloads = [json.loads(run.communicate()[0]) for run in runs]
+    assert [run.returncode for run in runs] == [0, 0, 0]
+    assert payloads == [json.loads(json.dumps(read_graph(ttl)))] * 3
 
 
 def test_pages_are_attached_to_the_nodes_they_name(ttl, tmp_path):

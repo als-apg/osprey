@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-{#- data-theme-mode is present ONLY when web.theme named a concrete theme id,
-    i.e. the deployment pinned light/dark rather than just a palette. Its
-    absence is meaningful: it tells theme-manager.js's hub to leave the mode on
-    'auto' and follow the operator's OS. Never emit it empty. -#}
+{#- data-theme-mode is "dark" or "light" ONLY when web.theme named a concrete
+    theme id, i.e. the deployment pinned light/dark rather than just a palette.
+    Otherwise it is "auto": the mode follows the operator's OS. theme-boot.js
+    reads it before the first paint and theme-manager.js's hub at start-up, so
+    both land on the same theme. Never emit it empty. -#}
 {#- data-osprey-storage-scope is likewise present ONLY on a multi-user mount
     (/u/<user>/), where every user shares one origin and therefore one
     localStorage. It is THE source of truth for the storage namespace — JS
@@ -38,7 +39,7 @@
 {#- data-vendor is present ONLY as "cdn", when the page loads its vendor
     assets from the CDN rather than from the image. terminal.js reads it to
     pick its boot-failure sentence. Never emit it empty. -#}
-<html lang="en" data-page-ready="pending" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-panel-icons='{{ panel_icons|tojson }}' data-panel-authored-labels='{{ authored_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}{% if docs_url %} data-docs-url="{{ docs_url }}"{% endif %}{% if not vendor_offline %} data-vendor="cdn"{% endif %}>
+<html lang="en" data-page-ready="pending" data-boot="loading" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-panel-icons='{{ panel_icons|tojson }}' data-panel-authored-labels='{{ authored_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}" data-theme-mode="{{ web_theme_mode or 'auto' }}"{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}{% if docs_url %} data-docs-url="{{ docs_url }}"{% endif %}{% if not vendor_offline %} data-vendor="cdn"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -51,14 +52,17 @@
        module script loads. Empty prefix (single-origin/dev) is a no-op
        identity map. See app.py's compute_url_prefix(). -->
   <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
-  <script type="importmap">
-  {
-    "imports": {
-      "/design-system/": "{{ url_prefix }}/design-system/",
-      "/static/": "{{ url_prefix }}/static/"
-    }
-  }
-  </script>
+  <script type="importmap">{{ import_map() }}</script>
+  <script type="module" src="{{ prefixed('/design-system/js/page-ready.js') }}"></script>
+
+  <!-- The loading shell's watch (before any module): starts the two reads
+       start-up opens with, and keeps the loading veil honest: slow notice,
+       load failure, fail-open. -->
+  <script src="{{ prefixed('/static/js/shell-boot.js') }}"></script>
+
+  <!-- The first-paint fonts, fetched alongside the stylesheets. -->
+  <link rel="preload" as="font" type="font/ttf" crossorigin href="{{ prefixed('/static/fonts/outfit-400.ttf') }}">
+  <link rel="preload" as="font" type="font/ttf" crossorigin href="{{ prefixed('/static/fonts/outfit-500.ttf') }}">
 
   <!-- FOUC prevention: applies data-theme before any CSS loads -->
   <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
@@ -80,10 +84,10 @@
 
   <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('xterm.css', '/static/vendor/xterm.min.css')) }}">
-  <script src="{{ prefixed(vendor_url('xterm.js', '/static/vendor/xterm.min.js')) }}"></script>
-  <script src="{{ prefixed(vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js')) }}"></script>
-  <script src="{{ prefixed(vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js')) }}"></script>
-  <script src="{{ prefixed(vendor_url('xterm addon-clipboard', '/static/vendor/addon-clipboard.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('xterm.js', '/static/vendor/xterm.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('xterm addon-clipboard', '/static/vendor/addon-clipboard.min.js')) }}"></script>
 
   <!-- highlight.js: data-href-dark/light let theme-manager.js swap the stylesheet at runtime -->
   <link id="hljs-theme" rel="stylesheet"
@@ -91,17 +95,17 @@
         data-href-dark="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
         data-href-light="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
   <link rel="prefetch" href="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
-  <script src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
 
   <!-- marked.js -->
-  <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
 
   <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
-  <script src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('DOMPurify', '/static/vendor/purify.min.js')) }}"></script>
 
   <!-- KaTeX: typesets math in the chat's markdown -->
   <link rel="stylesheet" href="{{ prefixed(vendor_url('KaTeX CSS', '/static/vendor/katex.min.css')) }}">
-  <script src="{{ prefixed(vendor_url('KaTeX JS', '/static/vendor/katex.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('KaTeX JS', '/static/vendor/katex.min.js')) }}"></script>
 
   <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
        the OSPREY styles below so our theming can override the base dockview rules. -->
@@ -109,7 +113,7 @@
   <!-- OSPREY theme bridge: remaps dockview's --dv-* onto design tokens. Must load
        AFTER dockview.css so these overrides win the cascade. -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/dockview-overrides.css') }}">
-  <script src="{{ prefixed(vendor_url('dockview-core', '/static/vendor/dockview-core.min.js')) }}"></script>
+  <script defer src="{{ prefixed(vendor_url('dockview-core', '/static/vendor/dockview-core.min.js')) }}"></script>
 
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
@@ -129,6 +133,11 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
+
+  <!-- The whole module graph, named up front so the browser fetches every
+       import level in parallel instead of one level per round trip. Last in
+       the head: the stylesheets above are what the first paint waits for. -->
+  {{ module_preloads('/static/js/shell-dress.js', '/static/js/app.js', '/static/js/tour.js') }}
 </head>
 <body>
 
@@ -279,6 +288,18 @@
          (#right-panel keeps its historical id — a frozen contract with
          panel-manager/tests, not a position.) -->
     <div class="main-container">
+
+      <!-- The loading veil: covers the workspace while <html data-boot> is
+           "loading" and lifts in one step at the reveal (shell-reveal.js).
+           shell-boot.js changes its words when the wait is long or a file of
+           the page cannot be fetched. Styled by terminal.css, "Loading shell". -->
+      <div class="boot-veil" id="boot-veil" role="status" aria-live="polite">
+        <svg class="boot-veil-mark" viewBox="0 0 16 8" shape-rendering="crispEdges" aria-hidden="true" focusable="false"><path fill="currentColor" d="M0 0h2v1h-2zM14 0h2v1h-2zM1 1h3v1h-3zM12 1h3v1h-3zM2 2h4v1h-4zM10 2h4v1h-4zM3 3h4v1h-4zM9 3h4v1h-4zM4 4h8v1h-8zM6 5h4v1h-4zM7 6h2v1h-2zM6 7h1v1h-1zM9 7h1v1h-1z"/></svg>
+        <p class="boot-veil-status" data-boot-status>Loading workspace</p>
+        <div class="boot-veil-bar" data-boot-bar role="progressbar" aria-label="Loading workspace" aria-valuemin="0" aria-valuemax="100"></div>
+        <p class="boot-veil-detail" data-boot-detail hidden></p>
+        <button class="osprey-btn sm" type="button" data-boot-reload hidden>Reload</button>
+      </div>
 
       <!-- Dockview mounts its managed grid here. -->
       <div class="dock-root" id="dock-root"></div>
@@ -517,6 +538,11 @@
       </div>
     </div>
   </osprey-drawer>
+
+  <!-- The chrome's glyphs and key hints: a four-file graph that runs ahead of
+       the application's own, after the page-ready writer like every module of
+       a pending page. -->
+  <script type="module" src="{{ prefixed('/static/js/shell-dress.js') }}"></script>
 
   <!-- App entry point -->
   <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>

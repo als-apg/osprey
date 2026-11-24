@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -37,10 +38,11 @@ from click.testing import CliRunner
 
 import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli.deploy_cmd import up_verb
-from osprey.deployment import container_lifecycle, docker_desktop
+from osprey.deployment import compose_generator, container_lifecycle, docker_desktop
 from osprey.deployment.compose_generator import (
     LABELS_OVERRIDE_FILENAME,
     REPO_ID_LABEL,
+    prepare_compose_files,
     repo_identity,
     resolve_project_name,
 )
@@ -52,8 +54,12 @@ from osprey.deployment.deployment_record import (
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
 from tests._renders import tier_render
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import stub_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
+
+# The real check, taken before the conftest seam replaces it for every test.
+_REAL_REFUSE_SERVICES_NOT_RUNNING = container_lifecycle._refuse_services_not_running
 
 
 @pytest.fixture
@@ -183,7 +189,8 @@ def started(monkeypatch):
         # whole process, and any reader that strips its stdout must not meet None.
         return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     def _fake_image_build(_config, _dev_mode, _env, build_context=None, **_kwargs):
         record["build_context"] = build_context
@@ -195,7 +202,7 @@ def started(monkeypatch):
     def _forbidden(*args, **kwargs):
         raise AssertionError("osprey up must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     return record
 
 
@@ -239,6 +246,24 @@ def test_up_starts_the_compose_files_the_build_left(lifecycle_repo, started):
     assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
+@pytest.mark.usefixtures("started")
+def test_a_detached_start_with_no_container_fails_naming_the_service(lifecycle_repo, monkeypatch):
+    """Compose's exit code is not the answer: a start that returns has to have
+    started what it was handed. Here every runtime call exits 0 and lists
+    nothing, the shape of a compose provider that started no container."""
+    monkeypatch.setattr(
+        container_lifecycle, "_refuse_services_not_running", _REAL_REFUSE_SERVICES_NOT_RUNNING
+    )
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0, result.output
+    assert "event-dispatcher (no container)" in result.output
+    assert "osprey logs event-dispatcher" in result.output
+
+
 def _built_project(repo: Path) -> str:
     """The compose project the build in *repo* names, read the way a start reads it."""
     from osprey_connectors.config import load_project_config
@@ -248,7 +273,7 @@ def _built_project(repo: Path) -> str:
     )
 
 
-def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, started):
+def test_a_start_records_the_runtime_project_and_services_it_drove(lifecycle_repo, started):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
@@ -256,7 +281,45 @@ def test_a_start_records_the_runtime_and_project_it_drove(lifecycle_repo, starte
 
     assert result.exit_code == 0, result.output
     assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
-        up_argv(started)[0], _built_project(lifecycle_repo)
+        up_argv(started)[0],
+        _built_project(lifecycle_repo),
+        compose_services=("event-dispatcher",),
+    )
+
+
+@pytest.mark.usefixtures("started")
+def test_a_second_start_records_the_services_it_drives_not_the_previous_ones(lifecycle_repo):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    write_deployment_record(
+        lifecycle_repo,
+        DeploymentRecord("docker", _built_project(lifecycle_repo), compose_services=("gone",)),
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert record.compose_services == ("event-dispatcher",)
+
+
+@pytest.mark.usefixtures("started")
+def test_the_recorded_services_are_the_ones_the_start_check_reads(lifecycle_repo):
+    from osprey_connectors.config import load_project_config
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    config = load_project_config(str(container_lifecycle.as_built_config_path(lifecycle_repo)))
+    compose_files = container_lifecycle.as_built_compose_files(config, lifecycle_repo)
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert set(record.compose_services or ()) == set(
+        container_lifecycle._started_services(config, compose_files, lifecycle_repo)
     )
 
 
@@ -295,7 +358,7 @@ def test_a_start_refused_by_a_later_preflight_has_recorded_what_it_would_drive(
 
     assert result.exit_code != 0
     assert read_deployment_record(lifecycle_repo) == DeploymentRecord(
-        "docker", _built_project(lifecycle_repo)
+        "docker", _built_project(lifecycle_repo), compose_services=("event-dispatcher",)
     )
 
 
@@ -924,6 +987,68 @@ def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, ca
     assert "web-terminal stack runs on the host network" in caplog.text
 
 
+@pytest.mark.usefixtures("started")
+def test_a_web_terminal_start_records_the_web_stacks_services(lifecycle_repo, monkeypatch):
+    """The record names exactly the services compose was handed: the build's
+    files' and the web file the start writes."""
+    import yaml
+
+    from osprey.deployment.web_terminals.artifacts import web_compose_file
+    from osprey.deployment.web_terminals.render import render_web_terminals
+    from osprey_connectors.config import load_project_config
+
+    def _write_web_file(config, *args, repo_root, **kwargs):
+        web_file = web_compose_file(repo_root)
+        web_file.parent.mkdir(parents=True, exist_ok=True)
+        web_file.write_text(
+            render_web_terminals(config)["docker-compose.web.yml"], encoding="utf-8"
+        )
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    (lifecycle_repo / ".env.users").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", _write_web_file)
+    monkeypatch.setattr(container_lifecycle, "preflight_web_terminals", lambda *a, **k: None)
+    render_build(
+        lifecycle_repo,
+        config=yaml.safe_dump(
+            {
+                "project_name": "als-exemplar",
+                "build_dir": "./build",
+                "deployed_services": [],
+                "claude_code": {"provider": "anthropic"},
+                "deploy": {"fqdn": "example.invalid"},
+                "registry": {"url": "registry.example.org/demo"},
+                "modules": {
+                    "web_terminals": {
+                        "enabled": True,
+                        "users": ["alice"],
+                        "default_tier": "assistant",
+                        "renders": {"assistant": tier_render("assistant", "ex-assistant")},
+                    }
+                },
+            }
+        ),
+        with_compose=False,
+    )
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    config = load_project_config(str(container_lifecycle.as_built_config_path(lifecycle_repo)))
+    handed = [
+        lifecycle_repo / path
+        for path in container_lifecycle.as_built_compose_files(config, lifecycle_repo)
+    ] + [web_compose_file(lifecycle_repo)]
+    record = read_deployment_record(lifecycle_repo)
+    assert record is not None
+    assert set(record.compose_services or ()) == {
+        name
+        for file in handed
+        for name in container_lifecycle.rendered_compose_services(file) or {}
+    }
+    assert {"nginx", "web-alice"} <= set(record.compose_services or ())
+
+
 # ---------------------------------------------------------------------------
 # Repo identity
 # ---------------------------------------------------------------------------
@@ -1022,6 +1147,85 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
     # Baked, not interpolated: a `${VAR}` here would resolve to empty for
     # anyone invoking compose without the variable exported.
     assert "${OSPREY_REPO_ID}" not in compose
+
+
+def bake_labels_override(repo: Path, rendered_in: Path) -> Path:
+    """Write the labels override a render run in *rendered_in* would leave in *repo*.
+
+    *rendered_in* has to exist: the render takes its ``project_root`` only when
+    that names a directory.
+    """
+    import yaml
+
+    from osprey.deployment.compose_generator import write_labels_override
+
+    services = repo / "build" / "services"
+    written = write_labels_override(
+        repo / "build",
+        [services / "docker-compose.yml", services / "event_dispatcher" / "docker-compose.yml"],
+        yaml.safe_load(_RENDERED_CONFIG) | {"project_root": str(rendered_in)},
+    )
+    assert written is not None
+    return written
+
+
+def test_a_build_rendered_in_another_directory_is_refused_naming_it(
+    lifecycle_repo, tmp_path, started
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    bake_labels_override(lifecycle_repo, elsewhere)
+    previous = DeploymentRecord("podman", "an-earlier-project")
+    write_deployment_record(lifecycle_repo, previous)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 1, result.output
+    assert f"this build was rendered in {elsewhere}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
+    assert not started
+    assert read_deployment_record(lifecycle_repo) == previous
+
+
+def test_a_build_rendered_here_starts(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    bake_labels_override(lifecycle_repo, lifecycle_repo)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert started
+
+
+def test_a_build_whose_recorded_root_does_not_match_names_this_directory(
+    lifecycle_repo, tmp_path, started
+):
+    """A root label that does not hash to the stated identity is not named."""
+    import yaml
+
+    from osprey.deployment.compose_generator import PROJECT_ROOT_LABEL
+
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    override = bake_labels_override(lifecycle_repo, elsewhere)
+    document = yaml.safe_load(override.read_text(encoding="utf-8"))
+    for entry in document["services"].values():
+        entry["labels"][PROJECT_ROOT_LABEL] = "/app/x"
+    override.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 1, result.output
+    assert (
+        f"this build was rendered in a different directory than {lifecycle_repo}" in result.stderr
+    )
+    assert "/app/x" not in result.stderr
+    assert not started
 
 
 # ---------------------------------------------------------------------------
@@ -1274,50 +1478,6 @@ def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
     assert "⚠ Minted a login password" in result.output
 
 
-# ---------------------------------------------------------------------------
-# The legacy path is untouched
-# ---------------------------------------------------------------------------
-
-
-def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
-    """``osprey up`` keeps its render-then-start shape until Phase 3 deletes it.
-
-    The shared tail must not have changed what the old verb does, or every
-    project still on it would start something other than what it started
-    yesterday.
-    """
-    rendered: list = []
-
-    def _prepare(
-        config_path,
-        dev_mode=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-        expose_network=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
-    ):
-        rendered.append(config_path)
-        return {"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _prepare)
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
-    # Every start builds the project image agent-record runs on; no build here.
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr=""),
-    )
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert rendered == [str(tmp_path / "config.yml")]
-    # And the legacy path still writes its .env where it always did.
-    assert (tmp_path / ".env").is_file()
-
-
 def test_up_as_built_is_reachable_without_a_working_directory_in_the_repo(
     lifecycle_repo, started, tmp_path, monkeypatch
 ):
@@ -1457,6 +1617,9 @@ def built_repo(_real_build):
     # makes no file, so the preset's application package gets a stand-in wheel.
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(wheel_build, "_build_wheel", _fake_wheel)
+        # `osprey build` is the renderer, so the start's no-render guard, which
+        # a test may have installed already, does not hold for it.
+        patch.setattr(compose_generator, "prepare_compose_files", prepare_compose_files)
         result = _CliRunner().invoke(
             build_cmd,
             ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
@@ -1578,6 +1741,30 @@ def test_a_real_build_bakes_the_repo_identity_into_every_stack(built_repo):
     assert seen_volumes, "the exemplar rendered no named volumes to check"
     assert not unlabelled_services, f"containers without {REPO_ID_LABEL}: {unlabelled_services}"
     assert not labelled_volumes, f"volumes carrying {REPO_ID_LABEL}: {labelled_volumes}"
+
+
+@pytest.mark.parametrize("args", [("-d",), ("-d", "--as-built")])
+def test_a_real_build_copied_to_another_directory_is_refused_naming_it(
+    built_repo, tmp_path, args, started
+):
+    """A ``build/`` names the checkout it was rendered for; a copy elsewhere is not it.
+
+    The containers such a copy would start carry the original directory's
+    identity, so every verb run from the copy, the start's own check among
+    them, would find none of them. The start refuses before any container step
+    and names the directory the build belongs to. ``built_repo`` is only read.
+    """
+    copy = tmp_path / "moved" / built_repo.name
+    shutil.copytree(built_repo, copy, symlinks=True)
+    (copy / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+
+    result = run_up(copy, *args)
+
+    assert result.exit_code == 1, result.output
+    assert f"this build was rendered in {built_repo}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
+    assert not started
+    assert read_deployment_record(copy) is None
 
 
 def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):

@@ -154,7 +154,7 @@ class Served:
 
     def one_mrad(self, setpoint: str) -> float:
         """The current ``setpoint`` reads after a 1 mrad kick, by its wiring calibration."""
-        from osprey.simulation.engines.calibration import (
+        from osprey_connectors.simulation.engines import (
             curve_from_record,
             to_hardware,
             to_physics,

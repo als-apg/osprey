@@ -6,12 +6,16 @@ be found, which is the right behaviour on a host that cannot load it -- an
 honest, loud skip beats a hollow pass -- but it means a run in which nothing
 was exercised exits 0 exactly like a run in which everything was.
 
-The container venue closes that gap for itself (``scripts/va/live_ca/gate.py``
-rejects any run containing a skip). CI does not go through that gate: it
-installs the serving stack and runs the suites as part of the ordinary
-``pytest tests/`` job, where a skip is silent. So if the packaging, the
-environment marker, or wheel availability ever changes, CI reverts to a green
-that never touched Channel Access -- the same hole, merely relocated.
+The container venue and CI both close that gap through
+``scripts/va/live_ca/gate.py``, which rejects any run containing a skip and,
+in ``--pva`` mode, first checks that the serving stack imports: CI's
+``serial-suites`` job runs it on Linux (``scripts/check.py run live-ca``, which
+is ``gate.py --pva``), and the parallel sweep leaves the live suites to it. Run
+anywhere else as part of an ordinary ``pytest tests/``, the suites skip
+silently. So if the packaging, the environment marker, or wheel availability
+ever changes, such a run reverts to a green that never touched Channel Access
+-- the same hole, merely relocated -- and the ordinary unit lane says so too,
+not only the gate.
 
 **This module is that assertion.** On linux/x86_64 the server must import, and
 the ordinary unit lane fails loudly when it does not.

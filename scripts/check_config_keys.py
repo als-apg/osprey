@@ -110,10 +110,16 @@ MANIFEST_FILENAME = "config_key_manifest.yml"
 
 REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 
-# Reader evidence may live in the framework tree or in the extracted
-# osprey-connectors workspace member (config/logger/connectors moved there;
-# the src/osprey paths are compatibility shims with no reader bodies).
-EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
+# Reader evidence may live in the framework tree or in an extracted workspace
+# member: osprey-connectors (config/logger/connectors moved there; the src/osprey
+# paths are compatibility shims with no reader bodies), osprey-facility (the
+# description's served-config reader) or osprey-panels.
+EVIDENCE_ROOTS = (
+    "src/osprey",
+    "packages/osprey-connectors/src/osprey_connectors",
+    "packages/osprey-facility/src/osprey_facility",
+    "packages/osprey-panels/src/osprey_panels",
+)
 PRESET_DIR = "src/osprey/profiles/presets"
 
 #: The files whose prose describes the presets; ``preset-count`` reads them

@@ -18,12 +18,17 @@ absent renders as nothing at all, which is exactly how a safety file can come
 out looking complete while covering no tool.
 """
 
+import json
+import logging
+
 import pytest
 import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import framework_mixed_read_write_tools, writes_check_matchers
+from osprey_facility.errors import FacilityFileError
+from tests._facility_file import FACILITY_V4, write_facility_document, write_facility_v4
 from tests._preset_data import create_project_as_built
 
 _PROJECT_COUNTER = 0
@@ -248,3 +253,63 @@ def test_demo_ui_names_three_tier_values_and_three_positions():
         "**off** refuses the write, **asked** puts the approval prompt in front of a "
         "person, and **allowed** runs the write without one" in skill
     )
+
+
+# ---------------------------------------------------------------------------
+# the facility file the context reads
+# ---------------------------------------------------------------------------
+
+_V3 = "osprey.facility.facility/3"
+_TEMPLATE_LOGGER = claude_code.logger.name
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_is_not_used_and_the_warning_names_the_rebuild(tmp_path, caplog):
+    path = write_facility_document(tmp_path, {"identity": {"code": "lab"}}, schema=_V3)
+
+    with caplog.at_level(logging.WARNING, logger=_TEMPLATE_LOGGER):
+        assert claude_code._read_facility(tmp_path) == {}
+
+    [record] = [r for r in caplog.records if r.name == _TEMPLATE_LOGGER]
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        f"The facility file is not used: {path} is {_V3}; this reader reads {FACILITY_V4} "
+        "-- rebuild with osprey build"
+    )
+
+
+@pytest.mark.foreign_header
+def test_a_header_less_facility_file_is_not_used(tmp_path, caplog):
+    write_facility_document(tmp_path, {"identity": {"code": "lab"}}, schema=None)
+
+    with caplog.at_level(logging.WARNING, logger=_TEMPLATE_LOGGER):
+        assert claude_code._read_facility(tmp_path) == {}
+
+    assert any("rebuild with osprey build" in r.getMessage() for r in caplog.records)
+
+
+def test_a_v4_facility_file_is_read_as_before(tmp_path):
+    document = {"identity": {"code": "lab"}, "channels": []}
+    write_facility_v4(tmp_path, document)
+
+    assert claude_code._read_facility(tmp_path) == {**document, "schema": FACILITY_V4}
+
+
+def test_a_missing_facility_file_is_an_empty_facility(tmp_path):
+    assert claude_code._read_facility(tmp_path) == {}
+
+
+@pytest.mark.foreign_header
+def test_a_v3_facility_file_refuses_the_context_naming_the_rebuild(tmp_path):
+    # A framework-default render pins writes `never` with python's read/write
+    # tools on, which the write-gate lint refuses unless writes-check is selected.
+    (tmp_path / ".osprey-manifest.json").write_text(
+        json.dumps({"artifacts": {"hooks": ["writes-check"]}}), encoding="utf-8"
+    )
+    write_facility_document(tmp_path, {"identity": {"code": "lab"}}, schema=_V3)
+    manager = TemplateManager()
+
+    with pytest.raises(FacilityFileError, match="rebuild with osprey build"):
+        claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, tmp_path, {"project_name": "lab"}
+        )

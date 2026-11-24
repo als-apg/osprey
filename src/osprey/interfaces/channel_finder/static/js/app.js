@@ -10,21 +10,24 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { markPageReady } from '/design-system/js/page-ready.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { showToast } from '/design-system/js/toast.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
 import { initToolbar, TOOLBAR_IDS } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
-import { mountAllPvs, unmountAllPvs } from './allpvs.js';
+import { mountChannels, unmountChannels } from './channels.js';
 import { mountAlarms, unmountAlarms } from './alarms.js';
 import { mountArchive, unmountArchive } from './archive.js';
+import { mountServers, unmountServers } from './servers.js';
 import { activeSummary } from './alarms-render.js';
 import { fetchActiveAlarms } from './directory-api.js';
-import { mountPvPage, unmountPvPage } from './pv-page.js';
-import { mountIocPage, unmountIocPage } from './ioc-page.js';
+import { mountChannelPage, unmountChannelPage } from './channel-page.js';
+import { mountServerPage, unmountServerPage } from './server-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 import { formatRoute, parseRoute } from './route.js';
+import { LABELS } from './labels.js';
 
 // A follower of the Web Terminal hub: theme-boot.js already applied data-theme
 // pre-paint, and this attaches the postMessage listener for the hub's live
@@ -42,15 +45,16 @@ applyEmbedded();
 const VIEWS = {
   explore: { mount: mountExplore, unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
-  allpvs: { mount: mountAllPvs, unmount: unmountAllPvs },
+  channels: { mount: mountChannels, unmount: unmountChannels },
   alarms: { mount: mountAlarms, unmount: unmountAlarms },
   archive: { mount: mountArchive, unmount: unmountArchive },
-  pv: { mount: mountPvPage, unmount: unmountPvPage },
-  ioc: { mount: mountIocPage, unmount: unmountIocPage },
+  servers: { mount: mountServers, unmount: unmountServers },
+  channel: { mount: mountChannelPage, unmount: unmountChannelPage },
+  server: { mount: mountServerPage, unmount: unmountServerPage },
 };
 
 // Views that exist only while /api/info carries the directory descriptor.
-const DIRECTORY_VIEWS = new Set(['allpvs', 'alarms', 'archive', 'pv', 'ioc']);
+const DIRECTORY_VIEWS = new Set(['channels', 'servers', 'alarms', 'archive', 'channel', 'server']);
 
 /** How often the Alarms tab's pill is read while the panel is visible. */
 const BADGE_POLL_MS = 15000;
@@ -62,9 +66,9 @@ let currentView = null;
 // The last alarm counts read, by the badge poll or the Alarms view.
 /** @type {ActiveAlarms|null} */
 let alarmCounts = null;
-// Bumped by every counts read and every counts event: an answer to an older
-// read is dropped, so the latest one writes the pill.
-let alarmCountsSeq = 0;
+// The counts reads: a newer read or a counts event retires this one, and a
+// retired read's answer is dropped, so the latest one writes the pill.
+const alarmCountReads = createLatestRequest();
 // The hash of the route mounted now, as formatRoute spells it; an equal route is not re-mounted.
 /** @type {string|null} */
 let currentRouteKey = null;
@@ -96,14 +100,16 @@ async function init() {
     // Load stats badges
     refreshStatsBadges();
 
-    // The scope switch: rewritten when an All PVs page names its directory.
+    // The scope switch: rewritten when a directory page names its directory,
+    // and when an answer moves the panel to another target's words.
     renderViewSwitch();
     state.on('directoryLabel', renderViewSwitch);
+    state.on('directoryWords', renderViewSwitch);
 
     // The Alarms tab's pill: read every 15 s and when the panel is shown, while
     // it is visible on another view; the Alarms view emits the counts itself.
     state.on('alarmCounts', (answer) => {
-      alarmCountsSeq += 1;
+      alarmCountReads.cancel();
       alarmCounts = answer;
       renderAlarmPill();
     });
@@ -133,6 +139,7 @@ function viewAvailable(view) {
   if (!Object.hasOwn(VIEWS, view)) return false;
   if (view === 'alarms' && !alarmsConfigured()) return false;
   if (view === 'archive' && !archiveConfigured()) return false;
+  if (view === 'servers' && !fleetConfigured()) return false;
   // The graph paradigm answers from the facility graph and keeps no hints.
   if (view === 'feedback' && state.pipelineType === 'graph') return false;
   return !DIRECTORY_VIEWS.has(view) || state.directory !== null;
@@ -141,6 +148,13 @@ function viewAvailable(view) {
 /** @returns {boolean} whether the deployment configures an alarm-state service */
 function alarmsConfigured() {
   return state.directory?.configured_services?.includes('alarm_state') ?? false;
+}
+
+/** @returns {boolean} whether the deployment runs the server fleet service */
+function fleetConfigured() {
+  // state.js's service list predates the fleet service: read it as names.
+  const services = /** @type {string[]} */ (state.directory?.configured_services ?? []);
+  return services.includes('fleet');
 }
 
 /** @returns {boolean} whether the deployment's archive serves some target */
@@ -199,7 +213,7 @@ function activateView(viewName, params) {
 
 /**
  * The view switch's buttons, in the one order the panel has: Curated · All PVs
- * · Alarms · Archive · Feedback, each kept while viewAvailable says so (Curated
+ * · IOCs · Alarms · Archive · Feedback, each kept while viewAvailable says so (Curated
  * is whichever paradigm runs). Without the directory descriptor Curated reads
  * Explore, and only it and Feedback remain (Feedback outside the graph paradigm).
  * @returns {{ id: string, label: string }[]}
@@ -209,7 +223,8 @@ function viewTabs() {
   /** @type {{ id: string, label: string }[]} */
   const order = [
     { id: 'explore', label: directory ? 'Curated' : 'Explore' },
-    { id: 'allpvs', label: directory?.label ?? '' },
+    { id: 'channels', label: directory?.label ?? '' },
+    { id: 'servers', label: LABELS.serversView },
     { id: 'alarms', label: 'Alarms' },
     { id: 'archive', label: 'Archive' },
     { id: 'feedback', label: 'Feedback' },
@@ -264,11 +279,11 @@ function renderViewSwitch() {
  * the Alarms view is not the one shown (it emits `alarmCounts` every 5 s).
  */
 async function readAlarmCounts() {
-  const seq = ++alarmCountsSeq;
+  const token = alarmCountReads.begin();
   if (document.hidden || currentView === 'alarms' || !alarmsConfigured()) return;
   try {
-    const answer = await fetchActiveAlarms({ limit: 0 });
-    if (seq === alarmCountsSeq) state.emit('alarmCounts', answer);
+    const answer = await fetchActiveAlarms({ limit: 0 }, token.signal);
+    if (token.isCurrent()) state.emit('alarmCounts', answer);
   } catch {
     // The pill keeps its last count; the Alarms view says why the feed is down.
   }

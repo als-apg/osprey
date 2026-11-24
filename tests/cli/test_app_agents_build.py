@@ -61,7 +61,7 @@ NOTE = (
 PINNED = "claude-haiku-4-5"
 
 
-def _knob_repo(root: Path, *config_lines: str) -> Path:
+def _knob_repo(root: Path, *config_lines: str, build: bool = True) -> Path:
     repo = build_exemplar_repo(root / EXEMPLAR_DIRNAME)
     app_dir = repo / "apps" / "knob"
     (app_dir / "agents").mkdir(parents=True)
@@ -83,8 +83,9 @@ def _knob_repo(root: Path, *config_lines: str) -> Path:
     (repo / "tiers" / "asker.yml").write_text(
         "name: Asker\nconfig:\n  control_system.writes: asked\n", encoding="utf-8"
     )
-    result = invoke_build(repo)
-    assert result.exit_code == 0, result.output
+    if build:
+        result = invoke_build(repo)
+        assert result.exit_code == 0, result.output
     return repo
 
 
@@ -179,7 +180,7 @@ def test_an_agent_name_the_render_already_has_is_refused(tmp_path: Path) -> None
 def test_a_profile_agent_of_the_same_name_refuses_the_build(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    repo = _knob_repo(tmp_path)
+    repo = _knob_repo(tmp_path, build=False)
     (repo / "agents").mkdir(exist_ok=True)
     (repo / "agents" / "knob-helper.md").write_text(
         "---\nname: knob-helper\ndescription: The profile's own.\n---\n", encoding="utf-8"

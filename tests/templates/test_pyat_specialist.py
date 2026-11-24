@@ -22,12 +22,12 @@ from typing import NamedTuple
 
 import pytest
 from tests._builds import BuiltProject
-from tests._facility_file import write_facility_views
+from tests._facility_file import write_facility_v4, write_facility_views
 from tests._preset_data import bundle_data_root
 
 from osprey.cli.templates.claude_code import config_derived_context
-from osprey.facility import FACILITY_FILE, TEXTURE
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
+from osprey_facility import TEXTURE
 
 AGENT = Path(".claude") / "agents" / "pyat-specialist.md"
 
@@ -55,7 +55,7 @@ def test_served_decks_are_the_served_physics_models_with_a_deck(tmp_path: Path) 
             {"name": "SR", "engine": "pyat", "deck": "decks/SR.json"},
         ]
     }
-    (tmp_path / FACILITY_FILE).write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(tmp_path, facility)
 
     assert config_derived_context({}, tmp_path)["served_decks"] == [
         {"model": "AR", "path": "build/data/simulator/decks/AR.mat"},
@@ -75,7 +75,7 @@ def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) 
     (tmp_path / "data").mkdir()
     (tmp_path / "data" / FACTS_FILE).write_text(json.dumps(facts), encoding="utf-8")
     facility = {"models": [{"name": "SR", "engine": "pyat", "deck": "decks/sr_lattice.mat"}]}
-    (tmp_path / FACILITY_FILE).write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(tmp_path, facility)
     context = config_derived_context({}, tmp_path)
     context["enabled_agents"] = {"pyat-specialist"}
 
@@ -203,7 +203,7 @@ def test_a_texture_only_render_lists_the_deck_model_as_not_served(
 ) -> None:
     facts = json.loads((texture_only_render / "data" / FACTS_FILE).read_text(encoding="utf-8"))
     served = {model["name"]: model["served"] for model in facts["models"]}
-    assert served == {"BTS": False, "LINE": False, "LTB": False, "SR": False, TEXTURE: True}
+    assert served == {"BR": False, "BTS": False, "LTB": False, "SR": False, TEXTURE: True}
 
 
 def test_a_texture_only_render_has_no_pyat_specialist(texture_only_render: Path) -> None:

@@ -347,12 +347,10 @@ def test_browser_session_survives_a_server_restart(
     second_log = tmp_path / "launch-2.log"
 
     # Every server this test starts, remembered as it starts. The PID file is
-    # NOT a sufficient handle for teardown: `osprey web stop` unlinks it
-    # immediately after sending SIGTERM, without waiting for the process to
-    # die, so on every failure path between the explicit stop below and the
-    # second launch writing a new file there is no file to read — and the
-    # assertion that fires there is precisely the one that fires when the first
-    # server has NOT exited. Kept in a list so teardown can reach it anyway.
+    # NOT a sufficient handle for teardown: it is gone once a stop succeeds,
+    # so on every failure path between the explicit stop below and the second
+    # launch writing a new file there is no file to read. Kept in a list, this
+    # is the handle teardown keeps.
     pids: list[int] = []
     # Held for the whole test: between the stop and the restart nothing holds
     # the port, and a number from the ephemeral range could be handed to any

@@ -657,11 +657,15 @@ async def submit(req: SubmitRequest):
 
         # Resolve artifact attachments if provided
         if req.artifact_ids:
+            from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
+
             try:
                 from osprey.agent_runner.artifact_resolve import resolve_artifact_paths
 
                 artifact_paths = await resolve_artifact_paths(req.artifact_ids)
                 draft_data["attachment_paths"].extend(artifact_paths)
+            except PlaywrightNotInstalledError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
             except Exception as exc:
                 raise HTTPException(
                     status_code=500, detail=f"Failed to resolve artifacts: {exc}"

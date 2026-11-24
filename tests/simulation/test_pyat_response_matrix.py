@@ -16,9 +16,9 @@ import at
 import numpy as np
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 CORRECTOR_X = "SR:MAG:HCM:01:CURRENT:SP"
@@ -383,9 +383,10 @@ def _trajectory(
 def _first_turn_order(demo: dict[str, Any], start: str = INJECTION) -> list[tuple[int, str]]:
     """Each turn-buffer row's (place counted from ``start``, address), as the bunch meets them."""
     index = _lattice_index(demo["deck"])
+    length = _lattice_length(demo["deck"])
     rows = [
         (
-            (index[element] - index[start]) % _lattice_length(demo["deck"]),
+            (index[element] - index[start]) % length,
             plane,
             f"{element}:TBT:{plane.upper()}",
         )
@@ -510,10 +511,10 @@ class TestTrajectory:
             {CORRECTOR_Y: 0.5, CORRECTOR_X: 0.5},
         )
 
+        length = _lattice_length(demo["deck"])
         assert result.columns == [CORRECTOR_Y, CORRECTOR_X]
         assert result.column_positions == [
-            (index[element[column]] - index[start]) % _lattice_length(demo["deck"])
-            for column in result.columns
+            (index[element[column]] - index[start]) % length for column in result.columns
         ]
 
     def test_a_corrector_moves_only_the_rows_placed_after_it(self, demo):
@@ -590,6 +591,23 @@ class TestTrajectory:
         texts = {text.split(" (with no corrector")[0] for text in result.unsolved.values()}
         (text,) = texts
         assert "lost on the first turn at element" in text
+
+    def test_an_elements_own_aperture_loses_the_particle_the_rings_passes(self, demo):
+        ring = {"x": 0.05, "y": 0.05}
+        passed = _trajectory(demo, _turn_settings(demo, launch={"x": 0.002}, aperture=ring), {})
+        tight = _turn_settings(
+            demo,
+            launch={"x": 0.002},
+            aperture=ring,
+            apertures=[
+                {"class": "Quadrupole", "shape": "rectangular", "x": [-0.01, 0.001], "y": 0.01}
+            ],
+        )
+
+        result = _trajectory(demo, tight, {CORRECTOR_X: 0.01})
+
+        assert passed.unsolved == {}
+        assert "lost on the first turn at element" in result.unsolved[CORRECTOR_X]
 
     def test_a_rectangular_aperture_also_loses_the_particle(self, demo):
         settings = _turn_settings(

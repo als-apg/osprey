@@ -6,7 +6,7 @@ errors live in :mod:`osprey_connectors.errors`.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 
@@ -98,6 +98,32 @@ class ComposeInterpolationError(DeploymentError):
         )
 
 
+class DeployStepFailedError(DeploymentError):
+    """The stack was started, but a step the start does not stop for failed.
+
+    Some provisioning is deliberately not a reason to deny an operator the rest
+    of the stack: seeding the graph store is one search surface among many. A
+    step like that reports its failure where it happens and lets the start go
+    on, and this is what the start raises once everything else is up, so the
+    run that left the step undone does not end as a success.
+
+    It is the opposite of a :class:`DeploymentPreconditionError`: there nothing
+    happened, here everything else did. A handler keeps what was started and
+    ends the command with a failure that names ``step``.
+
+    Attributes:
+        step: The step that failed, as a phrase that completes "... failed".
+        cause: What went wrong, in the step's own words.
+        remedy: The one thing to do about it.
+    """
+
+    def __init__(self, step: str, cause: str, remedy: str) -> None:
+        self.step = step
+        self.cause = cause
+        self.remedy = remedy
+        super().__init__(f"{step} failed: {cause}")
+
+
 class DeploymentPreconditionError(DeploymentError):
     """A deploy verb refused to act because a precondition is not met.
 
@@ -171,6 +197,20 @@ class NoRenderedBuildError(DeploymentPreconditionError):
     """
 
     summary = "No rendered build to start from"
+
+
+class BuildRenderedElsewhereError(DeploymentPreconditionError):
+    """The build in this repo was rendered for another checkout.
+
+    A render bakes the identity of the directory it ran in into every
+    container's labels. A ``build/`` copied or moved to another directory still
+    states the old one, so the containers it would start belong, by label, to a
+    checkout that is not this one: every verb run here would find none of them.
+    ``--as-built`` does not answer it, since the identity is not drift. The one
+    remedy is a build in this directory.
+    """
+
+    summary = "This build belongs to another directory"
 
 
 class UnmetPreconditionsError(DeploymentPreconditionError):
@@ -281,6 +321,28 @@ class RemovalIncompleteError(DeploymentError):
         super().__init__(
             f"{len(self.left)} resource(s) could not be removed: "
             + "; ".join(f"{subject}: {reason}" for subject, reason in self.left)
+        )
+
+
+class ServicesNotRunningError(DeploymentError):
+    """A start returned, and some service it handed to compose has no running container.
+
+    Compose's exit code alone does not say the services started: a provider can
+    exit 0 having created nothing. This is the start's own check of that claim.
+
+    Args:
+        missing: Service name to what the runtime showed for it: ``no container``,
+            or the state of its containers (``exited (1)``, ``created``, ...).
+            Kept in the caller's order; the message's remedy names the first.
+    """
+
+    def __init__(self, missing: Mapping[str, str]) -> None:
+        self.missing = dict(missing)
+        listed = ", ".join(f"{service} ({seen})" for service, seen in self.missing.items())
+        first = next(iter(self.missing), "<service>")
+        super().__init__(
+            f"compose reported success, but {len(self.missing)} service(s) have no "
+            f"running container: {listed}. Run `osprey logs {first}` to see why."
         )
 
 

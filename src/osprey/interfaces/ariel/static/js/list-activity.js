@@ -36,6 +36,7 @@ import { refresh, searchRequest } from './list.js';
 import { getState, subscribe } from './store.js';
 import { refreshFacets } from './facets.js';
 import { flashElement } from '/design-system/js/highlight.js';
+import { createLatestRequest } from '/design-system/js/latest-request.js';
 
 /** @typedef {import('./store.js').State} State */
 /** @typedef {import('./advanced-options.js').Capabilities} Capabilities */
@@ -61,8 +62,9 @@ let pending = new Map();
 /** A side fetch (and what follows it) is running. */
 let busy = false;
 
-/** Bumped on every view change; an answer for an older view is dropped. */
-let viewSeq = 0;
+/** The views of the list: a view change retires this one, and an answer for a retired view is dropped. */
+const views = createLatestRequest();
+let view = views.begin();
 
 /** Rows the agent created that the list does not show yet. */
 let newCount = 0;
@@ -144,15 +146,15 @@ function flashRow(id) {
  * @param {Map<string, string>} batch
  * @param {Set<string>} ids
  * @param {State} state
- * @param {number} seq
+ * @param {import('/design-system/js/latest-request.js').LatestToken} mine - the view the batch was read for
  */
-async function apply(batch, ids, state, seq) {
+async function apply(batch, ids, state, mine) {
   const hits = [...batch].filter(([id]) => ids.has(id));
   if (hits.length === 0) return;
   refreshFacets();
   if (!isSearchView(state) && atTopOfPageOne()) {
     await refresh();
-    if (seq !== viewSeq) return;
+    if (!mine.isCurrent()) return;
     setCount(0);
     hits.forEach(([id]) => flashRow(id));
     return;
@@ -167,11 +169,11 @@ async function pump() {
   busy = true;
   const batch = pending;
   pending = new Map();
-  const seq = viewSeq;
+  const mine = view;
   const state = getState();
   try {
     const ids = await pageOneIds(state);
-    if (seq === viewSeq) await apply(batch, ids, state, seq);
+    if (mine.isCurrent()) await apply(batch, ids, state, mine);
   } catch (error) {
     console.warn('Agent activity: page-1 check failed:', error);
   } finally {
@@ -213,7 +215,7 @@ function onEntryCreated(event) {
  */
 function onStoreChange(_state, _prev, changed) {
   if (!VIEW_KEYS.some((k) => changed.has(k))) return;
-  viewSeq++;
+  view = views.begin();
   pending = new Map();
   setCount(0);
 }
@@ -247,7 +249,7 @@ export function initListActivity({ capabilities: caps = null } = {}) {
   capabilities = caps;
   pending = new Map();
   busy = false;
-  viewSeq++;
+  view = views.begin();
   newCount = 0;
   pill = buildPill();
   const unsubscribe = subscribe(onStoreChange);
@@ -260,7 +262,7 @@ export function initListActivity({ capabilities: caps = null } = {}) {
     pill?.remove();
     pill = null;
     pending = new Map();
-    viewSeq++;
+    views.cancel();
     stop = null;
   };
   return stop;

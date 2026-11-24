@@ -49,10 +49,10 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.simulation.session_artifacts import ArtifactPayload
-    from osprey.simulation.sessions import ResolvedSession
     from osprey_connectors.simulation.archive import ArchiveComposite, SeedKnobs
     from osprey_connectors.simulation.logbook import PlotSpec, ScenarioLogEntry
     from osprey_connectors.simulation.view import SimulatorView
+    from osprey_facility.sessions import ResolvedSession
 
 logger = get_logger("simulation_apply")
 
@@ -200,7 +200,10 @@ def apply_scenarios(
 
     Raises:
         ValueError: If the render carries no simulator view, a scenario name is
-            unknown, or the requested set does not compose (channel collision).
+            unknown, the requested set does not compose (channel collision), or
+            a requested scenario stops an IOC of a model the render does not
+            serve, or one the osprey-connectors it was built with cannot stop
+            (its ``inactive_servers``).
     """
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
@@ -216,6 +219,7 @@ def apply_scenarios(
             "Run 'osprey build'."
         )
     scenarios = _scenarios(view)
+    _refuse_inactive_stops(scenarios, names)
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
     # zone each seeded logbook entry's relative time-of-day resolves into, and it
@@ -318,6 +322,29 @@ def _scenarios(view: SimulatorView) -> dict[str, Any]:
     # released connectors floor it also runs against has no records module.
     # So the value stays as ``_plain`` returns it.
     return {str(scenario["name"]): _plain(scenario) for scenario in view.scenarios()}
+
+
+def _refuse_inactive_stops(
+    scenarios: Mapping[str, Mapping[str, Any]], names: Sequence[str]
+) -> None:
+    """Refuse a requested scenario that stops an IOC this render cannot stop.
+
+    The view keeps the name of an IOC whose model the render does not serve out
+    of the scenario's ``stopped_servers`` and lists it under ``inactive_servers``
+    instead, so the scenario would apply without the stop it describes. Applying
+    it is refused rather than run half-way.
+
+    Raises:
+        ValueError: A requested scenario lists an inactive IOC.
+    """
+    for name in names:
+        inactive = (scenarios.get(name) or {}).get("inactive_servers") or {}
+        if inactive:
+            listed = ", ".join(f"{ioc} ({why})" for ioc, why in sorted(inactive.items()))
+            raise ValueError(
+                f"Scenario {name!r} stops IOC(s) this render does not serve: {listed}; "
+                "serve their model to apply it."
+            )
 
 
 def _plain(value: Any) -> Any:
@@ -531,7 +558,7 @@ def _seed_session(
     payloads: Mapping[tuple[str, str], ArtifactPayload],
 ) -> dict[str, Any]:
     """One seed-file session of *identity*: the resolved session, its ids and artifacts."""
-    from osprey.simulation.sessions import to_dict
+    from osprey_facility.sessions import to_dict
 
     slug = rs.session.slug
     plain = to_dict(rs)
@@ -582,8 +609,8 @@ def write_scenario_sessions(
 
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey.simulation.session_artifacts import render_session_artifacts
-    from osprey.simulation.sessions import parse_sessions, resolve
     from osprey_connectors.safety_file import atomic_replace
+    from osprey_facility.sessions import parse_sessions, resolve
 
     project_dir = Path(project_dir)
     if anchor.tzinfo is None or anchor.utcoffset() is None:
@@ -700,7 +727,7 @@ def _view_logbook(
         files: The view's scenario files directory; an entry's pictures resolve
             against ``files / <name>``.
     """
-    from osprey.facility.scenarios import scenario_logbook
+    from osprey_facility.scenarios import scenario_logbook
 
     return [
         entry
@@ -1187,7 +1214,7 @@ def _event_number(value: object) -> float:
     """``float(value)`` of an archiver event's number, read from an object-valued event.
 
     ``osprey build`` checks that every number an event states is an ``int`` or a
-    ``float`` (:func:`osprey.facility.scenarios.check_scenario_events`).
+    ``float`` (:func:`osprey_facility.scenarios.check_scenario_events`).
 
     Raises:
         TypeError: ``value`` is not a string, a bytes object or a real number,

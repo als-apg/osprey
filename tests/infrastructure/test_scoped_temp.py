@@ -13,6 +13,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from tests._nested_pytest import outer_run_free_env, run_nested_pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -107,19 +109,21 @@ def test_a_module_fixtures_directory_goes_with_its_module(tmp_path):
     assert "hand-made" in left
 
 
-def test_a_failed_modules_directory_is_kept(tmp_path):
-    left = _run(tmp_path, "def test_uses(shared):\n    assert False\n")
-    assert "module-made0" in left
-
-
 def test_a_session_fixtures_directory_goes_when_the_session_ends(tmp_path):
     left = _run(tmp_path, "def test_uses(long_lived):\n    assert long_lived.is_dir()\n")
     assert "long-lived0" not in left
 
 
-def test_a_session_directory_is_kept_for_a_failed_consumer(tmp_path):
-    left = _run(tmp_path, "def test_uses(long_lived):\n    assert False\n")
-    assert "long-lived0" in left
+@pytest.mark.parametrize(
+    ("fixture", "dirname"),
+    [
+        pytest.param("shared", "module-made0", id="module"),
+        pytest.param("long_lived", "long-lived0", id="session"),
+    ],
+)
+def test_a_directory_is_kept_for_a_failed_consumer(tmp_path, fixture, dirname):
+    left = _run(tmp_path, f"def test_uses({fixture}):\n    assert False\n")
+    assert dirname in left
 
 
 def test_a_failure_elsewhere_keeps_nothing_it_did_not_use(tmp_path):

@@ -21,9 +21,6 @@ import numpy as np
 import pytest
 from lume_pyat.exceptions import OrbitSolveError, UnknownElementError
 
-from osprey.facility.build import build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines import pyat_faults
@@ -35,6 +32,10 @@ from osprey.simulation.engines.pyat_faults import (
     fault_variables,
     multipole_field,
 )
+from osprey_facility.build import build_facility
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 # -- the roster, from the wiring alone ---------------------------------------------
@@ -262,7 +263,11 @@ def _tree(faults: dict[str, Any], settings: dict[str, Any] | None = None) -> dic
     ids=["engine-names", "element-map"],
 )
 def test_a_scenario_seeds_element_errors(tmp_path: Path, faults: dict[str, Any]) -> None:
-    document = build_facility(write_tree(tmp_path / "facility", _tree(faults)), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", _tree(faults)),
+        project_name="demo",
+        extra_checks=FRAMEWORK_CHECKS,
+    )
 
     assert [s["faults"] for s in document["scenarios"]] == [{"optics": faults}]
 
@@ -281,7 +286,11 @@ def test_a_scenario_element_error_outside_the_roster_stops(
     tmp_path: Path, faults: dict[str, Any], kind: str, names: str
 ) -> None:
     with pytest.raises(FacilityBuildError) as stopped:
-        build_facility(write_tree(tmp_path / "facility", _tree(faults)), project_name="demo")
+        build_facility(
+            write_tree(tmp_path / "facility", _tree(faults)),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
+        )
 
     assert stopped.value.kind == kind
     assert names in str(stopped.value)
@@ -301,7 +310,9 @@ def test_a_scenario_seeds_errors_on_elements_the_settings_declare(
     settings = _declaring({"element": "BEND_1", "multipoles": True}, {"element": "BEND_2"})
     tree = _tree(faults, settings)
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
+    )
 
     assert [s["faults"] for s in document["scenarios"]] == [{"optics": faults}]
 
@@ -323,7 +334,9 @@ def test_a_declared_element_holds_a_scenario_to_the_slots_it_declares(
 
     with pytest.raises(FacilityBuildError) as stopped:
         build_facility(
-            write_tree(tmp_path / "facility", _tree(faults, settings)), project_name="demo"
+            write_tree(tmp_path / "facility", _tree(faults, settings)),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
         )
 
     assert stopped.value.kind == kind
@@ -350,6 +363,7 @@ def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
         build_facility(
             write_tree(tmp_path / "facility", _tree({"Q1/dx": 1.0e-4}, settings)),
             project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
         )
 
     assert (stopped.value.kind, stopped.value.record_id) == ("engine-invalid", "optics")
@@ -363,8 +377,8 @@ def test_the_scenario_check_refuses_a_declaration_as_the_build_does(
 def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
     tmp_path: Path, element: str, named: bool
 ) -> None:
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.validate import run_stages
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.validate import run_stages
 
     settings = _declaring({"element": element})
     tree = _tree({"Q1/dx": 1.0e-4}, settings)
@@ -374,7 +388,10 @@ def test_a_refused_declaration_stops_the_build_once_with_or_without_a_scenario(
         fault_variables(tree["models.yaml"][0]["wiring"], settings)
 
     report = run_stages(
-        write_tree(tmp_path / "facility", tree), project_name="demo", later=LATER_STAGES
+        write_tree(tmp_path / "facility", tree),
+        project_name="demo",
+        later=LATER_STAGES,
+        extra_checks=FRAMEWORK_CHECKS,
     )
     errors = report.errors
 
@@ -389,7 +406,9 @@ def test_an_error_on_an_unbound_element_stops_a_model_that_does_not_declare_it(
 ) -> None:
     with pytest.raises(FacilityBuildError) as stopped:
         build_facility(
-            write_tree(tmp_path / "facility", _tree({"BEND_1/dB2": 0.5})), project_name="demo"
+            write_tree(tmp_path / "facility", _tree({"BEND_1/dB2": 0.5})),
+            project_name="demo",
+            extra_checks=FRAMEWORK_CHECKS,
         )
 
     assert stopped.value.kind == "engine-invalid"

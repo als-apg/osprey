@@ -1,9 +1,15 @@
-"""The engine plug-in contract: what a plug-in module states and what it may declare."""
+"""The framework's engine plug-ins against the engine contract of ``osprey_connectors``.
+
+The contract itself -- the group, the protocol, the optional names and the
+calibration math -- is held by the connectors suite. These tests hold what the
+framework ships: its registered engines satisfy the contract, and
+``osprey.simulation.engines`` holds implementations only.
+"""
 
 from __future__ import annotations
 
 import ast
-import re
+import importlib
 import subprocess
 import sys
 import types
@@ -13,81 +19,47 @@ from pathlib import Path
 import pytest
 
 import osprey
-from osprey.simulation.engines import (
-    ENTRY_POINT_GROUP,
+import osprey.simulation.engines
+from osprey_connectors.simulation.engines import (
+    ENGINE_GROUP,
     OPTIONAL_NAMES,
     TIME_CONTRACT,
     EnginePlugin,
+    FacilityDefectError,
 )
+from osprey_facility.errors import FacilityBuildError
 
 #: The engine-neutral modules that ask an engine for a solve.
 SOLVE_CALLERS = (
-    "simulation/response.py",
-    "facility/layers/mml/response_check.py",
+    "osprey/simulation/response.py",
+    "osprey_facility/layers/mml/response_check.py",
 )
 
-
-def _function(*args, **kwargs):
-    return None
-
-
-def test_the_pyat_plug_in_satisfies_the_contract():
-    module = entry_points(group=ENTRY_POINT_GROUP)["pyat"].load()
-    assert isinstance(module, EnginePlugin)
-
-
-def test_a_module_missing_build_does_not():
-    module = types.ModuleType("four_functions")
-    for name in ("locate", "prepare", "start_values", "describe"):
-        setattr(module, name, _function)
-    assert not isinstance(module, EnginePlugin)
-
-
-#: The names every plug-in module states; the time contract adds none.
-REQUIRED_NAMES = ("locate", "prepare", "start_values", "describe", "build")
+#: The engines the framework registers.
+FRAMEWORK_ENGINES = {
+    "pyat": "osprey.simulation.engines.pyat",
+    "injection": "osprey.simulation.engines.injection",
+}
 
 
 def _registered_engines() -> list[tuple[str, types.ModuleType]]:
-    return [(point.name, point.load()) for point in entry_points(group=ENTRY_POINT_GROUP)]
+    return [
+        (point.name, point.load())
+        for point in entry_points(group=ENGINE_GROUP)
+        if point.name in FRAMEWORK_ENGINES
+    ]
 
 
-def _documented_names() -> list[str]:
-    """The first-column names of the optional-name table in the protocol's docstring."""
-    lines = (EnginePlugin.__doc__ or "").splitlines()
-    rules = [index for index, line in enumerate(lines) if line.strip().startswith("=====")]
-    assert len(rules) == 3, "the docstring states one simple table"
-    rule = lines[rules[0]]
-    indent = len(rule) - len(rule.lstrip())
-    width = len(rule.split()[0])
-    names = []
-    for line in lines[rules[1] + 1 : rules[2]]:
-        cell = line[indent : indent + width]
-        match = re.match(r"``([A-Za-z_]+)", cell)
-        if match:
-            names.append(match.group(1))
-    return names
+def test_the_framework_engines_register_under_the_contract_group():
+    found = {point.name: point.value for point in entry_points(group=ENGINE_GROUP)}
+    for name, module in FRAMEWORK_ENGINES.items():
+        assert found.get(name) == module
 
 
-def test_the_time_contract_does_not_grow_the_required_names():
-    module = types.ModuleType("five_functions")
-    for name in REQUIRED_NAMES:
-        setattr(module, name, _function)
+@pytest.mark.parametrize("name", sorted(FRAMEWORK_ENGINES))
+def test_each_framework_engine_satisfies_the_contract(name: str):
+    module = entry_points(group=ENGINE_GROUP)[name].load()
     assert isinstance(module, EnginePlugin)
-    for name in TIME_CONTRACT + ("deckless_start_values",):
-        assert not hasattr(EnginePlugin, name)
-
-
-def test_the_time_contract_names_are_optional_names():
-    assert TIME_CONTRACT == ("advance", "next_deadline", "emitted", "client_write")
-    assert set(TIME_CONTRACT) <= set(OPTIONAL_NAMES)
-    assert "deckless_start_values" in OPTIONAL_NAMES
-    assert not set(REQUIRED_NAMES) & set(OPTIONAL_NAMES)
-
-
-def test_the_documented_optional_names_match_the_module():
-    documented = _documented_names()
-    assert len(documented) == len(set(documented))
-    assert sorted(documented) == sorted(OPTIONAL_NAMES)
 
 
 @pytest.mark.parametrize("name", TIME_CONTRACT)
@@ -105,64 +77,30 @@ def test_every_registered_engine_omits_or_sets_the_deckless_flag():
         assert flag is None or isinstance(flag, bool), f"{engine}.deckless_start_values"
 
 
-def test_an_engine_without_the_time_contract_still_satisfies_the_contract():
-    module = types.ModuleType("lattice_only")
-    for name in REQUIRED_NAMES:
-        setattr(module, name, _function)
-    assert isinstance(module, EnginePlugin)
-    assert all(getattr(module, name, None) is None for name in TIME_CONTRACT)
+def test_every_optional_value_a_registered_engine_states_is_a_tuple_of_exceptions():
+    for engine, module in _registered_engines():
+        for name in (n for n in OPTIONAL_NAMES if n.endswith("_ERRORS")):
+            value = getattr(module, name, None)
+            if value is None:
+                continue
+            assert isinstance(value, tuple), f"{engine}.{name}"
+            assert all(issubclass(item, Exception) for item in value), f"{engine}.{name}"
 
 
-#: The names by which one model's values reach another model's engine.
-INPUT_NAMES = ("describe_input", "take_inputs")
+def test_the_package_holds_implementations_only():
+    """The contract's names live in ``osprey_connectors``, never under ``osprey.``."""
+    for name in ("ENTRY_POINT_GROUP", "OPTIONAL_NAMES", "TIME_CONTRACT", "EnginePlugin"):
+        assert not hasattr(osprey.simulation.engines, name), name
+    package = Path(osprey.simulation.engines.__file__).parent
+    assert not (package / "calibration.py").exists()
 
 
-def test_the_input_names_are_optional_names_outside_the_time_contract():
-    assert set(INPUT_NAMES) <= set(OPTIONAL_NAMES)
-    assert not set(INPUT_NAMES) & set(TIME_CONTRACT)
-    assert not set(INPUT_NAMES) & set(REQUIRED_NAMES)
-    assert {"describe_input", "take_inputs"} <= set(_documented_names())
+def test_a_build_stop_is_a_facility_defect():
+    """An engine raising a build stop on a request refuses it as a facility-file defect."""
+    assert issubclass(FacilityBuildError, FacilityDefectError)
 
 
-def test_an_engine_without_the_input_names_still_satisfies_the_contract():
-    module = types.ModuleType("no_inputs")
-    for name in REQUIRED_NAMES + TIME_CONTRACT:
-        setattr(module, name, _function)
-    assert isinstance(module, EnginePlugin)
-    assert all(getattr(module, name, None) is None for name in INPUT_NAMES)
-    for name in INPUT_NAMES:
-        assert not hasattr(EnginePlugin, name)
-
-
-def test_an_engine_with_the_input_names_satisfies_the_contract():
-    module = types.ModuleType("with_inputs")
-    for name in REQUIRED_NAMES + TIME_CONTRACT + INPUT_NAMES:
-        setattr(module, name, _function)
-    assert isinstance(module, EnginePlugin)
-
-
-def test_the_time_contract_paragraph_states_how_inputs_arrive():
-    text = " ".join((EnginePlugin.__doc__ or "").split())
-    paragraph = text[text.index("The four names of") :]
-    for phrase in (
-        "``take_inputs`` only stores",
-        "``baseline=True`` means",
-        "immediately before its ``advance``",
-        "every built child",
-        "every pass",
-    ):
-        assert phrase in paragraph, phrase
-
-
-def test_a_time_driven_engine_satisfies_the_contract():
-    module = types.ModuleType("time_driven")
-    for name in REQUIRED_NAMES + TIME_CONTRACT:
-        setattr(module, name, _function)
-    module.deckless_start_values = True
-    assert isinstance(module, EnginePlugin)
-
-
-def test_importing_the_contract_loads_no_engine_library():
+def test_importing_the_package_loads_no_engine_library():
     code = (
         "import sys\n"
         "import osprey.simulation.engines\n"
@@ -200,7 +138,8 @@ def _engine_import(module: str) -> bool:
 
 @pytest.mark.parametrize("relative", SOLVE_CALLERS)
 def test_the_engine_neutral_solve_callers_import_no_engine(relative: str):
-    path = Path(osprey.__file__).parent / relative
+    package, _, rest = relative.partition("/")
+    path = Path(str(importlib.import_module(package).__file__)).parent / rest
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imported: list[str] = []
     for node in ast.walk(tree):

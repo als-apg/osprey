@@ -110,6 +110,34 @@ jobs:
       # virtual-accelerator: the live CA suites SKIP without it (test_live_ca_venue_guard.py reds that).
       run: uv sync --locked --extra dev --extra virtual-accelerator
 
+    - name: Start pulling the container suites' images
+      # rest-b runs the testcontainers suites (the `docker` xdist group, one worker); each fixture pulls its
+      # image on first use. Pulled here in the background, the download overlaps the CLI install and pytest's
+      # collection, a minute or more before the first test. A fixture that reaches an image still in flight
+      # pulls it, and the daemon joins that pull to the one in flight; a fixture whose image's pull here
+      # failed pulls it once itself, as without this step, so a failure here is only logged, to
+      # ci-diag/image-prepull.log in the uploaded diagnostics. The references are the fixtures' own constants.
+      if: matrix.shard == 'rest-b'
+      run: |
+        images=$(uv run python -c 'from tests._graphdb_container import NEO4J_IMAGE; from tests._mongo_container import MONGO_IMAGE; from tests._session_database import SHIPPED_POSTGRES_IMAGE; from tests.integration.test_tiled_export import TILED_IMAGE; print(NEO4J_IMAGE, MONGO_IMAGE, SHIPPED_POSTGRES_IMAGE, TILED_IMAGE)')
+        mkdir -p ci-diag
+        for image in $images; do
+          # Every stream redirected: a background job holding the step's output open would hold the step.
+          (
+            start=$SECONDS
+            if docker pull --quiet "$image" > /dev/null 2>&1; then
+              echo "pulled $image in $((SECONDS - start)) s"
+            else
+              echo "pull of $image failed after $((SECONDS - start)) s; its fixture pulls it again"
+            fi
+          ) >> ci-diag/image-prepull.log 2>&1 < /dev/null &
+        done
+
+    - name: Fetch the pinned neosemantics (n10s) jar for the graph suites
+      # Fetched here: a failed download in the session fixture would SKIP every graph suite.
+      if: matrix.shard == 'rest-b'
+      run: scripts/ci/fetch_n10s_jar.sh
+
     - &install-pinned-cli
       name: Install the pinned Claude Code CLI
       uses: ./.github/actions/install-pinned-claude-code
@@ -128,7 +156,7 @@ jobs:
       # match (test_ci_workflow_wiring.py). --dist loadgroup relies on FileOrGroupScheduling in tests/conftest.py.
       run: |
         if [ "$PYTHON_VERSION" = "3.12" ] && [ "$MATRIX_OS" = "ubuntu-latest" ]; then
-          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
+          COV_ARGS="--cov=src/osprey --cov=packages/osprey-connectors/src/osprey_connectors --cov=packages/osprey-facility/src/osprey_facility --cov=packages/osprey-optimizer/src/osprey_optimizer --cov=packages/osprey-panels/src/osprey_panels --cov=packages/pyaml-cs-osprey/src/pyaml_cs_osprey --cov-report=xml"
         else
           COV_ARGS=""
         fi
@@ -325,8 +353,139 @@ jobs:
 
     - *capture-diagnostics
 
+  osprey-facility-standalone:
+    # The facility package with no framework installed: a base install first, then the MML layer.
+    name: Facility Standalone Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - *checkout-full-history
+
+    - *install-uv
+
+    - name: Install the facility package alone
+      run: uv sync --locked --package osprey-facility
+
+    - name: Refuse an environment that holds the framework
+      run: >-
+        uv run --no-sync python -c "import importlib.metadata as m, importlib.util as u, sys;
+        sys.exit('osprey-framework is installed' if u.find_spec('osprey')
+        or any(d.name == 'osprey-framework' for d in m.distributions()) else 0)"
+
+    - name: Smoke the base install without the MML extra
+      # Imports every public module outside the MML layer, whose extra is not installed, and
+      # builds and validates a description with no MML layer.
+      run: |
+        uv run --no-sync python - <<'EOF'
+        import importlib, re
+        from pathlib import Path
+        from osprey_facility.build import build_facility
+        from osprey_facility.render import facility_bytes
+        from osprey_facility.validate import validate
+        readme = Path("packages/osprey-facility/README.md").read_text(encoding="utf-8")
+        public = re.findall(r"^\| `(osprey_facility[\w.]*)` \|", readme, re.M)
+        base = [name for name in public if not name.startswith("osprey_facility.layers.mml")]
+        assert base, "the README declares no public module"
+        for name in base:
+            importlib.import_module(name)
+        tree = Path("packages/osprey-facility/tests/osprey_facility_tests/panel_fixture")
+        assert not (tree / "layers" / "mml").exists(), "the smoke fixture has an MML layer"
+        built = facility_bytes(build_facility(tree, project_name="xr", extra_checks=()))
+        code, problems = validate(tree, project_name="xr", extra_checks=())
+        assert code == 0, problems
+        print(f"BASE SMOKE OK: {len(base)} public modules imported, {len(built)} bytes built")
+        EOF
+
+    - name: Install the MML extra
+      run: uv sync --locked --package osprey-facility --extra mml
+
+    - name: Refuse an environment that holds the framework, with the extra
+      run: >-
+        uv run --no-sync python -c "import importlib.metadata as m, importlib.util as u, sys;
+        sys.exit('osprey-framework is installed' if u.find_spec('osprey')
+        or any(d.name == 'osprey-framework' for d in m.distributions()) else 0)"
+
+    - name: Run the facility suite
+      # `-c` makes the package the rootdir, so the framework's conftest never loads.
+      run: >-
+        uv run --no-sync pytest -c packages/osprey-facility/pyproject.toml
+        packages/osprey-facility/tests -m "not wheel_build" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+    - name: Build the facility wheel
+      run: uv build --package osprey-facility --wheel --out-dir dist/
+
+    - name: Run the wheel-contents tests against the built wheel
+      run: |
+        OSPREY_FACILITY_WHEEL="$(ls dist/osprey_facility-*.whl)"
+        export OSPREY_FACILITY_WHEEL
+        uv run --no-sync pytest -c packages/osprey-facility/pyproject.toml packages/osprey-facility/tests -m wheel_build --timeout=600 --timeout-method=signal
+
+    - *capture-diagnostics
+
+  osprey-panels-standalone:
+    # The panels package with none of the framework, the facility package or the connectors installed.
+    name: Panels Standalone Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - *checkout-full-history
+
+    - *install-uv
+
+    - name: Install the panels package alone
+      run: uv sync --locked --package osprey-panels
+
+    - name: Refuse an environment that holds another OSPREY package
+      run: >-
+        uv run --no-sync python -c "import importlib.metadata as m, importlib.util as u, sys;
+        held = [n for n in ('osprey', 'osprey_facility', 'osprey_connectors') if u.find_spec(n)]
+        + [d.name for d in m.distributions()
+        if d.name in ('osprey', 'osprey-framework', 'osprey-facility', 'osprey-connectors')];
+        sys.exit(f'installed: {held}' if held else 0)"
+
+    - name: Smoke the panels CLI on the fixture with the demo theme
+      run: |
+        out="$(mktemp -d)"
+        args=(--facility packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json
+          --tables packages/osprey-panels/tests/osprey_panels_tests/fixture/panels
+          --theme src/osprey/templates/apps/demo/data/canopy/theme/osprey.json --out "$out")
+        uv run --no-sync osprey-panels write "${args[@]}"
+        uv run --no-sync osprey-panels check "${args[@]}"
+
+    - name: Run the panels suite
+      # `-c` makes the package the rootdir, so the framework's conftest never loads.
+      run: >-
+        uv run --no-sync pytest -c packages/osprey-panels/pyproject.toml
+        packages/osprey-panels/tests -m "not wheel_build" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+    - name: Build and check the panels distributions
+      # The sdist, then the wheel from it, as release-package.yml builds them.
+      run: |
+        uv build --package osprey-panels --out-dir dist/
+        wheels=(dist/osprey_panels-*.whl) sdists=(dist/osprey_panels-*.tar.gz)
+        [ "${#wheels[@]}" -eq 1 ] && [ -f "${wheels[0]}" ] || { echo "want one wheel: ${wheels[*]}"; exit 1; }
+        [ "${#sdists[@]}" -eq 1 ] && [ -f "${sdists[0]}" ] || { echo "want one sdist: ${sdists[*]}"; exit 1; }
+        uvx twine check "${sdists[0]}" "${wheels[0]}"
+
+    - name: Install the panels wheel into a bare venv and import-walk it
+      run: |
+        uv venv /tmp/panels-lean --python 3.11
+        uv pip install --python /tmp/panels-lean/bin/python dist/osprey_panels-*.whl
+        /tmp/panels-lean/bin/python -I scripts/ci/lean_import_walk.py panels
+        /tmp/panels-lean/bin/python -I -c 'import osprey_panels; print(osprey_panels.__version__)'
+
+    - name: Run the wheel-contents tests against the built wheel
+      run: |
+        OSPREY_PANELS_WHEEL="$(ls dist/osprey_panels-*.whl)"
+        export OSPREY_PANELS_WHEEL
+        uv run --no-sync pytest -c packages/osprey-panels/pyproject.toml packages/osprey-panels/tests -m wheel_build --timeout=600 --timeout-method=signal
+
+    - *capture-diagnostics
+
   # Lane A holds HEAD connectors to every supported framework release; Lane B holds HEAD framework to
-  # its connectors floor. Both stand down until data lifts them (scripts/ci/connectors_compat_matrix.py).
+  # its connectors floor. Both stand down until data lifts them (scripts/ci/compat_matrix.py).
   connectors-compat-plan:
     name: Plan the connectors compatibility lanes
     runs-on: ubuntu-latest
@@ -340,7 +499,7 @@ jobs:
 
     - name: Read the supported releases and the connectors floor
       id: plan
-      run: python3 scripts/ci/connectors_compat_matrix.py github-output
+      run: python3 scripts/ci/compat_matrix.py --package connectors github-output
 
   connectors-compat:
     # Connectors HEAD under each listed framework release.
@@ -384,13 +543,13 @@ jobs:
     - name: Install the framework release from PyPI with the HEAD connectors
       if: matrix.framework != ''
       run: >-
-        python3 scripts/ci/connectors_compat_lane.py install
-        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --connectors head
+        python3 scripts/ci/compat_lane.py --package connectors install
+        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --under-test head
 
     - name: Check the release against the connectors
       if: matrix.framework != ''
       run: >-
-        python3 scripts/ci/connectors_compat_lane.py check
+        python3 scripts/ci/compat_lane.py --package connectors check
         --venv "$COMPAT_VENV" --workdir "$RUNNER_TEMP/contracts"
 
   framework-at-connectors-floor:
@@ -408,7 +567,7 @@ jobs:
       if: needs.connectors-compat-plan.outputs.floor-applicable != 'true'
       run: |
         echo "not applicable yet: the connectors floor $FLOOR predates the first independent"
-        echo "osprey-connectors release (FIRST_INDEPENDENT_CONNECTORS in scripts/ci/connectors_compat_matrix.py)"
+        echo "osprey-connectors release (FIRST_INDEPENDENT_CONNECTORS in scripts/ci/compat_matrix.py)"
 
     - name: Checkout repository
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
@@ -428,27 +587,160 @@ jobs:
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: |
         uv venv
-        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey -e ./packages/osprey-optimizer "osprey-connectors==$FLOOR"
+        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey -e ./packages/osprey-optimizer -e ./packages/osprey-facility "osprey-connectors==$FLOOR"
 
     - name: Hold the lane to the floor connectors from site-packages
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: >-
-        python3 scripts/ci/connectors_compat_lane.py assert-installed
-        --python .venv/bin/python --module osprey_connectors --connectors-version "$FLOOR"
+        python3 scripts/ci/compat_lane.py --package connectors assert-installed
+        --python .venv/bin/python --module osprey_connectors --version "$FLOOR"
 
     - name: Scan the framework for connectors names the floor lacks
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: >-
         .venv/bin/python -I
         packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
-        src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey
+        src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey packages/osprey-facility/src/osprey_facility
 
     - name: Run the connector-facing framework suites at the floor
       if: needs.connectors-compat-plan.outputs.floor-applicable == 'true'
       run: >-
-        python3 scripts/ci/connectors_compat_lane.py pytest
+        python3 scripts/ci/compat_lane.py --package connectors pytest
         --python .venv/bin/python --installed osprey_connectors --
         tests/connectors tests/registry
+        -m "not pty and not wallclock" -n 4 --dist loadgroup
+        --timeout=600 --timeout-method=signal
+
+  # Lane A holds HEAD facility to every supported framework release; Lane B holds HEAD framework to its
+  # facility floor. Both stand down green until data lifts them: the window is empty, and the root lists
+  # osprey-facility with no floor (scripts/ci/compat_matrix.py --package facility).
+  facility-compat-plan:
+    name: Plan the facility compatibility lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      floor: ${{ steps.plan.outputs.floor }}
+      floor-applicable: ${{ steps.plan.outputs.floor-applicable }}
+    steps:
+    - *checkout-full-history
+
+    - name: Read the supported releases and the facility floor
+      id: plan
+      run: python3 scripts/ci/compat_matrix.py --package facility github-output
+
+  facility-compat:
+    # Facility HEAD under each listed framework release.
+    name: Facility Compat — framework ${{ matrix.framework || 'none listed' }}
+    needs: facility-compat-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.facility-compat-plan.outputs.matrix) }}
+    env:
+      FRAMEWORK: ${{ matrix.framework }}
+      # Outside the checkout, so nothing of this tree is importable from it.
+      COMPAT_VENV: /tmp/facility-compat
+    steps:
+    - name: Stand down while no framework release is listed
+      if: matrix.framework == ''
+      env:
+        REASON: ${{ matrix.reason }}
+      run: echo "$REASON"
+
+    - name: Checkout repository
+      if: matrix.framework != ''
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # Tags: the wheel's version comes from the git tag.
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Install uv
+      if: matrix.framework != ''
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        enable-cache: true
+        python-version: '3.11'
+
+    - name: Build the facility wheel at HEAD
+      if: matrix.framework != ''
+      run: uv build --package osprey-facility --wheel --out-dir dist/
+
+    - name: Install the framework release from PyPI with the HEAD facility
+      if: matrix.framework != ''
+      run: >-
+        python3 scripts/ci/compat_lane.py --package facility install
+        --venv "$COMPAT_VENV" --framework "$FRAMEWORK" --under-test head
+
+    - name: Check the release against the facility
+      if: matrix.framework != ''
+      run: >-
+        python3 scripts/ci/compat_lane.py --package facility check
+        --venv "$COMPAT_VENV"
+
+  framework-at-facility-floor:
+    # Framework HEAD against its declared facility floor, with the connectors floor beside it.
+    name: Framework at Facility Floor Tests
+    needs: [facility-compat-plan, connectors-compat-plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # No editable osprey-facility: the floor wheel is the one under test. pyaml-cs-osprey and
+    # osprey-optimizer are named by path for the reason framework-at-connectors-floor gives.
+    env:
+      FLOOR: ${{ needs.facility-compat-plan.outputs.floor }}
+      CONNECTORS_FLOOR: ${{ needs.connectors-compat-plan.outputs.floor }}
+    steps:
+    - name: Stand down while no facility floor is declared
+      if: needs.facility-compat-plan.outputs.floor-applicable != 'true'
+      run: |
+        echo "not applicable yet: the root pyproject.toml lists osprey-facility with no '>=' floor"
+        echo "(scripts/ci/compat_matrix.py --package facility floor), so there is no floor to hold"
+
+    - name: Checkout repository
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Install uv
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        enable-cache: true
+        python-version: '3.11'
+
+    - name: Install the framework with the floor facility
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      run: |
+        uv venv
+        uv pip install --no-sources -e ".[dev]" -e ./packages/pyaml-cs-osprey -e ./packages/osprey-optimizer "osprey-facility==$FLOOR" "osprey-connectors==$CONNECTORS_FLOOR"
+
+    - name: Hold the lane to the floor facility from site-packages
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      run: >-
+        python3 scripts/ci/compat_lane.py --package facility assert-installed
+        --python .venv/bin/python --module osprey_facility --version "$FLOOR"
+
+    - name: Scan the framework for facility names the floor lacks
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      # The facility's floor consumers only: a tree with no osprey_facility import site fails the scan.
+      run: >-
+        .venv/bin/python -I
+        packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
+        --target osprey_facility src/osprey
+
+    - name: Run the facility-facing framework suites at the floor
+      if: needs.facility-compat-plan.outputs.floor-applicable == 'true'
+      # Named, not tests/facility: the package's own tests there hold only at HEAD.
+      run: >-
+        python3 scripts/ci/compat_lane.py --package facility pytest
+        --python .venv/bin/python --installed osprey_facility --
+        tests/cli/test_facility_validate.py tests/cli/test_facility_name_resolution.py
+        tests/cli/test_facility_error_output.py tests/cli/test_facility_cmd_machine_root.py
+        tests/build_pipeline/test_facility_render_roots.py
         -m "not pty and not wallclock" -n 4 --dist loadgroup
         --timeout=600 --timeout-method=signal
 
@@ -469,7 +761,7 @@ jobs:
 
     - name: Run ruff, import boundaries, tracked-ignored, mypy and actionlint
       # One call: check.py runs every check it names, whatever the earlier ones did.
-      run: uv run python scripts/check.py run ruff ruff-format import-contracts private-imports tracked-ignored mypy actionlint
+      run: uv run python scripts/check.py run ruff ruff-format import-contracts private-imports tracked-ignored mypy actionlint facility-public-names panels-public-names
 
     - name: Run changelog-fragment guard
       # `!cancelled()` here and below: an earlier failure must not hide this one. The base reaches the
@@ -915,27 +1207,36 @@ jobs:
       run: gh run cancel "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY"
 
   build-boot-smoke:
-    name: Preset Build + MCP Boot — ${{ matrix.preset }}
+    # Only a cell off 3.11 names its Python, so the 3.11 cells keep their check names.
+    name: Preset Build + MCP Boot — ${{ matrix.case }}${{ matrix.python-version != '3.11' && format(' (Python {0})', matrix.python-version) || '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, demo]
+        # A preset each, and demo with the orbit-bump app turned on: the one full install with an app.
+        # Every case runs on 3.11. The orbit-bump install, the one that installs an app's wheel beside
+        # osprey, runs on 3.12 as well, the Python the unit shards run on pull requests.
+        case: [hello-world, demo, demo-orbit-bump]
+        python-version: ['3.11']
+        include:
+          - case: demo-orbit-bump
+            python-version: '3.12'
 
     steps:
     - *checkout-full-history
 
-    - *install-uv
+    - *install-uv-matrix-python
 
     - *sync-dev-deps
 
-    - name: Run the build + MCP boot smoke for the preset
+    - name: Run the build + MCP boot smoke for the case
       env:
-        PRESET: ${{ matrix.preset }}
+        CASE: ${{ matrix.case }}
         # Over /tmp's tmpfs quota otherwise; see "Run unit tests".
         TMPDIR: ${{ runner.temp }}
-      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
+      # The brackets match the case's test ids exactly: "demo" alone also matches "demo-orbit-bump".
+      run: uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "[$CASE]"
 
   agentic-per-preset:
     name: Preset Agentic Flow — ${{ matrix.preset }}
@@ -1183,10 +1484,10 @@ jobs:
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        # The chart-value-reading and PV directory benchmarks deploy a stack and
+        # The chart-value-reading and channel directory benchmarks deploy a stack and
         # run on the benchmark board only; this job carries the stack-free tier-2 tests.
         uv run pytest tests/e2e/tier2/ --ignore=tests/e2e/tier2/test_chart_value_reading.py \
-          --ignore=tests/e2e/tier2/test_pv_directory_agentic.py \
+          --ignore=tests/e2e/tier2/test_channel_directory_agentic.py \
           -v --tb=short
 
   deploy-e2e:
@@ -2186,7 +2487,8 @@ jobs:
             tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py
             tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py
             tests/va/e2e/test_sim_apply_va.py
-            tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py
+            tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_va_labelled_follow.py
+            tests/va/e2e/test_planted_journal.py
             tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py
           als_lane: false
           timeout: 40
@@ -2427,7 +2729,7 @@ jobs:
   all-checks-passed:
     name: All CI Checks Passed
     # qmd-cache-warmup stays out: it runs on main pushes only, whose own run it already turns red.
-    needs: [test, serial-suites, dependency-floor, connectors-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, stack-e2e, orm-roundtrip-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
+    needs: [test, serial-suites, dependency-floor, connectors-standalone, osprey-facility-standalone, osprey-panels-standalone, connectors-compat-plan, connectors-compat, framework-at-connectors-floor, facility-compat-plan, facility-compat, framework-at-facility-floor, optimizer, lint, docs, package, static-checks, visual-theming, visual-theming-agent, visual-baselines-push, frontend-js, build-boot-smoke, e2e-tests, e2e-no-model, agent-record-e2e, deploy-e2e, dispatch-stack-e2e, stack-e2e, orm-roundtrip-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-slack-bridge-e2e, dockerfile-e2e, dockerfile-agent-e2e, privilege-split-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, target-switch-agentic-e2e, va-live-e2e, plugin-smoke, canopy-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Not on cancel: a superseded run must not leave a red gate on the same sha.

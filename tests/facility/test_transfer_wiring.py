@@ -9,6 +9,9 @@ read millimetres, ``1e3`` times the solved orbit. Every deck corrector,
 quadrupole, monitor and bend is wired or a fixed element, and an uncovered one
 stops generation, named. A wired channel carries no seed nominal, places LTB
 and BTS span their decks, and each line has an orbit-response measurement file.
+Every BTS quadrupole carries an elliptical aperture: the losing corrector
+current loses the particle on it, the golden machine and the orbit-response
+steps lose nothing.
 """
 
 from __future__ import annotations
@@ -25,16 +28,17 @@ from typing import Any
 import numpy as np
 import pytest
 
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import read_yaml
 from osprey.facility.views.simulator import simulator_wiring
-from osprey.simulation.engines.calibration import (
+from osprey_connectors.simulation.engines import (
     curve_from_record,
     field,
     to_hardware,
     to_physics,
 )
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import read_yaml
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
@@ -97,7 +101,7 @@ def _golden() -> dict[str, float]:
 
 @pytest.fixture(scope="module")
 def built() -> dict[str, Any]:
-    return build_facility(EXAMPLE, project_name="demo")
+    return build_facility(EXAMPLE, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
 
 # --- the models --------------------------------------------------------------------
@@ -119,7 +123,7 @@ def test_each_line_is_a_single_pass_pyat_model_from_its_launch_twiss(section: st
 
 
 def test_the_models_are_sorted_by_name() -> None:
-    assert [model["name"] for model in _committed("models.yaml")] == ["BTS", "LINE", "LTB", "SR"]
+    assert [model["name"] for model in _committed("models.yaml")] == ["BR", "BTS", "LTB", "SR"]
 
 
 @pytest.mark.parametrize("section", SECTIONS)
@@ -253,6 +257,83 @@ def test_a_kicked_orbit_reads_in_millimetres_at_the_bpms(section: str) -> None:
     bpm_curve = curve_from_record(bpm["calibration"]["curve"])
     for value in orbit_m:
         assert to_hardware(bpm_curve, None, float(value)) == pytest.approx(1.0e3 * value)
+
+
+# --- the BTS apertures -------------------------------------------------------------
+
+
+def _bts_lattice() -> Any:
+    at = pytest.importorskip("at")
+    lattice = at.load_lattice(str(EXAMPLE / "decks" / "BTS.json"))
+    lattice.disable_6d()
+    return lattice
+
+
+def _bts_loss(lattice: Any, kicks: dict[str, tuple[int, float]]) -> tuple[bool, str, float]:
+    """One on-axis particle through BTS with ``kicks`` (element: plane index, rad).
+
+    Returns whether it is lost, the element it is lost at, and its largest
+    excursion from the axis at any element, in m.
+    """
+    line = lattice.deepcopy()
+    for element, (plane, kick) in kicks.items():
+        (index,) = line.get_uint32_index(element)
+        line[index].KickAngle[plane] = kick
+    tracked, _, info = line.track(
+        np.zeros((6, 1)), nturns=1, refpts=range(len(line) + 1), losses=True
+    )
+    loss = info["loss_map"]
+    lost = bool(loss["islost"][0])
+    where = line[int(loss["elem"][0])].FamName if lost else ""
+    return lost, where, float(np.nanmax(np.abs(tracked[[0, 2], 0, :, 0])))
+
+
+def test_every_bts_quadrupole_carries_the_aperture_and_no_ltb_one_does() -> None:
+    aperture = list(transfer.QUAD_APERTURE["BTS"])
+    assert aperture == [0.02, 0.02]
+    quadrupoles = [e for e in _deck("BTS")["elements"] if e["Class"] == "Quadrupole"]
+    assert len(quadrupoles) == 11
+    assert all(element["EApertures"] == aperture for element in quadrupoles)
+    assert "LTB" not in transfer.QUAD_APERTURE
+    assert not any("EApertures" in element for element in _deck("LTB")["elements"])
+
+
+def test_the_losing_current_loses_the_particle_on_a_bts_quadrupole() -> None:
+    (record,) = [r for r in _models()["BTS"]["wiring"] if r["address"] == transfer.LOSING_CORRECTOR]
+    limits = {r["address"]: r for r in _committed("limits.yaml")["records"]}[record["address"]]
+    assert limits["min_value"] <= transfer.LOSING_CURRENT <= limits["max_value"]
+    curve = curve_from_record(record["calibration"]["curve"])
+    plane = record["engine"]["index"]
+    lattice = _bts_lattice()
+    quadrupoles = {e["FamName"] for e in _deck("BTS")["elements"] if e["Class"] == "Quadrupole"}
+
+    def at_current(current: float) -> tuple[bool, str, float]:
+        return _bts_loss(lattice, {record["element"]: (plane, to_physics(curve, current))})
+
+    lost, where, _ = at_current(transfer.LOSING_CURRENT)
+    assert lost
+    assert where in quadrupoles
+    lost, _, excursion = at_current(_golden()[record["address"]])
+    assert not lost
+    assert excursion == 0.0
+
+
+def test_the_bts_orbit_response_steps_stay_far_inside_the_aperture() -> None:
+    delta = _committed("measurement/BTS.yaml")["corrector_delta"]
+    correctors = [
+        r
+        for r in _models()["BTS"]["wiring"]
+        if r["engine"].get("attribute") == "KickAngle" and r["address"].endswith(":SP")
+    ]
+    assert len(correctors) == 18
+    lattice = _bts_lattice()
+    for record in correctors:
+        for step in (delta, -delta):
+            lost, _, excursion = _bts_loss(
+                lattice, {record["element"]: (record["engine"]["index"], step)}
+            )
+            assert not lost, record["address"]
+            assert excursion < 0.05 * min(transfer.QUAD_APERTURE["BTS"]), record["address"]
 
 
 # --- coverage ----------------------------------------------------------------------

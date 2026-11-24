@@ -81,6 +81,13 @@ os.environ.pop("CLICOLOR_FORCE", None)
 for _key in [key for key in os.environ if key.startswith("Malloc")]:
     os.environ.pop(_key)
 
+# Every Python child a test starts writes the stack of each of its threads to
+# its stderr when it dies of a fatal signal, so a crashed child names the frame
+# it died in. Only the fatal-signal handler is installed: a child that does not
+# crash prints nothing. Assigned, not defaulted: an empty host value would
+# disable the handler.
+os.environ["PYTHONFAULTHANDLER"] = "1"
+
 # Rich deliberately clamps ``TERM=dumb`` consoles to 80 columns and suppresses
 # cursor control even when a test explicitly requests ``force_terminal=True``.
 # CI presents a capable TERM, so normalize only the dumb/unknown host values;
@@ -137,6 +144,18 @@ def pytest_collection_finish():
 # that guard's snapshot window has to be session-scoped rather than merely
 # declared earlier.
 
+#: The project-config variables :func:`restore_environ` clears on the way in.
+RUN_CONFIG_ENV_VARS = ("OSPREY_CONFIG", "CONFIG_FILE")
+
+#: The session-posture variables :func:`session_posture_leak_guard` clears.
+SESSION_POSTURE_ENV_VARS = (
+    "OSPREY_EXECUTION_MODE",
+    "OSPREY_POSTURE_SESSION",
+    "OSPREY_AGENT_DATA_ROOT",
+    "OSPREY_CONTROL_CONTEXT_DIR",
+    "OSPREY_CONTROL_CONTEXT_TREE",
+)
+
 
 @pytest.fixture(autouse=True, scope="function")
 def restore_environ():
@@ -158,8 +177,8 @@ def restore_environ():
     """
     saved = dict(os.environ)
 
-    os.environ.pop("OSPREY_CONFIG", None)
-    os.environ.pop("CONFIG_FILE", None)
+    for name in RUN_CONFIG_ENV_VARS:
+        os.environ.pop(name, None)
 
     try:
         yield
@@ -231,13 +250,7 @@ def session_posture_leak_guard(monkeypatch):
         ``_no_session_posture`` would delete the variables before that snapshot was
         taken, and the restore would then drop them for the rest of the session.
     """
-    for anchor in (
-        "OSPREY_EXECUTION_MODE",
-        "OSPREY_POSTURE_SESSION",
-        "OSPREY_AGENT_DATA_ROOT",
-        "OSPREY_CONTROL_CONTEXT_DIR",
-        "OSPREY_CONTROL_CONTEXT_TREE",
-    ):
+    for anchor in SESSION_POSTURE_ENV_VARS:
         monkeypatch.delenv(anchor, raising=False)
     yield
 

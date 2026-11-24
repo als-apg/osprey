@@ -29,6 +29,7 @@ from osprey.deployment import container_lifecycle
 from osprey.deployment.errors import DeploymentPreconditionError, UnmetPreconditionsError
 from osprey.deployment.runtime_helper import ComposeProvider
 from osprey.deployment.web_terminals import provision
+from tests._scoped_stdlib import scoped
 
 # ---------------------------------------------------------------------------
 # The frame
@@ -727,10 +728,11 @@ def stubbed_start(monkeypatch):
         "_build_project_image",
         lambda *a, **k: reached.append("build_image"),
     )
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
+    scoped(
+        monkeypatch,
+        container_lifecycle,
+        "subprocess",
+        run=lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=0),
     )
     # The render-render probe has its own suite; kept inert so these tests are
     # about placement rather than about any repo's rendered state.

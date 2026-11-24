@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.validate import FACILITY_HEADER
+from osprey_facility.records import FacilityRecords
+from osprey_facility.validate import FACILITY_HEADER
 
 # ---------------------------------------------------------------------------
 # Helpers

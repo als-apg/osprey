@@ -11,6 +11,7 @@ Standard library only, for the reason ``scripts/check.py`` gives.
 
 from __future__ import annotations
 
+import functools
 import re
 import subprocess
 import sys
@@ -299,6 +300,12 @@ def matches(path: str, pattern: str) -> bool:
     matched against the file name at any depth.
     """
     target = path if "/" in pattern else path.rsplit("/", 1)[-1]
+    return _glob_regex(pattern).fullmatch(target) is not None
+
+
+@functools.cache
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    """The regular expression :func:`matches` reads *pattern* as, built once."""
     parts: list[str] = []
     index = 0
     while index < len(pattern):
@@ -314,7 +321,7 @@ def matches(path: str, pattern: str) -> bool:
         else:
             parts.append(re.escape(pattern[index]))
             index += 1
-    return re.fullmatch("".join(parts), target) is not None
+    return re.compile("".join(parts))
 
 
 def touches(paths: Iterable[str], scope: Sequence[str]) -> bool:

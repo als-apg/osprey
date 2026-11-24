@@ -100,9 +100,9 @@ def build_optimization_response(
     """Build the unified ``JobResponse`` for an optimization job.
 
     ``state`` is the read-only Reader Protocol (mypy rejects setter calls here,
-    enforcing the read-only guarantee). Marks the job completed on terminal
-    status. ``detail=full`` is a superset: comprehensive state plus
-    ``result_summary``.
+    enforcing the read-only guarantee). The function writes nothing: a finished
+    job's record and its lifetime belong to the side that ended it.
+    ``detail=full`` is a superset: comprehensive state plus ``result_summary``.
     """
     created_at = load_job_meta(tracker, job_id).created_at
     created_at_iso = datetime.fromtimestamp(created_at, tz=UTC).isoformat()
@@ -111,9 +111,6 @@ def build_optimization_response(
     opt_status = state.get_status()
     error_msg = state.get_error_message()
     last_results = state.get_last_results_path()
-
-    if opt_status.is_terminal:
-        tracker.mark_completed(job_id)
 
     results_path = None
     if last_results:

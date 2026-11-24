@@ -53,6 +53,7 @@ from osprey.deployment.runtime_helper import (
 from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals import lifecycle
 from osprey.deployment.web_terminals.render import render_web_terminals
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_compose_generator import _packaged_compose_template
 from tests.deployment.test_container_lifecycle import _fake_popen
 from tests.deployment.test_up_as_built import (  # noqa: F401 - fixtures, taken by name
@@ -517,7 +518,7 @@ def test_reset_and_the_orphan_sweep_list_a_volume_the_copy_created(monkeypatch):
     listed = {v.name for v in RuntimeProbe("docker", run=fake).volumes_for_project(PROJECT)}
     assert "proj_eve-claude-projects" in listed
 
-    monkeypatch.setattr(lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, lifecycle, "subprocess", run=fake)
     orphans = lifecycle._discover_orphan_volumes("docker", PROJECT, set())
     assert orphans == {"eve": ["proj_eve-claude-config", "proj_eve-claude-projects"]}
 
@@ -560,11 +561,14 @@ def _route_runtime_through(monkeypatch, fake: FakeRuntime, record: list[list[str
         record.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _run)
-    monkeypatch.setattr(
-        container_lifecycle.subprocess,
-        "Popen",
-        _fake_popen(lambda cmd, env: record.append(list(cmd))),
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.runtime_helper", "subprocess", run=_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_run)
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        Popen=_fake_popen(lambda cmd, env: record.append(list(cmd))),
     )
 
 
@@ -601,34 +605,6 @@ def test_the_as_built_start_copies_before_its_first_compose_call(
 
     assert result.exit_code == 0, result.output
     assert "als-exemplar_dispatch_claude_projects_1" in fake.volumes
-    _assert_copies_precede_compose(record)
-
-
-def test_deploy_up_copies_before_its_first_compose_call(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    config = {
-        "project_name": "legacy",
-        "deployed_services": ["event_dispatcher", "dispatch_worker"],
-        "services": {"dispatch_worker": {"worker_count": 1}},
-    }
-    monkeypatch.setattr(
-        container_lifecycle,
-        "prepare_compose_files",
-        lambda *a, **k: (config, ["docker-compose.yml"]),
-    )
-    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
-    monkeypatch.setattr(
-        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
-    )
-    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
-    fake = FakeRuntime()
-    fake.volumes["legacy_dispatch_workspace_1"] = {}
-    record: list[list[str]] = []
-    _route_runtime_through(monkeypatch, fake, record)
-
-    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
-
-    assert "legacy_dispatch_claude_projects_1" in fake.volumes
     _assert_copies_precede_compose(record)
 
 

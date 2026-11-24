@@ -100,10 +100,7 @@ async def artifact_export(
         return make_error(
             "dependency_missing",
             str(exc),
-            [
-                "Install Playwright: pip install playwright",
-                "Install browser: playwright install chromium",
-            ],
+            ["The interactive artifact in the gallery is unaffected."],
         )
     except ExportDeadlineError as exc:
         return make_error(

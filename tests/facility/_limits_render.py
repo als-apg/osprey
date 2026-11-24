@@ -17,8 +17,35 @@ import pytest
 import yaml
 
 from osprey_connectors.control_system._limits_validator import LimitsValidator
+from tests._builds import FRAMEWORK_CHECKS
 
-__all__ = ["packaged_facility_dir", "render_limits", "validator_under"]
+__all__ = [
+    "packaged_facility_dir",
+    "render_limits",
+    "validator_under",
+    "without_limits_findings",
+]
+
+#: How a ``facility validate`` limits finding's count line begins; its address
+#: lines follow it, indented two spaces.
+LIMITS_FINDING = "limits: "
+
+
+def without_limits_findings(stderr: str) -> str:
+    """*stderr* of ``facility validate`` without its limits findings: each
+    ``limits:`` line and the indented address lines under it. A test about
+    other lines of the verb reads them through this."""
+    kept: list[str] = []
+    inside = False
+    for line in stderr.splitlines(keepends=True):
+        if line.startswith(LIMITS_FINDING):
+            inside = True
+            continue
+        if inside and line.startswith("  "):
+            continue
+        inside = False
+        kept.append(line)
+    return "".join(kept)
 
 
 def packaged_facility_dir(bundle: str) -> Path:
@@ -42,8 +69,8 @@ def render_limits(
     Returns:
         The render's ``data/channel_limits.json``.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.render import render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.build import build_facility
 
     facility_dir = tmp_path / f"{name}-facility"
     shutil.copytree(packaged_facility_dir(bundle), facility_dir)
@@ -55,7 +82,7 @@ def render_limits(
         limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
     render_dir = tmp_path / name
     render_dir.mkdir()
-    doc = build_facility(facility_dir, project_name=bundle)
+    doc = build_facility(facility_dir, project_name=bundle, extra_checks=FRAMEWORK_CHECKS)
     render_facility_outputs(render_dir, doc, {}, facility_dir)
     return render_dir / "data" / "channel_limits.json"
 

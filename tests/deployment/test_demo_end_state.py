@@ -43,6 +43,8 @@ from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     config_archiver_ca_bundles,
     config_archiver_credential_envs,
+    config_channel_directory_ca_bundles,
+    config_channel_directory_credential_envs,
     config_needs_ariel_mirror,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -295,6 +297,12 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "phoebus_handle_renders": config_needs_phoebus_handles,
         "archiver_credential_renders": lambda cfg: bool(config_archiver_credential_envs(cfg)),
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
+        "channel_directory_credential_renders": lambda cfg: bool(
+            config_channel_directory_credential_envs(cfg)
+        ),
+        "channel_directory_ca_bundle_renders": lambda cfg: bool(
+            config_channel_directory_ca_bundles(cfg)
+        ),
         "stop_grace_renders": lambda cfg: config_stop_period(cfg) > 0,
     }
     keyed = {"launch_token_renders", "application_token_renders"}

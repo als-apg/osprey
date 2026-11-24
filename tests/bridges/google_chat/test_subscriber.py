@@ -276,19 +276,19 @@ def test_a_base64_payload_does_reach_the_base64_decoder(
     assert spy.calls == 1
 
 
-def test_a_payload_that_is_neither_bytes_nor_text_is_rejected() -> None:
-    with pytest.raises(ValueError, match="cannot decode pubsub data"):
-        decode_pubsub_data(17)
-
-
-def test_a_payload_that_is_neither_json_nor_base64_is_rejected() -> None:
-    with pytest.raises(ValueError):
-        decode_pubsub_data("not json, and not base64 either !!!")
-
-
-def test_a_json_payload_that_is_not_an_event_object_is_rejected() -> None:
-    with pytest.raises(ValueError, match="not an event object"):
-        decode_pubsub_data('["a", "list"]')
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        pytest.param(17, "cannot decode pubsub data", id="neither-bytes-nor-text"),
+        # Whatever the base64 fallback raises (a ValueError subclass); its wording
+        # is the library's, so no match is pinned.
+        pytest.param("not json, and not base64 either !!!", None, id="neither-json-nor-base64"),
+        pytest.param('["a", "list"]', "not an event object", id="json-that-is-not-an-event-object"),
+    ],
+)
+def test_an_undecodable_payload_is_rejected(payload: Any, match: str | None) -> None:
+    with pytest.raises(ValueError, match=match):
+        decode_pubsub_data(payload)
 
 
 # --- the callback's ack contract -----------------------------------------

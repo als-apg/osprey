@@ -78,16 +78,33 @@ SETTLE_BEFORE_KILL_S = 1.5
 #: after the restart -- the lag the watch cuts short.
 OUTAGE_S = 4.5
 
-#: The silent window the kill-only client runs with, instead of 30 s.
-SILENT_S = 6.0
-
-#: The hold-down the unserved client runs with, instead of 3 s: its claim is
-#: "past the hold-down", whatever the hold-down is.
+#: The hold-down the unserved and the stays-gone clients run with, instead of
+#: 3 s: their claims are "past the hold-down", whatever the hold-down is.
 SHORT_HOLD_DOWN_S = 0.5
+
+#: The probe interval the stays-gone clients run with, instead of 1 s: a report
+#: lands at most one probe after the window that triggers it, and their claims
+#: count windows, not probes.
+SHORT_PROBE_S = 0.25
+
+#: The silent window the kill-only client runs with, instead of 30 s. Its lower
+#: bound tells the silent rule from the hold-down: it exceeds the hold-down
+#: plus a probe by :data:`SILENT_MARGIN_S`, so a rule that fired once the
+#: record was held down would report before it.
+SILENT_S = 3.0
+
+#: How far the kill-only silent window outlasts its hold-down and one probe
+#: (with the module's own 3 s hold-down and 1 s probe, the 6 s window it ran with had 2 s).
+SILENT_MARGIN_S = 2.0
 
 #: The silent window the successor-while-gone client runs with: its claim is
 #: "past the silent window", and it never connects, so no other timing counts.
 SHORT_SILENT_S = 2.0
+
+#: How long the successor-while-gone client waits past the last probe a broken
+#: report could land on: a stall of the client's loop shorter than this cannot
+#: carry that report past the wait (the module's own timings gave 1 s too).
+SUCCESSOR_STALL_MARGIN_S = 1.0
 
 #: Liveness: after the restart the client must report stale at all.
 RECONNECT_DEADLINE_S = 60.0
@@ -520,6 +537,10 @@ class TestDeadlines:
     def test_the_reconnect_wait_is_wider_than_the_claim(self):
         assert RECONNECT_DEADLINE_S > STALE_AFTER_RESTART_BUDGET_S
 
+    def test_the_silent_window_outlasts_the_hold_down_and_a_probe(self):
+        """The kill-only lower bound fails a stale report that waited only for the hold-down."""
+        assert SILENT_S >= SHORT_HOLD_DOWN_S + SHORT_PROBE_S + SILENT_MARGIN_S
+
 
 class TestOverTheWire:
     def test_names_the_ioc_does_not_serve_never_report_stale(self, ioc):
@@ -681,6 +702,8 @@ async def _scenario_kill_restart(args):
 
 
 async def _scenario_kill_only(args):
+    epics_connector_module.STALE_HOLD_DOWN_S = SHORT_HOLD_DOWN_S
+    epics_connector_module.STALE_PROBE_INTERVAL_S = SHORT_PROBE_S
     epics_connector_module.STALE_SILENT_S = SILENT_S
     connector = await _connected(args)
     states: list[bool] = []
@@ -708,12 +731,16 @@ async def _scenario_kill_only(args):
 
 
 async def _scenario_successor_while_gone(args):
+    epics_connector_module.STALE_HOLD_DOWN_S = SHORT_HOLD_DOWN_S
+    epics_connector_module.STALE_PROBE_INTERVAL_S = SHORT_PROBE_S
     epics_connector_module.STALE_SILENT_S = SHORT_SILENT_S
     connector = await _connected(args)
     states: list[bool] = []
     await connector.subscribe(SERVED, lambda v: None, on_connection=states.append)
-    # Two probes past both the silent window and the hold-down.
-    wait_s = max(SHORT_SILENT_S, epics_connector_module.STALE_HOLD_DOWN_S) + 2.0
+    # A broken watch that counted the never-connected name would report at the
+    # first probe past both the silent window and the hold-down; the wait runs
+    # a stall margin beyond that probe.
+    wait_s = max(SHORT_SILENT_S, SHORT_HOLD_DOWN_S) + SHORT_PROBE_S + SUCCESSOR_STALL_MARGIN_S
     stale = await _stale_within(connector, wait_s)
     return {"connected": True in states, "stale": stale}
 

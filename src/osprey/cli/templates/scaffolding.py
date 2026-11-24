@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING
 
 from osprey.cli.templates._rendering import render_template
 from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
-from osprey.facility.roots import is_vcs_metadata
+from osprey_facility.roots import is_vcs_metadata
 
 if TYPE_CHECKING:
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -138,10 +138,15 @@ def provider_base_url_entries() -> list[dict[str, str]]:
     absence stops a deployment, so ``.env.example`` lists them beside the keys
     rather than leaving them to the documentation.
 
-    Derived from the provider classes themselves — the same three attributes
-    the launch paths read — so the file cannot drift from what is actually
-    required. Providers with a working default (cborg, argo, ollama, …) are
+    Derived from the provider registry, where a built-in's entry states the
+    fact and a registered provider's class does, from the same three
+    attributes the launch paths read (``requires_base_url``,
+    ``default_base_url``, ``base_url_env_var``) — so the file cannot drift from
+    what is actually required, and a render imports no built-in adapter.
+    Providers with a working default (als-apg, argo, openrouter, …) are
     excluded: setting their variable redirects them, it does not enable them.
+    A provider that requires a URL but names no variable for it (cborg,
+    asksage, amsc-i2) has nothing to list and is absent too.
 
     Returns:
         List of ``{"provider": <name>, "var": <ENV_VAR>}`` dicts, in the
@@ -149,24 +154,19 @@ def provider_base_url_entries() -> list[dict[str, str]]:
         ships an endpoint.
     """
     from osprey.models.provider_registry import get_provider_registry
-    from osprey.models.providers.base import declares
 
     registry = get_provider_registry()
     entries: list[dict[str, str]] = []
     for provider in registry.list_providers():
-        # A provider whose module will not import is not this function's
-        # problem — the registry reports that where it is actionable.
+        # A registered provider whose module raises while importing is
+        # skipped: the render lists what it can, and the provider's first use
+        # raises the error that names the provider and its module.
         try:
-            cls = registry.get_provider(provider)
+            var = registry.endpoint_env_var(provider)
         except Exception:  # see comment above
             continue
-        if cls is None:
-            continue
-        if not declares(cls, "requires_base_url") or cls.default_base_url:
-            continue
-        if not cls.base_url_env_var:
-            continue
-        entries.append({"provider": provider, "var": cls.base_url_env_var})
+        if var:
+            entries.append({"provider": provider, "var": var})
     return entries
 
 
@@ -415,7 +415,7 @@ def copy_template_data(
             at any depth.
         facility_roots: The deployment's resolved facility roots. When
             mounted, every machine entry of the machine root
-            (:func:`~osprey.facility.roots.is_machine_entry`) is copied into
+            (:func:`~osprey_facility.roots.is_machine_entry`) is copied into
             ``data/facility`` after the data tree, so the render carries one
             facility tree: the machine's facts beside the deployment's own
             ``knowledge/``, ``ariel/`` and ``benchmarks/``. The two never
@@ -490,7 +490,7 @@ def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
     ``data/facility/identity.yaml`` and ``limits.yaml`` all expect it. A
     mounted deployment's tree is therefore assembled in the render: its own
     content is already there from the data copy, and the machine's facts land
-    beside it. Only :func:`~osprey.facility.roots.is_machine_entry` entries are
+    beside it. Only :func:`~osprey_facility.roots.is_machine_entry` entries are
     copied, so the machine repository's ``.git`` and its own copies of the
     deployment content directories stay out. Symlinks are dereferenced, as for
     the data tree.
@@ -499,7 +499,7 @@ def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
         roots: The deployment's resolved, mounted facility roots.
         dst_facility: The render's ``data/facility`` directory.
     """
-    from osprey.facility.roots import is_machine_entry
+    from osprey_facility.roots import is_machine_entry
 
     machine = roots.machine
 

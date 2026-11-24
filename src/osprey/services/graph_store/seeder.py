@@ -30,6 +30,7 @@ assume.
 from __future__ import annotations
 
 import hashlib
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
@@ -37,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
+    from pathlib import Path
 
     # Only imported at type-checking time so the runtime import stays lazy.
     from neo4j import Session
@@ -93,11 +95,24 @@ NARAD_PREFIXES: dict[str, str] = {
 #: Spelled once, and passed explicitly rather than left to the n10s default so
 #: the transaction-heap envelope is a property of osprey rather than of whatever
 #: plugin build happens to be installed.  The shipped demo TTL (~8k triples)
-#: lands in a single batch; a larger facility TTL streams in bounded batches
-#: that stay well inside the default 512m heap.  Note the consequence, which is why the
+#: lands in a single batch; a larger facility TTL commits in bounded batches.
+#: This bounds what one commit holds, not what one request holds: see
+#: :data:`IMPORT_CHUNK_CHARS`.  Note the consequence, which is why the
 #: seed marker exists: batches commit as they go, so an import that dies partway
 #: leaves committed data behind (the "unmanaged-partial" state).
 COMMIT_SIZE = 10_000
+
+#: Most characters of Turtle one ``n10s.rdf.import.inline`` request carries.
+#:
+#: The payload of a request is a query parameter, and the server holds all of
+#: it while the request runs.  A corpus sent whole therefore needs a heap sized
+#: to the corpus, whatever :data:`COMMIT_SIZE` says: about 110 MB of Turtle in
+#: one request fails at a 1G heap and at 2G.  :func:`split_ttl` cuts a larger
+#: corpus into requests of at most this size (one statement that is larger on
+#: its own still travels whole), so the heap a store needs does not grow with
+#: the corpus it is seeded from.  At this size the same corpus is 28 requests
+#: and seeds at 1G.
+IMPORT_CHUNK_CHARS = 4 * 1024 * 1024
 
 #: ``terminationStatus`` value n10s reports for a fully successful import.
 TERMINATION_OK = "OK"
@@ -138,9 +153,20 @@ _IMPORT_CYPHER = (
 )
 
 #: Deletes in transactions of bounded size, so wiping a large store stays inside
-#: the server's transaction heap. Needs an auto-commit transaction, which is what
-#: ``session.run`` opens.
-_WIPE_CYPHER = "CALL { MATCH (n) DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS"
+#: the server's transaction heap. Each needs an auto-commit transaction, which is
+#: what ``session.run`` opens.
+#:
+#: Two properties keep a transaction bounded, and both are load-bearing. The
+#: rows to batch are matched *outside* the ``CALL``: a subquery that does its
+#: own ``MATCH`` runs once, as one transaction over the whole store, whatever
+#: the batch size says. And the relationships go first, on their own: under
+#: ``handleRDFTypes='LABELS_AND_NODES'`` a class is a node every one of its
+#: instances points at, and a ``DETACH DELETE`` that reaches such a node deletes
+#: all of its relationships in the one transaction that row is in.
+_WIPE_CYPHER: tuple[str, ...] = (
+    "MATCH ()-[r]->() CALL { WITH r DELETE r } IN TRANSACTIONS OF 10000 ROWS",
+    "MATCH (n) CALL { WITH n DELETE n } IN TRANSACTIONS OF 10000 ROWS",
+)
 
 #: Server identity, read only to name the version in the missing-plugin error.
 _COMPONENTS_CYPHER = "CALL dbms.components() YIELD name, versions, edition"
@@ -468,6 +494,46 @@ def ttl_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def ttl_file_sha256(path: Path) -> str:
+    """:func:`ttl_sha256` of the file at ``path`` as ``read_text(encoding="utf-8")`` reads it.
+
+    Read a block at a time: a corpus that is valid UTF-8 and holds no carriage
+    return reads back as its own bytes, so their digest is the text's. A file
+    with a carriage return, whose newlines ``read_text`` translates, is read
+    whole and hashed as text, as is one that is not UTF-8, so the digest, and
+    the error, are always those of ``ttl_sha256(path.read_text(encoding="utf-8"))``.
+
+    Args:
+        path: The Turtle file.
+
+    Returns:
+        The hex digest.
+
+    Raises:
+        OSError: The file cannot be read.
+        UnicodeDecodeError: The file is not UTF-8, as ``read_text`` raises it.
+    """
+    import codecs
+
+    digest = hashlib.sha256()
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    try:
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                if b"\r" in block:
+                    break
+                decoder.decode(block)
+                digest.update(block)
+            else:
+                decoder.decode(b"", final=True)
+                return digest.hexdigest()
+    except UnicodeDecodeError:
+        pass
+    # A carriage return, or bytes that are not UTF-8: read as the text, which
+    # translates the one and raises the other exactly as ``read_text`` does.
+    return ttl_sha256(path.read_text(encoding="utf-8"))
+
+
 def read_marker(session: Session) -> str | None:
     """Return the sha256 recorded on the ``(:_OspreySeed)`` marker, if any.
 
@@ -505,25 +571,219 @@ def write_marker(session: Session, sha256: str) -> None:
     session.run(_WRITE_MARKER_CYPHER, sha256=sha256).consume()
 
 
-def import_ttl(session: Session, text: str) -> ImportResult:
-    """Import Turtle *text* through ``n10s.rdf.import.inline``.
+# What a pass over Turtle has to recognize to find where a statement ends: the
+# tokens a ``.`` can hide in (a string, an IRI, a comment), the brackets a
+# statement cannot end inside, the directives, and blank node labels.  Nothing
+# else is tokenized; a prefixed name or a number is skipped over, which is safe
+# because neither can end in a ``.`` that whitespace follows.
+_NOT_IN_NAME = r"(?<![\w\-.:%\\·̀-ͯ‿⁀])"
+_TTL_TOKEN = re.compile(
+    r"""
+      (?P<string>
+          (?: \"\"\"(?:\"{0,2}(?:[^"\\]|\\[\s\S]))*\"\"\"
+            | '''(?:'{0,2}(?:[^'\\]|\\[\s\S]))*'''
+            | \"(?:[^"\\\n\r]|\\.)*\"
+            | '(?:[^'\\\n\r]|\\.)*'
+          )
+          (?:@[A-Za-z]+(?:-[A-Za-z0-9]+)*)?     # its language tag, never a directive
+      )
+    | (?P<iri>     <(?:[^\x00-\x20<>"{}|^`\\]|\\[uU][0-9A-Fa-f]{4,8})*> )
+    | (?P<comment> \#[^\n\r]* )
+    | (?P<open>    [\[(] )
+    | (?P<close>   [\])] )
+    | (?P<escape>  \\. )                         # an escaped character in a local name
+    | (?P<at>      @(?:prefix|base)\b )
+    | (?P<sparql>  """
+    + _NOT_IN_NAME
+    + r"""(?i:prefix|base)(?=\s) )
+    | (?P<label>   """
+    + _NOT_IN_NAME
+    + r"""_: )
+    | (?P<dot>     \.(?=[\s\#]|\Z) )
+    """,
+    re.VERBOSE,
+)
+
+#: Kinds of the pieces :func:`_ttl_pieces` cuts a document into.
+_PLAIN, _DIRECTIVE, _LABELLED, _BLANK = "plain", "directive", "labelled", "blank"
+
+
+def _ttl_pieces(text: str) -> Iterator[tuple[int, int, str]]:
+    """Cut Turtle *text* into consecutive ``(start, end, kind)`` pieces.
+
+    The pieces cover the text end to end, and each holds one statement together
+    with the whitespace and comments in front of it: a directive (``@prefix``,
+    ``@base`` and the SPARQL spellings ``PREFIX``, ``BASE``), a statement that
+    names a labelled blank node (``_:b0``), or any other statement.  What
+    follows the last statement is one closing piece: blank when it is only
+    whitespace and comments, plain when it is anything else.
+    """
+    start = 0  # where the open piece begins
+    blank_to = 0  # only whitespace and comments lie between ``start`` and here
+    begun = False  # the open piece holds more than whitespace and comments
+    depth = 0
+    kind = _PLAIN
+    sparql_open = False  # inside a SPARQL-style directive, which its IRI closes
+    for match in _TTL_TOKEN.finditer(text):
+        group = match.lastgroup
+        # A name or a number is no token here, so the text skipped over on the
+        # way to this one says whether the statement has begun.
+        begun = begun or bool(text[blank_to : match.start()].strip())
+        if group == "comment":
+            if not begun:
+                blank_to = match.end()
+            continue
+        if group == "sparql":
+            if not begun and depth == 0:
+                kind, sparql_open = _DIRECTIVE, True
+            begun = True
+            continue
+        begun = True
+        if group == "at":
+            kind = _DIRECTIVE
+        elif group == "label":
+            if kind == _PLAIN:
+                kind = _LABELLED
+        elif group == "open":
+            depth += 1
+        elif group == "close":
+            depth = max(0, depth - 1)
+        if (group == "iri" and sparql_open) or (group == "dot" and depth == 0 and not sparql_open):
+            yield start, match.end(), kind
+            start = blank_to = match.end()
+            begun, kind, sparql_open = False, _PLAIN, False
+    if start < len(text):
+        if kind == _PLAIN and not begun and not text[blank_to:].strip():
+            kind = _BLANK
+        yield start, len(text), kind
+
+
+def split_ttl(text: str, max_chars: int = IMPORT_CHUNK_CHARS) -> Iterator[str]:
+    """Cut Turtle *text* into documents that together state exactly its triples.
+
+    A text of at most *max_chars* is yielded as it is.  A larger one is cut
+    between statements, never inside one, into documents of at most *max_chars*
+    each (a single statement that is larger travels alone).  Three properties
+    make the parts equal to the whole:
+
+    * **Directives travel with every part.**  Each document opens with every
+      ``@prefix``/``@base`` (and ``PREFIX``/``BASE``) the text stated before
+      the document's first statement, in the text's order, so a name resolves
+      as it does at that place in the text, a redefined prefix included.
+    * **A statement is never cut.**  Its anonymous blank nodes (``[ ... ]``),
+      collections and multi-line strings stay in one document.
+    * **Labelled blank nodes stay in one document.**  A label (``_:b0``) names
+      one node for the whole text, and a parser gives each document its own, so
+      every statement that uses a label is held back and yielded together,
+      with the directives at their places between them, as the last document.
+      That document is as large as those statements are.
+
+    Args:
+        text: The Turtle document.
+        max_chars: Most characters per yielded document.
+
+    Yields:
+        The documents, in the text's order.
+    """
+    if len(text) <= max_chars:
+        yield text
+        return
+
+    directives: list[str] = []
+    labelled: list[str] = []
+    has_labelled = False
+    body: list[str] = []
+    size = 0
+    # Whether the open document states anything beyond the directives it
+    # carries. One that does not is never yielded: it would be a request that
+    # imports nothing.
+    stated = False
+    yielded = False
+    for start, end, kind in _ttl_pieces(text):
+        piece = text[start:end]
+        if kind == _LABELLED:
+            labelled.append(piece)
+            has_labelled = True
+            continue
+        if stated and size + len(piece) > max_chars:
+            yield "".join(body)
+            yielded = True
+            body = [directive.lstrip() + "\n" for directive in directives]
+            size = sum(len(part) for part in body)
+            stated = False
+        body.append(piece)
+        size += len(piece)
+        if kind == _DIRECTIVE:
+            directives.append(piece)
+            labelled.append(piece)
+        elif kind == _PLAIN:
+            stated = True
+    if stated:
+        yield "".join(body)
+        yielded = True
+    if has_labelled:
+        yield "\n".join(labelled)
+    elif not yielded:
+        # Nothing but directives and comments: the text itself is the request.
+        yield text
+
+
+def import_ttl(session: Session, text: str, *, max_chars: int = IMPORT_CHUNK_CHARS) -> ImportResult:
+    """Import Turtle *text* through ``n10s.rdf.import.inline``, in bounded requests.
 
     Inline rather than ``import.fetch`` so the TTL needs no bind mount into the
     container's import directory, and so the same code path works against an
     external store.  :data:`COMMIT_SIZE` is passed explicitly.
 
+    A text larger than *max_chars* is sent as the documents :func:`split_ttl`
+    cuts it into, one request each, in order: the server holds one request's
+    payload at a time, so the heap it needs does not grow with the corpus.  The
+    import stops at the first request that fails.  Requests commit as they go,
+    exactly as :data:`COMMIT_SIZE` batches already did within one request, so a
+    failed import leaves the earlier requests' triples behind.
+
     Args:
         session: An open driver session, against a store that has been
             :func:`bootstrap`-ed.
         text: The Turtle payload.
+        max_chars: Most characters of Turtle per request.
 
     Returns:
-        The :class:`ImportResult` n10s reported.  This function does **not**
-        raise on a failed import — n10s reports failure in
-        ``terminationStatus``, and the caller owns the message.  Check
-        :attr:`ImportResult.ok` before :func:`write_marker`.
+        One :class:`ImportResult` for the whole text: the triple counts summed
+        over the requests sent, and the status and detail of the request that
+        failed, if one did.  This function does **not** raise on a failed
+        import — n10s reports failure in ``terminationStatus``, and the caller
+        owns the message.  Check :attr:`ImportResult.ok` before
+        :func:`write_marker`.
     """
-    record = session.run(_IMPORT_CYPHER, payload=text, commitSize=COMMIT_SIZE).single()
+    loaded = parsed = 0
+    split = len(text) > max_chars
+    for number, payload in enumerate(split_ttl(text, max_chars), start=1):
+        result = _import_request(session, payload)
+        loaded += result.triples_loaded
+        parsed += result.triples_parsed
+        if not result.ok:
+            detail = result.extra_info
+            if split:
+                detail = (
+                    f"import request {number} failed after {loaded} triples were loaded "
+                    f"(a line number in what follows counts from that request's start): "
+                    f"{detail}"
+                )
+            return ImportResult(
+                termination_status=result.termination_status,
+                triples_loaded=loaded,
+                triples_parsed=parsed,
+                extra_info=detail,
+            )
+    return ImportResult(
+        termination_status=TERMINATION_OK, triples_loaded=loaded, triples_parsed=parsed
+    )
+
+
+def _import_request(session: Session, payload: str) -> ImportResult:
+    """Run one ``n10s.rdf.import.inline`` request and return what it reported."""
+    record = session.run(_IMPORT_CYPHER, payload=payload, commitSize=COMMIT_SIZE).single()
     if record is None:
         return ImportResult(
             termination_status="",
@@ -551,7 +811,8 @@ def wipe(session: Session) -> None:
     Args:
         session: An open driver session.
     """
-    session.run(_WIPE_CYPHER).consume()
+    for statement in _WIPE_CYPHER:
+        session.run(statement).consume()
 
 
 # ---------------------------------------------------------------------------

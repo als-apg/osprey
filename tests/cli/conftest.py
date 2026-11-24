@@ -78,6 +78,38 @@ def _no_host_record(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def every_started_service_is_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer "every service is running" for the check a returned start makes.
+
+    The tests here fake ``subprocess.run`` to answer compose, and the check's
+    container listing goes through the same call, so it would read an answer
+    meant for compose as an empty host. The real check is tested in
+    ``tests/deployment/test_services_running_after_start.py``, which imports it
+    at module scope (collection runs before this patch) and puts it back.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle._refuse_services_not_running",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _empty_host_after_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer "nothing survived" for the sweep ``osprey init --reset`` runs after a reset.
+
+    Leak guarded: the sweep (``init_cmd._surviving_project_resources``) builds a
+    real ``RuntimeProbe`` and lists the containers and volumes on the host, so
+    an in-process ``init --reset`` reads whatever the machine running the tests
+    holds, and a fake ``subprocess.run`` another test left in reach answers it.
+    No CLI test lists the host; a test about a surviving resource states its own
+    answer over this one.
+    """
+    monkeypatch.setattr(
+        "osprey.cli.init_cmd._surviving_project_resources", lambda runtime, project: []
+    )
+
+
+@pytest.fixture(autouse=True)
 def _neutral_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Strip color-forcing variables from the environment CLI tests run under.
 

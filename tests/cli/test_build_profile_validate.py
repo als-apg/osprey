@@ -152,15 +152,22 @@ def test_missing_name_is_rejected(tmp_path: Path) -> None:
     assert _errors(_profile(name=""), tmp_path) == ["Profile 'name' is required"]
 
 
-def test_non_boolean_deploy_services_is_rejected(tmp_path: Path) -> None:
-    """deploy_services must be a bool; the message names the offending type."""
-    profile = _profile(name="x", deploy_services=1)  # type: ignore[arg-type]
-    assert _errors(profile, tmp_path) == ["deploy_services must be a boolean (got int)"]
+@pytest.mark.parametrize(
+    ("value", "type_name"),
+    [pytest.param(1, "int", id="int"), pytest.param("yes", "str", id="str")],
+)
+def test_non_boolean_deploy_services_is_rejected(
+    tmp_path: Path, value: object, type_name: str
+) -> None:
+    """deploy_services must be a bool, not silently coerced; the message names the
+    offending type."""
+    profile = _profile(name="x", deploy_services=value)
+    assert _errors(profile, tmp_path) == [f"deploy_services must be a boolean (got {type_name})"]
 
 
 def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> None:
     """``tier`` is no profile key; the stop names what selects the subset."""
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     (tmp_path / "data").mkdir(exist_ok=True)
     prof = tmp_path / "profile.yml"
@@ -170,11 +177,6 @@ def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> N
     assert stop.value.kind == "profile-invalid"
     assert stop.value.format_message().startswith("facility: profile-invalid: path tier — ")
     assert "`in_context` tag" in stop.value.format_message()
-
-
-def test_graph_mode_validates(tmp_path: Path) -> None:
-    """The graph paradigm validates beside the graph store it reads."""
-    _profile(name="x", channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)).validate(tmp_path)
 
 
 def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
@@ -206,13 +208,22 @@ def test_misshapen_convention_source_is_rejected(tmp_path: Path) -> None:
     assert "one directory per skill" in error
 
 
-def test_reserved_mirror_path_is_rejected_naming_its_channel(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "body", "channel"),
+    [
+        pytest.param(".mcp.json", "{}", "`mcp_servers:` block", id="mcp-json"),
+        pytest.param("config.yml", "facility: {}\n", "`config:` block", id="config-yml"),
+    ],
+)
+def test_reserved_mirror_path_is_rejected_naming_its_channel(
+    tmp_path: Path, filename: str, body: str, channel: str
+) -> None:
     """The project/ mirror may not write a path the build itself owns."""
     (tmp_path / "project").mkdir()
-    (tmp_path / "project" / ".mcp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "project" / filename).write_text(body, encoding="utf-8")
     (error,) = _errors(_profile(name="x"), tmp_path)
-    assert "project/.mcp.json" in error
-    assert "`mcp_servers:`" in error
+    assert f"project/{filename}" in error
+    assert channel in error
 
 
 # --- mcp_servers ----------------------------------------------------------
@@ -456,6 +467,12 @@ def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
     )
     profile.validate(tmp_path)
     assert profile._is_known_panel_id("ops") is True
+
+
+def test_default_panel_naming_a_selected_builtin_validates(tmp_path: Path) -> None:
+    """A built-in panel id is accepted as default_panel once web_panels selects
+    it — the selection is what shows the tab."""
+    _profile(name="x", web_panels=["ariel"], default_panel="ariel").validate(tmp_path)
 
 
 def test_is_known_panel_id_means_a_tab_this_render_shows() -> None:

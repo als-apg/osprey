@@ -10,8 +10,9 @@ are pinned by the goldens in ``tests/cli/data/json_keysets/``.
 from __future__ import annotations
 
 import json
+import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._builds import init_project
 from tests.cli.test_json_keyset_capture import _assert_matches_golden
 from tests.facility._appendix_a import CLAIM_IDS
@@ -53,6 +55,51 @@ def _show(repo: Path, *args: str) -> Result:
     return CliRunner().invoke(cli, ["facility", "show", "--repo", str(repo), *args])
 
 
+def _snapshot(root: Path) -> dict[str, bytes | None]:
+    """Every path under *root* with its bytes; ``None`` for a directory."""
+    return {
+        path.relative_to(root).as_posix(): (
+            None if path.is_dir() and not path.is_symlink() else path.read_bytes()
+        )
+        for path in sorted(root.rglob("*"))
+    }
+
+
+@pytest.fixture(scope="module")
+def shown(
+    initialised: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[Callable[..., Result]]:
+    """``show`` with the given arguments on a copy of the initialised repo no test sees.
+
+    Each distinct invocation runs once for the module, and every test asking for it
+    reads the one :class:`Result`. The copy's path is never handed out, and it must
+    end the module as it began. A test that edits the repo takes its own ``repo``.
+    """
+    copy = tmp_path_factory.mktemp("ca-shown") / initialised.name
+    shutil.copytree(initialised, copy, symlinks=True)
+    before = _snapshot(copy)
+    results: dict[tuple[str, ...], Result] = {}
+    runs: list[str] = []
+
+    def show(*args: str) -> Result:
+        if args not in results:
+            results[args] = _show(copy, *args)
+            test = os.environ.get("PYTEST_CURRENT_TEST", "?").rsplit(" ", 1)[0]
+            runs.append(f"show {' '.join(args)} (first asked for by {test})")
+        return results[args]
+
+    yield show
+    after = _snapshot(copy)
+    changed = sorted(
+        path
+        for path in before.keys() | after.keys()
+        if path not in before or path not in after or before[path] != after[path]
+    )
+    assert not changed, (
+        f"facility show changed the repo it read: {changed}, after these runs on it: {runs}"
+    )
+
+
 def _set_mode(path: Path, mode: str) -> None:
     """Set ``channel_finder_mode`` in a profile or layer."""
     text = path.read_text(encoding="utf-8")
@@ -68,15 +115,17 @@ def _append(path: Path, *records: dict[str, object]) -> None:
 # --- the facility ------------------------------------------------------------------
 
 
-def test_the_document_matches_its_golden(repo: Path) -> None:
-    result = _show(repo, "--json")
+def test_the_document_matches_its_golden(shown: Callable[..., Result]) -> None:
+    result = shown("--json")
 
     assert result.exit_code == 0, result.output
     _assert_matches_golden(json.loads(result.stdout), "facility_show")
 
 
-def test_a_view_carries_a_reason_exactly_when_it_is_not_written(repo: Path) -> None:
-    views = json.loads(_show(repo, "--json").stdout)["views"]
+def test_a_view_carries_a_reason_exactly_when_it_is_not_written(
+    shown: Callable[..., Result],
+) -> None:
+    views = json.loads(shown("--json").stdout)["views"]
 
     omitted = [view for view in views if not view["written"]]
     assert omitted, "the demo render omits no view"
@@ -88,8 +137,8 @@ def test_a_view_carries_a_reason_exactly_when_it_is_not_written(repo: Path) -> N
     assert all(view["reason"] for view in omitted)
 
 
-def test_the_demo_lists_its_records_models_and_views(repo: Path) -> None:
-    document = json.loads(_show(repo, "--json").stdout)
+def test_the_demo_lists_its_records_models_and_views(shown: Callable[..., Result]) -> None:
+    document = json.loads(shown("--json").stdout)
 
     assert document["identity"]["name"] == "Example Research Facility"
     assert document["counts"]["devices"] > 0
@@ -131,21 +180,14 @@ def test_the_views_are_the_primary_configs_whatever_the_renders_select(repo: Pat
 
 
 def test_the_repo_is_byte_unchanged(repo: Path) -> None:
-    before = {
-        path.relative_to(repo).as_posix(): path.read_bytes()
-        for path in sorted(repo.rglob("*"))
-        if path.is_file()
-    }
+    """No file and no directory changes, and no ``build/`` appears."""
+    before = _snapshot(repo)
 
     assert _show(repo, "--json").exit_code == 0
     assert _show(repo, DEVICE).exit_code == 0
 
-    after = {
-        path.relative_to(repo).as_posix(): path.read_bytes()
-        for path in sorted(repo.rglob("*"))
-        if path.is_file()
-    }
-    assert after == before
+    assert _snapshot(repo) == before
+    assert not (repo / BUILD_DIR_NAME).exists()
 
 
 def test_a_build_error_exits_1_with_an_empty_stdout(repo: Path) -> None:
@@ -167,8 +209,8 @@ def test_a_build_error_exits_1_with_an_empty_stdout(repo: Path) -> None:
 # --- one record --------------------------------------------------------------------
 
 
-def test_a_record_matches_its_golden(repo: Path) -> None:
-    result = _show(repo, "--json", DEVICE)
+def test_a_record_matches_its_golden(shown: Callable[..., Result]) -> None:
+    result = shown("--json", DEVICE)
 
     assert result.exit_code == 0, result.output
     document = json.loads(result.stdout)
@@ -233,17 +275,17 @@ def test_an_unknown_id_exits_1(repo: Path, as_json: bool) -> None:
 def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool) -> None:
     _append(
         repo / "data" / "facility" / "records" / "devices.yaml",
-        {"id": "BR", "class": "BeamPositionMonitor", "place": "BR"},
+        {"id": "GTL", "class": "BeamPositionMonitor", "place": "GTL"},
     )
 
-    result = _show(repo, *(["--json"] if as_json else []), "BR")
+    result = _show(repo, *(["--json"] if as_json else []), "GTL")
 
     assert result.exit_code == 0, result.output
     if as_json:
         records = json.loads(result.stdout)["records"]
         assert [entry["kind"] for entry in records] == ["place", "device"]
         for entry in records:
-            assert entry["record"]["id"] == "BR"
+            assert entry["record"]["id"] == "GTL"
             assert "provenance" not in entry["record"]
             assert entry["fixes_applied"] == list(entry["provenance"].get("fixes") or [])
         files = [{source["file"] for source in entry["provenance"]["sources"]} for entry in records]
@@ -251,8 +293,8 @@ def test_an_id_naming_a_place_and_a_device_shows_both(repo: Path, as_json: bool)
         assert "records/devices.yaml" in files[1]
     else:
         lines = result.stdout.splitlines()
-        assert lines[0] == "place BR"
-        device_at = lines.index("device BR")
+        assert lines[0] == "place GTL"
+        device_at = lines.index("device GTL")
         assert lines[device_at - 1] == ""
         assert lines.count("") == 1
 
@@ -279,16 +321,16 @@ def _with_shared_name(repo: Path) -> None:
 SHARED_NAME = "row 3 readout rack"
 
 
-def test_the_overview_counts_the_claims(repo: Path) -> None:
+def test_the_overview_counts_the_claims(shown: Callable[..., Result]) -> None:
     """The demo ships the Appendix A claims, so its overview counts every one."""
-    result = _show(repo, "--json")
+    result = shown("--json")
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["counts"]["relations"] == len(CLAIM_IDS)
 
 
-def test_an_id_hit_is_marked_as_an_id_match(repo: Path) -> None:
-    (entry,) = json.loads(_show(repo, "--json", DEVICE).stdout)["records"]
+def test_an_id_hit_is_marked_as_an_id_match(shown: Callable[..., Result]) -> None:
+    (entry,) = json.loads(shown("--json", DEVICE).stdout)["records"]
 
     assert entry["match"] == "id"
     assert entry["claims"] == []

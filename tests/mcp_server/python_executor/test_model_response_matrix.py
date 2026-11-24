@@ -28,7 +28,6 @@ import yaml
 from fastmcp.exceptions import ToolError
 
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.mcp_server.errors import MISSING_KEY
 from osprey.mcp_server.python_executor import executor
@@ -39,6 +38,8 @@ from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG, solve_and_print
 from osprey_connectors.simulation.view import VARIABLES_SCHEMA
+from osprey_facility.records import FacilityRecords
+from tests._facility_file import write_facility_v4
 from tests._simulator_view import view_channel
 from tests.mcp_server.conftest import assert_raises_error
 
@@ -175,9 +176,7 @@ def _line_render(root: Path, corrector_delta: float | None) -> Path:
     for name, document in files.items():
         (view / name).write_text(json.dumps(document), encoding="utf-8")
     measurement = {} if corrector_delta is None else {tool.STEP_KEY: corrector_delta}
-    (root / "facility.json").write_text(
-        json.dumps({"models": [{"name": LINE, "measurement": measurement}]}), encoding="utf-8"
-    )
+    write_facility_v4(root, {"models": [{"name": LINE, "measurement": measurement}]})
     return root
 
 
@@ -380,7 +379,7 @@ class TestSolve:
         ]
 
     def test_each_step_spans_corrector_delta_in_physics(self, sandbox, sr_render):
-        from osprey.simulation.engines.calibration import curve_from_record, to_physics
+        from osprey_connectors.simulation.engines import curve_from_record, to_physics
 
         sandbox["render"] = sr_render
         request = tool.resolve_model_request("SR", [CORRECTOR_X], render_root=sr_render)
@@ -448,7 +447,7 @@ INTERNAL_ENGINE = textwrap.dedent(
 #: A plug-in whose solve stops on a defect of the facility file.
 BROKEN_FACILITY_ENGINE = textwrap.dedent(
     """
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
 
     def response_matrix(deck, wiring, settings, correctors, step):
@@ -764,7 +763,8 @@ class TestRefusals:
             tool.resolve_model_request("ELSEWHERE", None, render_root=sr_render)
 
         assert raised["envelope"]["error_message"] == (
-            "model 'ELSEWHERE' is not a served deck model of this render; the served ones: BTS, LINE, LTB, SR"
+            "model 'ELSEWHERE' is not a served deck model of this render; "
+            "the served ones: BR, BTS, LTB, SR"
         )
 
     @pytest.mark.parametrize(

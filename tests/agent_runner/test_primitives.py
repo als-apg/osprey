@@ -24,6 +24,7 @@ import pytest
 from osprey.agent_runner import primitives, sdk_env
 from osprey.agent_runner.primitives import provider_env_for_project
 from tests._agent_cli import STUB_AGENT_CLI
+from tests._scoped_stdlib import scoped
 
 
 def _write_config(project_dir: Path, provider: str) -> None:
@@ -619,7 +620,12 @@ class TestBuildAgentOptions:
 
         if config is not None:
             (tmp_path / "config.yml").write_text(config, encoding="utf-8")
-        monkeypatch.setattr("shutil.which", lambda *_a, **_k: "/opt/bin/claude")
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: "/opt/bin/claude",
+        )
 
         options = primitives.build_agent_options(tmp_path, disallowed_tools=[], env=caller_env)
 
@@ -634,7 +640,12 @@ class TestBuildAgentOptions:
         (tmp_path / "config.yml").write_text(
             "claude_code:\n  cli_version: '2.1.146'\n", encoding="utf-8"
         )
-        monkeypatch.setattr("shutil.which", lambda *_a, **_k: "/usr/local/bin/claude")
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: "/usr/local/bin/claude",
+        )
         monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: "2.1.146")
 
         options = primitives.build_agent_options(tmp_path, disallowed_tools=[])
@@ -672,8 +683,11 @@ class TestBuildAgentOptions:
         (tmp_path / "config.yml").write_text(
             "claude_code:\n  cli_version: '2.1.146'\n", encoding="utf-8"
         )
-        monkeypatch.setattr(
-            "shutil.which", lambda *_a, **_k: "/usr/local/bin/claude" if found else None
+        scoped(
+            monkeypatch,
+            "osprey.utils.shell_resolver",
+            "shutil",
+            which=lambda *_a, **_k: "/usr/local/bin/claude" if found else None,
         )
         monkeypatch.setattr(launcher, "_probe_cli_version", lambda _exe: found)
 

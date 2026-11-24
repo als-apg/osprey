@@ -178,9 +178,11 @@ def install_session_plan(
     ``qserver_startup._make_plan_function``: queueserver's namespace scan
     recognizes generator functions and nothing else, and the queue item's
     ``kwargs`` are the plan's ``PARAMS`` fields, so the plan's own pydantic
-    model stays the single validation authority. As there, that validation
-    therefore happens on first iteration — when the RunEngine starts the item
-    — not at enqueue time.
+    model stays the single validation authority. As there, the worker's
+    validation happens on first iteration — when the RunEngine starts the
+    item. An item the bridge queued states every parameter
+    (`plan_fields.resolve_plan_args`), so validation here fills no default and
+    calls no factory.
 
     Devices are resolved from ``namespace`` with queueserver's own
     ``is_device`` predicate, so the wrapper closes over exactly the device set

@@ -74,10 +74,12 @@ def regen_index(bundle: Path | None) -> None:
     config is used.
 
     Processes directories deepest-first so child descriptions propagate
-    to parent indexes.  The bundle-root index.md receives an
-    okf_version frontmatter block (OKF §11); all others have none
-    (OKF §6).  Running the command a second time produces bit-identical
-    output (idempotent).
+    to parent indexes.  Only concepts are listed: a .md file without a
+    'type', such as a README.md, is left out.  The bundle-root index.md
+    keeps the frontmatter it already has (title, description, license,
+    okf_version), and receives an okf_version block when it has none
+    (OKF §8.1); all others have none (OKF §8).  Running the command a
+    second time produces bit-identical output (idempotent).
     """
     bundle = _resolve_bundle(bundle)
 
@@ -103,14 +105,23 @@ def validate(bundle: Path | None) -> None:
     When omitted, facility_knowledge.bundle_path from the OSPREY
     config is used.
 
-    Every *.md file is checked:
+    Every *.md file of the bundle is checked (OKF v0.3; files and
+    directories whose names start with a dot are not part of it):
 
     \b
-      - index.md files are validated against OKF §6/§11.
-      - All other .md files are parsed and their frontmatter is validated
+      - index.md files are validated against OKF §8.
+      - log.md files must have no frontmatter (OKF §9).
+      - a concept, which is any other .md file with a 'type', is validated
         at the 'authoring' level (requires type, title and description).
+      - a .md file without a 'type', such as a README.md, is not a concept
+        (OKF §3.2).  It is named in a warning, because it stays out of
+        the indexes and search, and does not fail the bundle.
       - each index.md must match what regen-index writes for its directory,
-        and every directory holding pages must have one.
+        and every directory holding concepts must have one.
+      - each image a concept embeds must exist inside the bundle, be a
+        picture, stay under the size limit, and have alt text.  A problem
+        is named in a warning, one line per problem, and does not fail the
+        bundle.
 
     All files are checked even if earlier failures are found.  A
     per-file report is printed and the command exits non-zero if any
@@ -118,33 +129,57 @@ def validate(bundle: Path | None) -> None:
     """
     bundle = _resolve_bundle(bundle)
 
+    from osprey.services.facility_knowledge.okf.assets import bundle_image_findings
     from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
     from osprey.services.facility_knowledge.okf.index import (
         OKFIndexError,
         check_indexes,
         validate_index,
     )
+    from osprey.services.facility_knowledge.okf.paths import bundle_markdown_files
 
     failures: list[tuple[Path, str]] = []
     failed_indexes: set[Path] = set()
+    not_concepts: list[Path] = []
 
-    for md_path in sorted(bundle.rglob("*.md")):
+    for md_path in bundle_markdown_files(bundle):
         if md_path.name == "index.md":
             try:
                 validate_index(md_path, bundle_root=bundle)
             except (OKFIndexError, OKFDocumentError) as exc:
                 failures.append((md_path, str(exc)))
                 failed_indexes.add(md_path)
-        else:
-            try:
-                text = md_path.read_text(encoding="utf-8")
-                doc = OKFDocument.parse(text)
+            continue
+        try:
+            doc = OKFDocument.parse(md_path.read_text(encoding="utf-8"))
+            if md_path.name == "log.md":
+                if doc.frontmatter:
+                    failures.append((md_path, "Frontmatter is not permitted in log.md (OKF §9)"))
+            elif not doc.frontmatter.get("type"):
+                not_concepts.append(md_path)
+            else:
                 doc.validate("authoring")
-            except (OKFDocumentError, ValueError) as exc:
-                failures.append((md_path, str(exc)))
+        except (OKFDocumentError, ValueError) as exc:
+            failures.append((md_path, str(exc)))
 
     drifted = [drift for drift in check_indexes(bundle) if drift.path not in failed_indexes]
     failures.extend((drift.path, f"index.md {drift.message}") for drift in drifted)
+
+    if not_concepts:
+        warn(
+            f"{len(not_concepts)} file(s) have no 'type' and are not served as concepts",
+            "\n".join(str(path) for path in not_concepts),
+        )
+
+    image_findings = bundle_image_findings(bundle)
+    if image_findings:
+        warn(
+            f"{len(image_findings)} image problem(s) found in concepts",
+            "\n".join(
+                f"{finding.concept_id}: {finding.target}: {finding.kind} ({finding.detail})"
+                for finding in image_findings
+            ),
+        )
 
     if not failures:
         report(f"All files in {bundle} are valid.")

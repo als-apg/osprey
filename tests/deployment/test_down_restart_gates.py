@@ -9,12 +9,15 @@ would start rather than the one that is running. The tests assert that by the
 absence of ``prepare_compose_files`` on every path.
 
 **A stop that cannot find its compose files still stops the stack.** When
-``build/`` is gone, ``down`` selects this checkout's containers by the
-``com.osprey.repo-id`` label the render baked into them. The tests pin what that
-sweep removes (containers, this repo's only), what it leaves (volumes, always;
-the unlabelled network), and — the part that is easy to get wrong — that it says
-so honestly when it finds nothing, because a stack created before OSPREY labelled
-its containers is invisible to it and still running.
+``build/`` is gone, ``down`` selects the containers of the services the last
+start recorded, in the recorded compose project, minus another checkout's; when
+the record names no services, or there is no record, it selects this checkout's
+containers by the ``com.osprey.repo-id`` label the render baked into them. The
+tests pin what each selection removes, what it leaves (volumes, always; the
+unlabelled network; another checkout's containers), and — the part that is easy
+to get wrong — that the label sweep says so honestly when it finds nothing,
+because a stack created before OSPREY labelled its containers is invisible to it
+and still running.
 
 **A restart is a stop followed by a start, and the start is gated first.**
 ``compose restart`` restarts containers against the definition they were created
@@ -30,6 +33,7 @@ data is ``osprey reset``'s job, and it asks first.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -38,10 +42,15 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.deploy_cmd import down_verb, restart_verb
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity, resolve_project_name
 from osprey.deployment.deployment_record import DeploymentRecord, write_deployment_record
-from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
+from tests._scoped_stdlib import scoped
+from tests.deployment.test_up_as_built import (
+    _RENDERED_CONFIG,
+    bake_labels_override,
+    render_build,
+)
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 # A rendered config that also turns the web-terminal stack on. `down` has to
@@ -66,14 +75,16 @@ def lifecycle_repo(tmp_path: Path) -> Path:
 def runtime(monkeypatch):
     """Stub the container runtime; record every argv, and let tests script it.
 
-    Returns the record dict. Two keys are writable by a test before it acts:
-    ``ps_stdout`` (what the label listing finds) and ``fail`` (a mapping from a
-    runtime verb to the exit code it should report).
+    Returns the record dict. Three keys are writable by a test before it acts:
+    ``ps_stdout`` (what the label listing finds), ``rows`` (containers on the
+    host, which ``ps`` then filters by label as a runtime does, and which win
+    over ``ps_stdout`` when set) and ``fail`` (a mapping from a runtime verb to
+    the exit code it should report).
 
     Unlike ``up``'s equivalent this returns real ``CompletedProcess`` objects,
     because the label sweep reads ``returncode`` and ``stdout`` off them.
     """
-    record: dict = {"cmds": [], "ps_stdout": "", "fail": {}}
+    record: dict = {"cmds": [], "ps_stdout": "", "rows": None, "fail": {}}
 
     monkeypatch.setattr(
         container_lifecycle, "verify_runtime_is_running", lambda config, **_: (True, "")
@@ -106,16 +117,40 @@ def runtime(monkeypatch):
         # block, while the label sweep's is the second token. Rendered paths end
         # in `docker-compose.yml`, so no path token collides with a verb name.
         failed = next((code for verb, code in record["fail"].items() if verb in argv), 0)
-        stdout = record["ps_stdout"] if "ps" in argv else ""
+        stdout = ""
+        if "ps" in argv:
+            stdout = record["ps_stdout"] if record["rows"] is None else _ps_rows(argv, record)
         return subprocess.CompletedProcess(argv, failed, stdout, "boom")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     def _forbidden(*args, **kwargs):
         raise AssertionError("a stop must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     return record
+
+
+def _ps_rows(argv: list[str], record: dict) -> str:
+    """What a runtime's ``ps`` prints for *argv* over the rows on the host.
+
+    Only the rows whose labels hold every ``--filter label=<k>=<v>`` are listed:
+    as Docker's NDJSON, labels one comma-joined string, under ``--format json``,
+    and one ``ID`` per line otherwise.
+    """
+    wanted = [
+        argv[i + 1].removeprefix("label=").split("=", 1)
+        for i, arg in enumerate(argv)
+        if arg == "--filter" and argv[i + 1].startswith("label=")
+    ]
+    kept = [row for row in record["rows"] if all(row["Labels"].get(k) == v for k, v in wanted)]
+    if "--format" in argv and argv[argv.index("--format") + 1] == "json":
+        return "\n".join(
+            json.dumps({**row, "Labels": ",".join(f"{k}={v}" for k, v in row["Labels"].items())})
+            for row in kept
+        )
+    return "".join(f"{row['ID']}\n" for row in kept)
 
 
 @pytest.fixture
@@ -233,7 +268,8 @@ def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, monkeypatc
             order.append("services")
         return original_run(cmd, **kwargs)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _tracking_run)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_tracking_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_tracking_run)
 
     run_down(lifecycle_repo)
 
@@ -311,6 +347,356 @@ def test_a_wiped_build_falls_back_to_stopping_by_label(lifecycle_repo, runtime):
     assert verbs_in_order(runtime) == ["ps", "stop", "rm"]
     assert argv_for(runtime, "stop")[2:] == ["abc123", "def456"]
     assert argv_for(runtime, "rm")[2:] == ["abc123", "def456"]
+
+
+_PROJECT = "als-exemplar"
+_PROJECT_LABEL = "com.docker.compose.project"
+_SERVICE_LABEL = "com.docker.compose.service"
+
+
+def _row(name: str, service: str, *, project: str = _PROJECT, repo_id: str | None = None) -> dict:
+    """One container on the host, as compose labels it."""
+    labels = {_PROJECT_LABEL: project, _SERVICE_LABEL: service}
+    if repo_id is not None:
+        labels[REPO_ID_LABEL] = repo_id
+    return {"ID": f"id-{name}", "Names": name, "Labels": labels}
+
+
+def _record_services_and_wipe_the_build(repo: Path) -> None:
+    """The record of a start that drove two services, and a build that is gone."""
+    write_deployment_record(
+        repo,
+        DeploymentRecord("docker", _PROJECT, compose_services=("event-dispatcher", "qmd")),
+    )
+    render_build(repo)
+    for path in (repo / "build").rglob("docker-compose.yml"):
+        path.unlink()
+    (repo / "build" / "config.yml").unlink()
+
+
+def _stopped(record: dict) -> list[list[str]]:
+    """The targets of every ``stop`` and ``rm`` that ran, in order."""
+    return [cmd[2:] for cmd in record["cmds"] if cmd[1:2] in (["stop"], ["rm"])]
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_wiped_build_stops_a_recorded_services_unlabelled_container(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [
+        _row("qmd-1", "qmd"),
+        _row("dispatcher-1", "event-dispatcher", repo_id=repo_identity(lifecycle_repo)),
+    ]
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert verbs_in_order(runtime) == ["ps", "stop", "rm"]
+    assert sorted(argv_for(runtime, "stop")[2:]) == ["dispatcher-1", "qmd-1"]
+    assert sorted(argv_for(runtime, "rm")[2:]) == ["dispatcher-1", "qmd-1"]
+
+
+@pytest.mark.usefixtures("no_web")
+def test_an_unlabelled_container_of_an_unrecorded_service_is_left(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd"), _row("postgres-1", "postgres")]
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert all("postgres-1" not in targets for targets in _stopped(runtime))
+    assert ["qmd-1"] in _stopped(runtime)
+    assert (
+        f"left 1 container(s) of compose project {_PROJECT} that the last start did not record"
+        in result.output
+    )
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_recorded_services_container_of_another_checkout_is_left(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd"), _row("qmd-2", "qmd", repo_id="someone-else")]
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert all("qmd-2" not in targets for targets in _stopped(runtime))
+    assert (
+        f"left 1 container(s) of compose project {_PROJECT} that another checkout created"
+        in result.output
+    )
+
+
+# ---------------------------------------------------------------------------
+# down: another copy of this repo holds the project name, so nothing is stopped
+# ---------------------------------------------------------------------------
+
+
+_OTHER_ID = "0123456789ab"
+_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
+
+
+def _host_lists(monkeypatch, containers=(), *, fails: bool = False) -> list[tuple]:
+    """Install a runtime probe that lists *containers* (name, labels) for the project.
+
+    Returns the ``(runtime, project)`` pairs the probe was built for, so a test
+    can tell which runtime and project ``down`` asked about.
+    """
+    from osprey.deployment.container_ownership import Resource
+
+    built: list[tuple] = []
+
+    class _Probe:
+        runtime = "docker"
+
+        def containers_for_project(self, project, *, include_stopped=True):  # noqa: ARG002 - RuntimeProbe's signature
+            if fails:
+                raise RuntimeError("Cannot connect to the Docker daemon")
+            return [Resource("container", name, labels) for name, labels in containers]
+
+        def volumes_for_project(self, project):
+            return [Resource("volume", f"{project}_data", {_PROJECT_LABEL: project})]
+
+    def _probe(config, *, runtime=None, project=None):  # noqa: ARG001 - _ownership_probe's signature
+        built.append((runtime, project))
+        return _Probe()
+
+    monkeypatch.setattr(container_lifecycle, "_ownership_probe", _probe)
+    return built
+
+
+def _other_copy(path: Path | str) -> dict[str, str]:
+    """The labels of a container another checkout, at *path*, created under this project."""
+    return {_PROJECT_LABEL: _PROJECT, REPO_ID_LABEL: _OTHER_ID, _WORKING_DIR_LABEL: str(path)}
+
+
+def _stopped_nothing(record: dict) -> bool:
+    """No compose ``down`` and no runtime ``stop`` or ``rm`` ran."""
+    return not {"down", "stop", "rm"} & set(verbs_in_order(record))
+
+
+def test_down_with_compose_files_refuses_another_copys_containers(
+    lifecycle_repo, runtime, no_web, monkeypatch, tmp_path
+):
+    other = tmp_path / "other-copy"
+    other.mkdir()
+    render_build(lifecycle_repo)
+    asked = _host_lists(monkeypatch, [("als-exemplar-qmd", _other_copy(other))])
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code != 0
+    flowed = " ".join(result.output.split())
+    assert "osprey down will not stop containers from another copy of this repo" in flowed
+    assert f"`osprey down --repo {other}`" in flowed
+    assert "Nothing was stopped." in flowed
+    assert _stopped_nothing(runtime)
+    assert no_web == []
+    assert asked == [("docker", _PROJECT)]
+
+
+def test_down_without_compose_files_refuses_another_copys_containers(
+    lifecycle_repo, runtime, no_web, monkeypatch, tmp_path
+):
+    other = tmp_path / "other-copy"
+    other.mkdir()
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd")]
+    _host_lists(monkeypatch, [("als-exemplar-qmd", _other_copy(other))])
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code != 0
+    flowed = " ".join(result.output.split())
+    assert "osprey down will not stop containers from another copy of this repo" in flowed
+    assert f"`osprey down --repo {other}`" in flowed
+    assert "Nothing was stopped." in flowed
+    assert runtime["cmds"] == []
+    assert no_web == []
+
+
+@pytest.mark.usefixtures("no_web")
+def test_down_proceeds_over_its_own_and_unlabelled_containers(lifecycle_repo, runtime, monkeypatch):
+    render_build(lifecycle_repo)
+    own = {_PROJECT_LABEL: _PROJECT, REPO_ID_LABEL: repo_identity(lifecycle_repo)}
+    _host_lists(monkeypatch, [("own-1", own), ("bare-1", {_PROJECT_LABEL: _PROJECT})])
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert verbs_in_order(runtime) == ["down"]
+
+
+@pytest.mark.usefixtures("no_web")
+def test_down_with_the_other_copy_gone_offers_the_rm_command(
+    lifecycle_repo, runtime, monkeypatch, tmp_path
+):
+    render_build(lifecycle_repo)
+    _host_lists(monkeypatch, [("als-exemplar-qmd", _other_copy(tmp_path / "gone"))])
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code != 0
+    flowed = " ".join(result.output.split())
+    assert "`docker rm -f als-exemplar-qmd`" in flowed
+    assert "The project's volumes are untouched and keep their data." in flowed
+    assert _stopped_nothing(runtime)
+
+
+def test_down_refuses_when_the_runtime_cannot_list_the_project(
+    lifecycle_repo, runtime, no_web, monkeypatch
+):
+    render_build(lifecycle_repo)
+    _host_lists(monkeypatch, fails=True)
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code != 0
+    flowed = " ".join(result.output.split())
+    assert f"Could not check which copy of this repo holds project {_PROJECT}" in flowed
+    assert "Cannot connect to the Docker daemon" in flowed
+    assert _stopped_nothing(runtime)
+    assert no_web == []
+
+
+@pytest.mark.usefixtures("no_web")
+def test_down_without_a_record_runs_no_ownership_check(tmp_path, runtime, monkeypatch):
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME)
+
+    def _unasked(*_args, **_kwargs):
+        raise AssertionError("a stop with no record names no project to check")
+
+    monkeypatch.setattr(container_lifecycle, "_ownership_probe", _unasked)
+
+    result = run_down(repo)
+
+    assert result.exit_code == 0, result.output
+    assert _repo_label_ps(repo) in runtime["cmds"]
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_stop_given_its_project_by_the_caller_refuses_another_copys_containers(
+    lifecycle_repo, runtime, monkeypatch, tmp_path
+):
+    from osprey.deployment.container_ownership import ForeignCheckoutError
+
+    other = tmp_path / "other-copy"
+    other.mkdir()
+    _host_lists(monkeypatch, [("als-exemplar-qmd", _other_copy(other))])
+
+    with pytest.raises(ForeignCheckoutError) as caught:
+        container_lifecycle.down_deployment(lifecycle_repo, runtime="docker", project=_PROJECT)
+
+    assert caught.value.summary("osprey down") == (
+        "osprey down will not stop containers from another copy of this repo"
+    )
+    assert runtime["cmds"] == []
+
+
+def _repo_label_ps(repo: Path) -> list[str]:
+    return ["docker", "ps", "-aq", "--filter", f"label={REPO_ID_LABEL}={repo_identity(repo)}"]
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_record_that_names_no_services_sweeps_by_repo_label_and_says_so(lifecycle_repo, runtime):
+    render_build(lifecycle_repo)
+    (lifecycle_repo / "build" / "config.yml").unlink()
+    runtime["rows"] = [
+        _row("qmd-1", "qmd"),
+        _row("qmd-2", "qmd", repo_id=repo_identity(lifecycle_repo)),
+    ]
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert argv_for(runtime, "ps") == _repo_label_ps(lifecycle_repo)
+    assert _stopped(runtime) == [["id-qmd-2"], ["id-qmd-2"]]
+    assert (
+        "no compose files in build/; stopping the 1 container(s) labelled for this repo instead"
+        in result.output
+    )
+
+
+@pytest.mark.usefixtures("no_web")
+def test_with_no_record_the_sweep_is_by_repo_label_and_says_so(tmp_path, runtime):
+    repo = build_exemplar_repo(tmp_path / "one")
+    render_build(repo)
+    (repo / "build" / "config.yml").unlink()
+    runtime["rows"] = [_row("qmd-1", "qmd"), _row("qmd-2", "qmd", repo_id=repo_identity(repo))]
+
+    result = run_down(repo)
+
+    assert result.exit_code == 0, result.output
+    assert argv_for(runtime, "ps") == _repo_label_ps(repo)
+    assert _stopped(runtime) == [["id-qmd-2"], ["id-qmd-2"]]
+    assert (
+        "no deployment record; stopping the 1 container(s) labelled for this repo instead"
+        in result.output
+    )
+
+    runtime["rows"] = []
+    runtime["cmds"].clear()
+
+    result = run_down(repo)
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "nothing to stop: no deployment record and no containers labelled for this repo"
+        in result.output
+    )
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_stop_given_its_project_by_the_caller_sweeps_by_repo_label_only(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd")]
+
+    container_lifecycle.down_deployment(lifecycle_repo, runtime="docker", project=_PROJECT)
+
+    assert argv_for(runtime, "ps") == _repo_label_ps(lifecycle_repo)
+    assert _stopped(runtime) == []
+
+
+@pytest.mark.usefixtures("no_web")
+def test_another_projects_container_of_a_recorded_service_is_never_stopped(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd", project="other")]
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert _stopped(runtime) == []
+
+
+@pytest.mark.usefixtures("no_web")
+def test_nothing_of_the_recorded_services_to_stop_says_so(lifecycle_repo, runtime, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO)
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = []
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "nothing to stop: no compose files in build/ and no container of a service "
+        "the last start recorded" in result.output
+    )
+    assert "may still be running" not in result.output
+    assert "may still be running" not in caplog.text
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_failed_listing_of_the_recorded_project_refuses(lifecycle_repo, runtime):
+    _record_services_and_wipe_the_build(lifecycle_repo)
+    runtime["rows"] = [_row("qmd-1", "qmd")]
+    runtime["fail"] = {"ps": 1}
+
+    result = run_down(lifecycle_repo)
+
+    assert result.exit_code != 0
+    assert "Could not list" in result.output
+    assert _stopped(runtime) == []
 
 
 @pytest.mark.usefixtures("no_web")
@@ -606,6 +992,24 @@ def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime)
     assert runtime["cmds"] == []
     assert "--as-built starts a build that already exists" in result.stderr
     assert "--as-built starts a build that already exists" not in result.stdout
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_build_rendered_elsewhere_refuses_the_restart_and_stops_nothing(
+    lifecycle_repo, runtime, tmp_path
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    bake_labels_override(lifecycle_repo, elsewhere)
+
+    result = run_restart(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert runtime["cmds"] == []
+    assert f"this build was rendered in {elsewhere}" in result.stderr
+    assert "→ run `osprey build` here" in result.stderr
 
 
 @pytest.mark.usefixtures("no_web")

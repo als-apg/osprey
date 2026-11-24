@@ -92,7 +92,7 @@ async def test_semantic_search_empty_query():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(query="")
 
-    _exc_ctx["envelope"]
+    assert "Empty search query" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_semantic_search_degraded_returns_non_error(ariel_registry):

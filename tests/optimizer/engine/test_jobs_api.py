@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from osprey_optimizer.api.dependencies import get_environment_registry, get_job_tracker
-from osprey_optimizer.api.job_tracker import ACTIVE_JOB_KEY, JobMeta, JobTracker
+from osprey_optimizer.api.job_tracker import ACTIVE_JOB_KEY, JobEnd, JobMeta, JobTracker
 from osprey_optimizer.api.main import app
 from osprey_optimizer.api.optimization_lifecycle import draft_revision
 from osprey_optimizer.models.api import JobResponse
@@ -309,14 +309,15 @@ class TestGetJobStatus:
         assert data["status"] == "running"
         assert data["logs"] == logs
 
-    def test_completed_job_marks_tracker(
+    def test_a_read_of_a_finished_job_writes_nothing(
         self, client: TestClient, mock_job_tracker: MagicMock
     ) -> None:
         with patched_job_state(JobStatus.COMPLETED):
             resp = client.get("/jobs/test-job-id")
 
         assert resp.status_code == 200
-        mock_job_tracker.mark_completed.assert_called_once_with("test-job-id")
+        mock_job_tracker.end_job.assert_not_called()
+        mock_job_tracker.expire_job.assert_not_called()
 
     @pytest.mark.usefixtures("mock_job_tracker")
     def test_returns_503_when_real_reader_hits_redis_error(
@@ -385,27 +386,27 @@ class TestCancelJob:
         script = seam_redis_mock.register_script.return_value
         swapped_to = [deserialize_obj(c.kwargs["args"][1]) for c in script.call_args_list]
         assert swapped_to == [JobStatus.CANCELLING]
-        mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.end_job.assert_not_called()
 
     def test_cancelling_a_created_draft_ends_it(
         self, client: TestClient, mock_job_tracker: MagicMock, seam_redis_mock: MagicMock
     ) -> None:
-        """A CREATED draft has no worker to end it, so the cancel does."""
+        """A CREATED draft has no worker to end it, so the cancel does, in one step."""
         seam_redis_mock.get.return_value = serialize_obj(JobStatus.CREATED)
-        seam_redis_mock.register_script.return_value.return_value = 1
+        mock_job_tracker.end_job.return_value = JobEnd.ENDED
         with patch(f"{_JOBS}.read_job_status") as read_f:
             read_f.return_value = JobResponse(
                 job_id="test-job-id", job_type=JobType.OPTIMIZATION, status=JobStatus.CANCELLED
             )
             resp = client.post("/jobs/test-job-id/cancel")
         assert resp.status_code == 200
-        script = seam_redis_mock.register_script.return_value
-        swapped_to = [deserialize_obj(c.kwargs["args"][1]) for c in script.call_args_list]
-        assert swapped_to == [JobStatus.CANCELLED]
-        mock_job_tracker.mark_completed.assert_called_once_with("test-job-id")
+        seam_redis_mock.register_script.return_value.assert_not_called()
+        mock_job_tracker.end_job.assert_called_once_with(
+            "test-job-id", JobStatus.CANCELLED, None, expect=JobStatus.CREATED
+        )
 
     # Footprint bounding is asserted in test_job_tracker.py; here the contract is only
-    # that cancelling a draft calls mark_completed (see test_cancelling_a_created_draft_ends_it).
+    # that cancelling a draft ends it (see test_cancelling_a_created_draft_ends_it).
 
     @pytest.mark.parametrize(
         "terminal", [JobStatus.COMPLETED, JobStatus.ERROR, JobStatus.CANCELLED]
@@ -422,7 +423,7 @@ class TestCancelJob:
         resp = client.post("/jobs/test-job-id/cancel")
         assert resp.status_code == 409
         assert terminal.value in resp.json()["detail"]
-        mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.end_job.assert_not_called()
 
     @pytest.mark.parametrize("terminal", [JobStatus.COMPLETED, JobStatus.ERROR])
     def test_cancel_rechecks_status_before_write_and_409s_on_concurrent_completion(
@@ -438,7 +439,7 @@ class TestCancelJob:
         The worker sets its own terminal status when a run ends. The endpoint
         guard read sees RUNNING, but ``cancel_with_reread`` re-reads just before
         the CAS and sees the worker's terminal status, so it aborts before the
-        swap ever runs — no SET, no Lua EVAL, no mark_completed.
+        swap ever runs — no SET, no Lua EVAL, no end.
         """
         # First get_status() (endpoint guard) → RUNNING; second (re-check) → terminal.
         seam_redis_mock.get.side_effect = [
@@ -450,7 +451,7 @@ class TestCancelJob:
         assert terminal.value in resp.json()["detail"]
         seam_redis_mock.set.assert_not_called()
         seam_redis_mock.register_script.return_value.assert_not_called()
-        mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.end_job.assert_not_called()
 
     @pytest.mark.usefixtures("mock_job_tracker")
     def test_cancel_returns_500_when_real_writer_hits_redis_error(
@@ -685,6 +686,8 @@ class TestStartJob:
                     "osprey_optimizer.api.optimization_lifecycle.initialize_results_dir",
                     return_value=tmp_path,
                 ),
+                patch("osprey_optimizer.api.job_control._start_launch_keep_alive"),
+                patch("osprey_optimizer.api.job_control._start_worker_watch"),
             ):
                 resp = test_client.post(
                     f"/jobs/{job_id}/start", params={"config_revision": draft_revision(draft)}
@@ -1028,7 +1031,6 @@ class TestOptimizationEndpoint:
             "expected_status",
             "expected_results_path",
             "expected_message",
-            "expects_mark_completed",
         ),
         [
             pytest.param(
@@ -1039,7 +1041,6 @@ class TestOptimizationEndpoint:
                 "running",
                 None,
                 None,
-                False,
                 id="returns_reader_status",
             ),
             pytest.param(
@@ -1050,7 +1051,6 @@ class TestOptimizationEndpoint:
                 "completed",
                 "test_env/2026-02-05_23-50-01",
                 None,
-                True,
                 id="with_completed_job",
             ),
             pytest.param(
@@ -1061,7 +1061,6 @@ class TestOptimizationEndpoint:
                 "error",
                 None,
                 "Something went wrong",
-                True,  # ERROR is terminal, so the tracker is told to mark completed
                 id="with_error_status",
             ),
         ],
@@ -1077,7 +1076,6 @@ class TestOptimizationEndpoint:
         expected_status: str,
         expected_results_path: str | None,
         expected_message: str | None,
-        expects_mark_completed: bool,
     ) -> None:
         """Summary surfaces status, results path, and error message from the reader."""
         mock_job_tracker.get_job.return_value = job_meta(job_id)
@@ -1094,10 +1092,7 @@ class TestOptimizationEndpoint:
         assert data["status"] == expected_status
         assert data["results_path"] == expected_results_path
         assert data["error_message"] == expected_message
-        if expects_mark_completed:
-            mock_job_tracker.mark_completed.assert_called_once_with(job_id)
-        else:
-            mock_job_tracker.mark_completed.assert_not_called()
+        mock_job_tracker.end_job.assert_not_called()
 
     @pytest.mark.parametrize(
         ("get_side_effect", "detail_tokens"),

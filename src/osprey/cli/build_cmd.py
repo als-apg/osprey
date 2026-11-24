@@ -40,6 +40,7 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 from collections.abc import Iterable, Mapping, Sequence
@@ -61,7 +62,6 @@ from osprey.deployment.wheel_build import (
     build_deployment_packages,
     is_secret_file,
 )
-from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
     config_edit_session,
@@ -73,11 +73,13 @@ from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DI
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
 
 from .build_environment import (
     _create_project_venv,
     _plan_project_venv,
     _resolve_osprey_spec,
+    report_inner_call_keys,
     report_provider_credentials,
 )
 from .build_injectors import (
@@ -92,6 +94,7 @@ from .build_injectors import (
     _inject_optimizer,
     _inject_optimizer_web,
     _inject_profile_services,
+    _inject_server_fleet,
     _inject_slack_bridge,
     _inject_teams_bridge,
     _inject_va,
@@ -125,9 +128,9 @@ if TYPE_CHECKING:
     from osprey.apps.agents import AppAgent
     from osprey.apps.manifest import AppManifest
     from osprey.apps.rules import LoginSelection
-    from osprey.facility.build import FacilityDocument
-    from osprey.facility.render import WrittenViews
-    from osprey.facility.roots import FacilityRoots
+    from osprey.facility.views.outputs import WrittenViews
+    from osprey_facility.build import FacilityDocument
+    from osprey_facility.roots import FacilityRoots
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -607,6 +610,29 @@ def _prune_runtime_state_from_stage(zones: _RenderZones, *, renders: Sequence[Pa
         state = render / STATE_DIR_NAME
         if state.is_dir() and not any(state.iterdir()):
             state.rmdir()
+
+
+def _report_panels_not_served(stage: Path, renders: Sequence[Path]) -> None:
+    """Print one warning per panel in a staged render the web terminal will not serve.
+
+    Run after the lifecycle phases, because a ``post_build`` step is what writes
+    ``panels/`` into a render, and before the swap, on the tree the server will
+    scan. Advisory: the build does not stop for it.
+
+    Args:
+        stage: The staged deployment render, shown as ``build/``.
+        renders: The staged login renders, each a directory of ``stage``.
+    """
+    from osprey.deployment.web_terminals.lint import panels_not_served
+
+    from . import output
+
+    shown = [(stage, BUILD_DIR_NAME)] + [
+        (render, f"{BUILD_DIR_NAME}/{render.name}") for render in renders
+    ]
+    for render, shown_as in shown:
+        for finding in panels_not_served(render, shown_as=shown_as):
+            output.note(f"⚠ [{finding.code}] {finding.message}")
 
 
 def _backup_outgoing_claude_artifacts(zones: _RenderZones) -> Path | None:
@@ -1283,10 +1309,20 @@ def _render_compose_files(
         # the service directories the config names — is spelled relative to the
         # staged tree, which is what the render itself was rooted at.
         network_errors = _network_check_errors(config, compose_files)
+        from osprey.deployment import run_once
+        from osprey.deployment.container_lifecycle import merged_compose_services
+
+        run_once_errors = run_once.declaration_errors(
+            merged_compose_services([Path(path) for path in compose_files])
+        )
     finally:
         os.chdir(previous)
     if network_errors:
         raise click.UsageError("Network axis check failed:\n  - " + "\n  - ".join(network_errors))
+    if run_once_errors:
+        raise click.UsageError(
+            "Run-once declarations are refused:\n  - " + "\n  - ".join(run_once_errors)
+        )
     # Not reported here: the render phase's `compose files` step fires the
     # moment this returns and says the same thing.
     logger.debug("Rendered %d compose file(s)", len(compose_files))
@@ -1311,7 +1347,6 @@ def _warn_if_deployment_running(config: dict[str, Any] | None, project_name: str
     no warning rather than a failed build.
     """
     import functools
-    import subprocess
 
     try:
         from osprey.deployment.compose_generator import (
@@ -2126,7 +2161,7 @@ def _build_graph_index(
     import duckdb
 
     from osprey.services.channel_finder.graph_index import GraphIndexBuildError, build_graph_index
-    from osprey.services.graph_store.seeder import ttl_sha256
+    from osprey.services.graph_store.seeder import ttl_file_sha256
 
     def _no_index(error: Exception) -> None:
         from . import output
@@ -2147,7 +2182,7 @@ def _build_graph_index(
     # the guard for that reason too: a full disk must not be the one failure
     # that takes the whole render down.
     try:
-        digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
+        digest = ttl_file_sha256(target.corpus_path)
         target.index_path.parent.mkdir(parents=True, exist_ok=True)
 
         built = shared.graph_indexes.get(digest)
@@ -2276,7 +2311,7 @@ def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
     local-path ``dependencies`` entry; nothing is built or imported.
     """
     from osprey.apps.rules import deployment_packages
-    from osprey.facility.kinds import listed_kinds
+    from osprey_facility.kinds import listed_kinds
 
     return listed_kinds(
         deployment_packages(
@@ -2287,7 +2322,7 @@ def _listed_kinds(build_profile: Any, repo_root: Path) -> dict[str, str]:
 
 def _judges_kinds(build_profile: Any, content_dir: Path | None) -> bool:
     """Whether this tree is where its listed measurement kinds are judged."""
-    from osprey.facility.kinds import judged_here
+    from osprey_facility.kinds import judged_here
 
     return judged_here(
         mounted=content_dir is not None,
@@ -2512,7 +2547,7 @@ def _render_project(
     assert data_root is not None  # `data:` required; narrows for type-checkers
     # The facility roots the build resolved once. A render outside a build
     # (no roots handed over) reads the single tree, as before `machine:`.
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.roots import FacilityRoots
 
     facility_roots = shared.facility_roots or FacilityRoots.single(data_root / "facility")
 
@@ -2589,8 +2624,8 @@ def _render_project(
         # profile leaves unstated and refuses a stated one the facility
         # contradicts.
         from osprey.deployment.web_terminals.render_naming import derived_renders
-        from osprey.facility.records import FacilityRecords
         from osprey.facility.settings import fill_facility_settings
+        from osprey_facility.records import FacilityRecords
 
         # Written for what the profile leaves unstated. The stand-in copies the
         # simulator's probe, so it reads the filled value.
@@ -2883,7 +2918,7 @@ def _render_project(
 
         # The build's facility outputs, written before the search index and the
         # manifest so both are taken over a render that already carries them.
-        from osprey.facility.render import render_facility_outputs
+        from osprey.facility.views.outputs import render_facility_outputs
 
         render_facility_outputs(
             render_dir,
@@ -2924,6 +2959,7 @@ def _render_project(
 
     if deployment:
         report_provider_credentials(render_dir, build_profile.provider, profile_dir=repo_root)
+        report_inner_call_keys(_rendered_config(render_dir), render_dir, profile_dir=repo_root)
 
     manifest_context: dict[str, Any] = {
         "default_provider": build_profile.provider,
@@ -2935,8 +2971,7 @@ def _render_project(
     }
     if build_profile.channel_finder_mode is not None:
         manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
-    if build_profile.claude_md_template:
-        manifest_context["claude_md_template"] = build_profile.claude_md_template
+    manifest_context["claude_md_template"] = build_profile.claude_md_template
     manager.generate_manifest(
         project_dir=render_dir,
         project_name=project_name,
@@ -3328,7 +3363,7 @@ def _stage_source_zone(
 
     Version-control metadata never enters the image: git's own directory at the
     root, and a ``.git`` file or directory at any depth below it
-    (:func:`~osprey.facility.roots.is_vcs_metadata`), such as a submodule's.
+    (:func:`~osprey_facility.roots.is_vcs_metadata`), such as a submodule's.
 
     A mounted machine root (``machine``) may live inside a mounted repository
     of its own, a submodule or a nested clone carrying its own profile,
@@ -3348,7 +3383,7 @@ def _stage_source_zone(
         input.
     """
 
-    from osprey.facility.roots import is_vcs_metadata
+    from osprey_facility.roots import is_vcs_metadata
 
     from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES, REPO_DOCKERIGNORE_FILENAME
 
@@ -3667,16 +3702,14 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
       The two are rewritten to DIFFERENT files, on purpose.
       ``profile_path`` keeps naming the file this render came from — the
       layer for a render image — because that is its job: provenance.
-      ``profile_path_abs`` is not provenance; it is the input
-      :func:`~osprey.deployment.staleness.staleness_reasons` hashes and compares
-      against ``creation.preset_hash``, so it must name the same file the stamp
-      below is computed from — the repo's own ``profile.yml``. Pointed at the
-      delta it would hash the delta against a root-profile stamp and every
-      render container would print "profile has changed" on an untouched build:
-      a false drift report from the advisory while
-      :func:`~osprey.deployment.staleness.check_drift`, which reads the profile
-      off the repo root, correctly says CLEAN. Advisory and gate now agree by
-      construction, because they hash the same file.
+      ``profile_path_abs`` is not provenance; it is the profile the
+      container's own tools resolve the project's profile from —
+      :func:`~osprey.cli.templates.manifest.manifest_profile_path` and
+      :func:`~osprey.cli.scaffold_cmd._project_profile_root` — and the input
+      :func:`~osprey.cli.templates.manifest.generate_manifest` hashes into
+      ``creation.preset_hash``, so it must name the same file the stamp below
+      is computed from — the repo's own ``profile.yml``. Pointed at the delta,
+      those readers would resolve a layer where the stamp names the root.
     * ``creation.preset_hash`` — the fingerprint
       :func:`osprey.deployment.staleness.check_drift` holds ``build/`` against.
       For the deployment's own image this is already right (same profile, same
@@ -3706,9 +3739,8 @@ def _relocate_container_manifest(image_root: Path, runtime_root: str, profile_re
         if "profile_path" in build_args:
             build_args["profile_path"] = container_profile
         # Set unconditionally rather than only when already present: this is the
-        # file the container's staleness advisory hashes, and leaving it absent
-        # would fall the advisory back to `profile_path` (the delta) or to
-        # `preset`, neither of which is what the stamp below is computed from.
+        # file `manifest_profile_path` and `_project_profile_root` resolve the
+        # container's profile from, and absent it they would find none.
         build_args["profile_path_abs"] = f"{runtime_root}/{PROFILE_FILENAME}"
 
     fingerprint = staleness.profile_fingerprint(image_root / PROFILE_FILENAME)
@@ -4273,8 +4305,9 @@ def _build_repo(
 
         # The facility file, before the venv and every render: a facility stop
         # is the author's to fix, and nothing is installed or rendered first.
-        from osprey.facility.build import build_facility_with_warnings
-        from osprey.facility.render import facility_digest
+        from osprey.registry.scenario_servers import check_scenario_servers
+        from osprey_facility.build import build_facility_with_warnings
+        from osprey_facility.render import facility_digest
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
@@ -4306,6 +4339,7 @@ def _build_repo(
             project_name=name,
             content_dir=content_dir,
             judges_kinds=_judges_kinds(build_profile, content_dir),
+            extra_checks=(check_scenario_servers,),
         )
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)
@@ -4549,6 +4583,8 @@ def _build_repo(
                 abort_on_failure=False,
                 stream=stream,
             )
+
+        _report_panels_not_served(zones.stage, renders)
 
         backup_dir = _backup_outgoing_claude_artifacts(zones)
         # After the backup (which reads the outgoing build/ against the staged
@@ -4977,6 +5013,40 @@ def _ariel_server_enabled(build_profile: Any) -> bool:
     return FRAMEWORK_SERVERS["ariel"].default_enabled
 
 
+def profile_model_call_view(build_profile: Any, repo_root: Path) -> dict[str, Any]:
+    """The config a build of *build_profile* renders, as far as a profile says it.
+
+    ``osprey validate`` judges a profile without rendering it, and the keys
+    :func:`osprey.models.inner_calls.inner_model_calls` reads are written by the
+    framework template from profile fields. This is
+    :func:`~osprey.cli.build_profile_deploy.build_lint_view`, the one mirror of
+    the build's derived keys, handed those fields and nested.
+
+    The channel-finder block is read off the profile's own ``agents:``. A
+    profile that takes the agent from its preset's selection instead shows no
+    paradigm here, so ``osprey validate`` stays silent on it and ``osprey
+    build``, which reads the render, reports it.
+    """
+    from osprey.deployment.web_terminals.lint import _nest_dotted
+
+    from .build_profile_deploy import build_lint_view, profile_dispatch_tier
+
+    selects_finder = "channel-finder" in (build_profile.agents or [])
+    return _nest_dotted(
+        build_lint_view(
+            build_profile.deploy,
+            build_profile.config or {},
+            build_profile.project_name,
+            profile_root=repo_root,
+            dispatch_tier=profile_dispatch_tier(build_profile),
+            provider=build_profile.provider,
+            pipeline=build_profile.channel_finder_mode if selects_finder else None,
+            ariel_server_on=_ariel_server_enabled(build_profile),
+            provider_catalog=load_provider_catalog(repo_root).entries,
+        )
+    )
+
+
 def _repo_render_context(
     build_profile: Any,
     *,
@@ -5074,8 +5144,7 @@ def _repo_render_context(
         context["default_panel"] = build_profile.default_panel
     if build_profile.panel_presets:
         context["panel_presets"] = build_profile.panel_presets
-    if build_profile.claude_md_template:
-        context["claude_md_template"] = build_profile.claude_md_template
+    context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
 
     python_env = build_profile.python_env or "project"
@@ -5306,6 +5375,9 @@ def _inject_services(
     if build_profile.va_archiver is not None:
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
+    # Follows the config rather than a profile block: channel_directory.fleet.
+    if _inject_server_fleet(project_path):
+        injected.append("server fleet")
 
     _declare_bundled_host_bindings(
         project_path, profile_dir, {**(build_profile.services or {}), **app_services}

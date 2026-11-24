@@ -403,7 +403,11 @@ def test_no_second_definition_of_the_served_set() -> None:
     # Arrange / Act
     found = set()
     for path in sorted((_SRC / "osprey").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
+        # Exact: a function whose name holds the substring spells it in the text.
+        if "referenced_render" not in text:
+            continue
+        tree = ast.parse(text)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 if "referenced_render" in node.name:

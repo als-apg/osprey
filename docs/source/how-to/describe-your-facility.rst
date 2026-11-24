@@ -124,7 +124,14 @@ its ``model``. A device a model wires takes its position from the deck.
 
 **Channels** are the control-system addresses. A channel's id is its full
 address, written exactly as the control system serves it; no part of the
-address means anything to OSPREY. What a channel is comes from its fields:
+address means anything to OSPREY. A setpoint may be a command: a channel
+written to start something, such as a reset, rather than to hold a value. The
+build marks it ``command: true`` when its ``signal`` is a command word or a
+model's engine marks it (:doc:`/reference/contracts/facility-kinds`). Its
+readback is its status, the channel that reports when what the command started,
+its act, is over; the fields ``idle`` and ``timeout_s`` say what the status reads
+while nothing runs and how long an act may take, so a write of the command can
+wait until the act is over. What a channel is comes from its fields:
 
 .. list-table::
    :header-rows: 1
@@ -141,12 +148,33 @@ address means anything to OSPREY. What a channel is comes from its fields:
        (``gap_setpoint`` with ``gap_readback``). It does so only when exactly
        one setpoint and one readback of that quantity share it, no stated
        ``pair`` names the readback, and the two agree in ``value_type``,
-       ``options`` and ``shape``; else it pairs the setpoint with itself.
+       ``options`` and ``shape`` (a command and its status need not); else it
+       pairs the setpoint with itself. A setpoint and readback whose signals
+       name one quantity must agree in those three, stated or derived; a
+       command and the status it reads back on, or a pair whose quantity no
+       signal states, may differ. Several setpoints may name one readback (a
+       set and a reset command read back on one channel). The simulation
+       drives a readback from its setpoint only where exactly one setpoint
+       names it, the two agree in type and the readback states no ``idle``;
+       any other readback it drives from no setpoint. The readback's seed ``follows`` changes that for one pair
+       (see Seeds).
    * - ``tolerance``
      - On a float setpoint, how close its readback must come before a move
        counts as done: ``{absolute: <x>}`` in the channel's unit or
        ``{relative: <fraction>}`` of its seed's ``nominal``. The setpoint and
-       its readback must both state a ``unit``.
+       its readback must both state a ``unit``. An address under a wiring
+       record's ``also`` settles within the tolerance of the record's
+       ``address`` and states none of its own.
+   * - ``idle``
+     - On a readback a command pairs with, its status: what it reads while no
+       act runs, typed by the channel: a label on a bool or enum channel, an
+       integer on an int, a number on a float, text on a string; a waveform
+       channel is never a status. Several commands may share one status. A status that states ``idle``
+       is never followed: ``follows`` naming a setpoint on it stops the build
+       with ``command-invalid``.
+   * - ``timeout_s``
+     - On a command whose status states ``idle``: the longest one act may
+       take, in seconds. A command and its status state the two together.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
@@ -242,6 +270,24 @@ refused:
    - name: taper_setpoint
      aliases: [gap taper]
      description: Commanded gap difference between an undulator's two ends.
+   - name: bootloader_version_readback
+     description: Bootloader version a controller reports.
+     nameplate: true
+   - name: trip_level_readback
+     description: Level at which a protection circuit trips.
+     title: Trip
+
+``nameplate: true`` marks a signal that names the unit it is read from rather
+than its state; a device card shows such a signal with what the device is,
+never as a key tile. The vocabulary's own ``model_readback``,
+``serial_number_readback`` and ``firmware_version_readback`` are marked so.
+
+``title`` is the short word a screen names the signal by, on a tile or a value
+row; with none, the signal's name stands. The vocabulary titles its general
+signals with the operator's word: ``Current``, ``Setpoint``, ``Voltage``,
+``Ramp rate``, ``On command``, ``Strength`` (a multipole's normalized
+strength), ``Kick`` (a corrector's angle), and ``Lolo``, ``Lo``, ``Hi``,
+``Hihi`` for the temperature alarm limits. A ``channel_roles.csv`` row's ``label`` wins over it.
 
 Layers
 ======
@@ -262,6 +308,28 @@ until they agree or a ``set`` fix names ``members``. A place's or device's
 ``scheme_names`` are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a ``layer-conflict``.
+A channel's seed (``simulation``, which ``seeds.yaml`` states too) is joined
+per key: one layer may state ``follows`` and another the seed's values, and
+only one key two layers state differently is a ``layer-conflict``.
+
+A place, device, channel or group record may say what the fields it states rest
+on. ``basis: inferred`` with a ``rule`` says a named rule derived them, not a
+source; with neither, they are stated. A producer that pairs channels by their
+names writes such a layer:
+
+.. code-block:: yaml
+
+   # data/facility/imported/names/channels.yaml
+   - id: BR:DIAG:TV:01:PADDLE:SP
+     pair: BR:DIAG:TV:01:PADDLE:RB
+     basis: inferred
+     rule: an SP channel pairs with the RB channel of its name
+
+The two words are no fields of the record: the build keeps them in the
+provenance entry of that layer's file. Screens mark such a field inferred,
+unless another layer states the same value outright. A record's fields all rest
+on one basis, so a layer that states some fields and infers others writes them
+as two layers.
 
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
@@ -338,11 +406,11 @@ address per line.
 
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into ``fixes.yaml``. Each device a row gives an ``s`` is written to
-``imported/list/devices.yaml``; a ``model`` column names the model whose deck
-``s`` is measured along. A run whose list states no ``s`` leaves no
-``devices.yaml``, and a device the list then names needs a record of its own,
-such as an ``add`` fix, or the build stops with ``reference-missing``. The
+into ``fixes.yaml``. Each device a row names is written to
+``imported/list/devices.yaml``, with its ``s`` where a row gives one; a
+``model`` column names the model whose deck ``s`` is measured along. A
+misspelt ``device`` cell makes a device of its own: when other sources declare
+devices too, the import prints a line naming those only the list declares. The
 list import runs the same step as every format: it replaces a bundled facility
 and refuses only hand-written channel and device lists, so it still positions
 a list against your own deck, models and places.
@@ -388,7 +456,7 @@ cell is absent.
 
 Every table also takes the citation columns ``document``, ``version``,
 ``state``, ``locator`` and ``imported`` (an ISO date). ``basis: inferred``
-needs a ``rule``. Against the demo preset, these three tables put both booster
+needs a ``rule``. Against the demo preset, these three tables put two booster
 focusing quadrupoles on one new supply in a new rack:
 
 .. code-block:: text
@@ -498,9 +566,19 @@ demo preset ships this one:
    :caption: limits.yaml
    :start-after: Delete this line to make the file yours.
 
-A setpoint record with both ``min_value`` and ``max_value`` is writable within
-them; ``max_step`` bounds a single change; ``writable: false`` blocks every
-write; ``confirm: false`` turns off the re-read after a write.
+A float or int setpoint record with both ``min_value`` and ``max_value`` is
+writable within them; ``writable: true`` on one without both bounds stops the
+build. A bool, enum, string or waveform setpoint carries no bounds and is
+writable when its record says ``writable: true``. For such a channel the limits
+check decides only whether it may be written; which values it takes is decided
+by the control system. ``max_step`` bounds a single change; ``writable: false``
+blocks every write; ``confirm: false`` turns off the re-read after a write. A
+record that does not state ``confirm`` is written ``confirm: true``, and
+``confirm: false`` on a command that states ``timeout_s``, whose status confirms
+the write. On such a command, stating ``confirm: true`` stops the build:
+``osprey_connectors.command.fire`` writes such a command with
+the re-read off and confirms it by waiting for its status
+(:doc:`/reference/contracts/connectors`).
 
 ``osprey build`` renders the records into ``build/data/channel_limits.json``,
 the file the connector's reference monitor and the runtime's limits check
@@ -517,7 +595,8 @@ Seeds
 
 ``seeds.yaml`` says how a channel behaves in the simulator when no model
 wires it. It is keyed by address. The preset's booster current starts at
-1.2 mA with Gaussian noise:
+1.2 mA with Gaussian noise (its ``gate`` key, described below, is left out
+here):
 
 .. code-block:: yaml
 
@@ -601,6 +680,41 @@ archive's start state see. The build stops with ``value-invalid`` when
 a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
 ``topoff`` seed. Live reads and the archive show the same sawtooth.
 
+``follows`` says whether the simulation copies a setpoint's writes into this
+readback. By default it does when exactly one setpoint names the readback as
+its ``pair`` and the two agree in ``value_type``, ``options`` and ``shape``,
+and the readback states no ``idle``.
+``follows: <setpoint>`` makes the copy where the default does not, and
+``follows: none`` stops it where the default makes it. A followed readback
+starts at its setpoint's value and takes each write at once, with its own noise
+and drift on top.
+
+A labelled readback (``bool`` or ``enum``) may follow a setpoint of another
+type through ``follows: <setpoint>``, and then takes the state of the same
+index. From a labelled setpoint of as many labels, ``Clear / Set`` into
+``Off / On`` copies ``Set`` as ``On``. From a setpoint that holds a number,
+``1`` (or ``1.0``) holds the readback's second label, and a fraction or a number
+past its labels is refused and holds nothing. The default never copies by
+index: only a seed asks for it.
+
+The build stops with ``seed-invalid`` when ``follows`` sits on a channel no
+setpoint names, on a readback several setpoints name, names a setpoint whose
+``pair`` is another channel, or names a setpoint it cannot copy: one of another
+type into an unlabelled readback, one with a different number of labels, or one
+that holds neither labels nor a number. It stops when a number setpoint's start
+value is no index of the readback's labels. It stops too when a followed
+readback's seed gives it a value of its own (``topoff``, ``topoff_lifetime``,
+``linear`` or ``pulse``): a write to the setpoint would replace that value, so
+state ``follows: none`` on it. The simulator view's ``follows.json`` lists every
+pair with whether the simulation follows it (``default``, ``seed`` or
+``not followed``), why, and for a followed pair how it copies (``value`` or
+``index``, with the label of each index), and counts each.
+
+.. code-block:: yaml
+
+   SR:VAC:VALVE:01:POSITION:OPEN:
+     follows: none
+
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated
 float reads its value
@@ -621,23 +735,24 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
 .. code-block:: yaml
 
-   - name: LINE
+   - name: BTS
      engine: pyat
-     deck: decks/LINE.json
+     deck: decks/BTS.json
      settings:
        pyat:
          solve: single_pass
          twiss_in:
-           beta: [7.448848, 4.786082]
-           alpha: [-1.333207, 0.885765]
+           beta: [0.63, 9.6]
+           alpha: [-0.32, 2.42]
+           dispersion: [0.074, 0.018, 0.0, 0.0]
      wiring:
-     - address: LINE:DIAG:BPM:01:POSITION:X
-       element: BPM01
+     - address: BTS:DIAG:BPM:01:POSITION:X
+       element: BPM1
        engine:
          axis: x
        calibration:
          curve:
-           linear: {gain: 1.0, offset: 0.0}
+           linear: {gain: 0.001, offset: 0.0}
          energy_scaling: none
 
 The ``pyat`` settings may also carry ``error_elements``, a list of
@@ -647,9 +762,131 @@ record binds that a scenario may still misalign or give a multipole error; see
 
 A wiring record's ``calibration`` converts between the channel's hardware
 value and the engine's physics value, as a ``linear`` gain and offset or a
-``table``. Channels no served model wires are served by the texture model from
+``table``.
+
+A readback record reads the setpoint record that names the same element (or
+slices), engine ``attribute`` and ``index``. A readback that states the
+setpoint's calibration, or none, reads the setpoint's value on the setpoint's
+way back. A readback that states another calibration reads the same physics
+value through its own: the setpoint's ``curve`` gives the physics value, and
+the readback's ``inverse`` (or, with none, the inverse of its ``linear``
+curve) gives the reading. So one quantity can be read in a second unit. The
+voltage of the quadrupole's circuit, 0.1 V per ampere, is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:QF:01:VOLTAGE:RB
+     unit: V
+     label: focusing quadrupole circuit voltage
+
+and a third record on the element the current setpoint and its readback are
+wired to, with the strength a volt stands for as its curve:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:QF:01:VOLTAGE:RB
+     element: QF01
+     engine:
+       attribute: PolynomB
+       index: 1
+     calibration:
+       curve:
+         linear: {gain: 0.06006155556990854, offset: 0.0}
+       energy_scaling: brho
+
+The readback's ``curve`` runs the way every curve does, from its own unit to
+the physics value; a ``table`` needs an ``inverse``. State the setpoint's
+``energy_scaling`` on it unless its unit does not move with the beam energy
+as the setpoint's does. Its computed ``default`` is the value it is served
+with at start, and its seed's noise and drift act in its own unit.
+
+A setpoint may drive a property of the whole deck: a record that names no
+element and the engine ``attribute: energy`` is the deck's energy, set through
+the curve from its unit to electron-volts. The deck is at its own energy while
+that setpoint holds its ``default``, and moves from there as the curve's value
+does. A readback record with the same engine block reads that setpoint, and it
+too may state its own calibration. The current of a string of bending magnets
+and the string's voltage, 0.5 V per ampere, are two channels:
+
+.. code-block:: yaml
+
+   - id: SR:MAG:BEND:CURRENT:SP
+     role: setpoint
+     unit: A
+     label: bending magnet string current
+   - id: SR:MAG:BEND:VOLTAGE:RB
+     unit: V
+     label: bending magnet string voltage
+
+and two records that name no element:
+
+.. code-block:: yaml
+
+   - address: SR:MAG:BEND:CURRENT:SP
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 4.0e+6, offset: 0.0}
+       energy_scaling: none
+   - address: SR:MAG:BEND:VOLTAGE:RB
+     engine:
+       attribute: energy
+     calibration:
+       curve:
+         linear: {gain: 8.0e+6, offset: 0.0}
+       energy_scaling: none
+
+The voltage reads the value of the setpoint's curve at the current the
+setpoint holds, through its own way back: 250 V at 500 A here. Both curves end
+in the same unit, the one the setpoint's curve states, so write the readback's
+curve against the setpoint's curve and not against the deck, whose energy may
+differ from the curve's by a constant factor. Such a readback states
+``energy_scaling: none``, as the value of the setpoint's curve does not move
+with the beam rigidity; the build stops on any other with ``engine-invalid``.
+
+The model computes a wired readback from the setpoint record on its element,
+so it reads that setpoint whether or not the channels ``pair`` the two, where
+several setpoints name it, and where its seed states ``follows: none``; its
+``default`` is the value it is served with in each case.
+
+Channels no served model wires are served by the texture model from
 their seeds. Which models a deployment serves, and what a failed one looks like, is
 in :ref:`architecture-simulation-models`.
+
+A value served under more than one address has one wiring record. Each
+further address is a channel of its own:
+
+.. code-block:: yaml
+
+   - id: BTS:RACK:03:UNIT:01:X
+     label: BPM 01 horizontal position, as the rack unit names it
+
+and the record lists it under ``also``:
+
+.. code-block:: yaml
+
+   - address: BTS:DIAG:BPM:01:POSITION:X
+     also: [BTS:RACK:03:UNIT:01:X]
+     element: BPM1
+     engine:
+       axis: x
+
+Each address under ``also`` is a channel of ``records/channels.yaml`` with the
+``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
+and the same ``unit`` when both state one. It reads what ``address`` reads at
+the same instant, with the same calibration, motion and readout noise, and a
+write to it is a write to ``address``. It reads back the ``pair`` of
+``address`` and settles within its ``tolerance``, and on a command it has the
+time bound and the status of ``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
+carries no seed of its own, and a limit is still stated per address. A pair is stated between
+records' ``address`` names: the build stops when an address under ``also``
+states a ``pair``, and when a setpoint's ``pair`` names an address under
+``also``. A fault variable is named by ``address``
+only (``BTS:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
+(``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
+either. An address belongs to one wiring record: the build stops when two
+records name it, and when two records read the same axis of one monitor.
 
 Measurement
 ===========

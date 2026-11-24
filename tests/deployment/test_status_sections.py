@@ -50,6 +50,7 @@ from osprey.deployment.deployment_record import (
     DeploymentRecord,
     write_deployment_record,
 )
+from tests._scoped_stdlib import scoped
 from tests.deployment.test_up_as_built import _RENDERED_CONFIG, render_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
@@ -130,7 +131,7 @@ def runtime(monkeypatch):
             return subprocess.CompletedProcess(argv, 0, "\n".join(record["volumes"]), "")
         raise AssertionError(f"a read-only verb ran: {argv}")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _fake_run)
+    scoped(monkeypatch, status_display, "subprocess", run=_fake_run)
     return record
 
 
@@ -953,7 +954,7 @@ def test_status_asks_the_recorded_runtime(lifecycle_repo, monkeypatch):
         stdout = json.dumps(rows) if argv[1] == "ps" else ""
         return subprocess.CompletedProcess(argv, 0, stdout, "")
 
-    monkeypatch.setattr(status_display.subprocess, "run", _run)
+    scoped(monkeypatch, status_display, "subprocess", run=_run)
 
     report(lifecycle_repo)
 
@@ -1130,12 +1131,12 @@ def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
 @pytest.mark.usefixtures("runtime")
 def test_logs_renders_nothing(lifecycle_repo, monkeypatch):
     """A read verb that re-rendered would answer about a stack that was never started."""
-    from osprey.deployment import container_lifecycle
+    from osprey.deployment import compose_generator
 
     def _forbidden(*args, **kwargs):
         raise AssertionError("reading logs must not render compose files")
 
-    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", _forbidden)
+    monkeypatch.setattr(compose_generator, "prepare_compose_files", _forbidden)
     render_build(lifecycle_repo)
 
     logs_argv(lifecycle_repo)
@@ -1234,6 +1235,7 @@ def test_status_help_does_not_promise_a_reachability_check():
     help_text = status_verb.__doc__ or ""
 
     assert "declared to answer" in help_text
+    assert "reachab" not in help_text.lower(), "the help promises a reachability check"
 
 
 def test_logs_help_states_that_both_stacks_are_covered():

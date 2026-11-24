@@ -34,23 +34,22 @@ from tests.services.bluesky_bridge._fake_connector import (
 )
 
 
-async def test_set_raises_on_blocked_write() -> None:
-    """A refused write (writes-disabled/limits) must abort via a raise, not a swallow."""
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # A refused write (writes-disabled/limits).
+        pytest.param(ChannelWriteBlockedError("SP:RB", "LIMITS"), id="blocked-write"),
+        # A write the control system did not take.
+        pytest.param(ChannelWriteFailedError("SP:RB", "FAILED"), id="failed-write"),
+    ],
+)
+async def test_set_raises_on_a_refused_write(exc: Exception) -> None:
+    """A write that did not happen must abort via a raise, not a swallow."""
     fake = FakeConnector(readbacks={"SP:RB": 0.0})
-    fake.write_side_effect = ChannelWriteBlockedError("SP:RB", "LIMITS")
+    fake.write_side_effect = exc
     device = ConnectorSettable(fake, "SP:RB", name="motor")
 
-    with pytest.raises(ChannelWriteBlockedError):
-        await device.set(5.0)
-
-
-async def test_set_raises_on_failed_write() -> None:
-    """A write the control system did not take must also abort via a raise."""
-    fake = FakeConnector(readbacks={"SP:RB": 0.0})
-    fake.write_side_effect = ChannelWriteFailedError("SP:RB", "FAILED")
-    device = ConnectorSettable(fake, "SP:RB", name="motor")
-
-    with pytest.raises(ChannelWriteFailedError):
+    with pytest.raises(type(exc)):
         await device.set(5.0)
 
 

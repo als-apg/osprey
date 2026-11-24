@@ -103,6 +103,11 @@ def advertised(render_root: Path) -> Any:
 
     A render whose facts name no kind advertises ``kind`` as a string; the
     resolver refuses every value it is given.
+
+    Raises:
+        FacilityFileError: The render has no usable facts file and its facility
+            file cannot be read or carries a header this reader does not read;
+            registration refuses, and the message names the rebuild.
     """
     from osprey.facility.views.facts import read_facts
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import kinds
@@ -142,16 +147,25 @@ def _timeout(config: dict[str, Any]) -> object:
 
 
 def _facility(render_root: Path) -> dict[str, Any]:
-    from osprey.facility import FACILITY_FILE
+    """The render's facility document, refused before any write when it cannot be read."""
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.errors import FacilityFileError
+    from osprey_facility.reading import load_facility
 
-    document: dict[str, Any] = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
-    return document
+    path = render_root / FACILITY_FILE
+    remedy = "Run `osprey build`; the facility file is written by the build."
+    try:
+        return load_facility(path)
+    except FileNotFoundError:
+        _refuse(f"{path} does not exist", remedy)
+    except FacilityFileError as exc:
+        _refuse(str(exc), remedy)
 
 
 def _script(args: MeasureArgs, approved_view_sha256: str | None) -> MeasureScript:
     """The script inputs: the request plus the names and waits the render states."""
-    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
+    from osprey_facility.records import FacilityRecords
     from pyaml_cs_osprey.names import UnmappedName
 
     document = _facility(args.render_root)

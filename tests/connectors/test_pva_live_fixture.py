@@ -54,6 +54,7 @@ from osprey_connectors_tests._epics_fakes import (
     writes_enabled,  # noqa: F401 - fixture, used by name
 )
 from osprey_connectors_tests._harness._guards import earlier_garbage_left_out
+from osprey_connectors_tests._harness._ports import port_reserver
 from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 # The served namespace, kept to one prefix so a single glob routes all of it
@@ -175,7 +176,9 @@ def connector_factory(pva_server):
     and every client context binds a UDP search pair — a kernel-chosen IPv4 port
     and the same number on IPv6 — whatever the address configuration. The module
     builds two contexts, not one per test, to hold as few of those as it needs;
-    a connector carries no per-test state — reads do not mutate it. A context
+    a connector carries no per-test state — reads do not mutate it. Each context
+    is also given a beacon port of its own (EPICS_PVA_BROADCAST_PORT), because
+    the default one is a fixed number any process on the host may hold. A context
     build fails with "Unable to bind random UDP6 port" while another process on
     the host holds that number on IPv6; that is a pvxs defect, and it is not
     retried here.
@@ -200,6 +203,9 @@ def connector_factory(pva_server):
     install_fake_aioca(patcher)
 
     def build(timeout: float = READ_TIMEOUT_S) -> EPICSConnector:
+        # Each client context listens for beacons on a port of its own, so a PVA
+        # broadcast port another process on the host holds cannot fail the build.
+        patcher.setenv("EPICS_PVA_BROADCAST_PORT", str(reserve()))
         connector = EPICSConnector()
         asyncio.run(
             connector.connect(
@@ -221,7 +227,7 @@ def connector_factory(pva_server):
 
     # The module's tests run frozen, so the collection after the disconnects
     # covers what they made and not the worker's earlier heap.
-    with earlier_garbage_left_out():
+    with port_reserver() as reserve, earlier_garbage_left_out():
         try:
             yield build
         finally:

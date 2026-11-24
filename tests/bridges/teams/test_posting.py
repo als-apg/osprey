@@ -436,10 +436,11 @@ def test_post_resumed_in_a_chat_opens_with_the_quote() -> None:
 
 def test_post_resumed_swallows_a_transport_failure() -> None:
     """Best-effort: the answer follows whether or not this line landed."""
-    ops, _ = make_ops(RecordingConnector(fail_with=ConnectorError("connector refused")))
+    ops, connector = make_ops(RecordingConnector(fail_with=ConnectorError("connector refused")))
     entry = make_entry("channel")
     entry["first_queued_at"] = time.time() - 60
     ops.post_resumed(entry, {"status": "completed"})
+    assert len(connector.calls) == 1
 
 
 # --- post_superseded --------------------------------------------------------

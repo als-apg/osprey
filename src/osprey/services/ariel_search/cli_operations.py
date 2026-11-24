@@ -15,6 +15,7 @@ caller states none.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -587,33 +588,15 @@ def _health_entry(reachable: bool | None, reason: str | None) -> dict[str, Any]:
     return {"reachable": reachable, "reason": reason, "probed_from": _PROBED_FROM}
 
 
-async def _module_health(
-    config: ARIELConfig, name: str, repository: ARIELRepository
-) -> dict[str, Any]:
-    """The ``health`` object of one enabled module.
+def _build_module(config: ARIELConfig, name: str) -> Any:
+    """One enabled module built alone (``stage='all'``), else its ``health`` object.
 
-    The module is built alone (``stage='all'``), so a ``configure()`` error
-    reports ``config`` for it and leaves the rest of the status intact. A
-    picture module (``runs_inline=False``) answers through
-    :func:`~osprey.services.ariel_search.enhancement.availability.preflight`,
-    the same check a catch-up pass runs; any other module's ``health_check()``
-    is awaited under a 5 s timeout. ``health_reason()``, when the module
-    states one, overrides the reason; ``reachable`` stays the check's answer.
-
-    Args:
-        config: The ARIEL configuration.
-        name: An enabled registered module.
-        repository: Repository of the store the status describes.
-
-    Returns:
-        ``{"reachable": bool | None, "reason": str | None, "probed_from": "this process"}``.
+    Built alone, so a ``configure()`` error reports ``config`` for that module
+    and leaves the rest of the status intact; a name that builds no module
+    answers ``reachable: None``.
     """
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
-    from osprey.services.ariel_search.enhancement.availability import (
-        preflight,
-        unavailable_reason,
-    )
-    from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
+    from osprey.services.ariel_search.enhancement.availability import unavailable_reason
 
     try:
         built = [
@@ -625,7 +608,23 @@ async def _module_health(
         return _health_entry(False, unavailable_reason(exc) or "config")
     if not built:
         return _health_entry(None, None)
-    module = built[0]
+    return built[0]
+
+
+async def _checked_health(module: Any, repository: ARIELRepository) -> dict[str, Any]:
+    """The ``health`` object of one built module: its check's verdict.
+
+    A picture module (``runs_inline=False``) answers through
+    :func:`~osprey.services.ariel_search.enhancement.availability.preflight`,
+    the same check a catch-up pass runs; any other module's ``health_check()``
+    is awaited under a 5 s timeout. ``health_reason()``, when the module
+    states one, overrides the reason; ``reachable`` stays the check's answer.
+    """
+    from osprey.services.ariel_search.enhancement.availability import (
+        preflight,
+        unavailable_reason,
+    )
+    from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
 
     try:
         if getattr(module, "runs_inline", True):
@@ -651,12 +650,44 @@ async def _module_health(
     return _health_entry(result.reachable, reason)
 
 
+async def _module_health(
+    config: ARIELConfig, name: str, repository: ARIELRepository
+) -> dict[str, Any]:
+    """The ``health`` object of one enabled module: :func:`_build_module`, then its check.
+
+    Args:
+        config: The ARIEL configuration.
+        name: An enabled registered module.
+        repository: Repository of the store the status describes.
+
+    Returns:
+        ``{"reachable": bool | None, "reason": str | None, "probed_from": "this process"}``.
+    """
+    module = _build_module(config, name)
+    if isinstance(module, dict):
+        return module
+    return await _checked_health(module, repository)
+
+
 async def _modules_health(
     config: ARIELConfig, names: Sequence[str], repository: ARIELRepository
 ) -> dict[str, dict[str, Any]]:
-    """The ``health`` object of every enabled module in *names*, checked concurrently."""
+    """The ``health`` object of every enabled module in *names*, checked concurrently.
+
+    Every module is built before any check starts. Building one imports its
+    provider's class, seconds of CPU on this event loop the first time; done
+    between the checks, that import would run inside another module's
+    timeout and could make a module that answered read as unreachable.
+    """
     enabled = [name for name in names if config.is_enhancement_module_enabled(name)]
-    results = await asyncio.gather(*(_module_health(config, name, repository) for name in enabled))
+    built = [_build_module(config, name) for name in enabled]
+
+    async def _health(module: Any) -> dict[str, Any]:
+        if isinstance(module, dict):
+            return module
+        return await _checked_health(module, repository)
+
+    results = await asyncio.gather(*(_health(module) for module in built))
     return dict(zip(enabled, results, strict=True))
 
 
@@ -1633,8 +1664,6 @@ def _wipe_qmd_mirror(mirror_root: Path) -> int:
     Returns:
         Number of markdown files removed.
     """
-    import shutil
-
     if not mirror_root.is_dir():
         return 0
 

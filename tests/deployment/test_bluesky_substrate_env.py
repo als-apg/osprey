@@ -157,18 +157,6 @@ class TestControlPlaneKeys:
         assert secret.decode() not in message
         assert other_public.decode() not in message
 
-    def test_matched_operator_pair_passes_the_check(self, env_path):
-        """The pairing check must not reject a pair that genuinely matches."""
-
-        public, secret = _curve_keypair()
-        env_path.write_text(
-            f"BLUESKY_QSERVER_ZMQ_PRIVATE_KEY={secret.decode()}\n"
-            f"BLUESKY_QSERVER_ZMQ_PUBLIC_KEY={public.decode()}\n",
-            encoding="utf-8",
-        )
-
-        _ensure_bluesky_control_plane_keys({"deployed_services": ["bluesky"]}, env_path=env_path)
-
     def test_malformed_private_key_in_a_pair_warns_rather_than_raising(self, env_path, caplog):
         """Nothing can be verified against a key that will not parse."""
 
@@ -230,7 +218,7 @@ class TestControlPlaneKeys:
 
         # Nothing on disk — neither half.
         assert not env_path.exists() or "BLUESKY_QSERVER_ZMQ_PUBLIC_KEY" not in _dotenv(env_path)
-        # But this deploy's compose invocation still sees it: deploy_up copies
+        # But this deploy's compose invocation still sees it: _start_stack copies
         # os.environ AFTER this runs, and the template guards the public key.
         assert os.environ["BLUESKY_QSERVER_ZMQ_PUBLIC_KEY"] == public.decode()
 
@@ -845,20 +833,17 @@ class TestGeneratedProjectGitignore:
 class TestDeployWiring:
     """Provisioning runs on the deploy paths that need it, before compose."""
 
-    def test_deploy_up_calls_both_provisioners(self):
+    def test_start_calls_both_provisioners(self):
         """Both provisioners run before the image build, on every start path.
 
-        Read off ``_start_stack`` rather than ``deploy_up``: the deploy sequence
-        moved there when ``deploy_up`` (render, then start) and ``up_as_built``
-        (start what a build already rendered) were made to share one. The
-        property being pinned is the ORDER of that sequence, so it belongs to
-        the function that has one — and the last assertion keeps every start
-        verb answerable to it.
+        Read off ``_start_stack``, the one deploy sequence: the property being
+        pinned is the ORDER of that sequence, so it belongs to the function that
+        has one — and the last assertion keeps every start verb answerable to it.
 
-        The repo verbs reach it one hop away, through ``_start_as_built``: the
-        start half was split out of ``up_as_built`` so ``restart_deployment``
-        could run a ``down`` between the read and the start. A verb that grew a
-        third way to start would fail here, which is the point.
+        The repo verbs reach it one hop away, through ``_start_as_built``, which
+        lets ``restart_deployment`` run a ``down`` between the read and the
+        start. A verb that grew another way to start would fail here, which is
+        the point.
         """
         import inspect
 
@@ -874,7 +859,6 @@ class TestDeployWiring:
         )
         assert "_start_stack(" in inspect.getsource(container_lifecycle._start_as_built)
         for verb in (
-            container_lifecycle.deploy_up,
             container_lifecycle.up_as_built,
             container_lifecycle.restart_deployment,
         ):

@@ -5,6 +5,7 @@
  *   npx vitest run tests/interfaces/channel_finder/archive.test.mjs
  */
 
+import './epics-words.mjs';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, vi, afterEach, describe } from 'vitest';
@@ -73,6 +74,27 @@ describe('reading', () => {
     await vi.waitFor(() => expect(container.querySelector('.archive-tiles')).not.toBeNull());
     /** @type {HTMLElement} */ (container.querySelector('[data-action="refresh"]')).click();
     await vi.waitFor(() => expect(reads).toHaveLength(2));
+  });
+
+  test('of two Refresh reads, the newer answer stays on screen when the older lands last', async () => {
+    /** @type {Array<(value: any) => void>} */
+    const release = [];
+    const held = () => new Promise((resolve) => release.push(resolve));
+    const { container, reads } = await mount([ROUTES.archive, held(), held()]);
+    await vi.waitFor(() => expect(container.querySelector('.archive-tiles')).not.toBeNull());
+    const refresh = () =>
+      /** @type {HTMLElement} */ (container.querySelector('[data-action="refresh"]')).click();
+    refresh();
+    refresh();
+    await vi.waitFor(() => expect(reads).toHaveLength(3));
+
+    release[1](ROUTES.archive);
+    await vi.waitFor(() => expect(container.querySelector('.archive-tiles')).not.toBeNull());
+    release[0]({ outcome: 'unavailable', reason: 'archiver down' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.querySelector('.archive-tiles')).not.toBeNull();
+    expect(container.querySelector('.osprey-state')).toBeNull();
   });
 
   test('a late answer for an unmounted view draws nothing', async () => {

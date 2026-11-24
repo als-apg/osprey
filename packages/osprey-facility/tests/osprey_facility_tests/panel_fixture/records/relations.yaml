@@ -1,0 +1,91 @@
+# Invented for the panels tests.
+- id: xr01-qf1-power
+  type: powered_by
+  subject:
+    device: XR01:QF1
+  object:
+    device: XR01:PS1
+- id: xr01-qd1-power
+  type: powered_by
+  subject:
+    device: XR01:QD1
+  object:
+    device: XR01:PS1
+- id: xr01-ch1-rack
+  type: located_in
+  subject:
+    device: XR01:CH1
+  object:
+    place: XR/XR01/RK1
+    unit: 10
+  attributes:
+    size_u: '2'
+  source:
+    document: XR-RACKS
+    version: B
+    state: released
+    locator: sheet 1
+- id: xr01-ch2-rack
+  type: located_in
+  subject:
+    device: XR01:CH2
+  object:
+    place: XR/XR01/RK1
+    unit: 20
+- id: xr02-ch5-rack1
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR01/RK1
+    unit: 40
+- id: xr02-ch5-rack1b
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR01/RK1
+    unit: 41
+- id: xr01-ch2-rack-layout
+  type: located_in
+  subject:
+    device: XR01:CH2
+  object:
+    place: XR/XR01/RK1
+    unit: 20
+  source:
+    document: XR-LAYOUT
+    version: A
+    state: released
+    locator: sheet 5
+- id: xr02-ch5-rack2
+  type: located_in
+  subject:
+    device: XR02:CH5
+  object:
+    place: XR/XR02/RK2
+    unit: 5
+- id: xr01-ip1-readout
+  type: read_out_by
+  subject:
+    device: XR01:IP1
+  object:
+    device: XR01:CH2
+- id: xr02-ip1-interlock
+  type: interlocked_by
+  subject:
+    device: XR02:IP1
+  object:
+    device: XR02:SAF1
+- id: xr02-saf2-control
+  type: controlled_by
+  subject:
+    device: XR02:SAF2
+  object:
+    device: XR01:CH3
+- id: xr02-cab1-power
+  type: powered_by
+  subject:
+    place: XR/XR02/SAFE/CAB1
+  object:
+    device: XR01:PS1

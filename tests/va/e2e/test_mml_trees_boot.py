@@ -35,7 +35,7 @@ What each lane asserts, and why it is not vacuous:
   that set.
 
 The trees. ``CRITERION_TREES`` is read from the supported-tree registry
-(``tests/fixtures/mml/_trees.py``): a tree the registry claims boots is a tree
+(``osprey_facility_tests/_mml_trees.py``): a tree the registry claims boots is a tree
 whose export is claimed to reach a served machine, so one that commits no 2.0
 export fails rather than stands aside. Whether it carries one is still
 DISCOVERED -- a directory holding a ``*.va.json`` sibling is a 2.0 tree -- so
@@ -153,7 +153,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     Channel,
     SimulatorView,
 )
-from tests.fixtures.mml._trees import names  # noqa: E402
+from osprey_facility_tests._mml_trees import names  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
 
@@ -258,9 +258,9 @@ def _describer(engine: str | None) -> Any:
     """
     from importlib import metadata
 
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
 
-    return metadata.entry_points(group=ENTRY_POINT_GROUP)[str(engine)].load().describe
+    return metadata.entry_points(group=ENGINE_GROUP)[str(engine)].load().describe
 
 
 # ===================================================================
@@ -418,7 +418,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     are widened in the deployment, never in the fixture, and the set is held
     against the tree's own.
     """
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE
 
     recipes = _recipes()
     fixture = recipes.FIXTURES / name

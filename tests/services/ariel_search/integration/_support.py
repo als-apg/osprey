@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Iterator
 
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -19,6 +19,35 @@ if TYPE_CHECKING:
 
 #: The rendition digest ``fake_prepare`` stamps on every picture it renders.
 FAKE_RENDITION_SHA = "cd" * 32
+
+
+@contextlib.contextmanager
+def fresh_database(database_url: str) -> Iterator[str]:
+    """A fresh, empty database on *database_url*'s server, dropped when the block ends.
+
+    ``vector`` is created when the server has pgvector, as the session
+    database has it.
+    """
+    import uuid
+
+    import psycopg
+    from psycopg import sql
+
+    name = f"ariel_{uuid.uuid4().hex}"
+    uri = f"{database_url.rsplit('/', 1)[0]}/{name}"
+    with psycopg.connect(database_url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    try:
+        with psycopg.connect(uri, autocommit=True) as conn:
+            # no pgvector on this server; the vector migrations skip
+            with contextlib.suppress(psycopg.Error):
+                conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        yield uri
+    finally:
+        with psycopg.connect(database_url, autocommit=True) as conn:
+            conn.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
+            )
 
 
 @contextlib.asynccontextmanager

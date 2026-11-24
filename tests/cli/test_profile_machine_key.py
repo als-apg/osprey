@@ -23,10 +23,11 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.build_profile_load import ROOT_ONLY_KEYS, TIER_KIND_KEYS
 from osprey.cli.init_cmd import init
-from osprey.cli.validate_cmd import check_profile_file, validate
-from osprey.facility.errors import KINDS, FacilityBuildError
-from osprey.facility.roots import FacilityRoots
+from osprey.cli.main import cli
+from osprey.cli.validate_cmd import check_profile_file
 from osprey_connectors.errors import BuildProfileError
+from osprey_facility.errors import KINDS, FacilityBuildError
+from osprey_facility.roots import FacilityRoots
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
@@ -227,7 +228,7 @@ def test_validate_reports_an_empty_submodule(repo: Path) -> None:
     (repo / "va").mkdir()
     profile = _state_machine(repo, "va")
 
-    result = CliRunner().invoke(validate, [str(profile)])
+    result = CliRunner().invoke(cli, ["validate", str(profile)])
 
     assert result.exit_code != 0
     assert "machine-missing" in result.output

@@ -153,7 +153,7 @@ def test_the_fixture_takes_host_networking_from_the_axis(repo: Path, entry_point
 
 
 @pytest.mark.parametrize("entry_point", ENTRY_POINTS)
-def test_the_fixture_reads_the_single_user_alias_on_a_roster_less_deployment(
+def test_the_fixture_names_the_single_user_operator_on_a_roster_less_deployment(
     repo: Path, entry_point: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OSPREY_AUDIT_IDENTITY", "ops")

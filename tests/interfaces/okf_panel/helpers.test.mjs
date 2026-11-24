@@ -10,15 +10,68 @@ import { marked } from 'marked';
 
 import {
   GRAPH_MARKER,
+  IMAGE_FAILURE_REASONS,
   STRUCTURE_MARKER,
+  assetUrl,
   el,
   facilityLinkView,
   graphHash,
   graphTarget,
   hashChangeTarget,
+  imageFailureReason,
+  imageFallback,
+  isExternalImageTarget,
   isFallback,
+  linkedConceptId,
   readPanelParams,
+  tagList,
 } from '../../../src/osprey/interfaces/okf_panel/static/js/helpers.js';
+
+describe('tagList', () => {
+  test('a list is kept, without its empty entries', () => {
+    expect(tagList(['epics', null, '', 'pv'])).toEqual(['epics', 'pv']);
+  });
+
+  test('a scalar is one tag', () => {
+    expect(tagList('epics, pv')).toEqual(['epics, pv']);
+  });
+
+  test('a null, empty or missing value is no tag', () => {
+    expect(tagList(null)).toEqual([]);
+    expect(tagList('')).toEqual([]);
+    expect(tagList(undefined)).toEqual([]);
+  });
+});
+
+describe('linkedConceptId', () => {
+  test.each([
+    ['/tables/users.md', 'devices/bpm', 'tables/users'],
+    ['/tables/users.md', null, 'tables/users'],
+    ['corrector.md', 'devices/bpm', 'devices/corrector'],
+    ['./corrector.md', 'devices/bpm', 'devices/corrector'],
+    ['../physics/orbit.md', 'devices/bpm', 'physics/orbit'],
+    ['overview.md', 'bpm', 'overview'],
+    ['overview.md', null, 'overview'],
+    ['/tables/users.md#schema', 'devices/bpm', 'tables/users'],
+    ['my%20page.md', 'devices/bpm', 'devices/my page'],
+  ])('%s from %s names %s', (href, current, expected) => {
+    expect(linkedConceptId(href, current)).toBe(expected);
+  });
+
+  test.each([
+    ['https://example.org/x.md'],
+    ['facility:SR:BPM:01'],
+    ['#section'],
+    ['/tables/'],
+    ['/assets/ring.png'],
+    ['/index.md'],
+    ['log.md'],
+    ['../../outside.md'],
+    [''],
+  ])('%s names no concept', (href) => {
+    expect(linkedConceptId(href, 'devices/bpm')).toBeNull();
+  });
+});
 
 describe('el', () => {
   test('creates an element with the given tag', () => {
@@ -269,5 +322,79 @@ describe('facilityLinkView', () => {
     const hrefs = Array.from(holder.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['facility:SR:DIAG:BPM:01:POSITION:X', 'facility:SR%20GAUGE%201']);
     expect(facilityLinkView(hrefs[1] || '', references).text).toBe('SR GAUGE 1');
+  });
+});
+
+describe('assetUrl', () => {
+  test('the target and the concept travel encoded, as written', () => {
+    expect(assetUrl('../shared/a b.png', 'devices/bpm')).toBe(
+      '/api/asset?target=..%2Fshared%2Fa%20b.png&from=devices%2Fbpm'
+    );
+  });
+
+  test('a query in the target cannot add parameters', () => {
+    expect(assetUrl('a.png&from=x#y', '')).toBe('/api/asset?target=a.png%26from%3Dx%23y&from=');
+  });
+});
+
+describe('isExternalImageTarget', () => {
+  test.each([
+    'https://h.example/a.png',
+    'HTTP://h.example/a.png',
+    'data:image/png;base64,AA',
+    '//h.example/a.png',
+    'javascript:x',
+    'blob:x',
+  ])('%s is not requested', (target) => {
+    expect(isExternalImageTarget(target)).toBe(true);
+  });
+
+  test.each(['figures/a.png', '/devices/a.png', '../a.png', './a.png', 'a%3Ab.png', '/x//y.png'])(
+    '%s goes to the asset route',
+    (target) => {
+      expect(isExternalImageTarget(target)).toBe(false);
+    }
+  );
+});
+
+describe('imageFailureReason', () => {
+  test('each asset code has its own short reason', () => {
+    for (const code of [
+      'outside_bundle',
+      'dot_path',
+      'symlink_escape',
+      'not_found',
+      'not_an_image',
+      'disallowed_type',
+      'too_large',
+    ]) {
+      expect(imageFailureReason(code)).toBe(
+        IMAGE_FAILURE_REASONS[/** @type {keyof typeof IMAGE_FAILURE_REASONS} */ (code)]
+      );
+    }
+  });
+
+  test('anything else is the generic reason', () => {
+    for (const code of [undefined, null, '', 'toString', 'constructor', 42, 'nope']) {
+      expect(imageFailureReason(code)).toBe('cannot be displayed');
+    }
+  });
+});
+
+describe('imageFallback', () => {
+  test('alt text, reason and link are text nodes', () => {
+    const box = imageFallback(document, '<b>a</b>', 'file not found', 'https://h.example/a.png');
+
+    expect(box.className).toBe('okf-image-fallback');
+    expect(box.querySelector('b')).toBeNull();
+    expect(box.textContent).toBe('<b>a</b> (file not found) https://h.example/a.png');
+    expect(box.querySelector('a')?.getAttribute('href')).toBe('https://h.example/a.png');
+  });
+
+  test('without alt text, reason or link', () => {
+    const box = imageFallback(document, '', '');
+
+    expect(box.textContent).toBe('Image');
+    expect(box.querySelector('a')).toBeNull();
   });
 });

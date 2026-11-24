@@ -3,7 +3,7 @@
 Every view is one row of :data:`VIEWS`: its name, its directory under the
 render's ``data/``, the predicate that decides whether a render carries it and
 returns the config key or model fact it decided on, and the writer that writes
-it. :func:`osprey.facility.render.render_facility_outputs` is the only writer:
+it. :func:`osprey.facility.views.outputs.render_facility_outputs` is the only writer:
 it asks each view's predicate of every render, writes the
 views whose predicate holds and names each other one in a note on stderr, once
 per build — except a view a selector (``View.selected_by``) did not pick from
@@ -16,7 +16,7 @@ predicate of the main render and lists each view with its answer.
 A view's writer sees only the config keys its row names in ``View.reads``, so
 two renders that agree on those keys and serve the same models get the same
 bytes, and a build writes each such view once and copies it into the others
-(:func:`osprey.facility.render.render_facility_outputs`).
+(:func:`osprey.facility.views.outputs.render_facility_outputs`).
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ from pathlib import Path
 from typing import Any
 
 from osprey.bluesky_bridge_connection import LANE_KEYS
-from osprey.facility.records import FacilityRecords
 from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "GRAPH_BASIS_KEY",
@@ -160,10 +160,9 @@ def view_bytes(document: Mapping[str, Any]) -> bytes:
     Returns:
         Its UTF-8 bytes.
     """
-    import json
+    from osprey_facility.render import json_bytes
 
-    text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
-    return (text + "\n").encode("utf-8")
+    return json_bytes(document)
 
 
 def report_omitted(view: View, reason: str) -> None:
@@ -312,7 +311,7 @@ VIEWS: tuple[View, ...] = (
         path=VIEW_RELPATH.name,
         written_when=_always,
         write=_write_simulator,
-        reads=("control_system",),
+        reads=("control_system", "simulation.default_scenarios"),
     ),
     View(
         name="limits",

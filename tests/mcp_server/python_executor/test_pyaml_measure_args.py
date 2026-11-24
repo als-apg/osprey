@@ -17,12 +17,12 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
-from osprey.facility.kinds import registered
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.mcp_server.python_executor.tools._pyaml_measure_args import (
     MeasureArgs,
     resolve_measure_args,
 )
+from osprey_facility.kinds import registered
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 from tests.mcp_server.conftest import assert_error
 

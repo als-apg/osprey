@@ -87,13 +87,27 @@ class TestChainOrder:
 class TestMergeChain:
     """``merge_chain`` — one dict, later file wins."""
 
-    def test_local_wins_on_a_conflicting_key(self, tmp_path):
-        write_chain(tmp_path, shared="SHARED_ONLY=s\nBOTH=from_shared\n", local="BOTH=from_local\n")
-        assert merge_chain(tmp_path) == {"SHARED_ONLY": "s", "BOTH": "from_local"}
-
-    def test_local_only_key_is_added(self, tmp_path):
-        write_chain(tmp_path, shared="A=1\n", local="B=2\n")
-        assert merge_chain(tmp_path) == {"A": "1", "B": "2"}
+    @pytest.mark.parametrize(
+        ("shared", "local", "expected"),
+        [
+            pytest.param(
+                "SHARED_ONLY=s\nBOTH=from_shared\n",
+                "BOTH=from_local\n",
+                {"SHARED_ONLY": "s", "BOTH": "from_local"},
+                id="local-wins-on-a-conflicting-key",
+            ),
+            pytest.param("A=1\n", "B=2\n", {"A": "1", "B": "2"}, id="local-only-key-is-added"),
+            pytest.param(
+                "# a comment\nA='quoted default'\n",
+                'export B="local value"\n',
+                {"A": "quoted default", "B": "local value"},
+                id="comments-and-quoting-follow-the-parser",
+            ),
+        ],
+    )
+    def test_merges_shared_then_local(self, tmp_path, shared, local, expected):
+        write_chain(tmp_path, shared=shared, local=local)
+        assert merge_chain(tmp_path) == expected
 
     def test_shared_only_key_survives(self, tmp_path):
         """A default the local file says nothing about is still delivered."""
@@ -120,14 +134,6 @@ class TestMergeChain:
     def test_no_chain_files_merges_to_empty(self, tmp_path):
         assert merge_chain(tmp_path) == {}
 
-    def test_comments_and_quoting_follow_the_parser(self, tmp_path):
-        write_chain(
-            tmp_path,
-            shared="# a comment\nA='quoted default'\n",
-            local='export B="local value"\n',
-        )
-        assert merge_chain(tmp_path) == {"A": "quoted default", "B": "local value"}
-
     def test_does_not_touch_the_process_environment(self, tmp_path, monkeypatch):
         """Pure read: the helpers never export what they parsed."""
         monkeypatch.delenv("OSPREY_CHAIN_PROBE", raising=False)
@@ -150,13 +156,20 @@ class TestFormatEnvLine:
     def test_plain_value_is_written_unquoted(self):
         assert format_env_line("KEY", "plain") == "KEY=plain"
 
-    def test_newline_value_is_refused(self):
-        with pytest.raises(ValueError, match="newline"):
-            format_env_line("KEY", "one\ntwo")
-
-    def test_both_quote_characters_with_quoting_needed_is_refused(self):
-        with pytest.raises(ValueError, match="both single and double quotes"):
-            format_env_line("KEY", "needs space and 'both' \"quotes\"")
+    @pytest.mark.parametrize(
+        ("value", "match"),
+        [
+            pytest.param("one\ntwo", "newline", id="newline-value"),
+            pytest.param(
+                "needs space and 'both' \"quotes\"",
+                "both single and double quotes",
+                id="both-quote-characters-with-quoting-needed",
+            ),
+        ],
+    )
+    def test_unwritable_value_is_refused(self, value, match):
+        with pytest.raises(ValueError, match=match):
+            format_env_line("KEY", value)
 
 
 class TestWriteEnvMerged:

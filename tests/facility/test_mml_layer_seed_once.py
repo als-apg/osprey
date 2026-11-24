@@ -4,16 +4,17 @@ Each case imports a fixture tree's exports into a fresh ``data/facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
 over the imported tree. The cases that only read a clean import of a whole
-tree share one import of it per module; a case that changes the facility
-works on its own copy.
+tree share the run's one import of it (``mml_imported``), and those that read
+its build the run's one build (``mml_built``); a case that changes the
+facility works on its own copy.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import shutil
+import sys
+import types
 from collections import Counter
 from collections.abc import Callable
 from functools import cached_property
@@ -23,30 +24,37 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES, build_facility
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.layers import HEADER
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.build import LATER_STAGES, build_facility
+from osprey_facility.errors import FacilityBuildError, ImportStop
+from osprey_facility.layers import HEADER
+from osprey_facility.layers.mml import seed as seed_module
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
     read_exports,
     write_records,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families
-from osprey.facility.validate import known_classes, run_stages
+from osprey_facility.layers.mml.mapping import MAPPING_FILE, read_mapping
+from osprey_facility.layers.mml.seed import READOUT_FILE, TUNING, band
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families
+from osprey_facility.validate import known_classes, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._mml_built import (
     BUILT,
     TREES,
     WIDENED,
+    BuiltModel,
+    MmlImport,
     export_files,
+    import_record,
+    load_yaml,
     mapped_facility,
+    read_yaml,
     widen,
 )
 
-#: The module's readers share one import per tree, which only holds on one worker.
+#: The module's readers share the parse of each import, which only holds on one worker.
 pytestmark = [
     pytest.mark.xdist_group("mml_layer_seed_once"),
     pytest.mark.usefixtures("entry_points_read_afresh"),
@@ -73,7 +81,8 @@ def _edited(root: Path, tree: str, stem: str, edit: Any) -> Path:
 
 
 def _load(path: Path) -> Any:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    """``path`` parsed once for every reader; the caller only reads it."""
+    return read_yaml(path)
 
 
 def _limits(facility: Path) -> dict[str, dict[str, Any]]:
@@ -109,12 +118,10 @@ class _Imported:
     changes a parsed record, so one import serves them all.
     """
 
-    def __init__(self, root: Path, tree: str) -> None:
-        self.facility = mapped_facility(root, tree)
-        printed = io.StringIO()
-        with contextlib.redirect_stdout(printed):
-            self.written = import_mml(export_files(tree), self.facility)
-        self.printed = printed.getvalue()
+    def __init__(self, imported: MmlImport) -> None:
+        self.facility = imported.facility
+        self.written = imported.written
+        self.printed = imported.printed
 
     @cached_property
     def wired(self) -> set[str]:
@@ -132,14 +139,13 @@ class _Imported:
 
 
 @pytest.fixture(scope="module")
-def imports(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], _Imported]:
-    """Each tree imported on its first request, then served to every reader."""
-    root = tmp_path_factory.mktemp("mml-imports")
+def imports(mml_imported: Callable[[str], MmlImport]) -> Callable[[str], _Imported]:
+    """Each tree's one import of the run, read on its first request, then served to every reader."""
     done: dict[str, _Imported] = {}
 
     def imported(tree: str) -> _Imported:
         if tree not in done:
-            done[tree] = _Imported(root / tree, tree)
+            done[tree] = _Imported(mml_imported(tree))
         return done[tree]
 
     return imported
@@ -218,28 +224,30 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
             assert (facility / name).read_text(encoding="utf-8") == text, name
 
 
-def test_an_existing_classes_file_gains_only_the_classes_it_lacks(tmp_path: Path) -> None:
-    facility = mapped_facility(tmp_path, "nsls2")
-    fresh = mapped_facility(tmp_path / "fresh", "nsls2")
-    import_mml(export_files("nsls2"), fresh)
-    derived = [row["class"] for row in _load(fresh / "classes.yaml")]
+def test_an_existing_classes_file_gains_only_the_classes_it_lacks(
+    tmp_path: Path, imports: Callable[[str], _Imported]
+) -> None:
+    # The classes a clean import of the tree derives, from the run's one import of it.
+    derived = [row["class"] for row in _load(imports("spear3").facility / "classes.yaml")]
+    assert len(derived) > 1
+    facility = mapped_facility(tmp_path, "spear3")
     held = f"# kept\n- {{class: {derived[-1]}, parent: Instrumentation}}\n"
     (facility / "classes.yaml").write_text(held, encoding="utf-8")
 
-    import_mml(export_files("nsls2"), facility)
+    import_mml(export_files("spear3"), facility)
 
     text = (facility / "classes.yaml").read_text(encoding="utf-8")
     assert text.startswith(held)
     rows = [row["class"] for row in _load(facility / "classes.yaml")]
     assert rows == [derived[-1], *derived[:-1]]
-    import_mml(export_files("nsls2"), facility)
+    import_mml(export_files("spear3"), facility)
     assert (facility / "classes.yaml").read_text(encoding="utf-8") == text
 
 
 def test_one_import_judges_each_export_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from osprey.facility.layers.mml import judgments
+    from osprey_facility.layers.mml import judgments
 
     judged: list[str] = []
     judge = judgments.judged_family_views
@@ -339,7 +347,7 @@ def test_band_reads_a_flat_pair_or_the_rows_of_the_devices_on_the_address(
 
 def test_the_build_stops_on_a_nominal_outside_its_range(synthetic: Path) -> None:
     with pytest.raises(FacilityBuildError) as stop:
-        build_facility(synthetic, project_name="demo")
+        build_facility(synthetic, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert (stop.value.kind, stop.value.record_kind, stop.value.record_id) == (
         "seed-invalid",
         "channel",
@@ -349,7 +357,9 @@ def test_the_build_stops_on_a_nominal_outside_its_range(synthetic: Path) -> None
 
 
 def test_the_planted_nominal_is_the_only_stop_of_the_synthetic_tree(synthetic: Path) -> None:
-    report = run_stages(synthetic, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        synthetic, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert [(error.kind, error.record_kind, error.record_id) for error in report.errors] == [
         ("seed-invalid", "channel", OUTSIDE)
     ]
@@ -381,6 +391,54 @@ def test_a_later_import_reports_each_differing_range_and_applies_none(
         "limits differ: QK:IDGAP:2:CUR:SP file [0,60] export [0,80]",
     ]
     assert _authored(facility) == before
+
+
+def test_a_later_import_names_each_banded_setpoint_the_file_has_no_record_for(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], imports: Callable[[str], _Imported]
+) -> None:
+    facility = imports("synthetic").copy(tmp_path)
+    path = facility / "limits.yaml"
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    dropped = sorted(r["address"] for r in document["records"] if "IDGAP" in r["address"])
+    assert dropped
+    document["records"] = [r for r in document["records"] if r["address"] not in dropped]
+    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    before = _authored(facility)
+    ao = _edited(tmp_path, "synthetic", "quokka.sr", lambda document: None)
+    capsys.readouterr()
+
+    import_mml([ao], facility)
+
+    out = capsys.readouterr().out.splitlines()
+    (head,) = [line for line in out if line.startswith("limits not recorded:")]
+    assert head == (
+        f"limits not recorded: {len(dropped)} setpoints have a band in the export and no "
+        "record in limits.yaml; the import writes none of them"
+    )
+    named = [line.split()[0] for line in out[out.index(head) + 1 :][: len(dropped)]]
+    assert named == dropped
+    assert _authored(facility) == before  # named, never written
+
+
+def test_a_band_table_of_another_length_than_the_devices_is_named_and_skipped(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def misalign(document: dict[str, Any]) -> None:
+        rows = len(document["IDGAP"]["Setpoint"]["ChannelNames"]) + 1
+        document["IDGAP"]["Setpoint"]["Range"] = [[0, 60]] * rows
+
+    ao = _edited(tmp_path, "synthetic", "quokka.sr", misalign)
+    facility = mapped_facility(tmp_path, "synthetic")
+    capsys.readouterr()
+
+    import_mml([ao], facility)
+
+    lines = [
+        line for line in capsys.readouterr().out.splitlines() if "limits table skipped" in line
+    ]
+    assert len(lines) == 1
+    assert ".Setpoint Range states 3 rows for 2 devices; no edge is taken from it" in lines[0]
+    assert not any("IDGAP" in address for address in _limits(facility))
 
 
 def test_a_wired_setpoint_without_a_band_on_both_edges_is_reported(
@@ -551,7 +609,7 @@ def test_the_spear3_measurement_reads_the_tune_on_its_wired_readback(spear3: Pat
 def test_the_seeded_kinds_are_every_kind_the_file_names_the_members_of(
     imported: _Imported,
 ) -> None:
-    from osprey.facility.kinds import builtin_kinds
+    from osprey_facility.kinds import builtin_kinds
 
     periodic = {
         model["name"]: (model.get("settings") or {}).get(model["engine"], {}).get("solve")
@@ -577,12 +635,12 @@ def test_the_import_seeds_no_kind_a_deployment_package_registers(
     The SPEAR3 export names every member the fixture kind declares, so a seed
     that offered every registered kind would list it.
     """
-    from osprey.facility.kinds import registered
+    from osprey_facility.kinds import registered
     from tests.facility.fixtures.registry_kind import REGISTRY_KIND, install
 
     install(monkeypatch)
     declaration = registered()[REGISTRY_KIND]
-    imported = _Imported(tmp_path / "spear3", "spear3")
+    imported = _Imported(import_record("spear3", tmp_path / "spear3"))
     document = _load(imported.facility / "measurement" / "StorageRing.yaml")
     named = set(document["groups"]) | set(document.get("instruments", {}))
 
@@ -699,10 +757,8 @@ def _served_and_model_readings(
 
 
 def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_position(
-    tmp_path: Path, imports: Callable[[str], _Imported]
+    mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
-    from osprey.facility.views.simulator import simulator_wiring
-
     va = json.loads((FIXTURES / "spear3" / "spear3.storagering.va.json").read_text("utf-8"))
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text("utf-8"))
     stated = {
@@ -717,10 +773,9 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     }
     assert sum(offset != 0 for _, offset in stated.values()) == 107
 
-    facility = imports("spear3").copy(tmp_path)
-    widen(facility, WIDENED["spear3"])
-    document = build_facility(facility, project_name="demo")
-    wiring = simulator_wiring(FacilityRecords(document), "StorageRing")
+    # The run's one spear3 build: its import, widened as named, built.
+    built = mml_built("spear3", "spear3.storagering")
+    facility, document, wiring = built.facility, built.document, built.wiring
     monitors = {
         record["address"]: record
         for record in wiring
@@ -758,7 +813,7 @@ def test_the_middle_layer_correction_of_a_served_synthetic_bpmx_reading_is_the_m
 
     facility = imports("synthetic").copy(tmp_path)
     widen(facility, {OUTSIDE: ("max_value", 2.0)})
-    document = build_facility(facility, project_name="demo")
+    document = build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
     seeded = _readout_rows(facility)
     assert seeded == {
@@ -796,6 +851,85 @@ def test_a_readout_the_engine_cannot_carry_is_named_and_not_written(
     assert rows
     assert {field for fields in rows.values() for field in fields} == {"roll"}
     assert not [address for address in rows if "Y" in address]
+
+
+def _engines_registered(monkeypatch: pytest.MonkeyPatch, plugins: dict[str, Any]) -> None:
+    """Register each module of ``plugins`` as the engine of its name, and nothing else."""
+    from importlib import metadata
+
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+
+    for name, module in plugins.items():
+        monkeypatch.setitem(sys.modules, f"_seed_fake_engine_{name}", module)
+    found = metadata.EntryPoints(
+        [
+            metadata.EntryPoint(name=name, value=f"_seed_fake_engine_{name}", group=ENGINE_GROUP)
+            for name in plugins
+        ]
+    )
+    monkeypatch.setattr(metadata, "entry_points", lambda **kwargs: found)
+
+
+def test_a_model_whose_engine_has_no_plugin_stops_the_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    facility = mapped_facility(tmp_path, "synthetic")
+    _engines_registered(monkeypatch, {})
+
+    with pytest.raises(ImportStop) as stopped:
+        import_mml(export_files("synthetic"), facility)
+
+    assert stopped.value.problem == "reference-missing"
+    (line,) = stopped.value.lines
+    assert "osprey_connectors.simulation.engines" in line
+    assert "pyat" in line
+
+
+def test_the_readout_roster_calls_the_plugins_fault_variables_on_the_raw_wiring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Any, Any]] = []
+
+    def fault_variables(wiring: Any, settings: Any = None) -> dict[str, Any]:
+        calls.append((wiring, settings))
+        return {"s": types.SimpleNamespace(address="BPM:1:X", field="roll")}
+
+    plugin = types.ModuleType("plugin")
+    plugin.fault_variables = fault_variables  # type: ignore[attr-defined]
+    _engines_registered(monkeypatch, {"pyat": plugin})
+    wiring = [{"address": "BPM:1:X", "element": "BPM1"}]
+    settings = {"pyat": {"solve": "ring"}}
+
+    roster = seed_module._roster(
+        {"name": "SR", "engine": "pyat", "wiring": wiring, "settings": settings}
+    )
+
+    assert roster == {("BPM:1:X", "roll")}
+    assert calls == [(wiring, settings)]
+
+
+def test_the_readout_roster_lets_the_plugins_refusal_propagate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fault_variables(*_: Any) -> dict[str, Any]:
+        raise ValueError("wiring refused")
+
+    plugin = types.ModuleType("plugin")
+    plugin.fault_variables = fault_variables  # type: ignore[attr-defined]
+    _engines_registered(monkeypatch, {"pyat": plugin})
+
+    with pytest.raises(ValueError, match="wiring refused"):
+        seed_module._roster({"name": "SR", "engine": "pyat", "wiring": []})
+
+
+def test_a_plugin_without_fault_variables_declares_no_readout_fault(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _engines_registered(monkeypatch, {"pyat": types.ModuleType("plugin")})
+
+    assert (
+        seed_module._roster({"name": "SR", "engine": "pyat", "wiring": [{"address": "A"}]}) == set()
+    )
 
 
 # --- classes.yaml -------------------------------------------------------------------
@@ -836,7 +970,7 @@ def test_the_classes_of_the_storage_tree_land(spear3: Path) -> None:
 def test_a_declared_branch_is_a_row_ahead_of_the_classes_that_extend_it(tmp_path: Path) -> None:
     facility = mapped_facility(tmp_path, "synthetic")
     path = facility / MAPPING_FILE
-    document = _load(path)
+    document = load_yaml(path)
     document["branches"] = {
         "Trim": {"parent": "Steering", "description": None},
         "Steering": {"parent": "Corrector", "description": None},
@@ -941,7 +1075,7 @@ POLARITY = tuple(f"LTB-MG{{Quad:{number}}}I:Sp1-SP" for number in (1, 3, 4, 6, 9
 
 
 def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarity(
-    imports: Callable[[str], _Imported],
+    imports: Callable[[str], _Imported], mml_built: Callable[[str, str], BuiltModel]
 ) -> None:
     facility, printed = imports("nsls2").facility, imports("nsls2").printed
     ao = json.loads((FIXTURES / "nsls2" / "nsls2.ltb.ao.json").read_text(encoding="utf-8"))
@@ -971,7 +1105,9 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
         assert record["calibration"]["curve"]["linear"]["gain"] > 0, address
         assert low <= stated[address] <= high, address
 
-    document = build_facility(facility, project_name="demo")
+    # The run's one nsls2 build is this import built: nsls2 widens no band.
+    assert not WIDENED["nsls2"]
+    document = mml_built("nsls2", "nsls2.ltb").document
     defaults = {
         record["address"]: record["default"]
         for model in document["models"]
@@ -981,15 +1117,25 @@ def test_a_transport_quadrupole_the_deck_holds_the_other_way_carries_its_polarit
         assert defaults[address] == pytest.approx(stated[address], rel=1e-9), address
 
 
+def _files(facility: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(facility).as_posix(): path.read_bytes()
+        for path in sorted(facility.rglob("*"))
+        if path.is_file()
+    }
+
+
 @pytest.mark.parametrize("name", BUILT)
 def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_widened(
-    name: str, tmp_path: Path
+    name: str, tmp_path: Path, mml_built: Callable[[str, str], BuiltModel]
 ) -> None:
     facility = mapped_facility(tmp_path, name)
     exports = read_exports(export_files(name))
     write_records(exports, read_mapping(facility / MAPPING_FILE), facility)
 
-    report = run_stages(facility, project_name="demo", later=LATER_STAGES)
+    report = run_stages(
+        facility, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
 
     assert Counter(error.kind for error in report.errors) == {
         "class-unknown": UNKNOWN_CLASS_DEVICES[name]
@@ -997,7 +1143,9 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
 
     import_mml(export_files(name), facility)
 
-    seeded = run_stages(facility, project_name="demo", later=LATER_STAGES)
+    seeded = run_stages(
+        facility, project_name="demo", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert sorted((error.kind, error.record_kind, error.record_id) for error in seeded.errors) == [
         ("seed-invalid", "channel", address) for address in sorted(WIDENED[name])
     ]
@@ -1006,10 +1154,10 @@ def test_the_build_exits_clean_once_classes_are_seeded_and_each_named_band_is_wi
         assert "widen the limits record" in error.remedy, error.record_id
     if WIDENED[name]:
         with pytest.raises(FacilityBuildError):
-            build_facility(facility, project_name="demo")
+            build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
     widen(facility, WIDENED[name])
 
-    document = build_facility(facility, project_name="demo")
-    assert document is not None
-    assert not run_stages(facility, project_name="demo", later=LATER_STAGES).errors
+    # The widened tree is, byte for byte, the run's one build of the tree, which
+    # ``build_facility`` built without a stop: the build reads nothing but the tree.
+    assert _files(facility) == _files(mml_built(name, TREES[name][0]).facility)

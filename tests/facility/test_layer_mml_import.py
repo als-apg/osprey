@@ -3,13 +3,12 @@
 Each case copies a fixture tree's mapping to
 ``data/facility/imported/mml/mapping.yaml`` and imports the tree's exports
 into a fresh ``data/facility/``. The cases that only read a clean import of a
-whole tree share one import of it per module, and the parse of its records.
+whole tree share the run's one import of it (``mml_imported``), and the parse
+of its records.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
 import re
 import shutil
@@ -21,17 +20,18 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.layers.mml.importer import (
+from osprey_facility.errors import FacilityError, ImportStop, MappingProblems
+from osprey_facility.layers.mml.importer import (
     LAYER_DIR,
-    MappingProblems,
     import_mml,
     read_exports,
 )
-from osprey.facility.layers.mml.mapping import MAPPING_FILE, ImportStop
-from osprey.facility.validate import run_stages
-from tests.facility._mml_built import BuiltModel
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
+from tests.facility._mml_built import BuiltModel, MmlImport, load_yaml, read_yaml
 
-#: The module's readers share one import per tree, which only holds on one worker.
+#: The module's second spear3 import is made once per module, which only holds on one worker.
 pytestmark = pytest.mark.xdist_group("layer_mml_import")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -76,7 +76,8 @@ def _import(tmp_path: Path, tree: str, stems: tuple[str, ...] | None = None) -> 
 
 
 def _rows(facility: Path, name: str) -> list[dict[str, Any]]:
-    return yaml.safe_load((facility / LAYER_DIR / name).read_text(encoding="utf-8"))
+    rows: list[dict[str, Any]] = load_yaml(facility / LAYER_DIR / name)
+    return rows
 
 
 def _by_id(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]]:
@@ -84,8 +85,8 @@ def _by_id(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, A
 
 
 @pytest.fixture(scope="module")
-def spear3(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _import(tmp_path_factory.mktemp("spear3"), "spear3")
+def spear3(mml_imported: Callable[[str], MmlImport]) -> Path:
+    return mml_imported("spear3").facility
 
 
 @pytest.fixture(scope="module")
@@ -95,27 +96,23 @@ def spear3_again(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def nsls2(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, str]:
+def nsls2(mml_imported: Callable[[str], MmlImport]) -> tuple[Path, str]:
     """The nsls2 tree imported into a fresh facility, and what the import printed."""
-    printed = io.StringIO()
-    with contextlib.redirect_stdout(printed):
-        facility = _import(tmp_path_factory.mktemp("nsls2"), "nsls2")
-    return facility, printed.getvalue()
+    imported = mml_imported("nsls2")
+    return imported.facility, imported.printed
 
 
 @pytest.fixture(scope="module")
 def parsed() -> Callable[[Path, str], list[dict[str, Any]]]:
-    """The rows of a shared import's record file, parsed on the first read.
+    """The rows of a shared import's record file, parsed once for every reader.
 
-    Only the module-scoped imports are read through it, and every reader only
-    reads the rows, so one parse serves them all.
+    Only the shared imports are read through it, and every reader only reads
+    the rows, so one parse serves them all.
     """
-    done: dict[tuple[Path, str], list[dict[str, Any]]] = {}
 
     def rows(facility: Path, name: str) -> list[dict[str, Any]]:
-        if (facility, name) not in done:
-            done[facility, name] = _rows(facility, name)
-        return done[facility, name]
+        found: list[dict[str, Any]] = read_yaml(facility / LAYER_DIR / name)
+        return found
 
     return rows
 
@@ -159,7 +156,7 @@ def test_devices_carry_their_common_name_as_label_and_no_attributes(
 
 
 def test_rows_json_maps_every_export_row_to_its_device(spear3: Path, spear3_again: Path) -> None:
-    from osprey.facility.layers.mml.rows import ROWS_FILE, ROWS_SCHEMA, read_rows
+    from osprey_facility.layers.mml.rows import ROWS_FILE, ROWS_SCHEMA, read_rows
 
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     raw = (spear3 / LAYER_DIR / ROWS_FILE).read_bytes()
@@ -192,7 +189,6 @@ def _built(mml_built: Callable[[str, str], BuiltModel], tree: str) -> dict[str, 
     return mml_built(tree, TREES[tree][0]).document
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_build_pairs_a_setpoint_with_its_monitor(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -209,7 +205,6 @@ def test_the_build_pairs_a_setpoint_with_its_monitor(
     assert "pair" in built[setpoint]["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_unpaired(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -225,7 +220,6 @@ def test_the_rf_station_pairs_its_phase_control_and_leaves_its_voltage_control_u
     assert built[rf["VoltageCtrl"]]["unit"] != built[rf["Voltage"]]["unit"]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
     mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
@@ -240,14 +234,13 @@ def test_a_two_coil_corrector_pairs_each_coil_with_its_own_readback(
 
 def _first_device(facility: Path, family: str) -> tuple[str, float]:
     """The device of a spear3 family's first export row, and that row's ``Position``."""
-    from osprey.facility.layers.mml.rows import read_rows
+    from osprey_facility.layers.mml.rows import read_rows
 
     ao = json.loads((FIXTURES / "spear3" / "spear3.storagering.ao.json").read_text())
     row = tuple(ao[family]["DeviceList"][0])
     return read_rows(facility)["StorageRing", family][row], ao[family]["Position"][0]
 
 
-@pytest.mark.xdist_group("mml_built")
 def test_a_device_carries_the_exports_position(
     spear3: Path, mml_built: Callable[[str, str], BuiltModel], parsed: Callable[..., Any]
 ) -> None:
@@ -261,7 +254,6 @@ def test_a_device_carries_the_exports_position(
     assert "s" not in built["provenance"]["defaults"]
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 509), ("nsls2", 817)])
 def test_every_wired_position_agrees_with_the_deck(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
@@ -272,14 +264,13 @@ def test_every_wired_position_agrees_with_the_deck(
     wired = _wired_devices(model.document)
     stated = {
         row["id"]: row["s"]
-        for row in _rows(model.facility, "devices.yaml")
+        for row in read_yaml(model.facility / LAYER_DIR / "devices.yaml")
         if "s" in row and row["id"] in wired
     }
     assert len(stated) == count
     assert {device: built[device]["s"] for device in stated} == stated
 
 
-@pytest.mark.xdist_group("mml_built")
 @pytest.mark.parametrize(("tree", "count"), [("spear3", 142), ("nsls2", 246)])
 def test_unwired_devices_gain_s(
     tree: str, count: int, mml_built: Callable[[str, str], BuiltModel]
@@ -384,7 +375,7 @@ def test_an_eps_or_infinite_tolerance_writes_none(
 
 
 def test_the_imported_tree_loads_with_its_mapping_beside_the_records(spear3: Path) -> None:
-    report = run_stages(spear3, project_name="demo")
+    report = run_stages(spear3, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert [e.format_message() for e in report.errors if "is not a layer file" in e.detail] == []
     assert report.failed != "load"
 
@@ -436,14 +427,18 @@ def test_nsls2_imports_both_trees_into_one_facility(
 def test_no_facility_word_under_the_layer() -> None:
     """The layer's own code names no facility; the exporter it ships is an outside format."""
     tracked = subprocess.run(
-        ["git", "ls-files", "src/osprey/facility/layers/mml/"],
+        ["git", "ls-files", "packages/osprey-facility/src/osprey_facility/layers/mml/"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.split()
-    files = [path for path in tracked if path != "src/osprey/facility/layers/mml/mml_export.m"]
-    assert "src/osprey/facility/layers/mml/importer.py" in files
+    files = [
+        path
+        for path in tracked
+        if path != "packages/osprey-facility/src/osprey_facility/layers/mml/mml_export.m"
+    ]
+    assert "packages/osprey-facility/src/osprey_facility/layers/mml/importer.py" in files
     word = re.compile(r"\b(als|spear3?|nsls-?(ii|2)?|ltb|gtl|gtb|bts|quokka)\b", re.IGNORECASE)
     found = [
         f"{path}:{number}"
@@ -550,13 +545,45 @@ def test_a_mapping_that_fails_its_check_stops_the_import_before_anything_is_writ
     with pytest.raises(MappingProblems) as stop:
         import_mml([FIXTURES / "synthetic" / "quokka.sr.ao.json"], facility)
 
-    assert stop.value.exit_code == 1
+    assert isinstance(stop.value, FacilityError)
     lines = stop.value.format_message().splitlines()
     assert lines[0] == "models.SR.name: 'S R' is not PN_LOCAL"
     assert lines[1:-1] == [str(problem) for problem in stop.value.problems[1:]]
     assert lines[-1] == f"{len(lines) - 1} problems in {mapping}; fix each and check again."
     assert sorted(path.name for path in (facility / LAYER_DIR).iterdir()) == ["mapping.yaml"]
     assert sorted(path.name for path in facility.iterdir()) == ["imported"]
+
+
+def test_a_by_model_answer_gives_one_model_s_channels_their_own_signal(
+    tmp_path: Path,
+) -> None:
+    exports = _nsls2_copy(tmp_path)
+    facility = _facility(tmp_path, "nsls2")
+    mapping = facility / MAPPING_FILE
+    text = mapping.read_text(encoding="utf-8")
+    stated = "        signal: current_x_setpoint\n"
+    assert text.count(stated) == 1
+    mapping.write_text(
+        text.replace(stated, stated + "        by_model:\n          LTB: null\n"),
+        encoding="utf-8",
+    )
+    import_mml(exports, facility)
+    channels = read_yaml(facility / LAYER_DIR / "channels.yaml")
+    written = {row["id"]: row for row in channels}
+    ao = {
+        stem: json.loads((FIXTURES / "nsls2" / f"{stem}.ao.json").read_text(encoding="utf-8"))
+        for stem in TREES["nsls2"]
+    }
+
+    def setpoints(stem: str) -> list[str]:
+        names = ao[stem]["HCM"]["Setpoint"]["ChannelNames"]
+        return [name for name in names if isinstance(name, str) and name in written]
+
+    ring = setpoints("nsls2.storagering")
+    line = setpoints("nsls2.ltb")
+    assert ring and line
+    assert {written[name].get("signal") for name in ring} == {"current_x_setpoint"}
+    assert {written[name].get("signal") for name in line} == {None}
 
 
 def test_a_field_s_signal_role_lands_on_its_channels(
@@ -584,7 +611,7 @@ def test_plane_twins_are_one_group(spear3: Path, parsed: Callable[..., Any]) -> 
 
 
 def test_two_folds_with_one_stem_keep_both_groups() -> None:
-    from osprey.facility.layers.mml.importer import _physical_groups
+    from osprey_facility.layers.mml.importer import _physical_groups
 
     def group(token: str, members: list[str]) -> dict[str, Any]:
         return {"id": token, "members": members}
@@ -621,7 +648,7 @@ def test_a_readback_several_setpoints_share_pairs_none_of_them(tmp_path: Path) -
     import_mml([FIXTURES / "paired" / "quokka.ring.ao.json"], facility)
     channels = _by_id(_rows(facility, "channels.yaml"))
     assert channels["QK:R12:HCM:RB"]["endpoint_of"] == ["RING/hcm_1", "RING/hcm_2"]
-    result = run_stages(facility, project_name="demo")
+    result = run_stages(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     assert not result.errors
     built = _by_id(result.validated.document["channels"])
     for setpoint in ("QK:R1:HCM1:SP", "QK:R2:HCM1:SP"):

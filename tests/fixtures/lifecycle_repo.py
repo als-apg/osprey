@@ -88,6 +88,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib.resources
 import os
 import re
@@ -355,6 +356,15 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
+  recorder_tail_cadence_sec: 60      # how often a recorded sample is kept for the full span
+  recorder_poll_sec: 30              # how often the recorder re-reads config.yml
+  database: osprey_archiver          # database holding the history
+  collection: pv_history             # collection the samples go to
+  compression: zstd                  # zstd | snappy | zlib | none
+  username: osprey                   # user the agent connects as
+  auth_database: admin               # database that user authenticates against
+  password_env: MONGO_ROOT_PASSWORD  # variable naming that user's password
+  timeout_sec: 5                     # seconds the agent waits to reach the store
   # The build derives `freshness_channel`, the channel `osprey health` watches,
   # from the facility file; a stated line is an override checked against it.
 
@@ -680,14 +690,18 @@ config:
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
 
-  # ── PV directory ───────────────────────────────────────────────────────────
+  # ── channel directory ───────────────────────────────────────────────────────────
   # The All PVs view and the agent's PV record tools. With no `type` they list
   # the simulator's channels and IOC health PVs; `alarm_state.replay_file`
-  # plays a packaged alarm feed. Off: `osprey set config.pv_directory=null`,
-  # or `pv_directory: null` in a profile that extends this one.
-  pv_directory:
+  # plays a packaged alarm feed. Off: `osprey set config.channel_directory=null`,
+  # or `channel_directory: null` in a profile that extends this one.
+  channel_directory:
     alarm_state:
       replay_file: demo:example-alarms
+    # server fleet: the IOCs view and the agent's `server_fleet` tool. 10 s is the
+    # shortest period allowed (twice the 5 s VA read bound). Off: `fleet: null`.
+    fleet:
+      period_s: 10
 
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
@@ -1426,6 +1440,11 @@ dispatch:
   # The tier a dispatched job runs at. A job has nobody to approve a write, so
   # the workers run read-only; remove the line to run the deployment's own posture.
   tier: readonly
+  worker_port_stride: 1  # port gap between workers, host network only
+  transport: http        # http | bus
+  timeout_sec: 300       # wall-clock ceiling on one run
+  inactivity_sec: 120    # seconds a run may produce nothing before it is cut off
+  max_turns: 25          # agent turns one run may take
 
 # ── Environment variables ────────────────────────────────────────────────────
 # Passwords for the webhook service above. They have no defaults on purpose:
@@ -1454,7 +1473,6 @@ env:
     OSPREY_AUTH_PW_ALICE: alice
     OSPREY_AUTH_PW_BOB: bob
     OSPREY_AUTH_PW_CAROL: carol
-data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.10.0'
 # What this profile was materialized from. Emitted, not hand-written: a
@@ -1470,6 +1488,15 @@ provenance:
 deploy_services: true
 # Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
+# Bundled template rendered as CLAUDE.md, the agent's instructions.
+claude_md_template: CLAUDE.md.j2
+
+# --- Facility data tree ------------------------------------------------------
+# Path (relative to this profile) of the data tree the build copies. `osprey
+# init` materializes it from the preset's packaged tree and sets this key; a
+# layer under tiers/ inherits it and resolves it against this
+# profile's directory. Full replacement, not a fallback.
+data: data
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -1533,8 +1560,8 @@ panel_presets: {}
 # --- Optimizer web panel -----------------------------------------------------
 # The OPTIMIZER tab for the web terminal (requires the optimizer block): where
 # a person reviews and starts the run an agent drafted. The sidecar takes the
-# optimizer_web slot of this deployment's port block; the override below pins
-# it outside that block.
+# optimizer_web slot of this deployment's port block; a `port` key in this
+# block pins it outside that block.
 #
 # optimizer_web:
 #   port: <host port>
@@ -1883,7 +1910,7 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # The facility knowledge bundle answers "how is the machine documented"; that
   # is the `knowledge` login's question, not this one's.
   claude_code.servers.osprey_facility_knowledge.enabled: false
@@ -1999,7 +2026,7 @@ config:
   # The logbook is the `logbook` login's.
   claude_code.servers.ariel.enabled: false
   # Channel records and alarms are the `channel-finder` login's.
-  claude_code.servers.pv-directory.enabled: false
+  claude_code.servers.channel-directory.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
   # dispatcher renders only with the EVENTS panel, which no shared login carries.
@@ -3106,12 +3133,48 @@ def _osprey_version() -> str:
     return __version__
 
 
+def _presets_root() -> Path:
+    """The preset directory in force: the package's, or one a test patched in.
+
+    The key the cached values below are filed under, so a test that points the
+    presets at its own directory gets that directory's values, never the
+    package's (or the reverse).
+
+    The key is the directory's path, not its content: a test that patches in a
+    directory of its own and then edits a preset in it after the exemplar was
+    first materialized must call :func:`clear_exemplar_caches` before asking
+    again, or it is served the values from before its edit. No caller does
+    that today (each patching test either never materializes the exemplar or
+    does so in another test), which is why the path is enough.
+    """
+    from osprey.cli import build_profile_presets
+
+    return build_profile_presets._presets_dir()
+
+
+def clear_exemplar_caches() -> None:
+    """Forget every cached preset hash and exemplar source zone.
+
+    For a test that edits a patched presets directory in place after the
+    exemplar was materialized from it (see :func:`_presets_root`).
+    """
+    _preset_hash_in.cache_clear()
+    _exemplar_source_files_in.cache_clear()
+
+
 def _preset_hash(preset_name: str) -> str:
     """Content hash of a bundled preset, or the emitters' unavailable marker.
 
     A login is named kind-qualified (``tiers/readonly``, ``tiers/logbook``):
     the stem alone does not say which folder of the package it comes from.
     """
+    return _preset_hash_in(preset_name, _presets_root())
+
+
+@functools.cache
+def _preset_hash_in(preset_name: str, _presets_dir_key: Path) -> str:
+    """:func:`_preset_hash` once per preset and preset directory: the package
+    files it hashes do not change during a run."""
     from osprey.cli.build_profile_merge import compute_preset_hash
 
     return compute_preset_hash(preset_name) or "(unavailable)"
@@ -3119,9 +3182,18 @@ def _preset_hash(preset_name: str) -> str:
 
 def _providers_hash() -> str:
     """Content hash of the packaged provider catalog, as init stamps it."""
-    from osprey.profiles.providers import compute_providers_hash, packaged_catalog_path
+    from osprey.profiles.providers import packaged_catalog_path
 
-    return compute_providers_hash(packaged_catalog_path())
+    return _providers_hash_of(packaged_catalog_path())
+
+
+@functools.cache
+def _providers_hash_of(catalog: Path) -> str:
+    """:func:`_providers_hash` once per catalog path: the packaged catalog does
+    not change during a run, and hashing it parses the whole catalog."""
+    from osprey.profiles.providers import compute_providers_hash
+
+    return compute_providers_hash(catalog)
 
 
 def packaged_providers_yml() -> str:
@@ -3186,8 +3258,11 @@ def expand_sentinels(text: str) -> str:
     ``osprey init`` honest across version bumps, preset edits and additions to
     the provider catalog.
     """
-    text = text.replace(_VERSION_SENTINEL, _osprey_version())
-    text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
+    # Each value is computed only for a text that carries its sentinel.
+    if _VERSION_SENTINEL in text:
+        text = text.replace(_VERSION_SENTINEL, _osprey_version())
+    if _PROVIDERS_HASH_SENTINEL in text:
+        text = text.replace(_PROVIDERS_HASH_SENTINEL, _providers_hash())
     return _PRESET_HASH_SENTINEL.sub(lambda m: _preset_hash(m.group(1)), text)
 
 
@@ -3279,6 +3354,18 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
             are rendered from. The default False is the init-reproducible
             shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
+    """
+    # A fresh mapping every call: callers edit what they are handed.
+    return dict(_exemplar_source_files_in(with_ci, _presets_root()))
+
+
+@functools.cache
+def _exemplar_source_files_in(with_ci: bool, _presets_dir_key: Path) -> Mapping[str, str]:
+    """:func:`exemplar_source_files` once per shape and preset directory.
+
+    Everything it reads is this module's constants and installed package
+    files, none of which change during a run; materializing it re-parses the
+    provider catalog and every preset it hashes, so it is computed once.
     """
     files = {
         path: expand_sentinels(text)

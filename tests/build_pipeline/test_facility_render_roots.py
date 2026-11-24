@@ -19,13 +19,13 @@ from typing import Any, NoReturn
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.build_cmd import build
-from osprey.facility import TEXTURE
-from osprey.facility.render import FACILITY_FILE, facility_digest
+from osprey.cli.main import cli
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
-from osprey.facility.validate import FACILITY_HEADER
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import TEXTURE
+from osprey_facility.render import FACILITY_FILE, facility_digest
+from osprey_facility.validate import FACILITY_HEADER
 from tests._builds import BuiltProject, init_project
 
 pytestmark = [pytest.mark.slow]
@@ -41,7 +41,7 @@ CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 
 
 def _build(repo: Path, *extra: str) -> Any:
-    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-lifecycle", *extra])
+    return CliRunner().invoke(cli, ["build", "--repo", str(repo), "--skip-lifecycle", *extra])
 
 
 def _render_roots(repo: Path) -> list[Path]:
@@ -88,18 +88,20 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
             "data/facility_facts.json",
             "data/facility_facts.md",
             "data/graph/facility.ttl",
+            "data/pyaml/BR/configuration.yaml",
+            "data/pyaml/BR/lattice.json",
             "data/pyaml/BTS/configuration.yaml",
-            "data/pyaml/LINE/configuration.yaml",
             "data/pyaml/LTB/configuration.yaml",
             "data/pyaml/SR/configuration.yaml",
             "data/pyaml/SR/crm.json",
             "data/pyaml/SR/lattice.json",
             "data/pyaml/SR/trm.json",
             "data/simulator/addresses.json",
+            "data/simulator/decks/BR.json",
             "data/simulator/decks/BTS.json",
-            "data/simulator/decks/LINE.json",
             "data/simulator/decks/LTB.json",
             "data/simulator/decks/SR.json",
+            "data/simulator/follows.json",
             "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
             "data/simulator/scenarios/nominal/plots/orbit_rms.json",
             "data/simulator/scenarios/rf-thermal/plots/cavity_temperatures.json",

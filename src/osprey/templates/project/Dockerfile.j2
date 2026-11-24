@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Reference container image for {{ project_name }} — rendered by `osprey build`.
 #
 # `osprey up` builds this for you. To build it by hand: the build context is the
@@ -8,6 +7,9 @@
 # When the profile states `images.platform`, the FROM below already names it.
 # Then run it (secrets at runtime — no .env ever enters the image):
 #   docker run --rm -p {{ osprey_ports.web }}:{{ osprey_ports.web }} --env-file .env {{ project_name }}
+#
+# No frontend directive: the engine's builtin Dockerfile frontend builds this, so
+# the only registry pulls are the FROM lines below.
 #
 # The container starts as ROOT and does not stay there. `build/entrypoint.sh`
 # re-renders any drifted Claude Code artifact, restores the operator's owned
@@ -68,6 +70,12 @@
 #                       ${OSPREY_BASE_REGISTRY}/library/python:{{ image_python }}-slim,
 #                       and Node is copied out of
 #                       ${OSPREY_BASE_REGISTRY}/library/node:22-bookworm-slim.
+#   PLAYWRIGHT_DOWNLOAD_HOST  host the headless browser is downloaded from, for
+#                       a site that mirrors cdn.playwright.dev (same paths). It
+#                       is Playwright's own environment name; empty (the
+#                       default) downloads from Playwright's CDN.
+#   OSPREY_SKIP_BROWSER "1" builds without the headless browser; the artifact
+#                       converter and CANOPY screenshots then report it missing.
 
 ARG OSPREY_BASE_REGISTRY="docker.io"
 # Node for the Claude Code CLI comes out of this stage; see the COPY below.
@@ -342,13 +350,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # its driver needs libatomic.so.1 to start, and nothing else in the image keeps
 # it: gcc is what pulled it in, so the deps layer's toolchain purge autoremoves
 # it. Without it the install command below dies before it fetches anything.
+#
+# OSPREY_SKIP_BROWSER=1 skips only the download; libatomic1 stays because the
+# driver needs it to report the absent browser.
+ARG PLAYWRIGHT_DOWNLOAD_HOST=""
+ARG OSPREY_SKIP_BROWSER=""
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     apt-get update \
     && apt-get install -y --no-install-recommends libatomic1 \
-    && python -m playwright install --with-deps --only-shell chromium
+    && if [ "$OSPREY_SKIP_BROWSER" = "1" ]; then echo "OSPREY_SKIP_BROWSER=1: headless Chromium not installed"; else python -m playwright install --with-deps --only-shell chromium; fi
 
 # Wheel drop (wheel layer). `osprey up --dev` stages a locally-built wheel in
 # the build context; when one is present, install it with its dependencies under

@@ -341,20 +341,23 @@ class TestMigrationSQLExecution:
             """)
 
             try:
-                # Test FTS search uses the index
-                result = await conn.execute("""
-                    EXPLAIN SELECT * FROM enhanced_entries
-                    WHERE to_tsvector('english', raw_text)
-                        @@ plainto_tsquery('english', 'beam current')
-                """)
-                plan = "\n".join([row[0] for row in await result.fetchall()])
+                # A one-row table is always sequentially scanned, so switch the
+                # sequential scan off: only a usable index can then serve the query.
+                async with conn.transaction():
+                    await conn.execute("SET LOCAL enable_seqscan = off")
+                    result = await conn.execute("""
+                        EXPLAIN SELECT * FROM enhanced_entries
+                        WHERE to_tsvector('english', raw_text)
+                            @@ plainto_tsquery('english', 'beam current')
+                    """)
+                    plan = "\n".join([row[0] for row in await result.fetchall()])
             finally:
                 await conn.execute(
                     "DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'"
                 )
 
         # The query plan should reference the core raw-text FTS index
-        assert "idx_entries_raw_text_fts" in plan or "Seq Scan" in plan
+        assert "idx_entries_raw_text_fts" in plan
 
     async def test_primary_key_constraint_exists(self, migrated_pool):
         """Verify primary key constraint exists on enhanced_entries.
@@ -388,12 +391,11 @@ class TestMigrationSQLExecution:
             """)
             defaults = {row[0]: row[1] for row in await result.fetchall()}
 
-        # Should have default values (now() or similar)
-        assert defaults.get("created_at") is not None
-        assert (
-            "now" in defaults["created_at"].lower()
-            or "current_timestamp" in defaults["created_at"].lower()
-        )
+        # Both should default to now() or similar
+        for column in ("created_at", "updated_at"):
+            default = defaults.get(column)
+            assert default is not None, column
+            assert "now" in default.lower() or "current_timestamp" in default.lower(), column
 
     async def test_embedding_foreign_key_exists(self, migrated_pool):
         """Verify embedding table has foreign key to enhanced_entries.
@@ -604,8 +606,13 @@ class TestAttachmentTextColumnsMigration:
         assert await migrations.run_migrations(scratch_pool, scratch_config) == ["core_schema"]
         monkeypatch.setattr(migrations, "KNOWN_MIGRATIONS", both)
 
-        # A hang ceiling: k times the retry budget the busy skip is bounded by.
+        # A hang ceiling: k times the unpatched retry budget, computed before the
+        # patch below on purpose, so it stays what it was with the real delay.
         ceiling_s = 6 * migrations.LOCK_ATTEMPTS * migrations.LOCK_RETRY_DELAY_S
+        # The retries keep their count; only the pause between them shrinks, so
+        # the readers and the sampler still run across every attempt. This proves
+        # the attempts never queue; it no longer runs the real wall-clock window.
+        monkeypatch.setattr(migrations, "LOCK_RETRY_DELAY_S", 0.05)
 
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)

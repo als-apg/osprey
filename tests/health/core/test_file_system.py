@@ -19,6 +19,7 @@ from osprey.health.core import file_system as file_system_module
 from osprey.health.core.file_system import file_system
 from osprey.health.models import CheckResult, Status
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from tests._scoped_stdlib import scoped
 
 _GB = 1024**3
 
@@ -59,9 +60,12 @@ class TestRegistryAndContract:
         assert all(r.category == "file_system" for r in results)
 
     def test_context_argument_is_accepted_and_ignored(self, tmp_path: Path) -> None:
-        sentinel = object()
-        results = _run({}, tmp_path, context=sentinel)
-        assert results  # a non-connector category simply ignores the context
+        # A non-connector category simply ignores the context: same rows either way.
+        # Compared by (name, status) — disk_space's message samples live free space.
+        def rows(context: Any) -> list[tuple[str, Status]]:
+            return [(r.name, r.status) for r in _run({}, tmp_path, context=context)]
+
+        assert rows(object()) == rows(None)
 
     def test_none_config_degrades_gracefully(self, tmp_path: Path) -> None:
         by_name = _by_name(_run(None, tmp_path))
@@ -266,9 +270,11 @@ class TestRegistryFile:
 
 class TestDiskSpace:
     def _patch_usage(self, monkeypatch, *, total: float, used: float, free: float) -> None:
-        monkeypatch.setattr(
-            "osprey.health.core.file_system.shutil.disk_usage",
-            lambda _path: SimpleNamespace(total=total, used=used, free=free),
+        scoped(
+            monkeypatch,
+            "osprey.health.core.file_system",
+            "shutil",
+            disk_usage=lambda _path: SimpleNamespace(total=total, used=used, free=free),
         )
 
     def test_ample_space_ok(self, monkeypatch, tmp_path: Path) -> None:
@@ -303,7 +309,7 @@ class TestDiskSpace:
         def _boom(_path: Path) -> None:
             raise OSError("stat failed")
 
-        monkeypatch.setattr("osprey.health.core.file_system.shutil.disk_usage", _boom)
+        scoped(monkeypatch, "osprey.health.core.file_system", "shutil", disk_usage=_boom)
         by_name = _by_name(_run({}, tmp_path))
         assert by_name["disk_space"].status is Status.WARNING
         assert "Could not check disk space" in by_name["disk_space"].message
@@ -340,7 +346,7 @@ class TestDiskSpace:
         def _must_not_sample(_path: Path) -> None:
             raise AssertionError("disk_usage must not be called")
 
-        monkeypatch.setattr("osprey.health.core.file_system.shutil.disk_usage", _must_not_sample)
+        scoped(monkeypatch, "osprey.health.core.file_system", "shutil", disk_usage=_must_not_sample)
         config = {"health": {"disk": {"max_used_percent": 150}}}
         row = _by_name(_run(config, tmp_path))["disk_space"]
         assert row.status is Status.SKIP

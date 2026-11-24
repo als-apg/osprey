@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from tests._scoped_stdlib import scoped
 from tests._tree_scan import tracked_files
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "changelog_fragments.py"
@@ -49,35 +50,37 @@ def refuse_io(self, *args, **kwargs):  # noqa: ARG001
 
 
 class TestParseFragmentName:
-    def test_an_issue_number_name_carries_the_ref(self):
-        assert cf.parse_fragment_name("745.fixed.md") == ("745", "fixed", "745")
-
-    def test_an_issue_number_with_a_slug_suffix_still_carries_the_ref(self):
-        """`745-gate` names the issue and says which of its fixes this is."""
-        assert cf.parse_fragment_name("745-gate.fixed.md") == ("745-gate", "fixed", "745")
-
-    def test_a_slug_name_has_no_ref(self):
-        assert cf.parse_fragment_name("gate.fixed.md") == ("gate", "fixed", None)
-
-    def test_a_leading_date_is_read_as_an_issue_number(self):
-        """Documented sharp edge: the leading digits ARE the issue reference.
-
-        `2026-cleanup.changed.md` renders `(#2026)`. The rule cannot tell a
-        year from an issue, so the README tells contributors not to start a
-        name with a date.
-        """
-        assert cf.parse_fragment_name("2026-cleanup.changed.md") == (
-            "2026-cleanup",
-            "changed",
-            "2026",
-        )
-
-    def test_underscores_and_digits_inside_a_slug_are_fine(self):
-        assert cf.parse_fragment_name("web_terminal2.added.md") == (
-            "web_terminal2",
-            "added",
-            None,
-        )
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param(
+                "745.fixed.md", ("745", "fixed", "745"), id="an-issue-number-name-carries-the-ref"
+            ),
+            # `745-gate` names the issue and says which of its fixes this is.
+            pytest.param(
+                "745-gate.fixed.md",
+                ("745-gate", "fixed", "745"),
+                id="an-issue-number-with-a-slug-suffix-still-carries-the-ref",
+            ),
+            pytest.param("gate.fixed.md", ("gate", "fixed", None), id="a-slug-name-has-no-ref"),
+            # Documented sharp edge: the leading digits ARE the issue reference.
+            # `2026-cleanup.changed.md` renders `(#2026)`. The rule cannot tell a
+            # year from an issue, so the README tells contributors not to start a
+            # name with a date.
+            pytest.param(
+                "2026-cleanup.changed.md",
+                ("2026-cleanup", "changed", "2026"),
+                id="a-leading-date-is-read-as-an-issue-number",
+            ),
+            pytest.param(
+                "web_terminal2.added.md",
+                ("web_terminal2", "added", None),
+                id="underscores-and-digits-inside-a-slug-are-fine",
+            ),
+        ],
+    )
+    def test_parse_fragment_name(self, name, expected):
+        assert cf.parse_fragment_name(name) == expected
 
     @pytest.mark.parametrize(
         "filename",
@@ -401,37 +404,51 @@ class TestUnreleasedSpan:
             "",
         ]
 
-    def test_a_heading_on_the_first_line_is_found(self):
-        lines = ["## [Unreleased]", "", "- a bullet", "", "## [2026.8.0] - 2026-08-20"]
-        assert cf.unreleased_span(lines) == (0, 4)
-
-    def test_a_bracket_less_heading_does_not_end_the_block(self):
-        """`## Notes` is prose inside the section — the terminator needs `[`."""
-        lines = ["## [Unreleased]", "", "## Notes", "", "- still unreleased"]
-        assert cf.unreleased_span(lines) == (0, 5)
-
-    def test_a_release_heading_without_a_date_ends_the_block(self):
-        """A release in preparation has no date yet; it still closes the section."""
-        lines = ["## [Unreleased]", "", "## [2026.8.0]", "", "- shipped"]
-        assert cf.unreleased_span(lines) == (0, 2)
-
-    def test_the_last_section_runs_to_the_end_of_the_file(self):
-        lines = ["# Changelog", "", "## [Unreleased]", "", "### Fixed", "", "- one"]
-        assert cf.unreleased_span(lines) == (2, len(lines))
+    @pytest.mark.parametrize(
+        ("lines", "expected"),
+        [
+            pytest.param(
+                ["## [Unreleased]", "", "- a bullet", "", "## [2026.8.0] - 2026-08-20"],
+                (0, 4),
+                id="a-heading-on-the-first-line-is-found",
+            ),
+            # `## Notes` is prose inside the section — the terminator needs `[`.
+            pytest.param(
+                ["## [Unreleased]", "", "## Notes", "", "- still unreleased"],
+                (0, 5),
+                id="a-bracket-less-heading-does-not-end-the-block",
+            ),
+            # A release in preparation has no date yet; it still closes the section.
+            pytest.param(
+                ["## [Unreleased]", "", "## [2026.8.0]", "", "- shipped"],
+                (0, 2),
+                id="a-release-heading-without-a-date-ends-the-block",
+            ),
+            pytest.param(
+                ["# Changelog", "", "## [Unreleased]", "", "### Fixed", "", "- one"],
+                (2, 7),
+                id="the-last-section-runs-to-the-end-of-the-file",
+            ),
+            pytest.param(
+                ["## [Unreleased]   ", "", "- a bullet"],
+                (0, 3),
+                id="a-heading-with-trailing-spaces-matches",
+            ),
+            pytest.param(
+                ["## [Unreleased]", "", "## [2026.8.0]", "", "## [Unreleased]"],
+                (0, 2),
+                id="the-first-heading-wins",
+            ),
+        ],
+    )
+    def test_unreleased_span(self, lines, expected):
+        assert cf.unreleased_span(lines) == expected
 
     def test_an_empty_block_still_has_a_span(self):
         lines = ["## [Unreleased]", "", "## [2026.8.0] - 2026-08-20"]
         heading, end = cf.unreleased_span(lines)
         assert (heading, end) == (0, 2)
         assert lines[heading + 1 : end] == [""]
-
-    def test_a_heading_with_trailing_spaces_matches(self):
-        lines = ["## [Unreleased]   ", "", "- a bullet"]
-        assert cf.unreleased_span(lines) == (0, 3)
-
-    def test_the_first_heading_wins(self):
-        lines = ["## [Unreleased]", "", "## [2026.8.0]", "", "## [Unreleased]"]
-        assert cf.unreleased_span(lines) == (0, 2)
 
     @pytest.mark.parametrize(
         "lines",
@@ -2224,7 +2241,7 @@ class TestMain:
             captured.update(kwargs)
             return subprocess.CompletedProcess(argv, 0, "", "")
 
-        monkeypatch.setattr(cf.subprocess, "run", fake_run)
+        scoped(monkeypatch, cf, "subprocess", run=fake_run)
         cf._run(["git", "status"])
         assert captured["encoding"] == "utf-8"
         assert captured["text"] is True
@@ -2366,49 +2383,94 @@ class TestWorktree:
 
 
 CONNECTORS = "packages/osprey-connectors"
+FACILITY = "packages/osprey-facility"
+PANELS = "packages/osprey-panels"
+#: Each package tree with the path, relative to its root, of a file it ships.
+PACKAGE_TREES = [
+    pytest.param(cf.CONNECTORS_TREE, "src/osprey_connectors/b.py", id="connectors"),
+    pytest.param(cf.FACILITY_TREE, "src/osprey_facility/c.py", id="facility"),
+    pytest.param(cf.PANELS_TREE, "src/osprey_panels/d.py", id="panels"),
+]
 
 
 class TestTrees:
-    """Two changelogs, one per tag stream: each tree's rules over its own paths."""
+    """One changelog per tag stream: each tree's rules over its own paths."""
 
-    def test_the_framework_tree_does_not_reach_into_the_connectors_package(self):
-        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py", "packages/x/c.py"]
-        assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/c.py"]
+    def test_the_framework_tree_does_not_reach_into_a_package(self):
+        paths = [
+            "src/osprey/a.py",
+            f"{CONNECTORS}/src/osprey_connectors/b.py",
+            f"{FACILITY}/src/osprey_facility/c.py",
+            f"{PANELS}/src/osprey_panels/d.py",
+            "packages/x/d.py",
+        ]
+        assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/d.py"]
 
-    def test_the_connectors_tree_sees_its_paths_relative_to_its_root(self):
-        paths = ["src/osprey/a.py", f"{CONNECTORS}/src/osprey_connectors/b.py"]
-        assert cf.tree_paths(cf.CONNECTORS_TREE, paths) == ["src/osprey_connectors/b.py"]
+    @pytest.mark.parametrize(("tree", "own"), PACKAGE_TREES)
+    def test_a_package_tree_sees_its_paths_and_not_its_siblings(self, tree, own):
+        paths = [
+            "src/osprey/a.py",
+            f"{CONNECTORS}/src/osprey_connectors/b.py",
+            f"{FACILITY}/src/osprey_facility/c.py",
+            f"{PANELS}/src/osprey_panels/d.py",
+        ]
+        assert cf.tree_paths(tree, paths) == [own]
 
-    def test_the_connectors_tree_gates_what_ships_and_not_its_tests(self):
-        gated = cf.CONNECTORS_TREE.gated
-        assert cf.needs_fragment(["src/osprey_connectors/b.py"], gated)
+    @pytest.mark.parametrize(("tree", "own"), PACKAGE_TREES)
+    def test_a_package_tree_gates_what_ships_and_not_its_tests(self, tree, own):
+        package = own.split("/")[1]
+        gated = tree.gated
+        assert cf.needs_fragment([own], gated)
         assert cf.needs_fragment(["pyproject.toml"], gated)
-        assert not cf.needs_fragment(["tests/osprey_connectors_tests/test_x.py"], gated)
+        assert cf.needs_fragment(["README.md"], gated)
+        assert not cf.needs_fragment([f"tests/{package}_tests/test_x.py"], gated)
         assert not cf.needs_fragment(["CHANGELOG.md", "changelog.d/x.fixed.md"], gated)
 
-    def test_the_trees_are_the_two_release_streams(self):
+    def test_the_trees_are_the_four_release_streams(self):
         assert [(t.root, t.tag_prefix) for t in cf.TREES] == [
             ("", "v"),
             (CONNECTORS, "osprey-connectors-v"),
+            (FACILITY, "osprey-facility-v"),
+            (PANELS, "osprey-panels-v"),
         ]
 
-    def test_the_connectors_sdist_ships_no_fragments(self):
+    @pytest.mark.parametrize("package", [CONNECTORS, FACILITY, PANELS])
+    def test_a_package_sdist_ships_no_fragments_and_no_repo_checks(self, package):
         import tomllib
 
-        pyproject = cf.REPO_ROOT / CONNECTORS / "pyproject.toml"
+        pyproject = cf.REPO_ROOT / package / "pyproject.toml"
         hatch = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["hatch"]
-        assert cf.FRAGMENT_DIR in hatch["build"]["targets"]["sdist"]["exclude"]
+        exclude = hatch["build"]["targets"]["sdist"]["exclude"]
+        assert cf.FRAGMENT_DIR in exclude
+        assert "repo_checks.py" in exclude
 
-    def test_the_connectors_tag_probe_asks_for_the_connectors_tag(self):
+    @pytest.mark.parametrize(
+        ("tree", "tag"),
+        [
+            pytest.param(cf.CONNECTORS_TREE, "osprey-connectors-v2026.10.0", id="connectors"),
+            pytest.param(cf.FACILITY_TREE, "osprey-facility-v2026.10.0", id="facility"),
+            pytest.param(cf.PANELS_TREE, "osprey-panels-v2026.10.0", id="panels"),
+        ],
+    )
+    def test_a_package_tag_probe_asks_for_the_package_tag(self, tree, tag):
         git = FakeGit({})
-        with pytest.raises(cf.ProbeError, match="refs/tags/osprey-connectors-v2026.10.0"):
-            cf.tag_probe(git, cf.CONNECTORS_TREE.tag_prefix)("2026.10.0")
+        with pytest.raises(cf.ProbeError, match=f"refs/tags/{tag}"):
+            cf.tag_probe(git, tree.tag_prefix)("2026.10.0")
+
+    @pytest.mark.parametrize("package", [FACILITY, PANELS])
+    def test_the_package_ships_its_tree(self, package):
+        """The live package carries the changelog pair its tree names."""
+        root = cf.REPO_ROOT / package
+        assert (root / cf.FRAGMENT_DIR / cf.KEEP).is_file()
+        assert "## [Unreleased]" in (root / cf.CHANGELOG).read_text(encoding="utf-8")
+        _, errors = cf.validate_dir(root / cf.FRAGMENT_DIR)
+        assert errors == []
 
     # ---- check over both trees, from a repository laid out in tmp_path -----
 
     @staticmethod
     def repo(tmp_path: Path, monkeypatch) -> Path:
-        for root in ("", CONNECTORS):
+        for root in ("", CONNECTORS, FACILITY, PANELS):
             base = tmp_path / root
             write(base / "changelog.d", "README.md", "how to write one\n")
             (base / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
@@ -2416,12 +2478,48 @@ class TestTrees:
         return tmp_path
 
     @staticmethod
-    def table(diff: str, **shows: str) -> dict:
-        table = git_table(diff=diff)
-        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(
-            shows.get("connectors", CHANGELOG)
-        )
+    def table(diff: str, untracked: str | None = None) -> dict:
+        """:func:`git_table`, with each package tree's base changelog shown as well."""
+        table = git_table(diff=diff, untracked=untracked)
+        for package in (CONNECTORS, FACILITY, PANELS):
+            table[("git", "show", f"{MERGE_BASE}:{package}/CHANGELOG.md")] = completed(CHANGELOG)
         return table
+
+    def test_a_facility_change_needs_a_facility_fragment(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / CONNECTORS / "changelog.d", "745.fixed.md", "a connectors fix.\n")
+        diff = diff_z(
+            ("M", f"{FACILITY}/src/osprey_facility/b.py"),
+            ("A", f"{CONNECTORS}/changelog.d/745.fixed.md"),
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 1
+        out = capsys.readouterr().out
+        assert f"{FACILITY}/ (its own CHANGELOG.md, osprey-facility-v* tags):" in out
+        assert "✗ no changelog fragment for 1 changed file(s) under src/, pyproject.toml" in out
+        assert f"  add {FACILITY}/changelog.d/<name>.<type>.md" in out
+
+    def test_a_facility_fragment_satisfies_a_facility_change(self, tmp_path, monkeypatch, capsys):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / FACILITY / "changelog.d", "745.fixed.md", "a facility fix.\n")
+        diff = diff_z(
+            ("M", f"{FACILITY}/src/osprey_facility/b.py"),
+            ("A", f"{FACILITY}/changelog.d/745.fixed.md"),
+        )
+        assert cf.main(["check"], FakeGit(self.table(diff))) == 0
+        out = capsys.readouterr().out
+        assert f"✓ {FACILITY}/changelog.d: 1 fragment(s) valid" in out
+        assert f"{FACILITY}/ (its own CHANGELOG.md, osprey-facility-v* tags):" in out
+
+    def test_apply_with_the_facility_root_folds_that_tree_alone(self, tmp_path, monkeypatch):
+        root = self.repo(tmp_path, monkeypatch)
+        write(root / FACILITY / "changelog.d", "745.fixed.md", "a facility fix.\n")
+        assert cf.main(["apply", "--root", FACILITY]) == 0
+        text = (root / FACILITY / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert "- a facility fix. (#745)" in text
+        assert "a facility fix" not in (root / CONNECTORS / "CHANGELOG.md").read_text(
+            encoding="utf-8"
+        )
+        assert "a facility fix" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
     def test_a_connectors_change_needs_a_connectors_fragment(self, tmp_path, monkeypatch, capsys):
         root = self.repo(tmp_path, monkeypatch)
@@ -2448,6 +2546,9 @@ class TestTrees:
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 0 fragment(s) valid",
             f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid",
+            # The untouched facility and panels trees are validated, never diffed.
+            f"✓ {FACILITY}/changelog.d: 0 fragment(s) valid",
+            f"✓ {PANELS}/changelog.d: 0 fragment(s) valid",
             "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
             f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):",
@@ -2525,8 +2626,7 @@ class TestTrees:
         diff = diff_z(("M", f"{CONNECTORS}/src/osprey_connectors/b.py"))
         assert cf.main(["check"], FakeGit(self.table(diff))) == 1
         capsys.readouterr()
-        table = git_table(diff=diff, untracked=f"{CONNECTORS}/changelog.d/745.fixed.md\0")
-        table[("git", "show", f"{MERGE_BASE}:{CONNECTORS}/CHANGELOG.md")] = completed(CHANGELOG)
+        table = self.table(diff, untracked=f"{CONNECTORS}/changelog.d/745.fixed.md\0")
         assert cf.main(["check", "--worktree"], FakeGit(table)) == 0
         out = capsys.readouterr().out
         assert "✓ changelog gate: changelog.d/745.fixed.md added for 1 changed file(s)" in out

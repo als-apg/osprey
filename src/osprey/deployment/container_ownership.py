@@ -25,8 +25,9 @@ which deployment a container belongs to, and the
 :data:`~osprey.deployment.compose_generator.REPO_ID_LABEL` says which checkout
 created it. :func:`claims_row` is that rule, read by every verb that acts on the
 host: ``up`` and ``restart`` refuse to start over another copy's containers,
-``reset`` refuses to remove them, and the host-port preflight does not count a
-port another copy holds as this deployment's own. The label is on containers
+``reset`` refuses to remove them, ``down`` without compose files never stops
+them, and the host-port preflight does not count a port another copy holds as
+this deployment's own. The label is on containers
 only. Volumes belong to the project by name, so they are listed but never
 partitioned: a second checkout that declares the same project name is the same
 instance and shares its data by declaration.
@@ -480,6 +481,20 @@ START_REFUSAL = RefusalWording(
         "the copy they came from is no longer on this host, so remove its containers: "
         "`{rm}`. The project's volumes are untouched and keep their data."
     ),
+    elsewhere="run `osprey down` there",
+    closing=None,
+)
+
+#: ``osprey down``: a stop refused.
+DOWN_REFUSAL = RefusalWording(
+    summary_tail="will not stop containers from another copy of this repo",
+    why_stopped=(
+        "Stopping from here would stop that copy's containers along with this one's, since "
+        "both run under the same project name, so it stopped."
+    ),
+    renamed=START_REFUSAL.renamed,
+    live_remedy="stop that deployment where it lives: `osprey down --repo {path}`",
+    leftovers=START_REFUSAL.leftovers,
     elsewhere="run `osprey down` there",
     closing=None,
 )

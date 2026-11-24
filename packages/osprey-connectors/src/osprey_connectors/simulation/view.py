@@ -14,6 +14,20 @@ stated at build time: its ``engine_role`` (one of :data:`ENGINE_ROLES`), the tra
 with a setpoint or not; a reader wanting the readback of a setpoint reads that
 setpoint channel's ``pair``.
 
+A wiring record may state further addresses of its variable under ``also``.
+Each is a channel of the view whose ``owner`` is the record's model, and it is
+served as the record's ``address`` is: :meth:`SimulatorView.record_address`
+gives the address a channel is served as, and :attr:`Binding.addresses` every
+address of a record.
+
+A setpoint the texture serves whose channel states ``started_by`` moves its
+readback when the setpoint named there, its command, is written; a seed's
+``responds`` names the command whose write the channel answers. The reader
+refuses either key when the command is not a setpoint of the view or is a
+further address, ``started_by`` on a setpoint a physics model serves, a
+``responds`` that lacks ``to``, ``for_s`` or ``value`` or times nothing, and a
+``responds`` on a readback a setpoint's write moves.
+
 The module imports only the standard library and ``osprey_connectors``, so a
 reader that must not load a model can open a view.
 """
@@ -56,6 +70,7 @@ __all__ = [
     "OUTPUT",
     "PERIODIC",
     "PERIODIC_IOC_HEALTH",
+    "PERIODIC_SERVER_HEALTH",
     "PLANES",
     "READBACK",
     "REFRESH",
@@ -63,6 +78,7 @@ __all__ = [
     "SCENARIOS_FILE",
     "SCENARIOS_SCHEMA",
     "SERVED_SIGNAL_PROPERTY",
+    "SERVER_HEALTH_SIGNALS",
     "SCHEMAS",
     "SEEDS_FILE",
     "SEEDS_SCHEMA",
@@ -148,12 +164,16 @@ STATUS_SIGNAL = "STATUS"
 HEARTBEAT = "HEARTBEAT"
 UPTIME = "UPTIME"
 ENGINEER = "ENGINEER"
-#: The signals of a model's IOC health addresses, ``<code>:SIM:<model>:<signal>``,
+#: The signals of a model's server health addresses, ``<code>:SIM:<model>:<signal>``,
 #: in the order a view lists them.
-IOC_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
-#: The IOC health signals each periodic pass publishes.
-PERIODIC_IOC_HEALTH = (HEARTBEAT, UPTIME)
-#: The directory property the simulator sets on each status and IOC health row,
+SERVER_HEALTH_SIGNALS = (HEARTBEAT, UPTIME, ENGINEER)
+#: The server health signals each periodic pass publishes.
+PERIODIC_SERVER_HEALTH = (HEARTBEAT, UPTIME)
+#: The name :data:`SERVER_HEALTH_SIGNALS` was first released under.
+IOC_HEALTH_SIGNALS = SERVER_HEALTH_SIGNALS
+#: The name :data:`PERIODIC_SERVER_HEALTH` was first released under.
+PERIODIC_IOC_HEALTH = PERIODIC_SERVER_HEALTH
+#: The directory property the simulator sets on each status and server health row,
 #: valued with that row's signal; channel rows carry none.
 SERVED_SIGNAL_PROPERTY = "signal"
 
@@ -268,6 +288,8 @@ class Binding:
         id: The wiring record's id.
         model: The model the record belongs to.
         address: The channel address the record serves.
+        also: The further addresses that serve what ``address`` serves; empty
+            when the record states none.
         direction: ``write`` or ``read``.
         engine_role: One of :data:`ENGINE_ROLES`.
             A ``readback`` reads an element's setting, paired with a setpoint
@@ -293,6 +315,12 @@ class Binding:
     element: str | None
     record: Mapping[str, object]
     marks: frozenset[str] = frozenset()
+    also: tuple[str, ...] = ()
+
+    @property
+    def addresses(self) -> tuple[str, ...]:
+        """Every address the record serves: ``address``, then each of ``also``."""
+        return (self.address, *self.also)
 
     @classmethod
     def from_record(cls, model: str, record: WiringRecord) -> Binding:
@@ -319,6 +347,7 @@ class Binding:
             element=record.get("element"),
             record=MappingProxyType(copy.deepcopy(dict(record))),
             marks=frozenset(str(mark) for mark in record.get(_MARKS_KEY) or ()),
+            also=tuple(str(address) for address in record.get("also") or ()),
         )
 
 
@@ -370,6 +399,7 @@ class SimulatorView:
         self._documents: dict[str, Mapping[str, object]] = {}
         self._models: tuple[Model, ...] | None = None
         self._channel_records: Mapping[str, Channel] | None = None
+        self._record_addresses: Mapping[str, str] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
             raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
@@ -429,7 +459,7 @@ class SimulatorView:
     # overloads below state that shape, the records of
     # :mod:`osprey_connectors.simulation.records`, for each file by name. The
     # facility schema leaves a scenario's ``archiver`` events free-form; the
-    # build checks each one with ``osprey.facility.scenarios.check_scenario_events``
+    # build checks each one with ``osprey_facility.scenarios.check_scenario_events``
     # before it writes ``scenarios.json``, and ``ArchiverEvent`` states what
     # that check guarantees.
     @overload
@@ -460,8 +490,94 @@ class SimulatorView:
                 ``SCHEMAS[name]`` nor an older one this OSPREY still reads.
         """
         if name not in self._documents:
-            self._documents[name] = _freeze(self._parsed(name))
+            document = self._parsed(name)
+            if name == VARIABLES_FILE:
+                self._check_started_by()
+            elif name == SEEDS_FILE:
+                self._check_responds(document)
+            self._documents[name] = _freeze(document)
         return self._documents[name]
+
+    def _command_refusal(self, address: object) -> str | None:
+        """Why ``address`` cannot be a command a channel names; ``None`` when it can.
+
+        A command is a setpoint channel of the view, named by the address it is
+        served as.
+        """
+        channel = self._channels().get(address) if isinstance(address, str) else None
+        if channel is None or channel.role != SETPOINT:
+            return f"{address!r} is not a setpoint of the view"
+        served_as = self.record_address(channel.address)
+        if served_as != channel.address:
+            return f"{address!r} is served as {served_as!r}; name that address"
+        return None
+
+    def _check_started_by(self) -> None:
+        """Refuse a channel whose ``started_by`` names no setpoint of the view, or that a physics model serves."""
+        started = [
+            entry for entry in self._parsed(VARIABLES_FILE)["channels"] if "started_by" in entry
+        ]
+        if not started:
+            return
+        physics = {model.name for model in self.physics_models()}
+        for entry in started:
+            address = entry.get("address")
+            owner = entry.get("owner")
+            if entry.get("role") != SETPOINT:
+                refusal: str | None = "it is not a setpoint"
+            elif owner in physics:
+                refusal = f"model {owner!r} serves it, not the texture"
+            else:
+                refusal = self._command_refusal(entry["started_by"])
+            if refusal is not None:
+                raise ViewSchemaError(
+                    f"{self.path / VARIABLES_FILE}: channel {address!r} states `started_by` "
+                    f"{entry['started_by']!r}, but {refusal}: rebuild with osprey build"
+                )
+
+    def _followed(self) -> frozenset[str]:
+        """The readbacks a setpoint's write moves, each by the address it is served as."""
+        return frozenset(
+            self.record_address(channel.pair)
+            for channel in self._channels().values()
+            if channel.role == SETPOINT
+            and channel.pair is not None
+            and self.record_address(channel.pair) != self.record_address(channel.address)
+        )
+
+    def _check_responds(self, document: Mapping[str, object]) -> None:
+        """Refuse a seed whose ``responds`` lacks a part, times nothing, or follows no command."""
+        seeds = document.get("seeds")
+        if not isinstance(seeds, Mapping):
+            return
+        followed: frozenset[str] | None = None
+        for address, seed in seeds.items():
+            if not isinstance(seed, Mapping) or "responds" not in seed:
+                continue
+            responds = seed["responds"]
+            refusal: str | None
+            if not isinstance(responds, Mapping) or any(
+                key not in responds for key in ("to", "for_s", "value")
+            ):
+                refusal = "it is not {to, for_s, value}"
+            elif (
+                not isinstance(responds["for_s"], int | float)
+                or isinstance(responds["for_s"], bool)
+                or not responds["for_s"] > 0
+            ):
+                refusal = f"for_s {responds['for_s']!r} is not a number above zero"
+            else:
+                refusal = self._command_refusal(responds["to"])
+            if refusal is None:
+                if followed is None:
+                    followed = self._followed()
+                if self.record_address(address) in followed:
+                    refusal = "a setpoint's write moves it"
+            if refusal is not None:
+                raise ViewSchemaError(
+                    f"{self.path / SEEDS_FILE}: the seed of {address!r} states `responds`, "
+                    f"but {refusal}: rebuild with osprey build"
+                )
 
     @overload
     def _parsed(self, name: Literal["variables.json"]) -> VariablesDocument: ...
@@ -544,35 +660,47 @@ class SimulatorView:
             }
         )
 
-    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
-        """Each listed model's IOC health addresses by signal, ``{model: {signal: address}}``.
+    def server_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """Each listed model's server health addresses by signal, ``{model: {signal: address}}``.
 
         An address is ``<code>:SIM:<model>:<signal>`` with ``<signal>`` one of
-        :data:`IOC_HEALTH_SIGNALS`; each model's signals keep the list's order.
-        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
-        a build without it yields an empty mapping. Unlike the status
+        :data:`SERVER_HEALTH_SIGNALS`; each model's signals keep the list's order.
+        The list is read from ``server_health``, or from ``ioc_health``, the key
+        it was first written under, when the document has no ``server_health``.
+        Both are optional under :data:`ADDRESSES_SCHEMA`: a view from a build
+        that wrote neither yields an empty mapping. Unlike the status
         addresses, it lists the ``texture`` model too.
 
         Raises:
             ViewSchemaError: a listed entry is not such an address.
         """
-        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        document = self.document(ADDRESSES_FILE)
+        key = "server_health" if "server_health" in document else "ioc_health"
+        listed = document.get("server_health", document.get("ioc_health", ()))
         if not listed:
             return MappingProxyType({})
         prefix = f"{self.code}:SIM:"
         by_model: dict[str, dict[str, str]] = {}
         for address in listed:
             model, _, signal = str(address).removeprefix(prefix).rpartition(":")
-            if not model or not str(address).startswith(prefix) or signal not in IOC_HEALTH_SIGNALS:
+            if (
+                not model
+                or not str(address).startswith(prefix)
+                or signal not in SERVER_HEALTH_SIGNALS
+            ):
                 raise ViewSchemaError(
-                    f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
+                    f"{self.path / ADDRESSES_FILE} lists {address!r} under {key}, "
                     f"which is not {prefix}<model>:<signal> with <signal> one of "
-                    f"{', '.join(IOC_HEALTH_SIGNALS)}: rebuild with osprey build"
+                    f"{', '.join(SERVER_HEALTH_SIGNALS)}: rebuild with osprey build"
                 )
             by_model.setdefault(model, {})[signal] = str(address)
         return MappingProxyType(
             {model: MappingProxyType(signals) for model, signals in by_model.items()}
         )
+
+    def ioc_health_by_model(self) -> Mapping[str, Mapping[str, str]]:
+        """:meth:`server_health_by_model`, under the name it was first released with."""
+        return self.server_health_by_model()
 
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
@@ -635,6 +763,27 @@ class SimulatorView:
                 return binding
         return None
 
+    def record_address(self, address: str) -> str:
+        """The address ``address`` is served as.
+
+        Args:
+            address: A channel address.
+
+        Returns:
+            The ``address`` of the served physics model's wiring record that
+            names ``address`` under ``also``; ``address`` itself for any other
+            channel.
+        """
+        if self._record_addresses is None:
+            self._record_addresses = MappingProxyType(
+                {
+                    further: binding.address
+                    for binding in self._all_bindings(served_only=True)
+                    for further in binding.also
+                }
+            )
+        return self._record_addresses.get(address, address)
+
     def seed(self, address: str) -> SeedRecord | None:
         """The seed record of the channel at ``address``, or ``None``."""
         return self.document(SEEDS_FILE)["seeds"].get(address)
@@ -673,6 +822,7 @@ class SimulatorView:
         from osprey_connectors.simulation.envelope import active_envelopes
         from osprey_connectors.simulation.state import resolve_active_scenarios
 
+        address = self.record_address(address)
         key = tuple(resolve_active_scenarios(active))
         if key not in self._envelopes:
             self._envelopes[key] = active_envelopes(

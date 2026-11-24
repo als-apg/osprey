@@ -29,7 +29,9 @@ error in the conditional install fails here rather than at ``docker build``.
 The **whole-file invariants**, over every Dockerfile shipped as a literal file —
 all seven services plus the web-terminal auth sidecar, discovered by glob rather
 than listed: the proxy-delivery idiom on every apt-using RUN, and a
-non-self-excluding ``.dockerignore`` beside every service recipe.
+non-self-excluding ``.dockerignore`` beside every service recipe. The
+builtin-frontend allowlist (:mod:`tests.deployment._dockerfile_frontend`) runs
+over those files and the project image's ``Dockerfile.j2`` alike.
 """
 
 import dataclasses
@@ -41,7 +43,14 @@ import subprocess
 import pytest
 
 import osprey
+from osprey.deployment.runtime_helper import RUNTIME_FLOORS, RuntimeProduct
 from tests.deployment._cache_mounts import assert_build_caches_mounted
+from tests.deployment._dockerfile_frontend import (
+    FLAG_FLOORS,
+    MOUNT_KEY_FLOORS,
+    MOUNT_TYPE_FLOORS,
+    builtin_frontend_problems,
+)
 from tests.deployment._pip_probe import (
     APT_NOOP,
     UV_TO_PIP,
@@ -72,6 +81,12 @@ SERVICES_DIR = TEMPLATES_DIR / "services"
 # output instead (tests/cli/test_dockerfile_template.py).
 SHIPPED_DOCKERFILES = sorted(TEMPLATES_DIR.rglob("Dockerfile"))
 SHIPPED_DOCKERFILE_IDS = [str(p.parent.relative_to(TEMPLATES_DIR)) for p in SHIPPED_DOCKERFILES]
+
+# Every shipped recipe, the project image's Jinja template among them, as raw
+# text: instruction flags are literal in the template, so its raw text is held
+# to the same frontend allowlist as the literal files.
+SHIPPED_RECIPES = sorted([*SHIPPED_DOCKERFILES, *TEMPLATES_DIR.rglob("Dockerfile.j2")])
+SHIPPED_RECIPE_IDS = [str(p.relative_to(TEMPLATES_DIR)) for p in SHIPPED_RECIPES]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -873,8 +888,7 @@ def _base_registry_violations(text: str) -> list[str]:
     namespace after it (``${OSPREY_BASE_REGISTRY}/library/python:3.11-slim``):
     the ARG names the registry standing in for docker.io, which keeps Docker
     Hub's paths, so a base without its namespace names an image no mirror
-    serves. ``native-wheels-*`` is a stage selected by architecture, not an
-    image.
+    serves.
     """
     lines = text.splitlines()
     problems = []
@@ -893,7 +907,7 @@ def _base_registry_violations(text: str) -> list[str]:
         base = base_words[0]
         if len(base_words) >= 3 and base_words[1].upper() == "AS":
             stages.add(base_words[2])
-        if base in stages or base.startswith("native-wheels-"):
+        if base in stages:
             continue
         prefix = "${OSPREY_BASE_REGISTRY}/"
         if not base.startswith(prefix):
@@ -909,16 +923,25 @@ def test_every_shipped_recipe_pulls_its_base_through_the_base_registry(dockerfil
     assert _base_registry_violations(dockerfile.read_text(encoding="utf-8")) == []
 
 
-def test_base_registry_guard_catches_a_bare_base():
-    """A base named without the registry ARG fails the check."""
-    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\nFROM python:3.11-slim\n")
-
-
-def test_base_registry_guard_catches_a_base_without_its_namespace():
-    """A base named under the registry ARG without ``library/`` fails the check."""
-    assert _base_registry_violations(
-        f"{BASE_REGISTRY_ARG}\nFROM ${{OSPREY_BASE_REGISTRY}}/python:3.11-slim\n"
-    )
+@pytest.mark.parametrize(
+    ("from_line", "problem"),
+    [
+        # A base named without the registry ARG.
+        pytest.param("FROM python:3.11-slim", "without the base registry", id="bare-base"),
+        # A base named under the registry ARG without ``library/``.
+        pytest.param(
+            "FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim",
+            "without its Docker Hub namespace",
+            id="base-without-namespace",
+        ),
+    ],
+)
+def test_base_registry_guard_catches_a_misnamed_base(from_line, problem):
+    """A misnamed base fails the check for its own reason, and only that line is
+    flagged: the ARG declaration ahead of it is well formed."""
+    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\n{from_line}\n") == [
+        f"{from_line!r} names its base {problem}"
+    ]
 
 
 #: Shipped recipes that install with pip, and so fetch through the build caches.
@@ -1127,6 +1150,62 @@ def test_proxy_guard_accepts_the_declared_arg_idiom():
     assert carries_proxy_idiom(run_instructions(from_arg)[0])
 
 
+# ── The shell a RUN body runs under ─────────────────────────────────────────
+#
+# The RUN-body probes execute under dash because every recipe builds on a Debian
+# base, whose /bin/sh is dash, and none sets SHELL. Both halves are read here.
+
+#: The ``FROM`` image past an optional Jinja platform block and the registry
+#: prefix (a Jinja expression may sit inside the image name), and the ``AS``
+#: name it declares.
+_FROM = re.compile(
+    r"^FROM\s+(?:\{%.*?%\}.*?\{%\s*endif\s*%\}\s*)?(?:--platform=\S+\s+)?"
+    r"(?:\$\{OSPREY_BASE_REGISTRY\}/library/)?(?P<image>(?:\{\{[^}]*\}\}|\S)+)(?:\s+AS\s+(?P<stage>\S+))?\s*$",
+    re.IGNORECASE,
+)
+_DEBIAN_BASE = re.compile(r"^(?:python:.+-slim|node:.*-bookworm.*)$")
+
+
+def _shell_failures(text: str) -> list[str]:
+    """What in a recipe breaks the premise that its RUN bodies run under dash."""
+    failures: list[str] = []
+    stages: set[str] = set()
+    for keyword, line in _instructions(text):
+        if keyword.upper() == "SHELL":
+            failures.append(f"sets a shell: {line}")
+        elif keyword.upper() == "FROM":
+            match = _FROM.match(line)
+            if match is None:
+                failures.append(f"unreadable base: {line}")
+                continue
+            image = match["image"]
+            if image not in stages and not _DEBIAN_BASE.match(image):
+                failures.append(f"not a Debian base: {line}")
+            if match["stage"]:
+                stages.add(match["stage"])
+    return failures
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_RECIPES, ids=SHIPPED_RECIPE_IDS)
+def test_no_template_dockerfile_sets_a_shell(dockerfile):
+    assert _shell_failures(dockerfile.read_text()) == []
+
+
+@pytest.mark.parametrize(
+    ("recipe", "failure"),
+    [
+        (
+            'FROM python:3.11-slim\nSHELL ["/bin/bash", "-c"]\nRUN true\n',
+            'sets a shell: SHELL ["/bin/bash", "-c"]',
+        ),
+        ("FROM alpine:3.20\nRUN true\n", "not a Debian base: FROM alpine:3.20"),
+        ("FROM base AS next\n", "not a Debian base: FROM base AS next"),
+    ],
+)
+def test_the_shell_guard_catches_a_recipe_off_dash(recipe, failure):
+    assert _shell_failures(recipe) == [failure]
+
+
 # ── Claude Code CLI pin parity ───────────────────────────────────────────────
 #
 # The framework's default CLI pin is spelled once in code
@@ -1207,9 +1286,9 @@ _PIP_RECIPES = [p for p in SHIPPED_DOCKERFILES if "pip install" in p.read_text(e
 
 
 def _installing_bodies(dockerfile: pathlib.Path) -> list[str]:
-    """Each RUN that installs a Python package, minus the arm64 native-wheels
-    builder stage, which compiles pcaspy at its hash-pinned version and ships
-    nothing but that wheel."""
+    """Each RUN that installs a Python package, minus the native-wheels builder
+    stage's aarch64 branch, which compiles pcaspy at its hash-pinned version and
+    ships nothing but that wheel."""
     return [
         instruction.removeprefix("RUN ")
         for instruction in run_instructions(dockerfile.read_text(encoding="utf-8"))
@@ -1287,3 +1366,39 @@ def test_the_arm64_pcaspy_wheel_is_the_version_the_lock_holds():
     assert locked == {pinned.group(1)}, (
         f"PCASPY_VERSION={pinned.group(1)} but uv.lock resolves pcaspy {locked}"
     )
+
+
+@pytest.mark.parametrize("recipe", SHIPPED_RECIPES, ids=SHIPPED_RECIPE_IDS)
+def test_every_shipped_recipe_needs_only_the_builtin_frontend(recipe):
+    """Each recipe builds with the Dockerfile frontend built into the oldest
+    supported Docker Engine, so no build pulls a frontend image."""
+    assert builtin_frontend_problems(recipe.read_text(encoding="utf-8")) == []
+
+
+def test_the_frontend_allowlist_is_within_the_docker_engine_floor():
+    floor = RUNTIME_FLOORS[RuntimeProduct.DOCKER_ENGINE]
+    tables = (FLAG_FLOORS, MOUNT_TYPE_FLOORS, MOUNT_KEY_FLOORS)
+    above = {
+        feature: version
+        for table in tables
+        for feature, version in table.items()
+        if version > floor
+    }
+    assert above == {}
+
+
+@pytest.mark.parametrize(
+    ("planted", "caught"),
+    [
+        ("# syntax=docker/dockerfile:1\nFROM python:3.12\n", "parser directive"),
+        ("# check=error=true\nFROM python:3.12\n", "parser directive"),
+        ("FROM python:3.12\nCOPY --link app /app\n", "COPY --link"),
+        ("FROM python:3.12\nRUN --mount=type=bind,target=/src true\n", "mount type 'bind'"),
+        ("FROM python:3.12\nRUN --mount=type=cache,target=/c,mode=0777 true\n", "mount key 'mode'"),
+        ("FROM python:3.12\nRUN <<EOF\necho hi\nEOF\n", "heredoc"),
+        ("FROM python:3.12\nCOPY <<-'EOF' /etc/motd\nhi\nEOF\n", "heredoc"),
+    ],
+)
+def test_a_planted_newer_frontend_feature_is_caught(planted, caught):
+    problems = builtin_frontend_problems(planted)
+    assert len(problems) == 1 and caught in problems[0], problems

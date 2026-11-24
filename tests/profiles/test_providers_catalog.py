@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import tomllib
@@ -132,7 +133,7 @@ class TestRepoCatalogReplacesPackaged:
     def test_catalog_is_a_frozen_record(self, tmp_path):
         catalog = load_provider_catalog(tmp_path)
         assert isinstance(catalog, ProviderCatalog)
-        with pytest.raises(Exception):
+        with pytest.raises(dataclasses.FrozenInstanceError):
             catalog.source = "repo"  # type: ignore[misc]
 
 

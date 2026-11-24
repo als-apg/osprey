@@ -44,7 +44,7 @@ What gets served
 The served list is the simulator view's ``addresses.json``: its ``channels``,
 every channel address the facility declares, then one
 ``<code>:SIM:<model>:STATUS`` address for each served physics model, then the
-view's ``ioc_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
+view's ``server_health`` list: read-only ``<code>:SIM:<model>:HEARTBEAT``,
 ``UPTIME`` and ``ENGINEER`` addresses for every served model, texture
 included. Which models are served is the view's ``served_models.json``, with
 the texture model always last. A physics model is one child of the composite,
@@ -67,6 +67,12 @@ into the facility file:
   the fast period, ``simulation.fast_tick_s`` (default ``0.1`` seconds); or
   ``event``, one that changes with each event the engine raises, such as a
   shot.
+
+A wiring record that states further addresses under ``also`` is still one
+record and one engine variable, named by its ``address``. The served composite
+answers a read, a write or a readout group under a further address as it
+answers the record's address, so every address of a record shows one value at
+one instant; no engine sees a further address.
 
 Each channel also names the node it is ``on``.
 
@@ -153,7 +159,13 @@ that reach it. Only a client write starts what a write triggers; a restore, a
 scenario's start state and a write a ``stuck`` or ``disconnected`` setpoint
 holds start nothing. A rebuild, which a scenario change makes, discards what
 a model had pending. In process nothing advances the model: it serves its
-start values and a write starts nothing.
+start values and a write starts nothing. A connector that states
+``evolve: true`` is the exception: its composite is built to evolve, advances
+on every read, write and tick, and wakes its tick at the next deadline.
+Connectors share the setpoints written and nothing a model reached in time,
+so that state is the one connector's, and a connector taking up another's
+writes restores them without a client write: a request among them starts
+nothing (:ref:`Shots in process <va-in-process-evolve>`).
 
 The shipped ``injection`` engine (``osprey.simulation.engines.injection``) is
 time-driven. A model naming it names no deck: its wiring
@@ -168,8 +180,12 @@ A ``pyat`` ring whose settings state a ``turn_by_turn`` block is time-driven
 too. It reads a chain's shot counter, charge and stored current as model
 inputs; a rise of the counter outside a baseline is a shot, which the next
 advance tracks through the deck for the monitors a client write armed. The
-arrays and turns tracked are emitted in one advance and ``armed`` drops in a
-later one, so a client sees the arrays before ``armed`` reads ``0``. Its
+arrays and the shot's read-outs (the turns tracked, the turns survived, the
+monitors reached and the shot's status) are emitted in one advance and
+``armed`` drops in a later one, so a client sees the arrays before ``armed``
+reads ``0``. A shot that cannot be tracked completes the same handshake: its
+status says whether the bunch could not be set up or an unexpected error was
+raised, and the cause is logged. Its
 outputs refresh ``event`` and its settings ``pass``. Tracking runs inside the
 advance and holds the serving loop for its length, a read answering from the
 last post meanwhile. Such a ring without a closed orbit, as with its RF
@@ -200,9 +216,10 @@ consumer's engine receives the producer's plain value through
 - **A failed producer.** Its inputs are left out of the delivery; when none
   remain, no call is made. A ``take_inputs`` that raises fails the consumer.
 
-Only the served Virtual Accelerator advances time. In process the composite
-does not evolve: it delivers at build, at reset and after every write, each
-delivery a baseline, so an input never starts anything there.
+The served Virtual Accelerator advances time. In process the composite does
+not evolve unless the connector states ``evolve: true``: it delivers at
+build, at reset and after every write, each delivery a baseline, so an input
+never starts anything there.
 
 The LUME stack and its pins
 ===========================
@@ -272,8 +289,8 @@ Bringing your own model
 The runner serves one composite, and the composite builds one child per
 served physics model from the view's ``variables.json`` and the model's deck,
 ``decks/<model>.<its suffix>``, through the engine plug-in the model's record names:
-its ``engine``, looked up in the ``osprey.simulation.engines`` entry-point
-group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
+its ``engine``, looked up in the ``osprey_connectors.simulation.engines``
+entry-point group. Nothing in the entrypoint, a profile or ``.env`` names an engine.
 
 **A pyAT deck is data.** Any facility's pyAT deck is served by the shipped
 ``pyat`` engine. The facility tree stages it beside the model record that names
@@ -351,10 +368,21 @@ a channel address. A monitor reading carries ``offset``, ``gain``, ``noise``
 and ``polarity`` on its own axis, and a monitor one ``roll``, on its x-axis
 reading or its only one. A setpoint on ``PolynomB`` or ``KickAngle`` carries
 ``cal_factor`` and ``cal_offset``; a calibration is the supply's, so where one
-element is driven by two setpoints, each is miscalibrated alone. A monitor's
+element is driven by two setpoints, each is miscalibrated alone. A cavity
+setpoint carries the one field that names a real error of it: ``cal_offset``
+on ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``
+(:ref:`va-rf-setpoints`). A monitor's
 roll turns the beam position in the deck's unit, before the monitor's
 conversion to the unit it publishes, and its offset, gain, noise and polarity
-then act on the published reading.
+then act on the published reading: the offset is subtracted, the polarity
+applied, the noise added and the gain multiplied in, in that order.
+
+A monitor's faults are the monitor's, not one record's. On a turn-by-turn
+ring (:ref:`va-turn-by-turn`) the faults stated on a monitor's orbit reading
+act on its ``turn_x`` and ``turn_y`` arrays through the same chain in the
+same order, sample by sample, so an offset stated once shifts the orbit
+reading and every turn alike. The ``offset`` and ``noise`` values stay in the
+unit the orbit reading publishes; the arrays show them in metres.
 
 Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
 ``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
@@ -423,6 +451,24 @@ written. Systematic multipoles are facts of the deck, written into the lattice
 file, not scenario faults. A scenario whose errors leave no closed orbit does
 not boot quietly wrong: its model fails with the solve error, which names the
 elements seeded, and the model's status names the scenario.
+
+One fault is the lattice's own: ``lattice/circumference_error``, the length
+by which the ring as built differs from its design, in metres and bounded to
+10 cm. A scenario writes it under ``faults.<model>`` as
+``{lattice/circumference_error: 2.0e-4}`` or as
+``{lattice: {circumference_error: 2.0e-4}}``. It is seeded once, when the
+model is built, by scaling every drift of the model's copy of the deck by one
+factor; the magnets keep their lengths. The beam still makes its harmonic
+number of RF periods per turn, so a ring longer by ``dC`` is the design ring
+driven at a frequency higher by ``f * dC / C``: the closed orbit moves to the
+energy whose path has the design length, and the RF frequency that centres
+the beam is lower than the design one by that much. A ``single_pass`` model
+declares no such fault.
+
+Radiation is not a fault but a statement about the deck: ``pyat.radiation:
+true`` in a model's settings gives the magnets of the model's copy their
+radiating pass methods before any error is seeded, for the build and for the
+response matrix alike (:ref:`va-radiation`).
 
 A readout fault never moves the orbit; it changes what a monitor reports.
 ``diff`` is where it becomes visible, as a served reading that has parted from

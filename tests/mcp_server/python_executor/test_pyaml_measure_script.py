@@ -33,7 +33,6 @@ from pyaml.common.holders.tool_holder import ToolHolder
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
-from osprey.facility.kinds import registered
 from osprey.facility.views.facts import measurement_records
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
@@ -46,6 +45,7 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_script import (
     MeasureScript,
     build_measure_script,
 )
+from osprey_facility.kinds import registered
 from pyaml_cs_osprey.run_tool import ToolRun, run_tool
 from tests.pyaml_cs_osprey.conftest import FakeRuntime, guarded_repo  # noqa: F401
 

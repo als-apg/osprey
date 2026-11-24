@@ -6,11 +6,15 @@ provides:
 
 **A deployment repo rendered by the real machinery.** Not a fixture-authored
 tree — ``osprey init`` then ``osprey build``, the same two commands a user runs,
-in a subprocess so nothing about the render leaks into the test process. The
-result is cached under ``.cache/pty-exemplar/`` and keyed on the content of
-everything that decides what a render looks like: the template data, the
-scaffolder code that stamps it out, and the preset. Cold is a couple of
-seconds and paid once per session; warm is a directory copy.
+in a subprocess so nothing about the render leaks into the test process. Both
+trees are rendered at the path they are used at, because a render names the
+directory it ran in. The read-only tree is rendered in its cache entry under
+``.cache/pty-exemplar/``, keyed on the content of everything that decides what
+a render looks like (the template data, the scaffolder code that stamps it out,
+the preset) and on the checkout's path, and published by a marker written
+last. Cold is a couple of seconds and paid once per key; warm is the cached
+path itself. The writable tree is rendered once per worker and restored there
+by a directory copy for each test.
 
 **A container runtime that is not there.** :mod:`tests.pty.stub_runtime` — a
 ``docker`` executable earlier on ``PATH`` than any real one, plus
@@ -21,7 +25,8 @@ The exemplar is shared **read-only**. A start verb writes to the repo it starts
 — it mints service tokens into ``.env``, generates key material under ``data/``,
 and spools command output under ``var/`` — and the profile fingerprint notices,
 so a second test starting the same directory is refused as stale. Use
-``exemplar_copy`` for anything that runs a verb; the shared tree is for reading.
+``exemplar_copy``, a writable tree of the test's own, for anything that runs a
+verb; the shared tree is for reading.
 
 The preset is ``hello-world`` for one reason: it is the only bundled preset that
 both deploys services and comes up against a stubbed runtime alone. The
@@ -31,7 +36,7 @@ deploy no services at all, so there is no start to watch.
 
 On top of those two, the fixtures every scenario module drives a verb with live
 here as well: ``pty_env`` (the child environment), ``unhurried_runtime`` (a real
-runtime's latency in front of the stub) and ``startable_repo`` (a writable copy
+runtime's latency in front of the stub) and ``startable_repo`` (a writable exemplar
 whose published ports are free on this host). They are shared by more than one
 module, and a fixture pytest resolves by name is one no scenario module has to
 import from another.
@@ -45,7 +50,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,12 +57,19 @@ from typing import Any
 
 import pytest
 
+from tests._builds import Restorable, _exclusive
+
 #: The preset the exemplar is rendered from. See the module docstring for why
 #: it is this one and not a richer profile.
 EXEMPLAR_PRESET = "hello-world"
 
 #: Directory name of the rendered repo inside its cache entry.
 EXEMPLAR_DIRNAME = "exemplar"
+
+#: File inside the cache entry, beside the ``exemplar/`` repo and never inside
+#: it, written once the render has finished: an entry that has it is a complete
+#: render made at this path.
+EXEMPLAR_COMPLETE_MARKER = ".complete"
 
 #: A key baked into the render so a change to *this file's* render procedure
 #: invalidates cached repos that were produced by the old one. Bump it whenever
@@ -77,6 +88,8 @@ STUB_API_KEY = "sk-ant-stub-0000000000000000000000000000"
 #: the render, the generator that writes the compose files, and the profile
 #: machinery that resolves the preset are all in the key beside the templates —
 #: each of them can change the rendered repo without a template changing at all.
+#:
+#: The checkout's path is a render input too, because the render names it.
 #:
 #: Targeted rather than "all of ``src/osprey``": a key over the whole package
 #: would re-render on every unrelated edit in the tree, which on a working
@@ -121,7 +134,7 @@ def exemplar_cache_key(preset: str = EXEMPLAR_PRESET) -> str:
         A short hex digest, stable across processes and machines.
     """
     digest = hashlib.sha256()
-    digest.update(f"recipe={RENDER_RECIPE_VERSION}\npreset={preset}\n".encode())
+    digest.update(f"recipe={RENDER_RECIPE_VERSION}\npreset={preset}\nroot={repo_root()}\n".encode())
     digest.update(preset_path(preset).read_bytes())
     for relative in _KEY_INPUTS:
         root = repo_root() / relative
@@ -146,10 +159,9 @@ def exemplar_cache_key(preset: str = EXEMPLAR_PRESET) -> str:
 def exemplar_cache_dir(preset: str = EXEMPLAR_PRESET) -> Path:
     """Where a render of *preset* is cached.
 
-    Stable across runs and inside the checkout (``.cache/`` is gitignored), so
-    a CI lane can restore the parent directory wholesale: the key in the leaf
-    name is what decides whether a restored entry is actually usable, so a
-    coarse cache key on the CI side can never serve a stale repo.
+    Stable across runs and inside the checkout (``.cache/`` is gitignored). An
+    entry is valid only at the path it was rendered at, and that path is in the
+    key, so a cache copied to another checkout path is never served.
     """
     return repo_root() / ".cache" / "pty-exemplar" / f"{preset}-{exemplar_cache_key(preset)}"
 
@@ -255,28 +267,29 @@ def render_exemplar(destination: Path, preset: str = EXEMPLAR_PRESET) -> Path:
 def ensure_exemplar(preset: str = EXEMPLAR_PRESET) -> Path:
     """The cached render of *preset*, rendering it first if there is none.
 
-    Built into a sibling scratch directory and moved into place, so a cache
-    entry either does not exist or is complete: a half-rendered repo left by an
-    interrupted session would otherwise be served to every later one.
+    Rendered at the path it is served from, because a render names its
+    directory. An entry is complete or absent by its marker, which is written
+    last. A lock on the key makes concurrent xdist workers and concurrent
+    sessions in one checkout render it once. A killed run leaves an entry
+    without a marker, which the next call wipes and renders again; the lock
+    dies with the process that held it, so none is left stale.
     """
     cached = exemplar_cache_dir(preset)
     repo = cached / EXEMPLAR_DIRNAME
-    if repo.is_dir():
+    marker = cached / EXEMPLAR_COMPLETE_MARKER
+    # Nothing removes a marked entry, so a marked one is read without the lock.
+    if marker.is_file():
         return repo
 
     cached.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f"{cached.name}.building-", dir=cached.parent))
-    try:
-        render_exemplar(staging, preset)
-        try:
-            staging.rename(cached)
-        except OSError:
-            # Another session won the race and put its own render here. Its
-            # render is this render — same key, same inputs — so take theirs.
-            if not repo.is_dir():
-                raise
-    finally:
-        shutil.rmtree(staging, ignore_errors=True)
+    # The lock file sits beside the entry, so wiping the entry never removes
+    # the lock that guards it.
+    with _exclusive(cached.parent / f"{cached.name}.lock"):
+        if marker.is_file():
+            return repo
+        shutil.rmtree(cached, ignore_errors=True)
+        render_exemplar(cached, preset)
+        marker.touch()
     return repo
 
 
@@ -373,24 +386,36 @@ def exemplar_preset() -> str:
 def exemplar_repo() -> Path:
     """The shared, rendered deployment repo. **Read-only.**
 
-    Rendered once per session (cached across sessions) by the real ``init`` and
-    ``build``. Anything that runs a verb against it must take an
+    Rendered once per key (cached across sessions) by the real ``init`` and
+    ``build``, at the path it is served from, so its labels name that path.
+    Anything that runs a verb against it must take an
     ``exemplar_copy`` first — see the module docstring.
     """
     return ensure_exemplar()
 
 
+@pytest.fixture(scope="session")
+def _startable_exemplar(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
+    """The exemplar rendered by the real verbs at the path it is used at, once per worker."""
+
+    def make(parent: Path) -> tuple[Path, None]:
+        return render_exemplar(parent), None
+
+    return Restorable(tmp_path_factory.mktemp("startable-exemplar"), make)
+
+
 @pytest.fixture
-def exemplar_copy(exemplar_repo: Path, tmp_path: Path) -> Path:
-    """A private, writable copy of the exemplar for one test.
+def exemplar_copy(_startable_exemplar: Restorable) -> Path:
+    """A private, writable exemplar for one test.
 
     The copy is what a start verb is allowed to scribble on: it mints tokens
     into ``.env``, writes key material under ``data/``, and spools output under
     ``var/``, all of which the profile fingerprint sees.
+
+    It is rendered at the path it is used at and put back pristine there for
+    every test, so its labels name the checkout a start runs in.
     """
-    destination = tmp_path / exemplar_repo.name
-    shutil.copytree(exemplar_repo, destination, symlinks=True)
-    return destination
+    return _startable_exemplar.restore()
 
 
 @pytest.fixture

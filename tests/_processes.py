@@ -77,10 +77,10 @@ async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
     """Wait until every one of *pids* is gone, or a zombie nobody has reaped yet.
 
     The wait of an async test: it yields to the loop between looks and reads
-    the process table off it, so whatever the loop still has to finish is not held up by
-    the waiting. All of *pids* share one deadline of *within* seconds. A pid
-    still running at the deadline fails the wait by name, with the state
-    the process table last reported for it.
+    each pid's psutil status off it, so whatever the loop still has to finish
+    is not held up by the waiting. All of *pids* share one deadline of *within*
+    seconds. A pid still running at the deadline fails the wait by name, with
+    the psutil status last read for it.
     """
     started = time.monotonic()
     running = list(pids)
@@ -93,7 +93,7 @@ async def wait_gone(pids: Iterable[int], within: float = 5.0) -> None:
         if waited > within:
             pid = running[0]
             raise AssertionError(
-                f"pid {pid} (ps state {states[pid]!r}) is still running {waited:.1f} s after "
+                f"pid {pid} (psutil status {states[pid]!r}) is still running {waited:.1f} s after "
                 "the stop returned"
             )
         await asyncio.sleep(0.05)

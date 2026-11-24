@@ -444,16 +444,17 @@ def test_conversations_members_stops_at_limit_and_reports_more() -> None:
     assert endpoint.form(0)["limit"] == "2"
 
 
-def test_conversations_members_limit_exact_on_last_page_is_not_more() -> None:
-    client, _, _ = make(_page(["U1", "U2"], ""))
+@pytest.mark.parametrize(
+    ("cursor", "more"),
+    [
+        pytest.param("", False, id="on-last-page-is-not-more"),
+        pytest.param("c2", True, id="with-cursor-left-is-more"),
+    ],
+)
+def test_conversations_members_limit_exact(cursor: str, more: bool) -> None:
+    client, _, _ = make(_page(["U1", "U2"], cursor))
 
-    assert client.conversations_members("C1", limit=2) == (["U1", "U2"], False)
-
-
-def test_conversations_members_limit_exact_with_cursor_left_is_more() -> None:
-    client, _, _ = make(_page(["U1", "U2"], "c2"))
-
-    assert client.conversations_members("C1", limit=2) == (["U1", "U2"], True)
+    assert client.conversations_members("C1", limit=2) == (["U1", "U2"], more)
 
 
 def test_conversations_members_page_size_is_clamped() -> None:

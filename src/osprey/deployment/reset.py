@@ -157,6 +157,7 @@ from osprey.deployment.deployment_record import (
     read_deployment_record,
 )
 from osprey.deployment.errors import DeploymentRecordError
+from osprey.deployment.host_ports import HOST_NETWORK_PORTS_RELPATH
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     removal_refusal,
@@ -346,7 +347,8 @@ class RuntimeProbe:
     so the whole destructive surface of ``osprey reset`` can be read in one
     screen and exercised in tests without a runtime. ``run`` is injected for
     exactly that — the tests pass a recorder, and no test in this feature ever
-    reaches a real daemon.
+    reaches a real daemon. Without it, each call looks up this module's
+    ``subprocess.run`` when it runs.
 
     Every listing is label-filtered and read-only; every removal names exactly
     one resource. There is no ``prune``, no ``-a``/``--all``, no wildcard, and
@@ -358,7 +360,7 @@ class RuntimeProbe:
         runtime: str,
         *,
         env: Mapping[str, str] | None = None,
-        run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+        run: Callable[..., subprocess.CompletedProcess] | None = None,
     ) -> None:
         #: Runtime binary — ``docker`` or ``podman``, never the compose argv.
         self.runtime = runtime
@@ -373,7 +375,7 @@ class RuntimeProbe:
 
     def _capture(self, args: Sequence[str]) -> subprocess.CompletedProcess:
         logger.debug("Running command:\n    %s", " ".join([self.runtime, *args]))
-        return self._run(
+        return (self._run or subprocess.run)(
             [self.runtime, *args], capture_output=True, text=True, env=self._env, check=False
         )
 
@@ -1466,6 +1468,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
         repo_root / MERGED_COMPOSE_FILENAME,
         repo_root / AUTH_ENV_FILENAME,
         repo_root / DEPLOYMENT_RECORD_RELPATH,
+        repo_root / HOST_NETWORK_PORTS_RELPATH,
     ]
     if contained:
         paths.insert(0, agent_data)
@@ -1562,12 +1565,14 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
     2. containers, then volumes, then images — dependents before dependencies,
        which is the only order the runtime will accept.
     3. the filesystem: ``var/agent_data``, ``build/``, the merged compose
-       document and the deployment record ``var/deployment.json`` (and
+       document, the deployment record ``var/deployment.json`` and the
+       host-network ports ``var/host-network-ports.json`` (and
        ``var/audit``, ``var/agent_record`` and ``var/spool`` under
        ``--purge-audit``), each removed and — for the state directories — left
        behind empty, so the repo has the shape a fresh ``osprey init`` gives it.
-       The deployment record names the deployment this reset ends, so it is not
-       recreated: the next ``osprey up`` writes it again. Under
+       The deployment record and the host-network ports describe the deployment
+       this reset ends, so neither is recreated: the next ``osprey up`` writes
+       them again. Under
        ``--purge-audit`` the agent record's export of each planned archive day
        goes next, under the archive lock, and that day's manifest gets an
        ``agent_record_purged`` line.
@@ -1600,6 +1605,7 @@ def execute_reset(plan: ResetPlan, *, probe: RuntimeProbe) -> None:
         plan.repo_root / MERGED_COMPOSE_FILENAME,
         plan.repo_root / AUTH_ENV_FILENAME,
         plan.repo_root / DEPLOYMENT_RECORD_RELPATH,
+        plan.repo_root / HOST_NETWORK_PORTS_RELPATH,
     }
     for path in plan.paths:
         _wipe_directory(path, recreate=path not in derived)

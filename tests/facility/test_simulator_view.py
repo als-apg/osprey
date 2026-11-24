@@ -25,20 +25,22 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.facility import TEXTURE
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
-from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.views import view_bytes
+from osprey.facility.views.outputs import render_facility_outputs
+from osprey.facility.views.simulator import INACTIVE_UNSERVED
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import (
-    IOC_HEALTH_SIGNALS,
     SCENARIOS_SCHEMA,
     SEEDS_SCHEMA,
+    SERVER_HEALTH_SIGNALS,
     SimulatorView,
 )
-from osprey_connectors.workspace import BUILD_DIR_NAME
+from osprey_facility import TEXTURE
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from osprey_facility.render import FACILITY_FILE
+from tests._builds import init_project
 
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
@@ -48,11 +50,15 @@ pytestmark = [pytest.mark.slow]
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
-LINE_DECK = "data/simulator/decks/LINE.json"
-#: The single-pass transfer lines' decks beside LINE's.
-TRANSFER_DECKS = ("data/simulator/decks/BTS.json", "data/simulator/decks/LTB.json")
+#: The booster's deck and the single-pass transfer lines'.
+OTHER_DECKS = (
+    "data/simulator/decks/BR.json",
+    "data/simulator/decks/BTS.json",
+    "data/simulator/decks/LTB.json",
+)
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "data/simulator/seeds.json"
+FOLLOWS = "data/simulator/follows.json"
 SCENARIOS = "data/simulator/scenarios.json"
 SCENARIO_FILES = (
     "data/simulator/scenarios/bpm-polarity/plots/corrector_bump_test.png",
@@ -67,8 +73,9 @@ BLUESKY = "data/bluesky_devices.yml"
 CHANNEL_INDEX = "data/channel_finder/hierarchical.json"
 GRAPH = "data/graph/facility.ttl"
 PYAML = (
+    "data/pyaml/BR/configuration.yaml",
+    "data/pyaml/BR/lattice.json",
     "data/pyaml/BTS/configuration.yaml",
-    "data/pyaml/LINE/configuration.yaml",
     "data/pyaml/LTB/configuration.yaml",
     "data/pyaml/SR/configuration.yaml",
     "data/pyaml/SR/crm.json",
@@ -77,12 +84,31 @@ PYAML = (
 )
 
 
+def _render_simulator(
+    render_dir: Path, facility: dict[str, Any], config: Mapping[str, Any], facility_dir: Path
+) -> list[Path]:
+    """``render_facility_outputs`` with the simulator view alone in the view table.
+
+    Every case of this module reads the simulator view only, and the render
+    writes the facility file and resolves the served models before any view,
+    so the other views are left out. The table is narrowed for the one call:
+    ``built_demo`` may be built in this module, and its render needs them all.
+    """
+    from osprey.facility import views
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            views, "VIEWS", tuple(view for view in views.VIEWS if view.name == "simulator")
+        )
+        return render_facility_outputs(render_dir, facility, config, facility_dir)
+
+
 def _render(
     tmp_path: Path, built: BuiltProject, config: dict[str, Any], name: str = "render"
 ) -> Path:
     render_dir = tmp_path / name
     render_dir.mkdir()
-    render_facility_outputs(render_dir, built.facility, config, built.facility_dir)
+    _render_simulator(render_dir, built.facility, config, built.facility_dir)
     return render_dir
 
 
@@ -96,11 +122,11 @@ def test_every_render_writes_the_simulator_files_beside_the_limits(
                 FACILITY_FILE,
                 ADDRESSES,
                 DECK,
-                LINE_DECK,
-                *TRANSFER_DECKS,
+                *OTHER_DECKS,
                 SCENARIOS,
                 *SCENARIO_FILES,
                 SEEDS,
+                FOLLOWS,
                 SERVED,
                 VARIABLES,
                 LIMITS,
@@ -127,41 +153,41 @@ def test_addresses_are_the_facility_file_channels_and_the_served_status(
 
     assert addresses["schema"] == "osprey.facility.addresses/1"
     assert addresses["channels"] == sorted(channel["id"] for channel in facility["channels"])
-    assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")]
+    assert addresses["status"] == [f"ca:SIM:{name}:STATUS" for name in ("BR", "BTS", "LTB", "SR")]
 
 
-def test_every_served_model_lists_its_ioc_health_addresses_texture_last(
+def test_every_served_model_lists_its_server_health_addresses_texture_last(
     built_demo: BuiltProject,
 ) -> None:
     addresses = json.loads((built_demo.build_dir / ADDRESSES).read_bytes())
 
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{name}:{signal}"
-        for name in ("BTS", "LINE", "LTB", "SR", TEXTURE)
+        for name in ("BR", "BTS", "LTB", "SR", TEXTURE)
         for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
 
 
-def test_a_render_with_a_pv_directory_section_lists_the_same_ioc_health_addresses(
+def test_a_render_with_a_channel_directory_section_lists_the_same_server_health_addresses(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     plain = _render(tmp_path, built_demo, {}, "plain")
     with_directory = _render(
-        tmp_path, built_demo, {"pv_directory": {"type": "channelfinder"}}, "with-directory"
+        tmp_path, built_demo, {"channel_directory": {"type": "channelfinder"}}, "with-directory"
     )
 
     assert (with_directory / ADDRESSES).read_bytes() == (plain / ADDRESSES).read_bytes()
 
 
-def test_the_reader_groups_the_written_ioc_health_addresses_by_model(
+def test_the_reader_groups_the_written_server_health_addresses_by_model(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     render_dir = _render(tmp_path, built_demo, {"simulation": {"models": ["SR"]}})
 
     view = SimulatorView.open(render_dir / "data" / "simulator")
 
-    assert view.ioc_health_by_model() == {
-        name: {signal: f"ca:SIM:{name}:{signal}" for signal in IOC_HEALTH_SIGNALS}
+    assert view.server_health_by_model() == {
+        name: {signal: f"ca:SIM:{name}:{signal}" for signal in SERVER_HEALTH_SIGNALS}
         for name in ("SR", TEXTURE)
     }
 
@@ -173,12 +199,13 @@ def test_the_demo_serves_its_deck_models_then_texture(
 
     assert served == {
         "schema": "osprey.facility.served_models/1",
-        "models": ["BTS", "LINE", "LTB", "SR", TEXTURE],
+        "models": ["BR", "BTS", "LTB", "SR", TEXTURE],
     }
 
 
 def test_the_deck_is_a_byte_copy_that_pyat_loads(built_demo: BuiltProject) -> None:
-    at = pytest.importorskip("at")
+    import at
+
     copy = built_demo.build_dir / DECK
     source = built_demo.facility_dir / "decks" / "SR.json"
 
@@ -198,7 +225,7 @@ def test_no_physics_serves_texture_alone_and_keeps_the_deck(
     addresses = json.loads((render_dir / ADDRESSES).read_bytes())
     assert served["models"] == [TEXTURE]
     assert addresses["status"] == []
-    assert addresses["ioc_health"] == [
+    assert addresses["server_health"] == [
         f"ca:SIM:{TEXTURE}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")
     ]
     assert (render_dir / DECK).read_bytes() == (built_demo.build_dir / DECK).read_bytes()
@@ -263,8 +290,10 @@ def test_an_omitted_view_is_named_on_stderr_alone(
         write=lambda _root, _inputs: pytest.fail("an omitted view is never written"),
     )
     monkeypatch.setattr(views, "VIEWS", (*views.VIEWS, stub))
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
 
-    render_dir = _render(tmp_path, built_demo, {})
+    render_facility_outputs(render_dir, built_demo.facility, {}, built_demo.facility_dir)
 
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -273,17 +302,11 @@ def test_an_omitted_view_is_named_on_stderr_alone(
     assert (render_dir / SERVED).is_file()
 
 
-def test_validate_names_an_unknown_served_model(tmp_path: Path, built_demo: BuiltProject) -> None:
+def test_validate_names_an_unknown_served_model(tmp_path: Path) -> None:
+    """The stop is the served-model resolution's, so the smallest preset's tree meets it."""
     from osprey.cli.main import cli
 
-    source = built_demo.repo
-    repo = tmp_path / source.name
-    shutil.copytree(
-        source,
-        repo,
-        symlinks=True,
-        ignore=lambda folder, _names: [BUILD_DIR_NAME] if Path(folder) == source else [],
-    )
+    repo = init_project(tmp_path, "hello-world", "demo")
     profile = repo / "profile.yml"
     document = yaml.safe_load(profile.read_text(encoding="utf-8"))
     document.setdefault("config", {})["simulation.models"] = ["NOPE"]
@@ -475,12 +498,12 @@ def test_a_deck_keeps_its_suffix(tmp_path: Path, built_demo: BuiltProject) -> No
     sr["deck"] = "decks/SR.mat"
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, facility_dir)
+    _render_simulator(render_dir, facility, {}, facility_dir)
 
     served = render_dir / "data" / "simulator" / "decks"
     assert sorted(path.name for path in served.iterdir()) == [
+        "BR.json",
         "BTS.json",
-        "LINE.json",
         "LTB.json",
         "SR.mat",
     ]
@@ -502,8 +525,8 @@ def test_channel_owner_is_the_wiring_model_else_texture(
     for channel in variables["channels"]:
         assert channel["owner"] == wired.get(channel["address"], TEXTURE), channel["address"]
     assert {channel["owner"] for channel in variables["channels"]} == {
+        "BR",
         "BTS",
-        "LINE",
         "LTB",
         "SR",
         TEXTURE,
@@ -553,6 +576,22 @@ def test_writable_and_value_range_come_from_the_limits_records(
     for channel in variables["channels"]:
         if channel["role"] != "setpoint":
             assert channel["writable"] is False, channel["address"]
+
+
+def test_a_stated_writable_setpoint_without_bounds_is_writable_in_the_view(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    paddle = "BR:DIAG:TV:01:PADDLE:SP"
+    facility = copy.deepcopy(built_demo.facility)
+    facility["limits"]["records"].append({"address": paddle, "writable": True, "confirm": False})
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
+
+    channel = _channel(_view(render_dir, VARIABLES), paddle)
+
+    assert (channel["value_type"], channel["role"]) == ("bool", "setpoint")
+    assert (channel["writable"], channel["value_range"]) == (True, None)
 
 
 @pytest.mark.parametrize(
@@ -673,7 +712,7 @@ def test_a_render_leaves_out_the_copy_of_a_file_no_entry_attaches_any_more(
     render_dir = tmp_path / "render"
     render_dir.mkdir()
 
-    written = render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    written = _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     copies = [
         path.relative_to(render_dir).as_posix()
@@ -695,7 +734,7 @@ def test_a_file_two_entries_attach_is_copied_and_listed_once(
     render_dir = tmp_path / "render"
     render_dir.mkdir()
 
-    written = render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    written = _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     copied = render_dir / "data/simulator/scenarios/nominal/plots/orbit_rms.json"
     assert written.count(copied) == 1
@@ -760,7 +799,7 @@ def test_a_bad_attachment_in_any_scenario_stops_before_any_file_is_copied(
     render_dir.mkdir()
 
     with pytest.raises(ValueError, match="plots/absent.json"):
-        render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+        _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     assert not (render_dir / "data/simulator/scenarios").exists()
 
@@ -782,7 +821,7 @@ def test_an_attachment_naming_a_missing_file_is_refused(
     render_dir.mkdir()
 
     with pytest.raises(ValueError, match="plots/absent.json"):
-        render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+        _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
 
 def test_a_fault_on_an_unserved_model_is_inactive(tmp_path: Path, built_demo: BuiltProject) -> None:
@@ -806,7 +845,7 @@ def test_a_scenario_stating_none_of_the_optional_slots_carries_none_of_them(
     facility["scenarios"] = [{"name": "bare", "overrides": {UNLISTED_SETPOINT: 1.0}}]
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built_demo.facility_dir)
+    _render_simulator(render_dir, facility, {}, built_demo.facility_dir)
 
     (entry,) = [e for e in _view(render_dir, SCENARIOS)["scenarios"] if e["name"] == "bare"]
     assert entry == {"name": "bare", "overrides": {UNLISTED_SETPOINT: 1.0}}
@@ -823,7 +862,7 @@ def _rendered_scenarios(
     facility["scenarios"] = scenarios
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, config or {}, built.facility_dir)
+    _render_simulator(render_dir, facility, config or {}, built.facility_dir)
     return _view(render_dir, SCENARIOS)["scenarios"]
 
 
@@ -1012,7 +1051,7 @@ def _render_channels(
             record.update(edit[str(record["id"])])
     render_dir = tmp_path / "render"
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    _render_simulator(render_dir, facility, {}, built.facility_dir)
     return _view(render_dir, VARIABLES)
 
 
@@ -1046,10 +1085,191 @@ def test_a_setpoint_stating_a_null_pair_pairs_with_itself(
     assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
 
 
-def _with_channel(built: BuiltProject, address: str) -> dict[str, Any]:
+def test_a_readback_several_setpoints_name_is_driven_by_none_of_them(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = next(
+        (str(record["id"]), str(record["pair"]))
+        for record in built_demo.facility["channels"]
+        if record.get("role") == "setpoint"
+        and record.get("pair") not in (None, record["id"])
+        and record["id"] != UNLISTED_SETPOINT
+    )
+    variables = _render_channels(tmp_path, built_demo, {UNLISTED_SETPOINT: {"pair": readback}}, ())
+
+    # the simulation follows a readback only where it is that readback's one setpoint
+    assert _channel(variables, setpoint)["pair"] == setpoint
+    assert _channel(variables, UNLISTED_SETPOINT)["pair"] == UNLISTED_SETPOINT
+
+
+def _render_follows(
+    tmp_path: Path, built: BuiltProject, edit: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The variables and follows documents of a render whose channels take ``edit``."""
+    variables = _render_channels(tmp_path, built, edit, ())
+    return variables, _view(tmp_path / "render", FOLLOWS)
+
+
+def _a_followed_pair(built: BuiltProject) -> tuple[str, str]:
+    from osprey_facility.pairing import FOLLOWED_DEFAULT, pair_follows
+
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    return next(
+        (follow.setpoint, follow.readback)
+        for follow in pair_follows(channels)
+        if follow.follow == FOLLOWED_DEFAULT
+    )
+
+
+def test_follows_says_for_each_pair_whether_the_simulation_follows_it(
+    built_demo: BuiltProject,
+) -> None:
+    from osprey_facility.pairing import pair_follows
+
+    follows = _view(built_demo.build_dir, FOLLOWS)
+    channels = {str(c["id"]): c for c in built_demo.facility["channels"]}
+    expected = [
+        {key: value for key, value in follow._asdict().items() if value is not None}
+        for follow in pair_follows(channels)
+    ]
+    assert {pair.get("copy") for pair in expected} <= {"value", None}
+    assert all(("copy" in pair) == (pair["follow"] != "not followed") for pair in expected)
+    assert follows["schema"] == "osprey.facility.follows/1"
+    assert follows["pairs"] == expected
+    assert follows["totals"] == {
+        word: sum(1 for pair in expected if pair["follow"] == word)
+        for word in ("default", "seed", "not followed")
+    }
+    assert follows["totals"]["default"] > 0
+    variables = _view(built_demo.build_dir, VARIABLES)
+    followed = {p["setpoint"]: p["readback"] for p in expected if p["follow"] != "not followed"}
+    for pair in expected:
+        assert _channel(variables, pair["setpoint"])["pair"] == followed.get(
+            pair["setpoint"], pair["setpoint"]
+        )
+
+
+def _a_command_status_pair(built: BuiltProject) -> tuple[str, str]:
+    """A followed two-state setpoint and readback of the demo that no other seed or scenario names."""
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    named = json.dumps(
+        [c.get("simulation") for c in built.facility["channels"]]
+        + list(built.facility.get("scenarios", []))
+    )
+
+    def keep(sp: str, rb: str) -> bool:
+        return channels[sp].get("value_type") == "bool" and sp not in named and rb not in named
+
+    return _a_followed_pair_where(built, keep)
+
+
+def _a_followed_pair_where(built: BuiltProject, keep: Any) -> tuple[str, str]:
+    from osprey_facility.pairing import FOLLOWED_DEFAULT, pair_follows
+
+    channels = {str(c["id"]): c for c in built.facility["channels"]}
+    return next(
+        (follow.setpoint, follow.readback)
+        for follow in pair_follows(channels)
+        if follow.follow == FOLLOWED_DEFAULT and keep(follow.setpoint, follow.readback)
+    )
+
+
+def test_a_setpoint_of_other_labels_is_followed_by_index_into_the_texture(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    from osprey_connectors.simulation.texture import TextureModel
+
+    setpoint, readback = _a_command_status_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path,
+        built_demo,
+        {
+            setpoint: {"options": ["Clear", "Set"], "simulation": None},
+            readback: {"options": ["Off", "On"], "simulation": {"follows": setpoint}},
+        },
+    )
+    entry = next(p for p in follows["pairs"] if p["readback"] == readback)
+    assert (entry["follow"], entry["copy"]) == ("seed", "index")
+    assert entry["labels"] == [["Clear", "Off"], ["Set", "On"]]
+    assert _channel(variables, setpoint)["pair"] == readback
+
+    seeds = _view(tmp_path / "render", SEEDS)
+    # A command may be read-only in the demo's limits; the copy is under test, not the limit.
+    _channel(variables, setpoint)["writable"] = True
+    model = TextureModel(variables, seeds)
+    assert model.get([setpoint, readback]) == {setpoint: "Clear", readback: "Off"}
+    model.set({setpoint: "Set"})
+    assert model.get([setpoint, readback]) == {setpoint: "Set", readback: "On"}
+
+
+def test_a_readback_seed_following_none_stops_the_simulation_following_it(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = _a_followed_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path, built_demo, {readback: {"simulation": {"follows": "none"}}}
+    )
+
+    assert _channel(variables, setpoint)["pair"] == setpoint
+    assert {
+        "setpoint": setpoint,
+        "readback": readback,
+        "follow": "not followed",
+        "why": "the readback's seed follows none",
+    } in follows["pairs"]
+
+
+def test_seeds_leave_out_follows_which_the_pair_already_carries(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    readbacks = [
+        str(c["id"])
+        for c in built_demo.facility["channels"]
+        if c.get("role", "readback") == "readback"
+    ]
+    seeded = next(a for a in readbacks if _seed_of(built_demo, a) is not None)
+    unseeded = next(a for a in readbacks if _seed_of(built_demo, a) is None)
+    seed = _seed_of(built_demo, seeded)
+    _render_follows(
+        tmp_path,
+        built_demo,
+        {
+            seeded: {"simulation": {**seed, "follows": "none"}},
+            unseeded: {"simulation": {"follows": "none"}},
+        },
+    )
+    seeds = _view(tmp_path / "render", SEEDS)["seeds"]
+
+    assert seeds[seeded] == seed
+    assert unseeded not in seeds
+
+
+def _seed_of(built: BuiltProject, address: str) -> dict[str, Any] | None:
+    record = next(c for c in built.facility["channels"] if str(c["id"]) == address)
+    return record.get("simulation")
+
+
+def test_a_readback_seed_naming_its_setpoint_makes_the_simulation_follow_it(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    setpoint, readback = _a_followed_pair(built_demo)
+    variables, follows = _render_follows(
+        tmp_path, built_demo, {readback: {"simulation": {"follows": setpoint}}}
+    )
+
+    assert _channel(variables, setpoint)["pair"] == readback
+    entry = next(p for p in follows["pairs"] if p["readback"] == readback)
+    assert entry["follow"] == "seed"
+
+
+def _with_channels(built: BuiltProject, *addresses: str) -> dict[str, Any]:
     facility = copy.deepcopy(built.facility)
-    facility["channels"].append({"id": address})
+    facility["channels"].extend({"id": address} for address in addresses)
     return facility
+
+
+#: Addresses an archive once refused as field names: a dot, a leading ``$``, a ``%``.
+ODD_ADDRESSES = ("BPM1.X", "$LAB:TEMP", "LAB%TEMP")
 
 
 @pytest.mark.parametrize(
@@ -1060,15 +1280,19 @@ def _with_channel(built: BuiltProject, address: str) -> dict[str, Any]:
     ],
     ids=["deployed", "projected"],
 )
-@pytest.mark.parametrize("address", ["BPM1.X", "$LAB:TEMP", "LAB%TEMP"])
 def test_a_configured_recorder_serves_any_address(
-    tmp_path: Path, built_demo: BuiltProject, config: dict[str, Any], address: str
+    tmp_path: Path, built_demo: BuiltProject, config: dict[str, Any]
 ) -> None:
-    facility = _with_channel(built_demo, address)
+    """Every view renders the odd addresses, and the simulator lists each one.
+
+    The render keeps every view, so no view's stop on such an address goes unseen.
+    """
+    facility = _with_channels(built_demo, *ODD_ADDRESSES)
 
     render_facility_outputs(tmp_path, facility, config, built_demo.facility_dir)
 
-    assert address in _view(tmp_path, ADDRESSES)["channels"]
+    channels = _view(tmp_path, ADDRESSES)["channels"]
+    assert [address for address in ODD_ADDRESSES if address in channels] == list(ODD_ADDRESSES)
 
 
 def _with_inputs(built: BuiltProject, inputs: dict[str, Any]) -> dict[str, Any]:
@@ -1099,14 +1323,14 @@ def _render_facility(
 ) -> Path:
     render_dir = tmp_path / name
     render_dir.mkdir()
-    render_facility_outputs(render_dir, facility, {}, built.facility_dir)
+    _render_simulator(render_dir, facility, {}, built.facility_dir)
     return render_dir
 
 
 def test_a_model_declaring_inputs_carries_them_in_declared_order(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    second, first = _wired_by(built_demo, "LINE", 2)
+    second, first = _wired_by(built_demo, "BTS", 2)
     declared = [
         {"address": first, "engine": {"take": "x", "scale": [1.0, 2.0]}},
         {"address": second},
@@ -1122,13 +1346,13 @@ def test_a_model_declaring_inputs_carries_them_in_declared_order(
 
     view = SimulatorView.open(root / "data" / "simulator")
     assert [_thawed(item) for item in view.model("SR").inputs] == declared
-    assert view.model("LINE").inputs == ()
+    assert view.model("BTS").inputs == ()
 
 
 def test_inputs_are_the_only_difference_a_declaration_makes(
     tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    (address,) = _wired_by(built_demo, "LINE", 1)
+    (address,) = _wired_by(built_demo, "BTS", 1)
     plain = _render_facility(tmp_path, built_demo, built_demo.facility, "plain")
     root = _render_facility(
         tmp_path, built_demo, _with_inputs(built_demo, {"SR": [{"address": address}]})
@@ -1147,3 +1371,49 @@ def test_an_empty_inputs_list_is_written_as_no_inputs(
     root = _render_facility(tmp_path, built_demo, _with_inputs(built_demo, {"SR": []}))
 
     assert (root / VARIABLES).read_bytes() == (plain / VARIABLES).read_bytes()
+
+
+def test_stopped_servers_of_served_models_are_carried_verbatim(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e for e in _rendered_scenarios(tmp_path, built_demo, [scenario]) if e["name"] == "sr-down"
+    ]
+    assert entry == scenario
+
+
+def test_stopped_servers_of_an_unserved_model_are_marked_inactive_and_left_out_of_the_stop(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR", "sim-texture"]}
+
+    (entry,) = [
+        e
+        for e in _rendered_scenarios(
+            tmp_path, built_demo, [scenario], {"simulation": {"models": [TEXTURE]}}
+        )
+        if e["name"] == "sr-down"
+    ]
+    assert entry == {
+        "name": "sr-down",
+        "stopped_servers": ["sim-texture"],
+        "inactive_servers": {"sim-SR": INACTIVE_UNSERVED},
+    }
+
+
+def test_a_default_scenario_stopping_an_unserved_models_ioc_is_refused_at_render(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
+    config = {"simulation": {"models": [TEXTURE], "default_scenarios": ["sr-down"]}}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+
+    assert stop.value.kind == "value-invalid"
+    assert stop.value.record_id == "sr-down"
+    assert "`sim-SR`, which this render does not serve" in stop.value.detail
+    assert "`sim-texture`" in stop.value.remedy
+    assert "`simulation.default_scenarios`" in stop.value.remedy

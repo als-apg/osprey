@@ -30,7 +30,7 @@ from bluesky import RunEngine
 from bluesky.protocols import Location
 from bluesky.utils import FailedStatus, RequestAbort
 from ophyd_async.core import AsyncStatus
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.devices._connect import connect_all
@@ -45,6 +45,8 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MOVABLE_ROLE,
     READABLE_ROLE,
     channel_roles,
+    resolve_plan_args,
+    validate_field_value,
 )
 from osprey.services.bluesky_bridge.plan_metadata import parse_plan_metadata_dict
 from osprey.services.bluesky_bridge.plans_core import orbit_bump_sweep
@@ -63,6 +65,106 @@ from osprey.services.bluesky_bridge.plans_core.orbit_bump_sweep import (
 )
 from osprey.services.bluesky_bridge.plans_core.orm import PARAMS as ORMParams
 from osprey.services.bluesky_bridge.plans_core.orm import build_plan as orm_plan
+
+# =========================================================================
+# Every shipped default, as the catalog serves it and as the load gate judges it
+# =========================================================================
+
+
+def test_bump_monitors_default_is_an_empty_list_in_the_catalog() -> None:
+    spec = plan_loader.get_facility_plans().plans["orbit_bump_sweep"]
+
+    assert spec.to_dict()["schema"]["properties"]["monitors"]["default"] == []
+
+
+@pytest.mark.parametrize(
+    "params", [ORMParams, GridScanParams, BumpParams], ids=lambda m: m.__module__
+)
+def test_every_shipped_default_passes_its_field(params: type[BaseModel]) -> None:
+    for name, field in params.model_fields.items():
+        if field.is_required():
+            continue
+        validate_field_value(params, name, field.get_default(call_default_factory=True))
+
+
+#: The required fields alone, per shipped plan, so every default the plan
+#: declares is filled by the resolution below.
+_REQUIRED_ONLY_ARGS: dict[str, dict[str, Any]] = {
+    "grid_scan": {
+        "readbacks": ["BPM1"],
+        "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+    },
+    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span": 1.0, "num": 3},
+    "orbit_bump_sweep": {
+        "correctors": ["COR1", "COR2", "COR3"],
+        "targets": [{"readback": "BPM1", "value": 0.3}],
+        "closure_readbacks": ["BPM2", "BPM3"],
+        "readbacks": ["BPM4"],
+        "num": 5,
+        "probe_amplitude": 0.05,
+        "tolerance": 0.001,
+        "max_trim_iterations": 3,
+        "settle_s": 0.2,
+    },
+}
+
+
+def test_every_shipped_plan_has_required_only_arguments() -> None:
+    shipped = {
+        name
+        for name, spec in plan_loader.get_facility_plans().plans.items()
+        if spec.provenance == "shipped"
+    }
+
+    assert shipped == set(_REQUIRED_ONLY_ARGS)
+
+
+@pytest.mark.parametrize("plan_name", sorted(_REQUIRED_ONLY_ARGS))
+def test_every_shipped_plan_resolves_to_a_set_that_validates_to_itself(plan_name: str) -> None:
+    """A shipped plan queued with its required fields alone is queued with every
+    field stated, and the worker's validation of that set fills nothing."""
+    schema = plan_loader.get_facility_plans().plans[plan_name].schema
+
+    resolved = resolve_plan_args(schema, _REQUIRED_ONLY_ARGS[plan_name])
+
+    assert list(resolved) == list(schema.model_fields)
+    assert schema.model_validate(resolved).model_dump(mode="json") == resolved
+
+
+# =========================================================================
+# Every shipped plan states its own form layout
+# =========================================================================
+
+_SHIPPED_PARAMS = {"orm": ORMParams, "grid_scan": GridScanParams, "orbit_bump_sweep": BumpParams}
+
+
+@pytest.mark.parametrize("name", sorted(_SHIPPED_PARAMS))
+def test_shipped_layouts_name_only_their_own_parameters(name: str) -> None:
+    layout = plan_loader.get_facility_plans().plans[name].metadata.layout
+
+    assert layout is not None
+    named = [field for row in layout for field in row]
+    assert set(named) <= set(_SHIPPED_PARAMS[name].model_fields)
+
+
+def test_shipped_layouts_are_the_rows_the_panel_drew() -> None:
+    plans = plan_loader.get_facility_plans().plans
+
+    assert {name: plans[name].metadata.layout for name in _SHIPPED_PARAMS} == {
+        "orm": [["correctors", "readbacks"], ["span", "num"], ["sweep"]],
+        "grid_scan": [["axes"], ["readbacks", "snake_axes"]],
+        "orbit_bump_sweep": [
+            ["correctors"],
+            ["targets"],
+            ["closure_readbacks", "readbacks"],
+            ["mode", "sweep", "num"],
+            ["tolerance", "probe_amplitude", "settle_s"],
+            ["beam_current_readback", "min_beam_current"],
+            ["best_effort", "max_trim_iterations", "baseline_reads"],
+            ["monitors"],
+        ],
+    }
+
 
 # =========================================================================
 # Tests of GridScanParams in plans_core/grid_scan.py

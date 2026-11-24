@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.kinds import builtin_kinds
 from osprey.port_layout import LAYOUT
+from osprey_facility.kinds import builtin_kinds
 from tests._text_sweep import SHIPPED_TEXT_SUFFIXES, matching_lines, text_files
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -85,10 +85,23 @@ def test_pattern_spares_osprey_words(line: str) -> None:
     assert not PATTERN.search(line), line
 
 
+def _holds_a_token(path: Path) -> bool:
+    """Whether the file's text, read as :func:`matching_lines` reads it, holds a token."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False  # matching_lines passes over it too
+    return any(token in text for token in TOKENS)
+
+
 def test_src_names_no_trajectory_service() -> None:
     files = text_files(_REPO_ROOT, ("src",), suffixes=_SUFFIXES)
     assert files, "the sweep found no files under src/"
-    hits = matching_lines(_REPO_ROOT, files, PATTERN)
+    # Every match of PATTERN is one of TOKENS, verbatim (its boundaries are
+    # lookarounds), so a file holding none cannot match. Searching for the
+    # tokens as plain text is quick, while the pattern, which opens on a
+    # lookbehind, is slow to search; it runs only on the files that hold one.
+    hits = matching_lines(_REPO_ROOT, [path for path in files if _holds_a_token(path)], PATTERN)
     assert hits == [], "\n".join(f"{path}:{number}: {line.strip()}" for path, number, line in hits)
 
 

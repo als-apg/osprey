@@ -39,7 +39,14 @@ _GENERATED_LABELS = (PROJECT_LABEL, REPO_ID_LABEL, PROJECT_ROOT_LABEL, CONFIG_DI
 _ENV_DIGEST_LABEL = "osprey.env.digest"
 
 #: The templates whose services read the env chain.
-_ENV_CHAIN_TEMPLATES = {"archive", "ariel_sync", "dispatch_worker", "event_dispatcher", "qmd"}
+_ENV_CHAIN_TEMPLATES = {
+    "archive",
+    "ariel_sync",
+    "dispatch_worker",
+    "event_dispatcher",
+    "qmd",
+    "server_fleet",
+}
 
 #: A top-level compose key on a line of its own (``services:``, ``volumes:``).
 _TOP_LEVEL_KEY = re.compile(r"^([a-z_]+):\s*$")

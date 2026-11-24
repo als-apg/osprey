@@ -544,16 +544,20 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
 
     monkeypatch.setattr(ep.target_state, "publish_reachability", _boom)
 
-    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
+    # The claim is about the loop, not about how fast this host connects: the
+    # connect bound is one only a dead listener reaches, so a stalled host
+    # cannot turn a slow connect into an unreachable row.
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01, connect_timeout_s=30.0)
 
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
         try:
             await async_wait_until(
-                lambda: len(calls) >= 2, timeout=5.0, interval=0.01, what="two probe calls"
+                lambda: len(calls) >= 2, timeout=90.0, interval=0.01, what="two probe calls"
             )
             assert prober.running is True
-            assert prober.snapshot()[VA]["read_only"]["endpoint_tcp"] == STATUS_OK
+            row = prober.snapshot()[VA]["read_only"]
+            assert row["endpoint_tcp"] == STATUS_OK, row
         finally:
             await prober.stop()
 

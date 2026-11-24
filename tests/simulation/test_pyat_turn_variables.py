@@ -17,7 +17,6 @@ import numpy as np
 import pytest
 from lume.exceptions import ReadOnlyError
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_turn_state import TurnState, turn_state_of
@@ -27,6 +26,7 @@ from osprey.simulation.engines.pyat_variables import (
     TurnStateVariable,
     pilot_tone_on,
 )
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 INJECTION = "INJ"
@@ -43,6 +43,9 @@ ARM_2 = "SR:DIAG:BPM:02:TBT:ARM"
 ARMED_2 = "SR:DIAG:BPM:02:TBT:ARMED"
 X_2 = "SR:DIAG:BPM:02:TBT:X"
 TURNS_TRACKED = "SR:DIAG:TBT:TURNS"
+TURNS_SURVIVED = "SR:DIAG:TBT:SURVIVED"
+MONITORS_REACHED = "SR:DIAG:TBT:REACHED"
+SHOT_STATUS = "SR:DIAG:TBT:STATUS"
 TONE = "SR:DIAG:TBT:PILOT_TONE"
 STORED = "SR:DIAG:TBT:STORED"
 STORED_ON_MONITOR = "SR:DIAG:BPM:01:TBT:GAIN"
@@ -106,6 +109,9 @@ def _turn_records() -> list[dict[str, Any]]:
         _record("armed", ARMED_2, element="BPM02"),
         _record("turn_x", X_2, element="BPM02"),
         _record("turns_tracked", TURNS_TRACKED),
+        _record("turns_survived", TURNS_SURVIVED),
+        _record("monitors_reached", MONITORS_REACHED),
+        _record("shot_status", SHOT_STATUS),
         _record("pilot_tone", TONE, write=True, default=0.0),
         _record("stored", STORED, write=True, default=3.5),
         _record("stored", STORED_ON_MONITOR, element="BPM01", write=True, default=0.0),
@@ -183,6 +189,14 @@ class TestTheTurnState:
         state.monitors["BPM01"].armed = True
         state.monitors["BPM01"].x[TRIGGER] = 1.5e-3
         state.turns_tracked = 12
+        state.turns_survived = 9
+        state.monitors_reached = 2
+        state.shot_status = 1
+        assert built.get([TURNS_SURVIVED, MONITORS_REACHED, SHOT_STATUS]) == {
+            TURNS_SURVIVED: 9.0,
+            MONITORS_REACHED: 2.0,
+            SHOT_STATUS: 1.0,
+        }
         values = built.get([ARMED_1, ARMED_2, X_1, X_2, TURNS_TRACKED])
         assert values[ARMED_1] == 1.0
         assert values[ARMED_2] == 0.0
@@ -265,8 +279,10 @@ class TestRefusals:
         with pytest.raises(ReadOnlyError):
             model.set({name: np.ones(SAMPLES)})
 
-    @pytest.mark.parametrize("name", [ARMED_1, TURNS_TRACKED])
-    def test_writing_armed_or_turns_tracked_is_refused(self, model: Any, name: str) -> None:
+    @pytest.mark.parametrize(
+        "name", [ARMED_1, TURNS_TRACKED, TURNS_SURVIVED, MONITORS_REACHED, SHOT_STATUS]
+    )
+    def test_writing_armed_or_a_shot_read_out_is_refused(self, model: Any, name: str) -> None:
         with pytest.raises(ReadOnlyError):
             model.set({name: 1.0})
         assert model.get([name])[name] == 0.0

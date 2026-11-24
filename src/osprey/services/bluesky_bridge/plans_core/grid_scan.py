@@ -58,6 +58,7 @@ PLAN_METADATA = {
         "every grid point (bluesky bp.grid_scan)."
     ),
     "writes": True,
+    "layout": [["axes"], ["readbacks", "snake_axes"]],
 }
 
 

@@ -132,20 +132,24 @@ _PARADIGM_AGENT_TOOLS = [
 
 
 def _expected_agent_tools(render: Path) -> list[str]:
-    """The paradigm's tools, the ``pv-directory`` tools the render's config
+    """The paradigm's tools, the ``channel-directory`` tools the render's config
     serves to the same subagent, then ``submit_response`` — in the order the
     agent template writes them, so the comparison is exact.
 
-    The pv-directory server is part of the channel-finder login whenever the
-    config has a ``pv_directory`` section (the ``demo`` template has one);
-    ``_pv_directory_tools`` is the render's own answer to which of its tools
+    The channel-directory server is part of the channel-finder login whenever the
+    config has a ``channel_directory`` section (the ``demo`` template has one);
+    ``_channel_directory_tools`` is the render's own answer to which of its tools
     that section enables, so a tool withheld by the config is withheld here too.
     """
-    from osprey.cli.templates.claude_code import _pv_directory_context, _pv_directory_tools
+    from osprey.cli.templates.claude_code import (
+        _channel_directory_context,
+        _channel_directory_tools,
+    )
 
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8")) or {}
     directory = [
-        f"mcp__pv-directory__{tool}" for tool in _pv_directory_tools(_pv_directory_context(config))
+        f"mcp__channel-directory__{tool}"
+        for tool in _channel_directory_tools(_channel_directory_context(config))
     ]
     return [*_PARADIGM_AGENT_TOOLS, *directory, _SUBMIT_RESPONSE]
 

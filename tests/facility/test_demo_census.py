@@ -147,8 +147,11 @@ def test_the_census_agrees_with_itself() -> None:
     )
     fingerprint = "tests/facility/golden/demo_fingerprint.json"
     additions = "tests/facility/golden/demo_fingerprint_additions.json"
+    retired = "tests/facility/golden/demo_fingerprint_retired.json"
     assert (
-        by_pin[(fingerprint, "json:count")] + by_pin[(additions, "json:len(rows)")]
+        by_pin[(fingerprint, "json:count")]
+        - by_pin[(retired, "json:len(rows)")]
+        + by_pin[(additions, "json:len(rows)")]
         == facility["channels"]
     )
 

@@ -28,6 +28,7 @@ from osprey.health.records import (
     load_config,
     skip_record,
 )
+from tests._scoped_stdlib import scoped
 
 _VALID_CONFIG = """\
 project_name: test_project
@@ -72,14 +73,14 @@ class TestPolicySets:
                 "dispatch",
                 "service_capabilities",
                 "ariel_modules",
-                "pv_directory",
-                "pv_directory_alarm_feed",
+                "channel_directory",
+                "channel_directory_alarm_feed",
             }
         )
 
     def test_on_demand_core_names(self):
         assert ON_DEMAND_CORE == frozenset(
-            {"claude_cli_pinned", "model_chat", "ariel_modules", "pv_directory_alarm_feed"}
+            {"claude_cli_pinned", "model_chat", "ariel_modules", "channel_directory_alarm_feed"}
         )
 
     def test_on_demand_core_is_subset_of_config_dependent(self):
@@ -332,8 +333,8 @@ class TestBuildRecords:
         for name in ON_DEMAND_CORE:
             assert by_name[name].cost is Cost.ON_DEMAND
 
-    def test_pv_directory_categories_anchor_on_the_render(self, tmp_path, monkeypatch):
-        import osprey.health.core.pv_directory as module
+    def test_channel_directory_categories_anchor_on_the_render(self, tmp_path, monkeypatch):
+        import osprey.health.core.channel_directory as module
 
         anchors: dict[str, Path] = {}
 
@@ -344,7 +345,7 @@ class TestBuildRecords:
 
             return factory
 
-        for name in ("pv_directory", "pv_directory_alarm_feed"):
+        for name in ("channel_directory", "channel_directory_alarm_feed"):
             monkeypatch.setattr(module, name, recording(name))
         project = tmp_path / "proj"
         render = project / "build"
@@ -353,7 +354,7 @@ class TestBuildRecords:
 
         build_records(state, expanded, settings, config_ok, project, 30.0, render_path=render)
 
-        assert anchors == {"pv_directory": render, "pv_directory_alarm_feed": render}
+        assert anchors == {"channel_directory": render, "channel_directory_alarm_feed": render}
 
     def test_channel_finder_and_file_system_anchor_in_different_zones(self, tmp_path):
         """A build-owned database is looked for in the render, not at the repo root.
@@ -421,9 +422,13 @@ class TestBuildRecords:
         from types import SimpleNamespace
 
         gb = 1024**3
-        monkeypatch.setattr(
-            "osprey.health.core.file_system.shutil.disk_usage",
-            lambda _path: SimpleNamespace(total=10_000 * gb, used=9_100 * gb, free=900 * gb),
+        scoped(
+            monkeypatch,
+            "osprey.health.core.file_system",
+            "shutil",
+            disk_usage=lambda _path: SimpleNamespace(
+                total=10_000 * gb, used=9_100 * gb, free=900 * gb
+            ),
         )
         repo = tmp_path / "repo"
         config_path = _write_config(
@@ -459,7 +464,7 @@ class TestBuildRecords:
         # The category is run for real below; without `systemctl` it skips at
         # the install-directory step, so a developer host that happens to have
         # the unit installed never spawns a real `systemctl --user show`.
-        monkeypatch.setattr("osprey.health.core.systemd_unit.shutil.which", lambda _name: None)
+        scoped(monkeypatch, "osprey.health.core.systemd_unit", "shutil", which=lambda _name: None)
 
         repo = tmp_path / "repo"
         build = repo / "build"

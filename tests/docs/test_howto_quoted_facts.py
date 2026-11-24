@@ -12,7 +12,8 @@ failing test here:
 * the ``mcp_servers:`` keys the add-server page names are keys the loader reads;
 * every route in the Bluesky bridge route table is a route the bridge serves;
 * the mya client floor, the Phoebus ``curl`` hint and the ``osprey query
-  --json`` keys match their sources.
+  --json`` keys match their sources;
+* the seed header the facility import page quotes is the import's own.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from osprey.services.code_review.settings import DEFAULT_PROMPT
 from osprey_connectors.archiver._mya_archiver_connector import _REQUIRED_CLIENT
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import retired_type_message
+from osprey_facility.layers import HEADER
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOW_TO = REPO_ROOT / "docs/source/how-to"
@@ -48,6 +50,7 @@ CHANNEL_FINDER_PAGE = HOW_TO / "use-channel-finder.rst"
 ADD_SERVER_PAGE = HOW_TO / "agent-interfaces/add-mcp-server.rst"
 CLI_AGENT_PAGE = HOW_TO / "agent-interfaces/cli-agent.rst"
 QUEUE_PAGE = HOW_TO / "bluesky/queue.rst"
+IMPORT_MML_PAGE = HOW_TO / "import-mml-export.rst"
 PRESET_CHANNELS = REPO_ROOT / "src/osprey/templates/facilities/example/records/channels.yaml"
 PHOEBUS_TOOLS = REPO_ROOT / "src/osprey/mcp_server/phoebus/tools/bridge_tools.py"
 QUERY_KEYSET = REPO_ROOT / "tests/cli/data/json_keysets/query.json"
@@ -132,6 +135,16 @@ def test_the_archive_store_is_named_at_its_layout_port():
 def test_the_retired_mock_refusal_is_quoted_word_for_word():
     quoted = _code_block(VA_PAGE, "text", "is no longer a control-system type")
     assert quoted == retired_type_message("mock")
+
+
+# ---------------------------------------------------------------------------
+# import-mml-export.rst
+# ---------------------------------------------------------------------------
+
+
+def test_the_seed_header_is_quoted_word_for_word():
+    text = " ".join(IMPORT_MML_PAGE.read_text().split())
+    assert re.findall(r"``(# Seeded once[^`]*)``", text) == [HEADER]
 
 
 # ---------------------------------------------------------------------------

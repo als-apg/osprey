@@ -1,0 +1,2 @@
+action,class,under,devices,attribute,when,owner_relation,owner_direction,owner_to,reason,source
+keep,ElectronicsChassis,,,,,,,,a chassis opens its own card for its rack and its parts,XR-LAYOUT

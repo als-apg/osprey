@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.facility.frontmatter import FrontmatterError, split_frontmatter
+from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 from tests._fresh_import import modules_added_by_import
 
 
@@ -32,19 +32,21 @@ def test_empty_block_is_an_empty_mapping() -> None:
     assert split_frontmatter("---\n---\nbody") == ({}, "body")
 
 
-def test_unterminated_block_raises() -> None:
-    with pytest.raises(FrontmatterError, match="^Unterminated YAML frontmatter block$"):
-        split_frontmatter("---\na: 1\n")
-
-
-def test_invalid_yaml_raises() -> None:
-    with pytest.raises(FrontmatterError, match="^Invalid YAML in frontmatter: "):
-        split_frontmatter("---\na: [1\n---\n")
-
-
-def test_non_mapping_yaml_raises() -> None:
-    with pytest.raises(FrontmatterError, match="^Frontmatter must be a YAML mapping$"):
-        split_frontmatter("---\n- a\n- b\n---\n")
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        pytest.param(
+            "---\na: 1\n", "^Unterminated YAML frontmatter block$", id="unterminated_block"
+        ),
+        pytest.param("---\na: [1\n---\n", "^Invalid YAML in frontmatter: ", id="invalid_yaml"),
+        pytest.param(
+            "---\n- a\n- b\n---\n", "^Frontmatter must be a YAML mapping$", id="non_mapping_yaml"
+        ),
+    ],
+)
+def test_raises(text: str, match: str) -> None:
+    with pytest.raises(FrontmatterError, match=match):
+        split_frontmatter(text)
 
 
 def test_error_is_a_value_error() -> None:
@@ -52,7 +54,7 @@ def test_error_is_a_value_error() -> None:
 
 
 def test_facility_build_does_not_import_knowledge() -> None:
-    added = modules_added_by_import("osprey.facility.build")
+    added = modules_added_by_import("osprey_facility.build")
     assert not any(
         name == "osprey.services.facility_knowledge"
         or name.startswith("osprey.services.facility_knowledge.")

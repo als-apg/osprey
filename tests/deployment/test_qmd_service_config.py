@@ -126,21 +126,22 @@ class TestBindAddress:
 class TestValidation:
     """A malformed scalar refuses rather than silently defaulting."""
 
-    @pytest.mark.parametrize("bad", [0, -1, "8180", 8180.0, True, [8180]])
-    def test_bad_port_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.qmd\.port"):
-            resolve_qmd_service_config({"services": {"qmd": {"port": bad}}})
-
-    @pytest.mark.parametrize("bad", [0, -30, "30", 30.0, True])
-    def test_bad_interval_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.qmd\.interval"):
-            resolve_qmd_service_config({"services": {"qmd": {"interval": bad}}})
-
-    @pytest.mark.parametrize("bad", [0, -30, "3600", 3600.0, True])
-    def test_bad_first_index_grace_raises(self, bad: object) -> None:
-        """A zero or malformed grace period would fail the container on first boot."""
-        with pytest.raises(ValueError, match=r"services\.qmd\.first_index_grace"):
-            resolve_qmd_service_config({"services": {"qmd": {"first_index_grace": bad}}})
+    @pytest.mark.parametrize(
+        ("key", "bad"),
+        [
+            (key, bad)
+            for key, bads in {
+                "port": [0, -1, "8180", 8180.0, True, [8180]],
+                "interval": [0, -30, "30", 30.0, True],
+                # A zero or malformed grace period would fail the container on first boot.
+                "first_index_grace": [0, -30, "3600", 3600.0, True],
+            }.items()
+            for bad in bads
+        ],
+    )
+    def test_bad_scalar_raises(self, key: str, bad: object) -> None:
+        with pytest.raises(ValueError, match=rf"services\.qmd\.{key}"):
+            resolve_qmd_service_config({"services": {"qmd": {key: bad}}})
 
 
 class TestBaseUrl:

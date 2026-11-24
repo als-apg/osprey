@@ -233,16 +233,23 @@ def load_osprey_config() -> dict[str, ContractAny]:
     Delegates to the framework's ``ConfigBuilder`` so that ``${VAR:-default}``
     environment-variable placeholders are resolved consistently.
 
-    The file is the one :func:`resolve_config_path` names.
+    The file is the one :func:`resolve_config_path` names. It becomes the
+    default config unless ``CONFIG_FILE`` or a
+    :func:`~osprey_connectors.config.config_anchored_at` scope chose that
+    default, neither of which this resolution consults: the lookups that name
+    no config keep reading the file the process was pointed at.
 
     Returns:
         Parsed YAML dict (with env vars resolved), or empty dict if the file is missing.
     """
     config_path = resolve_config_path()
     try:
-        from osprey_connectors.config import get_config_builder
+        from osprey_connectors import config as config_module
 
-        builder = get_config_builder(config_path=str(config_path), set_as_default=True)
+        pinned = config_module._default_config is not None and config_module._default_pinned
+        builder = config_module.get_config_builder(
+            config_path=str(config_path), set_as_default=not pinned
+        )
         return builder.raw_config
     except (FileNotFoundError, Exception):
         return {}
@@ -261,6 +268,7 @@ def reset_config_cache() -> None:
 
     config_module._default_config = None
     config_module._default_configurable = None
+    config_module._default_pinned = False
     config_module._config_cache.clear()
     config_module._tz_fallback_warned = False
 

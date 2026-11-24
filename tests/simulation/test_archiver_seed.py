@@ -56,10 +56,17 @@ from osprey_connectors.simulation.archive import (
 )
 from osprey_connectors.simulation.series import epoch_seconds_array
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
-from tests._container_support import is_docker_available
-from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 from tests._simulator_view import write_texture_view
 from tests.simulation.conftest import StubCollection
+
+# xdist_group("docker"): the store-backed tests use the session's
+# ``mongodb_container`` (tests/conftest.py), and the docker group puts them on
+# the worker that already runs it, so they share its container instead of
+# starting one of their own. They work in a database of their own, ``seed_test_db``, and
+# drop every collection they create. The whole file joins the group, not only the
+# store-backed classes, because the store-free tests share the module-scoped
+# ``archive`` and ``pulse_archive`` with them: split, each would be built twice.
+pytestmark = pytest.mark.xdist_group("docker")
 
 # A fixed anchor: every expectation below is a function of it, and a failure
 # should be reproducible tomorrow.
@@ -164,22 +171,17 @@ def stepped_pulse_archive(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def mongo_store():
-    """A MongoDB container for this module, yielding connection parameters."""
-    if not is_docker_available():
-        pytest.skip("Docker not available — needed to seed a real store.")
-
-    username, password = "seeduser", "seedpass123"
-    with started_mongo("mongodb-seed", username=username, password=password) as (host, port):
-        yield {
-            "host": host,
-            "port": port,
-            "username": username,
-            "password": password,
-            "auth_db": MONGO_AUTH_DB,
-            "database": "seed_test_db",
-            "collection": "pv_history",
-        }
+def mongo_store(mongodb_container):
+    """The session's MongoDB, with this module's own database, as connection parameters."""
+    return {
+        "host": mongodb_container["host"],
+        "port": mongodb_container["port"],
+        "username": mongodb_container["username"],
+        "password": mongodb_container["password"],
+        "auth_db": mongodb_container["auth_db"],
+        "database": "seed_test_db",
+        "collection": "pv_history",
+    }
 
 
 @pytest.fixture

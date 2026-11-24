@@ -4,8 +4,9 @@
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
 can tell (:func:`app_violations`), for an application under ``apps/`` and one an installed
-package ships alike: the import boundary over each of its Python packages, the design-system
-styling and page-ready mark of ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over ``tests/**/*.test.{js,mjs}`` when that matches a file. A
+package ships alike: the import boundary over each of its Python packages, the panel
+validator's rules over ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over
+``tests/**/*.test.{js,mjs}`` when that matches a file. A
 deployment repository has no JS toolchain, so the command installs the one pinned in
 ``osprey/apps/js_check/`` into the user's cache once and runs it from there; an application
 with no JS needs no Node.
@@ -34,10 +35,7 @@ from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, re
 from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
 from osprey.apps.origin import AppOrigin, origin_of
 from osprey.apps.rules import shadows_installed, taken_package
-from osprey.interfaces.design_system.panels.validator import (
-    PANEL_STYLESHEETS,
-    missing_stylesheets,
-)
+from osprey.interfaces.design_system.panels.validator import PanelConsequence, validate_entry
 from osprey.utils.config_writer import load_config_document
 from osprey.utils.workspace import APPS_DIRNAME
 
@@ -91,18 +89,30 @@ def checked_apps(manifests: Iterable[AppManifest], root: Path) -> list[CheckedAp
     return [CheckedApp(manifest.name, origin_of(manifest, root)) for manifest in manifests]
 
 
-def app_violations(apps: Sequence[CheckedApp]) -> list[Violation]:
+@dataclasses.dataclass(frozen=True)
+class AppFindings:
+    """What only the applications' own source can tell.
+
+    Attributes:
+        violations: What fails the check, in check order.
+        reported: Findings of a panel rule that only reports; printed, never failing.
+    """
+
+    violations: list[Violation]
+    reported: list[Violation]
+
+
+def app_violations(apps: Sequence[CheckedApp]) -> AppFindings:
     """What only an application's own source can tell, for each of *apps*.
 
-    The import boundary, the panel's design-system styling and page-ready mark, and the
-    application's JS checks: what ``osprey app check`` adds to the build's checks.
+    The import boundary, the panel validator's rules, and the application's JS checks:
+    what ``osprey app check`` adds to the build's checks.
     """
-    return [
-        *_boundary_violations(apps),
-        *_style_violations(apps),
-        *_ready_violations(apps),
-        *_js_violations(apps),
-    ]
+    panel_refused, panel_reported = _panel_findings(apps)
+    return AppFindings(
+        violations=[*_boundary_violations(apps), *panel_refused, *_js_violations(apps)],
+        reported=panel_reported,
+    )
 
 
 @click.group()
@@ -221,9 +231,10 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     and its violations name the distribution.
 
     Reports every violation with its application, field and rule, and adds the import
-    boundary, each panel's design-system styling and each application's own JS checks. The JS checks execute the
-    application's JS tests, with no secret of this shell's environment. Exits 1 on any
-    violation.
+    boundary, each panel's rules and each application's own JS checks. The JS checks
+    execute the application's JS tests, with no secret of this shell's environment.
+    Exits 1 on any violation; a finding of a panel rule that only reports is printed and
+    does not fail the check.
     """
     from osprey.apps.loader import check_deployment
     from osprey_connectors.errors import BuildProfileError
@@ -252,9 +263,11 @@ def check(ctx: click.Context, repo: Path | None) -> None:
         return
 
     apps = checked_apps(deployment.manifests, root)
-    violations = app_violations(apps)
-    if violations:
-        _refuse(ctx, violations)
+    found = app_violations(apps)
+    for violation in found.reported:
+        report(f"{violation} [{violation.rule}: {PanelConsequence.REPORT.value}]")
+    if found.violations:
+        _refuse(ctx, found.violations)
     installed = sum(1 for checked in apps if checked.origin.installed)
     counts = f" ({len(apps) - installed} in {APPS_DIRNAME}/, {installed} installed)"
     report(f"✓ {len(apps)} application(s) pass{counts if installed else ''}.")
@@ -314,146 +327,42 @@ def _packages(app_dir: Path) -> list[Path]:
     ]
 
 
-_LINK = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
-_HREF = re.compile(r"""\bhref\s*=\s*["']([^"']*)["']""", re.IGNORECASE)
-_DESIGN_SYSTEM_CSS = re.compile(r"^/design-system/css/([\w.-]+\.css)$")
-_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
-_JS_LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
-_CSS_STRING = re.compile(r"""(["'])(?:\\.|(?!\1).)*\1""")
-_CSS_CLASS = re.compile(r"\.(-?[A-Za-z_][\w-]*)")
-#: Where markup or JS sets a class. A class only read (``classList.contains``) or taken
-#: off (``classList.remove``) styles nothing; a state that carries no style belongs in a
-#: ``data-`` attribute or ``hidden``, not in a class.
-_MARKUP_CLASS = re.compile(r"""\bclass\s*=\s*\\?(["'])(.*?)\\?\1""", re.DOTALL)
-_JS_CLASS = (
-    _MARKUP_CLASS,
-    re.compile(r"""\.className\s*=\s*(["'`])(.*?)\1"""),
-    re.compile(r"""\.classList\.(?:add|toggle)\(\s*(["'`])(.*?)\1"""),
-    re.compile(r"""[{,]\s*["']?class["']?\s*:\s*(["'`])(.*?)\1"""),
-)
-_CLASS_NAME = re.compile(r"^-?[A-Za-z_][\w-]*$")
+def _panel_findings(apps: Iterable[CheckedApp]) -> tuple[list[Violation], list[Violation]]:
+    """Each application's panel, held to the panel validator's rule set.
 
-
-def _style_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """Each panel loads the design-system sheets, and every class it sets has a CSS rule."""
-    found: list[Violation] = []
-    for checked in apps:
-        app_dir = checked.directory
-        index = app_dir / "panel" / "index.html"
-        if not index.is_file():
-            continue
-        html = index.read_text(encoding="utf-8")
-        found += [
-            Violation(
-                checked.name,
-                "",
-                "design_system_css",
-                f"does not load {sheet}; a panel links {', '.join(PANEL_STYLESHEETS)}",
-                source=checked.origin.display("panel/index.html"),
-            )
-            for sheet in missing_stylesheets(html)
-        ]
-        defined = _defined_classes(app_dir, _stylesheet_links(html))
-        for rel, used in _used_classes(app_dir):
-            if undefined := sorted(used - defined):
-                found.append(
-                    Violation(
-                        checked.name,
-                        "",
-                        "undefined_class",
-                        "no rule in the panel's or the linked design-system stylesheets for "
-                        f"class {', '.join(undefined)}",
-                        source=checked.origin.display(rel),
-                    )
-                )
-    return found
-
-
-def _stylesheet_links(html: str) -> set[str]:
-    """The ``href`` of every ``<link>`` in *html*."""
-    return {
-        match.group(1) for tag in _LINK.findall(html) if (match := _HREF.search(tag)) is not None
-    }
-
-
-def _defined_classes(app_dir: Path, links: Iterable[str]) -> set[str]:
-    """The classes a selector names in the panel's CSS or a design-system sheet it links."""
-    sheets = [path for path in (app_dir / "panel").rglob("*.css") if path.is_file()]
-    for href in links:
-        if (match := _DESIGN_SYSTEM_CSS.match(href)) is not None:
-            sheet = _DESIGN_SYSTEM_STATIC / "css" / match.group(1)
-            if sheet.is_file():
-                sheets.append(sheet)
-    defined: set[str] = set()
-    for sheet in sheets:
-        text = _CSS_STRING.sub("", _BLOCK_COMMENT.sub("", sheet.read_text(encoding="utf-8")))
-        defined.update(_CSS_CLASS.findall(text))
-    return defined
-
-
-def _used_classes(app_dir: Path) -> list[tuple[str, set[str]]]:
-    """Each authored HTML and JS file of the panel, with the literal classes it sets."""
-    html = _authored((app_dir / "panel").rglob("*.html"), app_dir)
-    files = [(rel, (_MARKUP_CLASS,)) for rel in html] + [
-        (rel, _JS_CLASS) for rel in _panel_js(app_dir)
-    ]
-    used: list[tuple[str, set[str]]] = []
-    for rel, patterns in files:
-        text = (app_dir / rel).read_text(encoding="utf-8")
-        if rel.endswith(_JS_SUFFIXES):
-            text = _JS_LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
-        names = {
-            name
-            for pattern in patterns
-            for match in pattern.finditer(text)
-            for name in match.group(2).split()
-            if _CLASS_NAME.match(name)
-        }
-        used.append((rel, names))
-    return used
-
-
-#: The line a panel's script adds to set the page-ready mark (design-system/js/page-ready.js).
-READY_IMPORT = "import { markPageReady } from '/design-system/js/page-ready.js';"
-_READY_IMPORT = re.compile(
-    r"\bimport\s*\{[^}]*\bmarkPageReady\b[^}]*\}\s*from\s*"
-    r"""(["'])/design-system/js/page-ready\.js\1"""
-)
-_READY_IN_MARKUP = re.compile(r"""<html\b[^>]*\bdata-page-ready\s*=\s*["']?true\b""", re.IGNORECASE)
-
-
-def _ready_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """Each panel sets the page-ready mark, or whatever waits to drive it hangs.
-
-    A script of the panel imports the writer, or a panel with no script carries the mark
-    in its markup.
+    Returns:
+        The findings of rules that refuse, which are violations, and the findings of
+        rules that only report, which are printed.
     """
-    found: list[Violation] = []
+    refused: list[Violation] = []
+    reported: list[Violation] = []
     for checked in apps:
         app_dir = checked.directory
         index = app_dir / "panel" / "index.html"
         if not index.is_file():
             continue
-        page = index.read_text(encoding="utf-8")
-        scripts = [page] + [
-            _JS_LINE_COMMENT.sub(
-                "", _BLOCK_COMMENT.sub("", (app_dir / rel).read_text(encoding="utf-8"))
-            )
-            for rel in _panel_js(app_dir)
-        ]
-        if _READY_IN_MARKUP.search(page) or any(_READY_IMPORT.search(s) for s in scripts):
-            continue
-        found.append(
-            Violation(
+        for finding in validate_entry(index, app_dir / "panel"):
+            violation = Violation(
                 checked.name,
                 "",
-                "page_ready",
-                "never sets the page-ready mark; the panel's script adds "
-                f"`{READY_IMPORT}` and calls markPageReady() once its first state is drawn",
-                source=checked.origin.display("panel/index.html"),
+                finding.rule.value,
+                finding.message,
+                source=checked.origin.display(_app_relative(finding.source, app_dir)),
             )
-        )
-    return found
+            if finding.rule.consequence is PanelConsequence.REFUSE:
+                refused.append(violation)
+            else:
+                reported.append(violation)
+    return refused, reported
+
+
+def _app_relative(source: str, app_dir: Path) -> str:
+    """A validator finding's ``path`` or ``path:line``, relative to *app_dir*."""
+    path, colon, line = source.rpartition(":")
+    if not (colon and line.isdigit()):
+        path, line = source, ""
+    rel = Path(path).relative_to(app_dir).as_posix()
+    return f"{rel}:{line}" if line else rel
 
 
 def _js_violations(apps: Iterable[CheckedApp]) -> list[Violation]:

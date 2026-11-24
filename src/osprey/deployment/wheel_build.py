@@ -275,8 +275,8 @@ def _describe_glob(member_root: Path) -> str | None:
     try:
         with (member_root / "pyproject.toml").open("rb") as handle:
             options = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
-        # setuptools-scm's `scm.git.describe_command` table (osprey-connectors),
-        # else the flat `git_describe_command` key the other members still use.
+        # setuptools-scm's `scm.git.describe_command` table (the members on
+        # their own tag stream), else the flat `git_describe_command` key.
         command = options.get("scm", {}).get("git", {}).get("describe_command")
         if command is None:
             command = options["git_describe_command"]
@@ -321,10 +321,12 @@ def _require_members_satisfy_framework(
 ) -> None:
     """Refuse a member wheel whose version the framework wheel's own requirement refuses.
 
-    Each member versions from git tags (``osprey-connectors`` from its own
-    ``osprey-connectors-v*`` tags), so a checkout missing them — a clone that
-    never fetched tags, a fork or mirror that synced only the framework's
-    ``v*`` tags — builds the member as ``0.0.postN``. The wheel layer would
+    Each member versions from the git tags its describe glob matches (a member
+    on its own stream, such as ``osprey-connectors``, from its own
+    ``<member>-v*`` tags), so a checkout missing them — a clone that never
+    fetched tags, a fork or mirror that synced only the framework's ``v*``
+    tags — builds the member as ``0.0.postN``. The remedy names the refused
+    member's glob. The wheel layer would
     then pass over the staged wheel for PyPI and fail late, inside the image
     build; this names the cause before anything is staged. A pre-release
     satisfies: a dev wheel descending from a beta tag is one.
@@ -352,6 +354,7 @@ def _require_members_satisfy_framework(
             continue
         glob = _describe_glob(member_root)
         source = f"the newest git tag matching {glob}" if glob else "its git tags"
+        tags = f"the {glob} tags" if glob else f"the tags {requirement.name} versions from"
         raise DevModeUnavailableError(
             f"the {requirement.name} wheel built from the checkout is {version}, "
             f"which the framework's requirement '{line}' refuses",
@@ -359,8 +362,7 @@ def _require_members_satisfy_framework(
             "the checkout; with none it builds as 0.0.postN.\n"
             "Fetch the tags:  git fetch --tags\n"
             f"{_tag_fetch_hint(member_root, glob)}"
-            "A fork or mirror must sync the osprey-connectors-v* tags as well as "
-            "the framework's v* tags.",
+            f"A fork or mirror must sync {tags} as well as the framework's v* tags.",
         )
 
 
@@ -494,7 +496,6 @@ def _build_dev_wheel_cached(osprey_source_root):
     """
     global _wheel_cache_dir, _wheel_cache_cleanup_registered
 
-    import subprocess
     import sys
     import tempfile
     from pathlib import Path
@@ -806,9 +807,6 @@ DEPLOYMENT_PACKAGES_DIRNAME = "osprey-deployment-packages"
 
 #: The manifest listing the built wheels, beside them.
 DEPLOYMENT_PACKAGES_MANIFEST = "manifest.json"
-
-#: The entry-point group a measurement kind is registered under.
-FACILITY_KINDS_GROUP = "osprey.facility.kinds"
 
 #: The framework's own distribution name.
 FRAMEWORK_DISTRIBUTION = "osprey-framework"
@@ -1186,11 +1184,16 @@ def refuse_unshipped_apps(
 
 
 def _shipped_distributions(requirements: Iterable[str]) -> set[str]:
-    """The canonical names of the distributions the project image installs."""
+    """The canonical names of the distributions the project image installs.
+
+    The framework and every workspace member it depends on (``WORKSPACE_MEMBERS``)
+    ship with it, then each distribution *requirements* names.
+    """
     from packaging.requirements import InvalidRequirement, Requirement
     from packaging.utils import canonicalize_name
 
     shipped: set[str] = {canonicalize_name(FRAMEWORK_DISTRIBUTION)}
+    shipped.update(canonicalize_name(member) for member in WORKSPACE_MEMBERS)
     for raw in requirements:
         try:
             shipped.add(canonicalize_name(Requirement(raw).name))
@@ -1204,9 +1207,9 @@ def refuse_unshipped_kinds(
 ) -> None:
     """Refuse a registered measurement kind the project image would not install.
 
-    Every :data:`FACILITY_KINDS_GROUP` entry point is mapped to the distribution
+    Every :data:`~osprey_facility.kinds.ENTRY_POINT_GROUP` entry point is mapped to the distribution
     declaring it. That distribution has to be one the image installs: the
-    framework itself, a distribution *requirements* names (an index
+    framework itself or one of its workspace members, a distribution *requirements* names (an index
     requirement, or a built deployment package by its name), or a listed
     package whose project file declares that kind (*listed*), which stands for
     the wheel a caller that builds nothing does not have.
@@ -1214,18 +1217,21 @@ def refuse_unshipped_kinds(
     Args:
         requirements: The dependency list the image installs, beside the framework.
         listed: ``{kind: distribution}`` as
-            :func:`osprey.facility.kinds.listed_kinds` reads it.
+            :func:`osprey_facility.kinds.listed_kinds` reads it.
 
     Raises:
         BuildProfileError: Naming each kind whose package is not installed.
     """
     from packaging.utils import canonicalize_name
 
+    # Imported here: the kind registry is build-time code, and this module is
+    # imported by render paths that must not load it.
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.kinds import ENTRY_POINT_GROUP
 
     shipped = _shipped_distributions(requirements)
     refused = []
-    for kind in entry_points(group=FACILITY_KINDS_GROUP):
+    for kind in entry_points(group=ENTRY_POINT_GROUP):
         dist = getattr(kind, "dist", None)
         dist_name = getattr(dist, "name", None)
         canonical = None if dist_name is None else canonicalize_name(dist_name)

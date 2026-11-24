@@ -65,6 +65,8 @@ coverage.json
 # Environment directories
 .env
 .venv
+# Side environments, e.g. UV_PROJECT_ENVIRONMENT=.venv-panels for a package synced alone
+.venv-*/
 env/
 venv/
 ENV/
@@ -182,6 +184,7 @@ src/osprey/interfaces/web_terminal/static/vendor/*
 # The dock engine is tracked: vendored from CANOPY's screen runtime at a pinned commit.
 !src/osprey/interfaces/web_terminal/static/vendor/dock-engine.mjs
 !src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts
+src/osprey/interfaces/ariel/static/vendor/
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/optimizer_web/panels/optimizer/vendor/
 # The okf panel's own vendored marked.min.js is tracked; only DOMPurify is fetched.
@@ -210,7 +213,9 @@ node_modules/
 # packaged into the wheel and sdist — the hook registers it as a build artifact.
 src/osprey/_version.py
 packages/osprey-connectors/src/osprey_connectors/_version.py
+packages/osprey-facility/src/osprey_facility/_version.py
 packages/osprey-optimizer/src/osprey_optimizer/_version.py
+packages/osprey-panels/src/osprey_panels/_version.py
 packages/pyaml-cs-osprey/src/pyaml_cs_osprey/_version.py
 
 # feature-scaffolding logs (not committed)

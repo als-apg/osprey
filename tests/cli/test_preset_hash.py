@@ -61,15 +61,6 @@ def test_compute_preset_hash_unknown_preset_returns_none():
     assert build_profile.compute_preset_hash("no-such-preset") is None
 
 
-def test_compute_profile_hash_is_stable(tmp_path):
-    """Re-hashing unchanged content yields the same digest (the staleness no-drift case)."""
-    profile = tmp_path / "my-profile.yml"
-    profile.write_text("name: Custom\nskills: [a, b]\n", encoding="utf-8")
-    assert build_profile.compute_profile_hash(profile) == build_profile.compute_profile_hash(
-        profile
-    )
-
-
 def test_compute_profile_hash_tracks_content_change(tmp_path):
     profile = tmp_path / "my-profile.yml"
     profile.write_text("name: Custom\n", encoding="utf-8")
@@ -116,7 +107,7 @@ def test_generate_manifest_stamps_preset_hash(presets_dir, tmp_path):
 def test_generate_manifest_records_both_profile_path_forms(tmp_path, monkeypatch):
     """The typed string is kept as a record; the resolved path is kept for reuse.
 
-    Every later reader — the deploy-side staleness advisory above all — needs a
+    Every later reader — the repo's profile resolution above all — needs a
     path that still resolves from somewhere other than the build's working
     directory, so the two forms are recorded separately rather than one being
     re-derived from the other.

@@ -1,0 +1,9 @@
+id,kind,subject,value,unit,conditions,basis,method,date,document,version,state,supersedes,standing
+ig/QF/design,integrated_gradient,XR01:QF1,-4.9094,T,at 73.33 A,design,lattice,2019-05-01,XR-LATTICE,B,Released,,accepted
+ig/QF1/bench,integrated_gradient,XR01:QF1,-4.9198,T,at 73.33 A,bench,stretched wire,2023-02-23,XR-MAG-TEST,A.2,Released,ig/QF/design,accepted
+ig/QD1/design,integrated_gradient,XR01:QD1,4.1000,T,,design,lattice,2019-05-01,XR-LATTICE,B,Released,,accepted
+ig/XR02QF1/design,integrated_gradient,XR02:QF1,-4.9094,T,,design,lattice,2019-05-01,XR-LATTICE,B,Released,,accepted
+ig/XR02QF1/bench-a,integrated_gradient,XR02:QF1,-4.9701,T,,bench,stretched wire,2023-03-01,XR-MAG-TEST,A.2,Released,ig/XR02QF1/design,accepted
+ig/XR02QF1/bench-b,integrated_gradient,XR02:QF1,-4.9100,T,,bench,rotating coil,2023-04-01,XR-MAG-ROT,A,Released,,accepted
+exc/QF1/bench,excitation,XR01:QF1,curve:2 points,A;T,valid after 5 cycles,bench,stretched wire,2023-02-23,XR-MAG-TEST,A.2,Released,,accepted
+centre/QF1/bench,centre,XR01:QF1,-2.5;-14.5,um,,bench,stretched wire,2023-02-23,XR-MAG-TEST,A.2,Released,,accepted

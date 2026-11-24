@@ -310,6 +310,16 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "`users list --json` document, which scripts parse. In both the bytes "
         "are the contract.",
     ),
+    "cli/facility_report.py": (
+        2,
+        "report_lines' two writes: the facility error, warning and validation "
+        "lines, unstyled, one per line, to stderr or the stream the caller hands "
+        "in. They moved here verbatim from osprey_facility.validate when the "
+        "description stopped printing; `osprey facility validate`, the build and "
+        "import stops print them byte-for-byte as before "
+        "(tests/cli/test_facility_error_output.py), and callers passing a stream "
+        "read the lines back from it.",
+    ),
     "cli/config_cmd.py": (
         1,
         "config_cmd._emit, the module's own single byte seam.",
@@ -356,13 +366,15 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "path carries diff bytes only.",
     ),
     "cli/facility_cmd.py": (
-        6,
-        "Four classes, all already blessed elsewhere. One is the --print-exporter "
+        7,
+        "Five classes, all already blessed elsewhere. One is the --print-exporter "
         "byte render: `osprey facility import mml --print-exporter` prints the "
         "layer's mml_export.m for a caller redirecting it into a file, the same "
         "class as users_cmd's byte render. The second is the import's one step, "
         "on stderr under the `import <verb>: ` prefix of either verb: the "
-        "`replaced the bundled <name> facility (<n> files)` line, and the refusal "
+        "`replaced the bundled <name> facility (<n> files)` line, the warning for "
+        "files seeded under the retired header, its first line, one path per line "
+        "and its `set line 1 of each to:` remedy, and the refusal "
         "of hand-written records, its first line, one path per line and its "
         "remedy -- the bare-line shape every facility stop prints through its "
         "ClickException.show, so this stop reads like the importer's own mapping "
@@ -374,7 +386,10 @@ _ECHO_ALLOWLIST: dict[str, tuple[int, str]] = {
         "stops beside it. The fourth is `osprey facility validate`'s closing "
         "`relations: N claims ...` summary, one bare line on stderr beside the "
         "`response check <model>:` lines the build prints there, read by a "
-        "caller that greps stderr for the claim counts.",
+        "caller that greps stderr for the claim counts. The fifth is the same "
+        "verb's `limits:` findings, a count line and one indented address per "
+        "line on stderr in that same bare shape, read by a caller that greps "
+        "stderr for the open setpoints.",
     ),
 }
 

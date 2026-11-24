@@ -56,10 +56,9 @@ from typing import TYPE_CHECKING, Any
 
 from lume_pyat.exceptions import AmbiguousElementError, OrbitSolveError, UnknownElementError
 
-from osprey.facility.errors import FacilityBuildError
 from osprey.simulation.engines import pyat_turn_settings as turn_settings
-from osprey.simulation.engines.calibration import NoInverse, curve_from_record, field, to_hardware
 from osprey.simulation.engines.pyat_faults import (
+    CIRCUMFERENCE_ERROR,
     ELEMENT_SCOPE,
     ERROR_ELEMENTS_KEY,
     FAULT_SEPARATOR,
@@ -67,10 +66,19 @@ from osprey.simulation.engines.pyat_faults import (
     FaultSlot,
     error_elements,
     fault_variables,
+    lengthen,
     multipole_attribute,
     multipole_field,
     readout,
 )
+from osprey_connectors.simulation.engines import (
+    NoInverse,
+    curve_from_record,
+    field,
+    to_hardware,
+    to_physics,
+)
+from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
     import numpy as np
@@ -103,9 +111,31 @@ __all__ = [
     "take_inputs",
 ]
 
+#: The ``pyat`` settings key that makes the model's copy of the deck radiate.
+RADIATION_KEY = "radiation"
+
 #: The keys the ``pyat`` settings block may carry.
 SETTINGS_KEYS: frozenset[str] = frozenset(
-    {"solve", "twiss_in", "rest_mass_gev", ERROR_ELEMENTS_KEY, turn_settings.BLOCK_KEY}
+    {
+        "solve",
+        "twiss_in",
+        "rest_mass_gev",
+        RADIATION_KEY,
+        ERROR_ELEMENTS_KEY,
+        turn_settings.BLOCK_KEY,
+    }
+)
+
+#: The pass-method families :func:`radiate` turns to their radiating twin:
+#: ``enable_6d`` keywords, each ``auto``. The cavities, collective effects
+#: and quantum diffusion are left as the deck states them.
+_RADIATING_PASSES: tuple[str, ...] = (
+    "dipole_pass",
+    "quadrupole_pass",
+    "sextupole_pass",
+    "octupole_pass",
+    "multipole_pass",
+    "wiggler_pass",
 )
 
 #: The ``solve`` values, the first one the default.
@@ -158,7 +188,12 @@ _INDEX_PLANES: dict[int, str] = {0: "x", 1: "y"}
 
 #: The kind of device an element attribute drives, for the attributes that
 #: are not a strength's polynomial coefficient.
-_ATTRIBUTE_KINDS: dict[str, str] = {"KickAngle": "kick", "Frequency": "rf"}
+_ATTRIBUTE_KINDS: dict[str, str] = {
+    "KickAngle": "kick",
+    "Frequency": "rf",
+    "Voltage": "rf",
+    "TimeLag": "rf",
+}
 
 Deck = str | os.PathLike[str]
 
@@ -181,6 +216,8 @@ class Prepared:
             by the deck's periodicity.
         turn_by_turn: The turn-by-turn block, checked and defaulted; ``None``
             on a ring that is not a turn-by-turn ring.
+        radiation: Whether the model's copy of the deck is made to radiate
+            (:func:`radiate`); ``False`` leaves the deck's own pass methods.
     """
 
     solve: str
@@ -188,6 +225,7 @@ class Prepared:
     rest_mass_gev: float
     length_m: float
     turn_by_turn: turn_settings.TurnSettings | None = None
+    radiation: bool = False
 
 
 @dataclass(frozen=True)
@@ -443,7 +481,8 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
     Args:
         deck: The lattice file.
         settings: The model's settings, ``{pyat: {solve?, twiss_in?,
-            rest_mass_gev?, error_elements?, turn_by_turn?}}``, or ``None``.
+            rest_mass_gev?, radiation?, error_elements?, turn_by_turn?}}``,
+            or ``None``.
         model: The model name the stop names; the deck's file stem when
             omitted.
 
@@ -456,7 +495,9 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             cavity without longitudinal motion, ``single_pass`` without
             ``twiss_in``, ``twiss_in`` on a periodic model, a ``twiss_in``
             value of the wrong length, a
-            ``rest_mass_gev`` that is not a finite non-negative number, or an
+            ``rest_mass_gev`` that is not a finite non-negative number, a
+            ``radiation`` that is not ``true`` or ``false`` or is ``true`` on
+            a ``single_pass`` model, or an
             ``error_elements`` list that is malformed, names an element
             twice, or states ``multipoles`` on an element with no polynomial;
             or a ``turn_by_turn`` block :func:`pyat_turn_settings.normalise`
@@ -486,7 +527,7 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
             model_id,
             "model",
             f"settings key pyat carries unknown keys {', '.join(unknown)}",
-            f"use only solve, twiss_in, rest_mass_gev, {ERROR_ELEMENTS_KEY}, "
+            f"use only solve, twiss_in, rest_mass_gev, {RADIATION_KEY}, {ERROR_ELEMENTS_KEY}, "
             f"{turn_settings.BLOCK_KEY}",
         )
     solve = block.get("solve", SOLVES[0])
@@ -568,6 +609,23 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
                 "give rest_mass_gev as a finite non-negative number",
             )
         rest_mass_gev = float(rest_mass)
+    radiation = block.get(RADIATION_KEY, False)
+    if not isinstance(radiation, bool):
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.{RADIATION_KEY} is {radiation!r}",
+            f"set {RADIATION_KEY} to true or false",
+        )
+    if radiation and solve == "single_pass":
+        raise _stop(
+            deck,
+            model_id,
+            "model",
+            f"settings key pyat.{RADIATION_KEY} is set on a single_pass model",
+            f"remove {RADIATION_KEY}; write the radiating pass methods into the deck instead",
+        )
     _check_error_elements(loaded, deck, settings, model_id)
     return Prepared(
         solve=solve,
@@ -575,6 +633,28 @@ def prepare(deck: Deck, settings: Any, *, model: str | None = None) -> Prepared:
         rest_mass_gev=rest_mass_gev,
         length_m=loaded.length_m,
         turn_by_turn=_turn_block(loaded, deck, settings, model_id),
+        radiation=radiation,
+    )
+
+
+def radiate(lattice: Any) -> None:
+    """Give every magnet of ``lattice`` its radiating pass method, in place.
+
+    Bends, quadrupoles, sextupoles, octupoles, higher multipoles and wigglers
+    take pyAT's radiating twin of the pass method they have
+    (``...Pass`` to ``...RadPass``). The cavities keep theirs, an element
+    with no radiating twin (a corrector, a drift) is left alone, and one that
+    already radiates stays as it is. The radiation is the classical energy
+    loss: no quantum diffusion element is added.
+
+    Args:
+        lattice: The model's own copy of the deck.
+    """
+    lattice.enable_6d(
+        cavity_pass=None,
+        collective_pass=None,
+        diffusion_pass=None,
+        **dict.fromkeys(_RADIATING_PASSES, "auto"),
     )
 
 
@@ -607,7 +687,41 @@ def _turn_block(
             )
         return found[0]
 
-    return turn_settings.normalise(settings, str(deck), model_id, index_of)
+    def select(selector: str, value: Any) -> tuple[int, ...]:
+        import at
+
+        lattice = loaded.lattice
+        lengths = [float(getattr(element, "Length", 0.0)) for element in lattice]
+        if selector == "element":
+            found: tuple[int, ...] = loaded.indices.get(value, ())
+            what = f"element {value}"
+        elif selector == "class":
+            kind = getattr(at, value, None)
+            if not (isinstance(kind, type) and issubclass(kind, at.Element)):
+                raise ValueError(f"class {value} is no element class of pyAT")
+            found = tuple(
+                index
+                for index, element in enumerate(lattice)
+                if isinstance(element, kind) and lengths[index] > 0.0
+            )
+            what = f"class {value}"
+        else:
+            start, end = value
+            if end > loaded.length_m:
+                raise ValueError(
+                    f"s range [{start:g}, {end:g}] ends beyond the deck's {loaded.length_m:g} m"
+                )
+            found = tuple(
+                index
+                for index, length in enumerate(lengths)
+                if length > 0.0 and start <= loaded.s_pos[index] + length / 2.0 <= end
+            )
+            what = f"s range [{start:g}, {end:g}]"
+        if not found:
+            raise ValueError(f"{what} selects no element of the deck")
+        return found
+
+    return turn_settings.normalise(settings, str(deck), model_id, index_of, select)
 
 
 def _check_error_elements(loaded: _Loaded, deck: Deck, settings: Any, model_id: str) -> None:
@@ -752,9 +866,18 @@ def start_values(
     a ``signal``) starts at its signal's value: a turn array as
     ``trigger_sample + turns`` zeros, ``rf_switch`` at 1 (on), every other
     signal at 0. A readback takes its paired setpoint's value
-    when that setpoint is in ``wiring``, else zero; a waveform readback wired
-    to a whole optics output starts as one zero per plane. Any other record
-    that names no element has no start value in the deck and is left out.
+    when that setpoint is in ``wiring``, else zero. The built model serves a
+    readback from the setpoint record on its element (or slices), attribute
+    and index, and two readbacks start there: one stating another calibration
+    than that setpoint takes the setpoint's physics value through its own (a
+    readback of a deck property such as ``energy`` takes the value of that
+    setpoint's curve at the setpoint's start value), and
+    one ``readbacks`` maps to no setpoint (no setpoint names it as its pair, or
+    the simulation does not follow the pair) takes it through the setpoint's
+    (a readback of a deck property takes that setpoint's start value itself).
+    A waveform readback wired to a whole optics output starts as one zero per
+    plane. Any other record that names no element has no start value in the
+    deck and is left out.
 
     Args:
         deck: The lattice file.
@@ -781,7 +904,10 @@ def start_values(
             absent from or repeated in the deck (an ``ElementStop``), an
             unreadable attribute, or a setpoint's or monitor's (a record whose
             engine block names an ``axis``) table calibration without an
-            inverse or linear gain of 0; for a waveform readback that names an
+            inverse or linear gain of 0, and the same of a readback stating
+            its own calibration; for a readback of a deck property whose own
+            calibration states an ``energy_scaling`` other than ``none``; for
+            a waveform readback that names an
             ``axis`` or ``index``, or whose shape is not the deck's planes;
             for a turn-by-turn record on a ring whose settings state no
             ``turn_by_turn`` block, a turn array that is not a waveform of
@@ -821,6 +947,11 @@ def start_values(
             whole_outputs.add(address)
     values: dict[str, float | list[float]] = {}
     pending: list[str] = []
+    drivers: dict[tuple[Any, ...], Any] = {}
+    for record in records:
+        if field(record, "address") not in readbacks:
+            drivers.setdefault(_target(record), record)
+    through: dict[str, tuple[Any, Any, Any]] = {}
     for record in records:
         address = field(record, "address")
         record_id = field(record, "id") or address
@@ -829,6 +960,21 @@ def start_values(
         pair = readbacks.get(address)
         if address in readbacks and pair != address:
             pending.append(address)
+            driver = drivers.get(_target(record))
+            if driver is None:
+                continue
+            if not _states_its_own_calibration(record, driver):
+                if pair is None:
+                    # Followed from no setpoint by the channels, and still the
+                    # readback of the setpoint on its target: it starts where
+                    # the model serves it, on that setpoint's own way back.
+                    through[address] = (driver, driver, _DERIVE_START)
+                continue
+            if not _names_element(record) and (
+                scaled := _scaled_on_a_deck_property(record, driver)
+            ):
+                raise _stop(deck, record_id, "wiring", f"{address} {scaled}", _SCALED_REMEDY)
+            through[address] = (record, driver, _SERVE_READING)
             continue
         physics = _read_element(loaded, deck, record, record_id)
         if physics is None:
@@ -838,6 +984,17 @@ def start_values(
         pair = readbacks[address]
         if address in whole_outputs:
             values[address] = [0.0] * planes
+        elif address in through:
+            back, driver, purpose = through[address]
+            held = values[field(driver, "address")]
+            if back is driver and not _names_element(driver):
+                # A deck property's setpoint is read back at the value it holds.
+                values[address] = held
+                continue
+            physics = to_physics(_stated_calibration(driver)[0], float(held))  # type: ignore[arg-type]
+            values[address] = _hardware(
+                physics, field(back, "calibration"), deck, field(back, "id") or address, purpose
+            )
         else:
             values[address] = values.get(pair, 0.0) if pair is not None else 0.0
     values.update(_turn_start_values(loaded, deck, turn_records, settings, shapes or {}))
@@ -917,6 +1074,20 @@ def _turn_start_values(
                 )
         elif signal == "stored" and field(record, "element") is not None:
             _element_index(loaded, deck, field(record, "element"), record_id, "wiring")
+        elif signal == turn_settings.PULSED_KICK:
+            from osprey.simulation.engines.pyat_turns import applies_kick_angle
+
+            element = field(record, "element")
+            index = _element_index(loaded, deck, element, record_id, "wiring")
+            if not applies_kick_angle(loaded.lattice[index]):
+                raise _stop(
+                    deck,
+                    record_id,
+                    "wiring",
+                    f"{address} carries signal {signal}, but element {element} applies no "
+                    "kick angle",
+                    "name a corrector or a magnet element of the deck, not a drift or a marker",
+                )
         if signal in turn_settings.ARRAY_SIGNALS:
             shape = list(shapes.get(address, ()))
             if shape != [block.samples]:
@@ -984,9 +1155,11 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
 
     A record whose engine block names a ``signal`` is a turn-by-turn record,
     described by :func:`pyat_turn_settings.describe_signal`: ``arm``,
-    ``rf_switch``, ``pilot_tone`` and ``stored`` are setpoints refreshing
-    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and
-    ``turns_tracked`` are outputs refreshing ``event``; none has a plane, and
+    ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
+    ``offset_<coordinate>`` and ``mismatch_<plane>`` are setpoints refreshing
+    ``pass``; ``armed``, ``turn_x``, ``turn_y``, ``turn_sum`` and the shot
+    read-outs (``turns_tracked``, ``turns_survived``, ``monitors_reached``,
+    ``shot_status``) are outputs refreshing ``event``; none has a plane, and
     the kind is the signal.
 
     A setpoint or readback has a plane only when it steers one: ``KickAngle``
@@ -1159,6 +1332,51 @@ def _target(record: Mapping[str, Any]) -> tuple[Any, ...]:
     return (field(record, "element"), slices, field(block, "attribute"), field(block, "index"))
 
 
+def _stated_calibration(record: Any) -> tuple[Any, Any, str]:
+    """A record's calibration as it compares: its curve, its inverse and its energy scaling."""
+    calibration = field(record, "calibration")
+    return (
+        curve_from_record(field(calibration, "curve")),
+        curve_from_record(field(calibration, "inverse")),
+        str(field(calibration, "energy_scaling") or "none"),
+    )
+
+
+def _states_its_own_calibration(readback: Any, setpoint: Any) -> bool:
+    """Whether a readback record states a calibration other than its setpoint's.
+
+    A readback stating none, or the one its setpoint states, reads as the
+    setpoint's calibration says. One stating another curve, another inverse or
+    another energy scaling reads the setpoint's physics value through its own.
+    """
+    own = _stated_calibration(readback)
+    return own[0] is not None and own != _stated_calibration(setpoint)
+
+
+_SCALED_ON_A_DECK_PROPERTY = (
+    "states energy_scaling {scaling} on its own calibration; a readback of a deck "
+    "property reads the curve value of its setpoint {setpoint}, which no rigidity scales"
+)
+_SCALED_REMEDY = "state energy_scaling: none on the readback"
+
+
+def _scaled_on_a_deck_property(readback: Any, setpoint: Any) -> str | None:
+    """What is wrong with a deck-property readback's own calibration, if it scales.
+
+    The setpoint of a deck property hands its readback the value of its own
+    curve, which is no strength a rigidity carries from one energy to another,
+    so the readback's calibration can only be read at ``energy_scaling: none``.
+
+    Returns:
+        The stop's detail without the address it opens with, or ``None`` for a
+        calibration that does not scale.
+    """
+    scaling = _stated_calibration(readback)[2]
+    if scaling == "none":
+        return None
+    return _SCALED_ON_A_DECK_PROPERTY.format(scaling=scaling, setpoint=field(setpoint, "address"))
+
+
 def _names_element(record: Mapping[str, Any]) -> bool:
     return field(record, "element") is not None or bool(field(record, "slices"))
 
@@ -1241,9 +1459,16 @@ def build(
       the solved orbit;
     * a readback naming an element and an engine ``attribute`` reads back the
       setpoint that drives the same element or slices, attribute and index,
-      or its own ``default`` when no setpoint does; a readback of a deck
-      property such as ``energy`` reads back the setpoint of that property
-      the same way, so no readback is ever writable;
+      or its own ``default`` when no setpoint does. It reads through that
+      setpoint's calibration; where its record states another -- another
+      curve, inverse or energy scaling -- the setpoint's physics value is read
+      through the readback's own, so several readbacks may show one quantity
+      each in its own unit. A readback of a deck
+      property such as ``energy`` reads back the setpoint of that property,
+      at that setpoint's value; where its record states another calibration,
+      it reads the value of the setpoint's curve -- the curve's own, not the
+      normalised lattice energy -- through its own, which states
+      ``energy_scaling: none``. So no readback is ever writable;
     * a record naming no element reads one plane of the deck's ``tune`` or
       ``chromaticity`` -- its ``axis`` (``x`` 0, ``y`` 1) or its ``index`` --
       unless its attribute is a deck property such as ``energy``; a
@@ -1256,8 +1481,8 @@ def build(
       it starts on;
     * every other turn-by-turn record (an engine ``signal``, on a turn-by-turn
       ring only): ``arm``, ``pilot_tone`` and ``stored`` are settings that
-      hold what is written; ``armed``, the turn arrays and ``turns_tracked``
-      are read-only model state, read from the ring's turn state
+      hold what is written; ``armed``, the turn arrays and the shot
+      read-outs are read-only model state, read from the ring's turn state
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnState`), which
       a turn-by-turn ring is built to hold
       (:class:`~osprey.simulation.engines.pyat_turn_state.TurnByTurnModel`).
@@ -1280,7 +1505,9 @@ def build(
     misalignment (``dx``, ``dy``, ``roll``) becomes the element's entrance and
     exit transforms, a multipole error (``dB<n>``, ``dA<n>``) is added to the
     element's polynomial coefficient and held there across every later write
-    of a setpoint on the same coefficient. The model is then reset once -- one batch, one
+    of a setpoint on the same coefficient. The ring-length error,
+    ``lattice/circumference_error``, scales every drift of a ``periodic``
+    model's copy by one factor. The model is then reset once -- one batch, one
     solve -- so the lattice holds every setpoint's default, and a later
     :meth:`reset` returns to the active scenario rather than to the deck.
 
@@ -1305,14 +1532,19 @@ def build(
         ValueError: an entry cannot be built as a variable, a default or an
             active value lies outside its ``value_range``, a key of
             ``active`` names no setpoint and no fault of the model, an
-            element error lies outside its bounds or is not finite, an
+            element error or the ring-length error lies outside its bounds
+            or is not finite, the ring-length error is seeded on a deck
+            with no drift, an
             ``error_elements`` element is a wired monitor's or is named like
             a wired address
             (:class:`~osprey.simulation.engines.pyat_faults.ErrorElementsError`),
             a ``single_pass`` model wires a tune or
             chromaticity record, or a ring that is not a turn-by-turn ring
             wires an RF switch or another turn-by-turn record, or a turn
-            record's element is not a monitor.
+            record's element is not a monitor; a readback of a deck property
+            states its own calibration with an ``energy_scaling`` other than
+            ``none``, or a readback's own calibration has no way back to its
+            unit.
         pydantic.ValidationError: a fault seed lies outside its bounds.
         UnknownElementError: an element error names an element the deck does
             not hold exactly once, or a multipole error one with no such
@@ -1331,6 +1563,7 @@ def build(
     from osprey.simulation.engines.pyat_variables import (
         EV_PER_GEV,
         RF_SWITCH_SIGNAL,
+        ReadbackCalibration,
         RFSwitchVariable,
         turn_variable_from_wiring,
         variable_from_wiring,
@@ -1338,15 +1571,18 @@ def build(
 
     prepared = prepare(deck, settings, model=model)
     lattice = _load(deck).lattice.deepcopy()
+    if prepared.radiation:
+        radiate(lattice)
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     planes = tune_planes(lattice)
     entries = list(wiring)
 
     writes = {str(entry["address"]) for entry in entries if entry.get("direction") == "write"}
     setpoints: dict[tuple[Any, ...], str] = {}
+    drivers: dict[str, Mapping[str, Any]] = {}
     for entry in entries:
         if entry.get("direction") == "write":
-            setpoints.setdefault(_target(entry), str(entry["address"]))
+            drivers.setdefault(setpoints.setdefault(_target(entry), str(entry["address"])), entry)
 
     channels: list[Any] = []
     for entry in entries:
@@ -1395,10 +1631,16 @@ def build(
             deck_property or (_names_element(entry) and attribute is not None)
         ):
             source = setpoints.get(_target(entry))
+            own = None
+            if source is not None and _states_its_own_calibration(entry, drivers[source]):
+                if deck_property and (scaled := _scaled_on_a_deck_property(entry, drivers[source])):
+                    raise ValueError(f"model {model}: {address} {scaled}; {_SCALED_REMEDY}")
+                own = ReadbackCalibration.from_wiring(entry)
             channels.append(
                 ReadbackVariable(
                     name=address,
                     source=source,
+                    calibration=own,
                     default_value=None if source is not None else float(entry["default"]),
                     unit=entry.get("unit"),
                 )
@@ -1410,14 +1652,15 @@ def build(
             channels.append(variable)
 
     faults = {name: float(value) for name, value in active.items() if name not in writes}
-    element_slots = {
-        name: slot
-        for name, slot in fault_variables(entries, settings).items()
-        if slot.scope == ELEMENT_SCOPE
-    }
+    slots = fault_variables(entries, settings)
+    element_slots = {name: slot for name, slot in slots.items() if slot.scope == ELEMENT_SCOPE}
     errors = {name: faults.pop(name) for name in sorted(faults) if name in element_slots}
     misalignments, multipoles = _element_errors(errors, element_slots)
     _seed_multipoles(lattice, multipoles)
+    if CIRCUMFERENCE_ERROR in slots and CIRCUMFERENCE_ERROR in faults:
+        errors[CIRCUMFERENCE_ERROR] = faults.pop(CIRCUMFERENCE_ERROR)
+        _check_seed(CIRCUMFERENCE_ERROR, errors[CIRCUMFERENCE_ERROR], slots[CIRCUMFERENCE_ERROR])
+        lengthen(lattice, errors[CIRCUMFERENCE_ERROR])
     try:
         if prepared.turn_by_turn is None:
             built = PyATLatticeModel(
@@ -1463,19 +1706,28 @@ def _element_errors(
     multipoles: dict[str, dict[tuple[str, int], float]] = {}
     for name, value in errors.items():
         slot = slots[name]
-        if not math.isfinite(value):
-            raise ValueError(f"element error {name} is {value!r}; write a finite value")
-        low, high = slot.value_range or (-math.inf, math.inf)
-        if not low <= value <= high:
-            raise ValueError(
-                f"element error {name} is {value:g}, outside its range [{low:g}, {high:g}]"
-            )
+        _check_seed(name, value, slot)
         polynomial = multipole_field(slot.field)
         if polynomial is None:
             misalignments.setdefault(slot.address, {})[slot.field] = value
         else:
             multipoles.setdefault(slot.address, {})[polynomial] = value
     return misalignments, multipoles
+
+
+def _check_seed(name: str, value: float, slot: FaultSlot) -> None:
+    """Hold one element or lattice error to its slot.
+
+    Raises:
+        ValueError: the value is not finite or lies outside the slot's range.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"element error {name} is {value!r}; write a finite value")
+    low, high = slot.value_range or (-math.inf, math.inf)
+    if not low <= value <= high:
+        raise ValueError(
+            f"element error {name} is {value:g}, outside its range [{low:g}, {high:g}]"
+        )
 
 
 def _seed_multipoles(
@@ -1638,6 +1890,8 @@ def response_matrix(
         )
     loaded = _load(deck)
     lattice = loaded.lattice.deepcopy()
+    if prepared.radiation:
+        radiate(lattice)
     deck_energy_gev = float(lattice.energy) / EV_PER_GEV
     records = list(wiring)
 
@@ -1712,10 +1966,9 @@ def response_matrix(
     ]
 
     if trajectory and turns is not None:
-        if turns.aperture is not None:
-            from osprey.simulation.engines.pyat_turns import write_apertures
+        from osprey.simulation.engines.pyat_turns import write_declared_apertures
 
-            write_apertures(lattice, **turns.aperture.keywords)
+        write_declared_apertures(lattice, turns.aperture, turns.apertures)
         simulator = PyATSimulator(lattice)
         turn_places = [(place + origin) % len(lattice) for place, _, _ in turn_rows]
         turn_axes = [axis for _, axis, _ in turn_rows]

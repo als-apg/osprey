@@ -22,7 +22,9 @@ from osprey.cli.build_profile import (
 )
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import BuiltProject
 from tests._preset_data import bundle_data_root
+from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build
 
 # ---------------------------------------------------------------------------
@@ -321,159 +323,11 @@ class TestProfileLoading:
         profile = load_profile(path)
         assert profile.dependencies == ["numpy>=1.24", "pandas", "scipy~=1.11"]
 
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-
-class TestValidation:
-    """Tests for BuildProfile.validate()."""
-
-    def test_misshapen_convention_source(self, tmp_path: Path):
-        """Convention-directory validation runs as part of profile validation."""
-        (tmp_path / "skills").mkdir()
-        (tmp_path / "skills" / "loose.md").write_text("# not a skill directory\n")
-        profile = BuildProfile(name="Test")
-        with pytest.raises(BuildProfileError, match="one directory per skill"):
-            profile.validate(tmp_path)
-
-    def test_non_bool_deploy_services_rejected(self, tmp_path: Path):
-        """A non-boolean deploy_services is a validation error, not silently coerced."""
-        profile = BuildProfile(name="Test", deploy_services="yes")  # type: ignore[arg-type]
-        with pytest.raises(BuildProfileError, match="deploy_services must be a boolean"):
-            profile.validate(tmp_path)
-
-    def test_reserved_mirror_path_blocked(self, tmp_path: Path):
-        """The project/ mirror may not write a path the build owns."""
-        mirror = tmp_path / "project"
-        mirror.mkdir()
-        (mirror / "config.yml").write_text("facility: {}\n")
-        profile = BuildProfile(name="Test")
-        with pytest.raises(BuildProfileError, match="`config:` block"):
-            profile.validate(tmp_path)
-
-    def test_missing_mcp_server_command_or_url(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            mcp_servers={"broken": McpServerDef()},
-        )
-        with pytest.raises(BuildProfileError, match="missing 'command' or 'url'"):
-            profile.validate(tmp_path)
-
-    def test_mcp_server_url_only_passes_validation(self, tmp_path: Path):
-        (tmp_path / "data").mkdir()
-        profile = BuildProfile(
-            name="Test",
-            data="data",
-            mcp_servers={"remote": McpServerDef(url="http://host:8001/sse")},
-        )
-        profile.validate(tmp_path)  # Should not raise
-
-    def test_missing_name_reported(self, tmp_path: Path):
-        profile = BuildProfile(name="")
-        with pytest.raises(BuildProfileError, match="'name' is required"):
-            profile.validate(tmp_path)
-
-    def test_lifecycle_step_missing_name(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="", run="echo hello")],
-            ),
-        )
-        with pytest.raises(BuildProfileError, match="missing 'name'"):
-            profile.validate(tmp_path)
-
-    def test_lifecycle_step_missing_run(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            lifecycle=LifecycleConfig(
-                post_build=[LifecycleStep(name="broken", run="")],
-            ),
-        )
-        with pytest.raises(BuildProfileError, match="missing 'run'"):
-            profile.validate(tmp_path)
-
-    @pytest.mark.parametrize(
-        "cwd",
-        [
-            pytest.param("/tmp/evil", id="absolute"),
-            pytest.param("../escape", id="traversal"),
-        ],
-    )
-    def test_lifecycle_step_cwd_outside_the_project_is_blocked(self, tmp_path: Path, cwd: str):
-        profile = BuildProfile(
-            name="Test",
-            lifecycle=LifecycleConfig(
-                pre_build=[LifecycleStep(name="bad", run="echo", cwd=cwd)],
-            ),
-        )
-        with pytest.raises(BuildProfileError, match="cwd must be relative without"):
-            profile.validate(tmp_path)
-
-    def test_invalid_env_var_name(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            env=EnvConfig(required=["bad-name"]),
-        )
-        with pytest.raises(BuildProfileError, match="Invalid env var name"):
-            profile.validate(tmp_path)
-
-    def test_empty_dependency_rejected(self, tmp_path: Path):
-        profile = BuildProfile(
-            name="Test",
-            dependencies=["numpy", ""],
-        )
-        with pytest.raises(BuildProfileError, match="non-empty string"):
-            profile.validate(tmp_path)
-
     def test_valid_profile_passes(self, profile_dir: Path, minimal_profile_yaml: Path):
+        """A loaded minimal profile passes validation. The per-field rules of
+        BuildProfile.validate() are pinned in test_build_profile_validate.py."""
         profile = load_profile(minimal_profile_yaml)
-        # Should not raise
-        profile.validate(profile_dir)
-
-    @pytest.mark.parametrize(
-        ("default_panel", "match"),
-        [
-            # A `default_panel` value that doesn't match any known panel is rejected.
-            #
-            # Without this check the frontend silently falls back to the framework
-            # default — a typo never surfaces. Validation catches it at build time.
-            pytest.param("areil", "Unknown default_panel 'areil'", id="typo"),
-            # A built-in the profile never selected renders no tab, so naming it
-            # as default_panel would fall back to the workspace silently.
-            pytest.param("ariel", "Unknown default_panel 'ariel'", id="unselected-builtin"),
-        ],
-    )
-    def test_default_panel_that_shows_no_tab_is_rejected(
-        self, tmp_path: Path, default_panel: str, match: str
-    ):
-        profile = BuildProfile(name="Test", default_panel=default_panel)
-        with pytest.raises(BuildProfileError, match=match):
-            profile.validate(tmp_path)
-
-    def test_default_panel_selected_builtin_accepted(self, tmp_path: Path):
-        """A built-in panel id is accepted as default_panel once web_panels
-        selects it — the selection is what shows the tab."""
-        (tmp_path / "data").mkdir()
-        profile = BuildProfile(
-            name="Test", data="data", web_panels=["ariel"], default_panel="ariel"
-        )
-        profile.validate(tmp_path)  # must not raise
-
-    def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
-        """A custom panel backed by a `web.panels.<id>.url` config override
-        is accepted as default_panel once web_panels selects it."""
-        (tmp_path / "data").mkdir()
-        profile = BuildProfile(
-            name="Test",
-            data="data",
-            web_panels=["grafana"],
-            default_panel="grafana",
-            config={"web.panels.grafana.url": "http://localhost:3000"},
-        )
-        profile.validate(tmp_path)  # must not raise
+        profile.validate(profile_dir)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -1046,7 +900,8 @@ class TestProjectPyproject:
         def fake_run(cmd, **kwargs):
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
+        scoped(monkeypatch, "osprey.deployment.lock_constraints", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         _create_project_venv(project_path, _plan_project_venv(profile, install=True))
@@ -1143,19 +998,25 @@ class TestLifecyclePhaseRunner:
     """Tests for _run_lifecycle_phase()."""
 
     @pytest.mark.parametrize(
-        ("name", "run"),
+        ("name", "run", "written"),
         [
-            pytest.param("echo test", "echo hello", id="plain-command"),
-            # shell=True for pipe
-            pytest.param("piped cmd", "echo hello | cat", id="shell-metacharacters-handled"),
+            pytest.param("touch it", "touch out.txt", "", id="plain-command"),
+            # A pipe must reach a shell: split into argv, `echo` would print the
+            # rest of the line and exit 0 without `tr` ever running.
+            pytest.param(
+                "piped cmd",
+                "echo hello | tr a-z A-Z > out.txt",
+                "HELLO",
+                id="shell-metacharacters-handled",
+            ),
         ],
     )
-    def test_successful_step(self, tmp_path: Path, name: str, run: str):
+    def test_successful_step(self, tmp_path: Path, name: str, run: str, written: str):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         steps = [LifecycleStep(name=name, run=run)]
-        # Should not raise
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
+        assert (tmp_path / "out.txt").read_text().strip() == written
 
     def test_failing_step_aborts(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1166,29 +1027,16 @@ class TestLifecyclePhaseRunner:
                 "pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
             )
 
-    def test_failing_step_warns_when_no_abort(self, tmp_path: Path):
-        from osprey.cli.build_cmd import _run_lifecycle_phase
-
-        steps = [LifecycleStep(name="bad validate", run="false")]
-        # Should not raise
-        _run_lifecycle_phase(
-            "validate",
-            steps,
-            tmp_path,
-            tmp_path,
-            venv=None,
-            repo_root=tmp_path,
-            abort_on_failure=False,
-        )
-
     def test_step_with_cwd(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         subdir = tmp_path / "subdir"
         subdir.mkdir()
-        steps = [LifecycleStep(name="check cwd", run="pwd", cwd="subdir")]
-        # Should not raise — cwd relative to default_cwd
+        steps = [LifecycleStep(name="check cwd", run="touch here.txt", cwd="subdir")]
+        # cwd is resolved relative to default_cwd
         _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
+        assert (subdir / "here.txt").exists()
+        assert not (tmp_path / "here.txt").exists()
 
     def test_project_root_placeholder(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1275,7 +1123,7 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(
@@ -1308,9 +1156,9 @@ class TestCreateProjectVenv:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.delenv("UV", raising=False)
-        monkeypatch.setattr("shutil.which", lambda name: None)
+        scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
 
         _create_project_venv(
             tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"]), install=True)
@@ -1335,7 +1183,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="venv error"
             )
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
@@ -1360,7 +1208,7 @@ class TestCreateProjectVenv:
                 args=cmd, returncode=1, stdout="", stderr="ERROR: No matching distribution"
             )
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
@@ -1434,7 +1282,7 @@ class TestSourceLockConstraints:
             calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=fake_run)
         monkeypatch.setattr(
             "osprey.cli.build_environment.source_lock_constraints", lambda spec: self.LOCK
         )
@@ -1442,7 +1290,7 @@ class TestSourceLockConstraints:
             monkeypatch.setenv("UV", "/usr/bin/uv")
         else:
             monkeypatch.delenv("UV", raising=False)
-            monkeypatch.setattr("shutil.which", lambda name: None)
+            scoped(monkeypatch, "osprey.cli.build_environment", "shutil", which=lambda name: None)
             monkeypatch.setattr(
                 "osprey.cli.build_environment._pip_member_requirements", lambda spec: []
             )
@@ -3261,7 +3109,9 @@ class TestVAArchiverConfigDerivation:
 # ---------------------------------------------------------------------------
 
 
-def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: Path) -> None:
+def test_graph_mode_renders_its_search_index_and_no_paradigm_database(
+    built_demo: BuiltProject,
+) -> None:
     """The graph paradigm builds, and its render flattens no paradigm database.
 
     What it DOES stage under ``data/channel_databases`` is the search index
@@ -3269,27 +3119,13 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
     keyword tool read instead of parsing the corpus again. The builder itself is
     pinned in tests/cli/test_build_graph_index.py; here it is the render's own
     inventory that has to name it.
+
+    The graph paradigm is the demo preset's own, so its render is the session's
+    shared demo build; the precondition says so.
     """
-    from click.testing import CliRunner
-
-    from osprey.cli.init_cmd import init
-
-    repo = tmp_path / "graphed"
-    runner = CliRunner()
-    created = runner.invoke(
-        init,
-        [
-            str(repo),
-            "--preset",
-            "demo",
-            "--no-git",
-            *_set_args({"channel_finder_mode": "graph"}),
-        ],
-    )
-    assert created.exit_code == 0, created.output
-    rendered = invoke_build(repo)
-    assert rendered.exit_code == 0, rendered.output
-    render = repo / "build"
+    profile = yaml.safe_load((built_demo.repo / "profile.yml").read_text(encoding="utf-8"))
+    assert profile["channel_finder_mode"] == "graph", "the shared build is not a graph render"
+    render = built_demo.build_dir
 
     servers = json.loads((render / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert servers["channel-finder"]["args"] == [

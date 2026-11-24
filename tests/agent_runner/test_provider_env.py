@@ -311,7 +311,7 @@ class TestUnsupportedProvider:
             {"provider": "my-proxy"},
             api_providers={"my-proxy": _gateway("proxy-sonnet", ("proxy-haiku", "proxy-sonnet"))},
         )
-        assert spec is not None
+        assert spec.default_model_id == "proxy-sonnet"
 
 
 class TestCustomProxyProvider:
@@ -790,15 +790,17 @@ class TestDefaultModel:
 class TestAuthVarSeparation:
     """Providers use the correct auth env var in shell_exports (not env block)."""
 
-    def test_anthropic_shell_export_uses_api_key(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
-        assert any("ANTHROPIC_API_KEY" in e for e in spec.shell_exports)
-        assert not any("ANTHROPIC_AUTH_TOKEN" in e for e in spec.shell_exports)
-
-    def test_cborg_shell_export_uses_auth_token(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        assert any("ANTHROPIC_AUTH_TOKEN" in e for e in spec.shell_exports)
-        assert not any("ANTHROPIC_API_KEY" in e for e in spec.shell_exports)
+    @pytest.mark.parametrize(
+        ("provider", "present", "absent"),
+        [
+            pytest.param("anthropic", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", id="anthropic"),
+            pytest.param("cborg", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", id="cborg"),
+        ],
+    )
+    def test_shell_export_uses_the_providers_auth_var(self, provider, present, absent):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider})
+        assert any(present in e for e in spec.shell_exports)
+        assert not any(absent in e for e in spec.shell_exports)
 
     def test_cborg_shell_export_references_cborg_api_key(self):
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
@@ -1030,13 +1032,22 @@ class TestBaseUrlV1Normalization:
             == "https://apps.inside.anl.gov/argoapi/v1/chat/completions"
         )
 
-    def test_trailing_slash_before_v1_is_stripped(self):
-        spec = self._resolve("https://host/argoapi/v1/", native=True)
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://host/argoapi"
-
-    def test_url_without_v1_is_left_alone(self):
-        spec = self._resolve("https://api.example.com", native=True)
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.example.com"
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            pytest.param(
+                "https://host/argoapi/v1/",
+                "https://host/argoapi",
+                id="trailing-slash-before-v1-is-stripped",
+            ),
+            pytest.param(
+                "https://api.example.com", "https://api.example.com", id="url-without-v1-left-alone"
+            ),
+        ],
+    )
+    def test_native_base_url(self, url, expected):
+        spec = self._resolve(url, native=True)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == expected
 
 
 # ---------------------------------------------------------------------------

@@ -30,7 +30,12 @@ from osprey.simulation.engines.pyat_model import (
     PyATLatticeModel,
     ReadbackVariable,
 )
-from osprey.simulation.engines.pyat_variables import EV_PER_GEV, variable_from_wiring
+from osprey.simulation.engines.pyat_variables import (
+    EV_PER_GEV,
+    ReadbackCalibration,
+    variable_from_wiring,
+)
+from osprey_connectors.simulation.engines import Linear
 
 ENGINES = Path(__file__).resolve().parents[2] / "src/osprey/simulation/engines"
 
@@ -382,6 +387,25 @@ class TestOptics:
         assert chromatic == [False, True, True]
 
 
+#: The current an energy setpoint of 1e7 eV per ampere holds at the deck energy.
+BEND_CURRENT = DECK_ENERGY_GEV * EV_PER_GEV / 1.0e7
+
+
+def _energy_knob() -> list[Any]:
+    record = {
+        "address": "BEND:SP",
+        "engine": {"attribute": "energy"},
+        "calibration": _linear(1.0e7),
+        "direction": "write",
+        "default": BEND_CURRENT,
+    }
+    return variables([record])
+
+
+def _energy_readback(own: ReadbackCalibration) -> ReadbackVariable:
+    return ReadbackVariable(name="BEND:U", source="BEND:SP", calibration=own)
+
+
 def _readback_model(*readbacks: ReadbackVariable) -> PyATLatticeModel:
     return PyATLatticeModel(build_test_lattice(), [*variables(), *readbacks])
 
@@ -451,3 +475,25 @@ class TestReadbacks:
     def test_a_readback_of_nothing_the_model_serves_is_refused(self, readback):
         with pytest.raises(ValueError, match="X:RB"):
             _readback_model(readback)
+
+    def test_an_own_calibration_on_an_optics_readback_is_refused(self):
+        own = ReadbackCalibration(curve=Linear(gain=2.0, offset=0.0))
+        with pytest.raises(ValueError, match="X:RB states its own calibration"):
+            _readback_model(
+                ReadbackVariable(name="X:RB", source=TUNES, component=0, calibration=own)
+            )
+
+    def test_an_energy_setpoints_readback_reads_the_curve_value_through_its_own(self):
+        model = _readback_model(
+            *_energy_knob(), _energy_readback(ReadbackCalibration(Linear(gain=4.0e6, offset=0.0)))
+        )
+        assert model.get(["BEND:U"])["BEND:U"] == pytest.approx(1.0e7 * BEND_CURRENT / 4.0e6)
+        model.set({"BEND:SP": BEND_CURRENT * 1.001})
+        assert model.get(["BEND:U"])["BEND:U"] == pytest.approx(
+            1.0e7 * BEND_CURRENT * 1.001 / 4.0e6, rel=1e-12
+        )
+
+    def test_an_energy_setpoints_readback_scaling_with_the_rigidity_is_refused(self):
+        own = ReadbackCalibration(Linear(gain=4.0e6, offset=0.0), energy_scaling="brho")
+        with pytest.raises(ValueError, match="BEND:U .*state energy_scaling: none"):
+            _readback_model(*_energy_knob(), _energy_readback(own))

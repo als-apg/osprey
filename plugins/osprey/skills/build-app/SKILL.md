@@ -89,11 +89,12 @@ today and what is left to you.
    not declare, a `delegates` tool the agent does not hold, `delegates`
    without `{delegated_tools}` in its `delegation` note, and the placeholder
    with no `delegates`.
-4. **Panels use the design system.** `index.html` links the terminal's
-   `tokens.css`, `base.css` and `primitives.css`, and uses `osprey-*` classes
-   for buttons, chips, cards, toggles. `osprey app check` refuses a panel
-   that omits a sheet and any class with no rule in the panel's or the linked
-   sheets. It does not notice a hand-rolled button where a primitive exists;
+4. **Panels use the design system.** `index.html` loads the terminal's
+   `theme-boot.js`, links its `tokens.css`, `base.css`, `primitives.css` and
+   `/static/fonts/fonts.css`, styles through `var(--…)` tokens, and uses
+   `osprey-*` classes for buttons, chips, cards, toggles. `osprey app check`
+   refuses a panel that omits any of these or holds a raw hex colour, and reports
+   any class with no rule in the panel's or the linked sheets. It does not notice a hand-rolled button where a primitive exists;
    look in the summary's class list first.
 5. **The session's control target, the connector, the approval path.** The
    backend answers for the login that asked (`owner_from_header`,
@@ -205,10 +206,12 @@ route the tools call must be in `panel.agent_routes`; a tool must be under
   the page is served under `/panel/<id>/`; the panel's files are served from
   `static/`.
 - The page says when it can be driven: `index.html` carries
-  `<html data-page-ready="pending">`, and the script imports `markPageReady`
-  from `/design-system/js/page-ready.js` and calls it once the first refresh
-  has drawn, error or not. `osprey app check` refuses a panel that never
-  imports it; whatever drives the panel waits for that mark.
+  `<html data-page-ready="pending">` and loads `/design-system/js/page-ready.js`
+  by its own tag before `panel.js`; the script imports `markPageReady` from it
+  and calls it once the first refresh has drawn, error or not. `osprey app
+  check` refuses a panel that lacks any of the three. Whatever drives the panel
+  (a test, a recording, your own script) waits until `data-page-ready` is
+  `true` or `failed`; `failed` means the page cannot be driven: stop there.
 - Primitives first; `panel.css` holds only the app's own layout, on design
   tokens (`var(--space-2)`), with a rule for every class you introduce.
 - Export the functions that render state and test them in
@@ -337,7 +340,9 @@ agents: [<name>]              # optional, each agents/<name>.md
 Files of an app: `app.yml`, `pyproject.toml`, `<package>/{__init__,server,tools}.py`,
 `panel/{index.html,panel.js,panel.css}`, `tests/panel.test.js`,
 `skills/<name>/SKILL.md`, `agents/<name>.md`. Application code imports `osprey.apps.sdk`,
-`osprey.facility.kinds` and `osprey_connectors`, nothing else of OSPREY.
+`osprey_facility.kinds` and the public `osprey_connectors` modules, nothing else of OSPREY:
+`osprey app check` refuses any other `osprey_facility` import, `osprey_facility.records`
+included.
 
 The narrative version of all this, with the worked example, is the
 documentation's *How-to: Apps* section (*Build Your Own App*).

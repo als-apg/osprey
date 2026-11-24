@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli.build_profile_load import retired_spellings_window_open
 from osprey.facility.bundled import HEADER_CAPABLE, bundled_origin, classify, header_line
-from osprey.facility.layers import HEADER
-from osprey.facility.layers.mml.mapping import MAPPING_FILE
+from osprey.version import get_release_version
+from osprey_facility.layers import FORMER_HEADER, HEADER
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
 from tests._builds import init_project
 
 TEMPLATE_ROOT = Path(__file__).resolve().parents[2] / "src" / "osprey" / "templates"
@@ -120,7 +122,28 @@ def test_an_edit_that_keeps_the_line_is_still_bundled(facility: Path) -> None:
 def test_a_file_under_the_seed_header_is_seeded(facility: Path) -> None:
     (facility / "limits.yaml").write_text(f"{HEADER}\nrecords: []\n", encoding="utf-8")
 
-    assert classify(facility, TEMPLATE_ROOT).seeded == ("limits.yaml",)
+    kinds = classify(facility, TEMPLATE_ROOT)
+    assert kinds.seeded == ("limits.yaml",)
+    assert kinds.retired_header == ()
+
+
+def test_a_file_under_the_retired_seed_header_is_seeded(facility: Path) -> None:
+    (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
+
+    kinds = classify(facility, TEMPLATE_ROOT)
+    assert kinds.seeded == ("limits.yaml",)
+    assert kinds.retired_header == ("limits.yaml",)
+
+
+def test_the_retired_seed_header_window_is_still_open() -> None:
+    """The retired seed header is read only while the retired-spellings window is open.
+
+    The release that closes the window deletes ``FORMER_HEADER``, the
+    ``retired_header`` class and the import's warning, and this test; a file
+    still under the retired header then reads as a hand-written record, which
+    beside an imported layer stops no import.
+    """
+    assert retired_spellings_window_open(get_release_version())
 
 
 def test_a_markdown_file_whose_frontmatter_opens_with_the_seed_header_is_seeded(

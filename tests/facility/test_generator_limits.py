@@ -14,11 +14,11 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
-from osprey.facility.build import build_facility
-from osprey.facility.records import FacilityRecords
-from osprey.facility.sources import group_families, read_yaml, slot_names
 from osprey.facility.views.limits import limits_document
-from tests._builds import BuiltProject
+from osprey_facility.build import build_facility
+from osprey_facility.records import FacilityRecords
+from osprey_facility.sources import group_families, read_yaml, slot_names
+from tests._builds import FRAMEWORK_CHECKS, BuiltProject
 from tests.facility.test_cf_view_parity import load_golden
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -67,10 +67,11 @@ RESOLVED_ROWS = {
 def corrector_band(address: str) -> dict[str, float]:
     """The band, in A, of a corrector setpoint other than the teaching one.
 
-    The storage ring's is the [-12, 12] its readback seeds clamp at; every
-    other line's seeds declare no two-sided clamp, and its band is [-10, 10].
+    The storage ring's is the [-12, 12] its readback seeds clamp at; the
+    booster's is the [-6, 6] MML states for its correctors; every other
+    line's seeds declare no two-sided clamp, and its band is [-10, 10].
     """
-    bound = 12.0 if address.startswith("SR:") else 10.0
+    bound = {"SR": 12.0, "BR": 6.0}.get(address.split(":")[0], 10.0)
     return {"min_value": -bound, "max_value": bound}
 
 
@@ -159,7 +160,7 @@ def test_every_corrector_setpoint_has_one_record() -> None:
     addresses = [record["address"] for record in records]
     assert len(addresses) == len(set(addresses))
     correctors = corrector_setpoints()
-    assert len(correctors) == 191
+    assert len(correctors) == 215
     assert set(addresses) == set(correctors) | {r["address"] for r in TEACHING_RECORDS}
     for record in records[3:]:
         assert record == {"address": record["address"], **corrector_band(record["address"])}
@@ -213,7 +214,7 @@ def test_cavity_band_holds_the_deck_operating_point() -> None:
 def test_limits_golden_holds_the_resolved_rows() -> None:
     golden = load_golden("limits.json")
     assert "defaults" not in golden
-    assert golden["count"] == len(golden["channels"]) == 193
+    assert golden["count"] == len(golden["channels"]) == 217
     for address, row in RESOLVED_ROWS.items():
         assert golden["channels"][address] == row
     for address in corrector_setpoints():
@@ -228,7 +229,11 @@ def test_limits_golden_holds_the_resolved_rows() -> None:
 
 def test_limits_golden_resolves_the_committed_records() -> None:
     """The limits view of the committed tree is the golden, a bound left unstated absent."""
-    resolved = limits_document(FacilityRecords(build_facility(FACILITY_TREE, project_name="ca")))
+    resolved = limits_document(
+        FacilityRecords(
+            build_facility(FACILITY_TREE, project_name="ca", extra_checks=FRAMEWORK_CHECKS)
+        )
+    )
     del resolved["_version"]
     golden = {
         address: {slot: value for slot, value in row.items() if value is not None}

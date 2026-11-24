@@ -380,7 +380,7 @@ describe('createChatRenderer', () => {
   test('a result event ends the turn so the next text starts a fresh agent entry', () => {
     const r = createChatRenderer(container);
     r.handleEvent({ type: 'text', content: 'first' });
-    r.handleEvent({ type: 'result', is_error: false });
+    r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
     r.handleEvent({ type: 'text', content: 'second' });
 
     const agents = container.querySelectorAll('.op-entry.assistant');
@@ -422,7 +422,7 @@ describe('createChatRenderer', () => {
       r.handleEvent({ type: 'delta', kind: 'text', content: 'Done.' });
       expect([pinned(), label()]).toEqual([true, 'Writing…']);
 
-      r.handleEvent({ type: 'result', is_error: false, duration_ms: 10 });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false, duration_ms: 10 });
       expect(container.querySelector('.op-loader')).toBeNull();
     });
 
@@ -608,7 +608,7 @@ describe('createChatRenderer', () => {
       // Turn 1: a full exchange completes.
       r.addUserMessage('read the beam current');
       r.handleEvent({ type: 'text', content: 'The beam current is 500 mA.' });
-      r.handleEvent({ type: 'result', is_error: false });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
       // Turn 2: new prompt, then the stream re-opens with a session_reset.
       r.addUserMessage('and the orbit?');
       r.handleEvent({ type: 'session_reset' });
@@ -626,7 +626,7 @@ describe('createChatRenderer', () => {
       expect(container.querySelector('.op-system')).toBeNull();
       // Complete an exchange, then a reset on the next turn is worth a divider.
       r.handleEvent({ type: 'text', content: 'hello' });
-      r.handleEvent({ type: 'result', is_error: false });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
       r.addUserMessage('again');
       r.handleEvent({ type: 'session_reset' }); // shown
       expect(container.querySelectorAll('.op-system').length).toBe(1);
@@ -638,11 +638,11 @@ describe('createChatRenderer', () => {
       const r = createChatRenderer(container);
       r.addUserMessage('read the beam current');
       r.handleEvent({ type: 'text', content: 'The beam current is 500 mA.' });
-      r.handleEvent({ type: 'result', is_error: false });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
       r.addUserMessage('/clear');
       r.handleEvent({ type: 'thinking' });
       r.handleEvent({ type: 'session_reset' });
-      r.handleEvent({ type: 'result', is_error: false });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
 
       const dividers = container.querySelectorAll('.op-system');
       expect(dividers.length).toBe(1);
@@ -658,7 +658,7 @@ describe('createChatRenderer', () => {
   describe('error rendering', () => {
     test('an error event renders an error block with its message', () => {
       const r = createChatRenderer(container);
-      r.handleEvent({ type: 'error', message: 'API error: rate limited' });
+      r.handleEvent({ type: 'error', ends_turn: true, message: 'API error: rate limited' });
       const block = qs(container, '.op-error-block');
       expect(block.textContent).toBe('API error: rate limited');
       expect(r.messageCount()).toBe(1);
@@ -666,7 +666,7 @@ describe('createChatRenderer', () => {
 
     test('an error event without a message uses a default', () => {
       const r = createChatRenderer(container);
-      r.handleEvent({ type: 'error' });
+      r.handleEvent({ type: 'error', ends_turn: true });
       expect(qs(container, '.op-error-block').textContent).toBe('An error occurred.');
     });
   });
@@ -754,7 +754,7 @@ describe('createChatRenderer', () => {
       const r = createChatRenderer(container);
       r.replay(turns);
       r.handleEvent({ type: 'text', content: 'The orbit is flat.' });
-      r.handleEvent({ type: 'result', is_error: false });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false });
       r.addUserMessage('thanks');
       r.handleEvent({ type: 'session_reset' });
       expect(container.querySelector('.op-system')).not.toBeNull();
@@ -782,7 +782,7 @@ describe('createChatRenderer', () => {
       // The feed joins the turn still running.
       r.beginTurn();
       r.handleEvent({ type: 'text', content: 'It is flat.' });
-      r.handleEvent({ type: 'result', is_error: false, duration_ms: 4000 });
+      r.handleEvent({ type: 'result', ends_turn: true, is_error: false, duration_ms: 4000 });
 
       const agents = container.querySelectorAll('.op-entry.assistant');
       expect(agents).toHaveLength(1);
@@ -802,7 +802,7 @@ describe('createChatRenderer', () => {
           content: 'Done.',
           events: [
             { type: 'text', content: 'Done.' },
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ]);
@@ -858,7 +858,7 @@ describe('createChatRenderer', () => {
         { type: 'permission_resolved', request_id: 'req-w1', allow: true, answers: null },
         done('w1'),
         { type: 'text', content: 'Corrected.' },
-        { type: 'result', is_error: false, duration_ms: 53_000 },
+        { type: 'result', ends_turn: true, is_error: false, duration_ms: 53_000 },
       ];
 
       const live = createChatRenderer(container, { answerPermission: vi.fn() });
@@ -1304,7 +1304,7 @@ describe('createChatRenderer', () => {
             ask('t1', 'req-1'),
             resolved('req-1', true),
             result('t1', true),
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ]);
@@ -1347,7 +1347,7 @@ describe('createChatRenderer', () => {
             events: [
               call('t1'),
               { ...result('t1', isError), decision },
-              { type: 'result', is_error: false },
+              { type: 'result', ends_turn: true, is_error: false },
             ],
           },
         ]);
@@ -1374,7 +1374,7 @@ describe('createChatRenderer', () => {
           content: '',
           events: [
             { ...result('q1', true), decision: 'denied' },
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ]);
@@ -1491,7 +1491,7 @@ describe('createChatRenderer', () => {
                 'Your questions have been answered: "Which lattice?"="Hybrid, then "top-off"", ' +
                 '"Say "go" when ready?"="Go". You can now continue with these answers in mind.',
             },
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ]);
@@ -1525,7 +1525,7 @@ describe('createChatRenderer', () => {
               is_error: true,
               preview: 'The user declined.',
             },
-            { type: 'result', is_error: false },
+            { type: 'result', ends_turn: true, is_error: false },
           ],
         },
       ]);

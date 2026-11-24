@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from osprey.agent_runner import artifact_resolve as resolve_mod
 from osprey.stores.artifact_store import ArtifactStore
+from tests._scoped_stdlib import patch_subprocess, scoped_patch
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-body"
 PDF_BYTES = b"%PDF-1.4\nfake-pdf-body\n%%EOF"
@@ -176,14 +177,6 @@ class TestRunFilter:
         got = {e.title for e in store.list_entries(run_filter="run-1")}
         assert got == {"mine", "mine2"}
 
-    def test_excludes_other_runs(self, store):
-        titles = {e.title for e in store.list_entries(run_filter="run-1")}
-        assert "theirs" not in titles
-
-    def test_excludes_untagged_legacy(self, store):
-        titles = {e.title for e in store.list_entries(run_filter="run-1")}
-        assert "legacy" not in titles
-
     def test_empty_run_filter_matches_nothing(self, store):
         # Foot-gun guard: an empty run tag must NOT match untagged artifacts;
         # the run boundary is strict.
@@ -208,18 +201,18 @@ class TestGetRunEntry:
         s, a1, _, _ = store
         assert s.get_run_entry("run-1", a1).id == a1
 
-    def test_wrong_run_returns_none(self, store):
-        s, _, a2, _ = store
-        assert s.get_run_entry("run-1", a2) is None
-
-    def test_untagged_entry_returns_none(self, store):
-        s, _, _, leg = store
-        assert s.get_run_entry("run-1", leg) is None
-
-    def test_empty_run_id_returns_none(self, store):
-        s, _, _, leg = store
-        # Even against the untagged entry, an empty run_id must never match.
-        assert s.get_run_entry("", leg) is None
+    @pytest.mark.parametrize(
+        ("run_id", "which"),
+        [
+            pytest.param("run-1", 2, id="wrong-run"),
+            pytest.param("run-1", 3, id="untagged-entry"),
+            # Even against the untagged entry, an empty run_id must never match.
+            pytest.param("", 3, id="empty-run-id"),
+        ],
+    )
+    def test_a_mismatched_run_returns_none(self, store, run_id, which):
+        s = store[0]
+        assert s.get_run_entry(run_id, store[which]) is None
 
     def test_unknown_id_returns_none(self, store):
         s, _, _, _ = store
@@ -276,13 +269,13 @@ class TestPredictDelivery:
 
 
 class TestDescribeRunArtifacts:
-    def test_unknown_run_is_empty(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize(
+        "run_id",
+        [pytest.param("nope", id="unknown-run"), pytest.param("", id="empty-run-id")],
+    )
+    def test_a_run_without_artifacts_is_empty(self, tmp_path, monkeypatch, run_id):
         _rooted_store(tmp_path, monkeypatch)
-        assert resolve_mod.describe_run_artifacts("nope") == []
-
-    def test_empty_run_id_is_empty(self, tmp_path, monkeypatch):
-        _rooted_store(tmp_path, monkeypatch)
-        assert resolve_mod.describe_run_artifacts("") == []
+        assert resolve_mod.describe_run_artifacts(run_id) == []
 
     def test_descriptor_shape_and_source_mime(self, tmp_path, monkeypatch):
         store = _rooted_store(tmp_path, monkeypatch)
@@ -518,7 +511,7 @@ class TestOnlyWhatIsForThePersonIsListed:
         assert _listed("run-1") == []
 
     def test_a_document_lists_its_pdf_and_not_its_source(self, tmp_path, monkeypatch):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         from osprey.mcp_server.workspace.tools.create_document import create_document
 
@@ -529,8 +522,14 @@ class TestOnlyWhatIsForThePersonIsListed:
             return MagicMock(returncode=0, stdout="", stderr="")
 
         with (
-            patch("shutil.which", return_value="/usr/bin/pdflatex"),
-            patch("subprocess.run", side_effect=pdflatex),
+            scoped_patch(
+                "osprey.mcp_server.workspace.tools.create_document",
+                "shutil",
+                which=lambda _name: "/usr/bin/pdflatex",
+            ),
+            patch_subprocess(
+                "osprey.mcp_server.workspace.tools.create_document", side_effect=pdflatex
+            ),
         ):
             reply = _call_tool(
                 store,
@@ -774,14 +773,16 @@ class TestByteRouteIsolation:
         r = c.get(f"/dispatch/{run}/artifacts/{ids[artifact]}", headers=_auth())
         assert r.status_code == 404
 
-    def test_unknown_id_is_404(self, client):
+    @pytest.mark.parametrize(
+        "artifact_id",
+        [
+            pytest.param("does-not-exist", id="unknown-id"),
+            pytest.param("..%2f..%2fetc%2fpasswd", id="traversal-shaped-id"),
+        ],
+    )
+    def test_a_bad_artifact_id_is_404(self, client, artifact_id):
         c, _, _ = client
-        r = c.get("/dispatch/run-1/artifacts/does-not-exist", headers=_auth())
-        assert r.status_code == 404
-
-    def test_traversal_shaped_id_is_404(self, client):
-        c, _, _ = client
-        r = c.get("/dispatch/run-1/artifacts/..%2f..%2fetc%2fpasswd", headers=_auth())
+        r = c.get(f"/dispatch/run-1/artifacts/{artifact_id}", headers=_auth())
         assert r.status_code == 404
 
     def test_deny_reasons_are_indistinguishable(self, client):

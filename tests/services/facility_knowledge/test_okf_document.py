@@ -124,16 +124,12 @@ class TestOKFDocumentSerialize:
 class TestOKFDocumentRoundTrip:
     """Parsed documents survive a serialize → parse round-trip."""
 
-    def test_round_trip_full_document(self):
-        original = OKFDocument.parse(FULL_DOC)
-        serialized = original.serialize()
-        recovered = OKFDocument.parse(serialized)
-
-        assert recovered.frontmatter == original.frontmatter
-        assert recovered.body.strip() == original.body.strip()
-
-    def test_round_trip_type_only(self):
-        original = OKFDocument.parse(TYPE_ONLY_DOC)
+    @pytest.mark.parametrize(
+        "doc",
+        [pytest.param(FULL_DOC, id="full-document"), pytest.param(TYPE_ONLY_DOC, id="type-only")],
+    )
+    def test_round_trip(self, doc):
+        original = OKFDocument.parse(doc)
         serialized = original.serialize()
         recovered = OKFDocument.parse(serialized)
 
@@ -151,13 +147,12 @@ class TestOKFDocumentValidate:
 
     # --- consuming level ---
 
-    def test_consuming_passes_type_only(self):
-        doc = OKFDocument.parse(TYPE_ONLY_DOC)
-        doc.validate("consuming")  # must not raise
-
-    def test_consuming_passes_full_document(self):
-        doc = OKFDocument.parse(FULL_DOC)
-        doc.validate("consuming")  # must not raise
+    @pytest.mark.parametrize(
+        "doc",
+        [pytest.param(TYPE_ONLY_DOC, id="type-only"), pytest.param(FULL_DOC, id="full-document")],
+    )
+    def test_consuming_passes(self, doc):
+        OKFDocument.parse(doc).validate("consuming")  # must not raise
 
     @pytest.mark.parametrize(
         "frontmatter",
@@ -181,8 +176,8 @@ class TestOKFDocumentValidate:
         with pytest.raises(OKFDocumentError):
             doc.validate("authoring")
 
-    def test_authoring_passes_type_title_description_no_timestamp(self):
-        """Three-key doc without timestamp must pass authoring (OKF §9)."""
+    def test_authoring_passes_type_title_description_alone(self):
+        """A three-key doc with no optional family must pass authoring."""
         doc = OKFDocument(
             frontmatter={
                 "type": "facility_overview",

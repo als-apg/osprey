@@ -343,6 +343,12 @@ tested:
     kind: pins
     contains: "osprey.env.digest:"
     what: the label line is a line of a shipped compose template
+  - test: tests/docs/test_compose_template_excerpt.py
+    pages: [how-to/deploy-project/compose-templates.rst]
+    languages: [literal]
+    kind: pins
+    contains: "osprey.run-once:"
+    what: the label and its values are the run-once declaration the build reads
   - test: tests/docs/test_knowledge_cli_help.py
     pages: [how-to/facility-knowledge/okf-bundle.rst]
     languages: [literalinclude]
@@ -569,7 +575,7 @@ tested:
     languages: [python]
     kind: runs
     contains: "synthetic_deployment"
-    what: runs the example test against a scaffold copy named corrector-trim, through the plugin's fixture
+    what: runs both example tests against a scaffold copy named corrector-trim, through the plugin's fixture
 
 not_counted:
   - test: tests/docs/test_no_model_tier_words.py

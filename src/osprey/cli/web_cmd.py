@@ -22,6 +22,7 @@ command serves.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import json
 import logging
 import os
@@ -33,7 +34,7 @@ import time
 from collections.abc import Mapping, MutableMapping
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -44,6 +45,10 @@ from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
 from . import output
 from .repo_resolver import find_repo_root, repo_option
+
+if TYPE_CHECKING:
+    from osprey.deployment.process_table import ProcessRow
+    from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 
 #: The detached server's PID and log files, relative to the repo root and in
 #: the STATE zone. Three properties of ``var/`` are all required here and no
@@ -456,8 +461,15 @@ def _sigterm_ends_serving() -> Any:
         return None
 
 
+#: The module argv the detached launch runs the server with; ``web stop`` reads
+#: it back from the process table to know a recorded pid is the server.
+_SERVER_ARGV = ("-m", "osprey.cli.main", "web")
 #: Seconds ``osprey web stop`` waits for the server to give back its record lease.
 _LEASE_RELEASE_WAIT_S = 60.0
+#: Seconds ``osprey web stop`` waits for the server and the processes it started to exit.
+_STOP_WAIT_S = 60.0
+#: Interval between looks while ``osprey web stop`` waits.
+_STOP_POLL_S = 0.2
 
 
 def _end_host_record_lease(repo_root: Path, pid: int) -> None:
@@ -490,6 +502,176 @@ def _end_host_record_lease(repo_root: Path, pid: int) -> None:
         hr.stop_unheld_record(state_dir)
     except hr.HostRecordRefused as exc:
         output.warn("The agent record may still be running", str(exc))
+
+
+def _server_alive(pid: int) -> bool:
+    """Whether the server *pid* still runs: it exists and has not exited unreaped."""
+    try:
+        os.kill(pid, 0)  # signal 0 = existence check, no signal sent
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # process exists but owned by another user
+    import psutil
+
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+    except psutil.Error:
+        return True
+
+
+def _is_this_repos_server(row: ProcessRow | None, repo_root: Path) -> bool:
+    """Whether *row* is this repo's web terminal server, by its command line.
+
+    The detached launch runs :data:`_SERVER_ARGV` and names the repo last,
+    so a process whose command line holds those words and ends with
+    ``--repo <repo_root>`` is a web terminal serving this repo.
+    """
+    if row is None:
+        return False
+    words = row.command.split()
+    width = len(_SERVER_ARGV)
+    runs_web = any(
+        tuple(words[i : i + width]) == _SERVER_ARGV for i in range(len(words) - width + 1)
+    )
+    return runs_web and row.command.endswith(f" --repo {repo_root}")
+
+
+def _host_record_pid(repo_root: Path) -> int | None:
+    """The pid of the host-local record this repo's terminals share, if one runs.
+
+    ``None`` also when the deployment keeps no host record.
+
+    Raises:
+        OSError: The rendered config could not be read, so the record is unknown.
+    """
+    from osprey.agent_record import host as hr
+    from osprey_connectors.workspace import rendered_config_path
+
+    config = _rendered_config(rendered_config_path(repo_root))
+    try:
+        state_dir = hr.host_state_dir(repo_root, config)
+    except hr.HostRecordRefused:
+        return None
+    return hr.running_record_pid(state_dir)
+
+
+@dataclasses.dataclass(frozen=True)
+class _StartedTree:
+    """The process groups of the server's tree, and whether ``web stop`` may end them.
+
+    ``endable`` holds only when, in the read that found ``groups``, the
+    process at the recorded pid was this repo's web terminal server by its
+    command line, and the host record's group was settled: the deployment
+    keeps no host record, or the record's state was read and its group left
+    out of ``groups``.
+    """
+
+    groups: list[ProcessGroup]
+    endable: bool
+
+
+def _started_groups(repo_root: Path, pid: int) -> _StartedTree | None:
+    """The process groups of the server *pid*'s tree, read before it is signalled.
+
+    The tree is read before the signal because a process in a new session
+    keeps its parent link only until its parent exits. The host record's
+    group is left out: the record is shared by every terminal and ends
+    through its lease. When the rendered config cannot be read the record is
+    unknown and nothing is endable. Returns ``None`` when the process table
+    cannot be read, so what the server started is unknown.
+    """
+    from osprey.deployment.process_table import ProcessTableUnreadable
+    from osprey.interfaces.web_terminal import process_tree
+
+    try:
+        rows = process_tree.read_while_alive(lambda: _server_alive(pid))
+    except ProcessTableUnreadable:
+        return None
+    groups = process_tree.tree_groups(pid, rows)
+    try:
+        record = _host_record_pid(repo_root)
+    except OSError:
+        return _StartedTree(groups=groups, endable=False)
+    if record is not None:
+        groups = [group for group in groups if group.pgid != record]
+    return _StartedTree(groups=groups, endable=_is_this_repos_server(rows.get(pid), repo_root))
+
+
+def _running_members(groups: list[ProcessGroup], rows: dict[int, ProcessRow]) -> list[ProcessGroup]:
+    """The *groups* that still run, each narrowed to its members still running in *rows*.
+
+    A survivor is named, and ended, only by the pids that still run, never
+    by a member that has exited and whose pid may be reused.
+    """
+    from osprey.interfaces.web_terminal import process_tree
+
+    def runs(group: ProcessGroup, member: tuple[int, float]) -> bool:
+        alone = dataclasses.replace(group, members=(member,))
+        return bool(process_tree.still_running([alone], rows))
+
+    narrowed = (
+        dataclasses.replace(group, members=tuple(m for m in group.members if runs(group, m)))
+        for group in groups
+    )
+    return [group for group in narrowed if group.members]
+
+
+def _member_pids(groups: list[ProcessGroup], sep: str) -> str:
+    return sep.join(str(member) for group in groups for member, _ in group.members)
+
+
+def _name_survivors(pid: int, survivors: list[ProcessGroup]) -> None:
+    """Name the *survivors* of the server *pid* and how to end them; nothing is signalled."""
+    from osprey.interfaces.web_terminal import process_tree
+
+    output.fail(
+        f"Processes the web terminal (PID {pid}) started are still running",
+        process_tree.describe(survivors),
+        f"end them with `kill -KILL {_member_pids(survivors, ' ')}`",
+    )
+
+
+def _end_survivors(repo_root: Path, pid: int, survivors: list[ProcessGroup]) -> list[ProcessGroup]:
+    """End the *survivors* the server *pid*, now gone, started; return those left running.
+
+    Called only once *pid* was proven to be this repo's server. The host
+    record's group is left out again from a fresh read right before the
+    ending: the record is shared by every holder of a lease and ends only
+    through them. When the rendered config cannot be read now, the record is
+    unknown, so nothing is ended and the survivors are only named. What is
+    left is named: groups that survived SIGKILL, and groups the process
+    table could not be read to re-identify.
+    """
+    from osprey.interfaces.web_terminal import process_tree
+
+    try:
+        record = _host_record_pid(repo_root)
+    except OSError:
+        _name_survivors(pid, survivors)
+        return survivors
+    output.warn(
+        f"Processes the web terminal (PID {pid}) started outlived it; ending them",
+        process_tree.describe(survivors),
+    )
+    ending = process_tree.end_groups([group for group in survivors if group.pgid != record])
+    if ending.survivors:
+        left = list(ending.survivors)
+        output.fail(
+            f"Could not end processes the web terminal (PID {pid}) started",
+            process_tree.describe(left),
+            f"they survived SIGKILL; inspect them with `ps -p {_member_pids(left, ',')}`",
+        )
+    if ending.unknown:
+        unknown = list(ending.unknown)
+        output.fail(
+            f"Processes the web terminal (PID {pid}) started may still be running",
+            process_tree.describe(unknown),
+            f"the process table could not be read; check with `ps -p {_member_pids(unknown, ',')}`",
+        )
+    return [*ending.survivors, *ending.unknown]
 
 
 def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
@@ -844,9 +1026,41 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     if adapter.supports_interactive_login:
         return (
             [],
-            [f"{preamble}(provider {spec.provider}); falling back to subscription/OAuth login"],
+            [
+                f"{preamble}(provider {spec.provider}); "
+                "the agent falls back to subscription/OAuth login"
+            ],
         )
     return [f"{preamble}(provider {spec.provider} requires it)"], []
+
+
+def _probe_inner_call_keys(build_dir: Path, repo_root: Path, config_path: Path) -> list[str]:
+    """Probe 2b: name the enabled features whose own model call has no API key.
+
+    Probe 2 judges the agent's route, where a provider with an interactive
+    login can launch without a key. That login covers the agent only. The
+    features listed by :mod:`osprey.models.inner_calls` send their own
+    completion with the provider's API key, so each one whose key is missing is
+    named here, after the agent's line. Warnings only: the terminal launches
+    and the agent works.
+
+    Zero network, and silent on a config it cannot read — Probe 3 reports that.
+    """
+    import yaml
+
+    from osprey.models.inner_calls import missing_key_warnings
+
+    from .build_environment import credential_environ
+
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return []
+    if not isinstance(config, dict):
+        return []
+    return missing_key_warnings(
+        config, environ=credential_environ(build_dir, profile_dir=repo_root)
+    )
 
 
 def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
@@ -909,6 +1123,7 @@ def _preflight(repo_root: Path, build_dir: Path, config_path: Path) -> tuple[lis
     auth_failures, auth_warnings = _probe_auth_secret(build_dir, repo_root)
     failures.extend(auth_failures)
     warnings.extend(auth_warnings)
+    warnings.extend(_probe_inner_call_keys(build_dir, repo_root, config_path))
     failures.extend(_probe_config_validity(build_dir, config_path))
     return failures, warnings
 
@@ -1428,9 +1643,7 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
     # the terminal.
     cmd = [
         sys.executable,
-        "-m",
-        "osprey.cli.main",
-        "web",
+        *_SERVER_ARGV,
         "--host",
         host,
         "--port",
@@ -1443,6 +1656,8 @@ def _start_detached(host: str, port: int, shell: str | None, repo_root: Path) ->
     # humans and agents copy to restart the server. A restart from another
     # directory must not silently lose the deployment identity — and the child
     # would otherwise inherit the parent's cwd, which is the render, not a repo.
+    # `--repo <repo root>` is the last argument: `osprey web stop` reads it, with
+    # `_SERVER_ARGV`, to know the process at the recorded pid is this repo's server.
     cmd += ["--repo", str(repo_root)]
 
     log_path = repo_root / LOG_FILE
@@ -1518,7 +1733,10 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
     Finds the deployment exactly the way starting one does — the nearest
     profile.yml at or above the current directory, or --repo — so the server
     this stops is always the server that directory's `osprey web --detach`
-    started.
+    started. It returns once the server and the processes it started have
+    exited. Processes that outlive the server are ended with SIGTERM, then
+    SIGKILL; a server still running after the wait is named and left alone.
+    It exits 1 for anything still running.
     """
     # `osprey web --repo X stop` and `osprey web stop --repo X` are the same
     # request. The group parses --repo before the subcommand name, so without
@@ -1542,20 +1760,60 @@ def web_stop(ctx: click.Context, repo: Path | None) -> None:
         pid_path.unlink(missing_ok=True)
         return
 
+    started = _started_groups(repo_root, pid)
+    groups = None if started is None else started.groups
     try:
         os.kill(pid, signal.SIGTERM)
-        output.report(f"Stopped web terminal (PID {pid}).")
     except ProcessLookupError:
         output.report(f"Process {pid} not found, so it had already stopped. Cleaning up.")
+        _end_host_record_lease(repo_root, pid)
+        pid_path.unlink(missing_ok=True)
+        log_path.unlink(missing_ok=True)
+        return
     except PermissionError:
         output.fail(f"Permission denied stopping the web terminal (PID {pid})")
         return
 
+    from osprey.deployment import process_table
+    from osprey.interfaces.web_terminal import process_tree
+
+    survivors = list(groups or ())
+    deadline = time.monotonic() + _STOP_WAIT_S
+    while True:
+        server_alive = _server_alive(pid)
+        if groups:
+            # A failed read keeps the last answer.
+            with contextlib.suppress(process_table.ProcessTableUnreadable):
+                survivors = _running_members(groups, process_table.snapshot())
+        if (not server_alive and not survivors) or time.monotonic() >= deadline:
+            break
+        time.sleep(_STOP_POLL_S)
+
+    if groups is None:
+        output.note("The process table could not be read; only the server PID was checked.")
+
+    if server_alive:
+        # The live server still holds its lease, and the files are the handle on it.
+        output.fail(
+            f"The web terminal (PID {pid}) is still running {int(_STOP_WAIT_S)} s after SIGTERM",
+            process_tree.describe(survivors) or None,
+            f"end it with `kill -KILL {pid}`, then run `osprey web stop` again",
+        )
+        raise SystemExit(1)
+
+    if survivors and started is not None and started.endable:
+        survivors = _end_survivors(repo_root, pid, survivors)
+    elif survivors:
+        _name_survivors(pid, survivors)
+    if not survivors:
+        output.report(f"Stopped web terminal (PID {pid}).")
+
     # The server's agent-record lease ends with it, and with the last lease
     # the host-local record stops.
     _end_host_record_lease(repo_root, pid)
-
     pid_path.unlink(missing_ok=True)
+    if survivors:
+        raise SystemExit(1)
     log_path.unlink(missing_ok=True)
 
 

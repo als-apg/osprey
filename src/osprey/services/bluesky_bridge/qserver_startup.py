@@ -395,7 +395,10 @@ def _make_plan_function(
     ``spec.schema.model_validate``. That keeps one schema — the plan's own
     pydantic model, already served to the panels by ``GET /plans`` — as the
     single validation authority, instead of restating it as a Python signature
-    for queueserver to re-derive.
+    for queueserver to re-derive. An item the bridge queued states every
+    parameter (`plan_fields.resolve_plan_args`), so validation here fills no
+    default and calls no factory; it is what refuses an item put on the queue
+    outside the bridge, whose defaults it fills.
 
     Device names inside ``params`` are resolved against ``devices`` by
     ``spec.plan`` itself — but only against the channels the params *declare*

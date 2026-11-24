@@ -15,6 +15,10 @@ node with ``groupId``, ``groupKind`` and ``hasMember``.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import subprocess
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,13 +26,14 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
-from osprey.facility.records import FacilityRecords
-from osprey.facility.relations import end_identity
-from osprey.facility.render import facility_bytes
-from osprey.facility.validate import FACILITY_HEADER, relation_types
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.facility.views.graph import GRAPH_FILE, HEADER_PREFIX, graph_text, write_graph_view
 from osprey.facility.views.graph_iri import iri
+from osprey_facility.records import FacilityRecords
+from osprey_facility.relations import end_identity
+from osprey_facility.render import facility_bytes
+from osprey_facility.validate import FACILITY_HEADER, relation_types
+from tests._builds import FRAMEWORK_CHECKS
 from tests.facility._graph_relations import (
     expected_located_in,
     expected_part_of,
@@ -207,8 +212,29 @@ def test_the_first_line_is_the_facility_file_sha256() -> None:
     assert first == HEADER_PREFIX + hashlib.sha256(facility_bytes(doc)).hexdigest()
 
 
+_GRAPH_DIGEST = """
+import hashlib, json, sys
+from osprey_facility.records import FacilityRecords
+from osprey.facility.views.graph import graph_text
+print(hashlib.sha256(graph_text(FacilityRecords(json.load(sys.stdin))).encode()).hexdigest())
+"""
+
+
 def test_equal_facility_files_give_equal_bytes() -> None:
-    assert graph_text(FacilityRecords(_doc())) == graph_text(FacilityRecords(_doc()))
+    """A rebuild is a new process with a new hash seed; the bytes must not move."""
+    runs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _GRAPH_DIGEST],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        for seed in ("1", "2", "3")
+    ]
+    digests = {run.communicate(json.dumps(_doc()))[0].strip() for run in runs}
+    assert [run.returncode for run in runs] == [0, 0, 0]
+    assert digests == {hashlib.sha256(graph_text(FacilityRecords(_doc())).encode()).hexdigest()}
 
 
 def test_a_device_carries_its_identity_place_and_position() -> None:
@@ -587,18 +613,21 @@ class TestTheBuiltGraph:
             for member in ("SR/ION-PUMP13", "SR/BPM13", "SR/QF05")
         }
 
-    def test_two_independent_builds_render_equal_bytes(self) -> None:
-        from osprey.facility.build import build_facility
+    def test_two_independent_builds_render_equal_bytes(self, text: str) -> None:
+        from osprey_facility.build import build_facility
         from tests._preset_data import packaged_facility_dir
 
-        # Two builds and two read models: graph_text memoizes on the records
-        # object, so one read model rendered twice would compare a string to itself.
-        first, second = (
-            graph_text(
-                FacilityRecords(build_facility(packaged_facility_dir("demo"), project_name="demo"))
+        # Two builds and two read models: the shared ``osprey build`` of the demo
+        # deployment wrote ``text`` to its file, and this one builds the tree that
+        # deployment was initialised from, in memory, and renders it afresh.
+        second = graph_text(
+            FacilityRecords(
+                build_facility(
+                    packaged_facility_dir("demo"),
+                    project_name="demo",
+                    extra_checks=FRAMEWORK_CHECKS,
+                )
             )
-            for _ in range(2)
         )
 
-        assert first is not second
-        assert first.encode("utf-8") == second.encode("utf-8")
+        assert text.encode("utf-8") == second.encode("utf-8")

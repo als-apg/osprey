@@ -435,7 +435,9 @@ if config_file:
     else:
         print(f"⚠️ Application src directory not found at: {app_src_dir}")
 
-# Initialize registry for context loading
+# Initialize the registry: it registers the deployment's connectors with
+# ConnectorFactory, which the osprey.runtime calls in user code resolve their
+# control system and archiver through.
 # Uses CONFIG_FILE environment variable for proper path resolution in subprocesses
 try:
     from osprey.registry import initialize_registry
@@ -443,7 +445,7 @@ try:
     print("✅ Registry initialized successfully")
 except Exception as e:
     print(f"Registry initialization failed: {e}", file=sys.stderr)
-    print("Context loading may not work properly", file=sys.stderr)
+    print("Connector lookups in user code may fail", file=sys.stderr)
 """
 
         # Set execution directory variable (but do NOT chdir — user code
@@ -453,7 +455,7 @@ except Exception as e:
 # Execution directory for wrapper outputs (results, figures, artifacts).
 # User code cwd stays at the project root so relative paths like
 # "_agent_data/data/002_archiver_read.json" resolve correctly.
-_execution_dir = Path(r"{execution_folder}")
+_execution_dir = Path({str(execution_folder)!r})
 if not _execution_dir.exists():
     print(f"Warning: Execution directory {{_execution_dir}} does not exist")
 """
@@ -482,7 +484,7 @@ if not _execution_dir.exists():
             try:
                 import osprey.runtime as _write_ledger_runtime
 
-                _write_ledger_path = r"{ledger_path}"
+                _write_ledger_path = {str(ledger_path)!r}
 
                 def _write_ledger_observer(address, phase):
                     if phase != "attempt":

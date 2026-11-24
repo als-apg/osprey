@@ -36,6 +36,7 @@ from osprey.cli.styles import Styles, data_table
 from osprey_connectors.config import load_project_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import rendered_config_path
+from osprey_facility.errors import FacilityError
 
 logger = get_logger("feedback")
 
@@ -96,7 +97,7 @@ def _feedback_session(repo: Path | None, *, announce: bool = True) -> Iterator[_
 
     try:
         yield _Deployment(root=repo_root, config=load_project_config(str(config_path)))
-    except (click.Abort, click.ClickException):
+    except (click.Abort, click.ClickException, FacilityError):
         raise
     except KeyboardInterrupt:
         warn("Operation cancelled by user")

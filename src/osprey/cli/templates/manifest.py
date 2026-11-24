@@ -517,8 +517,8 @@ def generate_manifest(
     # That source is the PROFILE, on every build. A `--preset` build renders
     # from the profile it materialized, not from the bundled preset, so hashing
     # the preset here would leave a hand edit to that profile invisible to the
-    # staleness advisory — the one edit the advisory most needs to see, since
-    # editing the profile is how a facility is meant to change its project. The
+    # drift check — the one edit it most needs to see, since editing the
+    # profile is how a facility is meant to change its project. The
     # preset a profile came from stays recorded in the profile's own
     # `provenance:` block, which the build compares separately for its
     # materialization-time drift advisory. The preset hash remains the fallback

@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
 from osprey.services.ariel_search.database.repository import SchemaFacts
+from osprey_facility.records import FacilityRecords
 from tests.fixtures.ariel_entry_fields import (  # noqa: F401 - fixtures used by name
     dict_repository_fixture,
     example_entry_fields_fixture,
@@ -97,10 +97,8 @@ async def test_entry_get_nonexistent(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entry_get()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(entry_id="nonexistent")
-
-    _exc_ctx["envelope"]
 
 
 async def test_entry_get_empty_id():
@@ -109,7 +107,7 @@ async def test_entry_get_empty_id():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(entry_id="")
 
-    _exc_ctx["envelope"]
+    assert "entry_id is required" in _exc_ctx["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------
@@ -172,20 +170,20 @@ async def test_entry_create_minimal_fields(ariel_registry):
 
 
 @pytest.mark.parametrize(
-    ("subject", "details"),
+    ("subject", "details", "missing"),
     [
         # Empty subject returns validation error.
-        pytest.param("", "some details", id="empty-subject"),
+        pytest.param("", "some details", "subject", id="empty-subject"),
         # Empty details returns validation error.
-        pytest.param("A subject", "", id="empty-details"),
+        pytest.param("A subject", "", "details", id="empty-details"),
     ],
 )
-async def test_entry_create_empty_field_is_a_validation_error(subject, details):
+async def test_entry_create_empty_field_is_a_validation_error(subject, details, missing):
     fn = _get_entry_create()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(subject=subject, details=details)
 
-    _exc_ctx["envelope"]
+    assert f"{missing} is required" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_entry_create_with_file_paths(tmp_path, ariel_registry):
@@ -612,6 +610,58 @@ async def test_entry_create_draft_refuses_an_artifact_that_cannot_be_converted(
     assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
 
 
+@pytest.mark.parametrize("draft", [True, False], ids=["draft", "direct"])
+async def test_entry_create_reports_a_missing_browser_as_dependency_missing(
+    tmp_path, monkeypatch, ariel_registry, draft
+):
+    """An artifact that needs the absent browser answers dependency_missing, in both modes."""
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    from osprey.mcp_server.export.converter import (
+        BROWSER_MISSING_MESSAGE,
+        PlaywrightNotInstalledError,
+    )
+
+    ariel_registry()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+
+    from osprey.stores.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    art = store.save_file(
+        file_content=b"<html><body>plot</body></html>",
+        filename="plot.html",
+        artifact_type="html",
+        title="Plot",
+        mime_type="text/html",
+        tool_source="test",
+    )
+
+    mock_service = AsyncMock()
+    with (
+        patch_ariel_service(mock_service),
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
+        patch(
+            "osprey.agent_runner.artifact_resolve.resolve_artifact_path",
+            side_effect=PlaywrightNotInstalledError(BROWSER_MISSING_MESSAGE),
+        ),
+    ):
+        fn = _get_entry_create()
+        with assert_raises_error(error_type="dependency_missing") as _exc_ctx:
+            await fn(
+                subject="Test",
+                details="Plot that needs the browser",
+                artifact_ids=[art.id],
+                draft=draft,
+            )
+
+    envelope = _exc_ctx["envelope"]
+    assert envelope["error_type"] == "dependency_missing"
+    assert envelope["error_message"] == BROWSER_MISSING_MESSAGE
+    assert not drafts_dir.exists() or not any(drafts_dir.iterdir())
+    mock_service.repository.upsert_entry.assert_not_called()
+
+
 async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     """Draft mode with artifact_ids stores attachment_paths in draft JSON."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -796,7 +846,7 @@ async def test_entries_by_ids_empty_list():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(entry_ids=[])
 
-    _exc_ctx["envelope"]
+    assert "entry_ids list is empty" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_entries_by_ids_max_limit_exceeded():
@@ -819,10 +869,9 @@ async def test_entries_by_ids_service_error(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entries_by_ids()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="internal_error") as ctx:
             await fn(entry_ids=["e1"])
-
-    _exc_ctx["envelope"]
+        assert "DB down" in ctx["envelope"]["error_message"]
 
 
 async def test_entries_by_ids_carries_the_read_budget(ariel_registry):

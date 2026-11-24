@@ -22,6 +22,9 @@ from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG
+from osprey_facility.errors import FacilityFileError
+from tests._facility_file import write_facility_document, write_facility_v4
+from tests._scoped_stdlib import scoped
 from tests._simulator_view import view_channel
 
 RING = "RING"
@@ -156,7 +159,7 @@ def _ring_render(root: Path) -> Path:
             },
         ],
     }
-    (root / "facility.json").write_text(json.dumps(facility), encoding="utf-8")
+    write_facility_v4(root, facility)
     facts = zero_source_facts({"code": "TEST", "name": "Test", "description": None})
     facts["models"] = [
         _facts_model("LINE", "pyat", True, "single_pass"),
@@ -284,6 +287,35 @@ class TestModelMembers:
         with pytest.raises(ValueError, match="element_index"):
             sdk.model_members(RING, ring)
 
+    @pytest.mark.foreign_header
+    def test_a_v3_facility_file_is_refused(self, ring):
+        path = ring / "facility.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        write_facility_document(ring, document, schema="osprey.facility.facility/3")
+
+        with pytest.raises(FacilityFileError) as raised:
+            sdk.model_members(RING, ring)
+
+        assert str(raised.value) == (
+            f"{path} is osprey.facility.facility/3; this reader reads "
+            "osprey.facility.facility/4 -- rebuild with osprey build"
+        )
+
+    def test_a_corrupt_facility_file_is_refused(self, ring):
+        (ring / "facility.json").write_text("{not json", encoding="utf-8")
+
+        with pytest.raises(FacilityFileError, match="is not JSON"):
+            sdk.model_members(RING, ring)
+
+    def test_without_a_facility_file_no_member_carries_golden_or_tolerance(self, ring):
+        (ring / "facility.json").unlink()
+
+        members = sdk.model_members(RING, ring)
+
+        assert [m.element for m in members.correctors] == ["COR_1", "COR_2"]
+        assert all(m.golden_addr is None for m in members.bpms)
+        assert all(m.tolerance is None for m in members.correctors)
+
     def test_the_example_ring_orders_co_located_members_by_index(self, example_render):
         members = sdk.model_members("SR", example_render)
 
@@ -337,7 +369,7 @@ class TestModelResponseMatrix:
             seen["timeout"] = kwargs["timeout"]
             return _completed(f"noise\n{RESULT_TAG} {json.dumps(line)}\n")
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         result = sdk.model_response_matrix(RING, render_root=ring, timeout_s=7)
 
@@ -362,8 +394,11 @@ class TestModelResponseMatrix:
             "row_positions": [1, 6],
             "column_positions": [4],
         }
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}"),
         )
 
         result = sdk.model_response_matrix(RING, render_root=ring, kind="trajectory")
@@ -389,8 +424,11 @@ class TestModelResponseMatrix:
             "missing": {},
             **positions,
         }
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(line)}"),
         )
 
         result = sdk.model_response_matrix(RING, render_root=ring)
@@ -418,22 +456,30 @@ class TestModelResponseMatrix:
         def run(argv, **kwargs):
             raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         with pytest.raises(TimeoutError, match=RING):
             sdk.model_response_matrix(RING, render_root=ring, timeout_s=1)
 
     def test_an_engine_refusal_raises(self, ring, monkeypatch):
         refused = {"refused": "no closed orbit", "cause": "request"}
-        monkeypatch.setattr(
-            subprocess, "run", lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(refused)}")
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed(f"{RESULT_TAG} {json.dumps(refused)}"),
         )
 
         with pytest.raises(ValueError, match="no closed orbit"):
             sdk.model_response_matrix(RING, render_root=ring)
 
     def test_a_child_without_a_result_raises_with_its_stderr(self, ring, monkeypatch):
-        monkeypatch.setattr(subprocess, "run", lambda argv, **kw: _completed("", "Traceback boom"))
+        scoped(
+            monkeypatch,
+            "osprey.apps.sdk._model",
+            "subprocess",
+            run=lambda argv, **kw: _completed("", "Traceback boom"),
+        )
 
         with pytest.raises(RuntimeError, match="boom"):
             sdk.model_response_matrix(RING, render_root=ring)
@@ -442,7 +488,7 @@ class TestModelResponseMatrix:
         def run(*args, **kwargs):
             raise AssertionError("no child may start")
 
-        monkeypatch.setattr(subprocess, "run", run)
+        scoped(monkeypatch, "osprey.apps.sdk._model", "subprocess", run=run)
 
         with pytest.raises(model_request.ModelRequestRefused, match="is no corrector setpoint"):
             sdk.model_response_matrix(RING, ["BPM_1:X"], render_root=ring)

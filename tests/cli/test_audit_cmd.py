@@ -164,32 +164,25 @@ class TestListFiles:
 
 
 class TestExtractJson:
-    def test_extract_raw_json(self, sample_report_json):
-        text = f"Here is the report: {sample_report_json}"
-        result = _extract_json(text)
+    @pytest.mark.parametrize(
+        "template",
+        [
+            pytest.param("Here is the report: {j}", id="raw"),
+            pytest.param("```json\n{j}\n```", id="markdown-fenced"),
+            pytest.param("```\n{j}\n```", id="no-fence-label"),
+        ],
+    )
+    def test_extract(self, sample_report_json, template):
+        result = _extract_json(template.format(j=sample_report_json))
         assert result is not None
-        parsed = json.loads(result)
-        assert parsed["overall_risk"] == "low"
-
-    def test_extract_markdown_fenced(self, sample_report_json):
-        text = f"```json\n{sample_report_json}\n```"
-        result = _extract_json(text)
-        assert result is not None
-        parsed = json.loads(result)
-        assert parsed["overall_risk"] == "low"
-
-    def test_extract_no_fence_label(self, sample_report_json):
-        text = f"```\n{sample_report_json}\n```"
-        result = _extract_json(text)
-        assert result is not None
+        assert json.loads(result)["overall_risk"] == "low"
 
     def test_invalid_no_json(self):
         assert _extract_json("No JSON here at all") is None
 
-    def test_partial_json(self):
-        # Truncated output — still extracts what's there
-        result = _extract_json('{"summary": "test", "overall_risk": "low"}')
-        assert result is not None
+    def test_bare_json_object_is_returned_as_is(self):
+        text = '{"summary": "test", "overall_risk": "low"}'
+        assert _extract_json(text) == text
 
 
 # ---------------------------------------------------------------------------
@@ -811,8 +804,7 @@ class TestReviewerRun:
 
 
 class TestDisplay:
-    @pytest.mark.usefixtures("sample_report")
-    def test_display_error_finding(self):
+    def test_display_error_finding(self, capsys):
         from osprey.cli.audit_cmd import _display_report
 
         report = AuditReport(
@@ -829,8 +821,11 @@ class TestDisplay:
                 ),
             ],
         )
-        # Just verify it doesn't crash — Rich output goes to console, not capsys
         _display_report(report, json_output=False, verbose=False)
+        out = capsys.readouterr().out
+        assert "HIGH RISK" in out
+        assert "Critical issue" in out
+        assert "Findings: 1 errors, 0 warnings, 0 info" in out
 
     def test_display_json_output(self, sample_report, capsys):
         from osprey.cli.audit_cmd import _display_report
@@ -840,13 +835,16 @@ class TestDisplay:
         parsed = json.loads(captured.out)
         assert parsed["overall_risk"] == "low"
 
-    def test_display_empty_findings(self):
+    def test_display_empty_findings(self, capsys):
         from osprey.cli.audit_cmd import _display_report
 
         report = AuditReport(summary="Clean", overall_risk="low", findings=[])
         _display_report(report, json_output=False, verbose=False)
+        out = capsys.readouterr().out
+        assert "✓ No findings. The audit came back clean." in out
+        assert "Findings:" not in out
 
-    def test_display_verbose_with_cost(self, sample_report):
+    def test_display_verbose_with_cost(self, sample_report, capsys):
         from osprey.cli.audit_cmd import _display_report
 
         _display_report(
@@ -856,6 +854,7 @@ class TestDisplay:
             cost=0.05,
             turns=10,
         )
+        assert "Cost: $0.0500 | Turns: 10" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

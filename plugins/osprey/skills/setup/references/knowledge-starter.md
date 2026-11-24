@@ -39,7 +39,7 @@ What lands is a skeleton, not a bundle:
   `references/`, `subsystems/`.
 - Their `index.md` files are empty, 0 bytes. Index regeneration skips a
   directory that has no entries.
-- The root `index.md` carries `okf_version: "0.1"` frontmatter and a
+- The root `index.md` carries `okf_version: "0.3"` frontmatter and a
   Subdirectories list with no descriptions.
 
 Tell the user this. An empty index before stubs exist is correct, not a failure.
@@ -87,7 +87,8 @@ and the operating limits.
 
 - Required keys are `type`, `title` and `description`. That is the authoring
   level enforced in `src/osprey/services/facility_knowledge/okf/document.py`.
-  A `timestamp` is deliberately not required, so stubs stay valid.
+  The optional OKF families (`generated`, `sources`, `verified`) are
+  deliberately not required, so stubs stay valid.
 - `status`, `source` and the `TODO:` line are the three curation markers. They
   are additive. Validation ignores them and they stay visible to a reader.
 - `type` values the packaged bundle uses: `Device`, `PhysicsNote`, `Procedure`,

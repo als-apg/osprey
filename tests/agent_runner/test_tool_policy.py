@@ -216,9 +216,21 @@ class TestPretooluseHookPassthrough:
         # Assert — permission-free task-list tools only; Read/Glob/Grep excluded
         assert PASSTHROUGH_TOOLS == frozenset({"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"})
 
-    @pytest.mark.parametrize("tool", ["TodoWrite", "WaitForMcpServers"])
+    @pytest.mark.parametrize(
+        "tool",
+        [
+            # Neither name passes without a trigger allow rule.
+            "TodoWrite",
+            "WaitForMcpServers",
+            # File tools never pass through: main-thread Read would expose
+            # config.yml provider config.
+            "Read",
+            "Glob",
+            "Grep",
+        ],
+    )
     async def test_hook_denies_names_outside_the_passthrough_set(self, tool):
-        # Arrange — neither name passes without a trigger allow rule
+        # Arrange
         hook = _hook()
 
         # Act
@@ -263,17 +275,6 @@ class TestPretooluseHookPassthrough:
         # Assert
         assert main == {}
         assert sub == {}
-
-    @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
-    async def test_hook_does_not_passthrough_file_tools(self, tool):
-        # Arrange — main-thread Read would expose config.yml provider config
-        hook = _hook()
-
-        # Act
-        result = await hook(_main_input(tool), "t1", None)
-
-        # Assert
-        assert _decision(result) == "deny"
 
 
 class TestPretooluseHookDelegation:

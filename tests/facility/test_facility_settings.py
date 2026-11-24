@@ -18,8 +18,6 @@ import pytest
 
 from osprey.cli.build_profile_archiver import VAArchiverConfig
 from osprey.cli.build_profile_load import manifest_rows
-from osprey.facility.errors import FacilityBuildError
-from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import (
     BENCHMARK_DATASET_PATH,
     FACILITY_SETTINGS,
@@ -34,6 +32,8 @@ from osprey.facility.settings import (
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey_connectors.simulation.state import STILL_SCENARIO
+from osprey_facility.errors import FacilityBuildError
+from osprey_facility.records import FacilityRecords
 
 #: The architecture page that lists the table.
 FACILITY_FILE_PAGE = (
@@ -164,6 +164,61 @@ def test_a_stated_probe_the_file_does_not_hold_is_refused(tmp_path: Path, key: s
 @pytest.mark.parametrize("key", SERVED_PROBE_KEYS)
 def test_a_stated_probe_the_file_holds_passes(tmp_path: Path, key: str) -> None:
     assert _fill(_tree(tmp_path), {key: "B:SP"}, DOCUMENT) == {}
+
+
+#: A facility file whose model ``M`` wires ``A:RB``; ``T:RB`` is the texture's.
+STOP_DOCUMENT: dict[str, Any] = {
+    "channels": [{"id": "A:RB"}, {"id": "T:RB"}],
+    "models": [
+        {"name": "M", "engine": "stub", "wiring": [{"address": "A:RB", "direction": "read"}]}
+    ],
+    "scenarios": [{"name": "m-down", "stopped_servers": ["sim-M"]}],
+}
+
+
+@pytest.mark.parametrize("key", SERVED_PROBE_KEYS)
+def test_a_stated_probe_a_scenario_stops_the_ioc_of_is_refused(tmp_path: Path, key: str) -> None:
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path), {key: "A:RB"}, STOP_DOCUMENT)
+
+    assert stop.value.kind == "profile-invalid"
+    assert stop.value.record_id == key
+    assert "`A:RB` is served by `sim-M`" in stop.value.detail
+    assert "`m-down`" in stop.value.detail
+    assert "`stopped_servers`" in stop.value.remedy
+
+
+def test_a_derived_probe_a_scenario_stops_the_ioc_of_is_refused(tmp_path: Path) -> None:
+    profile = {"control_system.connector.virtual_accelerator.timeout": 5}
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path), profile, STOP_DOCUMENT)
+
+    assert stop.value.record_id == SERVED_PROBE_KEYS[0]
+    assert "`A:RB` is served by `sim-M`" in stop.value.detail
+
+
+def test_a_probe_on_an_ioc_no_scenario_stops_passes(tmp_path: Path) -> None:
+    assert _fill(_tree(tmp_path), {SERVED_PROBE_KEYS[0]: "T:RB"}, STOP_DOCUMENT) == {}
+
+
+def test_a_probe_on_the_texture_ioc_a_scenario_stops_is_refused(tmp_path: Path) -> None:
+    document = {
+        **STOP_DOCUMENT,
+        "scenarios": [{"name": "t-down", "stopped_servers": ["sim-texture"]}],
+    }
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(_tree(tmp_path), {SERVED_PROBE_KEYS[0]: "T:RB"}, document)
+
+    assert "`T:RB` is served by `sim-texture`" in stop.value.detail
+
+
+def test_a_probe_on_an_unserved_models_channel_is_the_texture_iocs(tmp_path: Path) -> None:
+    # Unserved, ``M`` is no IOC: its channel is the texture's, which ``m-down`` leaves running.
+    profile = {SERVED_PROBE_KEYS[0]: "A:RB", "simulation.models": []}
+
+    assert _fill(_tree(tmp_path), profile, STOP_DOCUMENT) == {}
 
 
 def test_a_stated_freshness_channel_the_file_does_not_hold_is_refused(tmp_path: Path) -> None:

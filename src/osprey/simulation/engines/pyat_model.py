@@ -13,7 +13,9 @@ each built from one wiring record by
 - the energy knob's coupling to the rigidity-scaled setpoints,
 - the optics arrays of the solved lattice, computed on read,
 - and the wired readbacks it serves from those: a :class:`ReadbackVariable`
-  reads a setpoint back, or one plane of the tunes or the chromaticity.
+  reads a setpoint back -- through the setpoint's calibration, or through its
+  own where its record states another -- or one plane of the tunes or the
+  chromaticity.
 
 **Faults are variables, held as state on the element.** Each is named
 ``<address>/<field>`` after the wired address it perturbs, so a fault name is
@@ -21,7 +23,8 @@ never a channel address and the two rosters cannot collide. A monitor readback
 carries ``offset``, ``gain``, ``noise`` and ``polarity`` on its own axis, and a
 monitor carries one ``roll``, on its x-axis readback or its only readback. A
 setpoint on ``PolynomB`` or ``KickAngle`` carries ``cal_factor`` and
-``cal_offset``. Each fault is bound to an element attribute no pyAT pass
+``cal_offset``; a cavity setpoint carries ``cal_offset`` on ``Frequency`` and
+``TimeLag`` and ``cal_factor`` on ``Voltage``. Each fault is bound to an element attribute no pyAT pass
 method reads (``readout_<field>_<axis>``, ``readout_roll``, and a setpoint's
 :func:`~osprey.simulation.engines.pyat_faults.supply_attribute` pair), so
 seeding or writing a fault changes what the element carries and never the
@@ -90,17 +93,17 @@ from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
 from lume_pyat.exceptions import UnknownElementError
 from lume_pyat.model import LUMEPyATModel
 from lume_pyat.simulator import PyATSimulator
-from pydantic import ConfigDict
+from pydantic import ConfigDict, model_validator
 
 from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import (
-    CALIBRATED_ATTRIBUTES,
     FAULT_BOUNDS,
     FAULT_SEPARATOR,
     POLARITY_OPTIONS,
     READOUT_IDENTITY,
     ROLL,
     ROLL_IDENTITY,
+    SUPPLY_FIELDS,
     SUPPLY_IDENTITY,
     supply_attribute,
 )
@@ -112,7 +115,9 @@ from osprey.simulation.engines.pyat_variables import (
     MonitorVariable,
     PyATReadOnlyNDVariable,
     PyATWritableEnumVariable,
+    ReadbackCalibration,
 )
+from osprey_connectors.simulation.engines import check_inverse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.actions import ActionVariable
@@ -240,15 +245,13 @@ def _monitor_faults(
 def _calibration_faults(
     channels: Iterable[Variable], seeds: Mapping[str, float]
 ) -> list[FaultVariable]:
-    """Declare each magnet setpoint's own calibration, on its first bound element."""
+    """Declare each magnet or cavity setpoint's own calibration, on its first bound element."""
     faults: list[FaultVariable] = []
     for variable in channels:
-        if not (
-            isinstance(variable, CalibratedSetpoint)
-            and variable.bindings[0].attribute in CALIBRATED_ATTRIBUTES
-        ):
+        if not isinstance(variable, CalibratedSetpoint):
             continue
-        for field, identity in SUPPLY_IDENTITY.items():
+        for field in SUPPLY_FIELDS.get(variable.bindings[0].attribute or "", ()):
+            identity = SUPPLY_IDENTITY[field]
             name = _fault_name(variable.name, field)
             faults.append(
                 PyATWritableScalarVariable(
@@ -300,9 +303,14 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
     Attributes:
         source: A setpoint's address, read back through the setpoint's own
             calibration at the hardware value it holds (a deck property's
-            setpoint, such as the energy knob, at that value itself); ``tunes`` or
+            setpoint, such as the energy knob, at that value itself, or at
+            the knob's curve value through ``calibration``); ``tunes`` or
             ``chromaticity``, read at ``component``; or ``None`` for a
             readback with nothing to follow, which reads ``default_value``.
+        calibration: The readback's own calibration where its record states
+            another than its setpoint's: the setpoint's physics value is then
+            read through this one, in the readback's unit. ``None`` for a
+            readback that reads as its setpoint's calibration says.
         component: The plane of ``tunes`` or ``chromaticity``; ``None``
             otherwise.
         element_name: Always ``None``, so a model's per-element binding check
@@ -312,9 +320,17 @@ class ReadbackVariable(ReadOnlyActionMixin[PyATSimulator], ScalarVariable):
     model_config = ConfigDict(extra="forbid")
 
     source: str | None = None
+    calibration: ReadbackCalibration | None = None
     component: int | None = None
     element_name: None = None
     read_only: bool = True
+
+    @model_validator(mode="after")
+    def _require_a_way_back(self) -> ReadbackVariable:
+        """Refuse a calibration with no way back to the readback's unit."""
+        if self.calibration is not None:
+            check_inverse(self.calibration.curve, self.calibration.inverse)
+        return self
 
     def _get(self, simulator: PyATSimulator) -> float:
         """Refuse. The owning model computes the value, not the variable.
@@ -345,13 +361,16 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
         ValueError: a readback names a source that is neither a setpoint
             among ``channels`` nor ``tunes``/``chromaticity``, an optics
             plane the deck does not have, or ``tunes``/``chromaticity`` on a
-            single-pass model.
+            single-pass model; or it states its own calibration and its source
+            is no calibrated setpoint, or is a deck property's setpoint while
+            the calibration scales with the rigidity.
     """
     setpoints = {
         variable.name
         for variable in channels
         if isinstance(variable, (CalibratedSetpoint, EnergyVariable))
     }
+    knobs = {variable.name for variable in channels if isinstance(variable, EnergyVariable)}
     for variable in channels:
         if isinstance(variable, ArrayReadbackVariable):
             if solve != PERIODIC or variable.source not in PLANE_OPTICS:
@@ -382,6 +401,20 @@ def _check_readbacks(channels: Iterable[Variable], planes: int, solve: str) -> N
             raise ValueError(
                 f"readback {variable.name} reads {variable.source}, which is no setpoint "
                 f"of the model and none of {sorted(PLANE_OPTICS)}"
+            )
+        if variable.calibration is None:
+            continue
+        if variable.source not in setpoints:
+            raise ValueError(
+                f"readback {variable.name} states its own calibration and reads "
+                f"{variable.source}, which is no calibrated setpoint of the model"
+            )
+        if variable.source in knobs and variable.calibration.energy_scaling != "none":
+            raise ValueError(
+                f"readback {variable.name} states energy_scaling "
+                f"{variable.calibration.energy_scaling} on its own calibration and reads "
+                f"{variable.source}, a deck property's setpoint, whose curve value no "
+                "rigidity scales; state energy_scaling: none on the readback"
             )
 
 
@@ -503,7 +536,8 @@ class PyATLatticeModel(LUMEPyATModel):
                 f"fault seeds name {unknown}, which the model does not declare; a monitor "
                 f"readback takes {sorted(READOUT_IDENTITY)} (and {ROLL!r} on its x-axis or "
                 f"only readback), a PolynomB or KickAngle setpoint takes "
-                f"{sorted(SUPPLY_IDENTITY)}"
+                f"{sorted(SUPPLY_IDENTITY)}, a Frequency or TimeLag setpoint 'cal_offset' "
+                f"and a Voltage setpoint 'cal_factor'"
             )
         planes = tune_planes(lattice)
         _check_readbacks(channels, planes, solve)
@@ -559,9 +593,9 @@ class PyATLatticeModel(LUMEPyATModel):
             for variable in channels
             if isinstance(variable, CalibratedSetpoint)
         }
-        self._knobs: frozenset[str] = frozenset(
-            variable.name for variable in channels if isinstance(variable, EnergyVariable)
-        )
+        self._knobs: dict[str, EnergyVariable] = {
+            variable.name: variable for variable in channels if isinstance(variable, EnergyVariable)
+        }
         self._optics_memo: _OpticsMemo | None = None
         self._chromaticity_memo: _ChromaticityMemo | None = None
 
@@ -660,9 +694,15 @@ class PyATLatticeModel(LUMEPyATModel):
         if readback.source in PLANE_OPTICS:
             return float(arrays[readback.source][readback.component])
         if readback.source in self._knobs:
-            return float(self._inputs[readback.source])
+            held = float(self._inputs[readback.source])
+            if readback.calibration is not None:
+                return self._knobs[readback.source].readback_through(held, readback.calibration)
+            return held
         setpoint = self._setpoints[readback.source]
-        return setpoint.readback(self._inputs[readback.source])
+        value = self._inputs[readback.source]
+        if readback.calibration is not None:
+            return setpoint.readback_through(self.simulator, value, readback.calibration)
+        return setpoint.readback(value)
 
     def _optics(self) -> dict[str, np.ndarray]:
         """The optics arrays of the last solve, computed at most once per solve.

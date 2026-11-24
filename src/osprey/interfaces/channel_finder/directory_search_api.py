@@ -1,4 +1,4 @@
-"""PV directory search routes: ``search``, ``export.csv`` and ``count``.
+"""channel directory search routes: ``search``, ``export.csv`` and ``count``.
 
 Mounted under ``/api/directory`` by :mod:`.directory_api`. Every route is a GET
 that passes its filters to the lifespan's ``DirectoryService`` as keywords and
@@ -28,7 +28,7 @@ _COLUMNS = (
     "status",
     "description",
     "record_type",
-    "ioc",
+    "server",
     "host",
     "last_announced",
     "alarm",
@@ -50,7 +50,7 @@ def _filters(
     q: str,
     name: str | None,
     origin: list[str] | None,
-    ioc: list[str] | None,
+    server: list[str] | None,
     record_type: list[str] | None,
     alarm: list[str] | None,
     archived: list[str] | None,
@@ -60,7 +60,7 @@ def _filters(
         "words": q,
         "name": name,
         "origin": tuple(origin or ()),
-        "ioc": tuple(ioc or ()),
+        "server": tuple(server or ()),
         "record_type": tuple(record_type or ()),
         "alarm": tuple(alarm or ()),
         "archived": tuple(archived or ()),
@@ -77,7 +77,7 @@ async def search(
     q: _Words = "",
     name: str | None = None,
     origin: _Many = None,
-    ioc: _Many = None,
+    server: _Many = None,
     record_type: _Many = None,
     alarm: _Many = None,
     archived: _Many = None,
@@ -85,7 +85,7 @@ async def search(
     page_size: _PageSize = MAX_PAGE_SIZE,
 ) -> dict[str, Any]:
     """One page of the search, as the ``DirectoryPage`` payload."""
-    filters = _filters(q, name, origin, ioc, record_type, alarm, archived)
+    filters = _filters(q, name, origin, server, record_type, alarm, archived)
     payload: dict[str, Any] = await _service(request).search(
         **filters, page=page, page_size=page_size
     )
@@ -109,7 +109,7 @@ async def export_csv(
     q: _Words = "",
     name: str | None = None,
     origin: _Many = None,
-    ioc: _Many = None,
+    server: _Many = None,
     record_type: _Many = None,
     alarm: _Many = None,
     archived: _Many = None,
@@ -122,7 +122,7 @@ async def export_csv(
     first line names what was searched, the second the columns.
     """
     service = _service(request)
-    filters = _filters(q, name, origin, ioc, record_type, alarm, archived)
+    filters = _filters(q, name, origin, server, record_type, alarm, archived)
     counted = await service.count(**filters)
     total = counted.get("total") if counted.get("outcome") != "unavailable" else None
     cap = service.filter_cap

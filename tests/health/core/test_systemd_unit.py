@@ -19,6 +19,7 @@ import pytest
 from osprey.health.core import systemd_unit as mod
 from osprey.health.core.systemd_unit import systemd_unit
 from osprey.health.models import Status
+from tests._scoped_stdlib import scoped
 from tests.health._fakes import FakeProc
 
 _UNIT = "osprey.service"
@@ -37,7 +38,7 @@ def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
 
 def _have_systemctl(monkeypatch, present=True):
     """Patch ``shutil.which`` as seen by the module."""
-    monkeypatch.setattr(mod.shutil, "which", lambda name: "/usr/bin/systemctl" if present else None)
+    scoped(monkeypatch, mod, "shutil", which=lambda name: "/usr/bin/systemctl" if present else None)
 
 
 def _repo_with_unit(tmp_path: Path) -> Path:
@@ -141,23 +142,26 @@ class TestStateTable:
         assert results[0].status == Status.SKIP
         assert results[0].details
 
-    async def test_query_timeout_is_skip(self, monkeypatch, tmp_path):
-        _stub_run(monkeypatch, raises=TimeoutError())
+    @pytest.mark.parametrize(
+        ("raised", "needle"),
+        [
+            pytest.param(TimeoutError(), "timed out", id="query_timeout"),
+            # systemctl was on PATH for ``which`` but gone by the time it ran.
+            pytest.param(
+                FileNotFoundError(),
+                "systemctl not found",
+                id="systemctl_vanishing_between_which_and_exec",
+            ),
+        ],
+    )
+    async def test_a_failed_query_is_skip(self, monkeypatch, tmp_path, raised, needle):
+        _stub_run(monkeypatch, raises=raised)
         _have_systemctl(monkeypatch)
         repo = _repo_with_unit(tmp_path)
         _install_dir(monkeypatch, tmp_path, installed=True)
         results = await systemd_unit({}, cwd=repo)()
         assert results[0].status == Status.SKIP
-        assert "timed out" in results[0].message
-
-    async def test_systemctl_vanishing_between_which_and_exec_is_skip(self, monkeypatch, tmp_path):
-        _stub_run(monkeypatch, raises=FileNotFoundError())
-        _have_systemctl(monkeypatch)
-        repo = _repo_with_unit(tmp_path)
-        _install_dir(monkeypatch, tmp_path, installed=True)
-        results = await systemd_unit({}, cwd=repo)()
-        assert results[0].status == Status.SKIP
-        assert "systemctl not found" in results[0].message
+        assert needle in results[0].message
 
     async def test_empty_load_state_is_ok_unknown(self, monkeypatch, tmp_path):
         _stub_run(monkeypatch, returncode=0, stdout="   \n")

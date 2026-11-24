@@ -137,7 +137,6 @@ MATCH (d:Resource)-[:HASBINDING]->(:ChannelBinding)
 WHERE d.deviceId IS NOT NULL
 WITH DISTINCT d
 RETURN count(d)                     AS total,
-       count(d.familyDescription)   AS family_described,
        count(d.systemDescription)   AS system_described,
        count(d.system)              AS with_system
 """
@@ -148,6 +147,14 @@ DEVICE_TOTAL = """
 MATCH (d:Resource)
 WHERE d.deviceId IS NOT NULL
 RETURN count(d) AS n
+"""
+
+#: Every device a described group names, bound or not: a magnet on a supply it
+#: shares has no channel of its own and is in its family all the same.
+FAMILY_DESCRIBED = """
+MATCH (d:Resource)
+WHERE d.deviceId IS NOT NULL
+RETURN count(d.familyDescription) AS n
 """
 
 DEVICE_DETAIL = """
@@ -196,8 +203,8 @@ RETURN c.uri AS uri
 
 
 @pytest.fixture(scope="module")
-def enrichment_store_uri(graphdb_session_store: WatchedStore) -> str:
-    """The bolt URI of the session's store, wiped for this module.
+def enrichment_store(graphdb_session_store: WatchedStore) -> WatchedStore:
+    """The session's store, wiped for this module and watched under its label.
 
     The tests below wipe the store again between steps. That is safe to do to
     a store other modules seed too, because each of them wipes it and seeds it
@@ -205,7 +212,7 @@ def enrichment_store_uri(graphdb_session_store: WatchedStore) -> str:
     docker worker. The jars it mounts are resolved by ``graphdb_plugin_dir``,
     which is also this module's skip gate.
     """
-    return wiped_graphdb_store(graphdb_session_store, label=ENRICHMENT_STORE_LABEL).uri
+    return wiped_graphdb_store(graphdb_session_store, label=ENRICHMENT_STORE_LABEL)
 
 
 @pytest.fixture(scope="module")
@@ -216,21 +223,28 @@ def demo_ttl(built_demo: BuiltProject) -> str:
 
 
 @pytest.fixture
-def clean_store(enrichment_store_uri: str) -> Iterator[Any]:
+def clean_store(enrichment_store: WatchedStore) -> Iterator[Any]:
     """Yield a driver session onto an emptied, unconfigured store.
 
     ``wipe`` takes the n10s graph config and namespace prefixes with the data, so
     every test that receives this fixture starts from the state a fresh deploy
     starts from and has to bootstrap for itself.
+
+    The open, the wipe and the session's close run inside the store's watch.
+    pytest never throws a test's own error into a fixture, so a test that uses
+    the session runs its body under ``enrichment_store.reading()`` too.
     """
     from osprey.services.graph_store import seeder as graph_seeder
 
-    with graph_seeder.open_session(
-        enrichment_store_uri,
-        GRAPHDB_TEST_USERNAME,
-        GRAPHDB_TEST_PASSWORD,
-        database=GRAPHDB_TEST_DATABASE,
-    ) as session:
+    with (
+        enrichment_store.reading(),
+        graph_seeder.open_session(
+            enrichment_store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
         graph_seeder.wipe(session)
         yield session
 
@@ -316,7 +330,7 @@ def _assert_alt_labels(value: Any, *, subject: str, expected: str) -> None:
 
 
 def test_the_demo_corpus_answers_description_and_system_questions(
-    clean_store: Any, demo_ttl: str
+    enrichment_store: WatchedStore, clean_store: Any, demo_ttl: str
 ) -> None:
     """Seed the build's graph view and ask it everything the enrichment added.
 
@@ -325,91 +339,95 @@ def test_the_demo_corpus_answers_description_and_system_questions(
     question about the *same* graph, so splitting them would re-seed the same
     1.8 MB per question and prove nothing extra.
     """
-    session = clean_store
-    _seed(session, demo_ttl, "demo")
-    census = _ttl_census(demo_ttl)
+    with enrichment_store.reading():
+        session = clean_store
+        _seed(session, demo_ttl, "demo")
+        census = _ttl_census(demo_ttl)
 
-    # --- Every binding carries its description -----------------------------
-    bindings = _row(session, BINDING_DESCRIPTION_COVERAGE)
-    total = bindings["total"]
-    assert total == census["bindings"], (
-        f"the store holds {total} channel bindings and the corpus declares "
-        f"{census['bindings']} — the import did not finish, so every coverage "
-        "number below would agree about a fraction of the machine"
-    )
-    assert bindings["described"] == total, (
-        f"{total - bindings['described']} of {total} bindings have no description"
-    )
-
-    # --- and a named one carries the prose an operator would recognise ------
-    detail = _row(session, BINDING_DESCRIPTIONS, pv=DEMO_BINDING_PV)
-    value = detail["description"]
-    assert isinstance(value, str) and value.strip(), (
-        f"{DEMO_BINDING_PV} came back with description={value!r}"
-    )
-    assert "dipole" in detail["description"].lower()
-    assert "setpoint" in detail["description"].lower(), (
-        "the description of a setpoint is what tells a reader the channel is writable"
-    )
-
-    # --- Every device carries its system's description and SYSTEM token, ----
-    # --- and every device a described group names its family's ------------
-    stored = _row(session, DEVICE_TOTAL)["n"]
-    assert stored == census["devices"], (
-        f"the store holds {stored} devices and the corpus declares {census['devices']}"
-    )
-    devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
-    device_total = devices["total"]
-    assert 0 < device_total <= stored
-    assert 0 < census["family_described"] <= device_total
-    assert devices["family_described"] == census["family_described"]
-    assert devices["system_described"] == device_total
-    assert devices["with_system"] == device_total, (
-        f"{device_total - devices['with_system']} of {device_total} devices carry "
-        "no system token, so a question scoped to one system cannot be answered"
-    )
-
-    device = _row(session, DEVICE_DETAIL, name=DEMO_DEVICE_NAME, section=DEMO_DEVICE_SECTION)
-    assert device["system"] == DEMO_DEVICE_SYSTEM
-    for key in ("family_description", "system_description"):
-        value = device[key]
-        assert isinstance(value, str) and value.strip(), (
-            f"{DEMO_DEVICE_SECTION}/{DEMO_DEVICE_NAME} came back with {key}={value!r}"
+        # --- Every binding carries its description -----------------------------
+        bindings = _row(session, BINDING_DESCRIPTION_COVERAGE)
+        total = bindings["total"]
+        assert total == census["bindings"], (
+            f"the store holds {total} channel bindings and the corpus declares "
+            f"{census['bindings']} — the import did not finish, so every coverage "
+            "number below would agree about a fraction of the machine"
+        )
+        assert bindings["described"] == total, (
+            f"{total - bindings['described']} of {total} bindings have no description"
         )
 
-    # --- The prose is searchable, which is the point of putting it there ----
-    found = _row(session, BINDING_DESCRIPTION_SEARCH, needle="beam position")["n"]
-    assert found > 0, (
-        "no binding description mentions 'beam position' — the descriptions "
-        "imported as opaque values rather than as searchable text"
-    )
+        # --- and a named one carries the prose an operator would recognise ------
+        detail = _row(session, BINDING_DESCRIPTIONS, pv=DEMO_BINDING_PV)
+        value = detail["description"]
+        assert isinstance(value, str) and value.strip(), (
+            f"{DEMO_BINDING_PV} came back with description={value!r}"
+        )
+        assert "dipole" in detail["description"].lower()
+        assert "setpoint" in detail["description"].lower(), (
+            "the description of a setpoint is what tells a reader the channel is writable"
+        )
 
-    # --- Class synonyms are lists, at both cardinalities --------------------
-    multi = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
-    _assert_alt_labels(multi, subject=DEMO_MULTI_LABEL_CLASS, expected=DEMO_MULTI_LABEL_SYNONYM)
-    assert len(multi) > 1, (
-        f"{DEMO_MULTI_LABEL_CLASS} kept only {multi!r}; the corpus gives it several synonyms"
-    )
+        # --- Every device carries its system's description and SYSTEM token, ----
+        # --- and every device a described group names its family's ------------
+        stored = _row(session, DEVICE_TOTAL)["n"]
+        assert stored == census["devices"], (
+            f"the store holds {stored} devices and the corpus declares {census['devices']}"
+        )
+        devices = _row(session, DEVICE_DESCRIPTION_COVERAGE)
+        device_total = devices["total"]
+        assert 0 < device_total <= stored
+        assert 0 < census["family_described"] <= stored
+        assert _row(session, FAMILY_DESCRIBED)["n"] == census["family_described"]
+        assert devices["system_described"] == device_total
+        assert devices["with_system"] == device_total, (
+            f"{device_total - devices['with_system']} of {device_total} devices carry "
+            "no system token, so a question scoped to one system cannot be answered"
+        )
 
-    single = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_SINGLE_LABEL_CLASS)["alt_labels"]
-    _assert_alt_labels(single, subject=DEMO_SINGLE_LABEL_CLASS, expected=DEMO_SINGLE_LABEL_SYNONYM)
+        device = _row(session, DEVICE_DETAIL, name=DEMO_DEVICE_NAME, section=DEMO_DEVICE_SECTION)
+        assert device["system"] == DEMO_DEVICE_SYSTEM
+        for key in ("family_description", "system_description"):
+            value = device[key]
+            assert isinstance(value, str) and value.strip(), (
+                f"{DEMO_DEVICE_SECTION}/{DEMO_DEVICE_NAME} came back with {key}={value!r}"
+            )
 
-    by_synonym = [
-        record["uri"] for record in session.run(CLASS_BY_SYNONYM, synonym=DEMO_MULTI_LABEL_SYNONYM)
-    ]
-    assert DEMO_MULTI_LABEL_CLASS in by_synonym
+        # --- The prose is searchable, which is the point of putting it there ----
+        found = _row(session, BINDING_DESCRIPTION_SEARCH, needle="beam position")["n"]
+        assert found > 0, (
+            "no binding description mentions 'beam position' — the descriptions "
+            "imported as opaque values rather than as searchable text"
+        )
 
-    # --- and no description predicate reached a semantic signal -------------
-    assert _row(session, SIGNAL_COUNT)["n"] == census["signals"], (
-        "the semantic signals are the subjects the leak query below scans; a "
-        "short count there would make its zero meaningless"
-    )
-    leaked = _row(session, SIGNAL_DESCRIPTION_LEAK)["n"]
-    assert leaked == 0, (
-        f"{leaked} semantic signals carry a description predicate. A signal is "
-        "shared by every device that reads or writes it, so prose about one "
-        "channel on a signal is wrong for all the others"
-    )
+        # --- Class synonyms are lists, at both cardinalities --------------------
+        multi = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
+        _assert_alt_labels(multi, subject=DEMO_MULTI_LABEL_CLASS, expected=DEMO_MULTI_LABEL_SYNONYM)
+        assert len(multi) > 1, (
+            f"{DEMO_MULTI_LABEL_CLASS} kept only {multi!r}; the corpus gives it several synonyms"
+        )
+
+        single = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_SINGLE_LABEL_CLASS)["alt_labels"]
+        _assert_alt_labels(
+            single, subject=DEMO_SINGLE_LABEL_CLASS, expected=DEMO_SINGLE_LABEL_SYNONYM
+        )
+
+        by_synonym = [
+            record["uri"]
+            for record in session.run(CLASS_BY_SYNONYM, synonym=DEMO_MULTI_LABEL_SYNONYM)
+        ]
+        assert DEMO_MULTI_LABEL_CLASS in by_synonym
+
+        # --- and no description predicate reached a semantic signal -------------
+        assert _row(session, SIGNAL_COUNT)["n"] == census["signals"], (
+            "the semantic signals are the subjects the leak query below scans; a "
+            "short count there would make its zero meaningless"
+        )
+        leaked = _row(session, SIGNAL_DESCRIPTION_LEAK)["n"]
+        assert leaked == 0, (
+            f"{leaked} semantic signals carry a description predicate. A signal is "
+            "shared by every device that reads or writes it, so prose about one "
+            "channel on a signal is wrong for all the others"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +453,7 @@ def _legacy_bootstrap(session: Any) -> None:
 
 
 def test_a_legacy_store_is_reported_then_recovered_by_a_reseed(
-    clean_store: Any, demo_ttl: str
+    enrichment_store: WatchedStore, clean_store: Any, demo_ttl: str
 ) -> None:
     """Walk a pre-change store through the whole migration and back.
 
@@ -449,48 +467,51 @@ def test_a_legacy_store_is_reported_then_recovered_by_a_reseed(
     """
     from osprey.services.graph_store import seeder as graph_seeder
 
-    session = clean_store
+    with enrichment_store.reading():
+        session = clean_store
 
-    # --- 1. A store configured the old way collapses the synonyms ----------
-    _legacy_bootstrap(session)
-    imported = graph_seeder.import_ttl(session, demo_ttl)
-    assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
+        # --- 1. A store configured the old way collapses the synonyms ----------
+        _legacy_bootstrap(session)
+        imported = graph_seeder.import_ttl(session, demo_ttl)
+        assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
 
-    collapsed = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
-    assert isinstance(collapsed, str), (
-        f"the legacy configuration was expected to leave one scalar synonym on "
-        f"{DEMO_MULTI_LABEL_CLASS}, but it came back as {collapsed!r}. If n10s no longer "
-        "collapses multi-valued predicates under handleMultival='OVERWRITE', "
-        "this migration has nothing to recover and the test is obsolete"
-    )
+        collapsed = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
+        assert isinstance(collapsed, str), (
+            f"the legacy configuration was expected to leave one scalar synonym on "
+            f"{DEMO_MULTI_LABEL_CLASS}, but it came back as {collapsed!r}. If n10s no longer "
+            "collapses multi-valued predicates under handleMultival='OVERWRITE', "
+            "this migration has nothing to recover and the test is obsolete"
+        )
 
-    # --- 2. bootstrap() reports the drift instead of re-initializing -------
-    # n10s hard-refuses to re-initialize a configured store, so this is the only
-    # thing bootstrap *can* do; the deploy then wipes the store and seeds again.
-    drifted = graph_seeder.bootstrap(session)
-    assert drifted.status is graph_seeder.BootstrapStatus.DIFFERS, drifted.message
-    assert not drifted.ok
-    assert "handleMultival" in drifted.differing_keys, (
-        f"the reported drift was {drifted.differing_keys}, which does not name the key that changed"
-    )
-    assert graph_seeder.CONFIG_DRIFT_MESSAGE in drifted.message
+        # --- 2. bootstrap() reports the drift instead of re-initializing -------
+        # n10s hard-refuses to re-initialize a configured store, so this is the only
+        # thing bootstrap *can* do; the deploy then wipes the store and seeds again.
+        drifted = graph_seeder.bootstrap(session)
+        assert drifted.status is graph_seeder.BootstrapStatus.DIFFERS, drifted.message
+        assert not drifted.ok
+        assert "handleMultival" in drifted.differing_keys, (
+            f"the reported drift was {drifted.differing_keys}, which does not name the key that changed"
+        )
+        assert graph_seeder.CONFIG_DRIFT_MESSAGE in drifted.message
 
-    # --- 3. The reseed: wipe, re-init, re-import ---------------------------
-    graph_seeder.wipe(session)
-    assert graph_seeder.resource_count(session) == 0
-    assert graph_seeder.read_marker(session) is None
+        # --- 3. The reseed: wipe, re-init, re-import ---------------------------
+        graph_seeder.wipe(session)
+        assert graph_seeder.resource_count(session) == 0
+        assert graph_seeder.read_marker(session) is None
 
-    _seed(session, demo_ttl, "demo")
+        _seed(session, demo_ttl, "demo")
 
-    recovered = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
-    _assert_alt_labels(recovered, subject=DEMO_MULTI_LABEL_CLASS, expected=DEMO_MULTI_LABEL_SYNONYM)
-    assert len(recovered) > 1
+        recovered = _row(session, ALT_LABELS_FOR_URI, uri=DEMO_MULTI_LABEL_CLASS)["alt_labels"]
+        _assert_alt_labels(
+            recovered, subject=DEMO_MULTI_LABEL_CLASS, expected=DEMO_MULTI_LABEL_SYNONYM
+        )
+        assert len(recovered) > 1
 
-    # --- 4. and the store is now canonical, permanently --------------------
-    settled = graph_seeder.bootstrap(session)
-    assert settled.status is graph_seeder.BootstrapStatus.ALREADY_CANONICAL, settled.message
-    assert settled.differing_keys == ()
-    assert settled.ok
-    assert graph_seeder.read_marker(session) == graph_seeder.ttl_sha256(demo_ttl), (
-        "re-bootstrapping a canonical store must not disturb the seed marker"
-    )
+        # --- 4. and the store is now canonical, permanently --------------------
+        settled = graph_seeder.bootstrap(session)
+        assert settled.status is graph_seeder.BootstrapStatus.ALREADY_CANONICAL, settled.message
+        assert settled.differing_keys == ()
+        assert settled.ok
+        assert graph_seeder.read_marker(session) == graph_seeder.ttl_sha256(demo_ttl), (
+            "re-bootstrapping a canonical store must not disturb the seed marker"
+        )

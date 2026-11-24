@@ -506,9 +506,10 @@ async def test_abort_reports_pending_while_the_manager_is_still_unwinding(
     assert result["abort_pending"] is True
 
 
-async def test_abort_without_a_manager_fails_closed() -> None:
+@pytest.mark.parametrize("method", ["abort", "devices_allowed"])
+async def test_a_call_without_a_manager_fails_closed(method: str) -> None:
     with pytest.raises(QueueUnavailableError) as excinfo:
-        await QueueBackend(None).abort()
+        await getattr(QueueBackend(None), method)()
     assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
@@ -548,21 +549,37 @@ async def test_devices_allowed_reads_the_manager() -> None:
     assert manager.method_names() == ["devices_allowed"]
 
 
-async def test_devices_allowed_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError) as excinfo:
-        await QueueBackend(None).devices_allowed()
-    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
-
-
 # ------------------------------------------------------------------ capability
 
 
-async def test_capability_is_executable_on_a_virtual_accelerator(connector) -> None:
-    connector("virtual_accelerator")
+@pytest.mark.parametrize(
+    ("configured", "can_execute", "reason"),
+    [
+        pytest.param(
+            "virtual_accelerator",
+            True,
+            qb.REASON_EXECUTABLE,
+            id="executable-on-a-virtual-accelerator",
+        ),
+        pytest.param(
+            "doocs", False, qb.REASON_UNSUPPORTED_CONNECTOR, id="rejects-an-unsupported-connector"
+        ),
+        pytest.param(
+            FileNotFoundError("no config mounted"),
+            False,
+            qb.REASON_CONFIG_UNREADABLE,
+            id="fails-closed-when-the-config-is-unreadable",
+        ),
+    ],
+)
+async def test_capability_follows_the_connector(
+    connector, configured: object, can_execute: bool, reason: str
+) -> None:
+    connector(configured)
     capability = await QueueBackend(FakeManager(status=status_doc())).capability()
 
-    assert capability.can_execute is True
-    assert capability.reason == qb.REASON_EXECUTABLE
+    assert capability.can_execute is can_execute
+    assert capability.reason == reason
 
 
 async def test_capability_on_mock_names_the_flip_command(connector) -> None:
@@ -582,22 +599,6 @@ async def test_capability_never_probes_the_manager_on_mock(connector) -> None:
     # A browse-only deployment is not expected to have a queue server at all, so
     # the connector answer must win before anything reaches for one.
     assert manager.calls == []
-
-
-async def test_capability_rejects_an_unsupported_connector(connector) -> None:
-    connector("doocs")
-    capability = await QueueBackend(FakeManager(status=status_doc())).capability()
-
-    assert capability.can_execute is False
-    assert capability.reason == qb.REASON_UNSUPPORTED_CONNECTOR
-
-
-async def test_capability_fails_closed_when_the_config_is_unreadable(connector) -> None:
-    connector(FileNotFoundError("no config mounted"))
-    capability = await QueueBackend(FakeManager(status=status_doc())).capability()
-
-    assert capability.can_execute is False
-    assert capability.reason == qb.REASON_CONFIG_UNREADABLE
 
 
 async def test_capability_fails_closed_without_a_configured_manager(connector) -> None:
@@ -1034,9 +1035,72 @@ async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend
     assert scan["provenance"] == "facility"
     assert scan["description"] == "Run one validated ScanRequest."
     assert scan["schema"]["required"] == ["request"]
-    assert scan["schema"]["properties"]["dry_run"]["default"] == "False"
+    assert scan["schema"]["properties"]["dry_run"]["default"] is False
+    assert scan["schema"]["properties"]["dry_run"]["type"] == "boolean"
     # A non-mapping description still yields a name-only entry.
     assert catalog[0]["schema"]["properties"] == {}
+
+
+async def test_external_catalog_decodes_the_managers_default_text(connector, fast_backend) -> None:
+    """Each default the manager encodes as literal text is stated as its value."""
+    from bluesky_queueserver.manager.profile_ops import _process_plan
+
+    def plan(
+        detector="abc",
+        num=10,
+        step=0.5,
+        positions=[1.0, 2.5],  # noqa: B006
+        md=None,
+        flag=False,
+        label="it's",
+    ):
+        yield (detector, num, step, positions, md, flag, label)
+
+    connector("epics")
+    described = _process_plan(plan, existing_devices={}, existing_plans={})
+    manager = FakeManager(plans_allowed={"success": True, "plans_allowed": {"plan": described}})
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    schema = catalog[0]["schema"]
+    props = schema["properties"]
+    assert (props["detector"]["default"], props["detector"]["type"]) == ("abc", "string")
+    assert props["num"]["default"] == 10
+    assert props["num"]["type"] == "number"
+    assert (props["step"]["default"], props["step"]["type"]) == (0.5, "number")
+    assert props["flag"]["default"] is False
+    assert props["flag"]["type"] == "boolean"
+    assert (props["label"]["default"], props["label"]["type"]) == ("it's", "string")
+    for pname in ("positions", "md"):
+        assert "default" not in props[pname]
+        assert "type" not in props[pname]
+    assert "required" not in schema
+
+
+async def test_external_catalog_states_no_default_it_cannot_decode(connector, fast_backend) -> None:
+    """A default that is not literal text leaves the parameter optional, value unstated."""
+    connector("epics")
+    manager = FakeManager(
+        plans_allowed={
+            "success": True,
+            "plans_allowed": {
+                "plan": {
+                    "name": "plan",
+                    "parameters": [
+                        {"name": "computed", "default": "make_it()"},
+                        {"name": "raw", "default": 5},
+                    ],
+                }
+            },
+        }
+    )
+    catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
+
+    schema = catalog[0]["schema"]
+    assert schema["properties"] == {
+        "computed": {"title": "computed"},
+        "raw": {"title": "raw"},
+    }
+    assert "required" not in schema
 
 
 async def test_external_catalog_grafts_a_facility_published_parameter_schema(

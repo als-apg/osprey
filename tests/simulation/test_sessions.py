@@ -11,7 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from osprey.simulation.sessions import (
+from osprey_connectors.relative_time import RelativeTimestamp
+from osprey_facility.sessions import (
     AnswerStep,
     ArtifactSpec,
     ResolvedSession,
@@ -21,7 +22,6 @@ from osprey.simulation.sessions import (
     resolve,
     to_dict,
 )
-from osprey_connectors.relative_time import RelativeTimestamp
 
 GAUGE = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"

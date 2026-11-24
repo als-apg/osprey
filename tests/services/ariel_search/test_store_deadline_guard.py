@@ -19,6 +19,7 @@ to pass none.
 from __future__ import annotations
 
 import ast
+import unicodedata
 from collections import defaultdict
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def _absolute(module: str, is_package: bool, node: ast.ImportFrom) -> str:
 
 
 class _Module:
-    """One module's top-level functions and every name its imports bind."""
+    """One module's top-level functions, every name its imports bind, and its calls."""
 
     def __init__(self, path: str, text: str) -> None:
         self.path = path
@@ -65,26 +66,72 @@ class _Module:
         self.bound: dict[str, set[str]] = defaultdict(set)
         for name in self.functions:
             self.bound[name].add(f"{self.name}.{name}")
+        #: ``(name imported, name bound)`` for every import that binds a name.
+        self.renames: set[tuple[str, str]] = set()
+        self.calls: list[ast.Call] = []
         for node in ast.walk(self.tree):
-            if isinstance(node, ast.ImportFrom):
+            if isinstance(node, ast.Call):
+                self.calls.append(node)
+            elif isinstance(node, ast.ImportFrom):
                 source = _absolute(self.name, is_package, node)
                 for alias in node.names:
                     self.bound[alias.asname or alias.name].add(f"{source}.{alias.name}")
+                    self.renames.add((alias.name, alias.asname or alias.name))
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.asname:
                         self.bound[alias.asname].add(alias.name)
+                        self.renames.add((alias.name.rpartition(".")[2], alias.asname))
+
+
+def _identifier_text(text: str) -> str:
+    """*text* as Python reads its identifiers: NFKC-normalized."""
+    if text.isascii() or unicodedata.is_normalized("NFKC", text):
+        return text
+    return unicodedata.normalize("NFKC", text)
 
 
 def _modules() -> dict[str, _Module]:
-    return {
-        module.name: module
-        for module in (
-            _Module(path, text)
-            for path, text in product_sources(REPO_ROOT)
-            if path.startswith("src/osprey/")
-        )
-    }
+    """The modules under ``src/osprey`` that can define, re-export or call an opener.
+
+    A call reaches an opener only through names that are an opener's own or an
+    import's rename of one of those, each spelled in every module on the way:
+    the caller, and each module whose import the call is resolved through. So
+    a module that spells none of them can neither hold such a call nor lie on
+    its way, and nor can one without ``store_deadline_s`` define an opener.
+    The names grow as the modules that spell them are read, until no unread
+    module spells a new one; parsing only those finds every call the whole
+    tree would, and parsing is what the guard spends its time on. A module left
+    unread is never parsed, so one that does not parse no longer fails this
+    guard; ruff's syntax check covers that.
+    """
+    sources = [
+        (path, text) for path, text in product_sources(REPO_ROOT) if path.startswith("src/osprey/")
+    ]
+    texts = dict(sources)
+    unread = {path: _identifier_text(text) for path, text in sources}
+    modules: dict[str, _Module] = {}
+    names: set[str] = set()
+    new = {_KEYWORD, _POOL.rpartition(".")[2]}
+    while new:
+        names |= new
+        # An unread module spells none of the older names: only the new ones are looked for.
+        for path in [path for path, text in unread.items() if any(name in text for name in new)]:
+            del unread[path]
+            module = _Module(path, texts[path])
+            modules[module.name] = module
+        grown = names | {name.rpartition(".")[2] for name in _openers(modules)}
+        while more := {
+            bound
+            for module in modules.values()
+            for imported, bound in module.renames
+            if imported in grown and bound not in grown
+        }:
+            grown |= more
+        new = grown - names
+    # In the tree's order, as a guard that read every module would hold them.
+    read = {module.path: module for module in modules.values()}
+    return {read[path].name: read[path] for path, _text in sources if path in read}
 
 
 def _openers(modules: dict[str, _Module]) -> dict[str, str]:
@@ -119,9 +166,7 @@ def _clockless_calls() -> tuple[dict[str, str], list[str]]:
     openers = _openers(modules)
     missing: list[str] = []
     for module in modules.values():
-        for node in ast.walk(module.tree):
-            if not isinstance(node, ast.Call):
-                continue
+        for node in module.calls:
             func = node.func
             if isinstance(func, ast.Name):
                 candidates = module.bound.get(func.id, set())

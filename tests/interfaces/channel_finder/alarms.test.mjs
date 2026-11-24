@@ -7,6 +7,7 @@
  *   npx vitest run tests/interfaces/channel_finder/alarms.test.mjs
  */
 
+import { epicsDirectory } from './epics-words.mjs';
 import { test, expect, vi, afterEach, describe } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -31,12 +32,12 @@ const PANEL_HTML = (() => {
   return `${match[0]}</div>`;
 })();
 
-const DESCRIPTOR = {
+const DESCRIPTOR = epicsDirectory({
   label: 'All PVs',
   configured_services: ['alarm_state'],
   canopy: true,
   ariel: true,
-};
+});
 
 const GUIDANCE = [
   { title: 'Response', details: 'Check cavity 1 cooling water flow and the tuner position.' },
@@ -147,8 +148,8 @@ async function mount(setup = {}) {
       reads.push(target);
       return answer(alarmsStatus, typeof alarms === 'function' ? await alarms() : alarms);
     }
-    if (target.startsWith('/api/directory/pv/')) {
-      const name = decodeURIComponent(target.slice('/api/directory/pv/'.length));
+    if (target.startsWith('/api/directory/channel/')) {
+      const name = decodeURIComponent(target.slice('/api/directory/channel/'.length));
       if (factsGate) await factsGate;
       return answer(200, facts(name));
     }
@@ -256,11 +257,11 @@ describe('the summary band', () => {
     const { container } = await mount();
     await loaded(container);
     tile(container, 'MAJOR')?.click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel]);
     expect(tile(container, 'MAJOR')?.getAttribute('aria-pressed')).toBe('true');
     expect(document.getElementById('cf-result-count')?.textContent).toBe('1 active');
     tile(container, 'MAJOR')?.click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv, MINOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel, MINOR_ROW.channel]);
     expect(tile(container, 'MAJOR')?.getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -268,9 +269,9 @@ describe('the summary band', () => {
     const { container } = await mount();
     await loaded(container);
     tile(container, 'unack')?.click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel]);
     tile(container, 'latched')?.click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel]);
     expect(tile(container, 'unack')?.getAttribute('aria-pressed')).toBe('false');
   });
 
@@ -284,7 +285,7 @@ describe('the summary band', () => {
     expect(state.textContent).toContain('No active alarms for this filter');
     expect(inspector(container).hidden).toBe(true);
     /** @type {HTMLButtonElement} */ (state.querySelector('button')).click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv, MINOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel, MINOR_ROW.channel]);
   });
 
   test('the feed chip says live, and opens the source', async () => {
@@ -318,7 +319,7 @@ describe('the list', () => {
   test('rows are drawn in the served order, never sorted', async () => {
     const served = ['INVALID', 'MAJOR', 'MINOR'].map((severity, i) => ({
       ...MAJOR_ROW,
-      pv: `PV:${i}`,
+      channel: `PV:${i}`,
       severity,
       path: null,
     }));
@@ -334,7 +335,7 @@ describe('the list', () => {
     const [major, minor] = rows(container);
     expect(major.querySelector('.cf-sev--major')?.textContent).toBe('MAJOR');
     expect(major.querySelector('a')?.getAttribute('href')).toBe(
-      '#/pv/SR%3ARF%3ACAVITY%3A01%3ATEMPERATURE%3ARB'
+      '#/channel/SR%3ARF%3ACAVITY%3A01%3ATEMPERATURE%3ARB'
     );
     expect(major.textContent).toContain('NO_ALARM');
     expect(major.querySelector('.alarms-flags')?.textContent).toContain('latched');
@@ -362,11 +363,11 @@ describe('the list', () => {
   });
 
   test('a PV name is text, never markup', async () => {
-    const evil = { ...MAJOR_ROW, pv: '<img src=x onerror=alert(1)>', path: null };
+    const evil = { ...MAJOR_ROW, channel: '<img src=x onerror=alert(1)>', path: null };
     const { container } = await mount({ alarms: { ...ALARMS, rows: [evil] } });
     await loaded(container);
     expect(container.querySelector('img')).toBeNull();
-    expect(names(container)).toEqual([evil.pv]);
+    expect(names(container)).toEqual([evil.channel]);
   });
 
   test('no active rows: the centred state with the size of the feed', async () => {
@@ -430,10 +431,10 @@ describe('the alarm tree', () => {
     const node = () =>
       /** @type {HTMLElement} */ (container.querySelector('[data-node="/Demo/SR/Vacuum"]'));
     node().click();
-    expect(names(container)).toEqual([MINOR_ROW.pv]);
+    expect(names(container)).toEqual([MINOR_ROW.channel]);
     expect(node().getAttribute('aria-pressed')).toBe('true');
     node().click();
-    expect(names(container)).toEqual([MAJOR_ROW.pv, MINOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel, MINOR_ROW.channel]);
   });
 
   test('a node and a tile filter together', async () => {
@@ -474,7 +475,7 @@ describe('the inspector', () => {
     await loaded(container);
     const insp = inspector(container);
     await vi.waitFor(() => expect(insp.textContent).toContain('Response'));
-    expect(insp.textContent).toContain(MAJOR_ROW.pv);
+    expect(insp.textContent).toContain(MAJOR_ROW.channel);
     expect(insp.querySelector('.cf-sev--major')?.textContent).toBe('MAJOR · NO_ALARM');
     expect(insp.textContent).toContain('BPM 01 horizontal position');
     expect(insp.textContent).toContain(GUIDANCE[0].details);
@@ -489,7 +490,7 @@ describe('the inspector', () => {
     );
     expect(insp.textContent).toContain("Read-only. Acknowledge in the alarm server's own client.");
     expect(insp.querySelector('a.osprey-btn')?.getAttribute('href')).toBe(
-      '#/pv/SR%3ARF%3ACAVITY%3A01%3ATEMPERATURE%3ARB'
+      '#/channel/SR%3ARF%3ACAVITY%3A01%3ATEMPERATURE%3ARB'
     );
     expect(insp.querySelector('[data-action="send"]')).not.toBeNull();
   });
@@ -511,7 +512,7 @@ describe('the inspector', () => {
     await loaded(container);
     /** @type {HTMLElement} */ (rows(container)[1].querySelector('.alarms-status')).click();
     expect(rows(container)[1].getAttribute('aria-selected')).toBe('true');
-    expect(inspector(container).textContent).toContain(MINOR_ROW.pv);
+    expect(inspector(container).textContent).toContain(MINOR_ROW.channel);
     expect(inspector(container).textContent).not.toContain('The record is back to');
   });
 
@@ -523,7 +524,7 @@ describe('the inspector', () => {
     second.focus();
     second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     expect(rows(container)[1].getAttribute('aria-selected')).toBe('true');
-    expect(inspector(container).textContent).toContain(MINOR_ROW.pv);
+    expect(inspector(container).textContent).toContain(MINOR_ROW.channel);
     expect(document.activeElement).toBe(rows(container)[1]);
   });
 
@@ -542,7 +543,7 @@ describe('the inspector', () => {
       expect(rows(container)[0].querySelector('.alarms-value')?.textContent).toContain('46.2')
     );
     const factReads = () =>
-      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/pv/'));
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/channel/'));
     expect(factReads()).toHaveLength(1);
     release();
     await vi.waitFor(() => expect(inspector(container).textContent).toContain('Response'));
@@ -559,7 +560,7 @@ describe('the inspector', () => {
         : real(el)
     );
     /** @type {HTMLElement} */ (rows(container)[1].querySelector('.alarms-status')).click();
-    expect(location.hash).toBe('#/pv/SR%3AVAC%3AGAUGE%3ASR03%3APRESSURE%3ARB');
+    expect(location.hash).toBe('#/channel/SR%3AVAC%3AGAUGE%3ASR03%3APRESSURE%3ARB');
   });
 
   test('Send to assistant posts the selected PV to the host', async () => {
@@ -567,16 +568,16 @@ describe('the inspector', () => {
     await loaded(container);
     /** @type {HTMLElement} */ (inspector(container).querySelector('[data-action="send"]')).click();
     expect(postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-paste-to-terminal', text: MAJOR_ROW.pv },
+      { type: 'osprey-paste-to-terminal', text: MAJOR_ROW.channel },
       window.location.origin
     );
     expect(document.querySelector('.osprey-toast-host')?.textContent).toContain(
-      `Posted ${MAJOR_ROW.pv} to the prompt`
+      `Posted ${MAJOR_ROW.channel} to the prompt`
     );
   });
 
   test('a selected row beyond the values read gets its value read', async () => {
-    const many = Array.from({ length: 60 }, (_, i) => ({ ...MINOR_ROW, pv: `X:${i}` }));
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...MINOR_ROW, channel: `X:${i}` }));
     const { container, fetchMock } = await mount({ alarms: { ...ALARMS, rows: many } });
     await loaded(container);
     await vi.waitFor(() =>
@@ -678,7 +679,7 @@ describe('the poll', () => {
       fetchMock.mock.calls
         .filter(([url]) => String(url).startsWith(prefix))
         .map(([, opts]) => /** @type {any} */ (opts)?.signal);
-    const sideReads = [...signals('/api/directory/values'), ...signals('/api/directory/pv/')];
+    const sideReads = [...signals('/api/directory/values'), ...signals('/api/directory/channel/')];
     expect(sideReads.length).toBeGreaterThan(1);
     expect(sideReads.every((signal) => signal instanceof AbortSignal && !signal.aborted)).toBe(
       true
@@ -810,7 +811,7 @@ describe('the poll', () => {
     expect(reads).toHaveLength(1);
     release(ALARMS);
     await loaded(container);
-    expect(names(container)).toEqual([MAJOR_ROW.pv, MINOR_ROW.pv]);
+    expect(names(container)).toEqual([MAJOR_ROW.channel, MINOR_ROW.channel]);
     vi.advanceTimersByTime(view.POLL_MS);
     await vi.waitFor(() => expect(reads).toHaveLength(2));
   });

@@ -164,6 +164,8 @@ class TestListConcepts:
         bundle = OKFBundle(tmp_path)
         entries = bundle.list_concepts()
 
+        # The three concept documents _make_bundle writes (the indexes are not concepts).
+        assert len(entries) == 3
         for e in entries:
             assert isinstance(e, ConceptEntry)
             assert e.concept_id
@@ -251,7 +253,7 @@ class TestReadConcept:
             bundle.read_concept("no/such/concept")
 
     def test_broken_cross_links_in_body_are_tolerated(self, tmp_path: Path):
-        """A doc with links to non-existent concepts must still load (OKF §9)."""
+        """A doc with links to non-existent concepts must still load (OKF §6.1)."""
         _make_bundle(tmp_path)
         bundle = OKFBundle(tmp_path)
         doc = bundle.read_concept("tables/broken_links")
@@ -380,3 +382,87 @@ class TestSearch:
         assert "accelerator_overview" in _ids(results)
         assert all(r.score is None for r in results)
         assert transport.calls == []
+
+
+# ---------------------------------------------------------------------------
+# OKF v0.3: what a consumer treats as a concept, and how it resolves a link
+# ---------------------------------------------------------------------------
+
+_PAGE = """\
+---
+type: note
+title: {title}
+description: A page about the storage ring.
+---
+Body text.
+"""
+
+
+class TestConceptDiscovery:
+    """OKF §3.2: a consumer skips Markdown files that are not concepts."""
+
+    def _bundle(self, root: Path) -> OKFBundle:
+        _write(root / "real.md", _PAGE.format(title="Real"))
+        _write(root / "README.md", "# About the storage ring bundle\n")
+        _write(root / "SKILL.md", "---\nname: ring-skill\n---\nStorage ring skill.\n")
+        _write(root / "log.md", "# Directory Update Log\n\n## 2026-05-22\n* storage ring\n")
+        _write(root / ".drafts" / "wip.md", _PAGE.format(title="Draft"))
+        return OKFBundle(root)
+
+    def test_only_concepts_are_listed(self, tmp_path: Path):
+        ids = {e.concept_id for e in self._bundle(tmp_path).list_concepts()}
+
+        assert ids == {"real"}
+
+    def test_an_unindexed_concept_is_listed_with_its_own_title(self, tmp_path: Path):
+        entries = self._bundle(tmp_path).list_concepts()
+
+        assert entries == [
+            ConceptEntry(
+                concept_id="real",
+                title="Real",
+                description="A page about the storage ring.",
+                type="note",
+            )
+        ]
+
+    def test_only_concepts_are_searched(self, tmp_path: Path):
+        results = self._bundle(tmp_path).search("storage ring")
+
+        assert _ids(results) == ["real"]
+
+    def test_a_page_with_broken_frontmatter_is_still_listed(self, tmp_path: Path):
+        """Broken is not absent: the panel's health check reports the page."""
+        _write(tmp_path / "broken.md", "---\nkey: [\n---\n")
+
+        ids = {e.concept_id for e in OKFBundle(tmp_path).list_concepts()}
+
+        assert ids == {"broken"}
+
+
+class TestIndexLinkResolution:
+    """OKF §6: both in-bundle link forms resolve, each from its own base."""
+
+    def test_a_relative_link_resolves_from_the_index_directory(self, tmp_path: Path):
+        _write(tmp_path / "tables" / "index.md", "# Tables\n\n* [Users](users.md) - Users.\n")
+        _write(tmp_path / "tables" / "users.md", _PAGE.format(title="Users"))
+
+        entries = OKFBundle(tmp_path).list_concepts()
+
+        assert [e.concept_id for e in entries] == ["tables/users"]
+        assert entries[0].description == "Users."
+
+    def test_a_root_form_link_resolves_from_the_bundle_root(self, tmp_path: Path):
+        _write(tmp_path / "tables" / "index.md", "# Tables\n\n* [Users](/tables/users.md)\n")
+        _write(tmp_path / "tables" / "users.md", _PAGE.format(title="Users"))
+
+        assert [e.concept_id for e in OKFBundle(tmp_path).list_concepts()] == ["tables/users"]
+
+    @pytest.mark.parametrize(
+        "href",
+        ["https://example.org/x.md", "/tables/", "sub/", "/assets/ring.png", "../../out.md"],
+    )
+    def test_a_link_that_names_no_concept_adds_no_entry(self, tmp_path: Path, href: str):
+        _write(tmp_path / "tables" / "index.md", f"# Tables\n\n* [X]({href}) - X.\n")
+
+        assert OKFBundle(tmp_path).list_concepts() == []

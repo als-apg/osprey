@@ -692,7 +692,7 @@ _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
         "directory",
         "osprey_connectors.directory._simulator",
         "SimulatorDirectory",
-        "Every PV the virtual accelerator serves, from the build's simulator view",
+        "Every channel the virtual accelerator serves, from the build's simulator view",
     ),
     _ServiceBuiltin(
         "phoebus_alarm_logger",
@@ -707,6 +707,13 @@ _SERVICE_BUILTINS: tuple[_ServiceBuiltin, ...] = (
         "osprey_connectors.alarm_state._phoebus_kafka",
         "PhoebusAlarmState",
         "Phoebus alarm server state, from its Kafka topic (requires aiokafka)",
+    ),
+    _ServiceBuiltin(
+        "osprey_alarm_relay",
+        "alarm_state",
+        "osprey_connectors.alarm_state._relay",
+        "RelayAlarmState",
+        "Alarm state from an OSPREY alarm relay, over HTTP",
     ),
     _ServiceBuiltin(
         "alarm_replay",

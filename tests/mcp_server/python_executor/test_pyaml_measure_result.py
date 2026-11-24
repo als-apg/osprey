@@ -10,12 +10,13 @@ two-model facility.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from osprey.facility.render import render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     RESULT_TAG,
     MeasureResultError,
@@ -23,6 +24,8 @@ from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
     measure_labels,
     parse_measure_result,
 )
+from osprey_facility.errors import FacilityFileError
+from tests._facility_file import write_facility_document, write_facility_v4
 from tests.facility._pyaml_trees import built_document, measured_tree, with_correctors, with_rf
 
 SHA = "a" * 64
@@ -403,3 +406,33 @@ def test_a_refusal_is_labelled_unchanged(render: Path):
     refusal = {"kind": "orm", "refused": "nope"}
 
     assert label_result(refusal, _labels(render)) == refusal
+
+
+def _private(render: Path, tmp_path: Path) -> tuple[Path, dict[str, Any]]:
+    """A copy of the render and its facility document without the header."""
+    copy = tmp_path / "render"
+    shutil.copytree(render, copy, symlinks=True)
+    document: dict[str, Any] = json.loads((copy / "facility.json").read_text(encoding="utf-8"))
+    document.pop("schema", None)
+    return copy, document
+
+
+@pytest.mark.foreign_header
+def test_labels_refuse_a_v3_facility_file_naming_the_rebuild(render: Path, tmp_path: Path):
+    copy, document = _private(render, tmp_path)
+    path = write_facility_document(copy, document, schema="osprey.facility.facility/3")
+
+    with pytest.raises(FacilityFileError) as raised:
+        _labels(copy)
+
+    assert str(raised.value) == (
+        f"{path} is osprey.facility.facility/3; this reader reads "
+        "osprey.facility.facility/4 -- rebuild with osprey build"
+    )
+
+
+def test_labels_read_a_v4_facility_file_as_before(render: Path, tmp_path: Path):
+    copy, document = _private(render, tmp_path)
+    write_facility_v4(copy, document)
+
+    assert _labels(copy) == _labels(render)

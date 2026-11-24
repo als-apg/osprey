@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
+#: The selector of a rule that only applies when a page is framed.
+FRAMED_ONLY_RULE = "body.embedded"
 INTERFACES = SRC / "interfaces"
 
 PANEL_PAGES = [
@@ -27,11 +29,11 @@ PANEL_PAGES = [
 
 @pytest.mark.parametrize("page", PANEL_PAGES)
 def test_panel_page_has_no_framed_only_rule(page: str) -> None:
-    assert "body.embedded" not in (INTERFACES / page).read_text(encoding="utf-8")
+    assert FRAMED_ONLY_RULE not in (INTERFACES / page).read_text(encoding="utf-8")
 
 
 def test_dispatch_dashboard_has_no_framed_only_rule() -> None:
     html = (SRC / "dispatch" / "dashboard.html").read_text(encoding="utf-8")
-    assert "body.embedded {" not in html
-    assert "body.embedded ." not in html
+    assert f"{FRAMED_ONLY_RULE} {{" not in html
+    assert f"{FRAMED_ONLY_RULE} ." not in html
     assert "applyEmbedded()" in html, "header-contrib.js reads the class applyEmbedded() sets"

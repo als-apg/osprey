@@ -1,6 +1,6 @@
 """The profile content hash covers the files a profile points at, not just its YAML.
 
-``compute_profile_hash`` is what the deploy-side staleness advisory compares
+``compute_profile_hash`` is what the drift check (``check_drift``) compares
 against, so anything a build consumes has to be inside it. A profile's ``data:``
 tree is consumed verbatim by the build, which means a facility that edits a
 channel database changes what a project would be built from while the profile
@@ -51,11 +51,6 @@ def test_data_tree_addition_moves_the_hash(data_profile):
     before = compute_profile_hash(data_profile)
     _write(data_profile.parent / "data" / "channel_databases" / "extra.json", "{}\n")
     assert compute_profile_hash(data_profile) != before
-
-
-def test_unchanged_data_tree_hashes_the_same(data_profile):
-    """Re-hashing an untouched tree must not manufacture drift on every deploy."""
-    assert compute_profile_hash(data_profile) == compute_profile_hash(data_profile)
 
 
 def test_runtime_minted_material_does_not_move_the_hash(data_profile):

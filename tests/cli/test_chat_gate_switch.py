@@ -43,8 +43,8 @@ from osprey.cli.chat_cmd import (
 )
 from osprey.cli.phase_reporter import LiveReporter, NullReporter, current_reporter, install_reporter
 from osprey_connectors.logger import configure_logging
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 
 
 @dataclass

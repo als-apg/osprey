@@ -28,7 +28,7 @@ from osprey.deployment.web_terminals.artifacts import (
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
 from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL, PROXY_ENV_NAMES
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
-from osprey.facility.validate import FACILITY_HEADER
+from osprey_facility.validate import FACILITY_HEADER
 from tests._renders import tier_render
 
 

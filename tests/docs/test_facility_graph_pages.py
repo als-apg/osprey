@@ -498,7 +498,7 @@ def _relations_paragraph(page: str) -> str:
 
 def _shape_condition_count() -> int:
     """How many ``relation-invalid`` conditions ``shape_problems`` checks: one per add."""
-    from osprey.facility.relations import shape_problems
+    from osprey_facility.relations import shape_problems
 
     tree = ast.parse(textwrap.dedent(inspect.getsource(shape_problems)))
     return sum(

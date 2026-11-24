@@ -28,10 +28,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import is_family
-from osprey.facility.validate import vocabulary
 from osprey.services.archiver_recorder.config import ChannelSet, resolve_channel_addresses
 from osprey_connectors.simulation.values import is_waveform
+from osprey_facility.records import is_family
+from osprey_facility.validate import vocabulary
 from tests.facility.test_cf_view_parity import addition_addresses, pre_line_queries
 
 if TYPE_CHECKING:
@@ -78,12 +78,18 @@ SECTIONS: dict[str, Section] = {
         new_classes=("Kicker", "Septum", "ScreenDiagnostic"),
         new_families=(
             "BR/DIPOLE-RAMP",
+            "BR/HCM",
             "BR/KICKER",
             "BR/QD-RAMP",
             "BR/QF-RAMP",
             "BR/SEPTUM",
             "BR/TV",
+            "BR/VCM",
         ),
+        # Four queries ask about booster channels: its magnets are on shared
+        # supplies, so what was asked of a magnet is asked of its supply or of
+        # a corrector.
+        added_queries=4,
     ),
     # Two queries ask about BTS channels the transfer line gained; two older
     # aggregate queries (all corrector setpoints, all quadrupole readbacks) now
@@ -99,10 +105,6 @@ SECTIONS: dict[str, Section] = {
             "BTS/QF",
             "BTS/TV",
         ),
-    ),
-    "LINE": Section(
-        added_queries=1,
-        new_families=("LINE/QD", "LINE/QF"),
     ),
     "GTL": Section(
         added_queries=2,

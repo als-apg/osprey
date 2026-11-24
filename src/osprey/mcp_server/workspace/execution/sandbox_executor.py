@@ -254,6 +254,7 @@ def _create_sandbox_wrapper(
     project_root: Path,
     *,
     secret_roots: tuple[Path, ...],
+    data_path: str | None = None,
 ) -> str:
     """Generate a wrapped script with filesystem sandboxing and output capture.
 
@@ -266,6 +267,7 @@ def _create_sandbox_wrapper(
         raises ``PermissionError``; opening a ``.env`` file under
         ``secret_roots`` or a ``/proc/<...>/environ`` or ``cmdline`` raises
         ``PermissionError`` for reads too, including a ``Path.read_text``
+      - Binds ``_data_path`` to ``data_path`` when given, before the user code runs
       - Injects ``save_artifact()`` for subprocess artifact creation
       - Captures stdout/stderr via StringIO
       - Writes ``execution_metadata.json`` for the caller to read
@@ -278,8 +280,19 @@ def _create_sandbox_wrapper(
     caller resolves the roots
     (:func:`~osprey.mcp_server.python_executor.executor.resolve_secret_roots`)
     or passes ``()`` on purpose, and one that forgets gets a ``TypeError``.
+
+    ``data_path`` is data, not code: it is rendered as one string literal and
+    never passes through :func:`validate_sandbox_code`.
     """
     exec_folder_str = str(execution_folder)
+    if data_path is None:
+        data_path_binding = ""
+    else:
+        data_path_binding = (
+            "\n# The data file the tool resolved, bound as a string literal outside the\n"
+            "# scanned code.\n"
+            f"_data_path = {str(data_path)!r}\n"
+        )
 
     # Allowlist posture: only what a root names is reachable. ``read_roots``
     # carries the project tree (readable data files, refused writes);
@@ -304,7 +317,7 @@ def _create_sandbox_wrapper(
         secret_roots=secret_roots,
     )
 
-    return f'''\
+    return f"""\
 import sys
 import json
 import os
@@ -338,9 +351,9 @@ _OSPREY_FS_PERMITTED = _OSPREY_FS_PERMITTED + (
 # ---------------------------------------------------------------------------
 # Execution directory setup
 # ---------------------------------------------------------------------------
-_execution_dir = Path(r"{exec_folder_str}")
+_execution_dir = Path({exec_folder_str!r})
 _execution_dir.mkdir(parents=True, exist_ok=True)
-
+{data_path_binding}
 {SAVE_ARTIFACT_SOURCE}
 
 # ---------------------------------------------------------------------------
@@ -397,7 +410,7 @@ finally:
 
     # Restore every filesystem entry point the guard rebound
     _restore_patched_targets()
-'''
+"""
 
 
 def _indent_code(code: str, spaces: int = 4) -> str:
@@ -450,6 +463,8 @@ async def execute_sandbox_code(
     code: str,
     execution_folder: Path,
     timeout: int = 120,
+    *,
+    data_path: str | None = None,
 ) -> SandboxExecutionResult:
     """Execute validated code in a sandboxed subprocess.
 
@@ -462,6 +477,9 @@ async def execute_sandbox_code(
         code: Python source code (with preamble already prepended).
         execution_folder: Pre-created folder for outputs.
         timeout: Maximum execution time in seconds.
+        data_path: The absolute path the reader code loads, bound to
+            ``_data_path`` in the child before ``code`` runs. It is data, not
+            code, and is not validated as code.
 
     Returns:
         :class:`SandboxExecutionResult` with stdout, stderr, artifacts.
@@ -504,6 +522,7 @@ async def execute_sandbox_code(
         workspace_root,
         project_root,
         secret_roots=resolve_secret_roots(project_root),
+        data_path=data_path,
     )
 
     # 3. Write script and spawn subprocess

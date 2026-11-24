@@ -97,7 +97,12 @@ class _WorkerFailure(Exception):
 
 @dataclass(frozen=True)
 class Rendition:
-    """A checked rendition as returned by the worker."""
+    """A checked rendition as returned by the worker.
+
+    ``resized`` is true when the rendition differs from the stored picture in
+    pixel size, orientation or colour mode; a reduction made only to meet a
+    byte budget never sets it.
+    """
 
     data: bytes
     mime: str
@@ -105,6 +110,7 @@ class Rendition:
     width: int
     height: int
     mode: str
+    resized: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,8 +125,16 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def _check_reply(header: Any, body: bytes) -> RenderOutcome:
-    """Validate one reply against the protocol; raise :class:`_WorkerFailure` if it breaks it."""
+def _reply_limit(max_bytes: int | None) -> int:
+    """Largest rendition a reply may carry under ``max_bytes``."""
+    return RENDITION_MAX_BYTES if max_bytes is None else min(max_bytes, RENDITION_MAX_BYTES)
+
+
+def _check_reply(header: Any, body: bytes, max_bytes: int | None = None) -> RenderOutcome:
+    """Validate one reply against the protocol; raise :class:`_WorkerFailure` if it breaks it.
+
+    A rendition larger than ``max_bytes`` (when given) breaks the protocol.
+    """
     if not isinstance(header, dict):
         raise _WorkerFailure("reply header is not an object")
     ok = header.get("ok")
@@ -138,6 +152,9 @@ def _check_reply(header: Any, body: bytes) -> RenderOutcome:
         raise _WorkerFailure("successful reply carries a reason")
     fmt, mode, mime = header.get("format"), header.get("mode"), header.get("mime")
     width, height = header.get("w"), header.get("h")
+    resized = header.get("resized")
+    if not isinstance(resized, bool):
+        raise _WorkerFailure(f"reply 'resized' {resized!r} is not a boolean")
     if not isinstance(fmt, str) or fmt not in ACCEPTED:
         raise _WorkerFailure(f"reply format {fmt!r} is not accepted")
     if not isinstance(mode, str) or mode not in RENDITION_MODES:
@@ -149,11 +166,11 @@ def _check_reply(header: Any, body: bytes) -> RenderOutcome:
     assert isinstance(width, int) and isinstance(height, int)
     if not (1 <= width <= RENDITION_MAX_SIDE and 1 <= height <= RENDITION_MAX_SIDE):
         raise _WorkerFailure(f"reply size {width}x{height} is out of range")
-    if not 0 < len(body) <= RENDITION_MAX_BYTES:
+    if not 0 < len(body) <= _reply_limit(max_bytes):
         raise _WorkerFailure(f"rendition of {len(body)} bytes is out of range")
     if sniff(body).mime != mime:
         raise _WorkerFailure(f"rendition bytes do not match {mime}")
-    return RenderOutcome(Rendition(body, mime, fmt, width, height, mode), None)
+    return RenderOutcome(Rendition(body, mime, fmt, width, height, mode, resized), None)
 
 
 # -- one worker process ---------------------------------------------------------------
@@ -168,21 +185,23 @@ class _Worker:
     def alive(self) -> bool:
         return self.process.returncode is None
 
-    async def exchange(self, data: bytes) -> RenderOutcome:
+    async def exchange(self, data: bytes, max_bytes: int | None = None) -> RenderOutcome:
         stdin, stdout = self.process.stdin, self.process.stdout
         if stdin is None or stdout is None:  # pragma: no cover - spawned with pipes
             raise _WorkerFailure("worker has no pipes")
-        stdin.write(_LENGTH.pack(len(data)) + data)
+        # The payload opens with the byte budget, 0 for none.
+        budget = 0 if max_bytes is None else _reply_limit(max_bytes)
+        stdin.write(_LENGTH.pack(_LENGTH.size + len(data)) + _LENGTH.pack(budget) + data)
         await stdin.drain()
         line = await stdout.readline()
         if not line.endswith(b"\n"):
             raise _WorkerFailure("worker ended before replying")
         header = json.loads(line)
         (length,) = _LENGTH.unpack(await stdout.readexactly(_LENGTH.size))
-        if length > RENDITION_MAX_BYTES:
+        if length > _reply_limit(max_bytes):
             raise _WorkerFailure(f"rendition of {length} bytes is out of range")
         body = await stdout.readexactly(length)
-        return _check_reply(header, body)
+        return _check_reply(header, body, max_bytes)
 
     def kill(self) -> None:
         # A reaped worker's pid may already belong to another process.
@@ -378,12 +397,16 @@ class _Client:
             self.worker.kill()
             self.worker = None
 
-    async def render(self, data: bytes, task_id: str) -> RenderOutcome:
+    async def render(
+        self, data: bytes, task_id: str, max_bytes: int | None = None
+    ) -> RenderOutcome:
         self.generation += 1
         for _attempt in range(2):
             worker = await self._ready_worker()
             try:
-                outcome = await asyncio.wait_for(worker.exchange(data), RENDER_TASK_TIMEOUT_S)
+                outcome = await asyncio.wait_for(
+                    worker.exchange(data, max_bytes), RENDER_TASK_TIMEOUT_S
+                )
             except asyncio.CancelledError:
                 # The worker may be mid-reply or hold a half-written frame; a
                 # later call must never read this picture's reply as its own.
@@ -461,28 +484,41 @@ def worker_pid() -> int | None:
     return _CLIENT.worker.process.pid
 
 
-async def render_isolated(data: bytes, *, task_id: str | None = None) -> RenderOutcome:
+async def render_isolated(
+    data: bytes, *, task_id: str | None = None, max_bytes: int | None = None
+) -> RenderOutcome:
     """Render picture bytes in the isolated worker.
 
     Args:
         data: The picture bytes.
         task_id: Identity of the picture for the failure rules; defaults to the
             sha256 of ``data``.
+        max_bytes: Byte budget of the rendition. With one, the worker lowers
+            JPEG quality and then size until the rendition fits, flattening
+            transparency onto white when it must change format, and refuses
+            with ``rendition_too_large`` when nothing fits. ``None`` keeps the
+            default handling (at most
+            :data:`~osprey.imaging.formats.RENDITION_MAX_BYTES`).
 
     Returns:
         A :class:`RenderOutcome` with the rendition, or with a content skip
         reason (``decoder_failed`` when the picture failed in two workers).
 
     Raises:
+        ValueError: ``max_bytes`` is not a positive integer.
         RenderUnavailable: No worker could be started, or workers failed on two
             different pictures in a row.
     """
+    if max_bytes is not None and (
+        not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1
+    ):
+        raise ValueError(f"max_bytes must be a positive integer, not {max_bytes!r}")
     picture_id = task_id if task_id is not None else hashlib.sha256(data).hexdigest()
     client = _client()
     async with client.lock:
         client.cancel_idle()
         try:
-            return await client.render(data, picture_id)
+            return await client.render(data, picture_id, max_bytes)
         finally:
             client.arm_idle()
 

@@ -21,6 +21,7 @@ from osprey_optimizer.environments.interface import ConnectorInterface
 from osprey_optimizer.environments.spec import EnvironmentFile
 from osprey_optimizer.models.exceptions import TimeoutError as OptimizerTimeoutError
 from osprey_optimizer.models.exceptions import WriteRefusedError
+from tests._child_stubs import CHILD_STUBS
 from tests.facility.served_tree import in_process_config, served_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -74,7 +75,12 @@ def project(tmp_path, monkeypatch):
         monkeypatch.setenv(
             "PYTHONPATH",
             os.pathsep.join(
-                [str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src")]
+                [
+                    # Stand-ins first: skips the slow beamphysics import (tests/_child_stubs).
+                    str(CHILD_STUBS),
+                    str(REPO_ROOT / "src"),
+                    str(REPO_ROOT / "packages" / "osprey-connectors" / "src"),
+                ]
             ),
         )
         return config
@@ -90,10 +96,17 @@ def test_a_write_inside_limits_lands_and_reads_back(project):
     assert interface.read_many(["KNOB:POS:SP"])["KNOB:POS:SP"].value == pytest.approx(0.5)
 
 
-def test_a_write_outside_the_channel_limits_is_refused(project):
+@pytest.mark.parametrize(
+    ("channel", "value"),
+    [
+        pytest.param("KNOB:POS:SP", 6.0, id="a-write-outside-the-channel-limits"),
+        pytest.param("BPM:POS:Y", 1.0, id="a-read-only-channel"),
+    ],
+)
+def test_a_write_the_channel_does_not_allow_is_refused(project, channel, value):
     project()
     with pytest.raises(WriteRefusedError):
-        ConnectorInterface("live").set_values({"KNOB:POS:SP": 6.0})
+        ConnectorInterface("live").set_values({channel: value})
 
 
 def test_a_step_larger_than_max_step_is_refused(project):
@@ -103,12 +116,6 @@ def test_a_step_larger_than_max_step_is_refused(project):
     with pytest.raises(WriteRefusedError):
         interface.set_values({"KNOB:POS:SP": 2.0})  # 1.5 from 0.5, max_step 1.0
     assert interface.read_many(["KNOB:POS:SP"])["KNOB:POS:SP"].value == pytest.approx(0.5)
-
-
-def test_a_read_only_channel_is_refused(project):
-    project()
-    with pytest.raises(WriteRefusedError):
-        ConnectorInterface("live").set_values({"BPM:POS:Y": 1.0})
 
 
 def test_writes_are_refused_while_the_tier_allows_none(project):

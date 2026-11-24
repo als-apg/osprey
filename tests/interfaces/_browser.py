@@ -11,9 +11,12 @@ known-benign noise.
 ``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
 finished arranging the shell, for any suite that drives or photographs the
 web-terminal hub. ``wait_for_page_ready`` is the one wait every browser test
-makes after it navigates: it blocks until the page sets its ready mark
+makes after it navigates: it returns once the page sets its ready mark
 (``html[data-page-ready="true"]``), whatever the page, frame or popped-out
-window. ``open_hub_page`` is the hub's own entry point — it opens the page and
+window, and fails at once when the writer marked the page ``failed``.
+``wait_for_last_active`` waits until the server's last-active answer names the
+key a test expects, so a reload or an overwrite never races the page's own
+debounced write. ``open_hub_page`` is the hub's own entry point — it opens the page and
 waits through it — and ``rail_entry`` builds the locator for one of that rail's
 buttons.
 """
@@ -21,11 +24,15 @@ buttons.
 from __future__ import annotations
 
 import contextlib
+import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect
+
+from osprey.interfaces.design_system.panels.page_ready import FAILED
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -238,11 +245,108 @@ def wait_for_page_ready(target: Page | Frame | FrameLocator) -> None:
     has dressed it). Ready means "can be driven", not "has data": a test that
     needs data waits for the data after this.
 
+    The wait returns on ``true`` and fails at once on ``failed``, the writer's
+    mark for a pending page that met an uncaught error, an unhandled rejection
+    or a script of its own that failed to load, before it marked itself ready.
+
     Args:
         target: The page, frame or frame locator to wait on.
+
+    Raises:
+        AssertionError: The page was marked ``failed``.
     """
-    expect(target.locator('html[data-page-ready="true"]')).to_be_attached(
-        timeout=_PAGE_READY_TIMEOUT_MS
+    root = target.locator("html")
+    expect(root).to_have_attribute(
+        "data-page-ready", re.compile(rf"^(true|{FAILED})$"), timeout=_PAGE_READY_TIMEOUT_MS
+    )
+    if root.get_attribute("data-page-ready") != "true":
+        raise AssertionError(
+            f'the page set data-page-ready="{FAILED}": an uncaught error, an unhandled '
+            "rejection or a script of its own that failed to load, before it marked itself "
+            "ready"
+        )
+
+
+_SESSION_MODEL_JS = (
+    Path(__file__).resolve().parents[2]
+    / "src/osprey/interfaces/web_terminal/static/js/session-model.js"
+)
+
+
+def _read_last_active_debounce_ms() -> int:
+    source = _SESSION_MODEL_JS.read_text(encoding="utf-8")
+    match = re.search(r"^export const LAST_ACTIVE_DEBOUNCE_MS = (\d+);$", source, re.M)
+    if match is None:
+        raise RuntimeError(f"LAST_ACTIVE_DEBOUNCE_MS not found in {_SESSION_MODEL_JS}")
+    return int(match.group(1))
+
+
+#: The page's debounce of its last-active write, read from the page's own source.
+LAST_ACTIVE_DEBOUNCE_MS = _read_last_active_debounce_ms()
+
+#: How long the server may take to hold a key: the debounce plus a write
+#: persisted on a loaded host.
+_LAST_ACTIVE_TIMEOUT_MS = 20 * LAST_ACTIVE_DEBOUNCE_MS
+
+#: The server's last-active key, read as the page reads it: under the page's
+#: mount prefix, with its own credentials, never from cache.
+_LAST_ACTIVE_JS = """
+async () => {
+  const url = (window.__OSPREY_PREFIX__ || '') + '/api/sessions/last-active';
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) return `HTTP ${response.status}`;
+  return (await response.json()).session_key;
+}
+"""
+
+#: Resolves true once the server's last-active key equals ``key``, false when
+#: ``budgetMs`` runs out first. Reads are paced by animation frames, as
+#: ``DOCK_SETTLED_JS`` paces its own.
+_LAST_ACTIVE_IS_JS = f"""
+async ([key, budgetMs]) => {{
+  const read = {_LAST_ACTIVE_JS.strip()};
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const deadline = Date.now() + budgetMs;
+  while (Date.now() < deadline) {{
+    try {{
+      if ((await read()) === key) return true;
+    }} catch (err) {{
+      // A read the network refused is not an answer; the next frame reads again.
+    }}
+    await frame();
+  }}
+  return false;
+}}
+"""
+
+
+def wait_for_last_active(page: Page, key: str) -> None:
+    """Wait until the server's last-active session is *key*.
+
+    The page records the key it is on with a debounced
+    ``PUT /api/sessions/last-active``; a test that reloads, opens a fresh
+    context or writes its own key must first see that write land, or it reads
+    a stale answer. The wait polls the server's ``GET`` from inside *page*, so
+    it carries the page's own mount prefix and credentials, and gives up after
+    a ceiling scaled from ``LAST_ACTIVE_DEBOUNCE_MS``.
+
+    Args:
+        page: A page on the app whose last-active answer is read.
+        key: The session key the server is expected to hold.
+
+    Raises:
+        ValueError: *key* is empty.
+        AssertionError: The server did not name *key* within the ceiling; the
+            message names *key* and the server's last answer.
+    """
+    if not key:
+        raise ValueError("wait_for_last_active needs a non-empty key")
+    if page.evaluate(_LAST_ACTIVE_IS_JS, [key, _LAST_ACTIVE_TIMEOUT_MS]):
+        return
+    answer = page.evaluate(_LAST_ACTIVE_JS)
+    raise AssertionError(
+        f"the server's last-active session is {answer!r}, not {key!r}, "
+        f"{_LAST_ACTIVE_TIMEOUT_MS} ms after the wait began"
     )
 
 

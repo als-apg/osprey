@@ -8,6 +8,7 @@ import math
 import os
 import stat
 from collections.abc import Mapping
+from importlib import metadata
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -26,6 +27,7 @@ from osprey_connectors.simulation.composite import (
     Composite,
     WriteRefusedError,
 )
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 from osprey_connectors.simulation.view import SCHEMAS, SimulatorView, ViewSchemaError
 from tests._simulator_view import view_channel
 from tests.connectors._view_records import activate
@@ -1068,3 +1070,15 @@ def test_bpm_polarity_negates_the_demo_monitor_on_both_planes(
     assert alone == both[y]
     assert alone == pytest.approx(-plain.get(y))
     assert both[x] == pytest.approx(-plain.get(x))
+
+
+@pytest.mark.parametrize("name", ["pyat", "injection"])
+def test_the_composite_finds_each_bundled_engine_under_the_engine_group(name: str) -> None:
+    """R7: the installed bundled engines resolve through the composite's own lookup."""
+    found = {point.name: point.value for point in metadata.entry_points(group=ENGINE_GROUP)}
+    assert found[name] == f"osprey.simulation.engines.{name}"
+    assert Composite._engine(name).__name__ == f"osprey.simulation.engines.{name}"
+
+
+def test_no_engine_is_registered_under_the_retired_group() -> None:
+    assert not metadata.entry_points(group="osprey.simulation.engines")

@@ -17,12 +17,14 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 
-from osprey.facility import TEXTURE
-from osprey.facility.build import build_facility
-from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.services.graph_store.seeder import ttl_sha256
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 from osprey_connectors.simulation import composite as composite_module
+from osprey_facility import TEXTURE
+from osprey_facility.build import build_facility
+from osprey_facility.render import FACILITY_FILE
+from tests._builds import FRAMEWORK_CHECKS
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -33,6 +35,12 @@ GRAPH = "data/graph/facility.ttl"
 VARIABLES = "data/simulator/variables.json"
 SEEDS = "seeds.yaml"
 
+#: The channel whose seed ``test_a_changed_seed_changes_the_facility_file`` moves: the first
+#: one ``seeds.yaml`` states a noise of 0.005 for, its noise as stated and as moved.
+RESEEDED = "BR:DIAG:BPM:01:POSITION:X"
+STATED_NOISE = "noise:\n    absolute: 0.005\n"
+RESEEDED_NOISE = "noise:\n    absolute: 0.006\n"
+
 
 def _render(root: Path, document: Any, config: dict[str, Any], facility_dir: Path) -> Path:
     root.mkdir(parents=True)
@@ -40,10 +48,16 @@ def _render(root: Path, document: Any, config: dict[str, Any], facility_dir: Pat
     return root
 
 
-def _texture_only(tmp_path: Path, built: BuiltProject) -> Path:
-    config = yaml.safe_load((built.build_dir / "config.yml").read_text(encoding="utf-8"))
+@pytest.fixture(scope="module")
+def texture_only(tmp_path_factory: pytest.TempPathFactory, built_demo: BuiltProject) -> Path:
+    """The shared build re-rendered with the texture alone served, once for the module.
+
+    Its readers only read the render.
+    """
+    config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text(encoding="utf-8"))
     config.setdefault("simulation", {})["models"] = [TEXTURE]
-    return _render(tmp_path / "texture-only", built.facility, config, built.facility_dir)
+    root = tmp_path_factory.mktemp("texture-only") / "texture-only"
+    return _render(root, built_demo.facility, config, built_demo.facility_dir)
 
 
 def _sr_magnet_defaults(render_dir: Path) -> dict[str, float]:
@@ -57,9 +71,9 @@ def _sr_magnet_defaults(render_dir: Path) -> dict[str, float]:
 
 
 def test_a_texture_only_list_leaves_the_facility_file_and_the_graph_alone(
-    tmp_path: Path, built_demo: BuiltProject
+    texture_only: Path, built_demo: BuiltProject
 ) -> None:
-    render_dir = _texture_only(tmp_path, built_demo)
+    render_dir = texture_only
     built_graph = (built_demo.build_dir / GRAPH).read_text(encoding="utf-8")
 
     assert (render_dir / FACILITY_FILE).read_bytes() == built_demo.facility_raw
@@ -67,10 +81,10 @@ def test_a_texture_only_list_leaves_the_facility_file_and_the_graph_alone(
 
 
 async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_wiring_default(
-    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
+    texture_only: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
-    render_dir = _texture_only(tmp_path, built_demo)
+    render_dir = texture_only
     defaults = _sr_magnet_defaults(render_dir)
     connector = VAInProcessConnector()
     await connector.connect(
@@ -85,24 +99,31 @@ async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_
     await connector.disconnect()
 
 
-def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: BuiltProject) -> None:
-    rendered: dict[str, bytes] = {}
-    for name in ("authored", "reseeded"):
-        facility_dir = tmp_path / name / "data" / "facility"
-        shutil.copytree(built_demo.facility_dir, facility_dir)
-        if name == "reseeded":
-            seeds = facility_dir / SEEDS
-            text = seeds.read_text(encoding="utf-8")
-            stated = "noise:\n    absolute: 0.005\n"
-            assert stated in text
-            seeds.write_text(
-                text.replace(stated, "noise:\n    absolute: 0.006\n", 1), encoding="utf-8"
-            )
-        document = build_facility(facility_dir, project_name="demo")
-        render_dir = _render(tmp_path / name / "render", document, {}, facility_dir)
-        rendered[name] = (render_dir / FACILITY_FILE).read_bytes()
+def _channel(document: dict[str, Any], address: str) -> dict[str, Any]:
+    (channel,) = [c for c in document["channels"] if c["id"] == address]
+    found: dict[str, Any] = channel
+    return found
 
-    assert rendered["authored"] != rendered["reseeded"]
+
+def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: BuiltProject) -> None:
+    # The authored side is the shared build's own facility file: the build makes it from the
+    # same tree with the same project name.
+    facility_dir = tmp_path / "reseeded" / "data" / "facility"
+    shutil.copytree(built_demo.facility_dir, facility_dir)
+    seeds = facility_dir / SEEDS
+    text = seeds.read_text(encoding="utf-8")
+    assert STATED_NOISE in text
+    seeds.write_text(text.replace(STATED_NOISE, RESEEDED_NOISE, 1), encoding="utf-8")
+    document = build_facility(facility_dir, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
+    render_dir = _render(tmp_path / "reseeded" / "render", document, {}, facility_dir)
+
+    authored = built_demo.facility
+    reseeded = json.loads((render_dir / FACILITY_FILE).read_bytes())
+    assert _channel(authored, RESEEDED)["simulation"]["noise"] == {"absolute": 0.005}
+    assert _channel(reseeded, RESEEDED)["simulation"]["noise"] == {"absolute": 0.006}
+    # Nothing but that one seed moves: with it put back, the two files are equal.
+    _channel(reseeded, RESEEDED)["simulation"]["noise"] = {"absolute": 0.005}
+    assert reseeded == authored
 
 
 def _measurement_surface(render_dir: Path, config: dict[str, Any]) -> dict[str, Any]:
@@ -133,10 +154,10 @@ def _measurement_surface(render_dir: Path, config: dict[str, Any]) -> dict[str, 
 
 
 def test_a_texture_only_render_carries_no_pyaml_view_tool_skill_or_prompt_section(
-    tmp_path: Path, built_demo: BuiltProject
+    texture_only: Path, built_demo: BuiltProject
 ) -> None:
     config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text(encoding="utf-8"))
-    texture = _measurement_surface(_texture_only(tmp_path, built_demo), config)
+    texture = _measurement_surface(texture_only, config)
     served = _measurement_surface(built_demo.build_dir, config)
 
     assert texture == {

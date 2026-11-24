@@ -28,6 +28,7 @@ from osprey_connectors_tests._harness._ports import (
     reserved_ports,
 )
 from tests._nested_pytest import with_harness_path
+from tests._scoped_stdlib import scoped
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -362,7 +363,7 @@ def test_a_slow_macos_probe_falls_back_to_the_platform_default(monkeypatch, caps
         raise subprocess.TimeoutExpired(command, 10)
 
     monkeypatch.setattr(_ports.sys, "platform", "darwin")
-    monkeypatch.setattr(_ports.subprocess, "run", timed_out)
+    scoped(monkeypatch, _ports, "subprocess", run=timed_out)
 
     assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START
     assert ephemeral_range_start() == _MACOS_DEFAULT_RANGE_START

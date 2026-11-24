@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from osprey.deployment.compose_generator import _reset_wheel_build_cache
+from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME, _reset_wheel_build_cache
 from osprey.deployment.runtime_helper import reset_runtime_cache as _reset_runtime_cache
+from tests._scoped_stdlib import scoped
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +40,7 @@ def running_a_released_osprey(monkeypatch):
     ``get_release_version`` stays real: pinning it to a literal here would
     disagree with any provenance stamped outside this fixture's function scope
     (a module-scoped fixture builds before autouse function fixtures apply), and
-    the staleness advisory reads that disagreement as drift on an untouched
+    the drift check reads that disagreement as drift on an untouched
     build. Tests that assert an exact pin string patch ``get_release_version``
     inside their own bodies, which takes precedence — see ``TestResolvePipSpec``
     in ``test_container_lifecycle.py``.
@@ -178,18 +180,66 @@ def _empty_host_for_the_ownership_check(monkeypatch):
     Tests that record every runtime call need that answer to be "an empty host".
     """
     monkeypatch.setattr(
-        "osprey.deployment.container_lifecycle._ownership_probe", lambda config: _EmptyHost()
+        "osprey.deployment.container_lifecycle._ownership_probe", lambda config, **_: _EmptyHost()
     )
 
 
-@pytest.fixture
-def stub_deploy_up(monkeypatch, tmp_path):
-    """Factory: run ``deploy_up`` in ``tmp_path`` with no host underneath it.
+@pytest.fixture(autouse=True)
+def every_started_service_is_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer "every service is running" for the check a returned start makes.
 
-    Call it with the config ``prepare_compose_files`` should answer (``None``
-    leaves that collaborator to the test) and it stubs the runtime checks and
-    the compose child, returning a dict whose ``"cmd"`` is the last argv the
-    child was given.
+    The tests here fake ``subprocess.run`` to answer compose, and the check's
+    container listing goes through the same call, so it would read an answer
+    meant for compose as an empty host. The real check is tested in
+    ``tests/deployment/test_services_running_after_start.py``, which imports it
+    at module scope (collection runs before this patch) and puts it back.
+    """
+    monkeypatch.setattr(
+        "osprey.deployment.container_lifecycle._refuse_services_not_running",
+        lambda *_args, **_kwargs: None,
+    )
+
+
+class StubbedStart:
+    """One start of ``_start_stack`` in a directory, over a config the test states.
+
+    ``config`` and ``files`` are what the start is handed; ``cmd`` is the last
+    argv the stubbed compose child was given, when the child is stubbed by
+    :func:`stub_start_stack`.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.config: dict | None = None
+        self.files: list[str] = ["docker-compose.yml"]
+        self.cmd: list[str] | None = None
+
+    def start(self, **kwargs) -> None:
+        from osprey.deployment import container_lifecycle
+
+        container_lifecycle._start_stack(
+            self.config,
+            self.files,
+            self.root,
+            env_path=self.root / COMPOSE_ENV_FILENAME,
+            **kwargs,
+        )
+
+
+@pytest.fixture
+def stubbed_start(tmp_path) -> StubbedStart:
+    """The test's one start of ``_start_stack``, rooted at ``tmp_path``."""
+    return StubbedStart(tmp_path)
+
+
+@pytest.fixture
+def stub_start_stack(monkeypatch, tmp_path, stubbed_start):
+    """Factory: run ``_start_stack`` in ``tmp_path`` with no host underneath it.
+
+    Call it with the config the start should be handed (``None`` leaves the
+    config to the test) and it stubs the runtime checks and the compose child,
+    returning the test's :class:`StubbedStart`, whose ``cmd`` is the last argv
+    the child was given.
 
     ``seam`` picks where the child is stubbed. ``"run_captured"`` is the one
     seam every deploy child goes through: a watched capture (the image builds
@@ -202,16 +252,10 @@ def stub_deploy_up(monkeypatch, tmp_path):
     """
     from osprey.deployment import container_lifecycle
 
-    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> dict:
-        captured: dict = {}
-
+    def _stub(config: dict | None = None, *, seam: str = "run_captured") -> StubbedStart:
         monkeypatch.chdir(tmp_path)
         if config is not None:
-            monkeypatch.setattr(
-                container_lifecycle,
-                "prepare_compose_files",
-                lambda *a, **k: (config, ["docker-compose.yml"]),
-            )
+            stubbed_start.config = config
         monkeypatch.setattr(
             container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
         )
@@ -220,15 +264,17 @@ def stub_deploy_up(monkeypatch, tmp_path):
         )
 
         def _fake_run(cmd, **kwargs):
-            captured["cmd"] = cmd
+            stubbed_start.cmd = cmd
             return subprocess.CompletedProcess(list(cmd), 0)
 
         if seam == "run_captured":
             monkeypatch.setattr(container_lifecycle, "run_captured", _fake_run)
         elif seam == "subprocess.run":
-            monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+            # run_captured stays real and starts its child through its own module.
+            for spawner in (container_lifecycle, "osprey.deployment.subprocess_capture"):
+                scoped(monkeypatch, spawner, "subprocess", run=_fake_run)
         else:
             raise ValueError(f"unknown seam {seam!r}")
-        return captured
+        return stubbed_start
 
     return _stub

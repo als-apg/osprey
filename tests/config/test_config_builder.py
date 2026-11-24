@@ -282,37 +282,6 @@ api:
         assert unexpanded2["api"]["key"] == "${SECRET}"
 
 
-class TestRequiredConfig:
-    """``_require_config``: a missing key is an error unless a default is given."""
-
-    @pytest.fixture
-    def builder(self, tmp_path):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("present: 7\nexplicit_null: null\n")
-        return ConfigBuilder(str(config_file))
-
-    @pytest.mark.parametrize("path", ["absent.key", "explicit_null"])
-    def test_a_missing_required_key_raises_naming_it(self, builder, path):
-        with pytest.raises(ValueError, match=f"Missing required configuration: '{path}'"):
-            builder._require_config(path)
-
-    def test_a_missing_key_with_a_default_uses_it_and_warns(self, builder, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            value = builder._require_config("absent.key", default=42)
-
-        assert value == 42
-        assert "Using default value for 'absent.key' = 42." in caplog.text
-
-    def test_a_present_key_is_returned_without_a_warning(self, builder, caplog):
-        import logging
-
-        with caplog.at_level(logging.WARNING, logger="CONFIG"):
-            assert builder._require_config("present", default=0) == 7
-        assert "Using default value" not in caplog.text
-
-
 class TestConfigFileShape:
     @pytest.mark.parametrize(
         ("body", "message"),
@@ -356,31 +325,29 @@ class TestGetFacilityTimezone:
 
         assert get_facility_timezone() == ZoneInfo("UTC")
 
-    def test_returns_utc_when_configured_zone_is_invalid(self, tmp_path, monkeypatch):
-        """A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError."""
+    @pytest.mark.parametrize(
+        ("zone_text", "expected_zone"),
+        [
+            # A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError.
+            pytest.param("Not/ARealZone", "UTC", id="invalid-zone-falls-back-to-utc"),
+            # A valid system.timezone is honored — the fallback must not swallow it.
+            pytest.param("America/Los_Angeles", "America/Los_Angeles", id="valid-zone-is-honored"),
+        ],
+    )
+    def test_returns_the_configured_zone_or_utc(
+        self, tmp_path, monkeypatch, zone_text, expected_zone
+    ):
+        """system.timezone decides the facility zone when it names a real zone, else UTC."""
         from zoneinfo import ZoneInfo
 
         from osprey_connectors.config import get_facility_timezone
 
         config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: Not/ARealZone\n")
+        config_file.write_text(f"system:\n  timezone: {zone_text}\n")
         monkeypatch.setenv("CONFIG_FILE", str(config_file))
         self._reset_config_singleton()
 
-        assert get_facility_timezone() == ZoneInfo("UTC")
-
-    def test_returns_configured_zone_when_valid(self, tmp_path, monkeypatch):
-        """A valid system.timezone is honored — the fallback must not swallow it."""
-        from zoneinfo import ZoneInfo
-
-        from osprey_connectors.config import get_facility_timezone
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: America/Los_Angeles\n")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset_config_singleton()
-
-        assert get_facility_timezone() == ZoneInfo("America/Los_Angeles")
+        assert get_facility_timezone() == ZoneInfo(expected_zone)
 
     def test_an_unresolvable_config_is_reported_once_not_once_per_call(
         self, tmp_path, monkeypatch, caplog

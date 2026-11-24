@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.resources import as_file, files
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import quote
 
 from jinja2 import Environment, FileSystemLoader
@@ -68,6 +68,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
 )
+from osprey.deployment.web_terminals.naming import WEB_SERVICE_PREFIX
 from osprey.deployment.web_terminals.ports import (
     PANEL_ENV_VARS,
     allocate_ports,
@@ -853,6 +854,60 @@ def _launch_token_env_vars(
     return [*lane_tokens, *application_tokens]
 
 
+#: The auth sidecar's compose service key in ``docker-compose.web.yml``. Every
+#: invocation that addresses the sidecar by name reads it from here.
+AUTH_SERVICE_NAME = "auth"
+
+#: The reverse proxy's compose service key in ``docker-compose.web.yml``; read
+#: wherever the proxy is addressed by name.
+NGINX_SERVICE_NAME = "nginx"
+
+
+class WebStackServiceNames(NamedTuple):
+    """The compose service keys ``docker-compose.web.yml`` renders, by what each serves.
+
+    Attributes:
+        proxy: The reverse proxy's key.
+        auth: The auth sidecar's key, or ``None`` when the auth method runs none.
+        terminals: Each roster card's name to its terminal's key, in roster order.
+    """
+
+    proxy: str
+    auth: str | None
+    terminals: dict[str, str]
+
+    def names(self) -> list[str]:
+        """Every key: the proxy, the sidecar if any, then the terminals."""
+        return [self.proxy, *([self.auth] if self.auth else []), *self.terminals.values()]
+
+
+def web_stack_service_names(config: Any) -> WebStackServiceNames:
+    """The service keys ``docker-compose.web.yml`` renders for *config*.
+
+    The overlay's template keys every service it renders by this answer: the
+    reverse proxy always, the auth sidecar when the auth method runs one, and
+    one terminal per roster card. The roster is resolved with ``strict=False``,
+    so this never refuses a roster: wherever :func:`render_web_terminals`
+    renders, the strict resolve it runs names the same cards, and wherever that
+    resolve refuses, nothing is rendered and the refusal is its own. It reads
+    the config alone, so the keys are known before any of the overlay's disk
+    inputs are provisioned.
+
+    :param config: The deployment configuration
+    :return: The proxy's, the sidecar's and each terminal's key
+    :raises ValueError: ``auth.method`` names a method that does not exist
+        (:func:`_auth_tls_context`).
+    """
+    root = as_dict(config)
+    web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
+    cards = resolve_cards(web_terminals, as_dict(root.get("registry")), strict=False)
+    return WebStackServiceNames(
+        proxy=NGINX_SERVICE_NAME,
+        auth=AUTH_SERVICE_NAME if _auth_tls_context(web_terminals)["sidecar_active"] else None,
+        terminals={card["name"]: WEB_SERVICE_PREFIX + card["name"] for card in cards},
+    )
+
+
 def render_web_terminals(
     config: Any,
     auth_env_digest: str | None = None,
@@ -867,6 +922,8 @@ def render_web_terminals(
     ariel_mirror_gid: int | None = None,
     archiver_credential_renders: dict[str, tuple[str, ...]] | None = None,
     archiver_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
+    channel_directory_credential_renders: dict[str, tuple[str, ...]] | None = None,
+    channel_directory_ca_bundle_renders: dict[str, tuple[str, ...]] | None = None,
     phoebus_handle_renders: set[str] | None = None,
     stop_grace_renders: dict[str, int] | None = None,
     terminal_secrets: dict[str, str] | None = None,
@@ -1024,6 +1081,18 @@ def render_web_terminals(
             Each file is bind-mounted read-only at the same path into the
             user's container, so the key names one file on the host and in the
             container. ``None`` emits no mount.
+        channel_directory_credential_renders: ``{render_name: (env_var_name, ...)}``
+            for the renders whose channel directory services authenticate, resolved
+            from disk by
+            :func:`osprey.deployment.web_terminals.roster.renders_needing_channel_directory_credentials`.
+            Same placement and reason as ``archiver_credential_renders``: the
+            directory, the alarm log, the alarm feed and the put log each read
+            the variable their own block names under ``auth:``. ``None`` emits
+            no line.
+        channel_directory_ca_bundle_renders: ``{render_name: (ca_path, ...)}`` for
+            the renders whose channel directory blocks name a host CA file under
+            ``tls.ca_bundle``, mounted as ``archiver_ca_bundle_renders`` mounts
+            the archiver's. ``None`` emits no mount.
         phoebus_handle_renders: Render names whose project runs a Phoebus
             MCP server and does not set ``phoebus.require_handle: false`` (see
             :func:`osprey.deployment.web_terminals.roster.renders_needing_phoebus_handles`).
@@ -1164,6 +1233,7 @@ def render_web_terminals(
     base_ports = base_ports_from_config(web_terminals, base=resolve_port_base(root))
     channel_catalog_mounts = _channel_catalog_mounts(root)
     record_digests = dict(agent_record_login_digests or {})
+    service_names = web_stack_service_names(root)
     services = []
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
@@ -1177,6 +1247,7 @@ def render_web_terminals(
         services.append(
             {
                 "user": entry["name"],
+                "service": service_names.terminals[entry["name"]],
                 "image": entry["image"],
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
@@ -1402,7 +1473,26 @@ def render_web_terminals(
                 # The host CA files this user's archiver block names under
                 # `tls.ca_bundle` (see the `archiver_ca_bundle_renders` arg),
                 # each mounted read-only at the same path, or () for none.
-                "ca_bundle_mounts": (archiver_ca_bundle_renders or {}).get(entry["render"], ()),
+                # and the ones its channel directory blocks name (see the
+                # `channel_directory_ca_bundle_renders` arg); one mount per file.
+                "ca_bundle_mounts": tuple(
+                    dict.fromkeys(
+                        (
+                            *(archiver_ca_bundle_renders or {}).get(entry["render"], ()),
+                            *(channel_directory_ca_bundle_renders or {}).get(entry["render"], ()),
+                        )
+                    )
+                ),
+                # The NAMES of the variables this user's channel directory services
+                # authenticate with (see the `channel_directory_credential_renders`
+                # arg), without any the archiver lines above already carry.
+                "channel_directory_credential_envs": tuple(
+                    name
+                    for name in (channel_directory_credential_renders or {}).get(
+                        entry["render"], ()
+                    )
+                    if name not in (archiver_credential_renders or {}).get(entry["render"], ())
+                ),
                 # Where the deployment's knowledge bundle mounts inside THIS
                 # user's container, or None when the user is not entitled or the
                 # deployment configures no bundle. One key rather than a
@@ -1584,6 +1674,8 @@ def render_web_terminals(
 
     compose_ctx = {
         "project_name": project_name,
+        "proxy_service": service_names.proxy,
+        "auth_service": service_names.auth,
         "registry_url": registry.get("url") or "",
         "image_source": image_source,
         "services": services,
@@ -1747,6 +1839,7 @@ def render_web_terminals(
 
     from osprey.interfaces.common_middleware import URL_MOUNT_ROOT
 
+    theme_blocks = _landing_theme_blocks(root)
     nginx_ctx = {
         "nginx_port": nginx_port,
         "services": services,
@@ -1760,6 +1853,9 @@ def render_web_terminals(
         # the root inside a PCRE; the locations take it literally.
         "url_mount_root": URL_MOUNT_ROOT,
         "url_mount_root_pattern": re.escape(URL_MOUNT_ROOT),
+        # The terminal-starting page nginx answers with wears the landing
+        # page's palette.
+        "theme_blocks": theme_blocks,
         **auth_tls_ctx,
         **_history_origin_context(root),
         **_history_location_context(root, external_origin),
@@ -1788,7 +1884,7 @@ def render_web_terminals(
         "groups": _build_groups(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
-        "theme_blocks": _landing_theme_blocks(root),
+        "theme_blocks": theme_blocks,
         "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),

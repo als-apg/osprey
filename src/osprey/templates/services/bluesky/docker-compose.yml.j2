@@ -593,7 +593,10 @@ services:
     # before the manager starts: one name for the container and its writer.
     hostname: {{ lane_control_identities[lane_key] }}
     depends_on:
-      # The manager connects to Redis at startup and exits if it cannot.
+      # Orders the first start only. A manager that cannot reach Redis when it
+      # starts exits, but `start-re-manager` (upstream's watchdog process)
+      # stays alive without it; the supervisor in the command below is what
+      # ends the container then.
       {{ lane }}-redis:
         condition: service_healthy
 {#- The `ca_name_servers` half of this guard is the LANE half, exactly as on the
@@ -666,13 +669,29 @@ services:
     # lane starts as `root`, the name the preflight record then carries; the
     # entrypoint answers a service identity on the dispatch worker the same
     # way. The `;` is load-bearing: the manager starts on either outcome.
+    #
+    # The manager runs under `qserver_supervisor`, which is PID 1 in its place.
+    # `start-re-manager` does not exit when its manager process dies before the
+    # manager's Redis connection succeeded: it stays alive with no manager
+    # inside, the health check below fails for ever, and `restart:` never acts
+    # on a container that is still running. The supervisor passes stop signals
+    # on and exits with the manager's status; after a 60 s start grace it sends
+    # the health check's own ping every 10 s and, when one goes unanswered,
+    # tries a TCP connect to the control port (read from `--zmq-control-addr`
+    # below). After 6 probes in a row with no answer AND a refused connect it
+    # stops the manager and its worker and exits non-zero, which `restart:`
+    # does act on. Refused means no process holds the port: the manager is
+    # gone. A manager that is alive but not answering still holds it, and is
+    # left running, because the restart ends the worker and whatever plan it
+    # is executing. Upstream's watchdog replacing a manager that hung after it
+    # connected takes 5 to 15 s and stays well inside the 6 probes.
     command:
       - "sh"
       - "-c"
       - >-
         python {{ control_identity_container_path }} apply --uid 0 --name {{ lane_control_identities[lane_key] }}
         || echo "WARNING: control identity {{ lane_control_identities[lane_key] }} not applied; this lane writes as root" >&2;
-        exec start-re-manager
+        exec python -m osprey.services.bluesky_bridge.qserver_supervisor -- start-re-manager
         --startup-script "$$(python -c 'import osprey.services.bluesky_bridge.qserver_startup as m; print(m.__file__)')"
         --user-group-permissions /app/qserver/user_group_permissions.yaml
         --existing-plans-devices /app/qserver/existing_plans_and_devices.yaml

@@ -23,7 +23,7 @@ import shutil
 import stat
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined, UndefinedError
@@ -313,9 +313,11 @@ def repo_identity(repo_root):
     container and the templates give every named volume, ``osprey down`` uses it
     to find this deployment's containers when ``build/`` no longer holds the
     compose files that declared them, ``osprey reset`` uses it to refuse removing
-    resources that belong to a different checkout of the same name, and ``osprey
+    resources that belong to a different checkout of the same name, ``osprey
     status`` uses it to sort every container on the host by which checkout it
-    belongs to. Any new one derives it from here too.
+    belongs to, and a start compares it with the identity the override states
+    and refuses a build rendered for another checkout. Any new one derives it
+    from here too.
 
     :param repo_root: The deployment repo root.
     :return: 12 lowercase hex characters.
@@ -457,6 +459,52 @@ def labels_override_path(repo_root):
     from osprey_connectors.workspace import BUILD_DIR_NAME
 
     return Path(repo_root) / BUILD_DIR_NAME / LABELS_OVERRIDE_FILENAME
+
+
+class RenderedCheckout(NamedTuple):
+    """What a render stated about which checkout its build is for.
+
+    ``repo_ids`` holds every :data:`REPO_ID_LABEL` value the labels override
+    gives a service; one render states one. ``project_root`` is the
+    :data:`PROJECT_ROOT_LABEL` value when every service states the same one,
+    else ``None``. Both are as written: a reader compares them with the
+    checkout it runs in, it does not trust them.
+    """
+
+    repo_ids: frozenset[str]
+    project_root: str | None
+
+
+def rendered_checkout(repo_root):
+    """What the build at *repo_root* states about which checkout it is for.
+
+    Read from the labels override, the one file a render writes the checkout
+    identity into. A build whose override is absent, or names no service
+    carrying :data:`REPO_ID_LABEL`, states nothing.
+
+    :param repo_root: The deployment repo root.
+    :return: The stated checkout, or ``None`` when the build states none.
+    :raises ComposeMergeError: The override itself does not parse.
+    """
+    override_file = labels_override_path(repo_root)
+    if not override_file.is_file():
+        return None
+    entries = _load_compose_document(override_file).get("services")
+    if not isinstance(entries, dict):
+        return None
+    repo_ids: set[str] = set()
+    roots: set[str] = set()
+    for entry in entries.values():
+        labels = entry.get("labels") if isinstance(entry, dict) else None
+        if not isinstance(labels, dict) or labels.get(REPO_ID_LABEL) is None:
+            continue
+        repo_ids.add(str(labels[REPO_ID_LABEL]))
+        root = labels.get(PROJECT_ROOT_LABEL)
+        roots.add("" if root is None else str(root))
+    if not repo_ids:
+        return None
+    project_root = next(iter(roots)) if len(roots) == 1 else None
+    return RenderedCheckout(frozenset(repo_ids), project_root or None)
 
 
 def _invocation_labels_override(root, compose_files):
@@ -1837,15 +1885,17 @@ def _image_axis_block(config):
 #:
 #: These are the knobs a site network needs and the public internet does not: a
 #: TLS-intercepting proxy's CA, the proxy bypass list pip is given, an internal
-#: package index, and the registry that stands in for docker.io, for a site that
-#: mirrors Docker Hub. They are axes in the same sense
+#: package index, the registry that stands in for docker.io, for a site that
+#: mirrors Docker Hub, and the host Playwright downloads the headless browser
+#: from. They are axes in the same sense
 #: ``images.registry`` and ``images.tag`` are — one value per deployment,
 #: carried by every image OSPREY builds — which is why they share the block and
 #: its precedence rules rather than growing a section of their own.
 #:
 #: The ARG name doubles as the environment override, exactly as the two axes
-#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the five
-#: are names pip and the CA layer already read, so a build host that exports
+#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: four of the six
+#: are names their tools already read (pip, the CA layer, Playwright), so a
+#: build host that exports
 #: them for its own tooling does not then have to spell them again for OSPREY.
 SITE_IMAGE_AXES = {
     "OSPREY_SITE_CA": "site_ca",
@@ -1853,6 +1903,7 @@ SITE_IMAGE_AXES = {
     "PIP_INDEX_URL": "pip_index_url",
     "PIP_EXTRA_INDEX_URL": "pip_extra_index_url",
     "OSPREY_BASE_REGISTRY": "base_registry",
+    "PLAYWRIGHT_DOWNLOAD_HOST": "playwright_download_host",
 }
 
 
@@ -1936,25 +1987,62 @@ def resolve_site_build_args(config):
     """Every value the site hands an OSPREY image build, keyed by ARG name.
 
     The :func:`resolve_site_image_axes` values, plus ``OSPREY_OFFLINE`` when the
-    deployment is offline. That flag is read exactly as
+    deployment is offline and ``OSPREY_SKIP_BROWSER`` when the image is to be
+    built without the headless browser. The offline flag is read exactly as
     :func:`osprey.interfaces.vendor.offline_from_config` reads it for the
     serving check, so the mode an image is built for and the mode it serves in
     cannot disagree. Its value is ``"1"``, the one spelling the recipes compare
-    against; an online deployment contributes no entry at all.
+    against; an online deployment contributes no entry at all. The browser
+    switch is read the same way from ``OSPREY_SKIP_BROWSER`` and
+    ``images.skip_browser``, and is likewise absent when off.
 
     :param config: Configuration dictionary.
     :type config: dict
-    :return: ARG name -> value, the site axes in table order and
-        ``OSPREY_OFFLINE`` last.
+    :return: ARG name -> value, the site axes in table order, then
+        ``OSPREY_OFFLINE``, then ``OSPREY_SKIP_BROWSER``.
     :rtype: dict[str, str]
-    :raises ValueError: As :func:`resolve_site_image_axes`.
+    :raises ValueError: As :func:`resolve_site_image_axes`, or if
+        ``images.skip_browser`` is not a bool.
     """
     from osprey.interfaces.vendor import offline_from_config
 
     resolved = resolve_site_image_axes(config)
     if offline_from_config(config):
         resolved["OSPREY_OFFLINE"] = "1"
+    if _skip_browser(config):
+        resolved["OSPREY_SKIP_BROWSER"] = "1"
     return resolved
+
+
+def _skip_browser(config):
+    """Whether images are built without the headless browser.
+
+    Read in the two layers ``offline`` is: ``OSPREY_SKIP_BROWSER`` in the
+    environment when it spells a boolean, else ``images.skip_browser``.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: Whether the browser install is skipped.
+    :rtype: bool
+    :raises ValueError: If ``images.skip_browser`` is present but is not a bool.
+    """
+    from osprey.interfaces.vendor import _FALSY, _TRUTHY
+
+    env = os.environ.get("OSPREY_SKIP_BROWSER", "").strip().lower()
+    if env in _TRUTHY:
+        return True
+    if env in _FALSY:
+        return False
+    images = _image_axis_block(config)
+    configured = images.get("skip_browser")
+    if configured is None:
+        return False
+    if not isinstance(configured, bool):
+        raise ValueError(
+            f"images.skip_browser must be true or false, got "
+            f"{type(configured).__name__} ({configured!r})."
+        )
+    return configured
 
 
 def resolve_image_axes(config):
@@ -2340,14 +2428,24 @@ SERVICE_ROLE_DRIVES_TARGET = "drives_target"
 #: The container's compose fragment binds the staged control-identity module.
 SERVICE_ROLE_CONTROL_IDENTITY = "control_identity"
 
+#: The container reads the target and writes nothing to it: its staged
+#: ``config.yml`` reaches the deployed machines across the compose network
+#: (:func:`_stage_in_network_gateways`), without the login→tier map a
+#: :data:`SERVICE_ROLE_DRIVES_TARGET` container judges writes by.
+SERVICE_ROLE_READS_TARGET = "reads_target"
+
 #: The bundled templates' declaration of the same roles, by service key: every
 #: bluesky lane, the dispatch worker and the optimizer, whose runs each write
 #: for the login that started them. All lanes render the one ``bluesky``
 #: directory (``osprey.cli.build_injectors._inject_bluesky``), so
 #: its basename is the first lane's key.
+#: The server fleet service reads every refreshed target's liveness channels.
 BUNDLED_SERVICE_ROLES: dict[str, frozenset[str]] = {
-    key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
-    for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    **{
+        key: frozenset({SERVICE_ROLE_DRIVES_TARGET, SERVICE_ROLE_CONTROL_IDENTITY})
+        for key in (*LANE_KEYS, "dispatch_worker", "optimizer")
+    },
+    "server_fleet": frozenset({SERVICE_ROLE_READS_TARGET}),
 }
 
 
@@ -2364,8 +2462,8 @@ def service_role(config, service_key, role):
     :type config: dict
     :param service_key: A ``services:`` key (for a build context, its basename).
     :type service_key: str
-    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET` or
-        :data:`SERVICE_ROLE_CONTROL_IDENTITY`.
+    :param role: :data:`SERVICE_ROLE_DRIVES_TARGET`,
+        :data:`SERVICE_ROLE_CONTROL_IDENTITY` or :data:`SERVICE_ROLE_READS_TARGET`.
     :type role: str
     :rtype: bool
     """
@@ -2526,9 +2624,9 @@ def in_network_gateways(document, deployed_services):
 
 
 def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
-    """Readdress the deployed machines in a bridged target driver's staged ``config.yml``.
+    """Readdress the deployed machines in a bridged target reader's staged ``config.yml``.
 
-    Applies to every context whose service drives the target
+    Applies to every context whose service drives or reads the target
     (:func:`service_role`) and is not on the host network: it reaches the
     machines across the compose network (:func:`in_network_gateways`). Every
     other context is left alone, as are the tiered worker's copy (the tier's
@@ -2545,7 +2643,10 @@ def _stage_in_network_gateways(config, source_dir, out_dir, service_key=None):
     :type service_key: str or None
     """
     key = service_key or _service_key(source_dir)
-    if not service_role(config, key, SERVICE_ROLE_DRIVES_TARGET):
+    if not (
+        service_role(config, key, SERVICE_ROLE_DRIVES_TARGET)
+        or service_role(config, key, SERVICE_ROLE_READS_TARGET)
+    ):
         return
     block = (config.get("services") or {}).get(key)
     if isinstance(block, Mapping) and block.get("network") == "host":
@@ -4831,6 +4932,7 @@ def dispatch_worker_audit_identities(config):
 #: projected service's identity comes from its block's ``audit_identity``
 #: (:func:`service_audit_identities`), not from this mapping.
 FIXED_SERVICE_AUDIT_IDENTITIES = {
+    "server_fleet": "server-fleet",
     "bluesky_web": "bluesky-web",
     "optimizer": "optimizer",
     "optimizer_web": "optimizer-web",
@@ -5985,8 +6087,8 @@ def _connection_ca_bundles(config, source_dir):
 
     Each is bind-mounted read-only at the same path by the service's compose
     template, so a block's ``tls.ca_bundle`` names one file on the host and in
-    the container. A dispatch worker opens the SELECTED archiver block, as a web
-    terminal does; the archive recorder always opens
+    the container. A dispatch worker opens the SELECTED archiver block and the
+    ``channel_directory`` blocks, as a web terminal does; the archive recorder always opens
     ``archiver.mongodb_archiver``, whatever ``archiver.type`` selects. Every
     other service reads no connection block and mounts nothing.
 
@@ -6001,11 +6103,13 @@ def _connection_ca_bundles(config, source_dir):
         as_dict,
         ca_bundle_mounts,
         config_archiver_ca_bundles,
+        config_channel_directory_ca_bundles,
     )
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
-        return list(config_archiver_ca_bundles(config))
+        paths = (*config_archiver_ca_bundles(config), *config_channel_directory_ca_bundles(config))
+        return list(dict.fromkeys(paths))
     if service == ARCHIVER_RECORDER_SERVICE:
         store = as_dict(config.get("archiver")).get("mongodb_archiver")
         return list(ca_bundle_mounts(store, where="archiver.mongodb_archiver"))
@@ -7105,6 +7209,8 @@ def prepare_compose_files(
         ``control_system.limits_checking.database_path`` names no path or names
         a file that is not on this host (:func:`resolve_limits_mount`). Nothing
         has been rendered when it raises.
+    :raises ValueError: A roster card shows an application panel whose
+        container holds no roster grant (one line per card and panel).
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -7205,8 +7311,9 @@ def prepare_compose_files(
     # Create the top level compose file. Skipped when no services are deployed:
     # an attached project (deploy_services: false) scaffolds no services/
     # templates at all, so rendering would throw — and there is nothing for the
-    # top-level file to describe. deploy_up's empty-services guard (or its
-    # web-terminals branch, which brings its own compose file) handles the rest.
+    # top-level file to describe. The start's empty-services guard
+    # (`_start_stack`), or its web-terminals branch, which brings its own
+    # compose file, handles the rest.
     if deployed_service_names:
         top_template = os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)
         build_dir = config.get("build_dir", "./build")
@@ -7215,10 +7322,19 @@ def prepare_compose_files(
         compose_files.append(top_template)
 
     # The login→tier map the shared containers read, computed here — from the
-    # config and the renders this render reads — so every path through this
-    # function (`osprey build`, `deploy_up`, `deploy_down`, `deploy_restart`,
-    # `rebuild_deployment`) stages the same map and no caller hands one in.
+    # config and the renders this render reads — so its one caller, `osprey
+    # build`, stages the map without handing one in.
     login_tiers = staged_login_tiers(config, layer_root) if deployed_service_names else None
+
+    # A roster card's terminal proxies each application panel its render shows
+    # with that card's secret; a panel whose container is handed none refuses
+    # every such request, so the render refuses the panel instead.
+    if deployed_service_names:
+        from osprey.deployment.web_terminals.roster import app_panels_without_roster_grant
+
+        problems = app_panels_without_roster_grant(config, resolve_repo_root(config), layer_root)
+        if problems:
+            raise ValueError("\n".join(problems))
 
     # Create the service build directory for deployed services only
     for service_name in deployed_service_names:

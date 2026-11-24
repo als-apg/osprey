@@ -28,6 +28,7 @@ from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.artifacts import inline_assets
 from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
+from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.opaque_origin import document_headers, opaque_headers
 from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
 from osprey.utils.timeseries import (
@@ -75,8 +76,9 @@ _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 # (design-system/js/page-ready.js). The snippet is injected into a document the
 # gallery did not write, so it carries the attribute on an ``<html>`` start tag
 # of its own: the HTML parser adds the attributes of a later ``<html>`` tag to
-# the root element, wherever in the head or body the tag lands.
-_PAGE_READY_PENDING = '<html data-page-ready="pending">'
+# the root element, wherever in the head or body the tag lands. It loads the
+# writer of the mark first, ahead of its own module.
+_PAGE_READY_PENDING = '<html data-page-ready="pending">\n' + WRITER_TAG
 
 # Every page below is served into the content sandbox's opaque origin
 # (``self.origin === 'null'``). Each one's module script calls theme-manager.js's
@@ -1029,6 +1031,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
+        in_window,
         operator_visible,
         owner_of,
         page_of,
@@ -1089,10 +1092,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     broadcaster = _SSEBroadcaster()
 
     ledger_cache = _LedgerCache()
-
-    def _view() -> _ListingView:
-        """The whole index's run groups and the ledger, read once for one answer."""
-        return _listing_view(store.list_entries(), *ledger_cache.read())
 
     def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
         """One entry's payload (see :func:`_payload`), reading only its own run group."""
@@ -1320,17 +1319,18 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         all-sessions view: it takes no session and keeps dispatch and watchdog
         artifacts. One session's listing is ``POST /api/artifacts/session-list``.
         """
+        # One read of the index: the run groups classify over all of it.
+        entries = store.list_entries()
+        view = _listing_view(entries, *ledger_cache.read())
         try:
-            entries = store.list_entries(
-                type_filter=type,
-                after=after,
-                before=before,
-            )
+            if after is not None or before is not None:
+                entries = [e for e in entries if in_window(e, after, before)]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if type:
+            entries = [e for e in entries if e.artifact_type == type]
         if exec_id:
             entries = [e for e in entries if e.exec_id == exec_id]
-        view = _view()
         entries = _refine(entries, view, form=form, runs=runs, search=search)
         try:
             page = page_of(entries, limit, cursor)
@@ -1355,9 +1355,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         """
         from osprey.stores.artifact_scope import owned_by, resolve_scope, scope_for
 
-        view = _view()
-        limit = body.limit or page_size
         entries = store.list_entries()
+        view = _listing_view(entries, *ledger_cache.read())
+        limit = body.limit or page_size
 
         def page(selected: list[Any]) -> dict[str, Any]:
             selected = _refine(selected, view, form=body.form, runs=body.runs, search=body.search)
@@ -1398,12 +1398,13 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         not: the client's "More sessions" is ``owned_total`` minus its loaded
         totals. An entry no transcript owns counts nowhere.
         """
-        view = _view()
+        entries = store.list_entries()
+        view = _listing_view(entries, *ledger_cache.read())
         ledger = view.owner_ledger
         requested = dict.fromkeys(body.sessions)
         counts: dict[str, dict[str, Any]] = {tid: {"total": 0, "by_form": {}} for tid in requested}
         owned_total = 0
-        for entry in store.list_entries():
+        for entry in entries:
             if not operator_visible(entry):
                 continue
             form = _listed_form(entry, view)

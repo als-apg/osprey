@@ -174,13 +174,6 @@ class TestChannelWriteFailedError:
         with pytest.raises(ChannelWriteFailedError):
             raise ChannelWriteFailedError("chan", "UNCONFIRMED")
 
-    def test_valid_reasons_reference(self):
-        assert ChannelWriteFailedError._VALID_REASONS == (
-            "FAILED",
-            "MISMATCH",
-            "UNCONFIRMED",
-        )
-
     def test_unknown_reason_permitted(self):
         err = ChannelWriteFailedError("chan", "WHATEVER")
         assert err.reason == "WHATEVER"

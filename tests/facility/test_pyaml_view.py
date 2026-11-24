@@ -17,7 +17,6 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.facility.sources import group_families
 from osprey.facility.views import VIEWS
 from osprey.facility.views.pyaml import (
     CONFIGURATION_FILE,
@@ -26,6 +25,7 @@ from osprey.facility.views.pyaml import (
     pyaml_view_wanted,
     view_names,
 )
+from osprey_facility.sources import group_families
 from tests.facility._pyaml_trees import measured_tree, view_inputs, write_view
 
 

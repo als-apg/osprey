@@ -24,6 +24,7 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 from osprey.deployment.container_lifecycle import _preflight_internal_network_backend
+from tests._scoped_stdlib import scoped
 
 
 def _config(*services: str) -> dict:
@@ -54,7 +55,7 @@ def podman(monkeypatch):
 @pytest.mark.usefixtures("podman")
 def test_refuses_bluesky_on_cni(monkeypatch):
     """The one case this preflight exists for: bluesky + podman + cni."""
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("cni\n"))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe("cni\n"))
 
     with pytest.raises(RuntimeError) as excinfo:
         _preflight_internal_network_backend(_config("bluesky", "jupyter"))
@@ -70,7 +71,7 @@ def test_refuses_bluesky_on_cni(monkeypatch):
 @pytest.mark.usefixtures("podman")
 def test_refuses_the_optimizer_on_cni(monkeypatch):
     """The optimizer dual-homes onto its own internal network, so it shares the break."""
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("cni\n"))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe("cni\n"))
 
     with pytest.raises(RuntimeError) as excinfo:
         _preflight_internal_network_backend(_config("optimizer"))
@@ -83,7 +84,7 @@ def test_refuses_the_optimizer_on_cni(monkeypatch):
 
 @pytest.mark.usefixtures("podman")
 def test_names_every_stack_that_needs_it(monkeypatch):
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("cni\n"))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe("cni\n"))
 
     with pytest.raises(RuntimeError) as excinfo:
         _preflight_internal_network_backend(_config("bluesky", "optimizer"))
@@ -96,7 +97,7 @@ def test_names_every_stack_that_needs_it(monkeypatch):
 @pytest.mark.usefixtures("podman")
 def test_allows_bluesky_on_netavark(monkeypatch):
     """The supported host passes silently."""
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("netavark\n"))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe("netavark\n"))
 
     _preflight_internal_network_backend(_config("bluesky"))
 
@@ -108,7 +109,7 @@ def test_skips_when_bluesky_is_not_deployed(monkeypatch):
     def unexpected(cmd, **kwargs):
         raise AssertionError(f"probed the host for a bluesky-less deploy: {cmd}")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", unexpected)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=unexpected)
 
     _preflight_internal_network_backend(_config("jupyter", "postgresql"))
     _preflight_internal_network_backend({})
@@ -123,7 +124,7 @@ def test_skips_on_docker(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", unexpected)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=unexpected)
 
     _preflight_internal_network_backend(_config("bluesky"))
 
@@ -146,7 +147,7 @@ def test_skips_on_docker(monkeypatch):
 @pytest.mark.usefixtures("podman")
 def test_unreadable_backend_lets_the_deploy_through(monkeypatch, kwargs):
     """No answer means no opinion: never block a deploy on a host we cannot read."""
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe(**kwargs))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe(**kwargs))
 
     _preflight_internal_network_backend(_config("bluesky"))
 
@@ -154,7 +155,7 @@ def test_unreadable_backend_lets_the_deploy_through(monkeypatch, kwargs):
 @pytest.mark.usefixtures("podman")
 def test_unknown_backend_warns_rather_than_refuses(monkeypatch):
     """A backend nobody here has seen gets a warning, not a guess dressed as a refusal."""
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("slirp-of-the-future\n"))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_probe("slirp-of-the-future\n"))
     warnings = []
     monkeypatch.setattr(
         container_lifecycle,

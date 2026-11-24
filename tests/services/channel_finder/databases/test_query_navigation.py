@@ -1,14 +1,14 @@
 """Tree navigation behaviour of the hierarchical query mixin.
 
 Drives a real :class:`HierarchicalChannelDatabase` -- never a mock -- through
-``get_options_at_level`` and the ``_navigate_to_node`` /
+``get_options_at_level`` and the ``_navigate_to_nodes`` /
 ``_extract_tree_options`` helpers it delegates to, all in
 ``osprey.services.channel_finder.databases._hierarchical_query``.
 
 Four navigation behaviours are characterised here:
 
 * a selection that names nothing in the tree aborts navigation, and the public
-  entry point turns that into an empty option list rather than an error;
+  entry point refuses it, naming the selection, before navigating;
 * an ``instances`` level does not consume a selection -- navigation descends
   into the container whose key matches the *level name*, compared
   case-insensitively -- and simply stays put when no such container exists;
@@ -46,7 +46,7 @@ def _mixed_case_container_doc() -> dict:
 
     The conftest family always spells instance containers in upper case, which
     leaves the ``key.upper() == prev_level.upper()`` comparison in
-    ``_navigate_to_node`` indistinguishable from a plain ``key == level.upper()``
+    ``_navigate_to_nodes`` indistinguishable from a plain ``key == level.upper()``
     check. This shape separates the two: the level is named ``device`` and the
     container ``Device``, so navigation only reaches ``X`` if both sides are
     folded. ``_hierarchical_loading._find_level_container`` folds the same way,
@@ -79,7 +79,7 @@ def _mixed_case_container_doc() -> dict:
 
 
 class TestTreeDescent:
-    """``_navigate_to_node`` following ordinary ``tree``-level selections."""
+    """``_navigate_to_nodes`` following ordinary ``tree``-level selections."""
 
     def test_first_level_needs_no_selections(self, tree_only_db: HierarchicalChannelDatabase):
         """At the first level the loop breaks immediately and the root is used."""
@@ -103,13 +103,19 @@ class TestTreeDescent:
 
         assert options == [{"name": "Setpoint", "description": ""}]
 
-    def test_list_valued_selection_uses_its_first_entry(
+    def test_list_valued_selection_offers_the_options_under_every_entry(
         self, tree_only_db: HierarchicalChannelDatabase
     ):
-        """Selections may arrive as lists; navigation follows the first element."""
-        options = tree_only_db.get_options_at_level("device", {"system": ["SR", "BR"]})
+        """A level selected with several values offers what each of them holds, each once."""
+        options = tree_only_db.get_options_at_level(
+            "signal", {"system": "SR", "device": ["BPM", "QUAD", "BPM"]}
+        )
 
-        assert _names(options) == ["BPM", "QUAD"]
+        assert _names(options) == ["X", "Y", "Setpoint"]
+        assert options[0]["description"] == "Horizontal position"
+        assert _names(
+            tree_only_db.get_options_at_level("signal", {"system": "SR", "device": ["QUAD"]})
+        ) == ["Setpoint"]
 
 
 # ---------------------------------------------------------------------------
@@ -121,21 +127,90 @@ class TestInvalidPath:
     """A selection matching neither a child nor an expansion aborts the walk."""
 
     def test_unknown_selection_navigates_to_none(self, tree_only_db: HierarchicalChannelDatabase):
-        """No child ``NOPE`` and no ``_expansion`` to fall back on -> ``None``."""
-        assert tree_only_db._navigate_to_node("device", {"system": "NOPE"}) is None
+        """No child ``NOPE`` and no ``_expansion`` to fall back on -> no node."""
+        assert tree_only_db._navigate_to_nodes("device", {"system": "NOPE"}) == []
 
-    def test_unknown_selection_yields_no_options(self, tree_only_db: HierarchicalChannelDatabase):
-        """The public entry point reports the dead end as an empty list."""
-        assert tree_only_db.get_options_at_level("device", {"system": "NOPE"}) == []
+    def test_unknown_selection_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        """The public entry point names the selection that matches no node."""
+        with pytest.raises(ValueError, match=r"no 'system' named 'NOPE'"):
+            tree_only_db.get_options_at_level("device", {"system": "NOPE"})
         # ... and the same call with a real system does return options, so the
-        # empty list above is the navigation failure and not an empty fixture.
+        # refusal above is the unknown value and not an empty fixture.
         assert tree_only_db.get_options_at_level("device", {"system": "SR"}) != []
 
-    def test_empty_selection_list_yields_no_options(
+    def test_empty_selection_list_is_no_selection(self, tree_only_db: HierarchicalChannelDatabase):
+        """An empty list selects nothing, so the required level counts as skipped."""
+        with pytest.raises(ValueError, match=r"selections name no 'system'"):
+            tree_only_db.get_options_at_level("device", {"system": []})
+
+
+# ---------------------------------------------------------------------------
+# A selection naming no level or no node is refused
+# ---------------------------------------------------------------------------
+
+
+class TestRefusedSelections:
+    """The options request names the mistake and the defined choices."""
+
+    def test_an_undefined_level_is_refused_naming_every_level(
         self, tree_only_db: HierarchicalChannelDatabase
     ):
-        """An empty list collapses to ``None``, which matches no child."""
-        assert tree_only_db.get_options_at_level("device", {"system": []}) == []
+        with pytest.raises(ValueError, match=r"no level 'sectr'; levels: system, device, signal"):
+            tree_only_db.get_options_at_level("sectr", {})
+
+    def test_a_selection_key_that_is_no_level_is_refused(
+        self, tree_only_db: HierarchicalChannelDatabase
+    ):
+        with pytest.raises(
+            ValueError, match=r"selections name no level 'bogus'; levels: system, device, signal"
+        ):
+            tree_only_db.get_options_at_level("device", {"system": "SR", "bogus": "X"})
+
+    def test_a_value_naming_no_node_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'system'.*'NOPE'|'NOPE'.*'system'"):
+            tree_only_db.get_options_at_level("device", {"system": "NOPE"})
+
+    def test_every_value_of_a_list_is_checked(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'NOPE'"):
+            tree_only_db.get_options_at_level("device", {"system": ["SR", "NOPE"]})
+
+    def test_a_metadata_key_is_no_node(self, tree_only_db: HierarchicalChannelDatabase):
+        with pytest.raises(ValueError, match=r"'_description'"):
+            tree_only_db.get_options_at_level("device", {"system": "_description"})
+
+
+# ---------------------------------------------------------------------------
+# A skipped required tree level is refused
+# ---------------------------------------------------------------------------
+
+
+class TestSkippedLevel:
+    """Options are offered only below a selection of every required tree level."""
+
+    def test_a_skipped_tree_level_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
+        """``signal`` without a ``device`` names ``device`` instead of offering devices."""
+        with pytest.raises(ValueError, match="device"):
+            tree_only_db.get_options_at_level("signal", {"system": "SR"})
+
+    def test_a_skipped_optional_tree_level_is_allowed(
+        self, optional_tree_level_db: HierarchicalChannelDatabase
+    ):
+        """An ``optional`` tree level may be left out of the selections."""
+        options = optional_tree_level_db.get_options_at_level(
+            "signal", {"system": "SR", "device": "PS"}
+        )
+
+        assert options != []
+
+    def test_an_instance_level_needs_no_selection(
+        self, range_instances_db: HierarchicalChannelDatabase
+    ):
+        """An ``instances`` level after ``family`` is never part of the selections."""
+        options = range_instances_db.get_options_at_level(
+            "signal", {"system": "SR", "family": "BPM"}
+        )
+
+        assert options != []
 
 
 # ---------------------------------------------------------------------------
@@ -223,12 +298,11 @@ class TestExpandedInstanceSelection:
     ):
         """The fallback is not anchored to the first instance of the range."""
         for instance in ("CH-1", "CH-2", "CH-3"):
-            node = hybrid_expansion_db._navigate_to_node(
+            nodes = hybrid_expansion_db._navigate_to_nodes(
                 "signal", {"system": "SR", "device": instance}
             )
 
-            assert node is not None
-            assert node["_description"] == "Corrector channels"
+            assert [node["_description"] for node in nodes] == ["Corrector channels"]
 
     def test_direct_child_selection_skips_the_fallback(
         self, hybrid_expansion_db: HierarchicalChannelDatabase
@@ -240,18 +314,16 @@ class TestExpandedInstanceSelection:
 
         assert options == [{"name": "Status", "description": ""}]
 
-    def test_instance_outside_the_range_is_still_invalid(
+    def test_instance_outside_the_range_is_refused(
         self, hybrid_expansion_db: HierarchicalChannelDatabase
     ):
         """``CH-9`` looks like an instance but the expansion never generates it."""
         assert (
-            hybrid_expansion_db._navigate_to_node("signal", {"system": "SR", "device": "CH-9"})
-            is None
-        )
-        assert (
-            hybrid_expansion_db.get_options_at_level("signal", {"system": "SR", "device": "CH-9"})
+            hybrid_expansion_db._navigate_to_nodes("signal", {"system": "SR", "device": "CH-9"})
             == []
         )
+        with pytest.raises(ValueError, match=r"'CH-9'"):
+            hybrid_expansion_db.get_options_at_level("signal", {"system": "SR", "device": "CH-9"})
 
 
 # ---------------------------------------------------------------------------

@@ -7,20 +7,20 @@ cannot each pick their own spelling.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, TypedDict
 from zoneinfo import available_timezones
 
-from osprey.facility import FACILITY_FILE, fold_code
 from osprey_connectors import config as connector_config
+from osprey_facility import FACILITY_FILE, fold_code
+from osprey_facility.errors import FacilityFileError
+from osprey_facility.reading import load_facility
 
 __all__ = [
     "DEFAULT_FACILITY_ZONE",
     "SET_FACILITY_ZONE",
-    "FacilityFileError",
     "FacilityIdentity",
     "closest_zone_name",
     "facility_identity",
@@ -38,14 +38,6 @@ SET_FACILITY_ZONE = (
     "Set system.timezone under `config:` in profile.yml to your facility's zone, "
     "for example America/New_York."
 )
-
-
-class FacilityFileError(ValueError):
-    """A render's facility file is present but cannot be used.
-
-    It is unreadable, not JSON, not an object, or (for the identity read) names
-    no identity code. Only an absent file is ever an absence.
-    """
 
 
 class FacilityIdentity(TypedDict):
@@ -83,7 +75,8 @@ def facility_identity(
 
     Raises:
         FacilityFileError: The facility file is present but cannot be read, is
-            not JSON, or names no identity code.
+            not a JSON object, carries a header this reader does not read (the
+            message names the rebuild), or names no identity code.
     """
     recorded = _recorded_identity(render_root)
     if recorded is not None:
@@ -136,7 +129,8 @@ def facility_name(render_root: Path, project_name: Any) -> str:
 
     Raises:
         FacilityFileError: The facility file is present but cannot be read, is
-            not JSON, or names no identity code.
+            not a JSON object, carries a header this reader does not read (the
+            message names the rebuild), or names no identity code.
     """
     identity = facility_identity(render_root, str(project_name) if project_name else None)
     return identity["name"] if identity is not None else ""
@@ -152,21 +146,16 @@ def _recorded_identity(render_root: Path) -> dict[str, Any] | None:
         dict[str, Any] | None: The record, or ``None`` when the file is absent.
 
     Raises:
-        FacilityFileError: The file is present but cannot be read, is not
-            JSON, or names no identity code.
+        FacilityFileError: The file is present but cannot be read, is not a
+            JSON object, carries a header this reader does not read (the
+            message names the rebuild), or names no identity code.
     """
     path = Path(render_root) / FACILITY_FILE
     try:
-        text = path.read_text(encoding="utf-8")
+        document = load_facility(path)
     except FileNotFoundError:
         return None
-    except (OSError, UnicodeDecodeError) as exc:
-        raise FacilityFileError(f"The facility file {path} cannot be read: {exc}") from exc
-    try:
-        document = json.loads(text)
-    except ValueError as exc:
-        raise FacilityFileError(f"The facility file {path} is not JSON: {exc}") from exc
-    identity = document.get("identity") if isinstance(document, dict) else None
+    identity = document.get("identity")
     if not isinstance(identity, dict) or not identity.get("code"):
         raise FacilityFileError(f"The facility file {path} names no identity code")
     return identity

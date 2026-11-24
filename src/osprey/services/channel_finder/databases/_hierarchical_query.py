@@ -11,6 +11,23 @@ from typing import Any
 from ._hierarchical_base import _HierarchicalBase
 
 
+class UnselectedLevelError(ValueError):
+    """An options request whose selections leave out a required level above it.
+
+    Attributes:
+        level: The required level the selections name no value for.
+        requested: The level whose options were asked for.
+    """
+
+    def __init__(self, level: str, requested: str) -> None:
+        self.level = level
+        self.requested = requested
+        super().__init__(
+            f"selections name no {level!r}; "
+            f"get the {level!r} options before the {requested!r} options"
+        )
+
+
 class _HierarchicalQueryMixin(_HierarchicalBase):
     """Level-option enumeration, tree navigation, and channel lookup."""
 
@@ -30,97 +47,173 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
 
         Returns:
             List of options with name and description
-        """
-        # Navigate to current position in tree (skipping instance levels)
-        current_node = self._navigate_to_node(level, previous_selections)
 
-        if not current_node:
+        Raises:
+            UnselectedLevelError: ``previous_selections`` omit a required tree
+                level above ``level``.
+            ValueError: ``level`` is no hierarchy level; a key of
+                ``previous_selections`` is no hierarchy level; or a value selected at
+                a tree level above ``level`` names no node under the selections
+                above it. Options are offered only below a selection of every
+                required tree level above ``level``; instance levels and tree
+                levels declared ``optional`` may be omitted, and an empty
+                selection is no selection.
+        """
+        self._check_selections(previous_selections, level)
+
+        level_type = self.hierarchy_config["levels"][level]["type"]
+        if level_type not in ("tree", "instances"):
             return []
 
-        # Get level configuration
-        level_config = self.hierarchy_config["levels"][level]
-        level_type = level_config["type"]
+        # Every node the selections reach: a level selected with several values
+        # offers the options under each of them, each name once, in first-seen order.
+        options: dict[str, dict[str, str]] = {}
+        for node in self._navigate_to_nodes(level, previous_selections):
+            if not node:
+                continue
+            found = (
+                self._extract_tree_options(node)
+                if level_type == "tree"
+                else self._get_expansion_options(node, level)
+            )
+            for option in found:
+                options.setdefault(option["name"], option)
+        return list(options.values())
 
-        # Extract options based on level type
-        if level_type == "tree":
-            # Direct children of current node
-            return self._extract_tree_options(current_node)
+    def required_tree_levels(self) -> list[str]:
+        """The levels an options request must select above the level it asks about.
 
-            # OPTIONAL LEVEL BEHAVIOR: For optional tree levels, INCLUDE both:
-            # 1. Containers (subdevices, subsystems, etc.) - these lead to deeper navigation
-            # 2. Leaf nodes (direct signals) - these skip this optional level
-            # This allows the LLM to naturally select either a subdevice (PSU, ADC, etc.)
-            # OR a direct signal (Heartbeat, Status, etc.) without needing to reason about
-            # "NOTHING_FOUND". The navigation logic will handle both cases appropriately.
-
-        if level_type == "instances":
-            # Find expansion definition for this level
-            return self._get_expansion_options(current_node, level)
-
-        return []
-
-    def _navigate_to_node(
-        self, target_level: str, previous_selections: dict[str, Any]
-    ) -> dict | None:
+        Every tree level not declared ``optional``, top to bottom; instance
+        levels and optional tree levels may be left out.
         """
-        Navigate to current node in tree based on previous selections.
+        levels = self.hierarchy_config["levels"]
+        return [
+            level
+            for level in self.hierarchy_levels
+            if levels[level]["type"] == "tree" and not levels[level].get("optional", False)
+        ]
 
-        Key behavior: Instance levels do NOT change tree position during selection,
-        but we DO navigate INTO their containers to find children.
+    def _check_selections(
+        self, selections: dict[str, Any], target_level: str | None = None
+    ) -> None:
+        """Raise ``ValueError`` naming the first mistake in a request's selections.
+
+        Every request is refused when ``target_level`` or a key of ``selections``
+        is no hierarchy level. An options request (``target_level`` given) is
+        also refused when a required tree level above ``target_level`` has no
+        selection (an :class:`UnselectedLevelError`), or when a value selected
+        at a tree level above it reaches no node from the nodes the levels above
+        reach. Instance levels are walked the way navigation walks them; their
+        selections are not checked.
+        """
+        levels = self.hierarchy_levels
+        defined = ", ".join(levels)
+        if target_level is not None and target_level not in levels:
+            raise ValueError(f"no level {target_level!r}; levels: {defined}")
+        for key in selections:
+            if key not in levels:
+                raise ValueError(f"selections name no level {key!r}; levels: {defined}")
+        if target_level is None:
+            return
+
+        required = set(self.required_tree_levels())
+        frontier = [self.tree]
+        for prev_level in levels:
+            if prev_level == target_level:
+                return
+            if self.hierarchy_config["levels"][prev_level]["type"] == "instances":
+                frontier = [self._enter_instance_container(node, prev_level) for node in frontier]
+                continue
+            values = [value for value in self._ensure_list(selections.get(prev_level)) if value]
+            if not values:
+                if prev_level in required:
+                    raise UnselectedLevelError(level=prev_level, requested=target_level)
+                continue
+            reached: dict[int, dict] = {}
+            for value in values:
+                found = False
+                for node in frontier:
+                    child = self._follow_tree_value(node, value)
+                    if child is not None:
+                        reached.setdefault(id(child), child)
+                        found = True
+                if not found:
+                    raise ValueError(
+                        f"no {prev_level!r} named {value!r} under the selections above it"
+                    )
+            frontier = list(reached.values())
+
+    def _enter_instance_container(self, node: dict, level: str) -> dict:
+        """The container named after an instance ``level`` (case-folded), else ``node``."""
+        for key, value in node.items():
+            if key.upper() == level.upper() and isinstance(value, dict):
+                return value
+        return node
+
+    def _follow_tree_value(self, node: dict, value: Any) -> dict | None:
+        """The node a tree-level ``value`` selects under ``node``, or ``None``.
+
+        A value selects a direct child that is a node (a dict whose key does not
+        start with ``_``), or else the child container whose ``_expansion``
+        generates it (``CH-1`` selects ``CH`` holding a ``CH-{}`` range).
+        """
+        if not isinstance(value, str):
+            return None
+        child = node.get(value)
+        if isinstance(child, dict) and not value.startswith("_"):
+            return child
+        for key, child in node.items():
+            if (
+                not key.startswith("_")
+                and isinstance(child, dict)
+                and "_expansion" in child
+                and value in self._get_instance_names(child["_expansion"])
+            ):
+                return child
+        return None
+
+    def _navigate_to_nodes(
+        self, target_level: str, previous_selections: dict[str, Any]
+    ) -> list[dict]:
+        """
+        The nodes the selections above ``target_level`` reach, each once, in order.
+
+        A tree level selected with several values follows each of them; an empty
+        selection is no selection. Instance levels do NOT change tree position
+        during selection, but we DO navigate INTO their containers to find children.
 
         Args:
             target_level: Level we're getting options for
             previous_selections: Selections made at previous levels
 
         Returns:
-            Current node in tree, or None if path invalid
+            The reached nodes; empty when a selected value reaches no node
         """
-        current_node = self.tree
+        frontier = [self.tree]
 
-        # Navigate through previous levels
         for prev_level in self.hierarchy_levels:
             if prev_level == target_level:
                 break
 
-            level_config = self.hierarchy_config["levels"][prev_level]
+            level_type = self.hierarchy_config["levels"][prev_level]["type"]
 
             # Instance levels: navigate INTO container but don't use selection
-            if level_config["type"] == "instances":
-                # Find and enter the container for this instance level
-                for key, value in current_node.items():
-                    if key.upper() == prev_level.upper() and isinstance(value, dict):
-                        current_node = value
-                        break
+            if level_type == "instances":
+                frontier = [self._enter_instance_container(node, prev_level) for node in frontier]
                 continue
 
-            # Tree levels - navigate down using selection
-            if level_config["type"] == "tree" and prev_level in previous_selections:
-                selection = self._get_single_value(previous_selections[prev_level])
+            values = [v for v in self._ensure_list(previous_selections.get(prev_level)) if v]
+            if level_type != "tree" or not values:
+                continue
+            reached: dict[int, dict] = {}
+            for value in values:
+                for node in frontier:
+                    child = self._follow_tree_value(node, value)
+                    if child is not None:
+                        reached.setdefault(id(child), child)
+            frontier = list(reached.values())
 
-                if selection and selection in current_node:
-                    current_node = current_node[selection]
-                else:
-                    # No direct match - check if selection is an expanded instance
-                    # (e.g., selection="CH-1" but tree has "CH" with _expansion)
-                    found_via_expansion = False
-                    for key, value in current_node.items():
-                        if (
-                            not key.startswith("_")
-                            and isinstance(value, dict)
-                            and "_expansion" in value
-                        ):
-                            # This node has an expansion - check if it generates our selection
-                            instance_names = self._get_instance_names(value["_expansion"])
-                            if selection in instance_names:
-                                # Found the container that expands to our selected instance
-                                current_node = value
-                                found_via_expansion = True
-                                break
-
-                    if not found_via_expansion:
-                        return None  # Invalid path
-
-        return current_node
+        return frontier
 
     def _extract_tree_options(self, node: dict) -> list[dict[str, str]]:
         """

@@ -19,7 +19,8 @@ as **cross-linked Markdown files with YAML frontmatter**, so the same files can
 be read by a person, tracked in version control, and navigated by an agent. It
 was introduced by Google; see the `Google Cloud blog post
 <https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>`_
-for the original description.
+for the original description. OSPREY reads and writes version 0.3 of the
+`specification <https://github.com/open-knowledge-format/open-knowledge-format/blob/main/SPEC.md>`_, and still reads bundles written for 0.1 and 0.2.
 
 OSPREY uses OKF for **facility narrative knowledge** — the descriptive,
 human-authored context that does not belong in the channel database (that is the
@@ -46,13 +47,14 @@ to discover what exists and then read only the document it needs, instead of
 loading the whole bundle. Regenerate these indexes with
 ``osprey knowledge regen-index`` after adding or removing documents.
 
-**3. Cross-links.** Documents reference each other with bundle-relative
-Markdown links, so the agent can follow references from one document to related
-ones:
+**3. Cross-links.** Documents reference each other with Markdown links, so the
+agent can follow them. A target that starts with ``/`` is read from the bundle
+root, any other from the directory of the document it is written in:
 
 .. code-block:: markdown
 
    See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
+   See [Vacuum System](vacuum.md), a document in the same directory.
 
 **Facility links.** A document names a channel, a device or a place of the
 facility file with a ``facility:`` link to its address, device id or place id. Wrap the whole
@@ -149,7 +151,7 @@ Working with a Bundle
            - One-sentence summary used in indexes and search
 
       Optional fields: ``tags`` (list of strings). Documents cross-reference
-      each other with bundle-relative Markdown links, as shown in
+      each other with Markdown links, as shown in
       `The Core Ideas`_ above.
 
       **Pointing the server at the bundle.** Add a ``facility_knowledge`` block
@@ -199,19 +201,22 @@ Working with a Bundle
    .. tab-item:: Connecting to OSPREY
 
       The ``osprey_facility_knowledge`` MCP server reads the OKF bundle at
-      startup and exposes it to the agent through five tools:
+      startup and exposes it to the agent through six tools:
 
       * ``list_concepts`` — browse the index to discover what topics exist
       * ``read_concept`` — retrieve a document by its concept ID (its bundle
-        path minus the ``.md`` extension, e.g. ``subsystems/timing-system``)
+        path minus the ``.md`` extension, e.g. ``subsystems/timing-system``),
+        with the images it embeds (see `Images`_)
       * ``search`` — ranked search across all concept documents (see
         `Searching the Bundle`_)
+      * ``view_asset`` — look at an image stored in the bundle, by the path
+        ``read_concept`` lists
       * ``capabilities`` — report the bundle's path, size and concept types
       * ``draft_concept`` — author a new concept document (requires human approval)
 
-      Each of the three read tools also names a ``url`` per concept — the link
-      that opens it in the KNOWLEDGE panel. It is relative to the page the
-      operator is on, so the agent can cite a concept as a markdown link on a
+      ``list_concepts``, ``read_concept`` and ``search`` also name a ``url`` per
+      concept — the link that opens it in the KNOWLEDGE panel. It is relative to the
+      page the operator is on, so the agent can cite a concept as a markdown link on a
       single-user deployment and behind a per-user mount alike. In the operator
       chat, clicking such a link opens the KNOWLEDGE panel in
       the workspace at that concept.
@@ -219,10 +224,10 @@ Working with a Bundle
       **The facility-knowledge subagent.** When it is enabled in a project's
       config, the main OSPREY agent delegates facility knowledge questions to this
       dedicated specialist rather than handling them inline. The subagent has
-      access only to the three read-only tools (``list_concepts``,
-      ``read_concept``, ``search``) and follows a fixed retrieval strategy: list
-      first to orient, search to narrow, read to synthesize, then submit the
-      result.
+      access only to the four read-only tools (``list_concepts``,
+      ``read_concept``, ``search``, ``view_asset``) and follows a fixed
+      retrieval strategy: list first to orient, search to narrow, read to
+      synthesize, then submit the result.
 
       It is enabled by default in the ``demo`` preset. To enable or
       disable it in a generated project, set the agent's ``enabled`` flag under
@@ -272,9 +277,11 @@ Working with a Bundle
 
          regenerate_indexes(Path("data/facility/knowledge"))
 
-      The root ``index.md`` includes an ``okf_version`` frontmatter key;
-      sub-directory indexes contain no frontmatter (they are consumed by the
-      server, not the agent directly).  The command is idempotent — a second run
+      The root ``index.md`` holds the bundle's metadata as frontmatter:
+      ``okf_version``, and any ``title``, ``description``, ``license`` or
+      other key you add. Regeneration keeps that block as written, and writes
+      ``okf_version: "0.3"`` only into a root index without one. Sub-directory
+      indexes contain no frontmatter.  The command is idempotent — a second run
       produces bit-identical output — and never touches concept documents, only
       index files.
 
@@ -287,11 +294,16 @@ Working with a Bundle
          All files in data/facility/knowledge are valid.
 
       Concept documents are checked at the *authoring* level (``type``,
-      ``title``, and ``description`` must be present and non-empty).  Index files
-      are checked for frontmatter compliance (OKF §6/§11) and must match what
-      ``regen-index`` writes, so a page added, removed or retitled without
-      regenerating fails validation.  The command exits 0 on a clean bundle, 1
-      if any file fails.
+      ``title``, and ``description`` must be present and non-empty).  A Markdown
+      file with no ``type``, such as a ``README.md``, is not a concept: it gets a
+      warning and stays out of the indexes and search.  Files and directories
+      whose name starts with ``.`` are not in the bundle.  Index files are checked
+      for frontmatter compliance (OKF §8) and must match what ``regen-index``
+      writes, so a page added, removed or retitled without regenerating fails; a
+      ``log.md`` must have no frontmatter.  Each image a concept embeds that is
+      missing, of a type the bundle does not allow, over the size limit or
+      without alt text gets a warning (see `Images`_).  The command exits 0 on a
+      clean bundle, 1 if any file fails; image warnings do not fail it.
 
       **seed-from-ttl** — seeds one OKF stub document per device of the build's
       graph view, ``build/data/graph/facility.ttl`` in the deployment repo
@@ -324,6 +336,41 @@ Working with a Bundle
       ``osprey build`` and ``osprey facility validate`` warn, once per page,
       when the value is no device id in ``facility.json``, and go on building.
       A page without the key is not linked and never warns.
+
+
+Images
+======
+
+Some knowledge is easier to show than to describe: a pickup geometry, a rack
+layout, a timing diagram. A concept can embed an image stored in the bundle;
+the KNOWLEDGE panel shows it in the document, and the agent can look at it.
+The example bundle's ``devices/bpm`` concept embeds a figure kept in
+``figures/`` beside it:
+
+.. code-block:: markdown
+
+   ![Cross-section of a button BPM](figures/bpm-button-pickups.png)
+
+The target resolves like a link (see `The Core Ideas`_), here to
+``devices/figures/bpm-button-pickups.png``. A reference-style image and a raw
+HTML ``<img>`` work the same way.
+
+* **Types** — PNG, JPEG, GIF, WebP and SVG, judged by the file's content, not
+  its name. At most 10 MB.
+* **Alt text** — every image needs it: the panel shows it when the image cannot
+  be shown, and the agent reads it before deciding to look.
+* **Remote images are not loaded.** An ``https:``, ``//`` or ``data:`` target
+  shows its alt text, with a link to an ``http(s):`` address.
+* **SVG is panel-only.** The agent cannot view it.
+* **Markdown inside a raw HTML block**, such as ``![…](…)`` within a
+  ``<div>``, is checked by ``validate`` and listed to the agent, but the panel
+  may not show it. Use ``<img>`` there.
+
+``read_concept`` lists each in-bundle image with its path, alt text and whether
+the agent can view it; ``view_asset`` returns the image. An image larger than
+512 KiB or longer than 1024 px on a side reaches the agent scaled down. A model
+on a route that carries no images gets a note in its place (see
+:ref:`what-the-translated-route-does-not-carry`).
 
 
 Searching the Bundle

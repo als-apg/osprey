@@ -86,10 +86,11 @@ import pytest
 import yaml
 
 from osprey.deployment.compose_generator import ensure_control_target_dir, resolve_project_name
-from osprey.facility.records import FacilityRecords
 from osprey_connectors import posture_store
 from osprey_connectors.types import TARGET_VA
 from osprey_connectors_tests._harness._ports import hold_ports
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import (
     container_logs,
@@ -128,9 +129,18 @@ VA_ACTIVE_SCENARIOS = "/state/simulation/active_scenarios"
 SCENARIO_VISIBLE_SEC = 30.0
 
 #: The band of the limits record this suite authors for each sp-echo setpoint
-#: it drives. An sp-echo is a software copy with no physical range, so any band
-#: clear of 0.0 serves.
-SP_ECHO_BAND = (280.0, 360.0)
+#: it drives, as fractions of the setpoint's seeded nominal. An sp-echo is a
+#: software copy with no physical range, so any band serves that holds the
+#: nominal, which the build requires of a limits record, and is clear of 0.0.
+#: The nominal sits off the band's midpoint, the value P3 writes, so that write
+#: moves the readback.
+SP_ECHO_SPAN = (0.8, 1.3)
+
+
+def _sp_echo_band(nominal: float) -> tuple[float, float]:
+    """The band this suite authors for an sp-echo setpoint seeded at ``nominal``."""
+    low, high = SP_ECHO_SPAN
+    return low * nominal, high * nominal
 
 
 # Channel Access port the Virtual Accelerator serves on. A port reserved for
@@ -281,10 +291,10 @@ def _seed_nominal(repo: Path, address: str) -> float:
     return float(seed.get("nominal") or 0.0)
 
 
-def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
+def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str, float]]:
     """Derive ``count`` disjoint sp-echo (setpoint, readback) pairs from the
-    Bluesky view of the repo's own facility tree -- no hardcoded preset
-    channels.
+    Bluesky view of the repo's own facility tree, each with its setpoint's
+    seeded nominal -- no hardcoded preset channels.
 
     A candidate is a settable of that view that names a readback. Restricted
     to the sp-echo partition rather than every settable: a write the lattice
@@ -296,40 +306,41 @@ def _select_sp_echo_pairs(repo: Path, count: int) -> list[tuple[str, str]]:
     Which of the two a channel is, is read off the facility file's own
     models: an address a physics model wires is coupled to the model, and a
     writable address no physics model wires is the software echo this probe
-    wants. Only a float setpoint seeded inside ``SP_ECHO_BAND`` is a
-    candidate: the probe authors that band as the setpoint's limits record,
-    which a bool or enum channel does not carry and which the build refuses
-    when it excludes the channel's operating point. The facility file and its
-    view are built in memory from the repo's tree, because the pairs are
+    wants. Only a float setpoint seeded above zero is a candidate: the probe
+    authors a band around that nominal as the setpoint's limits record
+    (:func:`_sp_echo_band`), which a bool or enum channel does not carry and
+    which is clear of 0.0 only around a nominal that is. The facility file and
+    its view are built in memory from the repo's tree, because the pairs are
     chosen before the build.
     """
-    from osprey.facility import TEXTURE
-    from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
+    from osprey_facility import TEXTURE
+    from osprey_facility.build import build_facility
 
-    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    facility = build_facility(
+        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+    )
     coupled = {
         str(entry["address"])
         for model in facility.get("models") or []
         if model.get("engine") != TEXTURE
         for entry in simulator_wiring(FacilityRecords(facility), str(model["name"]))
     }
-    low, high = SP_ECHO_BAND
-    in_band = {
-        str(channel["id"])
+    nominals = {
+        str(channel["id"]): float(nominal)
         for channel in facility.get("channels") or []
         if channel.get("value_type", "float") == "float"
         and isinstance(nominal := (channel.get("simulation") or {}).get("nominal"), int | float)
-        and low <= nominal <= high
+        and nominal > 0
     }
     document = bluesky_document(FacilityRecords(facility))
     pairs = sorted(
-        (entry["setpoint"], entry["readback"])
+        (entry["setpoint"], entry["readback"], nominals[entry["setpoint"]])
         for entry in document[SETTABLES_KEY]
         if "readback" in entry
-        and entry["setpoint"] in in_band
+        and entry["setpoint"] in nominals
         and entry["setpoint"] not in coupled
         and entry["readback"] not in coupled
     )
@@ -349,14 +360,16 @@ def _select_stuck_corrector(repo: Path, limits: dict[str, Any]) -> tuple[str, st
     that same model wires, and which a limits record gives a range to write
     inside. The first by setpoint address is taken.
     """
-    from osprey.facility import TEXTURE
-    from osprey.facility.build import build_facility
     from osprey.facility.views.bluesky import bluesky_document
     from osprey.facility.views.simulator import simulator_wiring
     from osprey.services.bluesky_bridge.devices._specs_from_file import SETTABLES_KEY
     from osprey_connectors.simulation.view import Binding
+    from osprey_facility import TEXTURE
+    from osprey_facility.build import build_facility
 
-    facility = build_facility(repo / "data" / "facility", project_name=repo.name)
+    facility = build_facility(
+        repo / "data" / "facility", project_name=repo.name, extra_checks=FRAMEWORK_CHECKS
+    )
     readback_of = {
         entry["setpoint"]: entry["readback"]
         for entry in bluesky_document(FacilityRecords(facility))[SETTABLES_KEY]
@@ -405,19 +418,18 @@ def _author_stuck_scenario(repo: Path, setpoint: str) -> None:
     path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
 
 
-def _author_sp_echo_records(repo: Path, setpoints: list[str]) -> None:
-    """Append one limits record per setpoint to the repo's ``limits.yaml``.
+def _author_sp_echo_records(repo: Path, nominals: dict[str, float]) -> None:
+    """Append one limits record per setpoint to the repo's ``limits.yaml``,
+    each the band around that setpoint's seeded nominal.
 
     The suite's own throwaway tree, written before the build so the render
     enforces the same records :func:`_orm_stack.channel_limits` reads back.
-    ``SP_ECHO_BAND`` is wide of 0.0, the readbacks' initial value.
     """
     limits_file = repo / "data" / "facility" / "limits.yaml"
     limits = yaml.safe_load(limits_file.read_text(encoding="utf-8"))
-    low, high = SP_ECHO_BAND
-    limits["records"].extend(
-        {"address": setpoint, "min_value": low, "max_value": high} for setpoint in setpoints
-    )
+    for setpoint, nominal in nominals.items():
+        low, high = _sp_echo_band(nominal)
+        limits["records"].append({"address": setpoint, "min_value": low, "max_value": high})
     limits_file.write_text(yaml.safe_dump(limits, sort_keys=False), encoding="utf-8")
 
 
@@ -545,12 +557,12 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # The pairs come from the source zone's facility tree, which exists once
     # `init` has written the repo, and their limits records and P5's scenario
     # go into that tree before the build renders it.
-    sp3, sp4 = _select_sp_echo_pairs(repo, count=2)
-    _author_sp_echo_records(repo, [sp3[0], sp4[0]])
+    (*sp3, nominal3), (*sp4, nominal4) = _select_sp_echo_pairs(repo, count=2)
+    _author_sp_echo_records(repo, {sp3[0]: nominal3, sp4[0]: nominal4})
     limits = _orm_stack.channel_limits(repo)
     p5_sp, p5_rb = _select_stuck_corrector(repo, limits)
     _author_stuck_scenario(repo, p5_sp)
-    pairs = {"p3": sp3, "p4": sp4, "p5": (p5_sp, p5_rb)}
+    pairs = {"p3": tuple(sp3), "p4": tuple(sp4), "p5": (p5_sp, p5_rb)}
 
     build = run_command(
         [str(osprey_bin), "build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle", "--dev"],

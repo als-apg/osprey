@@ -43,6 +43,8 @@ from docs.screenshots.video_take import (
 from docs.screenshots.video_timeline import Timeline
 from docs.screenshots.videos import video_named
 
+from tests._scoped_stdlib import scoped
+
 SECRET = "s3cret/+=token"
 LANDING_LAYOUT = video_named("landing").layout
 # The engine's terminal path, which no registered video may name.
@@ -546,8 +548,8 @@ def _stub_web_launch(monkeypatch, *, ready: bool = True):
     monkeypatch.setattr(capture, "verify_vendor_bundles", lambda: ([], []))
     popen = Mock()
     run = Mock()
-    monkeypatch.setattr(capture.subprocess, "Popen", popen)
-    monkeypatch.setattr(capture.subprocess, "run", run)
+    scoped(monkeypatch, capture, "subprocess", Popen=popen)
+    scoped(monkeypatch, capture, "subprocess", run=run)
     # The detached launch names the port its server bound.
     popen.return_value.communicate.return_value = (
         "Web terminal started (PID 4242).\n  URL   http://127.0.0.1:5151\n",

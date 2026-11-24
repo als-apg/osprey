@@ -42,7 +42,7 @@ class DirectoryRow:
 
 @dataclass(frozen=True, kw_only=True)
 class DirectoryRecord:
-    """One PV in full. Every property is optional and a string, as measured."""
+    """One channel in full. Every property is optional and a string, as measured."""
 
     row: DirectoryRow
     properties: Mapping[str, str] = field(default_factory=dict)
@@ -103,8 +103,24 @@ class DirectoryPage:
         _require_reason(self.outcome, self.reason)
 
 
+@dataclass(frozen=True, kw_only=True)
+class ServerRow:
+    """One server process, as the directory lists it: an EPICS IOC, a Tango device server.
+
+    ``name`` is the value the directory's rows carry in ``server``, ``host`` the
+    machine it runs on (``None`` when the directory does not say), ``channel_count``
+    how many channels the directory lists for it and ``inactive_count`` how many
+    of those it marks ``Inactive``.
+    """
+
+    name: str
+    host: str | None
+    channel_count: int
+    inactive_count: int
+
+
 class ChannelDirectory(_Backend, ABC):
-    """Search the control system's own directory of PVs."""
+    """Search the control system's own directory of channels."""
 
     @property
     def field_properties(self) -> Mapping[str, str]:
@@ -126,7 +142,7 @@ class ChannelDirectory(_Backend, ABC):
     async def describe(
         self, name: str, deadline: float
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
-        """The record of the PV called exactly *name*, or ``NOT_LISTED``."""
+        """The record of the channel called exactly *name*, or ``NOT_LISTED``."""
 
     @abstractmethod
     async def property_names(self, deadline: float) -> list[str] | Unavailable:
@@ -137,6 +153,15 @@ class ChannelDirectory(_Backend, ABC):
         self, name: str, prefix: str | None, deadline: float
     ) -> list[str] | Unavailable:
         """The values of property *name*, those starting with *prefix* if given."""
+
+    async def list_servers(self, deadline: float) -> list[ServerRow] | Unavailable:  # noqa: ARG002
+        """Every server the directory lists, one row each, unique by name.
+
+        The list is complete or not given: a deadline miss or a page-through cut
+        short answers ``Unavailable``, never part of the list. A backend that
+        cannot list its servers keeps this default, which says so.
+        """
+        return Unavailable("this directory cannot list its servers")
 
     @abstractmethod
     async def probe(self, deadline: float) -> str | Unavailable:

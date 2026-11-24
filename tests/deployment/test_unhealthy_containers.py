@@ -1,8 +1,8 @@
 """``unhealthy_containers``: this repo's containers whose healthcheck failed.
 
 The read behind the closing line of a detached start. Pinned against the two
-listings the supported runtimes emit, scoped by the repo label, and advisory
-on every way the host can decline to answer.
+listings the supported runtimes emit, scoped by the deployment's ownership
+rule, and advisory on every way the host can decline to answer.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from osprey.deployment.deployment_record import (
     DeploymentRecord,
     write_deployment_record,
 )
+from tests._scoped_stdlib import scoped
 
 DOCKER_LISTING = "\n".join(
     json.dumps(row)
@@ -61,7 +62,7 @@ def test_docker_names_the_container_whose_status_says_unhealthy(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _FakePs(DOCKER_LISTING)
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
 
     assert unhealthy_containers(repo) == ["demo-bluesky-bridge"]
 
@@ -69,7 +70,7 @@ def test_docker_names_the_container_whose_status_says_unhealthy(
 def test_podman_names_the_container_whose_health_field_says_so(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(PODMAN_LISTING))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs(PODMAN_LISTING))
 
     assert unhealthy_containers(repo) == ["demo-bluesky-bridge"]
 
@@ -78,32 +79,48 @@ def test_the_listing_is_scoped_to_this_repo_and_includes_stopped_containers(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = _FakePs("")
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
 
     unhealthy_containers(repo)
 
     (cmd,) = fake.calls
     assert cmd[:3] == ["docker", "ps", "-a"]
-    assert cmd[cmd.index("--filter") + 1] == container_lifecycle._repo_label_filter(repo)
+    assert cmd[cmd.index("--filter") + 1] == "label=com.docker.compose.project=demo"
     assert cmd[-2:] == ["--format", "json"]
+
+
+def test_another_checkouts_unhealthy_container_is_not_named(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    listing = json.dumps(
+        {
+            "Names": "demo-bluesky-bridge",
+            "State": "running",
+            "Status": "Up 2 minutes (unhealthy)",
+            "Labels": "com.docker.compose.project=demo,com.osprey.repo-id=someone-else",
+        }
+    )
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs(listing))
+
+    assert unhealthy_containers(repo) == []
 
 
 def test_a_healthy_stack_answers_nothing(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     listing = json.dumps({"Names": "demo-redis", "Status": "Up 2 minutes (healthy)"})
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs(listing))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs(listing))
 
     assert unhealthy_containers(repo) == []
 
 
 def test_a_listing_that_fails_is_not_a_failure(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _FakePs("", returncode=1))
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_FakePs("", returncode=1))
 
     assert unhealthy_containers(repo) == []
 
 
 def test_no_record_asks_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     fake = _FakePs(DOCKER_LISTING)
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
 
     assert unhealthy_containers(tmp_path) == []
     assert fake.calls == []
@@ -113,7 +130,7 @@ def test_an_unreadable_record_asks_nothing(tmp_path: Path, monkeypatch: pytest.M
     (tmp_path / DEPLOYMENT_RECORD_RELPATH).parent.mkdir(parents=True)
     (tmp_path / DEPLOYMENT_RECORD_RELPATH).write_text("{not json", encoding="utf-8")
     fake = _FakePs(DOCKER_LISTING)
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
 
     assert unhealthy_containers(tmp_path) == []
     assert fake.calls == []
@@ -126,7 +143,7 @@ def test_the_record_selects_the_runtime(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setenv("CONTAINER_RUNTIME", "docker")
     write_deployment_record(tmp_path, DeploymentRecord("podman", "demo"))
     fake = _FakePs("[]")
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=fake)
 
     unhealthy_containers(tmp_path)
 
@@ -142,6 +159,6 @@ def test_a_listing_with_no_output_at_all_is_not_a_failure(
     def _bare(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _bare)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_bare)
 
     assert unhealthy_containers(repo) == []

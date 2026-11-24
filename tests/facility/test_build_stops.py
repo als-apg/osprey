@@ -3,10 +3,12 @@
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
 ``data/facility`` tree of a demo repo, beside any profile edit the
-case makes, and runs through ``osprey build --skip-deps`` and through
-``osprey facility validate``; both must print the case's line byte for byte on
-stderr and exit 1. A render is checked by the build alone, so a case
-that breaks one runs through ``osprey build --skip-deps`` only.
+case makes, and runs through ``osprey facility validate``, which must print the
+case's line byte for byte on stderr and exit 1. ``osprey build --skip-deps``
+must print the same line; it runs every case whose stop is not the facility
+stages' alone, and one case of each other kind (``BUILD_IDS``). A render is
+checked by the build alone, so a case that breaks one runs through
+``osprey build --skip-deps`` only.
 """
 
 from __future__ import annotations
@@ -27,14 +29,15 @@ from click.testing import CliRunner
 
 import osprey.facility
 from osprey.cli.main import cli
-from osprey.facility.build import build_facility
-from osprey.facility.errors import KINDS
-from osprey.facility.records import FacilityRecords
 from osprey.facility.settings import NO_READBACK_WARNING
 from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.state import STILL_SCENARIO
-from tests._builds import init_project, run_build
+from osprey_facility.build import build_facility
+from osprey_facility.errors import KINDS, FacilityBuildError
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS, init_project, run_build
+from tests._facility_file import FACILITY_V4
 from tests.facility._synthetic_trees import (
     BPM,
     LINE_TWISS,
@@ -50,6 +53,11 @@ from tests.facility._synthetic_trees import (
 
 PROJECT = "demo"
 
+#: Every build here skips the demo preset's ``pre_build`` hook, the child process
+#: that stages the canopy payload before the facility build: no stop line or
+#: exit code here depends on it.
+SKIP_LIFECYCLE = "--skip-lifecycle"
+
 Tree = dict[str, Any]
 Edit = Callable[[Tree], None]
 
@@ -63,6 +71,21 @@ def _plain(*edits: Edit) -> Callable[[], Tree]:
 
 def _deck(*edits: Edit) -> Callable[[], Tree]:
     return _from(deck_tree, edits)
+
+
+#: The injection fixture's facility tree: its engine marks the request a command.
+INJECTION = Path(__file__).resolve().parent / "fixtures" / "injection"
+
+
+def _injection_tree() -> Tree:
+    return {
+        rel: yaml.safe_load((INJECTION / rel).read_text(encoding="utf-8"))
+        for rel in ("models.yaml", "limits.yaml", "records/channels.yaml")
+    }
+
+
+def _injection(*edits: Edit) -> Callable[[], Tree]:
+    return _from(_injection_tree, edits)
 
 
 def _from(base: Callable[[], Tree], edits: tuple[Edit, ...]) -> Callable[[], Tree]:
@@ -224,6 +247,36 @@ MML_MODELS = "imported/mml/models.yaml"
 EXTRA_SP = {"id": "Q2:SP", "role": "setpoint", "on": {"device": "SR/Q1"}}
 #: A model without a deck, wiring the plain tree's setpoint.
 NO_DECK = {"name": "optics", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]}
+
+
+#: A command on the plain tree's quadrupole that states a bound, and the idle status it pairs with.
+COMMAND_ON = {
+    "id": "Q1:ON",
+    "role": "setpoint",
+    "signal": "power_on_command",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "timeout_s": 5.0,
+    "on": {"device": "SR/Q1"},
+}
+COMMAND_STATE = {
+    "id": "Q1:STATE",
+    "signal": "power_on_status",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "idle": "OFF",
+    "on": {"device": "SR/Q1"},
+}
+
+
+def commanded(on: dict[str, Any] | None = None, state: dict[str, Any] | None = None) -> Edit:
+    """Append ``COMMAND_ON`` and ``COMMAND_STATE`` with slots changed; a slot set to None is dropped."""
+
+    def changed(record: dict[str, Any], slots: dict[str, Any] | None) -> dict[str, Any]:
+        merged = {**record, **(slots or {})}
+        return {key: value for key, value in merged.items() if value is not None}
+
+    return append("records/channels.yaml", changed(COMMAND_ON, on), changed(COMMAND_STATE, state))
 
 
 #: The groups file, and the group holding both of the deck tree's SR quadrupoles.
@@ -388,6 +441,56 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "pair-invalid",
         "a wired `endpoint_of` device named by no slice",
     ),
+    ("command_invalid__bound_on_no_command", "command-invalid", "`timeout_s` on no command"),
+    ("command_invalid__bound_not_positive", "command-invalid", "`timeout_s` not > 0"),
+    (
+        "command_invalid__bound_without_idle",
+        "command-invalid",
+        "`timeout_s` on a command whose status states no `idle`",
+    ),
+    (
+        "command_invalid__bound_on_own_pair",
+        "command-invalid",
+        "`timeout_s` on a command that is its own pair",
+    ),
+    (
+        "command_invalid__idle_without_bound",
+        "command-invalid",
+        "a command whose status states `idle` states no `timeout_s`",
+    ),
+    ("command_invalid__idle_on_setpoint", "command-invalid", "`idle` on a setpoint"),
+    ("command_invalid__idle_type", "command-invalid", "`idle` not of its channel's type"),
+    ("command_invalid__idle_on_waveform", "command-invalid", "`idle` on a waveform channel"),
+    (
+        "command_invalid__bound_on_waveform_status",
+        "command-invalid",
+        "`timeout_s` on a command whose status is a waveform channel",
+    ),
+    (
+        "command_invalid__idle_unpaired",
+        "command-invalid",
+        "`idle` on a readback no command pairs with",
+    ),
+    (
+        "command_invalid__idle_followed",
+        "command-invalid",
+        "`follows` naming a setpoint on a status that states `idle`",
+    ),
+    (
+        "command_invalid__confirm_on_bound",
+        "command-invalid",
+        "`confirm: true` on a command that states `timeout_s`",
+    ),
+    (
+        "command_invalid__on_further_address",
+        "command-invalid",
+        "`timeout_s` or `idle` on a further address of a wiring record",
+    ),
+    (
+        "command_invalid__confirm_on_further_address",
+        "command-invalid",
+        "`confirm: true` on a further address of a command that states `timeout_s`",
+    ),
     (
         "value_invalid__measurement_step_key",
         "value-invalid",
@@ -458,6 +561,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a relative `tolerance` on a setpoint without a seed `nominal`",
     ),
+    (
+        "value_invalid__tolerance_on_further_address",
+        "value-invalid",
+        "`tolerance` on a further address of a wiring record",
+    ),
     ("value_invalid__enum_bounds", "value-invalid", "enum bounds"),
     ("value_invalid__linear_wired", "value-invalid", "`linear` inputs wired"),
     ("value_invalid__linear_cyclic", "value-invalid", "`linear` inputs cyclic"),
@@ -516,6 +624,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("limit_invalid__writable", "limit-invalid", "writable on a non-setpoint"),
     ("limit_invalid__int_bound", "limit-invalid", "non-integral bound on an int channel"),
+    (
+        "limit_invalid__writable_without_bounds",
+        "limit-invalid",
+        "writable on a numeric setpoint without both bounds",
+    ),
     (
         "place_conflict__imported_place",
         "place-conflict",
@@ -1424,7 +1537,10 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "pair_invalid__type_mismatch": (
-        _plain(update("records/channels.yaml", 1, value_type="int")),
+        _plain(
+            update("records/channels.yaml", 0, signal="current_setpoint"),
+            update("records/channels.yaml", 1, signal="current_readback", value_type="int"),
+        ),
         (
             "facility: pair-invalid: channel Q1:SP — setpoint and pair Q1:RB differ in "
             "`value_type`; fix: give Q1:SP and Q1:RB the same `value_type`"
@@ -1509,6 +1625,144 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: pair-invalid: wiring optics/Q1:SP — `endpoint_of` device SR/BPM1 is named "
             "by no slice; fix: name each `endpoint_of` device in a slice, or remove it from "
             "`endpoint_of`"
+        ),
+    ),
+    "command_invalid__bound_on_no_command": (
+        _plain(update("records/channels.yaml", 0, timeout_s=1.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `timeout_s` on a channel that is no "
+            "command; fix: remove `timeout_s`; only a command states how long one act may take"
+        ),
+    ),
+    "command_invalid__bound_not_positive": (
+        _plain(commanded(on={"timeout_s": 0})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` 0 is not a finite number > 0; "
+            "fix: state `timeout_s` as the longest one act may take, in seconds"
+        ),
+    ),
+    "command_invalid__bound_without_idle": (
+        _plain(commanded(state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE states no `idle`; fix: state `idle` on Q1:STATE"
+        ),
+    ),
+    "command_invalid__bound_on_own_pair": (
+        _plain(commanded(on={"pair": "Q1:ON"}, state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command that is its own "
+            "pair; fix: name the readback that reads the act as `pair`, and state `idle` on it"
+        ),
+    ),
+    "command_invalid__idle_without_bound": (
+        _plain(commanded(on={"timeout_s": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — a command whose status Q1:STATE states "
+            "`idle` states no `timeout_s`; fix: state `timeout_s` on Q1:ON"
+        ),
+    ),
+    "command_invalid__idle_on_setpoint": (
+        _plain(update("records/channels.yaml", 0, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `idle` on a setpoint channel; fix: remove "
+            "`idle`; only a readback a command pairs with states it"
+        ),
+    ),
+    "command_invalid__idle_type": (
+        _plain(commanded(state={"idle": "MAYBE"})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` of bool channel Q1:STATE is "
+            "'MAYBE', not a label; fix: type `idle` by the channel: a label on a bool or enum "
+            "channel, an integer on an int, a number on a float, text on a string; a waveform "
+            "channel is never a status"
+        ),
+    ),
+    "command_invalid__idle_on_waveform": (
+        _plain(
+            commanded(
+                on={"timeout_s": None},
+                state={"value_type": "waveform", "options": None, "shape": [3], "idle": 0},
+            )
+        ),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` on waveform channel Q1:STATE; "
+            "a waveform channel is never a status; fix: type `idle` by the channel: a label on a "
+            "bool or enum channel, an integer on an int, a number on a float, text on a string; "
+            "a waveform channel is never a status"
+        ),
+    ),
+    "command_invalid__bound_on_waveform_status": (
+        _plain(
+            commanded(state={"value_type": "waveform", "options": None, "shape": [3], "idle": None})
+        ),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE is a waveform channel; fix: pair Q1:ON with a status that is no waveform, "
+            "or remove `timeout_s`"
+        ),
+    ),
+    "command_invalid__idle_unpaired": (
+        _plain(update("records/channels.yaml", 1, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:RB — `idle` on a readback no command pairs "
+            "with; fix: remove `idle`, or name Q1:RB as a command's `pair`"
+        ),
+    ),
+    "command_invalid__idle_followed": (
+        _plain(commanded(state={"simulation": {"follows": "Q1:ON"}})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `follows` names Q1:ON on a status that "
+            "states `idle`; a followed status holds each write to Q1:ON and never returns to "
+            "`idle` by itself; fix: remove `follows`; a status that states `idle` is never followed"
+        ),
+    ),
+    "command_invalid__confirm_on_bound": (
+        _plain(commanded(), limits({"address": "Q1:ON", "writable": True, "confirm": True})),
+        (
+            "facility: command-invalid: limit Q1:ON — `confirm: true` on a command that states "
+            "`timeout_s`; fix: remove `confirm`; the wait for Q1:STATE confirms the write"
+        ),
+    ),
+    "command_invalid__on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "timeout_s": 2.0,
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: channel RACK:QD:SP — `timeout_s` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `timeout_s` on QD:SP only; it "
+            "holds under each of its addresses"
+        ),
+    ),
+    "command_invalid__confirm_on_further_address": (
+        _injection(
+            update("records/channels.yaml", 0, pair="INJ:SHOT:BUSY", timeout_s=2.0),
+            update("records/channels.yaml", 13, idle=0.0),
+            append("records/channels.yaml", {"id": "INJ:RACK:REQ", "role": "setpoint"}),
+            wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
+            limits(
+                {
+                    "address": "INJ:RACK:REQ",
+                    "writable": True,
+                    "min_value": 0,
+                    "max_value": 1,
+                    "confirm": True,
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: limit INJ:RACK:REQ — `confirm: true` on a further "
+            "address of a command that states `timeout_s`; fix: remove `confirm`; the wait for "
+            "INJ:SHOT:BUSY confirms the write"
         ),
     ),
     "value_invalid__measurement_step_key": (
@@ -1795,6 +2049,25 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: value-invalid: channel Q1:SP — a relative `tolerance` is taken of the "
             "setpoint's seed `nominal`, which it does not state; fix: state `absolute`, or give "
             "the setpoint a seed `nominal`"
+        ),
+    ),
+    "value_invalid__tolerance_on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "tolerance": {"absolute": 0.1},
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: value-invalid: channel RACK:QD:SP — `tolerance` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `tolerance` on QD:SP only; it "
+            "holds under each of its addresses"
         ),
     ),
     "value_invalid__enum_bounds": (
@@ -2094,6 +2367,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "integral; fix: write integral bounds"
         ),
     ),
+    "limit_invalid__writable_without_bounds": (
+        _plain(limits({"address": "Q1:SP", "writable": True, "max_value": 1.0})),
+        (
+            "facility: limit-invalid: limit Q1:SP — `writable: true` on a float setpoint "
+            "without both `min_value` and `max_value`; fix: state `min_value` and `max_value`"
+        ),
+    ),
     "place_conflict__imported_place": (
         _deck(
             append(
@@ -2246,8 +2526,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: engine-missing: model LINE — engine warpcore is not registered under "
-            "osprey.simulation.engines; fix: install the engine's package, or name an engine the "
-            "environment registers"
+            "osprey_connectors.simulation.engines; fix: install the engine's package, or name an "
+            "engine the environment registers"
         ),
     ),
     "engine_invalid__single_pass_twiss": (
@@ -3023,6 +3303,36 @@ def _kind_of(line: str) -> str:
     return line.split(": ", 2)[1]
 
 
+#: The cases whose stop the build reaches by more than the facility stages: a
+#: profile edit, a file in the profile's mirror, a stop only the build makes, or
+#: a stop while a view is written.
+BUILD_REACHES = frozenset(PROFILE_EDITS) | frozenset(MIRRORED) | BUILD_ONLY | VIEW_STAGE
+
+
+def _build_ids() -> list[str]:
+    """Every ``BUILD_REACHES`` case, and the first case in ``IDS`` of each other kind.
+
+    Every other case stops in the facility stages: the one ``run_stages`` call
+    the build makes is the call ``osprey facility validate`` makes, and
+    ``test_validate_prints_the_one_line`` holds that case's line byte for byte.
+    What the build adds over validate, the stop handed to stderr, is one path
+    for every kind, which the first case of each kind runs.
+    """
+    kinds: set[str] = set()
+    ids = []
+    for case in IDS:
+        kind = _kind_of(CASES[case][1])
+        if case in BUILD_REACHES or kind not in kinds:
+            ids.append(case)
+        if case not in BUILD_REACHES:
+            kinds.add(kind)
+    return ids
+
+
+#: The cases ``test_build_stops_on_the_line`` runs through ``osprey build``.
+BUILD_IDS = _build_ids()
+
+
 def _write(tmp_path: Path, case: str) -> Path:
     make, _line = CASES[case]
     tree = make()
@@ -3069,7 +3379,8 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
     for rel in MIRRORED.get(case, ()):
         mirrored = repo / "project" / rel
         mirrored.parent.mkdir(parents=True, exist_ok=True)
-        mirrored.write_text("{}\n", encoding="utf-8")
+        # The build refuses the mirror by its path, whatever it holds.
+        mirrored.write_text(json.dumps({"schema": FACILITY_V4}) + "\n", encoding="utf-8")
     edit = PROFILE_EDITS.get(case)
     if edit is not None:
         edit(repo)
@@ -3077,11 +3388,11 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("case", IDS)
+@pytest.mark.parametrize("case", BUILD_IDS)
 def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -> None:
     repo = _repo(initialised, tmp_path, case)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     # A stop naming a resolved path shows it under the repo, which is a fresh
@@ -3102,7 +3413,9 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     ],
 )
 def test_an_override_stop_names_what_the_tree_holds(tmp_path: Path, case: str, kind: str) -> None:
-    document = build_facility(_write(tmp_path, case), project_name=PROJECT)
+    document = build_facility(
+        _write(tmp_path, case), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     slot = "name" if kind == "scenarios" else "id"
     held = {str(record[slot]) for record in document[kind]}
     if kind == "scenarios":
@@ -3144,15 +3457,16 @@ def test_validate_prints_the_one_line(initialised: Path, tmp_path: Path, case: s
     assert result.stderr == CASES[case][1] + "\n"
 
 
+# The demo profile building with its approval hook selected is ``built_demo``'s
+# build, which ``tests/_builds.py::build_demo`` holds to exit 0.
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "edits",
     [
-        pytest.param((), id="hook-selected"),
         pytest.param((_disable_approval,), id="approval-disabled"),
     ],
 )
-def test_an_asking_profile_builds_with_the_hook_or_approval_off(
+def test_an_asking_profile_builds_with_approval_off(
     initialised: Path, tmp_path: Path, edits: tuple[Callable[[Path], None], ...]
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3162,7 +3476,7 @@ def test_an_asking_profile_builds_with_the_hook_or_approval_off(
     for edit in edits:
         edit(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 0, result.output
 
@@ -3180,7 +3494,7 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
     _drop_approval_hook(repo)
     _disable_approval(repo)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
     assert result.exit_code == 1, result.output
     assert result.stderr.splitlines()[-1] == CASES["profile_invalid__approval_hook_not_selected"][1]
@@ -3200,17 +3514,22 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
 def test_a_fault_polarity_is_one_of_its_options(
     initialised: Path, tmp_path: Path, faults: dict[str, Any], slot: str | None
 ) -> None:
+    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
+    if slot is None:
+        # The polarity is a facility stage's check: the facility builds.
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name=PROJECT,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
+        return
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
     _clear_facility_records(repo / "data" / "facility")
-    tree = _deck(*monitor_axes(), scenario("warm", {"faults": {"SR": faults}}))()
     write_tree(repo / "data" / "facility", tree)
 
-    result = run_build(repo)
+    result = run_build(repo, SKIP_LIFECYCLE)
 
-    if slot is None:
-        assert result.exit_code == 0, result.output
-        return
     (value,) = (v["polarity"] if isinstance(v, dict) else v for v in faults.values())
     assert result.exit_code == 1, result.output
     assert result.stderr == (
@@ -3301,7 +3620,7 @@ PERMUTED_FIXES: tuple[dict[str, Any], ...] = (
 
 
 @pytest.mark.slow
-def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
+def test_a_seeded_setpoint_whose_band_excludes_zero_validates(
     initialised: Path, tmp_path: Path
 ) -> None:
     repo = tmp_path / PROJECT
@@ -3312,18 +3631,19 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_builds(
     tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
     write_tree(repo / "data" / "facility", tree)
 
+    # Validate runs the build's facility stages and renders every view in memory.
     validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
-    built = run_build(repo)
 
     assert validated.exit_code == 0, validated.output
-    assert built.exit_code == 0, built.output
 
 
 def test_a_scenario_keyed_by_an_engine_variable_builds(tmp_path: Path) -> None:
     pytest.importorskip("at")
     faults = {"SR": {"QF:SP/cal_factor": 1.1, "BPM1:X": {"offset": 1e-4, "roll": 0.01}}}
     tree = _deck(*monitor_axes(), scenario("warm", {"faults": faults}))()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     assert [s["faults"] for s in document["scenarios"]] == [faults]
 
 
@@ -3336,7 +3656,9 @@ def test_permuted_fixes_build_a_byte_equal_file(tmp_path: Path) -> None:
             fixes(*order),
         )()
         root = write_tree(tmp_path / str(index) / "facility", tree)
-        documents.add(json.dumps(build_facility(root, project_name=PROJECT)))
+        documents.add(
+            json.dumps(build_facility(root, project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS))
+        )
     assert len(documents) == 1
 
 
@@ -3357,7 +3679,9 @@ def test_two_layers_stating_and_defaulting_a_slot_build(tmp_path: Path) -> None:
             ],
         ),
     )()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     channel = next(c for c in document["channels"] if c["id"] == "BPM1:X")
     assert (channel["role"], channel["value_type"]) == ("readback", "float")
     (record,) = next(m for m in document["models"] if m["name"] == "optics")["wiring"]
@@ -3366,13 +3690,54 @@ def test_two_layers_stating_and_defaulting_a_slot_build(tmp_path: Path) -> None:
 
 def test_limits_records_without_a_defaults_block_build(tmp_path: Path) -> None:
     tree = _plain(limits({"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}))()
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name=PROJECT)
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
     assert document["limits"] == {
         "records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}]
     }
 
 
+#: A bool command setpoint on the plain tree's quadrupole, with no bounds.
+GO_SP = {"id": "GO:SP", "role": "setpoint", "value_type": "bool", "on": {"device": "SR/Q1"}}
+
+
+def test_an_override_on_a_stated_writable_bool_setpoint_builds(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "writable": True}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
+
+    assert [s["overrides"] for s in document["scenarios"]] == [{"GO:SP": 1}]
+
+
+def test_an_override_on_a_bool_setpoint_with_a_bare_record_stops(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "confirm": False}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name=PROJECT,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
+
+    assert str(stopped.value) == (
+        "facility: seed-invalid: scenario warm — `overrides.GO:SP` writes GO:SP, which "
+        "limits.yaml locks; fix: remove `overrides.GO:SP`, or make GO:SP writable in "
+        "limits.yaml"
+    )
+
+
 def test_a_tree_without_limits_builds(tmp_path: Path) -> None:
     root = write_tree(tmp_path / "facility", plain_tree())
     assert not (root / "limits.yaml").exists()
-    assert "limits" not in build_facility(root, project_name=PROJECT)
+    assert "limits" not in build_facility(root, project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS)

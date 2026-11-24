@@ -34,6 +34,7 @@ __all__ = [
     "NoiseRecord",
     "PulseRecord",
     "ResolvedCoupling",
+    "RespondsRecord",
     "ScenarioRecord",
     "ScenariosDocument",
     "SeedRecord",
@@ -115,6 +116,14 @@ class GateRecord(TypedDict):
     gated: float | str
 
 
+class RespondsRecord(TypedDict):
+    """A ``responds`` seed: the value a channel reads for ``for_s`` seconds after each write to ``to``."""
+
+    to: str
+    for_s: float
+    value: str | int
+
+
 class SeedRecord(TypedDict, total=False):
     """One channel's seed in ``seeds.json``."""
 
@@ -127,13 +136,16 @@ class SeedRecord(TypedDict, total=False):
     pulse: PulseRecord
     topoff: TopoffRecord
     topoff_lifetime: _LifetimeRecord
+    responds: RespondsRecord
 
 
 class ChannelRecord(TypedDict):
     """One channel entry of ``variables.json``.
 
     ``value_range`` is ``[min, max]`` when the channel's limits record states
-    both, else ``None``.
+    both, else ``None``. ``started_by`` names the command whose write moves a
+    setpoint's readback to the setpoint's held value; only a setpoint the
+    texture serves states it.
     """
 
     address: str
@@ -149,6 +161,7 @@ class ChannelRecord(TypedDict):
     options: NotRequired[Sequence[str]]
     shape: NotRequired[Sequence[int]]
     precision: NotRequired[int]
+    started_by: NotRequired[str]
 
 
 class WiringRecord(TypedDict, total=False):
@@ -156,6 +169,7 @@ class WiringRecord(TypedDict, total=False):
 
     id: str
     address: Required[str]
+    also: Sequence[str]
     element: str
     direction: str
     default: object
@@ -193,7 +207,7 @@ class ArchiverEvent(TypedDict, total=False):
 
     The facility schema leaves a scenario's ``archiver`` block free-form;
     ``osprey build`` checks each event with
-    :func:`osprey.facility.scenarios.check_scenario_events` and writes it to
+    :func:`osprey_facility.scenarios.check_scenario_events` and writes it to
     ``scenarios.json`` as stated, so an event of the view has this shape:
 
     * ``shape`` is one of the five shapes, and the event states exactly one
@@ -261,6 +275,7 @@ class ScenarioRecord(TypedDict, total=False):
     couple: Mapping[str, Sequence[CouplingTerm]]
     noise: Mapping[str, NoiseRecord]
     channel_faults: Mapping[str, str]
+    stopped_servers: Sequence[str]
     still: Sequence[str]
     faults: Mapping[str, _FaultRecord]
 
@@ -276,13 +291,15 @@ class AddressesDocument(TypedDict):
     """``addresses.json``: every channel address, sorted, and the simulator's own addresses.
 
     ``status`` lists each served physics model's status address and
-    ``ioc_health`` each served model's IOC health addresses; a build before
-    ``ioc_health`` was written lists none.
+    ``server_health`` each served model's server health addresses.
+    ``ioc_health`` is the key that list was first written under, read when a
+    document has no ``server_health``; a build that wrote neither lists none.
     """
 
     schema: str
     channels: Sequence[str]
     status: Sequence[str]
+    server_health: NotRequired[Sequence[str]]
     ioc_health: NotRequired[Sequence[str]]
 
 

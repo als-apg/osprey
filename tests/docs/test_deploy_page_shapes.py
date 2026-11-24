@@ -12,7 +12,9 @@ writes, reads or prints what it shows:
   are what ``compose_base_cmd`` builds for a rendered repo, flag by flag, with
   the repo and the service as the variable parts; the ``[network]`` ini block is
   the backend ``container_lifecycle`` requires and the setting its refusal
-  prints.
+  prints; the prerequisites line states the floors ``RUNTIME_FLOORS`` holds.
+* ``how-to/ariel/index.rst``: the container-runtime prerequisite states the
+  same floors.
 * ``how-to/deploy-project/env-chain.rst``, ``how-to/deploy-a-facility.rst``,
   ``how-to/build-profiles.rst``: each ``cp``/``mv`` names the env files the
   build, the compose chain and the web-tier migration use.
@@ -63,7 +65,7 @@ from osprey.deployment.container_lifecycle import (
     ENV_MERGED_RELPATH,
 )
 from osprey.deployment.qmd_service import MODEL_FILENAMES
-from osprey.deployment.runtime_helper import ComposeProvider
+from osprey.deployment.runtime_helper import RUNTIME_FLOORS, ComposeProvider, RuntimeProduct
 from osprey.deployment.web_terminals.env_production import (
     LEGACY_USERS_ENV_FILENAME,
     USERS_ENV_FILENAME,
@@ -89,6 +91,7 @@ PROVIDERS_PAGE = "how-to/llm-providers/configure-providers.rst"
 PROFILE_PAGE = "reference/configuration/profile.rst"
 CLI_AGENT_PAGE = "how-to/agent-interfaces/cli-agent.rst"
 CONFIG_PAGE = "reference/configuration/config.rst"
+ARIEL_PAGE = "how-to/ariel/index.rst"
 
 
 @lru_cache(maxsize=1)
@@ -342,6 +345,44 @@ def test_a_planted_backend_is_caught(monkeypatch: pytest.MonkeyPatch) -> None:
     planted = _block(DEPLOY_INDEX_PAGE, "ini", "netavark").replace("netavark", "cni")
     page = [line.strip() for line in planted.splitlines()]
     assert page != _refusal_lines(monkeypatch, "cni")
+
+
+# -- deploy-project/index.rst, ariel/index.rst: runtime floors ----------------
+
+#: Each page's line that states the runtime floors, found by its label.
+_FLOOR_LINES = {DEPLOY_INDEX_PAGE: "**Prerequisites:**", ARIEL_PAGE: "**Container runtime:**"}
+_RST_LINK = re.compile(r"`([^`<]+?)\s*<[^>]+>`_")
+
+
+def _floor_line(page: str) -> str:
+    """The line on *page* that states the runtime floors, its links reduced to text."""
+    (line,) = [line for line in _page_text(page).splitlines() if _FLOOR_LINES[page] in line]
+    return _RST_LINK.sub(r"\1", line)
+
+
+def _floor_phrases(floors) -> list[str]:
+    """``<product> <floor> or newer`` for each runtime a page tells a reader to install."""
+    products = (RuntimeProduct.DOCKER_ENGINE, RuntimeProduct.DOCKER_DESKTOP, RuntimeProduct.PODMAN)
+    return [
+        f"{product} {'.'.join(str(part) for part in floors[product])} or newer"
+        for product in products
+    ]
+
+
+def _missing_floors(page: str, floors) -> list[str]:
+    line = _floor_line(page)
+    return [phrase for phrase in _floor_phrases(floors) if phrase not in line]
+
+
+@pytest.mark.parametrize("page", sorted(_FLOOR_LINES))
+def test_the_prerequisites_line_states_the_runtime_floors(page: str) -> None:
+    assert _missing_floors(page, RUNTIME_FLOORS) == []
+
+
+@pytest.mark.parametrize("page", sorted(_FLOOR_LINES))
+def test_a_planted_floor_is_caught(page: str) -> None:
+    planted = {**RUNTIME_FLOORS, RuntimeProduct.DOCKER_ENGINE: (19, 3)}
+    assert _missing_floors(page, planted) == ["Docker Engine 19.3 or newer"]
 
 
 # -- env-chain, deploy-a-facility, build-profiles: env file names --------------

@@ -1,8 +1,8 @@
 """The pyat engine's RF switch: one setpoint that turns every cavity off and on.
 
 Written zero, the switch zeroes every cavity's voltage on the model's own
-lattice; written anything else, it puts back exactly the voltages the deck
-holds. It is a plain setting -- restore and replay reach it through ``set``
+lattice and holds it on the cavity; written anything else, it puts back
+exactly the voltages it held. It is a plain setting -- restore and replay reach it through ``set``
 -- and starts on. With it off a turn-by-turn ring stays served (no closed
 orbit, monitors NaN). :func:`rf_on` reports the RF state the shot handling
 reads: the switch's value, or on for a ring wired with no switch.
@@ -17,13 +17,14 @@ from typing import Any
 import at
 import pytest
 
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.engines.pyat_variables import (
+    HELD_VOLTAGE,
     RFSwitchVariable,
     rf_on,
 )
+from osprey_facility.records import FacilityRecords
 
 MODEL = "SR"
 INJECTION = "INJ"
@@ -200,21 +201,27 @@ class TestTheVariable:
     def _ring(self, demo: dict[str, Any]) -> Any:
         return at.load_lattice(str(demo["deck"]))
 
-    def test_it_captures_the_deck_voltages(self, demo: dict[str, Any]) -> None:
+    def test_it_finds_every_cavity_and_marks_it_on(self, demo: dict[str, Any]) -> None:
         ring = self._ring(demo)
         variable = RFSwitchVariable.from_wiring(_switch_record(), lattice=ring)
-        assert list(variable.deck_voltages.values()) == _voltages(ring)
+        cavities = [ring[index] for index in variable.cavities]
+        assert cavities == [element for element in ring if isinstance(element, at.RFCavity)]
+        assert all(math.isnan(getattr(cavity, HELD_VOLTAGE)) for cavity in cavities)
 
     def test_a_deck_without_cavities_is_refused(self) -> None:
         ring = at.Lattice([at.Drift("D", 1.0)], energy=1.0e9)
         with pytest.raises(ValueError, match="cavit"):
             RFSwitchVariable.from_wiring(_switch_record(), lattice=ring)
 
-    def test_its_snapshot_targets_are_the_cavity_voltages(self, demo: dict[str, Any]) -> None:
+    def test_its_snapshot_targets_are_the_cavity_voltages_and_what_it_holds(
+        self, demo: dict[str, Any]
+    ) -> None:
         model = _build(demo)
         variable = model.supported_variables[SWITCH]
         targets = variable.snapshot_targets(model.simulator)
         cavities = [
             index for index, element in enumerate(model.lattice) if isinstance(element, at.RFCavity)
         ]
-        assert targets == [(index, "Voltage") for index in cavities]
+        assert targets == [
+            (index, attribute) for index in cavities for attribute in ("Voltage", HELD_VOLTAGE)
+        ]

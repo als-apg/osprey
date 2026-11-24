@@ -5,9 +5,10 @@ over Channel Access from the container.
 This module holds the container to the in-process composite over the same
 rendered view, on every served channel:
 
-* **at a written operating point**, every channel without declared motion --
-  the held values and the model-solved ones alike -- reads the same on the
-  wire as in process, to 1e-9;
+* **at a written operating point**, every channel served without motion --
+  the held values and the model-solved ones alike, the monitors the suite
+  scenario stills among them -- reads the same on the wire as in process, to
+  1e-9;
 * **over the noisy channels**, N reads per substrate agree in mean and in
   spread, drift-detrended, within the bounds a z chosen for K channels at a
   family-wise false-alarm rate of 1e-4 allows;
@@ -191,9 +192,7 @@ from statistics import NormalDist  # noqa: E402
 
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
-import yaml  # noqa: E402
 
-from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
@@ -204,6 +203,7 @@ from osprey_connectors.simulation.view import (  # noqa: E402
     SimulatorView,
 )
 from osprey_connectors_tests._harness._ports import reserved_port  # noqa: E402
+from osprey_facility import TEXTURE  # noqa: E402
 from tests.e2e._facility_select import monitor_addresses  # noqa: E402
 from tests.va._collection import assert_module_collected  # noqa: E402
 from tests.va.e2e import conftest as e2e_conftest  # noqa: E402
@@ -230,8 +230,6 @@ EXACT_TOL = 1e-9
 CHROMATICITY_TOL = 1e-5
 CHROMATICITY = e2e_conftest.CHROMATICITY
 
-#: The example facility's seeds, keyed by address.
-DEMO_SEEDS = REPO_ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "seeds.yaml"
 #: Reads per substrate per noisy channel.
 SAMPLES = 200
 #: The family-wise false-alarm rate the noise bounds are set for.
@@ -277,13 +275,20 @@ NOISE_CONTAINER = f"osprey-va-e2e-noise-{os.getpid()}"
 
 @dataclass(frozen=True)
 class View:
-    """A rendered simulator view, opened once through its reader."""
+    """A rendered simulator view, opened once through its reader.
+
+    Attributes:
+        reader: The view's reader.
+        active: The scenarios active in the container serving the view beside
+            ``nominal``: a channel one of them stills serves without motion.
+    """
 
     reader: SimulatorView
+    active: tuple[str, ...] = ()
 
     @classmethod
-    def read(cls, path: Path) -> View:
-        return cls(reader=SimulatorView.open(path))
+    def read(cls, path: Path, *, active: tuple[str, ...] = ()) -> View:
+        return cls(reader=SimulatorView.open(path), active=active)
 
     @property
     def path(self) -> Path:
@@ -311,7 +316,11 @@ class View:
         return self.reader.seed(address) or {}
 
     def moving(self, address: str) -> bool:
-        return declares_motion(self.seed(address))
+        """Whether ``address`` serves with motion under the active set."""
+        return (
+            declares_motion(self.seed(address))
+            and self.reader.motion_envelope(address, active=self.active) != 0.0
+        )
 
     def motion_band(self, address: str, z: float) -> float:
         """How far a served read may sit from the held value.
@@ -481,7 +490,7 @@ def _to_nominal(project: e2e_conftest.VaProject) -> None:
 @pytest.fixture(scope="module")
 def session_view(va_container: e2e_conftest.VaProject) -> View:
     """The view the session container serves, monitors stilled."""
-    return View.read(va_container.data_dir / VIEW_RELPATH.name)
+    return View.read(va_container.data_dir / VIEW_RELPATH.name, active=e2e_conftest.SUITE_SCENARIOS)
 
 
 @pytest.fixture(scope="module")
@@ -767,19 +776,6 @@ def test_the_container_without_the_suite_scenario_serves_the_demos_noisy_channel
     noisy = [address for address in noisy_va.view.served if noisy_va.view.moving(address)]
 
     assert len(noisy) == _facility_noisy_count()
-
-
-def test_the_transfer_line_carries_no_seeds() -> None:
-    """The noisy count holds with the transfer line served: no seed names it."""
-    seeds = yaml.safe_load(DEMO_SEEDS.read_text(encoding="utf-8"))
-    wired = {
-        binding.address
-        for binding in e2e_conftest.PRESET_VIEW.bindings(model=e2e_conftest.SECOND_MODEL)
-    }
-
-    assert seeds
-    assert wired
-    assert sorted(wired & set(seeds)) == []
 
 
 @pytest.fixture(scope="module")

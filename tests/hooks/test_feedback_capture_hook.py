@@ -76,7 +76,7 @@ class TestFeedbackCaptureResultUnwrapping:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1, f"Expected captured item, got: {items}"
+        assert len(items) == 1, f"Expected captured item, got: {items}"
         item = next(iter(items.values()))
         assert item["channel_count"] == 3
 
@@ -96,7 +96,7 @@ class TestFeedbackCaptureResultUnwrapping:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 5
 
@@ -114,7 +114,7 @@ class TestFeedbackCaptureResultUnwrapping:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 1
 
@@ -132,7 +132,7 @@ class TestFeedbackCaptureResultUnwrapping:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["channel_count"] == 2
 
@@ -170,7 +170,7 @@ class TestFeedbackCaptureAgentTask:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         # Must be the sub-agent delegation prompt, NOT "Original operator question"
         assert item["agent_task"] == "Find BPM channels"
@@ -192,7 +192,7 @@ class TestFeedbackCaptureAgentTask:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["agent_task"] == ""
 
@@ -218,7 +218,7 @@ class TestFeedbackCaptureAgentTask:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["agent_task"] == ""
 
@@ -248,7 +248,7 @@ class TestFeedbackCaptureAgentTask:
         )
 
         items = pending_review_items(tmp_path)
-        assert len(items) >= 1
+        assert len(items) == 1
         item = next(iter(items.values()))
         assert item["agent_task"] == "Find corrector magnets"
 

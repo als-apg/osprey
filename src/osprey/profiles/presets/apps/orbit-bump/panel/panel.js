@@ -8,6 +8,7 @@ import {
   openContextMenu,
 } from '/design-system/js/context-menu.js';
 import { closePopover, togglePopover } from '/design-system/js/popover.js';
+import { setSegmented, wireSegmented } from '/design-system/js/components/segmented.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 import { markPageReady } from '/design-system/js/page-ready.js';
 
@@ -408,10 +409,7 @@ function renderHeader(root, panel) {
   const models = panel.state?.models ?? [];
   const { selection } = panel;
 
-  for (const button of field(root, 'plane').querySelectorAll('[data-plane]')) {
-    const on = button.getAttribute('data-plane') === selection.plane;
-    button.setAttribute('aria-pressed', String(on));
-  }
+  setSegmented(field(root, 'plane'), selection.plane);
 
   const select = /** @type {HTMLSelectElement} */ (field(root, 'model'));
   select.hidden = models.length < 2;
@@ -2185,14 +2183,14 @@ function picker(root) {
 }
 
 /**
- * A segmented control.
+ * A segmented control: its buttons carry their value in `data-value`, as
+ * segmented.js reads it.
  * @param {string} name its data-field
- * @param {string} attr the data attribute each button carries its value in
  * @param {[string, string, string?][]} options value, label and tooltip
  * @param {string} label its accessible name
  * @returns {HTMLElement}
  */
-function segmented(name, attr, options, label) {
+function segmented(name, options, label) {
   const seg = htmlNode('span', {
     class: 'osprey-seg',
     'data-field': name,
@@ -2202,25 +2200,13 @@ function segmented(name, attr, options, label) {
   for (const [value, text, tip] of options) {
     const button = htmlNode(
       'button',
-      { type: 'button', [attr]: value, 'aria-pressed': 'false' },
+      { type: 'button', 'data-value': value, 'aria-pressed': 'false' },
       text
     );
     if (tip) button.title = tip;
     seg.append(button);
   }
   return seg;
-}
-
-/**
- * Press the button of a segmented control whose `attr` equals `value`.
- * @param {HTMLElement} seg
- * @param {string} attr
- * @param {string} value
- */
-function pressSeg(seg, attr, value) {
-  for (const button of seg.querySelectorAll(`[${attr}]`)) {
-    button.setAttribute('aria-pressed', String(button.getAttribute(attr) === value));
-  }
 }
 
 // The spectrum in the Correctors head, in its own user units.
@@ -2575,7 +2561,7 @@ function ruleMenu(root) {
  */
 function renderRule(root, selection) {
   const { rule, priority, all_correctors: every } = selection;
-  pressSeg(field(root, 'rule'), 'data-rule', rule);
+  setSegmented(field(root, 'rule'), rule);
   const wide = MORE_RULES.some(([value]) => value === rule);
   field(root, 'rule-more').setAttribute('aria-pressed', String(wide));
   // The popover sits at <body> level while open, so it is found by id.
@@ -2626,7 +2612,6 @@ function optionsMenu(root) {
   menu.hidden = true;
   const step = segmented(
     'step',
-    'data-step',
     STEPS.map((value) => [String(value), String(value)]),
     'nudge step'
   );
@@ -2676,10 +2661,8 @@ function optionsMenu(root) {
   );
   holder.append(button, menu);
   button.addEventListener('click', () => togglePopover(button, menu));
-  step.addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-step]') : null;
-    const value = Number(hit?.getAttribute('data-step'));
-    if (value > 0) setStep(root, value);
+  wireSegmented(step, (value) => {
+    if (Number(value) > 0) setStep(root, Number(value));
   });
   const bar = root.querySelector('.ob-bar') ?? root;
   bar.append(holder);
@@ -2714,7 +2697,6 @@ function controls(root) {
   amp.title = 'bump amplitude, applied over the selected BPMs';
   const shapes = segmented(
     'shape',
-    'data-shape',
     [
       ['flat', 'flat', 'every bump BPM at the amplitude'],
       ['peak', 'peak', 'a triangle: the amplitude at the centre, zero at the ends'],
@@ -2723,7 +2705,7 @@ function controls(root) {
     'bump shape'
   );
   shapes.title = 'bump shape over the selected BPMs';
-  const others = segmented('others', 'data-others', OTHERS, 'other BPMs');
+  const others = segmented('others', OTHERS, 'other BPMs');
   others.title = 'other BPMs: every BPM not in the bump, inside and outside the corrector span';
   const widenButton = htmlNode(
     'button',
@@ -2763,7 +2745,6 @@ function controls(root) {
   const corsHead = htmlNode('h3', { class: 'osprey-section-label' });
   const rule = segmented(
     'rule',
-    'data-rule',
     RULES.map(([value, text, tip]) => [value, text, tip]),
     'corrector rule'
   );
@@ -2899,23 +2880,17 @@ function controls(root) {
     const steps = Number(hit.getAttribute('data-step-dir')) * (event.shiftKey ? 10 : 1);
     setAmplitude(root, panel.amp + steps * panel.step);
   });
-  shapes.addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-shape]') : null;
-    const value = hit?.getAttribute('data-shape');
-    if (value && SHAPES.includes(/** @type {Shape} */ (value)))
-      setShape(root, /** @type {Shape} */ (value));
+  wireSegmented(shapes, (value) => {
+    if (SHAPES.includes(/** @type {Shape} */ (value))) setShape(root, /** @type {Shape} */ (value));
   });
   widenButton.addEventListener('click', () => widen(root));
-  others.addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-others]') : null;
-    const value = /** @type {Others | null} */ (hit?.getAttribute('data-others') ?? null);
-    if (value && OTHERS_MODES.includes(value)) setSelection(root, { others: value });
+  wireSegmented(others, (value) => {
+    if (OTHERS_MODES.includes(/** @type {Others} */ (value)))
+      setSelection(root, { others: /** @type {Others} */ (value) });
   });
 
-  rule.addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-rule]') : null;
-    const value = /** @type {Rule | null} */ (hit?.getAttribute('data-rule') ?? null);
-    if (!value) return;
+  wireSegmented(rule, (choice) => {
+    const value = /** @type {Rule} */ (choice);
     /** @type {Partial<Selection>} */
     const changes = { rule: value };
     if (value !== 'manual') changes.correctors = [];
@@ -3049,16 +3024,16 @@ function renderTable(root, panel) {
   amp.step = String(panel.step);
   if (amp !== amp.ownerDocument.activeElement) amp.value = panel.amp.toFixed(3);
   field(root, 'amp-unit').textContent = unit;
-  pressSeg(field(root, 'shape'), 'data-shape', panel.shape);
-  pressSeg(field(root, 'others'), 'data-others', selection.others);
+  setSegmented(field(root, 'shape'), panel.shape);
+  setSegmented(field(root, 'others'), selection.others);
   /** @type {HTMLButtonElement} */ (field(root, 'widen')).disabled = elements.length === 0;
   field(root, 'pick-list').parentElement?.dispatchEvent(new Event('ob-refresh'));
 
   const step = field(root, 'step');
-  for (const button of step.querySelectorAll('[data-step]')) {
-    button.textContent = stepLabel(Number(button.getAttribute('data-step')), unit);
+  for (const button of step.querySelectorAll('[data-value]')) {
+    button.textContent = stepLabel(Number(button.getAttribute('data-value')), unit);
   }
-  pressSeg(step, 'data-step', String(panel.step));
+  setSegmented(step, String(panel.step));
 
   renderRule(root, selection);
   renderSigma(root, panel);
@@ -3157,9 +3132,7 @@ export function bindControls(root, fetcher) {
   const panel = panelOf(root);
   if (fetcher) panel.fetcher = fetcher;
   panel.bound = true;
-  field(root, 'plane').addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-plane]') : null;
-    const plane = hit?.getAttribute('data-plane');
+  wireSegmented(field(root, 'plane'), (plane) => {
     if (plane === 'x' || plane === 'y') void choosePlane(root, plane);
   });
   const select = /** @type {HTMLSelectElement} */ (field(root, 'model'));

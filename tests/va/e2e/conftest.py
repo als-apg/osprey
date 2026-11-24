@@ -62,10 +62,11 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.facility.records import FacilityRecords
 from osprey.services.virtual_accelerator.entrypoint import READY_MARKER
 from osprey_connectors.simulation.view import VIEW_RELPATH, SimulatorView
 from osprey_connectors_tests._harness._ports import hold_ports, reserved_port
+from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests._facility_file import demo_facility_document
 from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._facility_select import LaneSelection, lane_selection, second_model
@@ -143,13 +144,13 @@ def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, Simu
     Returns:
         The built facility document and the rendered view.
     """
-    from osprey.facility.build import build_facility
-    from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
+    from osprey_facility.build import build_facility
+    from osprey_facility.served import resolve_served
 
     if doc is None:
-        doc = build_facility(facility, project_name="demo")
+        doc = build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(
@@ -344,15 +345,15 @@ def _monitor_addresses(facility: Path) -> list[str]:
     """
     from importlib import metadata
 
-    from osprey.facility import TEXTURE
-    from osprey.simulation.engines import ENTRY_POINT_GROUP
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+    from osprey_facility import TEXTURE
 
     models = yaml.safe_load((facility / "models.yaml").read_text(encoding="utf-8")) or []
     monitors: set[str] = set()
     for model in models:
         if model.get("engine") == TEXTURE or not model.get("wiring"):
             continue
-        describe = metadata.entry_points(group=ENTRY_POINT_GROUP)[str(model["engine"])].load()
+        describe = metadata.entry_points(group=ENGINE_GROUP)[str(model["engine"])].load()
         for record in model["wiring"]:
             described = describe.describe({**record, "direction": "read"})
             if described["engine_role"] == "monitor" or (
@@ -704,8 +705,10 @@ def stage_va_project(root: Path) -> VaProject:
     apply`` discovers by walking up from its working directory, and the state
     zone it writes ``active_scenarios`` into; a stubbed render supplies the
     ``build/config.yml`` every repo-scoped verb reads, and the preset's
-    simulator view is rendered beside it (see ``stage_demo_data_dir``), so
-    ``osprey sim apply`` and the container read the same view. The render's
+    simulator view is laid beside it, so ``osprey sim apply`` and the
+    container read the same view. The view is a copy of this process's
+    :func:`demo_data_dir`: ``stage_demo_data_dir`` renders the same bytes
+    under any root, so one render serves both. The render's
     config names :data:`SUITE_SCENARIOS` in ``simulation.default_scenarios``,
     and the repo starts in that set the way a deploy's first start activates
     it.
@@ -728,7 +731,13 @@ def stage_va_project(root: Path) -> VaProject:
         "simulation": {"default_scenarios": list(SUITE_SCENARIOS)},
     }
     build = stub_build(project_dir, config=yaml.safe_dump(config))
-    data_dir = stage_demo_data_dir(build / "data")
+    data_dir = build / "data"
+    # The copy takes the mode of demo_data_dir()'s mkdtemp root (0o700); a render
+    # here makes this directory as a plain mkdir does, so it keeps that mode.
+    data_dir.mkdir()
+    mode = data_dir.stat().st_mode & 0o7777
+    shutil.copytree(demo_data_dir(), data_dir, dirs_exist_ok=True)
+    data_dir.chmod(mode)
 
     active = activate_default_scenarios(config, project_dir)
     assert STILL_MONITORS_SCENARIO_NAME in active, active

@@ -20,15 +20,24 @@ from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE, _writes, import_group
 from osprey.cli.main import cli
 from osprey.facility.bundled import classify
-from osprey.facility.layers import FORMER_HEADER, HEADER
-from osprey.facility.layers.mml.importer import LAYER_DIR
-from osprey.facility.layers.mml.mapping import MAPPING_FILE
+from osprey_facility.layers import FORMER_HEADER, HEADER
+from osprey_facility.layers.mml.importer import LAYER_DIR
+from osprey_facility.layers.mml.mapping import MAPPING_FILE
 from tests._builds import init_project
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TREE = REPO_ROOT / "tests" / "fixtures" / "mml" / "synthetic"
 EXPORT = TREE / "quokka.sr.ao.json"
-EXPORTER = REPO_ROOT / "src" / "osprey" / "facility" / "layers" / "mml" / "mml_export.m"
+EXPORTER = (
+    REPO_ROOT
+    / "packages"
+    / "osprey-facility"
+    / "src"
+    / "osprey_facility"
+    / "layers"
+    / "mml"
+    / "mml_export.m"
+)
 
 TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"
@@ -315,49 +324,65 @@ def test_a_limits_file_without_the_layer_header_is_refused_and_named(
     assert not (_facility(cleared) / LAYER_DIR / "channels.yaml").exists()
 
 
-def _former(*paths: str) -> list[str]:
+def _retired(*paths: str) -> list[str]:
     return [
-        "import mml: data/facility/ holds files seeded under the old header, "
-        "which this import writes:",
+        "import mml: data/facility/ holds files seeded under the retired header, read as seeded:",
         *paths,
         f"set line 1 of each to: {HEADER}",
     ]
 
 
-def test_a_file_under_the_former_header_is_refused_with_the_header_fix(cleared: Path) -> None:
-    facility = _facility(cleared)
-    (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
-    (facility / "seeds.yaml").write_text(f"{FORMER_HEADER}\nseeds: []\n", encoding="utf-8")
-    before = _snapshot(cleared)
+def test_a_reimport_reads_a_retired_header_file_as_seeded(cleared: Path) -> None:
+    pytest.importorskip("at")
+    assert _import(cleared).exit_code == 0
+    limits = _facility(cleared) / "limits.yaml"
+    lines = limits.read_text(encoding="utf-8").split("\n")
+    assert lines[0] == HEADER
+    limits.write_text("\n".join([FORMER_HEADER, *lines[1:]]), encoding="utf-8")
+    before = limits.read_bytes()
 
     result = _import(cleared)
 
-    assert result.exit_code == 1
-    assert result.stderr.splitlines() == _former(
-        "data/facility/limits.yaml", "data/facility/seeds.yaml"
-    )
-    assert result.stdout == ""
-    assert _snapshot(cleared) == before
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == _retired("data/facility/limits.yaml")
+    assert limits.read_bytes() == before
 
 
-def test_a_former_header_set_to_the_current_one_imports_and_keeps_the_edits(
+def test_a_first_import_reads_retired_header_files_as_seeded_with_one_warning(
     cleared: Path,
 ) -> None:
     pytest.importorskip("at")
-    limits = _facility(cleared) / "limits.yaml"
+    facility = _facility(cleared)
+    limits = facility / "limits.yaml"
+    seeds = facility / "seeds.yaml"
     limits.write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
-    assert _import(cleared).exit_code == 1
+    seeds.write_text(f"{FORMER_HEADER}\nseeds: []\n", encoding="utf-8")
+    count = len(classify(facility, TEMPLATE_ROOT).bundled)
+
+    result = _import(cleared)
+
+    assert result.exit_code == 0, result.output
+    assert result.stderr.splitlines() == [
+        *_retired("data/facility/limits.yaml", "data/facility/seeds.yaml"),
+        _replaced(count),
+    ]
+    assert limits.read_text(encoding="utf-8") == f"{FORMER_HEADER}\nrecords: []\n"
+    assert seeds.read_text(encoding="utf-8") == f"{FORMER_HEADER}\nseeds: []\n"
+
+
+def test_a_file_under_the_current_header_prints_no_retired_warning(cleared: Path) -> None:
+    pytest.importorskip("at")
+    limits = _facility(cleared) / "limits.yaml"
     limits.write_text(f"{HEADER}\nrecords: []\n", encoding="utf-8")
 
     result = _import(cleared)
 
     assert result.exit_code == 0, result.output
+    assert "retired header" not in result.stderr
     assert limits.read_text(encoding="utf-8") == f"{HEADER}\nrecords: []\n"
 
 
-def test_hand_written_and_former_header_files_are_named_in_their_own_groups(
-    repo: Path,
-) -> None:
+def test_a_hand_written_record_refuses_beside_a_retired_header_file(repo: Path) -> None:
     facility = _facility(repo)
     _drop_header(facility / "records" / "devices.yaml")
     (facility / "limits.yaml").write_text(f"{FORMER_HEADER}\nrecords: []\n", encoding="utf-8")
@@ -367,8 +392,8 @@ def test_hand_written_and_former_header_files_are_named_in_their_own_groups(
 
     assert result.exit_code == 1
     assert result.stderr.splitlines() == [
+        *_retired("data/facility/limits.yaml"),
         *_refusal("data/facility/records/devices.yaml", kinds="device"),
-        *_former("data/facility/limits.yaml"),
     ]
     assert _snapshot(repo) == before
 

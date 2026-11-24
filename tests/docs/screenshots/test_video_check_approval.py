@@ -74,14 +74,24 @@ def test_entry_create_then_entry_publish():
     assert [a.tool_use_id for a in asks] == ["toolu_c", "toolu_p"]
 
 
-def test_execute_selective_takes_name_from_tool_field():
-    log = _log(_record("mcp__python__execute", "ask", "execute_selective", "toolu_e"))
-    assert vca.find_asks(log, MARK) == [Ask(tool_use_id="toolu_e", name="execute")]
-
-
-def test_channel_write_selective_takes_name_from_tool_field():
-    log = _log(_record("mcp__controls__channel_write", "ask", "channel_write_selective", "toolu_w"))
-    assert vca.find_asks(log, MARK) == [Ask(tool_use_id="toolu_w", name="channel_write")]
+@pytest.mark.parametrize(
+    ("tool", "reason", "tool_use_id", "name"),
+    [
+        pytest.param(
+            "mcp__python__execute", "execute_selective", "toolu_e", "execute", id="execute"
+        ),
+        pytest.param(
+            "mcp__controls__channel_write",
+            "channel_write_selective",
+            "toolu_w",
+            "channel_write",
+            id="channel-write",
+        ),
+    ],
+)
+def test_selective_policy_takes_name_from_tool_field(tool, reason, tool_use_id, name):
+    log = _log(_record(tool, "ask", reason, tool_use_id))
+    assert vca.find_asks(log, MARK) == [Ask(tool_use_id=tool_use_id, name=name)]
 
 
 def test_non_mcp_tool_name_is_kept():

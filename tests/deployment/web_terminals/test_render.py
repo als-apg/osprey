@@ -11,8 +11,9 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-from jinja2 import BytecodeCache, Environment, Template
+from jinja2 import Environment, Template
 
+from osprey.deployment import run_once
 from osprey.deployment.web_terminals import render as render_module
 from osprey.deployment.web_terminals.artifacts import web_artifacts_dir
 from osprey.deployment.web_terminals.auth_credentials import AUTH_ENV_FILENAME
@@ -38,6 +39,7 @@ from osprey.deployment.web_terminals.render import (
     origin_host,
     render_web_terminals,
     terminal_secret_env_var,
+    web_stack_service_names,
 )
 from osprey.deployment.web_terminals.roster import RENDER_CATALOG_REQUIRED
 from osprey.docs_links import PERIMETER_LIMITS_URL
@@ -78,60 +80,6 @@ from tests.deployment.web_terminals._nginx import (
     nginx_terminals_part,
     render_nginx,
 )
-
-
-class _InMemoryBytecodeCache(BytecodeCache):
-    """Jinja's own compiled-template cache, held in memory for this module."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, bytes] = {}
-
-    def load_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
-        data = self._store.get(bucket.key)
-        if data is not None:
-            bucket.bytecode_from_string(data)
-
-    def dump_bytecode(self, bucket) -> None:  # type: ignore[no-untyped-def]
-        self._store[bucket.key] = bucket.bytecode_to_string()
-
-
-@pytest.fixture(autouse=True, scope="module")
-def _render_reuses_parsed_templates_and_tokens():
-    """Parse each template and load the token tree once per module, not per render.
-
-    Every render builds two fresh Jinja Environments and re-reads the packaged
-    design tokens three times, and those reparses are most of this module's
-    time. The Environments stay fresh -- a new one per render, with fresh
-    Template objects, so a test that wraps a template's ``render`` touches only
-    its own -- they just share a bytecode cache, one per ``autoescape`` setting
-    since that changes the compiled code. Jinja keys each entry by template and
-    checks it against the source's checksum, so an edited template recompiles.
-    The token tree is memoized for the packaged ``tokens/`` directory only.
-    """
-    from osprey.interfaces.design_system.generator import model
-    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
-
-    caches: dict[object, _InMemoryBytecodeCache] = {}
-
-    def environment(*args, **kwargs):  # type: ignore[no-untyped-def]
-        cache = caches.setdefault(kwargs.get("autoescape", False), _InMemoryBytecodeCache())
-        return Environment(*args, bytecode_cache=cache, **kwargs)
-
-    real_load_token_tree = model.load_token_tree
-    packaged: list = []
-
-    def load_token_tree(tokens_dir):  # type: ignore[no-untyped-def]
-        if Path(tokens_dir) != Path(DEFAULT_TOKENS_DIR):
-            return real_load_token_tree(tokens_dir)
-        if not packaged:
-            packaged.append(real_load_token_tree(tokens_dir))
-        return packaged[0]
-
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(render_module, "Environment", environment)
-        mp.setattr(model, "load_token_tree", load_token_tree)
-        yield
-
 
 # The four classic config-set families; the effective per-family base set the
 # render actually allocates from also carries every registry default
@@ -347,7 +295,7 @@ def test_nginx_image_defaults_when_config_omits_it() -> None:
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    assert compose["services"]["nginx"]["image"] == "nginx:1.31-alpine"
+    assert compose["services"]["nginx"]["image"] == "nginx:1.31.9-alpine"
 
 
 def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
@@ -355,7 +303,7 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
     only from a private mirror point it at their own registry."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    custom = "registry.example.com:5050/mirrors/nginx:1.31-alpine"
+    custom = "registry.example.com:5050/mirrors/nginx:1.31.9-alpine"
     config["modules"]["web_terminals"]["nginx_image"] = custom
 
     # Act
@@ -377,7 +325,7 @@ def test_the_default_nginx_image_comes_from_the_base_registry(
     compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
 
     assert compose["services"]["nginx"]["image"] == (
-        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+        "mirror.example.org/dockerhub/library/nginx:1.31.9-alpine"
     )
 
 
@@ -1673,6 +1621,81 @@ def test_landing_render_fails_loudly_on_a_renamed_token() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The terminal-starting page: one nginx string in nginx.conf
+# ---------------------------------------------------------------------------
+
+
+def _starting_page(config: dict) -> str:
+    """The page nginx answers with while a terminal's app is not listening."""
+    conf = render_web_terminals(config)["nginx/nginx.conf"]
+    (line,) = [ln for ln in conf.splitlines() if ln.startswith("        return 503 '")]
+    assert line.endswith("';")
+    return line.removeprefix("        return 503 '").removesuffix("';")
+
+
+def test_the_starting_page_reads_as_a_waiting_state() -> None:
+    """A heading, one plain line, the mark and a progress bar that holds still
+    for a viewer who asked for reduced motion."""
+    # Act
+    page = _starting_page(_themed_config(None))
+
+    # Assert
+    assert "<title>Starting your terminal</title>" in page
+    assert "<h1>Starting your terminal</h1>" in page
+    assert "This takes up to a minute after a deploy or restart." in page
+    assert "not answering" not in page
+    assert '<svg viewBox="0 0 16 8"' in page and "</svg>OSPREY</p>" in page
+    assert '<div class="bar"></div>' in page
+    assert "@media (prefers-reduced-motion:reduce){.bar::before{animation:none" in page
+
+
+def test_the_starting_page_polls_with_head_and_reloads_without_script_too() -> None:
+    """The script asks for the page's own URL with HEAD and reloads on any
+    answer but this 503; the meta refresh is the no-script path ONLY, since at
+    the top level it would blank the page every 5 seconds."""
+    # Act
+    page = _starting_page(_themed_config(None))
+
+    # Assert
+    assert 'fetch(location.href, {method: "HEAD", cache: "no-store"' in page
+    assert 'credentials: "same-origin", redirect: "manual"}' in page
+    assert 'answer.type === "opaqueredirect" || answer.status !== 503' in page
+    assert "location.reload();" in page
+    assert "setTimeout(poll, 2000);" in page
+    assert "This is taking longer than usual." in page
+    assert page.count("http-equiv") == 1
+    assert '<noscript><meta http-equiv="refresh" content="5"></noscript>' in page
+
+
+def test_the_starting_page_wears_the_deployments_palette() -> None:
+    """Both modes of a family-valued web.theme, as the landing page bakes them."""
+    # Act
+    page = _starting_page(_themed_config("desy"))
+
+    # Assert
+    assert ":root{color-scheme:dark;--bg-primary:#091720;" in page
+    assert "@media (prefers-color-scheme: light){ :root{color-scheme:light;" in page
+    assert "--bg-primary:#f3f8fc;" in page
+    assert "Canvas" not in page
+
+
+@pytest.mark.parametrize(
+    "theme",
+    [None, "desy", "desy-light", "high-contrast", "high-contrast-dark", "retro", "retro-light"],
+)
+def test_the_starting_page_is_a_string_nginx_reads_whole(theme: str | None) -> None:
+    """One single-quoted nginx parameter: nothing in it ends the string or
+    starts a variable, and it fits the 4096-byte buffer nginx reads a
+    parameter through (a longer one is refused at startup)."""
+    # Act
+    page = _starting_page(_themed_config(theme))
+
+    # Assert
+    assert not set(page) & set("'$\\\n")
+    assert len(page.encode()) < 4000
+
+
+# ---------------------------------------------------------------------------
 # theme -> OSPREY_WEB_THEME (per-user default theme seam)
 # ---------------------------------------------------------------------------
 
@@ -2630,6 +2653,28 @@ def _open_config(users: list | None = None) -> dict:
     config = _config(users if users is not None else ["alice", "bob", "carol"])
     config["modules"]["web_terminals"]["auth"] = {"method": "none"}
     return config
+
+
+@pytest.mark.parametrize(
+    "config",
+    [_auth_config(["alice", "bob"]), _open_config(["alice", "bob"])],
+    ids=["sidecar-active", "auth-none"],
+)
+def test_the_overlay_renders_exactly_the_services_its_names_list(config: dict) -> None:
+    """Whatever its disk inputs, the overlay renders the services
+    :func:`web_stack_service_names` lists and declares none of them run-once,
+    so those names are all the deployment record and the after-start check need."""
+    provisioned = render_web_terminals(
+        config,
+        auth_env_digest="0" * 64,
+        terminal_secrets=_secrets_for(["alice", "bob"]),
+        facility_bundle_gid=1234,
+    )
+    bare = _compose(config)["services"]
+    with_inputs = yaml.safe_load(provisioned["docker-compose.web.yml"])["services"]
+
+    assert list(bare) == list(with_inputs) == web_stack_service_names(config).names()
+    assert run_once.declarations(bare) == run_once.declarations(with_inputs) == {}
 
 
 #: The history page's gate snippet: rendered by every signed-in render, beside
@@ -5050,6 +5095,52 @@ def test_archiver_grant_for_one_variable_renders_unchanged() -> None:
     assert text.count("      - MONGO_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-}\n    volumes:\n") == 1
 
 
+def test_channel_directory_grant_emits_one_line_per_named_variable() -> None:
+    """A render whose channel directory services authenticate is handed their variables."""
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            channel_directory_credential_renders={"readwrite": ("CF_PW", "ALARM_FEED_PW")},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    first = alice_env.index("CF_PW=${CF_PW:-}")
+    assert alice_env.index("ALARM_FEED_PW=${ALARM_FEED_PW:-}") == first + 1
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("CF_PW" in line or "ALARM_FEED_PW" in line for line in bob_env)
+
+
+def test_channel_directory_grant_does_not_repeat_a_variable_the_archiver_names() -> None:
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            archiver_credential_renders={"readwrite": ("SITE_PW",)},
+            channel_directory_credential_renders={"readwrite": ("SITE_PW", "ALARM_FEED_PW")},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    alice_env = compose["services"]["web-alice"]["environment"]
+    assert alice_env.count("SITE_PW=${SITE_PW:-}") == 1
+    assert "ALARM_FEED_PW=${ALARM_FEED_PW:-}" in alice_env
+
+
+def test_channel_directory_grant_for_one_variable_renders_in_place() -> None:
+    """One named variable renders as one line, with no blank line added."""
+    # Act
+    text = render_web_terminals(
+        _events_render_config(),
+        channel_directory_credential_renders={"readwrite": ("ALARM_FEED_PW",)},
+    )["docker-compose.web.yml"]
+
+    # Assert
+    assert text.count("      - ALARM_FEED_PW=${ALARM_FEED_PW:-}\n    volumes:\n") == 1
+
+
 # ---------------------------------------------------------------------------
 # Archiver connector -> the CA file its block names, mounted per user
 #
@@ -5079,6 +5170,24 @@ def test_archiver_ca_bundle_is_mounted_read_only_at_the_same_path() -> None:
     assert _ca_mounts(services["web-alice"]) == [
         {"type": "bind", "source": _SITE_CA, "target": _SITE_CA, "read_only": True}
     ]
+    assert _ca_mounts(services["web-bob"]) == []
+
+
+def test_channel_directory_ca_bundle_is_mounted_once_beside_the_archivers() -> None:
+    other = "/etc/ssl/certs/alarm-ca.pem"
+
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(
+            _events_render_config(),
+            archiver_ca_bundle_renders={"readwrite": (_SITE_CA,)},
+            channel_directory_ca_bundle_renders={"readwrite": (_SITE_CA, other)},
+        )["docker-compose.web.yml"]
+    )
+
+    # Assert
+    services = compose["services"]
+    assert [m["source"] for m in _ca_mounts(services["web-alice"])] == [_SITE_CA, other]
     assert _ca_mounts(services["web-bob"]) == []
 
 

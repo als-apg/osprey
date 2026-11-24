@@ -9,7 +9,9 @@ line number), then handed to the code that owns it:
   parse to the targets they name and resolve in the example facility; the
   ``regenerate_indexes`` snippet runs and leaves a bundle ``check_indexes``
   passes; the "conventional starting shape" tree names the index file the
-  regenerator writes and the example bundle's directories.
+  regenerator writes and the example bundle's directories; the Images example
+  holds the three embed forms, each resolving with alt text to the figure the
+  example bundle ships, which the concept the page names embeds.
 * ``how-to/build-profiles.rst``: every path of the ``build/`` tree is on disk
   after a real ``osprey build`` of the demo preset, and every
   facility output that build's main render writes is on the tree.
@@ -53,16 +55,22 @@ from osprey.cli.profile_conventions import (
     validate_convention_sources,
 )
 from osprey.deployment.compose_generator import SERVICES_DIR, TEMPLATE_FILENAME
-from osprey.facility import sources
-from osprey.facility.knowledge_links import KNOWLEDGE_DIR
-from osprey.facility.records import FacilityRecords
-from osprey.facility.references import LINK_SCHEME, find_facility_links
 from osprey.facility.settings import VOCABULARY_SOURCE
 from osprey.facility.views import VIEWS
 from osprey.facility.views.benchmarks import QUERY_SOURCES
 from osprey.services.facility_knowledge.okf import index as okf_index
+from osprey.services.facility_knowledge.okf.assets import (
+    concept_dir,
+    lookup_asset,
+    scan_image_embeds,
+)
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle
 from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
+from osprey.services.facility_knowledge.okf.paths import concept_id_of_link
+from osprey_facility import sources
+from osprey_facility.knowledge_links import KNOWLEDGE_DIR
+from osprey_facility.records import FacilityRecords
+from osprey_facility.references import LINK_SCHEME, find_facility_links
 from tests._builds import BuiltProject
 from tests._by_path import load_module
 
@@ -303,11 +311,19 @@ def test_concept_without_a_type_fails_validation() -> None:
 def test_bundle_link_resolves_to_an_example_concept() -> None:
     text = _block(OKF_PAGE, "markdown", "/subsystems/pss.md")
     links = re.findall(r"\[([^\]]+)\]\(([^)]+)\)", text)
-    assert links == [("Personnel Safety System", "/subsystems/pss.md")]
-    concept_id = links[0][1].removesuffix(".md")
+    assert links == [
+        ("Personnel Safety System", "/subsystems/pss.md"),
+        ("Vacuum System", "vacuum.md"),
+    ]
     bundle = OKFBundle(_EXAMPLE_BUNDLE)
-    assert bundle.resolve_concept_path(concept_id) == (_EXAMPLE_BUNDLE / "subsystems/pss.md")
-    assert bundle.read_concept(concept_id).frontmatter["title"].startswith(links[0][0])
+    # The block reads as written on a page of ``subsystems/``: the first target
+    # resolves from the bundle root, the second from that page's directory.
+    for (label, target), expected in zip(
+        links, ["subsystems/pss", "subsystems/vacuum"], strict=True
+    ):
+        concept_id = concept_id_of_link(target, source_dir="subsystems")
+        assert concept_id == expected
+        assert bundle.read_concept(concept_id).frontmatter["title"].startswith(label)
 
 
 def _facility_links_block() -> str:
@@ -353,7 +369,8 @@ def test_regenerate_snippet_writes_the_indexes(
     exec(compile(snippet, OKF_PAGE, "exec"), {})
 
     written = sorted(bundle.rglob(okf_index._INDEX_FILE))
-    expected = [d / okf_index._INDEX_FILE for d in okf_index._directories_to_index(bundle)]
+    live = okf_index._scan(bundle).live
+    expected = [d / okf_index._INDEX_FILE for d in okf_index._directories_to_index(bundle, live)]
     assert written == sorted(expected)
     assert okf_index.check_indexes(bundle) == []
     first = {path: path.read_bytes() for path in written}
@@ -375,6 +392,27 @@ def test_starting_shape_tree_names_the_index_file_and_the_example_directories() 
     assert "index.md" in paths, "the bundle root holds an index"
     top_dirs = {rel.rstrip("/") for rel in paths if rel.endswith("/") and rel.count("/") == 1}
     assert top_dirs == {path.name for path in _EXAMPLE_BUNDLE.iterdir() if path.is_dir()}
+
+
+def test_images_example_embeds_the_shipped_figure() -> None:
+    figure = "devices/figures/bpm-button-pickups.png"
+    text = _block(OKF_PAGE, "markdown", "bpm-button-pickups.png")
+    # The block reads as written on a page of ``devices/``, as the page says.
+    source_dir = concept_dir(_EXAMPLE_BUNDLE, "devices/bpm")
+    embeds = scan_image_embeds(text, source_dir)
+    assert [embed.target for embed in embeds] == ["figures/bpm-button-pickups.png"]
+    (embed,) = embeds
+    assert (embed.outcome, embed.path) == ("bundle", figure)
+    assert embed.alt
+    assert lookup_asset(_EXAMPLE_BUNDLE, figure).type == "png"
+
+    # The page names the example concept and the path the target resolves to,
+    # and that concept embeds the figure.
+    page = _folded(_page_text(OKF_PAGE))
+    assert "``devices/bpm`` concept embeds a figure" in page
+    assert f"here to ``{figure}``" in page
+    bpm = OKFDocument.parse((_EXAMPLE_BUNDLE / "devices" / "bpm.md").read_text(encoding="utf-8"))
+    assert figure in {embed.path for embed in scan_image_embeds(bpm.body, source_dir)}
 
 
 # -- how-to/build-profiles.rst --------------------------------------------------

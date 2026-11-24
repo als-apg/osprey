@@ -213,6 +213,17 @@ tiles, which you drag and split much as you do the terminal's
 **☰** menu at the right end of the top-right tile's bar resets the layout,
 saves the open tabs as a collection and reopens recently closed tabs.
 
+A screen opens at **fit width**: as wide as its tile, with the rest reached by
+scrolling down. The switch at the end of the screen header's zoom group
+changes that to **Fit page** (the whole screen in view) or **100%**, and the
+choice holds for every screen and every later visit. A zoom stepped to with
+**-** and **+** stays with its screen.
+
+The sidebar lists the library's screens by folder. A library that ships a
+``navigation.json`` is listed in the order and under the names that file
+gives, followed by one collapsed group, **All screens**, with the folder tree
+(:ref:`canopy-library-navigation`).
+
 **Which machine.** A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a
 moment and return with the new machine's values. A click made on a screen
@@ -237,7 +248,15 @@ switch for the machine decides how:
 - **off** --- the write is refused.
 - **asked** --- a dialog asks you to confirm each write. A slider asks once,
   when you let go. Declining sends nothing.
-- **allowed** --- the write is sent at once, without a dialog.
+- **allowed** --- the write is sent at once, without a dialog, unless the
+  screen asks for one on that widget
+  (:ref:`canopy-write-dialog-wording`).
+
+The dialog reads from top to bottom: the control target the write goes to,
+a question that says what happens, and every channel of the click with the
+value it holds now and the value about to be written. *Now* is read live
+while the dialog is open. Focus starts on **Cancel**, the Enter that opened
+the dialog does not answer it, and **Escape** cancels.
 
 Your tier, the channel limits and the safety watchdogs apply as well. While a
 watchdog has flagged one of the terminal's agent sessions, the panel says
@@ -260,6 +279,139 @@ path step by step.
 After the agent changes the panel, the write buttons in that window pause for
 750 ms with a visible notice, so a tab that moves under your pointer cannot
 catch a click meant for something else.
+
+.. _canopy-write-dialog-wording:
+
+Word the dialog from a screen
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Without help from the screen, the dialog builds its question and its button
+word from the widget's label and the write (*Set <label> to <value>?*,
+**Set**). A screen author can word it instead, with optional props on the
+node that writes: a button, entry field, slider, toggle, dropdown, checkbox
+or radio group, or a node whose click carries the write actions.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it sets
+   * - ``confirmWrites``
+     - ``true`` asks for the dialog on this node also where the switch is
+       *allowed*. A screen cannot turn the dialog off.
+   * - ``confirmTitle``
+     - The title, a question: *Reboot the controller?*
+   * - ``confirmText``
+     - One sentence under the title: what happens, or what is not known.
+   * - ``confirmVerb``
+     - The word on the confirm button: *Reboot*.
+   * - ``confirmKind``
+     - ``"consequence"`` draws the sentence as a warning and the confirm
+       button in the danger style.
+
+.. code-block:: json
+
+   {
+     "id": "reboot",
+     "type": "pv-button",
+     "geometry": { "x": 20, "y": 20, "width": 120, "height": 32 },
+     "props": {
+       "pv": "DEMO:CTRL1:Reboot",
+       "label": "Reboot",
+       "pressValue": 0,
+       "confirmWrites": true,
+       "confirmTitle": "Reboot controller DEMO:CTRL1?",
+       "confirmText": "Its outputs are off until it is back.",
+       "confirmVerb": "Reboot",
+       "confirmKind": "consequence"
+     }
+   }
+
+The four wording props only word a dialog that opens; none of them opens
+one. Macros are substituted in them. ``confirmMessage``, an older prop of the
+entry field, is read as ``confirmText`` where ``confirmText`` is not set.
+Give a ``confirmTitle`` and a ``confirmVerb`` to a button whose label is not
+an action, such as one that carries a device name. The screen viewer's
+repository documents the dialog in full, in
+``docs/confirmed-and-staged-writes.md`` at the commit ``--pins`` names for
+``canopy-screen-runtime``.
+
+Make a drawn shape clickable
+----------------------------
+
+A node with actions takes the pointer on its box. A polygon can take it on the
+shape it draws instead, so one node covers a band along an arc or a bent line
+and what lies under the corners of its box stays reachable. Set these on the
+polygon's ``props``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it does
+   * - ``hitArea``
+     - ``"shape"`` makes the drawn shape the pointer target: a closed polygon
+       over its inside and its outline, an open one along its path. Of two
+       shapes that overlap, the later node is met.
+   * - ``hitWidth``
+     - The width, in the screen's pixels, of the path an open polygon is met
+       on. Without it: the line width, and at least 12.
+   * - ``hoverLabelAt``
+     - ``[x, y]`` in the node's coordinates, where the hover label is centred.
+       Without it the viewer picks a point on the path or well inside the
+       shape.
+
+Hovering such a polygon tints and outlines the shape and shows one label. A
+click runs the node's actions as a click on a box does, with the same write
+dialog. A polygon without ``hitArea`` behaves as before, and no other node
+type reads the prop.
+
+Make several nodes hover as one
+-------------------------------
+
+One thing is often drawn as several nodes: two polygons, an ellipse and a row
+in a list. Give them a group name and they hover together. Set these on the
+``props`` of any node type:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it does
+   * - ``hoverGroups``
+     - A list of group names, from narrow to wide. While the pointer is on
+       the node, every node whose list holds its first name is highlighted,
+       and every other node that holds one of its further names is
+       highlighted at lower strength.
+   * - ``hoverDimGroup``
+     - The name of the drawing the node is a part of. While a node with
+       ``hoverGroups`` and the same ``hoverDimGroup`` is hovered, the nodes
+       of that drawing with neither highlight are drawn at reduced opacity.
+       Without it nothing is dimmed.
+   * - ``hoverLabelLines``
+     - Lines for the hover label, under the ``hoverLabel`` if there is one.
+       A line is ``{"text": "..."}``, or ``{"label": ..., "pv": ...,
+       "precision": ...}`` for a channel's live value, shown as
+       ``label: value``. ``label``, ``precision`` and ``showUnits`` are
+       optional.
+
+A node with ``hoverGroups`` takes the pointer whether it has actions or not:
+on its box, or on its shape when it is a polygon with ``hitArea: "shape"``.
+A click runs the actions of the node it lands on, as before. One label
+shows, that of the node the pointer is on. Names are matched over the whole
+screen, embedded screens included, after macro substitution, so a macro in a
+name keeps the instances of an embedded screen apart. Put ``hoverDimGroup``
+on the parts and not on a container around them: a dimmed container dims
+everything in it.
+
+A value line is formatted as a text readout formats it, and a channel that is
+not connected shows ``---``. The channels of a label are subscribed only
+while the label shows. The lines show on a node that hovers: one with actions
+or with ``hoverGroups``. A node with none of the three props behaves as
+before.
 
 What the agent can do in the panel
 ----------------------------------

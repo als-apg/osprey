@@ -12,7 +12,8 @@ the channel finder, the limits check, the simulator and the knowledge graph
 cannot disagree about which channels exist or what they are.
 
 Writing the sources is in :doc:`/how-to/describe-your-facility`. This page is
-about what the build makes of them.
+about what the build makes of them. How the facility code splits into the
+osprey-facility and osprey-panels packages is in :doc:`facility-packages`.
 
 .. raw:: html
    :file: ../_diagrams/facility-map.html
@@ -21,9 +22,9 @@ The facility file
 =================
 
 ``build/facility.json`` is every record of the facility in one document,
-under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
-``channels``, ``groups``, ``models`` with their wiring and inputs, ``limits`` and
-``scenarios``. A model's *deck* is the lattice file its simulation engine
+under a ``schema`` header: ``identity``, ``classes``, the ``signals`` and
+``relation_types`` tables, ``places``, ``devices``, ``channels``, ``groups``,
+``models`` with their wiring and inputs, ``limits`` and ``scenarios``. A model's *deck* is the lattice file its simulation engine
 loads, and its *wiring* is the set of records that tie channel addresses to
 elements of that deck.
 
@@ -36,8 +37,10 @@ computes:
 - for each wiring record, its unit, direction, value range and operating
   point, and what its model's engine says it is: engine_role, plane and refresh.
 
-The second is ``provenance``: per record, which layer and file stated each field,
-which fixes were applied and which fields the build filled.
+The second is ``provenance``: per record, which layer and file stated each field
+(and, where the layer's record says so, the rule the field rests on), which fixes
+were applied, which fields the build filled, and of those the ones it derived by
+a named rule, such as a setpoint's pair.
 ``osprey facility show <id>`` prints it.
 
 The file is the same in every render of a build. It carries no timestamp, no
@@ -58,7 +61,7 @@ Reading the facility file
 =========================
 
 Code reads the built file through one read model,
-``osprey.facility.records.FacilityRecords``: the records of a finished document
+``osprey_facility.records.FacilityRecords``: the records of a finished document
 by kind and id. A reference resolves to a channel or a device. A selection
 filters the file's own channel records and names a model or a place.
 
@@ -77,14 +80,18 @@ filters the file's own channel records and names a model or a place.
    * - ``from_file(path)``
      - The read model of a render's ``facility.json``.
      -
-     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON or is not an object.
+     - ``None`` with no file; ``FacilityFileError`` when it cannot be read, is not JSON, is not an object or does not declare a ``schema`` header this reader reads, naming the rebuild (``osprey build``).
    * - ``document``
      - The mapping it was built from, read-only.
      -
      -
    * - ``facility_bytes()``
-     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
+     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey_facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
      - Sorted keys.
+     -
+   * - ``facility_sha256()``
+     - The sha256 hex digest of ``facility_bytes()``, taken from the same one serialisation, so a view can key on the document without holding its bytes.
+     - Lowercase hex.
      -
    * - ``record(kind, id)``
      - The one record of that kind and id.
@@ -111,9 +118,13 @@ filters the file's own channel records and names a model or a place.
      - Document order, each once.
      - Empty, also for an unknown id.
    * - ``wired(address)``
-     - The one wiring record naming an address, as the file holds it.
+     - The one wiring record naming an address, as its ``address`` or under ``also``, as the file holds it.
      -
      - ``None`` for an address no model wires.
+   * - ``record_address(address)``
+     - The address of the wiring record naming an address under ``also``.
+     -
+     - The address itself for an address no record names under ``also``.
    * - ``resolve(target)``
      - The channel and device records a reference target names, by exact id.
      - ``LINK_KINDS``: channel, then device.
@@ -139,7 +150,7 @@ filters the file's own channel records and names a model or a place.
      - Document order.
      - Empty when nothing matches; ``ValueError`` naming a model, place or group the file does not hold, or an engine_role or plane outside the schema's vocabulary.
 
-``osprey.facility.references.resolved_references`` is the one describer of
+``osprey_facility.references.resolved_references`` is the one describer of
 references: every surface that returns ``facility_references`` calls it, and each
 reference's ``start`` and ``end`` are Unicode code-point offsets into the text it
 was found in.
@@ -178,7 +189,10 @@ stages and a stage runs only when every earlier one is clean:
      - The pair, value, limits and seed rules.
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
-       value from its model's engine, and marks each command channel.
+       value from its model's engine, and marks each command channel; then
+       checks each command's ``timeout_s`` and its status's ``idle`` as
+       :doc:`/how-to/describe-your-facility` states them, and stops with
+       ``command-invalid`` when one is wrong.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
@@ -356,7 +370,7 @@ The schema
 
 The facility file's shape is two `LinkML <https://linkml.io/>`_ modules (LinkML
 is a YAML language for data schemas) in
-``src/osprey/facility/schema/``: ``core.yaml``, the records, and
+``packages/osprey-facility/src/osprey_facility/schema/``: ``core.yaml``, the records, and
 ``vocabulary.yaml``, the device classes, signal roles and property names. Both
 carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
 facility exports and mapping them across facilities. NARAD requires more than a bare channel list
@@ -388,7 +402,7 @@ deployment runs against a simulator. Each model record names an ``engine``, a
 deck; a model of the ``injection`` engine names no deck.
 
 **Engines are plug-ins.** An engine is a module registered in the
-``osprey.simulation.engines`` entry-point group under the name a model's
+``osprey_connectors.simulation.engines`` entry-point group under the name a model's
 ``engine`` gives. OSPREY ships ``pyat`` and ``injection``. The build reaches the engine to read
 the deck (where each element sits, each wired channel's operating point, what
 each wiring record is) without building a model, and stops with
@@ -425,9 +439,10 @@ A model that names no deck and wires no channel is not a failure: nothing is
 built for it, its status is ``no deck``, and every channel of that machine is
 the texture's.
 
-Every served model, ``texture`` included, also has read-only IOC health
-channels, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and ``ENGINEER``, which
-the IOC pages of All PVs read (:ref:`channel-finder-all-pvs`).
+Every served model, ``texture`` included, also has read-only health channels
+for its simulated server, ``<code>:SIM:<model>:HEARTBEAT``, ``UPTIME`` and
+``ENGINEER``, which the server pages of the channel directory and the server
+fleet read (:ref:`channel-finder-directory`).
 
 **A model may read another model's records.** A model record's ``inputs``
 lists records other models of the facility wire, each an ``address`` and an
@@ -463,7 +478,10 @@ are an injection chain's records with ``engine: {signal: shot}``,
 ``{signal: charge}`` and ``{signal: stored_current}``; and its wiring adds
 records with the signals ``arm``, ``armed``, ``turn_x``, ``turn_y`` and
 ``turn_sum``, each naming a monitor ``element``, and ``turns_tracked``,
-``rf_switch``, ``pilot_tone`` and ``stored``. Each array channel is declared
+``turns_survived``, ``monitors_reached``, ``shot_status``, ``rf_switch``, ``pilot_tone``, ``stored`` and the injected beam's
+``offset_<coordinate>`` and ``mismatch_<plane>``, and a ``pulsed_kick`` record
+per pulsed magnet, naming its ``element`` and stating ``plane`` and optionally
+``scale`` and ``pulse``. Each array channel is declared
 ``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
 ``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
 stops ``engine-invalid`` on a malformed block, a turn record on a ring
@@ -478,6 +496,9 @@ How the composite serves the models over Channel Access and PVAccess is in
 
    :doc:`/how-to/describe-your-facility`
       The source tree, file by file.
+
+   :doc:`facility-packages`
+      The split into osprey-facility and osprey-panels, and its boundary check.
 
    :doc:`/how-to/control-systems/use-virtual-accelerator`
       Running the simulator and serving a facility's own model.

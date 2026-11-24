@@ -217,6 +217,7 @@ class TestFailClosed:
         with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
             create_app(env)
         assert "cleartext" in caplog.text
+        assert "Secure attribute" in caplog.text
 
     def test_https_origin_without_the_tls_flag_is_a_loud_mismatch(
         self, caplog: pytest.LogCaptureFixture
@@ -255,11 +256,6 @@ class TestFailClosed:
         assert "one of the two settings is wrong" in caplog.text
         assert "discard Secure cookies" in caplog.text
 
-    def test_no_cookie_warning_when_tls_is_on(self, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
-            create_app(PASSWORD_ENV)
-        assert "Secure attribute" not in caplog.text
-
     def test_unrecognized_tls_flag_warns(self, caplog: pytest.LogCaptureFixture) -> None:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_TLS_ENABLED="maybe")
         with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
@@ -279,6 +275,7 @@ class TestFailClosed:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_PW_HASH_ALICE=BROKEN_HASH)
         with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
             app = create_app(env)
+        assert "cannot be evaluated" in caplog.text
         assert "alice" in caplog.text
         assert "OSPREY_AUTH_PW_HASH_ALICE" in caplog.text
         assert "c2FsdA" not in caplog.text
@@ -286,11 +283,17 @@ class TestFailClosed:
         with TestClient(app) as client:
             assert client.get(HEALTH_PATH).json()["configured"] is True
 
-    def test_a_well_formed_roster_names_no_unevaluable_hash(
+    def test_a_well_formed_tls_deployment_warns_neither_about_cookies_nor_hashes(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
+        """TLS on, an https origin and a well-formed roster raise neither warning.
+
+        Both strings are pinned positively elsewhere (the cleartext-origin test and
+        the unevaluable-hash test), so a reworded warning cannot pass here vacuously.
+        """
         with caplog.at_level(logging.WARNING, logger=app_mod.__name__):
             create_app(PASSWORD_ENV)
+        assert "Secure attribute" not in caplog.text
         assert "cannot be evaluated" not in caplog.text
 
     def test_an_oidc_deployment_does_not_judge_stale_hashes(

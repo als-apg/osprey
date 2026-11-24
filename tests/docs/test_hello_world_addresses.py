@@ -22,7 +22,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.facility.build import build_facility
+from osprey_facility.build import build_facility
+from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GETTING_STARTED = REPO_ROOT / "docs/source/getting-started"
@@ -35,8 +36,8 @@ TUTORIALS = {
 }
 
 #: A colon-separated channel address, as the tutorials spell one; a ``*``
-#: segment names a family.
-ADDRESS = re.compile(r"(?<![\w*])[A-Z][A-Z0-9_]*(?::(?:[A-Z0-9_]+|\*))+(?![\w*])")
+#: segment names a family, and a segment may hold a hyphen (``QD-RAMP``).
+ADDRESS = re.compile(r"(?<![\w*])[A-Z][A-Z0-9_]*(?::(?:[A-Z0-9_]+(?:-[A-Z0-9_]+)*|\*))+(?![\w*-])")
 
 #: The mock connector's refusal for an address outside the facility file.
 REFUSAL = re.compile(rf"({ADDRESS.pattern}) is not a channel of this facility")
@@ -46,7 +47,9 @@ LITERALINCLUDE = re.compile(r"^\.\. literalinclude:: (\S+)", re.MULTILINE)
 
 @cache
 def _channels(facility: str) -> frozenset[str]:
-    document = build_facility(FACILITIES / facility, project_name=facility)
+    document = build_facility(
+        FACILITIES / facility, project_name=facility, extra_checks=FRAMEWORK_CHECKS
+    )
     return frozenset(channel["id"] for channel in document["channels"])
 
 

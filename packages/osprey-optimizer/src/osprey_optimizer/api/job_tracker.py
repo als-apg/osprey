@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import traceback
+from enum import Enum
 from types import TracebackType
 
 from pydantic import BaseModel, ValidationError
@@ -13,13 +14,12 @@ from redis.commands.core import Script
 
 from osprey_optimizer.models.enums import JobStatus
 from osprey_optimizer.models.exceptions import CancellationError
-from osprey_optimizer.models.protocols import JobStateWriter
-from osprey_optimizer.optimization.state import get_optimization_writer
 from osprey_optimizer.utils import redis_client as _redis_client
 from osprey_optimizer.utils.interval_thread import IntervalThread
 from osprey_optimizer.utils.job_keys import (
     all_meta_scan_pattern,
     config_key,
+    heartbeat_key,
     job_scan_pattern,
     meta_key,
     state_prefix,
@@ -48,11 +48,18 @@ ACTIVE_JOB_KEY = "api:active_job"
 # here, including a CREATED draft. get_current_job self-heals a vanished target.
 CURRENT_JOB_KEY = "api:current_job"
 
-# Atomic single-active-slot claim. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key.
-# ARGV[1]=job_id, ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds.
-# Only writes the RUNNING meta if the NX claim on the active slot succeeds, so a
-# lost race leaves any pre-existing (e.g. CREATED) meta at KEYS[2] untouched.
+# Atomic single-active-slot claim, for a draft only. KEYS[1]=ACTIVE_JOB_KEY,
+# KEYS[2]=meta_key. ARGV[1]=job_id, ARGV[2]=running-meta JSON, ARGV[3]=ttl
+# seconds, ARGV[4]=the CREATED status value. Returns -1 when the job has a
+# record that is not a draft's (it has started or ended), 0 when another job
+# holds the slot, and writes nothing in either case; else takes the slot, writes
+# the RUNNING meta and returns 1. A lost race leaves any pre-existing (e.g.
+# CREATED) meta at KEYS[2] untouched.
 _CLAIM_ACTIVE_JOB_LUA = """
+local meta = redis.call('GET', KEYS[2])
+if meta and cjson.decode(meta)['status'] ~= ARGV[4] then
+    return -1
+end
 if redis.call('SET', KEYS[1], ARGV[1], 'NX') then
     redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
     return 1
@@ -64,13 +71,125 @@ return 0
 # the active slot. KEYS[1]=ACTIVE_JOB_KEY, KEYS[2]=meta_key. ARGV[1]=job_id,
 # ARGV[2]=running-meta JSON, ARGV[3]=ttl seconds. Never writes the slot itself:
 # a job that lost it (its claim was released or expired, and another job may now
-# hold it) must not take it back.
+# hold it) must not take it back. Never re-creates a record that lapsed: a job
+# whose meta is gone is left to its worker's refusal, the record's only writer.
 _REGISTER_IF_ACTIVE_LUA = """
-if redis.call('GET', KEYS[1]) == ARGV[1] then
+if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('EXISTS', KEYS[2]) == 1 then
     redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
     return 1
 end
 return 0
+"""
+
+# A spawned worker registers itself, in one step: only while its job still holds
+# the active slot and its record still exists. KEYS: ACTIVE_JOB_KEY, meta_key,
+# heartbeat_key. ARGV: job_id, running-meta JSON, ttl seconds. Returns 0 when
+# the slot does not name the job, -1 when its record is gone (its keys lapsed
+# before the worker started), else writes the RUNNING meta and the heartbeat key,
+# which hands the keys' upkeep from the launcher to the worker's heartbeat, and
+# returns 1. Never re-creates a lost record and never writes the slot.
+_REGISTER_WORKER_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+if redis.call('EXISTS', KEYS[2]) == 0 then
+    return -1
+end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', tonumber(ARGV[3]))
+redis.call('SET', KEYS[3], '1', 'EX', tonumber(ARGV[3]))
+return 1
+"""
+
+# The launcher's keep-alive of a job whose worker has not registered yet.
+# KEYS[1]=meta_key, KEYS[2]=heartbeat_key, KEYS[3..]=every key the job owns.
+# ARGV[1]=ttl seconds, ARGV[2]=the RUNNING status value. Returns 0 when the
+# worker's heartbeat has taken over or the job is no longer running (a late tick
+# never shortens the terminal TTL), -1 when the record is gone, else re-applies
+# the running TTL to every key of the job and returns 1.
+_KEEP_CLAIM_ALIVE_LUA = """
+if redis.call('EXISTS', KEYS[2]) == 1 then
+    return 0
+end
+local meta = redis.call('GET', KEYS[1])
+if not meta then
+    return -1
+end
+if cjson.decode(meta)['status'] ~= ARGV[2] then
+    return 0
+end
+for i = 3, #KEYS do
+    redis.call('EXPIRE', KEYS[i], tonumber(ARGV[1]))
+end
+return 1
+"""
+
+# The end of a job, in one step: its outcome, its record, its lifetime and the
+# slot. KEYS[1]=meta_key, KEYS[2]=the job's pickled status key, KEYS[3]=its
+# pickled error-message key, KEYS[4]=ACTIVE_JOB_KEY, KEYS[5]=CURRENT_JOB_KEY,
+# KEYS[6..]=every key the job owns. ARGV[1]=job_id, ARGV[2]=pickled terminal
+# status, ARGV[3]=pickled message or "" for none, ARGV[4]=terminal ttl,
+# ARGV[5]=the end time, ARGV[6]=pickled status the job must hold or "" for any,
+# ARGV[7]=meta JSON to create a lapsed record with or "" to leave it lapsed,
+# ARGV[8]=the COMPLETED record status value, ARGV[9..]=every pickled terminal
+# status.
+# Returns -1 when the record is gone and is not to be created, -2 when the job
+# does not hold the expected status, 0 when the job has already ended (all three
+# write nothing), 1 when it wrote the status, 2 when the status was already
+# terminal and only the record was completed. A terminal status and its message
+# are never overwritten, an end is never re-dated or extended, and a slot or a
+# pointer another job holds is never touched; the pointer is set only when the
+# record is created and none is set.
+_END_JOB_LUA = """
+local meta = redis.call('GET', KEYS[1])
+if not meta and ARGV[7] == '' then
+    return -1
+end
+local status = redis.call('GET', KEYS[2])
+if ARGV[6] ~= '' and status ~= ARGV[6] then
+    return -2
+end
+local created = not meta
+if created then
+    meta = ARGV[7]
+end
+local terminal = false
+for i = 9, #ARGV do
+    if status == ARGV[i] then
+        terminal = true
+    end
+end
+local record = cjson.decode(meta)
+if not created and terminal and record['status'] == ARGV[8] then
+    return 0
+end
+if not terminal then
+    redis.call('SET', KEYS[2], ARGV[2])
+    if ARGV[3] ~= '' then
+        redis.call('SET', KEYS[3], ARGV[3])
+    end
+end
+record['status'] = ARGV[8]
+if record['completed_at'] == nil or record['completed_at'] == cjson.null then
+    record['completed_at'] = tonumber(ARGV[5])
+end
+redis.call('SET', KEYS[1], cjson.encode(record))
+local ttl = tonumber(ARGV[4])
+for i = 1, 3 do
+    redis.call('EXPIRE', KEYS[i], ttl)
+end
+for i = 6, #KEYS do
+    redis.call('EXPIRE', KEYS[i], ttl)
+end
+if redis.call('GET', KEYS[4]) == ARGV[1] then
+    redis.call('DEL', KEYS[4])
+end
+if created then
+    redis.call('SET', KEYS[5], ARGV[1], 'NX')
+end
+if terminal then
+    return 2
+end
+return 1
 """
 
 # Start a job that has just claimed the slot: CREATED -> RUNNING only while its
@@ -98,15 +217,45 @@ return 0
 
 # Heartbeat: a running job re-applies RUNNING_STATE_TTL_SECONDS across its whole
 # job:{id}:* namespace every HEARTBEAT_INTERVAL_SECONDS. If the process dies
-# (SIGKILL/OOM/redeploy) it stops refreshing, every key expires, and
+# (SIGKILL/OOM/redeploy) it stops refreshing, unless the launcher's watch ends
+# the job first (job_control.end_exited_worker_job): every key expires, and
 # get_active_job() self-heals the otherwise-permanently-wedged active slot — and
 # no state/cancel key leaks. The 6x margin (10s beat / 60s TTL) tolerates a brief
-# Redis blip without freeing a slot out from under a live job.
+# Redis blip without freeing a slot out from under a live job. Until the worker
+# registers, the launcher keeps the keys alive on the same interval (see
+# job_control.keep_launch_alive).
 HEARTBEAT_INTERVAL_SECONDS = 10
 
 
 class JobSlotLostError(RuntimeError):
     """A spawned job found that it no longer holds the single active slot."""
+
+
+class JobRecordLostError(RuntimeError):
+    """A spawned job found its job record gone before it started."""
+
+
+class WorkerRegistration(Enum):
+    """The outcome of a spawned worker registering itself."""
+
+    REGISTERED = "registered"
+    SLOT_LOST = "slot_lost"
+    RECORD_LOST = "record_lost"
+
+
+class JobEnd(Enum):
+    """The outcome of ending a job (:meth:`JobTracker.end_job`)."""
+
+    ENDED = 1
+    """The status, the record, its lifetime and the slot were written."""
+    RECORD_COMPLETED = 2
+    """The status was already terminal; the record, its lifetime and the slot were written."""
+    ALREADY_ENDED = 0
+    """The job had already ended; nothing was written."""
+    RECORD_GONE = -1
+    """The job's record had lapsed; nothing was written."""
+    NOT_EXPECTED = -2
+    """The job did not hold the expected status; nothing was written."""
 
 
 class JobMeta(BaseModel):
@@ -165,10 +314,10 @@ class JobTracker:
     def register_job(self, job_id: str, pid: int) -> bool:
         """Record the real PID of a job that holds the active slot.
 
-        Used for in-place updates of an already-claimed job (writing the PID
-        after spawn, and again from the worker itself). It never takes the slot:
-        to claim it for a brand-new job, use :meth:`claim_active_job`, which is
-        atomic against concurrent starts.
+        Used by the launcher for an in-place update of an already-claimed job
+        (writing the PID after spawn). It never takes the slot: to claim it for
+        a brand-new job, use :meth:`claim_active_job`, which is atomic against
+        concurrent starts. The worker registers through :meth:`register_worker`.
 
         Args:
             job_id: Unique job identifier
@@ -176,7 +325,7 @@ class JobTracker:
 
         Returns:
             True if the job still holds the slot and was updated; False if it
-            does not, in which case nothing was written.
+            does not, or its record is gone; nothing was written.
         """
         # The meta carries a heartbeat TTL so a crashed process's slot
         # self-heals once it stops refreshing (see refresh_heartbeat).
@@ -196,6 +345,122 @@ class JobTracker:
         logger.info("Registered job %s with PID %s", job_id, pid)
         return True
 
+    def register_worker(self, job_id: str, pid: int) -> WorkerRegistration:
+        """Register a spawned worker, only while its job holds the slot and has a record.
+
+        On success the RUNNING meta carries the worker's PID and the heartbeat
+        key is set, so the launcher's keep-alive hands over to the worker's
+        heartbeat. A job that lost the slot, or whose record lapsed before the
+        worker started, is refused and the registration writes nothing.
+        """
+        result = self._script(_REGISTER_WORKER_LUA)(
+            keys=[ACTIVE_JOB_KEY, meta_key(job_id), heartbeat_key(job_id)],
+            args=[
+                job_id,
+                _meta_json(job_id, pid, JobStatus.RUNNING),
+                RUNNING_STATE_TTL_SECONDS,
+            ],
+        )
+        if result == 1:
+            logger.info("Registered job %s with PID %s", job_id, pid)
+            return WorkerRegistration.REGISTERED
+        if result == -1:
+            logger.warning("Job %s has no job record; worker PID %s not registered", job_id, pid)
+            return WorkerRegistration.RECORD_LOST
+        logger.warning("Job %s does not hold the active slot; PID %s not registered", job_id, pid)
+        return WorkerRegistration.SLOT_LOST
+
+    def keep_claim_alive(self, job_id: str) -> bool:
+        """Re-apply the running TTL to a launched job's keys until its worker registers.
+
+        Returns True while the keys are still the launcher's to keep; False once
+        the worker's heartbeat has taken over, the job is no longer running, or
+        its record is gone. Atomic against :meth:`end_job`, so a late call
+        never shortens the terminal TTL.
+        """
+        redis = self._get_redis()
+        keys = list(redis.scan_iter(match=job_scan_pattern(job_id)))
+        kept = self._script(_KEEP_CLAIM_ALIVE_LUA)(
+            keys=[meta_key(job_id), heartbeat_key(job_id), *keys],
+            args=[RUNNING_STATE_TTL_SECONDS, JobStatus.RUNNING.value],
+        )
+        return bool(kept == 1)
+
+    def end_job(
+        self,
+        job_id: str,
+        status: JobStatus,
+        message: str | None,
+        *,
+        expect: JobStatus | None = None,
+        create_if_missing: bool = False,
+    ) -> JobEnd:
+        """End a job in one step: its outcome, its record, its lifetime and the slot.
+
+        Every side that ends a job calls this, and it is one Redis script: the
+        terminal ``status`` and ``message`` (none when ``None``), the record
+        marked COMPLETED with its end time, every key of the job under the
+        terminal TTL, and the active slot released when it names this job.
+
+        Invariants:
+
+        - A terminal status and its message are never overwritten: a job whose
+          status is already terminal keeps it, and only its record is completed.
+        - An end is written once: a job already ended is left as it is, never
+          re-dated and its lifetime never extended.
+        - A lapsed record is never re-created, unless ``create_if_missing``:
+          then it is written as a record that ended now, and the current-job
+          pointer names it when none is set.
+        - A slot or a pointer another job holds is never touched.
+        - With ``expect``, nothing is written unless the job holds that status.
+
+        Raises:
+            ValueError: ``status`` is not terminal.
+        """
+        if not status.is_terminal:
+            raise ValueError(f"A job ends with a terminal status, not {status.value!r}")
+        redis = self._get_redis()
+        keys = list(redis.scan_iter(match=job_scan_pattern(job_id)))
+        now = time.time()
+        created = (
+            JobMeta(
+                job_id=job_id,
+                pid=os.getpid(),
+                status=JobStatus.COMPLETED,
+                created_at=now,
+                completed_at=now,
+            ).model_dump_json()
+            if create_if_missing
+            else ""
+        )
+        result = self._script(_END_JOB_LUA)(
+            keys=[
+                meta_key(job_id),
+                f"{state_prefix(job_id)}:status",
+                f"{state_prefix(job_id)}:error_message",
+                ACTIVE_JOB_KEY,
+                CURRENT_JOB_KEY,
+                *keys,
+            ],
+            args=[
+                job_id,
+                serialize_obj(status),
+                serialize_obj(message) if message is not None else "",
+                TERMINAL_STATE_TTL_SECONDS,
+                now,
+                serialize_obj(expect) if expect is not None else "",
+                created,
+                JobStatus.COMPLETED.value,
+                *(serialize_obj(terminal) for terminal in JobStatus if terminal.is_terminal),
+            ],
+        )
+        outcome = JobEnd(int(result))
+        if outcome is JobEnd.ENDED:
+            logger.info("Ended job %s as %s", job_id, status.value)
+        elif outcome is JobEnd.RECORD_COMPLETED:
+            logger.info("Completed the record of job %s, which had already ended", job_id)
+        return outcome
+
     def register_created_job(self, job_id: str) -> None:
         """Register a CREATED-but-not-started job WITHOUT claiming the active slot.
 
@@ -213,14 +478,16 @@ class JobTracker:
         logger.info("Registered CREATED job %s (slot not claimed)", job_id)
 
     def claim_active_job(self, job_id: str, pid: int) -> bool:
-        """Atomically claim the single active-job slot for a brand-new job.
+        """Atomically claim the single active-job slot for a draft.
 
         Runs one Lua script: ``SET ACTIVE_JOB_KEY job_id NX`` and, only if that
         succeeds, ``SET meta_key running-meta EX ttl`` — so a concurrent
         :meth:`get_active_job` observes a RUNNING job the instant the active key
         appears, while a *lost* race writes nothing and leaves the job's
-        pre-existing (CREATED) metadata intact. Returns False if another job
-        already holds the slot.
+        pre-existing (CREATED) metadata intact. A job whose record is not a
+        draft's (it has started or ended) is refused before the slot is tried,
+        and nothing is written. Returns False when another job holds the slot or
+        the job is not a draft.
 
         A slot left by a job that died without releasing it (its keys expired
         with its heartbeat) is cleared first, by :meth:`get_active_job`; the
@@ -233,11 +500,15 @@ class JobTracker:
                 job_id,
                 _meta_json(job_id, pid, JobStatus.RUNNING),
                 RUNNING_STATE_TTL_SECONDS,
+                JobStatus.CREATED.value,
             ],
         )
         if claimed == 1:
             logger.info("Claimed active slot for job %s with PID %s", job_id, pid)
             return True
+        if claimed == -1:
+            logger.info("Job %s is not a draft; the active slot was not claimed", job_id)
+            return False
         logger.info("Job %s could not claim active slot; another job is already active", job_id)
         return False
 
@@ -359,42 +630,13 @@ class JobTracker:
         redis = self._get_redis()
         return bool(redis.exists(meta_key(job_id)))
 
-    def mark_completed(self, job_id: str) -> None:
-        """Mark a job as completed.
-
-        Args:
-            job_id: The job identifier
-        """
-        redis = self._get_redis()
-        job_data = self.get_job(job_id)
-        if job_data and job_data.status is not JobStatus.COMPLETED:
-            job_data.status = JobStatus.COMPLETED
-            job_data.completed_at = time.time()
-            redis.set(meta_key(job_id), job_data.model_dump_json())
-            logger.info("Marked job %s as completed", job_id)
-
-        # Sweep the job's whole job:{id}:* footprint (meta + state + cancel) under
-        # the terminal TTL in one pass, so it self-reclaims. Applied on every
-        # terminal pass, not just the first flip: a job cancelled mid-run keeps
-        # writing state keys AFTER the API-side mark_completed, and the worker's
-        # own JobLifecycle.__exit__ -> mark_completed must re-apply the TTL to
-        # those late writes (the set() above also clears the meta key's TTL). Not
-        # gated on job_data: once the meta key has lapsed the rest of the
-        # namespace can still be alive and must be swept too (#107).
-        self.expire_job(job_id, TERMINAL_STATE_TTL_SECONDS)
-
-        active = redis.get(ACTIVE_JOB_KEY)
-        if active and active == job_id:
-            redis.delete(ACTIVE_JOB_KEY)
-
     def expire_job(self, job_id: str, ttl_seconds: int) -> None:
         """Set a TTL on every Redis key the job owns (``job:{id}:*``).
 
-        One prefix scan reclaims metadata, state, and the cancellation token
-        together. Call only once a job is terminal — these keys are unbounded
-        while it runs (the heartbeat keeps :func:`meta_key` alive). The tracker's
-        str client scans/expires fine even though state values are binary: SCAN
-        and EXPIRE act on key names, not values, and both clients share the DB.
+        One prefix scan covers metadata, state, and the cancellation token
+        together. The tracker's str client scans/expires fine even though state
+        values are binary: SCAN and EXPIRE act on key names, not values, and
+        both clients share the DB.
         """
         redis = self._get_redis()
         pipe = redis.pipeline()
@@ -409,7 +651,8 @@ class JobTracker:
         Refreshing the entire namespace (one SCAN per beat — the slight per-beat
         cost) keeps not just the metadata slot but every state and cancellation
         key alive while the job runs. A process that dies (SIGKILL/OOM/redeploy)
-        stops calling this, so all its keys expire after
+        stops calling this, so, unless the launcher's watch ends the job first
+        (``job_control.end_exited_worker_job``), all its keys expire after
         ``RUNNING_STATE_TTL_SECONDS``: :meth:`get_active_job` reclaims the wedged
         slot, and no state/cancel key leaks (it never reaches the terminal sweep).
         """
@@ -423,8 +666,6 @@ class JobLifecycle:
     capturing crashes with full stack traces, and de-registering
     the job upon completion or failure.
     """
-
-    writer: JobStateWriter  # set in __enter__
 
     def __init__(self, job_id: str) -> None:
         self.job_id = job_id
@@ -451,17 +692,22 @@ class JobLifecycle:
         Raises:
             JobSlotLostError: The job no longer holds the active slot, so another
                 job may be driving the machine; this one must not start.
+            JobRecordLostError: The job's record lapsed before the worker
+                started; the job ends with a terminal error record and this one
+                must not start.
         """
-        self.writer = get_optimization_writer(self.job_id)
-        if not self.tracker.register_job(self.job_id, os.getpid()):
+        registration = self.tracker.register_worker(self.job_id, os.getpid())
+        if registration is WorkerRegistration.SLOT_LOST:
             message = (
                 f"Job {self.job_id} lost the active-job slot before it started; "
                 "it wrote nothing to the machine."
             )
-            self.writer.set_status(JobStatus.ERROR)
-            self.writer.set_error_message(message)
-            self.tracker.expire_job(self.job_id, TERMINAL_STATE_TTL_SECONDS)
+            self.tracker.end_job(self.job_id, JobStatus.ERROR, message)
             raise JobSlotLostError(message)
+        if registration is WorkerRegistration.RECORD_LOST:
+            message = "The job's record expired before its worker started."
+            self.tracker.end_job(self.job_id, JobStatus.ERROR, message, create_if_missing=True)
+            raise JobRecordLostError(message)
         self._heartbeat.start()
 
         logger.info(
@@ -483,42 +729,40 @@ class JobLifecycle:
     ) -> None:
         """End the job lifecycle, classifying the outcome into terminal status.
 
-        Single owner of the writer's terminal status. Runners
-        run their body and let the outcome propagate: no exception → COMPLETED,
-        a CancellationError → CANCELLED, anything else → ERROR. Backend-specific
+        Single owner of a run's terminal status, written through
+        :meth:`JobTracker.end_job`, which keeps a terminal status already
+        recorded. Runners run their body and let the outcome propagate: no
+        exception → COMPLETED, a CancellationError → CANCELLED, anything else →
+        ERROR. Backend-specific
         exceptions are translated to domain errors at their own adapter (e.g.
         xopt failures become ``OptimizerError`` in ``xopt_backend``), so this
         classifier stays generic — it uses ``str(exc)`` for the error message
         (the full traceback still goes to the log for diagnosis). Does not
         suppress: the exception still propagates.
         """
-        # Stop the heartbeat first so it can't re-shorten the metadata TTL after
-        # mark_completed() applies the long terminal TTL below.
+        # Stop the heartbeat first so it can't re-shorten the TTL after end_job()
+        # applies the terminal TTL below.
         self._heartbeat.stop(timeout=HEARTBEAT_INTERVAL_SECONDS + 1)
 
+        status: JobStatus
+        message: str | None
+        if exc_type is None:
+            status, message = JobStatus.COMPLETED, None
+            logger.info("Job %s finished successfully", self.job_id)
+        elif issubclass(exc_type, CancellationError):
+            status, message = JobStatus.CANCELLED, CANCELLED_MESSAGE
+            logger.info("Job %s cancelled by user", self.job_id)
+        else:
+            status, message = JobStatus.ERROR, str(exc_val) or exc_type.__name__
+            logger.error(
+                "Job %s failed with unhandled exception:\n%s",
+                self.job_id,
+                traceback.format_exc(),
+            )
+
         try:
-            if exc_type is None:
-                self.writer.set_status(JobStatus.COMPLETED)
-                logger.info("Job %s finished successfully", self.job_id)
-            elif issubclass(exc_type, CancellationError):
-                self.writer.set_status(JobStatus.CANCELLED)
-                self.writer.set_error_message(CANCELLED_MESSAGE)
-                logger.info("Job %s cancelled by user", self.job_id)
-            else:
-                error_msg = str(exc_val) or exc_type.__name__
-                logger.error(
-                    "Job %s failed with unhandled exception:\n%s",
-                    self.job_id,
-                    traceback.format_exc(),
-                )
-                self.writer.set_status(JobStatus.ERROR)
-                self.writer.set_error_message(error_msg)
-
-            # mark_completed() sweeps the job's entire job:{id}:* footprint
-            # (meta + state + cancellation) under the terminal TTL in one pass —
-            # the heartbeat is already stopped above so it can't re-shorten it,
-            # and the status/message just written above are covered by the sweep.
-            self.tracker.mark_completed(self.job_id)
-
+            # One step: the outcome, the record, every key of the job under the
+            # terminal TTL, and the slot.
+            self.tracker.end_job(self.job_id, status, message)
         except Exception:
             logger.exception("Error during lifecycle cleanup for job %s", self.job_id)

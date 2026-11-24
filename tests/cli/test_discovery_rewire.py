@@ -29,20 +29,23 @@ Nothing here starts a server, an agent, or a database: the handoffs (``run_web``
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from osprey.cli.query_cmd import query
 from osprey.cli.sim import sim_group
-from osprey.cli.web_cmd import LOG_FILE, PID_FILE, web
+from osprey.cli.web_cmd import LOG_FILE, PID_FILE, _StartedTree, web
+from tests._scoped_stdlib import patch_subprocess
 from tests.cli._lifecycle_build import stub_build
-from tests.cli._scoped_subprocess import patch_subprocess
 from tests.cli._simulator_view import register_stub_engine, write_simulator_view
 
 #: A render that is also simulation-backed: the mock connector serves the
@@ -252,6 +255,24 @@ def spawned(monkeypatch: pytest.MonkeyPatch):
         yield calls
 
 
+@contextmanager
+def _server_that_exits_on_sigterm() -> Iterator[MagicMock]:
+    """Stand in for a detached server that started nothing and exits on SIGTERM.
+
+    The PID in these tests names no real process, so ``web stop`` neither
+    reads the host's process table nor asks the host whether that PID runs.
+    """
+    with (
+        patch(
+            "osprey.cli.web_cmd._started_groups",
+            return_value=_StartedTree(groups=[], endable=False),
+        ),
+        patch("osprey.cli.web_cmd._server_alive", return_value=False),
+        patch("os.kill") as kill,
+    ):
+        yield kill
+
+
 class TestDetachedServerHandle:
     """The PID/log pair belongs to the repo, and ``stop`` looks where ``start`` wrote."""
 
@@ -310,12 +331,11 @@ class TestDetachedServerHandle:
         (lifecycle_repo / LOG_FILE).write_text("")
 
         os.chdir(nested(lifecycle_repo))
-        with patch("os.kill") as kill:
+        with _server_that_exits_on_sigterm() as kill:
             result = runner.invoke(web, ["stop"], catch_exceptions=False)
 
         assert result.exit_code == 0, result.output
-        kill.assert_called_once()
-        assert kill.call_args[0][0] == 4321
+        kill.assert_called_once_with(4321, signal.SIGTERM)
         assert not (lifecycle_repo / PID_FILE).exists()
 
     def test_stop_takes_repo_before_the_subcommand_too(self, runner, lifecycle_repo, tmp_path):
@@ -326,13 +346,13 @@ class TestDetachedServerHandle:
         outside.mkdir()
 
         os.chdir(outside)
-        with patch("os.kill") as kill:
+        with _server_that_exits_on_sigterm() as kill:
             result = runner.invoke(
                 web, ["--repo", str(lifecycle_repo), "stop"], catch_exceptions=False
             )
 
         assert result.exit_code == 0, result.output
-        assert kill.call_args[0][0] == 4321
+        kill.assert_called_once_with(4321, signal.SIGTERM)
 
     def test_stop_outside_any_repo_is_refused(self, runner, tmp_path):
         outside = tmp_path / "not-a-repo"

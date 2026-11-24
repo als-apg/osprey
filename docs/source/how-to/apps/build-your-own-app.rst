@@ -291,10 +291,12 @@ control: have the backend's state say whether writes are on, and the panel
 say *Writes are off*.
 
 The page says when it can be driven, which a browser test or a recording
-waits for: ``index.html`` carries ``<html data-page-ready="pending">``, and
-``panel.js`` imports ``markPageReady`` from
-``/design-system/js/page-ready.js`` and calls it once the first refresh has
-drawn, error or not. ``osprey app check`` refuses a panel without the import.
+waits for: ``index.html`` carries ``<html data-page-ready="pending">`` and
+loads ``/design-system/js/page-ready.js`` by its own tag before ``panel.js``,
+and ``panel.js`` imports ``markPageReady`` from it and calls it once the first
+refresh has drawn, error or not. ``osprey app check`` refuses a panel that
+lacks any of the three, or that loads a module of its own ``async``. The wait
+ends at ``true`` or ``failed``; ``failed`` means the page cannot be driven.
 
 ``tests/panel.test.js`` is a Vitest test of the page's functions in a DOM;
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
@@ -607,9 +609,60 @@ inside it and call it with the header the terminal sends:
            state = client.get("/api/state", headers=served.headers()).json()
        assert (state["channel"], state["target"]) == ("Q1:RB", "va")
 
+A backend whose container declares ``drives_target`` judges a write by the
+tier of the owner the request names. ``serve`` gives it that tier the way a
+build does, as ``control_system.login_tiers`` of the served configuration:
+each owner the panel's grant admits (``served.secrets``), at the login's write
+ceiling. So the owner of a backend served on a login at ``asked`` or
+``allowed`` may write, with no configuration written by the test;
+``served.tiers`` is the map. A write also needs the owner's switch for the
+target at ``asked`` or ``allowed``. The position is in the owner's record,
+``served.record_path(owner)``; with no record there it is ``off``, as in a
+deployment.
+
+To test what the backend answers for an owner it may not write for, state
+that owner's tier: ``tiers={owner: "never"}``, or ``tiers={owner: None}`` for
+an owner whose tier is not known.
+
+.. code-block:: python
+
+   from osprey.apps.sdk import LAUNCH_TOKEN_HEADER
+
+
+   def test_a_write_is_refused_for_an_owner_at_never(synthetic_deployment):
+       deployment = synthetic_deployment(
+           apps={"corrector-trim": APP_DIR},
+           profile={"apps": {"corrector-trim": {"config": {"channel": "Q1:SP"}}}},
+       )
+       (owner,) = deployment.serve("operator").secrets
+       served = deployment.serve("operator", tiers={owner: "never"})
+       with served.environment(), TestClient(create_app()) as client:
+           state = client.get("/api/state", headers=served.headers()).json()
+           refused = client.post(
+               "/api/write",
+               json={"value": 0.5, "target": state["target"], "readback": state["readback"]},
+               headers={**served.headers(), LAUNCH_TOKEN_HEADER: served.launch_token},
+           )
+       assert refused.status_code == 403
+       assert "write tier does not allow" in refused.json()["detail"]
+
 The build behind ``serve`` is real, so what ``osprey build`` refuses fails the
 test with the build's own message. Run pytest with the app's directory
 on the import path, so the test can import the app's package.
+
+The simulator in process holds its time-driven models still: an injection
+chain serves its start values and a request takes no shot. A test of an app
+that asks for shots states ``evolve`` in the ``config:`` of the ``profile``
+it hands the fixture, and the backend's connector then runs them, with no
+container:
+
+.. code-block:: python
+
+   profile = {"config": {"control_system.connector.virtual_accelerator.evolve": True}}
+
+A shot lives in the connector that took the request, so read its outcome
+through the same backend; :ref:`Shots in process <va-in-process-evolve>` says
+what a second connector sees.
 
 Dependencies
 ============
@@ -695,9 +748,12 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``panel.agent_routes``
      - ``[METHOD, /path]`` pairs the agent's tools may call; ``GET``,
        ``HEAD`` and ``OPTIONS`` read, every other method writes.
-   * - ``panel.roster_grant.single_user_alias`` [false]
-     - The panel works for the alias login of a single-user deployment,
-       which has no roster.
+   * - ``panel.roster_grant``
+     - Required when a roster card shows the panel: ``{}`` hands each such
+       card's secret to the panel's container, and on a single-user
+       deployment it names the one operator, so the panel's writes are
+       recorded under ``deployment.host_identity``. The build refuses the
+       panel without it.
    * - ``tools.module``
      - The Python module run as the tool server.
    * - ``tools.read``

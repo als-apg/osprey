@@ -21,6 +21,8 @@ from osprey.deployment.web_terminals.roster import (
     ca_bundle_mounts,
     config_archiver_ca_bundles,
     config_archiver_credential_envs,
+    config_channel_directory_ca_bundles,
+    config_channel_directory_credential_envs,
     config_declares_panel,
     config_needs_ariel_password,
     config_needs_dispatcher_token,
@@ -40,6 +42,8 @@ from osprey.deployment.web_terminals.roster import (
     renders_needing_archiver_ca_bundles,
     renders_needing_archiver_credentials,
     renders_needing_ariel_password,
+    renders_needing_channel_directory_ca_bundles,
+    renders_needing_channel_directory_credentials,
     renders_needing_dispatcher_token,
     renders_needing_graphdb_password,
     renders_needing_launch_token_by_lane,
@@ -1982,19 +1986,6 @@ def test_renders_needing_dispatcher_token_selects_only_the_declaring_render(tmp_
     assert result == {"readwrite"}
 
 
-def test_renders_needing_dispatcher_token_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_dispatcher_token(config, tmp_path) == set()
-
-
 # ---------------------------------------------------------------------------
 # ARIEL config -> per-user database credential
 #
@@ -2066,19 +2057,6 @@ def test_renders_needing_ariel_password_selects_only_the_ariel_render(tmp_path) 
 
     # Assert
     assert result == {"readwrite"}
-
-
-def test_renders_needing_ariel_password_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_ariel_password(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -2316,19 +2294,6 @@ def test_renders_needing_launch_token_selects_only_the_readwrite_render(tmp_path
 
     # Assert
     assert result == {"bluesky": {"readwrite"}}
-
-
-def test_renders_needing_launch_token_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_launch_token_by_lane(config, tmp_path) == {}
 
 
 # ---------------------------------------------------------------------------
@@ -2633,19 +2598,6 @@ def test_renders_needing_graphdb_password_spans_both_tiers(tmp_path) -> None:
 
     # Assert
     assert result == {"readwrite", "readonly"}
-
-
-def test_renders_needing_graphdb_password_skips_unrendered_render_projects(tmp_path) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    # Arrange
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
-    )
-
-    # Act / Assert
-    assert renders_needing_graphdb_password(config, tmp_path) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -3136,17 +3088,150 @@ def test_renders_needing_archiver_credentials_maps_each_render_to_its_variables(
     assert result == {"readwrite": ("MONGO_ROOT_PASSWORD",), "facility": ("OTHER_TOKEN",)}
 
 
-def test_renders_needing_archiver_credentials_skips_unrendered_render_projects(
-    tmp_path,
-) -> None:
-    """A render whose project isn't on disk contributes nothing: a credential is
-    never granted on a guess."""
-    config = _catalog_config(
-        {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
-        [{"name": "alice", "index": 0, "tier": "ghost"}],
+# ---------------------------------------------------------------------------
+# channel directory services -> the variables their blocks name, and their CA files
+# ---------------------------------------------------------------------------
+
+_CHANNEL_DIRECTORY = {
+    "type": "channelfinder",
+    "settings": {
+        "url": "https://cf.example/ChannelFinder",
+        "auth": {"username": "reader", "password_env": "CF_PW"},
+    },
+    "alarm_log": {
+        "type": "phoebus_alarm_logger",
+        "settings": {"url": "https://al.example", "auth": {"token_env": "ALARM_LOG_TOKEN"}},
+    },
+    "alarm_state": {
+        "type": "phoebus_alarm_server",
+        "settings": {
+            "bootstrap_servers": "kafka.example:9093",
+            "topic": "Accelerator",
+            "auth": {"username": "reader", "password_env": "ALARM_FEED_PW", "cleartext": True},
+        },
+    },
+    "put_log": {"type": "caputlog", "settings": {"url": "https://put.example"}},
+}
+
+
+def test_config_channel_directory_credential_envs_reads_every_typed_block_in_order() -> None:
+    assert config_channel_directory_credential_envs({"channel_directory": _CHANNEL_DIRECTORY}) == (
+        "CF_PW",
+        "ALARM_LOG_TOKEN",
+        "ALARM_FEED_PW",
     )
 
-    assert renders_needing_archiver_credentials(config, tmp_path) == {}
+
+def test_config_channel_directory_credential_envs_names_a_shared_variable_once() -> None:
+    section = {
+        **_CHANNEL_DIRECTORY,
+        "put_log": {
+            "type": "caputlog",
+            "settings": {
+                "url": "https://put.example",
+                "auth": {"username": "reader", "password_env": "CF_PW"},
+            },
+        },
+    }
+
+    assert (
+        config_channel_directory_credential_envs({"channel_directory": section}).count("CF_PW") == 1
+    )
+
+
+def test_config_channel_directory_credential_envs_ignores_a_block_without_a_type() -> None:
+    """A block no connector reads entitles nothing: the simulator-only form names no service."""
+    section = {
+        "settings": {"auth": {"token_env": "UNREAD_TOKEN"}},
+        "alarm_state": {
+            "replay_file": "demo:example-alarms",
+            "settings": {"auth": {"username": "u", "password_env": "UNREAD_PW"}},
+        },
+    }
+
+    assert config_channel_directory_credential_envs({"channel_directory": section}) == ()
+
+
+@pytest.mark.parametrize("config", [{}, {"channel_directory": None}, {"channel_directory": "off"}])
+def test_config_channel_directory_credential_envs_is_empty_without_a_section(config: dict) -> None:
+    assert config_channel_directory_credential_envs(config) == ()
+
+
+def test_config_channel_directory_credential_envs_refusal_names_the_block() -> None:
+    section = {
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"auth": {"username": "u", "password_env": "NOT A NAME"}},
+        }
+    }
+
+    with pytest.raises(
+        ValueError, match=r"channel_directory\.alarm_state\.settings\.auth\.password_env"
+    ):
+        config_channel_directory_credential_envs({"channel_directory": section})
+
+
+def test_config_channel_directory_ca_bundles_names_each_file_on_this_host_once(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    tls = {"ca_bundle": str(ca)}
+    section = {
+        "type": "channelfinder",
+        "settings": {"url": "https://cf.example", "tls": tls},
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"bootstrap_servers": "k:9093", "topic": "A", "tls": tls},
+        },
+        "put_log": {
+            "type": "caputlog",
+            "settings": {
+                "url": "https://p.example",
+                "tls": {"ca_bundle": str(tmp_path / "no.pem")},
+            },
+        },
+    }
+
+    assert config_channel_directory_ca_bundles({"channel_directory": section}) == (str(ca),)
+
+
+def test_renders_needing_channel_directory_grants_map_each_render(tmp_path) -> None:
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("x\n")
+    with_ca = {
+        **_CHANNEL_DIRECTORY,
+        "put_log": {
+            "type": "caputlog",
+            "settings": {"url": "https://put.example", "tls": {"ca_bundle": str(ca)}},
+        },
+    }
+    catalog = {
+        "readwrite": {
+            "project": "rw",
+            "project_path": _write_render_project_config(
+                tmp_path, "rw", {"channel_directory": with_ca}
+            ),
+        },
+        "readonly": {
+            "project": "ro",
+            "project_path": _write_render_project_config(
+                tmp_path, "ro", {"channel_directory": None}
+            ),
+        },
+    }
+    config = _catalog_config(
+        catalog,
+        [
+            {"name": "alice", "index": 0, "tier": "readwrite"},
+            {"name": "bob", "index": 1, "tier": "readonly"},
+        ],
+    )
+
+    assert renders_needing_channel_directory_credentials(config, tmp_path) == {
+        "readwrite": ("CF_PW", "ALARM_LOG_TOKEN", "ALARM_FEED_PW")
+    }
+    assert renders_needing_channel_directory_ca_bundles(config, tmp_path) == {
+        "readwrite": (str(ca),)
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -3245,15 +3330,35 @@ def test_renders_needing_archiver_ca_bundles_maps_each_render_to_its_file(tmp_pa
     assert result == {"facility": (str(ca),)}
 
 
-def test_renders_needing_archiver_ca_bundles_skips_unrendered_render_projects(
-    tmp_path,
+# ---------------------------------------------------------------------------
+# Every per-render credential reader skips a render that was never rendered
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("renders_needing", "empty"),
+    [
+        pytest.param(renders_needing_dispatcher_token, set(), id="dispatcher-token"),
+        pytest.param(renders_needing_ariel_password, set(), id="ariel-password"),
+        pytest.param(renders_needing_graphdb_password, set(), id="graphdb-password"),
+        pytest.param(renders_needing_launch_token_by_lane, {}, id="launch-token-by-lane"),
+        pytest.param(renders_needing_archiver_credentials, {}, id="archiver-credentials"),
+        pytest.param(renders_needing_archiver_ca_bundles, {}, id="archiver-ca-bundles"),
+    ],
+)
+def test_renders_needing_a_credential_skips_unrendered_render_projects(
+    tmp_path, renders_needing, empty
 ) -> None:
+    """A render whose project isn't on disk contributes nothing: a credential is
+    never granted on a guess."""
+    # Arrange
     config = _catalog_config(
         {"ghost": {"project": "ghost", "project_path": "../never-rendered"}},
         [{"name": "alice", "index": 0, "tier": "ghost"}],
     )
 
-    assert renders_needing_archiver_ca_bundles(config, tmp_path) == {}
+    # Act / Assert
+    assert renders_needing(config, tmp_path) == empty
 
 
 # ---------------------------------------------------------------------------

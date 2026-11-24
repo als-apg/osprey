@@ -15,6 +15,7 @@ import pytest
 from osprey.deployment.web_terminals import postup_hooks
 from osprey.docs_links import PERIMETER_LIMITS_URL
 from osprey.port_layout import default_port
+from tests._scoped_stdlib import scoped
 from tests.deployment._fake_run import completed
 
 # ---------------------------------------------------------------------------
@@ -25,13 +26,14 @@ from tests.deployment._fake_run import completed
 def test_enable_linger_skips_on_docker_runtime(monkeypatch):
     """Docker has no per-user systemd session -- linger never applies there."""
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["docker", "compose"])
-    monkeypatch.setattr(
-        postup_hooks.shutil,
-        "which",
-        lambda name: pytest.fail("loginctl should not be probed for docker"),
+    scoped(
+        monkeypatch,
+        postup_hooks,
+        "shutil",
+        which=lambda name: pytest.fail("loginctl should not be probed for docker"),
     )
     calls = []
-    monkeypatch.setattr(postup_hooks.subprocess, "run", lambda *a, **k: calls.append(a))
+    scoped(monkeypatch, postup_hooks, "subprocess", run=lambda *a, **k: calls.append(a))
 
     postup_hooks.enable_linger({}, {})
 
@@ -40,9 +42,9 @@ def test_enable_linger_skips_on_docker_runtime(monkeypatch):
 
 def test_enable_linger_skips_when_loginctl_absent(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: None)
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: None)
     calls = []
-    monkeypatch.setattr(postup_hooks.subprocess, "run", lambda *a, **k: calls.append(a))
+    scoped(monkeypatch, postup_hooks, "subprocess", run=lambda *a, **k: calls.append(a))
 
     postup_hooks.enable_linger({}, {})
 
@@ -51,7 +53,7 @@ def test_enable_linger_skips_when_loginctl_absent(monkeypatch):
 
 def test_enable_linger_noop_when_already_enabled(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
     calls = []
 
@@ -60,7 +62,7 @@ def test_enable_linger_noop_when_already_enabled(monkeypatch):
         assert cmd == ["loginctl", "show-user", "deployuser", "--property=Linger"]
         return completed(returncode=0, stdout="Linger=yes\n")
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})
 
@@ -71,7 +73,7 @@ def test_enable_linger_noop_when_already_enabled(monkeypatch):
 
 def test_enable_linger_enables_when_not_yet_enabled(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
     calls = []
 
@@ -81,7 +83,7 @@ def test_enable_linger_enables_when_not_yet_enabled(monkeypatch):
             return completed(returncode=0, stdout="Linger=no\n")
         return completed(returncode=0)
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})
 
@@ -93,7 +95,7 @@ def test_enable_linger_enables_when_not_yet_enabled(monkeypatch):
 
 def test_enable_linger_enable_failure_does_not_raise(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
 
     def _fake_run(cmd, **kwargs):
@@ -101,7 +103,7 @@ def test_enable_linger_enable_failure_does_not_raise(monkeypatch):
             return completed(returncode=0, stdout="Linger=no\n")
         return completed(returncode=1, stdout="", stderr="Permission denied")
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})  # must not raise
 
@@ -111,7 +113,7 @@ def test_enable_linger_status_check_error_still_attempts_enable(monkeypatch):
     prevent the enable attempt -- only a confirmed already-enabled state
     short-circuits it."""
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
     calls = []
 
@@ -121,7 +123,7 @@ def test_enable_linger_status_check_error_still_attempts_enable(monkeypatch):
             raise OSError("boom")
         return completed(returncode=0)
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})  # must not raise
 
@@ -130,7 +132,7 @@ def test_enable_linger_status_check_error_still_attempts_enable(monkeypatch):
 
 def test_enable_linger_enable_call_error_does_not_raise(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
 
     def _fake_run(cmd, **kwargs):
@@ -138,7 +140,7 @@ def test_enable_linger_enable_call_error_does_not_raise(monkeypatch):
             return completed(returncode=0, stdout="Linger=no\n")
         raise OSError("no systemd")
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})  # must not raise
 
@@ -151,14 +153,14 @@ def test_enable_linger_getuser_keyerror_does_not_raise(monkeypatch):
     here, not propagate through the post-up hook and abort the deploy after
     `up -d` already succeeded."""
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
 
     def _raise_keyerror():
         raise KeyError("getpwuid(): uid not found: 1234")
 
     monkeypatch.setattr(postup_hooks.getpass, "getuser", _raise_keyerror)
     calls = []
-    monkeypatch.setattr(postup_hooks.subprocess, "run", lambda *a, **k: calls.append(a))
+    scoped(monkeypatch, postup_hooks, "subprocess", run=lambda *a, **k: calls.append(a))
 
     postup_hooks.enable_linger({}, {})  # must not raise
 
@@ -167,7 +169,7 @@ def test_enable_linger_getuser_keyerror_does_not_raise(monkeypatch):
 
 def test_enable_linger_status_check_timeout_still_attempts_enable(monkeypatch):
     monkeypatch.setattr(postup_hooks, "get_runtime_command", lambda config: ["podman", "compose"])
-    monkeypatch.setattr(postup_hooks.shutil, "which", lambda name: "/usr/bin/loginctl")
+    scoped(monkeypatch, postup_hooks, "shutil", which=lambda name: "/usr/bin/loginctl")
     monkeypatch.setattr(postup_hooks.getpass, "getuser", lambda: "deployuser")
     calls = []
 
@@ -177,7 +179,7 @@ def test_enable_linger_status_check_timeout_still_attempts_enable(monkeypatch):
             raise postup_hooks.subprocess.TimeoutExpired(cmd=cmd, timeout=10)
         return completed(returncode=0)
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.enable_linger({}, {})  # must not raise
 
@@ -424,7 +426,7 @@ def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
 
 def test_run_verify_script_skips_silently_when_absent(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(postup_hooks.subprocess, "run", lambda *a, **k: calls.append(a))
+    scoped(monkeypatch, postup_hooks, "subprocess", run=lambda *a, **k: calls.append(a))
 
     postup_hooks.run_verify_script(str(tmp_path), {})
 
@@ -443,7 +445,7 @@ def test_run_verify_script_runs_via_bash_with_cwd_and_env(monkeypatch, tmp_path)
         calls.append((cmd, kwargs))
         return completed(returncode=0)
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_fake_run)
 
     run_env = {"COMPOSE_PROJECT_NAME": "test"}
     postup_hooks.run_verify_script(str(tmp_path), run_env)
@@ -460,10 +462,11 @@ def test_run_verify_script_nonzero_exit_does_not_raise(monkeypatch, tmp_path):
     scripts_dir.mkdir()
     (scripts_dir / "verify.sh").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
 
-    monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
-        lambda *a, **k: completed(returncode=1, stderr="boom"),
+    scoped(
+        monkeypatch,
+        "osprey.deployment.subprocess_capture",
+        "subprocess",
+        run=lambda *a, **k: completed(returncode=1, stderr="boom"),
     )
 
     postup_hooks.run_verify_script(str(tmp_path), {})  # must not raise
@@ -477,7 +480,7 @@ def test_run_verify_script_oserror_does_not_raise(monkeypatch, tmp_path):
     def _raise(*a, **k):
         raise OSError("no bash")
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _raise)
+    scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=_raise)
 
     postup_hooks.run_verify_script(str(tmp_path), {})  # must not raise
 
@@ -496,7 +499,7 @@ def test_reload_nginx_config_emits_a_scoped_exec(monkeypatch):
         recorded.append(list(cmd))
         return completed(returncode=0)
 
-    monkeypatch.setattr(postup_hooks.subprocess, "run", _fake_run)
+    scoped(monkeypatch, postup_hooks, "subprocess", run=_fake_run)
 
     postup_hooks.reload_nginx_config(["docker", "compose", "-f", "web.yml"], {})
 
@@ -505,17 +508,24 @@ def test_reload_nginx_config_emits_a_scoped_exec(monkeypatch):
     ]
 
 
-def test_reload_nginx_config_failure_is_advisory(monkeypatch):
+def test_reload_nginx_config_failure_is_advisory(monkeypatch, caplog):
     """A failing reload (container still starting, config rejected) warns but
     never raises: nginx keeps serving the old config, and the roster verb that
     triggered the reload did reconcile."""
-    monkeypatch.setattr(
-        postup_hooks.subprocess,
-        "run",
-        lambda *a, **k: completed(returncode=1, stderr="boom"),
+    scoped(
+        monkeypatch,
+        postup_hooks,
+        "subprocess",
+        run=lambda *a, **k: completed(returncode=1, stderr="boom"),
     )
 
-    postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise
+    with caplog.at_level("WARNING"):
+        postup_hooks.reload_nginx_config(["docker", "compose"], {})  # must not raise
+
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1, caplog.text
+    assert "nginx config reload failed" in warnings[0].getMessage()
+    assert "boom" in warnings[0].getMessage()
 
 
 def test_a_redirect_counts_as_an_answer_and_is_never_followed() -> None:

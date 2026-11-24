@@ -12,11 +12,12 @@ import at
 import pytest
 import yaml
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.compute import check_model_inputs, check_served_inputs
-from osprey.facility.validate import StageReport, run_stages
-from osprey.simulation.engines import ENTRY_POINT_GROUP
 from osprey.simulation.engines import pyat as pyat_engine
+from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.compute import check_model_inputs, check_served_inputs
+from osprey_facility.validate import StageReport, run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 CONSUMER = "fake_input_consumer_engine"
 PLAIN = "fake_input_plain_engine"
@@ -60,16 +61,16 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, PLAIN, plain)
     found = metadata.EntryPoints(
         [
-            metadata.EntryPoint(name="pyat", value=pyat_engine.__name__, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="consumer", value=CONSUMER, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="plain", value=PLAIN, group=ENTRY_POINT_GROUP),
+            metadata.EntryPoint(name="pyat", value=pyat_engine.__name__, group=ENGINE_GROUP),
+            metadata.EntryPoint(name="consumer", value=CONSUMER, group=ENGINE_GROUP),
+            metadata.EntryPoint(name="plain", value=PLAIN, group=ENGINE_GROUP),
         ]
     )
 
     real = metadata.entry_points
 
     def entry_points(**selection: Any) -> Any:
-        if selection.get("group") == ENTRY_POINT_GROUP:
+        if selection.get("group") == ENGINE_GROUP:
             return found
         return real(**selection)
 
@@ -141,7 +142,7 @@ def _run(tmp_path: Path, files: dict[str, Any]) -> StageReport:
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     for model in files["models.yaml"]:
         _save_deck(root / model["deck"])
-    return run_stages(root, project_name="p", later=LATER_STAGES)
+    return run_stages(root, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS)
 
 
 def _lines(result: StageReport) -> list[str]:

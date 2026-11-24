@@ -17,6 +17,7 @@ import osprey.channel_roster.records as records_module
 from osprey.channel_roster import (
     ABSENCE_TEMPLATES,
     ChannelRecord,
+    CommandCompletion,
     RosterAbsence,
     RosterAbsenceReason,
     RosterResult,
@@ -77,6 +78,15 @@ class TestChannelRecord:
     def test_readback_without_a_write_direction_is_refused(self, direction: str | None) -> None:
         with pytest.raises(ValueError, match="readback pairs a setpoint"):
             _record("SR:MAG:HCM:01:CURRENT:SP", direction, readback="SR:MAG:HCM:01:CURRENT:RB")
+
+    def test_a_command_record_carries_its_bound_and_a_status_its_idle(self) -> None:
+        command = _record("Q1:ON", "write", readback="Q1:STATE", command=True, timeout_s=5.0)
+        status = _record("Q1:STATE", "read", idle="OFF")
+        plain = _record("Q1:SP", "write")
+
+        assert (command.command, command.timeout_s, command.idle) == (True, 5.0, None)
+        assert (status.command, status.timeout_s, status.idle) == (False, None, "OFF")
+        assert (plain.command, plain.timeout_s, plain.idle) == (False, None, None)
 
 
 class TestRosterSource:
@@ -193,6 +203,35 @@ class TestRosterResult:
             "SR:MAG:HCM:01:CURRENT:RB",
             "SR:DIAG:BPM:01:POSITION:X",
         ]
+
+    def test_completion_answers_command_status_idle_and_bound(self) -> None:
+        result = RosterResult(
+            records=(
+                _record("Q1:ON", "write", readback="Q1:STATE", command=True, timeout_s=5.0),
+                _record("Q1:RESET", "write", readback="Q1:STATE", command=True, timeout_s=1.0),
+                _record("Q1:STATE", "read", idle="OFF"),
+            ),
+            source=_FACILITY,
+        )
+
+        assert CommandCompletion._fields == ("command", "status", "idle", "timeout_s")
+        assert result.completion("Q1:ON") == ("Q1:ON", "Q1:STATE", "OFF", 5.0)
+        assert result.completion("Q1:RESET") == ("Q1:RESET", "Q1:STATE", "OFF", 1.0)
+
+    def test_completion_is_none_without_a_bound_or_an_idle_status(self) -> None:
+        result = RosterResult(
+            records=(
+                _record("A:GO", "write", readback="A:BUSY", command=True),
+                _record("A:BUSY", "read", idle=0),
+                _record("B:GO", "write", readback="B:BUSY", command=True, timeout_s=2.0),
+                _record("B:BUSY", "read"),
+                _record("C:GO", "write", command=True, timeout_s=2.0),
+                _record("D:SP", "write", readback="A:BUSY"),
+            ),
+            source=_FACILITY,
+        )
+
+        assert [result.completion(a) for a in (*result.addresses, "NOWHERE")] == [None] * 7
 
     def test_records_are_normalised_to_a_tuple(self) -> None:
         result = RosterResult(records=[_record("A", "read")], source=_FACILITY)

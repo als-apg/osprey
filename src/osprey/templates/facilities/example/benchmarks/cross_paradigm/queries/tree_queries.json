@@ -137,10 +137,10 @@
     "category": "aggregate"
   },
   {
-    "user_query": "Get the first dipole readback in the storage and booster ring.",
+    "user_query": "Get the first dipole readback in the storage ring and the bend supply readback in the booster.",
     "targeted_pv": [
       "SR:MAG:DIPOLE:01:CURRENT:RB",
-      "BR:MAG:DIPOLE:01:CURRENT:RB"
+      "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
     ],
     "category": "ambiguous"
   },
@@ -167,16 +167,24 @@
     "category": "cross-ring"
   },
   {
-    "user_query": "List all booster ring bend setpoints",
+    "user_query": "List all booster ring horizontal corrector setpoints",
     "targeted_pv": [
-      "BR:MAG:DIPOLE:01:CURRENT:SP",
-      "BR:MAG:DIPOLE:02:CURRENT:SP",
-      "BR:MAG:DIPOLE:03:CURRENT:SP",
-      "BR:MAG:DIPOLE:04:CURRENT:SP",
-      "BR:MAG:DIPOLE:05:CURRENT:SP",
-      "BR:MAG:DIPOLE:06:CURRENT:SP",
-      "BR:MAG:DIPOLE:07:CURRENT:SP",
-      "BR:MAG:DIPOLE:08:CURRENT:SP"
+      "BR:MAG:HCM:01:CURRENT:SP",
+      "BR:MAG:HCM:02:CURRENT:SP",
+      "BR:MAG:HCM:03:CURRENT:SP",
+      "BR:MAG:HCM:04:CURRENT:SP",
+      "BR:MAG:HCM:05:CURRENT:SP",
+      "BR:MAG:HCM:06:CURRENT:SP",
+      "BR:MAG:HCM:07:CURRENT:SP",
+      "BR:MAG:HCM:08:CURRENT:SP",
+      "BR:MAG:HCM:09:CURRENT:SP",
+      "BR:MAG:HCM:10:CURRENT:SP",
+      "BR:MAG:HCM:11:CURRENT:SP",
+      "BR:MAG:HCM:12:CURRENT:SP",
+      "BR:MAG:HCM:13:CURRENT:SP",
+      "BR:MAG:HCM:14:CURRENT:SP",
+      "BR:MAG:HCM:15:CURRENT:SP",
+      "BR:MAG:HCM:16:CURRENT:SP"
     ],
     "category": "cross-ring"
   },
@@ -193,10 +201,10 @@
     "category": "cross-ring"
   },
   {
-    "user_query": "Show me the third booster dipole current alongside the third storage ring dipole current",
+    "user_query": "Show me the booster bend supply current alongside the third storage ring dipole current",
     "targeted_pv": [
       "SR:MAG:DIPOLE:03:CURRENT:RB",
-      "BR:MAG:DIPOLE:03:CURRENT:RB"
+      "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB"
     ],
     "category": "cross-ring"
   },
@@ -225,12 +233,11 @@
     "category": "cross-ring"
   },
   {
-    "user_query": "List every channel for the second booster dipole",
+    "user_query": "List every channel for the second booster horizontal corrector",
     "targeted_pv": [
-      "BR:MAG:DIPOLE:02:CURRENT:SP",
-      "BR:MAG:DIPOLE:02:CURRENT:RB",
-      "BR:MAG:DIPOLE:02:STATUS:READY",
-      "BR:MAG:DIPOLE:02:STATUS:FAULT"
+      "BR:MAG:HCM:02:CURRENT:SP",
+      "BR:MAG:HCM:02:CURRENT:RB",
+      "BR:MAG:HCM:02:STATUS:ON"
     ],
     "category": "device-specific"
   },
@@ -730,15 +737,5 @@
       "BTS:MAG:DIPOLE:03:CURRENT:RB"
     ],
     "category": "single-target"
-  },
-  {
-    "user_query": "What are the horizontal corrector setpoints in the four-cell LINE transfer line?",
-    "targeted_pv": [
-      "LINE:MAG:HCM:01:CURRENT:SP",
-      "LINE:MAG:HCM:02:CURRENT:SP",
-      "LINE:MAG:HCM:03:CURRENT:SP",
-      "LINE:MAG:HCM:04:CURRENT:SP"
-    ],
-    "category": "aggregate"
   }
 ]

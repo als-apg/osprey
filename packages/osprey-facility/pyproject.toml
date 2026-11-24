@@ -1,0 +1,114 @@
+[build-system]
+# setuptools-scm >= 9.2 for `scm.git.describe_command` below (the 8.x line hatch-vcs
+# still admits has no `scm` table and refuses the keyword).
+requires = ["hatchling", "hatch-vcs", "setuptools-scm>=9.2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "osprey-facility"
+dynamic = ["version"]
+description = "The OSPREY facility description: facility.json, its schema, and the layers that build it"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "BSD-3-Clause"}
+# Lower bounds are the framework's own, so a framework install and this package
+# resolve the same floors.
+dependencies = [
+    "osprey-connectors>=2026.11.16",
+    "pydantic>=2.11,<3",
+    "PyYAML>=6.0.2",
+    "packaging>=26.3",
+    "numpy>=2.2.6",
+]
+
+[project.optional-dependencies]
+# The MML layer: reading a MATLAB Middle Layer export and the lattice computations
+# it feeds. A description without an MML layer needs neither.
+mml = [
+    "scipy>=1.17.1",
+    "accelerator-toolbox>=0.8.0",
+]
+
+[project.urls]
+Repository = "https://github.com/als-apg/osprey"
+Issues = "https://github.com/als-apg/osprey/issues"
+Changelog = "https://github.com/als-apg/osprey/blob/main/packages/osprey-facility/CHANGELOG.md"
+
+# Measurement kinds, each entry naming its KindDeclaration; a facility build
+# reaches a kind only through this group. The five below are the built-in ones.
+[project.entry-points."osprey_facility.kinds"]
+orm = "osprey_facility.kinds:ORM"
+dispersion = "osprey_facility.kinds:DISPERSION"
+trm = "osprey_facility.kinds:TRM"
+crm = "osprey_facility.kinds:CRM"
+chromaticity_monitor = "osprey_facility.kinds:CHROMATICITY_MONITOR"
+
+[tool.hatch.version]
+source = "vcs"
+# The package has its own calendar stream, on its own tags:
+# osprey-facility-vYYYY.M.P. `root` climbs to the repository the tags live in;
+# the describe glob reads only this package's calendar tags, and the backend's
+# default tag regex strips the `osprey-facility-` prefix and leading `v`. With no
+# such tag reachable the build is 0.0.postN+g…, which is intended until the
+# package's first release. The describe command sits in the `scm.git` table, not
+# the deprecated flat `git_describe_command` key, as in osprey-connectors.
+raw-options = { root = "../..", version_scheme = "post-release", scm = { git = { describe_command = "git describe --dirty --tags --long --abbrev=40 --match osprey-facility-v2[0-9][0-9][0-9].*" } } }
+
+# The framework releases the facility package built at HEAD must keep working
+# under. A framework release that depends on osprey-facility pins it with a floor
+# and no ceiling, so a rebuild of one resolves the newest facility package; the
+# `facility-compat` CI lane and the nightly run HEAD under each release listed
+# here (`scripts/ci/compat_matrix.py --package facility` reads it).
+#
+# Policy: the newest stable framework release, every stable release published
+# within the last six months, and any pre-release newer than the newest stable
+# until a stable release supersedes it. A release leaves `frameworks` for
+# `retired` when it falls outside that window, never because it fails. A
+# deliberate break inside the window is a recorded retirement: the release
+# moves to `retired` with its reason written beside it.
+#
+# The plan job holds both lists to the framework tags reachable from HEAD: a
+# tagged release newer than 2026.11.1 (the last framework without an
+# osprey-facility dependency) must be in one of them once a newer tag follows
+# it, and neither may name a release with no tag. No framework release depends
+# on the package yet, so both start empty.
+[tool.osprey-facility.compat]
+frameworks = []
+retired = []
+# Framework tests that read the facility source tree as text rather than drive
+# the package, deselected where the installed package is not HEAD's (as the
+# connectors list is). Node ids at HEAD; none yet.
+source-text-tests = []
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/osprey_facility/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/osprey_facility"]
+
+# Unreleased changelog fragments are repository workflow, not package content:
+# the release fold empties the directory into CHANGELOG.md, which does ship. So
+# is the package's checks module, which only the repository's check command reads.
+[tool.hatch.build.targets.sdist]
+exclude = ["changelog.d", "repo_checks.py"]
+
+# The package suite's test dependencies: a group, not an extra, so they never
+# reach the wheel's metadata. `uv sync --package osprey-facility` installs it.
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "pytest-timeout",
+    "pytest-xdist",
+    "jsonschema>=4.26,<5",  # validates built descriptions against the published schema
+]
+
+# Read by the standalone lane; a run from the repository root uses the root's.
+[tool.pytest.ini_options]
+addopts = "-ra -v --tb=short --strict-markers --color=yes"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+tmp_path_retention_policy = "failed"
+markers = [
+    "wheel_build: Tests that read a built osprey-facility wheel named by OSPREY_FACILITY_WHEEL. Deselected from the root unit shards; the package's standalone CI job builds the wheel once and selects them.",
+]

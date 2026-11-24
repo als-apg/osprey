@@ -18,10 +18,10 @@ Proving an *absence* over 0MQ takes care, because a freshly connected PUB
 socket drops everything it publishes before its handshake finishes — so "I
 published a forgery and nothing showed up" is true whether or not the key was
 ever checked. Two things make the negative assertion real: the forged
-publisher republishes in a loop for seconds (far longer than an authorized
-publisher needs to get a document through, which every test measures for
-itself in `_establish_link`), and an authenticated document published
-afterwards must still arrive, proving the plane never stopped delivering.
+publisher republishes in a loop for seconds (far longer than `_establish_link`
+needs to get a fresh authenticated publisher's probe through its handshake),
+and an authenticated document published afterwards must still arrive, proving
+the plane never stopped delivering.
 Swapping the forged publisher's config for a valid one must make this test
 fail; it does.
 """
@@ -32,9 +32,11 @@ import contextlib
 import logging
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import zmq.auth
 
@@ -47,18 +49,22 @@ from osprey.services.bluesky_bridge.document_plane import (
 )
 from tests._live import wait_until
 
-# Generous relative to the ~0.1 s a local 0MQ hop actually takes; these are
-# upper bounds on a *failure*, not sleeps — the waits return as soon as the
-# condition holds.
-_DELIVERY_TIMEOUT = 15.0
-_LINK_TIMEOUT = 15.0
-_POLL_INTERVAL = 0.05
-
 # How long an unauthenticated publisher is given to prove itself rejected. This
 # one IS spent in full — the assertion is an absence, so the cost buys the
-# test its teeth. Orders of magnitude longer than the single probe an
-# authorized publisher needs to get through.
+# test its teeth. Far longer than `_establish_link` needs to get a fresh
+# authenticated publisher's probe through its handshake.
 _FORGED_GRACE = 3.0
+# Pause between the forged publisher's rounds of documents during the grace.
+_FORGED_REPUBLISH_INTERVAL = 0.05
+
+
+def _wait_for(condition: Callable[[], Any], what: str = "condition") -> None:
+    """Return as soon as *condition* holds, checked every 5 ms.
+
+    The 15 s deadline is generous against the ~0.1 s a local 0MQ hop takes:
+    it bounds a *failure*, it is not a sleep.
+    """
+    wait_until(condition, timeout=15.0, interval=0.005, what=what)
 
 
 @pytest.fixture
@@ -211,12 +217,11 @@ def _establish_link(publisher) -> None:
     own buffer is then dropped so it cannot be mistaken for real data.
     """
     probe_uid = "probe-run-uid"
-    wait_until(
+    _wait_for(
         lambda: (
             (publisher("start", _start_doc(probe_uid)), live_rows.get(probe_uid))[1] is not None
         ),
-        timeout=_LINK_TIMEOUT,
-        what="the authenticated publisher reaching the proxy",
+        "the authenticated publisher reaching the proxy",
     )
     live_rows._clear()
 
@@ -235,10 +240,9 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
         publisher("event", _event_doc(descriptor_uid, seq, {"corrector": value, "bpm": -value}))
     publisher("stop", _stop_doc(run_uid, 3))
 
-    wait_until(
+    _wait_for(
         lambda: (live_rows.get("osprey-run-1") or {}).get("partial") is False,
-        timeout=_DELIVERY_TIMEOUT,
-        what="the run's stop document",
+        "the run's stop document",
     )
 
     buffer = live_rows.get("osprey-run-1")
@@ -258,14 +262,41 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
     }
 
 
+def test_a_waveform_reading_crosses_the_plane_and_is_served(plane, certificates, publishers):
+    """An array reading pickled by the worker is served by the data route as a list."""
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge.app import app
+
+    publisher = _publisher(publishers, plane, certificates)
+    _establish_link(publisher)
+
+    run_uid = "run-engine-uid-wave"
+    descriptor_uid = "descriptor-wave"
+    publisher("start", _start_doc(run_uid, run_id="osprey-run-wave"))
+    publisher("descriptor", _descriptor_doc(descriptor_uid, run_uid))
+    publisher("event", _event_doc(descriptor_uid, 1, {"det_wave": np.arange(3.0)}))
+    publisher("stop", _stop_doc(run_uid, 1))
+
+    _wait_for(
+        lambda: (live_rows.get("osprey-run-wave") or {}).get("partial") is False,
+        "the run's stop document",
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).get("/runs/osprey-run-wave/data")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"] == [[[0.0, 1.0, 2.0]]]
+
+
 def _assert_refused(forged, authorized, label: str) -> None:
     """Assert *forged* never gets a document through, then fence with *authorized*.
 
-    The forged publisher gets the *same* grace an authenticated one gets — it
-    republishes in a loop for :data:`_FORGED_GRACE` seconds, far longer than
-    the single probe an authorized link needs. Publishing once and looking
-    immediately would pass whether or not the key was checked, since a fresh
-    0MQ socket drops what it publishes before its handshake completes.
+    The forged publisher republishes in a loop for :data:`_FORGED_GRACE`
+    seconds, far longer than `_establish_link` needs to get a fresh
+    authenticated publisher's probe through its handshake. Publishing once and
+    looking immediately would pass whether or not the key was checked, since a
+    fresh 0MQ socket drops what it publishes before its handshake completes.
     """
     run_uid = f"{label}-run-uid"
     run_id = f"{label}-run"
@@ -275,16 +306,14 @@ def _assert_refused(forged, authorized, label: str) -> None:
         forged("descriptor", _descriptor_doc(f"{label}-descriptor", run_uid))
         forged("event", _event_doc(f"{label}-descriptor", 1, {"corrector": 99.0}))
         assert live_rows.get(run_id) is None, f"the {label} publisher was accepted"
-        time.sleep(_POLL_INTERVAL)
+        time.sleep(_FORGED_REPUBLISH_INTERVAL)
 
     # Fence: a document published down the authenticated socket AFTER the
     # forgery, proving the plane was still delivering the whole time.
     fence_id = f"fence-after-{label}"
     authorized("start", _start_doc(f"{fence_id}-uid", run_id=fence_id))
-    wait_until(
-        lambda: live_rows.get(fence_id) is not None,
-        timeout=_DELIVERY_TIMEOUT,
-        what="the authenticated publisher's fence document",
+    _wait_for(
+        lambda: live_rows.get(fence_id) is not None, "the authenticated publisher's fence document"
     )
 
     assert live_rows.get(run_id) is None
@@ -340,11 +369,7 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
     publisher("descriptor", _descriptor_doc("unmanaged-descriptor", run_uid))
     publisher("event", _event_doc("unmanaged-descriptor", 1, {"bpm": 0.5}))
 
-    wait_until(
-        lambda: (live_rows.get(run_uid) or {}).get("total_seen") == 1,
-        timeout=_DELIVERY_TIMEOUT,
-        what="the run's one event",
-    )
+    _wait_for(lambda: (live_rows.get(run_uid) or {}).get("total_seen") == 1, "the run's one event")
     buffer = live_rows.get(run_uid)
     assert buffer is not None
     assert buffer["rows"] == [[0.5]]
@@ -360,10 +385,9 @@ def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certifica
     publisher("descriptor", _descriptor_doc("declared-descriptor", run_uid))
     publisher("event", _event_doc("declared-descriptor", 1, {"bpm": 0.5}))
 
-    wait_until(
+    _wait_for(
         lambda: (document_plane.progress("declared-run") or {}).get("rows_seen") == 1,
-        timeout=_DELIVERY_TIMEOUT,
-        what="the declared run's first row",
+        "the declared run's first row",
     )
     assert document_plane.progress("declared-run") == {
         "rows_seen": 1,
@@ -406,10 +430,8 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
     # Wait for the EVENT doc, not just the start doc: the run appears in
     # live_rows as soon as "start" is processed, while the row from "event"
     # can still be in flight behind it on the same socket.
-    wait_until(
-        lambda: (live_rows.get("worker-built-run") or {}).get("rows"),
-        timeout=_DELIVERY_TIMEOUT,
-        what="the worker-built run's rows",
+    _wait_for(
+        lambda: (live_rows.get("worker-built-run") or {}).get("rows"), "the worker-built run's rows"
     )
     buffer = live_rows.get("worker-built-run")
     assert buffer is not None
@@ -443,7 +465,7 @@ class TestTheDocumentPlaneSurvivesBeingRestarted:
 
         # Wait, then assert: the failure message lists the threads still alive.
         with contextlib.suppress(AssertionError):
-            wait_until(lambda: threading.active_count() <= baseline, timeout=_DELIVERY_TIMEOUT)
+            _wait_for(lambda: threading.active_count() <= baseline)
         assert threading.active_count() <= baseline, (
             f"threads outlived their planes (baseline {baseline}): "
             f"{[t.name for t in threading.enumerate()]}"
@@ -464,10 +486,8 @@ class TestTheDocumentPlaneSurvivesBeingRestarted:
                 _establish_link(publisher)
                 run_id = f"restart-cycle-{cycle}"
                 publisher("start", _start_doc(f"{run_id}-uid", run_id=run_id))
-                wait_until(
-                    lambda key=run_id: live_rows.get(key) is not None,
-                    timeout=_DELIVERY_TIMEOUT,
-                    what=f"cycle {cycle}'s document",
+                _wait_for(
+                    lambda key=run_id: live_rows.get(key) is not None, f"cycle {cycle}'s document"
                 )
             finally:
                 _close_all(opened)

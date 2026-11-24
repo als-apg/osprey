@@ -191,3 +191,61 @@ async def test_app_with_lifespan(mock_ariel_config, mock_ariel_service, tmp_path
                 # Check root endpoint
                 response = client.get("/")
                 assert response.status_code == 200
+
+
+class TestIndexVendorScripts:
+    """The page names marked and DOMPurify the way the deployment can load them.
+
+    The reader renders a Markdown entry body with the two libraries
+    (``static/js/entry-markdown.js``). ``index.html`` is a template so that
+    ``vendor_url()`` picks the CDN copy by default and the copy ``osprey vendor
+    fetch`` places in ``static/vendor/`` when the deployment is offline.
+    """
+
+    @pytest.fixture
+    def client(self):
+        from osprey.interfaces.ariel import create_app
+
+        with (
+            patch("osprey.interfaces.ariel.app.load_ariel_config", return_value={}),
+            patch("osprey.services.ariel_search.create_ariel_service"),
+        ):
+            # No ``with``: the lifespan (the store) is not what is under test.
+            yield TestClient(create_app())
+
+    def test_cdn_mode_names_the_pinned_cdn_builds(self, client, monkeypatch):
+        from osprey.interfaces.vendor import asset_cdn_url
+
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+        with patch("osprey_connectors.workspace.load_osprey_config", return_value={}):
+            body = client.get("/").text
+
+        assert f'<script src="{asset_cdn_url("marked")}"></script>' in body
+        assert f'<script src="{asset_cdn_url("DOMPurify")}"></script>' in body
+        assert "/static/vendor/" not in body
+
+    def test_offline_mode_names_the_fetched_copies(self, client, monkeypatch):
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        body = client.get("/").text
+
+        assert '<script src="/static/vendor/marked.min.js"></script>' in body
+        assert '<script src="/static/vendor/purify.min.js"></script>' in body
+        assert "cdn.jsdelivr.net" not in body
+
+    def test_the_libraries_load_before_the_page_module(self, client, monkeypatch):
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        body = client.get("/").text
+
+        assert "{{" not in body and "{%" not in body
+        module = body.index('<script type="module" src="/static/js/app.js">')
+        assert body.index("marked.min.js") < body.index("purify.min.js") < module
+
+    @pytest.mark.parametrize("filename", ["marked.min.js", "purify.min.js"])
+    def test_the_manifest_delivers_the_offline_copies(self, filename):
+        from osprey.interfaces import vendor
+
+        delivered = {
+            (base, directory.strip("/"), name)
+            for base, directory, name, _url, _sha in vendor._entries(vendor._load_manifest())
+        }
+        assert ("interfaces", "ariel/static/vendor", filename) in delivered

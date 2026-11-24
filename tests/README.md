@@ -218,8 +218,11 @@ too, each because the real thing makes a test slow or flaky:
 - `wait_for_page_ready(target)` (`tests/interfaces/_browser.py`) — the one wait
   after a navigation. Every page OSPREY serves sets `data-page-ready="true"` on
   its `<html>` once it can be driven (`design-system/js/page-ready.js`); the
-  helper waits for it on a page, frame or frame locator. `open_hub_page`,
-  `open_panel_host`, `PanelHost.goto` and `PanelHost.reload` wait through it.
+  helper waits for it on a page, frame or frame locator. It fails at once on
+  `data-page-ready="failed"`, the writer's mark for a pending page that threw or
+  could not load one of its own scripts.
+  `open_hub_page`, `open_panel_host`, `PanelHost.goto` and `PanelHost.reload`
+  wait through it.
   `tests/interfaces/test_page_ready_guard.py` fails a test whose next use of a
   page after `goto`, `reload`, `wait_for_url` or a popup is anything else; a
   document OSPREY does not author, or a test whose subject is the page before
@@ -395,93 +398,47 @@ For a plain `import x`, the module attribute is the shared module object and the
 patch is global no matter how you spell the target. This is equally true for
 `os`, `shutil`, `socket`, and `subprocess`.
 
-### The scoped-subprocess helper
+### The scoped-stdlib helper
 
-`tests/cli/_scoped_subprocess.py` does the scoping properly, by rebinding the
-importing module's own `subprocess` *name* to a stand-in. Its docstring is the
-reference:
-
-> Patch `subprocess` for one module without touching the stdlib module.
->
-> A patch target that names the module under test is *not* automatically scoped
-> to it. After a module does `import subprocess`, `<module>.subprocess` **is**
-> the stdlib module object, so both of these mutate `sys.modules["subprocess"]`:
->
-> ```python
-> patch("subprocess.run")                       # obviously global
-> patch("osprey.cli.chat_cmd.subprocess.run")   # equally global, looks scoped
-> ```
->
-> While either is active the fake is visible to every daemon thread and
-> background server in the worker, which is the leak this helper exists to
-> avoid. What does scope the fake is rebinding the *importing module's own*
-> `subprocess` name to a stand-in object, which is what `patch_subprocess()`
-> does. The stand-in carries the real exception classes across, so
-> `except subprocess.TimeoutExpired` in the code under test still catches.
->
-> Both spawning entry points are covered. `run` is always a fresh `MagicMock`;
-> `Popen` becomes one only when the caller asks, via `popen=`. That default is
-> deliberate: a globally-patched `Popen` swallows the `git init` the exemplar
-> repo fixture runs — and anything else spawning in this worker — so a test
-> that needs a fake child process must get it scoped, but a test that only
-> cares about `run` must keep the real `Popen` working underneath it.
->
-> This requires the module under test to import `subprocess` at module level. A
-> function-local `import subprocess` re-reads `sys.modules` on every call and
-> cannot be intercepted this way at all.
->
-> Usage — as a decorator, where the injected argument is the stand-in:
->
-> ```python
-> @patch_subprocess("osprey.cli.chat_cmd", return_value=Mock(returncode=0))
-> def test_launch(self, fake_subprocess, ...):
->     ...
->     fake_subprocess.run.assert_called_once()
-> ```
->
-> or as a context manager:
->
-> ```python
-> with patch_subprocess("osprey.deployment.container_lifecycle", side_effect=[a, b]) as fake:
->     ...
-> ```
->
-> To fake a detached child, pass `popen=` — either a ready-made callable, or
-> `popen=True` for a plain `MagicMock` whose `return_value` you configure:
->
-> ```python
-> with patch_subprocess("osprey.cli.web_cmd", popen=True) as fake:
->     fake.Popen.return_value.pid = 4321
->     ...
->     assert fake.Popen.call_args.args[0] == [...]
-> ```
-
-### Known debt
-
-`tests/deployment/` still has roughly 80 module-qualified patch sites spelled
-like this:
+`tests/_scoped_stdlib.py` does the scoping properly, by rebinding the importing
+module's own `subprocess` or `shutil` *name* to a stand-in module. The stand-in
+answers the names a test overrides and hands every other attribute to the real
+module, so `except subprocess.TimeoutExpired` and `subprocess.PIPE` in the code
+under test keep meaning what they mean.
 
 ```python
-monkeypatch.setattr(runtime_helper.subprocess, "run", _fake_run)
+scoped(monkeypatch, app_cmd, "shutil", which=lambda name: None)
+scoped(monkeypatch, "osprey.deployment.subprocess_capture", "subprocess", run=fake_run)
+
+@patch_subprocess("osprey.cli.chat_cmd", return_value=Mock(returncode=0))
+def test_launch(self, fake_subprocess, ...):
+    fake_subprocess.run.assert_called_once()
+
+with scoped_patch("osprey.mcp_server.session", "shutil", which=lambda name: None):
+    ...
 ```
 
-By the rule above these are unscoped — `runtime_helper.subprocess` is the stdlib
-module. They are recorded here as debt, not as an example. Do not copy them, and
-if you touch one of those tests, move it to `patch_subprocess()`.
+Fake the module that makes the call. A deploy child goes through
+`osprey.deployment.subprocess_capture.run_captured`, so a test that fakes compose
+names that module, not the one that asked for the child.
 
-A handful of sites go one step further and patch the stdlib module itself:
+A test that states that nothing starts a child process names no module to fake.
+`no_child_process()` refuses and records every child the wrapped code starts,
+through the interpreter's audit events, and only in that code's context:
 
 ```python
-monkeypatch.setattr(subprocess, "run", no_git)          # tests/cli/test_init_verb.py
-monkeypatch.setattr("subprocess.run", ...)              # tests/cli/test_build_zero_arg.py
+with no_child_process() as started:
+    process_table.snapshot()
+assert started == []
 ```
 
-Same debt, wider blast radius: for the duration of that test EVERY importer of
-`subprocess` gets the fake, so a second, unrelated subprocess call inside the
-test is silently answered by it instead of failing. `monkeypatch` still restores
-the attribute afterwards, so the leak does not cross test boundaries — but
-within the test there is nothing to tell you the fake answered more than you
-aimed it at. Also `patch_subprocess()` when you touch one.
+`tests/infrastructure/test_no_wide_stdlib_patch.py` refuses every spelling of a
+patch that reaches the stdlib module itself — `"subprocess.run"`,
+`"<module>.subprocess.run"`, `<module>.subprocess` or bare `subprocess` as the
+object — for `subprocess` and `shutil`, anywhere under `tests/` and
+`packages/*/tests/`. It also holds `src/` to what the helper needs: each module
+imports `subprocess` and `shutil` at its top, and no function default or class
+attribute takes one of their functions when the module is imported.
 
 ---
 
@@ -633,8 +590,8 @@ Checklist for a new test area:
       which later reads as a coverage shortfall rather than a collection failure.
 - [ ] **Reuse the shared fixtures and helpers.** `run_app_server()` / `reserved_port()`
       for ports (section 6), `tests._live.wait_until()` / `async_wait_until()` for polling a
-      condition, the existing reset seams for global state, `patch_subprocess()`
-      for subprocess fakes, `isolated_home` for anything touching `$HOME`.
+      condition, the existing reset seams for global state, `tests/_scoped_stdlib.py`
+      for subprocess and shutil fakes, `isolated_home` for anything touching `$HOME`.
 - [ ] **New global state gets a public reset seam in `src/`**, plus an autouse
       fixture in the area's `conftest.py` in the house style — reset before and
       after `yield`, leak named in the docstring.

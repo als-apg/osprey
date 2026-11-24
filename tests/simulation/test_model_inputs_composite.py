@@ -28,13 +28,14 @@ import yaml
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
-from osprey.facility.build import LATER_STAGES
-from osprey.facility.render import render_facility_outputs
-from osprey.facility.validate import run_stages
-from osprey.simulation.engines import ENTRY_POINT_GROUP
+from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation.engines import pyat as pyat_engine
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation.composite import Composite
+from osprey_connectors.simulation.engines import ENGINE_GROUP
+from osprey_facility.build import LATER_STAGES
+from osprey_facility.validate import run_stages
+from tests._builds import FRAMEWORK_CHECKS
 
 PRODUCER_ENGINE = "fake_model_input_producer_engine"
 CONSUMER_ENGINE = "fake_model_input_consumer_engine"
@@ -126,12 +127,14 @@ def engines(monkeypatch: pytest.MonkeyPatch) -> None:
     consumer.describe_input = lambda record: None
     monkeypatch.setitem(sys.modules, PRODUCER_ENGINE, producer)
     monkeypatch.setitem(sys.modules, CONSUMER_ENGINE, consumer)
+    # The facility build and the VA both look engines up here.
     found = metadata.EntryPoints(
-        [
-            metadata.EntryPoint(name="pyat", value=pyat_engine.__name__, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="producer", value=PRODUCER_ENGINE, group=ENTRY_POINT_GROUP),
-            metadata.EntryPoint(name="consumer", value=CONSUMER_ENGINE, group=ENTRY_POINT_GROUP),
-        ]
+        metadata.EntryPoint(name=name, value=value, group=ENGINE_GROUP)
+        for name, value in (
+            ("pyat", pyat_engine.__name__),
+            ("producer", PRODUCER_ENGINE),
+            ("consumer", CONSUMER_ENGINE),
+        )
     )
 
     def entry_points(**selection: Any) -> metadata.EntryPoints:
@@ -192,7 +195,9 @@ def _simulator_view(tmp_path: Path, *, with_inputs: bool) -> Path:
         path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     for model in files["models.yaml"]:
         _save_deck(facility_dir / model["deck"])
-    report = run_stages(facility_dir, project_name="p", later=LATER_STAGES)
+    report = run_stages(
+        facility_dir, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+    )
     assert report.ok, [error.format_message() for error in report.errors]
     document = report.validated.document
     assert document is not None

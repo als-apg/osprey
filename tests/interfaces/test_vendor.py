@@ -241,7 +241,8 @@ class TestWebTerminalRendering:
         resp = client.get("/")
         assert resp.status_code == 200
         body = resp.text
-        assert "/static/vendor/xterm.min.js" in body
+        # The local path, under the asset fingerprint the page names its files by.
+        assert re.search(r'"/static/_v/[0-9a-f]{16}/vendor/xterm\.min\.js"', body)
         assert "cdn.jsdelivr.net" not in body
 
 

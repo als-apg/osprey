@@ -86,23 +86,23 @@ change removes — may also go, when a commit message in the range names it in a
 
 Trees
 -----
-The repository keeps two changelogs, because it releases on two tag streams.
-The framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released
-on ``v*`` tags. ``osprey-connectors`` keeps its own beside its code,
-``packages/osprey-connectors/CHANGELOG.md`` with
-``packages/osprey-connectors/changelog.d/``, released on its own
-``osprey-connectors-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
+The repository keeps one changelog per tag stream it releases on. The
+framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released on
+``v*`` tags. ``osprey-connectors``, ``osprey-facility`` and ``osprey-panels``
+each keep their own beside their code (``packages/<package>/CHANGELOG.md`` with
+``packages/<package>/changelog.d/``), released on their own
+``<package>-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
 above holds per tree, over the paths inside it:
 
-* a change to the connectors package's ``src/``, ``pyproject.toml`` or
-  ``README.md`` (what ships in its wheel and on its PyPI page) needs a fragment
-  in **its** ``changelog.d/``; a root fragment does not count for it, nor does
-  one of its fragments count for a framework change. A pull request touching
-  both brings one of each;
-* the connectors tree is carved out of the framework's: the root gate's
-  ``packages/`` prefix no longer reaches ``packages/osprey-connectors/``;
+* a change to a package's ``src/``, ``pyproject.toml`` or ``README.md`` (what
+  ships in its wheel and on its PyPI page) needs a fragment in **its**
+  ``changelog.d/``; a root fragment does not count for it, nor does one of its
+  fragments count for a framework change. A pull request touching both brings
+  one of each;
+* a package tree is carved out of the framework's: the root gate's
+  ``packages/`` prefix no longer reaches ``packages/<package>/``;
 * the pre-tag top-up asks the remote for the tree's own tag
-  (``osprey-connectors-v<version>``).
+  (``<package>-v<version>``).
 
 ``check`` runs every tree; a tree the diff does not touch is only validated.
 ``apply`` folds one tree, the framework's unless ``--root`` names another.
@@ -142,6 +142,7 @@ HEADING_ORDER = tuple(HEADING_FOR.values())
 # plugins/ holds the shipped skills.
 GATED_PREFIXES = ("src/", "packages/", "plugins/")
 FRAGMENT_DIR = "changelog.d"
+CHANGELOG = "CHANGELOG.md"
 KEEP = "README.md"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -174,7 +175,20 @@ CONNECTORS_TREE = Tree(
     gated=("src/", "pyproject.toml", "README.md"),
     tag_prefix="osprey-connectors-v",
 )
-TREES = (FRAMEWORK_TREE, CONNECTORS_TREE)
+#: What ships in the facility wheel and on its PyPI page, gated as the
+#: connectors' is.
+FACILITY_TREE = Tree(
+    root="packages/osprey-facility",
+    gated=("src/", "pyproject.toml", "README.md"),
+    tag_prefix="osprey-facility-v",
+)
+#: What goes into the panels wheel, gated as the connectors' is.
+PANELS_TREE = Tree(
+    root="packages/osprey-panels",
+    gated=("src/", "pyproject.toml", "README.md"),
+    tag_prefix="osprey-panels-v",
+)
+TREES = (FRAMEWORK_TREE, CONNECTORS_TREE, FACILITY_TREE, PANELS_TREE)
 
 
 def tree_paths(tree: Tree, paths: Iterable[str], trees: Sequence[Tree] = TREES) -> list[str]:
@@ -772,8 +786,8 @@ def _pre_tag_topup(
         return None, None
     if not is_empty_block(head_block) or not is_empty_block(base_block):
         return None, None
-    allowed = {"CHANGELOG.md", *gone, *retyped, *retyped.values()}
-    if "CHANGELOG.md" not in changed or not set(changed) <= allowed:
+    allowed = {CHANGELOG, *gone, *retyped, *retyped.values()}
+    if CHANGELOG not in changed or not set(changed) <= allowed:
         return None, None
     if _release_count(head_lines) != _release_count(base_lines):
         return None, None
@@ -926,9 +940,7 @@ def gate_failures(
             ok_lines.append("✓ [Unreleased]: empty (rotation)")
         elif not base_has_heading and is_empty_block(head_block):
             ok_lines.append("✓ [Unreleased]: empty (new changelog)")
-        elif set(changed) == {"CHANGELOG.md"} and _bullet_count(head_block) <= _bullet_count(
-            base_block
-        ):
+        elif set(changed) == {CHANGELOG} and _bullet_count(head_block) <= _bullet_count(base_block):
             # Editing or dropping a bullet that is already there is a correction,
             # and a correction has nowhere else to go. Counting bullets cannot
             # tell a reworded one from a swapped one, which is accepted: a pull
@@ -1173,12 +1185,12 @@ def _check(targets: Sequence[Target], base: str, run: Runner, worktree: bool = F
         if index:
             print(f"{tree.root}/ (its own CHANGELOG.md, {tree.tag_prefix}* tags):")
 
-        if "CHANGELOG.md" in added:
+        if CHANGELOG in added:
             # The pull request that creates the tree's changelog: the base has
             # none, which is the empty base gate_failures already reads.
             base_text = ""
         else:
-            show_argv = ["git", "show", f"{point}:{tree.prefix}CHANGELOG.md"]
+            show_argv = ["git", "show", f"{point}:{tree.prefix}{CHANGELOG}"]
             show = run(show_argv)
             if show.returncode != 0:
                 return environment_error(f"{' '.join(show_argv)} failed\n{show.stderr.strip()}")
@@ -1261,7 +1273,7 @@ def _apply(directory: Path, changelog: Path, tree: Tree = FRAMEWORK_TREE) -> int
 
     for line in report:
         print(line)
-    print(f"stage with: git add -A {_fragment_label(tree)}/ {tree.prefix}CHANGELOG.md")
+    print(f"stage with: git add -A {_fragment_label(tree)}/ {tree.prefix}{CHANGELOG}")
     return 0
 
 
@@ -1309,13 +1321,13 @@ def main(argv: list[str] | None = None, run: Runner | None = None) -> int:
         tree = FRAMEWORK_TREE
     base_dir = REPO_ROOT / tree.root
     directory = Path(args.dir) if args.dir else base_dir / FRAGMENT_DIR
-    changelog = Path(args.changelog) if args.changelog else base_dir / "CHANGELOG.md"
+    changelog = Path(args.changelog) if args.changelog else base_dir / CHANGELOG
     if args.command == "apply":
         return _apply(directory, changelog, tree)
     if args.root is None and not (args.dir or args.changelog):
         # The pull-request gate: every tree, each at its default location.
         targets = [
-            (each, REPO_ROOT / each.root / FRAGMENT_DIR, REPO_ROOT / each.root / "CHANGELOG.md")
+            (each, REPO_ROOT / each.root / FRAGMENT_DIR, REPO_ROOT / each.root / CHANGELOG)
             for each in TREES
         ]
     else:

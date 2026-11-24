@@ -1052,7 +1052,7 @@ class TestDisableServers:
         project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "ariel" not in content.lower() or "ariel" not in content
+        assert "ariel" not in content.lower()
 
     def test_disable_agent_removes_agent_file(self, tmp_path):
         """Disabling logbook-search produces an empty agent file."""
@@ -1257,11 +1257,11 @@ class TestDisableServers:
 
     def test_disable_core_server_allowed(self, tmp_path):
         """Users can disable any server including core ones."""
-        project_dir, result = self._create_and_regen(tmp_path, disable_servers=["ariel"])
+        project_dir, result = self._create_and_regen(tmp_path, disable_servers=["controls"])
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "ariel" not in mcp_data["mcpServers"]
-        assert "ariel" in result["disabled_servers"]
+        assert "controls" not in mcp_data["mcpServers"]
+        assert "controls" in result["disabled_servers"]
 
     def test_context_includes_overrides(self, tmp_path):
         """build_claude_code_context includes enabled_servers and enabled_agents."""
@@ -1637,6 +1637,31 @@ class TestInstructionsRender:
             manager.template_root, manager.jinja_env, project_dir, config
         )
         assert ctx["claude_md_template"] == "CLAUDE.logbook.md.j2"
+
+    def test_the_named_default_renders_as_an_absent_key(self, tmp_path):
+        """A profile naming the default render builds what one without the key builds."""
+        manager = TemplateManager()
+        renders = {}
+        for label, extra in (("absent", {}), ("named", {"claude_md_template": "CLAUDE.md.j2"})):
+            context = {"channel_finder_mode": "hierarchical", **extra}
+            project = manager.create_project(
+                project_name="instructions-default",
+                output_dir=tmp_path / label,
+                data_bundle="demo",
+                context=context,
+                data_root=bundle_data_root("demo"),
+            )
+            manifest = manager.generate_manifest(
+                project,
+                "instructions-default",
+                "demo",
+                context,
+                artifacts=manager._effective_artifacts("demo", None),
+            )
+            assert "claude_md_template" not in manifest["creation"], label
+            renders[label] = (project / "CLAUDE.md").read_bytes()
+
+        assert renders["absent"] == renders["named"]
 
     def test_regen_renders_the_recorded_render(self, tmp_path):
         manager = TemplateManager()

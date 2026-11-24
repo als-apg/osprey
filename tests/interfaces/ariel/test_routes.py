@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.facility.records import FacilityRecords
 from osprey.interfaces.ariel.api import routes
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.database.repository import SchemaFacts
 from osprey.services.ariel_search.search.base import SearchToolDescriptor
+from osprey_facility.records import FacilityRecords
 from tests.interfaces.ariel._attachments import PNG_URL, attachment_entry, attachment_row
 from tests.interfaces.ariel._routes_app import routes_app
 
@@ -2936,6 +2936,106 @@ def test_json_create_reports_no_attachments_published(client, mock_ariel_service
 
     assert response.status_code == 200
     assert response.json()["attachments_published"] is None
+
+
+def _post_create_fields(client, route, fields, *, files=None):
+    """POST ``fields`` as-is through the named create route: JSON body or multipart form."""
+    if route == "json":
+        return client.post("/api/entries", json=fields)
+    return client.post("/api/entries/upload", data=fields, files=files or [])
+
+
+def _assert_create_refuses(client, mock_ariel_service, route, fields, *, loc, type_, files=None):
+    """POST ``fields``; expect the 422 naming ``loc`` with ``type_`` and no write."""
+    mock_ariel_service.create_entry = AsyncMock(return_value=_create_result())
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = _post_create_fields(client, route, fields, files=files)
+
+    assert response.status_code == 422
+    detail = response.json()["detail"][0]
+    assert detail["loc"] == ["body", loc]
+    assert detail["type"] == type_
+    mock_ariel_service.create_entry.assert_not_called()
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+
+
+def test_upload_schema_is_a_multipart_form_refusing_undeclared_keys(client):
+    """The upload create is published as a multipart form that admits no other key."""
+    schema = client.get("/openapi.json").json()
+    content = schema["paths"]["/api/entries/upload"]["post"]["requestBody"]["content"]
+    form = schema["components"]["schemas"]["EntryCreateForm"]
+
+    assert list(content) == ["multipart/form-data"]
+    assert content["multipart/form-data"]["schema"]["$ref"].endswith("/EntryCreateForm")
+    assert form["additionalProperties"] is False
+
+
+@pytest.mark.parametrize(
+    ("route", "value"), [("json", ["att-1"]), ("upload", "att-1")], ids=_CREATE_ROUTES
+)
+def test_create_refuses_attachment_ids(client, mock_ariel_service, route, value):
+    """attachment_ids is a field of neither create; files go through the upload's files part."""
+    _assert_create_refuses(
+        client,
+        mock_ariel_service,
+        route,
+        {"subject": "s", "details": "d", "attachment_ids": value},
+        loc="attachment_ids",
+        type_="extra_forbidden",
+    )
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+def test_create_refuses_an_unknown_field(client, mock_ariel_service, route):
+    """A misspelt key is named back as a 422, not silently dropped."""
+    _assert_create_refuses(
+        client,
+        mock_ariel_service,
+        route,
+        {"subject": "s", "details": "d", "subjet": "typo"},
+        loc="subjet",
+        type_="extra_forbidden",
+    )
+
+
+def test_upload_refuses_an_unknown_field_beside_files(client, mock_ariel_service):
+    """The files part is a declared field; a stray key beside it is still refused."""
+    _assert_create_refuses(
+        client,
+        mock_ariel_service,
+        "upload",
+        {"subject": "s", "details": "d", "attachment_ids": "att-1"},
+        loc="attachment_ids",
+        type_="extra_forbidden",
+        files=[("files", ("a.txt", b"hello", "text/plain"))],
+    )
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+def test_create_refuses_an_empty_subject(client, mock_ariel_service, route):
+    """An empty subject is the same 422 on both creates."""
+    _assert_create_refuses(
+        client,
+        mock_ariel_service,
+        route,
+        {"subject": "", "details": "d"},
+        loc="subject",
+        type_="string_too_short",
+    )
+
+
+@pytest.mark.parametrize("route", _CREATE_ROUTES)
+def test_create_refuses_empty_details(client, mock_ariel_service, route):
+    """Empty details are the same 422 on both creates."""
+    _assert_create_refuses(
+        client,
+        mock_ariel_service,
+        route,
+        {"subject": "s", "details": ""},
+        loc="details",
+        type_="string_too_short",
+    )
 
 
 def test_upload_without_files_reports_no_attachments_published(client, mock_ariel_service):

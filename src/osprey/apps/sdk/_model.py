@@ -157,6 +157,11 @@ def closed_orbit_models(render_root: Path | None = None) -> list[str]:
     Args:
         render_root: The directory holding the rendered ``config.yml``; the
             render this process runs from when omitted.
+
+    Raises:
+        ValueError: The render holds no usable facts document and its facility
+            file cannot be read or carries a header this reader does not read;
+            the message names the rebuild (``osprey build``).
     """
     facts = read_facts(render_root)
     return [
@@ -239,12 +244,15 @@ def model_members(model: str, render_root: Path | None = None) -> ModelMembers:
     Raises:
         ValueError: The model is not a served deck model, its engine plug-in
             is not installed or states no ``element_index`` or no
-            ``deck_length``.
+            ``deck_length``, or the render's facility file is there but cannot
+            be read or does not declare a ``schema`` this reader reads (see
+            :func:`~osprey.apps.sdk.facility_file`); with no facility file the
+            members carry no golden address and no tolerance.
     """
-    from osprey.facility import FACILITY_FILE
-    from osprey.facility.records import FacilityRecords
     from osprey.simulation.model_request import device_of
     from osprey_connectors.simulation.view import SimulatorView
+    from osprey_facility import FACILITY_FILE
+    from osprey_facility.records import FacilityRecords
 
     root = _render_root() if render_root is None else Path(render_root)
     view = SimulatorView.of_render(root)

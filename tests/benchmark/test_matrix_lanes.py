@@ -21,6 +21,7 @@ invariants keep the board trustworthy:
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
 import json
 import os
@@ -32,6 +33,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
+from tests._coverage_handoff import without_coverage_handoff
 
 _REPO = Path(__file__).resolve().parents[2]
 _BENCH = _REPO / "scripts" / "benchmark"
@@ -52,38 +54,144 @@ def _load(name: str):
 dash = _load("matrix_dashboard")
 
 
+class _Collections:
+    """Each distinct collection of ``tests/e2e/`` run once, its result handed to every caller.
+
+    Three slow tests below collect the suite with the same two argument lists,
+    the in-scope suite and the board's run set, through three callers: the gate
+    script's ``check_lanes``, ``tier_list.board_tests`` and the test's own
+    ``collect``. This stands in for ``subprocess.run`` in each of them (in the
+    scripts as their module's ``subprocess`` attribute, never the process-global
+    function), so each caller still builds its own command, environment and
+    manifest path, and reads its own manifest. A collection is keyed by the
+    command, the working directory and a digest of the environment the child
+    gets, less :attr:`_PER_CALLER_ENV`, so a caller whose command or environment
+    differs runs a collection of its own. The first call
+    runs it for real, in a subprocess, and keeps its exit status, output and the
+    lane manifest it wrote; a repeat gets the same, with the manifest written
+    where that caller asked. A repeat of a collection could give it nothing else.
+
+    The children start without coverage's hand-off: they collect test code.
+    """
+
+    #: What two callers' environments may differ in and still share one
+    #: collection, because each names a per-test value of the same kind and a
+    #: ``--collect-only`` child does not read it: the manifest path each caller
+    #: names (the child writes there, nothing else reads it); the id pytest sets
+    #: for the running test (read inside a test, never at import); and the two
+    #: per-test directories ``tests/conftest.py``'s autouse fixtures point every
+    #: test at, the bridge's plan directory (``writable_plan_dir_per_test``)
+    #: and the record spool (``_isolate_spool_zone``), both resolved when
+    #: something writes, which collecting does not. Any other difference, a
+    #: caller's ``PYTEST_ADDOPTS`` or ``PYTHONPATH`` say, gets its own
+    #: collection; a new per-test variable only costs the sharing.
+    _PER_CALLER_ENV = frozenset(
+        {"OSPREY_E2E_LANES", "PYTEST_CURRENT_TEST", "BLUESKY_SESSION_PLAN_DIR", "OSPREY_SPOOL_DIR"}
+    )
+
+    def __init__(self) -> None:
+        self._runs: dict[tuple, tuple[subprocess.CompletedProcess, str | None]] = {}
+
+    def run(self, cmd, *, cwd=None, env=None, **kwargs) -> subprocess.CompletedProcess:
+        child_env = without_coverage_handoff(env)
+        manifest = Path(child_env["OSPREY_E2E_LANES"])
+        shared_env = sorted((k, v) for k, v in child_env.items() if k not in self._PER_CALLER_ENV)
+        env_digest = hashlib.sha256(json.dumps(shared_env).encode()).hexdigest()
+        key = (tuple(cmd), str(cwd), env_digest)
+        # The shared run is bounded as base bounded each caller's own: the board
+        # test's collection and the gate script's run both had 300 s, but the
+        # first in-scope caller, ``check_lanes``, passes none.
+        kwargs.setdefault("timeout", 300)
+        if key not in self._runs:
+            done = subprocess.run(cmd, cwd=cwd, env=child_env, **kwargs)
+            text = manifest.read_text(encoding="utf-8") if manifest.exists() else None
+            self._runs[key] = (done, text)
+            return done
+        done, text = self._runs[key]
+        if text is not None:
+            manifest.write_text(text, encoding="utf-8")
+        return done
+
+
+@pytest.fixture(scope="module")
+def e2e_collections() -> _Collections:
+    """The module's shared collections. Safe to share: a collection only reads the
+    tree, and every caller gets its own copy of the manifest to read."""
+    return _Collections()
+
+
+def test_a_caller_whose_environment_differs_gets_a_collection_of_its_own(tmp_path):
+    """The shared collections' control: same command, different environment, own run.
+
+    The child writes two variables into the manifest. A second caller that
+    differs only in the per-caller variables is handed the first run's result;
+    one that adds a variable, or gives an existing one another value (a
+    ``PYTEST_ADDOPTS`` among them), is run again and reads its own.
+    """
+    collections = _Collections()
+    cmd = [
+        sys.executable,
+        "-c",
+        "import os, pathlib; pathlib.Path(os.environ['OSPREY_E2E_LANES']).write_text("
+        "os.environ['PYTEST_ADDOPTS'] + '|' + os.environ.get('LANE_PROBE', 'unset'))",
+    ]
+
+    def manifest_of(name: str, **extra: str) -> str:
+        manifest = tmp_path / f"{name}.json"
+        env = {**os.environ, "PYTEST_ADDOPTS": "-q", "OSPREY_E2E_LANES": str(manifest), **extra}
+        collections.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True)
+        return manifest.read_text(encoding="utf-8")
+
+    assert manifest_of("first") == "-q|unset"
+    assert manifest_of("per-caller", PYTEST_CURRENT_TEST="x", OSPREY_SPOOL_DIR="y") == "-q|unset"
+    assert len(collections._runs) == 1, "a per-caller difference ran the collection again"
+    assert manifest_of("added", LANE_PROBE="set") == "-q|set"
+    assert manifest_of("other-value", LANE_PROBE="other") == "-q|other"
+    assert manifest_of("other-addopts", PYTEST_ADDOPTS="-x") == "-x|unset"
+
+
 # ---------------------------------------------------------------------------
 # 1. The lane gate: every in-scope e2e test declares its lane
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-def test_every_in_scope_e2e_test_declares_a_benchmark_lane():
+def test_every_in_scope_e2e_test_declares_a_benchmark_lane(e2e_collections, monkeypatch, capsys):
     """``check_e2e_coverage.py --check-lanes`` must pass against the real suite.
 
     This is the CI half of the drift guard (the matrix runner runs the same
     gate per cell): a new e2e file cannot silently join the matrix scope
     without declaring whether its pass/fail measures model capability or
     harness integrity. Collection runs in a subprocess — never in-process
-    (nested pytest against tests/e2e/ leaks registry state).
+    (nested pytest against tests/e2e/ leaks registry state). The gate's
+    ``main`` runs here in-process, its collection shared with the board test
+    below; the script is run as the runner runs it too, on the argument that
+    needs no collection, so its command line still has to work as a program.
     """
-    proc = subprocess.run(
-        [
-            sys.executable,
-            str(_BENCH / "check_e2e_coverage.py"),
-            "--repo-root",
-            str(_REPO),
-            "--config",
-            str(_CONFIG),
-            "--check-lanes",
-        ],
+    gate = _load("check_e2e_coverage")
+    excluded = {e["path"]: e["reason"] for e in json.loads(_CONFIG.read_text())["excluded_files"]}
+    argv = [
+        str(_BENCH / "check_e2e_coverage.py"),
+        "--repo-root",
+        str(_REPO),
+        "--config",
+        str(_CONFIG),
+    ]
+    program = subprocess.run(
+        [sys.executable, *argv, "--print-run-args"],
         capture_output=True,
         text=True,
         timeout=300,
+        env=without_coverage_handoff(),
     )
-    assert proc.returncode == 0, (
+    assert program.returncode == 0, program.stderr
+    assert program.stdout.splitlines() == gate.run_args(excluded)
+
+    monkeypatch.setattr(gate, "subprocess", SimpleNamespace(run=e2e_collections.run))
+    monkeypatch.setattr(sys, "argv", [*argv, "--check-lanes"])
+    assert gate.main() == 0, (
         "lane gate failed — an in-scope e2e test is missing (or double-carries) its "
-        "agentic/harness_benchmark marker:\n" + proc.stderr
+        "agentic/harness_benchmark marker:\n" + capsys.readouterr().err
     )
 
 
@@ -167,6 +275,7 @@ def test_the_timeout_and_the_reported_time_leave_out_a_fixture_wait(tmp_path):
             capture_output=True,
             text=True,
             timeout=120,
+            env=without_coverage_handoff(),
         )
         case = ET.parse(report).getroot().find(".//testcase")
         return proc.returncode, float(case.get("time"))
@@ -308,7 +417,7 @@ def test_the_cell_runner_takes_its_selection_from_the_gate_script():
 
 
 @pytest.mark.slow
-def test_the_board_collects_every_in_scope_agentic_test_and_nothing_else(tmp_path):
+def test_the_board_collects_every_in_scope_agentic_test_and_nothing_else(tmp_path, e2e_collections):
     """Collected with the board's own arguments, the run set is the in-scope
     tests whose manifest entry is agentic with a tier — no harness check, no
     model-free floor — and every one of them is there."""
@@ -316,7 +425,7 @@ def test_the_board_collects_every_in_scope_agentic_test_and_nothing_else(tmp_pat
     excluded = {e["path"]: e["reason"] for e in json.loads(_CONFIG.read_text())["excluded_files"]}
 
     def collect(manifest: Path, args: list[str]) -> dict:
-        proc = subprocess.run(
+        proc = e2e_collections.run(
             [sys.executable, "-m", "pytest", "tests/e2e/", "--collect-only", "-q"]
             + ["-p", "no:cacheprovider", "-o", "addopts=", "--assert=plain", *args],
             cwd=_REPO,
@@ -432,7 +541,7 @@ def test_the_summary_keeps_a_setup_error_an_error_whatever_its_text_says(tmp_pat
     subprocess.run(
         [sys.executable, str(tmp_path / "summ.py")],
         env={
-            **os.environ,
+            **without_coverage_handoff(),
             "MODEL": "m",
             "SEED": "1",
             "ROUTE": "r",
@@ -488,10 +597,36 @@ class TestCellPreflight:
         assert calls[0][0] == "https://g/v1/messages"
         assert calls[0][2]["max_tokens"] <= 16
 
-    def test_a_400_for_an_unserved_model_is_refused_at_once(self):
-        reason, calls = self._check([(400, "Invalid model name passed in model=m")])
-        assert reason.startswith("400: Invalid model name")
-        assert len(calls) == 1
+    @pytest.mark.parametrize(
+        ("replies", "reason_prefix", "n_calls"),
+        [
+            pytest.param(
+                [(400, "Invalid model name passed in model=m")],
+                "400: Invalid model name",
+                1,
+                id="a-400-for-an-unserved-model-is-refused-at-once",
+            ),
+            pytest.param(
+                [(400, json.dumps({"error": {"message": "model_not_found: m does not exist"}}))],
+                "400: model_not_found",
+                1,
+                id="a-refusal-shaped-400-is-refused",
+            ),
+            pytest.param(
+                [(403, "Access denied: IP address not recognized")],
+                "403: Access denied",
+                1,
+                id="a-403-is-refused-at-once",
+            ),
+            pytest.param(
+                [(503, "down")], "503", 3, id="a-5xx-that-outlasts-the-retries-is-a-refusal"
+            ),
+        ],
+    )
+    def test_a_refusal_is_named_after_its_status(self, replies, reason_prefix, n_calls):
+        reason, calls = self._check(replies)
+        assert reason.startswith(reason_prefix)
+        assert len(calls) == n_calls
 
     def test_a_plain_400_is_not_a_refusal(self):
         """The shared rule (tests/e2e/refusals.py): a 400 that names no unserved model
@@ -499,12 +634,6 @@ class TestCellPreflight:
         body = json.dumps({"error": {"message": "prompt is too long: 210000 tokens > 200000"}})
         reason, calls = self._check([(400, body)])
         assert reason is None
-        assert len(calls) == 1
-
-    def test_a_refusal_shaped_400_is_refused(self):
-        body = json.dumps({"error": {"message": "model_not_found: m does not exist"}})
-        reason, calls = self._check([(400, body)])
-        assert reason.startswith("400: model_not_found")
         assert len(calls) == 1
 
     def test_the_preflight_decides_by_the_mid_session_rule(self):
@@ -525,20 +654,10 @@ class TestCellPreflight:
             expected = rule(status=status, text=text, model_turns=False)
             assert (reason is None) == (expected is None), (status, text)
 
-    def test_a_403_is_refused_at_once(self):
-        reason, calls = self._check([(403, "Access denied: IP address not recognized")])
-        assert reason.startswith("403: Access denied")
-        assert len(calls) == 1
-
     def test_a_rate_limit_is_retried_and_may_clear(self):
         reason, calls = self._check([(429, "slow"), (200, "")])
         assert reason is None
         assert len(calls) == 2
-
-    def test_a_5xx_that_outlasts_the_retries_is_a_refusal(self):
-        reason, calls = self._check([(503, "down")])
-        assert reason.startswith("503")
-        assert len(calls) == 3
 
     def test_no_response_is_named_unreachable(self):
         assert self._check([(None, "nodename not known")])[0].startswith("unreachable")
@@ -655,10 +774,12 @@ def test_the_docs_tier_list_matches_the_tests_markers():
 
 
 @pytest.mark.slow
-def test_the_source_reading_agrees_with_live_collection():
+def test_the_source_reading_agrees_with_live_collection(e2e_collections, monkeypatch):
     """Reading the markers from source must find what collecting the board's run set
-    finds, so a marker spelled in a way source reading misses cannot drop out."""
+    finds, so a marker spelled in a way source reading misses cannot drop out.
+    The collection is the board test's, shared through ``e2e_collections``."""
     tier_list = _load("tier_list")
+    monkeypatch.setattr(tier_list, "subprocess", SimpleNamespace(run=e2e_collections.run))
 
     def key(test):
         return (test["tier"], test["title"], test["asks"], test["passes_if"])

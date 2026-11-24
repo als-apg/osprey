@@ -14,7 +14,10 @@ unserved model's wiring ``default``, else the zero of the channel's
 ``linear`` input counting as its own sum. Noise and drift are pure functions
 of the address and the epoch millisecond, so a live read and an archived
 sample at the same instant agree. Writing a setpoint holds the
-value and echoes it into the readback its ``pair`` names.
+value and echoes it into the readback its ``pair`` names. A labelled readback
+takes a state by index: the index of a labelled setpoint's label, or a number
+written to the setpoint, which must be an integral index of the readback's
+labels; a write the readback refuses holds nothing.
 
 A ``noise`` record states one term: ``{absolute: sigma}`` adds ``sigma``
 times a keyed normal draw, and ``{relative: f}`` adds ``f`` times
@@ -47,6 +50,18 @@ motion; a bool or enum holds the label ``gated``; an int holds the integer
 input the model does not hold never blocks. The gate is part of the held
 value, so a read, :meth:`TextureModel.held` and every reader built on it --
 the archive seed, a subscription comparing held values -- see it alike.
+
+A channel whose seed states ``responds: {to, for_s, value}`` holds ``value``
+for ``for_s`` seconds after each live write to the command ``to``, whichever
+model serves it, and its value by the rules above otherwise; a second write while the response runs
+starts its time again. A gate still wins: a gated channel holds its gated
+value while a response runs. Only a write fires a response: the start state,
+the active scenarios' writes and a reset fire none, and a reset ends a running
+one. The response is part of the held value, as the gate is.
+
+A setpoint whose channel states ``started_by: <command>`` holds a written value
+without echoing it: its readback takes the setpoint's held value when the
+command is written. A batch writing both holds the setpoint first.
 """
 
 from __future__ import annotations
@@ -82,6 +97,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
         NoiseRecord,
         PulseRecord,
         ResolvedCoupling,
+        RespondsRecord,
         SeedRecord,
         SeedsDocument,
         VariablesDocument,
@@ -281,12 +297,31 @@ class TextureModel(LUMEModel):
             and self._channels[address].get("pair") not in (None, address)
             and str(self._channels[address]["pair"]) in owned
         }
+        #: Each command's started setpoints, whose writes echo only when it is written.
+        self._starts: dict[str, list[str]] = {}
+        for address in self._echo:
+            command = self._channels[address].get("started_by")
+            if command is not None:
+                self._starts.setdefault(str(command), []).append(address)
+        self._started = frozenset(
+            address for started in self._starts.values() for address in started
+        )
+        #: Each command's responding channels, and each responding channel's record.
+        self._responders: dict[str, list[str]] = {}
+        self._responds: dict[str, RespondsRecord] = {}
+        for address in owned:
+            record = (self._seeds.get(address) or {}).get("responds")
+            if record:
+                self._responds[address] = record
+                self._responders.setdefault(str(record["to"]), []).append(address)
+        #: Each command's last firing, in epoch seconds.
+        self._fired: dict[str, float] = {}
 
         self._nominals: dict[str, values.StoredValue] = {
             address: self._nominal(address, unserved_defaults.get(address)) for address in owned
         }
         for setpoint, readback in self._echo.items():
-            self._nominals[readback] = self._coerce(readback, self._nominals[setpoint])
+            self._nominals[readback] = self._echoed(readback, setpoint, self._nominals[setpoint])
         start = {address: self._derived(address, self._nominals) for address in owned}
         self._variables: dict[str, Variable] = {
             address: channel_variable(self._channels[address], start[address]) for address in owned
@@ -306,8 +341,32 @@ class TextureModel(LUMEModel):
                 continue
             for record in model.get("wiring") or []:
                 if "default" in record:
-                    defaults.setdefault(str(record["address"]), record["default"])
+                    for address in (record["address"], *(record.get("also") or ())):
+                        defaults.setdefault(str(address), record["default"])
         return defaults
+
+    def _echoed(
+        self, readback: str, setpoint: str, value: values.StoredValue
+    ) -> values.StoredValue:
+        """The value ``readback`` holds for its setpoint's held ``value``.
+
+        A labelled readback takes a state by index: a labelled setpoint's label
+        gives its index in the setpoint's labels, a number must be an integral
+        index. Any other readback takes the value itself.
+
+        Raises:
+            ValueError: The readback refuses the value or the index.
+        """
+        if channel_value_type(self._channels[readback]) not in values.LABELLED_TYPES:
+            return self._coerce(readback, value)
+        setpoint_channel = self._channels[setpoint]
+        if channel_value_type(setpoint_channel) in values.LABELLED_TYPES:
+            index: object = values.channel_labels(setpoint_channel).index(str(value))
+        elif isinstance(value, float) and math.isfinite(value) and value.is_integer():
+            index = int(value)
+        else:
+            index = value
+        return self._coerce(readback, index)
 
     def _coerce(self, address: str, value: object) -> values.StoredValue:
         channel = self._channels[address]
@@ -337,9 +396,13 @@ class TextureModel(LUMEModel):
 
     @override
     def reset(self) -> None:
-        """Return every texture-owned channel to its nominal, then apply the active writes."""
+        """Return every texture-owned channel to its nominal, then apply the active writes.
+
+        Every running response ends.
+        """
+        self._fired = {}
         self._held = {address: self._nominals[address] for address in self._variables}
-        self._hold(self._active)
+        self.write(self._active, at=None)
 
     def set_active(self, writes: Mapping[str, object]) -> None:
         """Make the active scenarios' writes the start state, and reset to it.
@@ -366,8 +429,10 @@ class TextureModel(LUMEModel):
         """Each channel's held value, without motion or clamp.
 
         A ``linear`` channel holds the weighted sum of its inputs' held values;
-        an input the model does not hold counts as zero. A ``gate`` channel
-        holds its gated value while any input holds its blocking label.
+        an input the model does not hold counts as zero. A ``responds``
+        channel holds its response's value while the response runs, and a
+        ``gate`` channel its gated value while any input holds its blocking
+        label.
 
         Args:
             names: Texture-owned addresses.
@@ -382,7 +447,9 @@ class TextureModel(LUMEModel):
 
         The channel itself, the readback it echoes into, and every channel
         downstream of either: a ``linear`` channel summing it, a ``gate``
-        channel it blocks, a ``pulse`` waveform it drives or enables.
+        channel it blocks, a ``pulse`` waveform it drives or enables. A command
+        also reaches the channels responding to it and the readbacks of the
+        setpoints it starts; a started setpoint does not reach its readback.
         """
         downstream: dict[str, set[str]] = {}
         for address in self._variables:
@@ -399,7 +466,10 @@ class TextureModel(LUMEModel):
         for address, variable in self._variables.items():
             if variable.read_only:
                 continue
-            found = {address, self._echo.get(address, address)}
+            found = {address, *self._responders.get(address, ())}
+            if address not in self._started:
+                found.add(self._echo.get(address, address))
+            found.update(self._echo[started] for started in self._starts.get(address, ()))
             pending = list(found)
             while pending:
                 for dependent in downstream.get(pending.pop(), ()):
@@ -413,8 +483,20 @@ class TextureModel(LUMEModel):
         return self._derived(address, self._held)
 
     def _derived(self, address: str, held: Mapping[str, values.StoredValue]) -> values.StoredValue:
-        """A channel's value from ``held``: its weighted sum, then its gate."""
-        return self._gated(address, self._weighted_sum(address, held), held)
+        """A channel's value from ``held``: its weighted sum, then its response, then its gate."""
+        return self._gated(
+            address, self._responding(address, self._weighted_sum(address, held)), held
+        )
+
+    def _responding(self, address: str, value: values.StoredValue) -> values.StoredValue:
+        """``value``, or the ``responds`` value while the response to its command runs."""
+        record = self._responds.get(address)
+        if record is None:
+            return value
+        fired = self._fired.get(str(record["to"]))
+        if fired is None or float(self._clock()) - fired >= float(record["for_s"]):
+            return value
+        return self._coerce(address, record["value"])
 
     def _weighted_sum(
         self, address: str, held: Mapping[str, values.StoredValue]
@@ -659,18 +741,68 @@ class TextureModel(LUMEModel):
 
     @override
     def _set(self, values_by_name: dict[str, object]) -> None:
-        self._hold(values_by_name)
+        self.write(values_by_name, at=float(self._clock()))
 
-    def _hold(self, values_by_name: Mapping[str, object]) -> None:
-        """Hold coerced values and their echoes; nothing is held when one is refused."""
+    def write(self, values_by_name: Mapping[str, object], *, at: float | None) -> None:
+        """Hold one write, made at ``at``.
+
+        The values of texture-owned channels are held; a name another model
+        serves is the write's act alone, its value not held here. A started
+        setpoint is held without its echo. Each command written, whichever
+        model serves it, moves the readback of every setpoint it starts to the
+        setpoint's held value, this write's targets included, and fires its
+        responses at ``at``; with ``at`` ``None`` it fires none. Nothing is
+        held when one value is refused.
+
+        Args:
+            values_by_name: The write's values by address.
+            at: The instant of the write in epoch seconds, or ``None`` for a
+                write that fires no response.
+
+        Raises:
+            ValueError: A value is refused for its channel.
+        """
         coerced = {
             name: self._coerce(name, value.tolist() if isinstance(value, np.ndarray) else value)
             for name, value in values_by_name.items()
+            if name in self._variables
         }
+        targets = {**self._held, **coerced}
         echoes = {
-            self._echo[name]: self._coerce(self._echo[name], value)
+            self._echo[name]: self._echoed(self._echo[name], name, value)
             for name, value in coerced.items()
-            if name in self._echo
+            if name in self._echo and name not in self._started
         }
+        for command in values_by_name:
+            for setpoint in self._starts.get(command, ()):
+                echoes[self._echo[setpoint]] = self._echoed(
+                    self._echo[setpoint], setpoint, targets[setpoint]
+                )
         self._held.update(coerced)
         self._held.update(echoes)
+        if at is not None:
+            self._fired.update(
+                dict.fromkeys((name for name in values_by_name if name in self._responders), at)
+            )
+
+    def replay(self, entries: Sequence[tuple[str, object, float | None]]) -> None:
+        """Hold journalled writes in order, each made at the time it was written.
+
+        Each ``(address, value, t_s)`` is taken as :meth:`write` takes a write
+        made at ``t_s``; an entry without a time holds its value and fires
+        nothing. Nothing is held when one entry is refused.
+
+        Args:
+            entries: Writes in the order they were written; an address
+                another model serves is the entry's act alone.
+
+        Raises:
+            ValueError: A value is refused for its channel.
+        """
+        held, fired = dict(self._held), dict(self._fired)
+        try:
+            for address, value, t_s in entries:
+                self.write({address: value}, at=t_s)
+        except ValueError:
+            self._held, self._fired = held, fired
+            raise

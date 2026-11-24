@@ -5,6 +5,7 @@ REST endpoints for search, entry management, status, and settings.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json as _json
 import os
@@ -14,10 +15,10 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import yaml
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -29,6 +30,7 @@ from osprey.interfaces.ariel.api.schemas import (
     EmbeddingTableStatus,
     EnhancementsResponse,
     EntriesListResponse,
+    EntryCreateForm,
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
@@ -49,8 +51,9 @@ from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
-    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search import ARIELSearchService
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule
     from osprey.services.ariel_search.enhancement.status import EnhancementContext
     from osprey.services.ariel_search.entry_fields import ResolvedEntryWrite
     from osprey.services.ariel_search.filters import (
@@ -65,6 +68,7 @@ if TYPE_CHECKING:
         FacilityEntryCreateResult,
     )
     from osprey.stores.artifact_scope import SessionScope
+    from osprey_facility.records import FacilityRecords
 
 router = APIRouter(prefix="/api")
 logger = get_logger("ariel")
@@ -252,12 +256,12 @@ def _entry_to_response(
     Returns:
         The entry response.
     """
-    from osprey.facility.references import FacilityReference, resolved_references
     from osprey.imaging.formats import skip_reason_text
     from osprey.services.ariel_search.attachments.summaries import (
         build_attachment_summary_pairs,
     )
     from osprey.services.ariel_search.subject import entry_subject
+    from osprey_facility.references import FacilityReference, resolved_references
 
     entry_id = str(entry.get("entry_id") or "")
     pairs = build_attachment_summary_pairs(
@@ -1299,21 +1303,56 @@ def _stored_attempts(value: Any) -> int | None:
         return None
 
 
+def _build_module(config: ARIELConfig, module: str) -> BaseEnhancementModule | None:
+    """``module`` built alone through the enhancement factory (configured and bound).
+
+    Returns None when the module is not enabled or not registered. Building
+    configures the module, and a module's ``configure()`` resolves its provider.
+    """
+    from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
+
+    built = create_enhancers_from_config(config, stage="all", names=[module])
+    return built[0] if built else None
+
+
+def resolve_inspector_providers(config: ARIELConfig) -> None:
+    """Build every enabled enhancement module once, as the entry inspector does.
+
+    The inspector builds each enabled module for every entry it shows, and the
+    first build of a module in a process imports its provider's adapter
+    (seconds of CPU) on the event loop. The app's lifespan calls this before
+    the app serves a request, so those builds find the classes already loaded.
+    Each module is built alone and nothing raises: a module that fails here is
+    built again by the inspector, which reports the failure as it does
+    without this call.
+
+    Args:
+        config: The panel's ARIEL configuration.
+    """
+    from osprey.services.ariel_search.enhancement.status import enabled_modules
+
+    try:
+        modules = enabled_modules(config)
+    except Exception:
+        return
+    for module in modules:
+        with contextlib.suppress(Exception):
+            _build_module(config, module)
+
+
 async def _module_detail(
     service: ARIELSearchService, module: str, entry_id: str
 ) -> dict[str, Any] | None:
     """``module``'s own ``inspect()`` output for one entry, None on any failure.
 
-    The module is built alone through the enhancement factory (configured and
-    bound), so one module's bad configuration never costs another its detail.
+    The module is built alone, so one module's bad configuration never costs
+    another its detail.
     """
-    from osprey.services.ariel_search.enhancement.factory import create_enhancers_from_config
-
     try:
-        built = create_enhancers_from_config(service.config, stage="all", names=[module])
-        if not built:
+        built = _build_module(service.config, module)
+        if built is None:
             return None
-        detail = await built[0].inspect(entry_id, service.repository)
+        detail = await built.inspect(entry_id, service.repository)
     except Exception as exc:
         logger.warning("Inspector detail for %s on %s failed: %s", module, entry_id, exc)
         return None
@@ -1900,16 +1939,7 @@ async def _store_and_link_attachments(
 @router.post("/entries/upload", response_model=EntryCreateResponse)
 async def create_entry_with_attachments(
     request: Request,
-    subject: str = Form(...),
-    details: str = Form(...),
-    author: str | None = Form(None),
-    logbook: str | None = Form(None),
-    shift: str | None = Form(None),
-    tags: str = Form(""),
-    metadata: str | None = Form(None),
-    auth_user: str | None = Form(None),
-    auth_password: str | None = Form(None),
-    files: list[UploadFile] = File(default=[]),
+    form: Annotated[EntryCreateForm, Form(media_type="multipart/form-data")],
 ) -> EntryCreateResponse | JSONResponse:
     """Create a new logbook entry with file attachments via multipart form.
 
@@ -1921,6 +1951,8 @@ async def create_entry_with_attachments(
     detail warns that the entry may already exist without all of its files. For
     any other adapter the files are stored in ARIEL only, and when the text
     publishes externally the response says so rather than silently dropping them.
+    A field the form does not define, or an empty subject or details, is refused
+    with 422, as on ``POST /entries``.
     """
     service = _require_service(request)
 
@@ -1939,13 +1971,13 @@ async def create_entry_with_attachments(
         SyncStatus,
     )
 
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-    parsed_metadata = _parse_metadata_form(metadata)
+    tag_list = [t.strip() for t in form.tags.split(",") if t.strip()] if form.tags else []
+    parsed_metadata = _parse_metadata_form(form.metadata)
 
     # Read and validate files up front — before any publish — so a rejected file
     # can never leave a half-published entry behind.
     staged: list[EntryAttachment] = []
-    for upload_file in files:
+    for upload_file in form.files:
         if not upload_file.filename:
             continue
         data = await upload_file.read()
@@ -1961,20 +1993,20 @@ async def create_entry_with_attachments(
         staged.append(EntryAttachment(upload_file.filename, declared, data))
 
     resolved = await _resolve_create_fields(
-        service, parsed_metadata, logbook=logbook, shift=shift, tags=tag_list
+        service, parsed_metadata, logbook=form.logbook, shift=form.shift, tags=tag_list
     )
     if isinstance(resolved, JSONResponse):
         return resolved
 
     facility_request = FacilityEntryCreateRequest(
-        subject=subject,
-        details=details,
-        author=author,
+        subject=form.subject,
+        details=form.details,
+        author=form.author,
         logbook=resolved.logbook,
         shift=resolved.shift,
         tags=tag_list,
-        auth_user=auth_user,
-        auth_password=auth_password,
+        auth_user=form.auth_user,
+        auth_password=form.auth_password,
         metadata=resolved.adapter_metadata,
     )
 

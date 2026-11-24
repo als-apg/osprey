@@ -16,14 +16,17 @@ written beside it.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
+from tests._facility_file import FACILITY_V4
 
 if TYPE_CHECKING:
+    from tests.facility._mml_built import BuiltModel
     from tests.facility.conftest import BuiltProject
 
 GOLDEN = Path(__file__).resolve().parent / "golden" / "cf_index_pre_line" / "middle_layer.json"
@@ -65,8 +68,13 @@ def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {key: value for key, value in family.items() if not key.startswith("_")}
 
 
+#: The signal-role rows the hand-built documents below carry, as a build writes them.
+CURRENT_SETPOINT = {"name": "current_setpoint", "description": "the current setpoint"}
+POSITION_X = {"name": "position_x_readback", "description": "the horizontal position"}
+
 #: Two machines; one group spans both, one lives on the first only.
 SYNTHETIC: dict[str, Any] = {
+    "signals": [CURRENT_SETPOINT],
     "places": [
         {"id": "M", "level": "machine", "description": "the machine"},
         {"id": "M/S1", "level": "sector"},
@@ -308,26 +316,27 @@ def test_a_system_and_a_family_are_described_only_by_description_or_label() -> N
 
 
 def _signal_text(name: str) -> str:
-    from osprey.facility.validate import vocabulary
+    """The vocabulary's sentence for ``name``, which a build writes into ``signals``."""
+    from osprey_facility.validate import vocabulary
 
     (row,) = [row for row in vocabulary()["signal_roles"] if row["name"] == name]
     return str(row["description"])
 
 
 def _class_text(name: str) -> str:
-    from osprey.facility.validate import vocabulary
+    from osprey_facility.validate import vocabulary
 
     (row,) = [row for row in vocabulary()["classes"] if row["name"] == name]
     return str(row["description"])
 
 
-def test_a_field_is_keyed_by_signal_and_described_by_the_vocabulary() -> None:
+def test_a_field_is_keyed_by_signal_and_described_by_the_signal_table() -> None:
     document, _left_out, _by_address = _document(SYNTHETIC)
     field = _fields(document["M"]["QUAD"])["current_setpoint"]
 
     assert field == {
         "ChannelNames": ["M:Q1:CURRENT:SP", "M:Q2:CURRENT:SP"],
-        "_description": _signal_text("current_setpoint"),
+        "_description": CURRENT_SETPOINT["description"],
     }
 
 
@@ -347,25 +356,10 @@ def test_an_address_keyed_field_takes_its_channel_s_description() -> None:
     assert by_address == 1
 
 
-def test_a_role_without_a_vocabulary_sentence_takes_the_members_common_description(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from osprey.facility import validate
-
-    table = validate.vocabulary()
-    stripped = {
-        **table,
-        "signal_roles": [
-            {key: value for key, value in row.items() if key != "description"}
-            if row["name"] == "current_setpoint"
-            else row
-            for row in table["signal_roles"]
-        ],
-    }
-    monkeypatch.setattr(validate, "vocabulary", lambda: stripped)
-
+def test_a_role_without_a_table_sentence_takes_the_members_common_description() -> None:
     def described(first: str, second: str) -> dict[str, Any]:
         doc = {
+            "signals": [{"name": "current_setpoint"}],
             "places": [{"id": "M"}],
             "devices": [
                 {"id": "M/A", "place": "M", "s": 1.0},
@@ -456,6 +450,7 @@ def test_the_count_is_the_distinct_addresses_the_fields_list() -> None:
 
 def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
     doc = {
+        "signals": [POSITION_X],
         "devices": [
             {"id": "A", "place": "M", "label": "a"},
             {"id": "B", "place": "M", "label": "b"},
@@ -477,7 +472,7 @@ def test_a_field_a_member_lacks_or_repeats_is_keyed_by_address() -> None:
 
     assert fields["position_x_readback"] == {
         "ChannelNames": ["A:X", "B:X"],
-        "_description": _signal_text("position_x_readback"),
+        "_description": POSITION_X["description"],
     }
     keyed = ["A:H:CURRENT", "A:V:CURRENT", "B:H:CURRENT", "A:ONLY", "B:BARE"]
     assert {address: fields[address]["ChannelNames"] for address in keyed} == {
@@ -655,7 +650,7 @@ def _one_family(place: str, group: str) -> dict[str, Any]:
 def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
     place: str, group: str, message: str
 ) -> None:
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         _document(_one_family(place, group))
@@ -665,7 +660,7 @@ def test_a_tree_key_beginning_with_an_underscore_stops_with_view_unsupported(
 
 @pytest.mark.parametrize("key", ["count", "schema"])
 def test_a_system_named_by_a_document_key_stops_with_view_unsupported(key: str) -> None:
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     with pytest.raises(FacilityBuildError) as caught:
         _document(_one_family(key, "F"))
@@ -678,7 +673,7 @@ def test_a_system_named_by_a_document_key_stops_with_view_unsupported(key: str) 
 
 
 def test_an_address_equal_to_a_sibling_signal_stops_with_view_unsupported() -> None:
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     doc = _one_family("M", "F")
     doc["channels"].append({"id": "current_setpoint", "on": {"device": "A"}})
@@ -915,7 +910,7 @@ def test_a_facility_whose_every_channel_is_filed_prints_no_note(
 
 
 def test_no_group_and_no_classed_device_stops_with_view_unsupported(tmp_path: Path) -> None:
-    from osprey.facility.errors import FacilityBuildError
+    from osprey_facility.errors import FacilityBuildError
 
     devices = [
         {key: value for key, value in device.items() if key != "class"}
@@ -952,8 +947,8 @@ def test_a_database_that_cannot_be_written_stops_with_view_unsupported(
 ) -> None:
     import duckdb
 
-    from osprey.facility.errors import FacilityBuildError
     from osprey.services.channel_finder.databases import duckdb_import
+    from osprey_facility.errors import FacilityBuildError
 
     def offline(_con: Any) -> None:
         raise duckdb.IOException("the fts extension is not installed")
@@ -1006,13 +1001,17 @@ def test_a_render_that_selects_another_index_names_none(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from osprey.facility import views
-    from osprey.facility.render import FACILITY_FILE, render_facility_outputs
+    from osprey.facility.views.outputs import render_facility_outputs
+    from osprey_facility.render import FACILITY_FILE
 
     (view,) = [view for view in views.VIEWS if view.name == "middle_layer"]
     monkeypatch.setattr(views, "VIEWS", (view,))
 
     written = render_facility_outputs(
-        tmp_path, {"channels": []}, {"channel_finder": {"pipeline_mode": "graph"}}, tmp_path
+        tmp_path,
+        {"schema": FACILITY_V4, "channels": []},
+        {"channel_finder": {"pipeline_mode": "graph"}},
+        tmp_path,
     )
 
     assert written == [tmp_path / FACILITY_FILE]
@@ -1041,16 +1040,17 @@ def _families(document: dict[str, Any]) -> dict[str, list[str]]:
 #: supplies and hosts of the example hold no channel, so ``-`` and ``HALL`` are no
 #: System.
 DEMO_GROUPS = {
+    # The booster's bends and quadrupoles share three supplies and have no
+    # channel of their own, so their groups are no family of a channel index.
     "BR": [
-        *("BPM", "DIAG", "DIPOLE", "DIPOLE-RAMP", "KICKER", "MAG"),
-        *("QD", "QD-RAMP", "QF", "QF-RAMP", "SEPTUM", "TV"),
+        *("BPM", "DIAG", "DIPOLE-RAMP", "HCM", "KICKER", "MAG"),
+        *("QD-RAMP", "QF-RAMP", "SEPTUM", "TV", "VCM"),
     ],
     "BTS": [
         *("BPM", "DIAG", "DIPOLE", "HCM", "ICT", "MAG"),
         *("PADDLES", "QD", "QF", "TV", "VCM"),
     ],
     "GTL": ["BC", "BPM", "EGUN", "HCM", "ICT", "SHB", "SOL", "TV", "VCM"],
-    "LINE": ["BPM", "HCM", "QD", "QF", "VCM"],
     "LN": [
         *("ACC", "BPM", "BUNCHER", "HCM", "ICT", "MASTER"),
         *("QD", "QF", "SOL", "TV", "VCM", "WATER"),
@@ -1067,7 +1067,6 @@ DEMO_DERIVED = {
     "BR": ["BeamCurrentMonitor"],
     "BTS": [],
     "GTL": [],
-    "LINE": [],
     "LN": [],
     "LTB": [],
     "SR": [
@@ -1088,7 +1087,7 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 89
+    assert sum(len(families) for families in _families(document).values()) == 83
     fields = [
         field
         for system, families in document.items()
@@ -1097,8 +1096,8 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 2453
-    assert by_address == 2143
+    assert len(fields) == 2466
+    assert by_address == 2167
     assert left_out == 6
     assert document["count"] == len(built_demo.facility["channels"]) - left_out
     assert left_out == sum(
@@ -1218,7 +1217,7 @@ def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
 ) -> None:
     document, _left_out, _by_address = _document(built_demo.facility)
 
-    for system, family in (("SR", "SF"), ("BR", "DIPOLE")):
+    for system, family in (("SR", "SF"), ("BR", "DIPOLE-RAMP")):
         field = _fields(document[system][family])["current_setpoint"]
         assert all(address.endswith(":CURRENT:SP") for address in field["ChannelNames"])
         assert field["_description"] == _signal_text("current_setpoint"), (system, family)
@@ -1250,7 +1249,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (8297, 4725)
+    assert counts == (8399, 4759)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 
@@ -1298,16 +1297,13 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
 
 
 def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(
-    tmp_path: Path,
+    mml_built: Callable[[str, str], BuiltModel],
 ) -> None:
     pytest.importorskip("at")
-    from osprey.facility.build import build_facility
-    from osprey.facility.validate import signal_roles
-    from tests.facility._mml_built import WIDENED, import_tree, widen
+    from osprey_facility.validate import signal_roles
 
-    facility = import_tree(tmp_path, "spear3")
-    widen(facility, WIDENED["spear3"])
-    doc = build_facility(facility, project_name="demo")
+    # The run's one spear3 build: its import, widened as named, built.
+    doc = mml_built("spear3", "spear3.storagering").document
     roles = signal_roles()
 
     document, _, _ = _document(doc)

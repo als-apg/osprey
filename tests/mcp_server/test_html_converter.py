@@ -1,7 +1,6 @@
 """Tests for the HTML-to-image converter module."""
 
 import asyncio
-import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -11,14 +10,17 @@ import pytest
 
 from osprey.mcp_server.export import converter as converter_mod
 from osprey.mcp_server.export.converter import (
+    BROWSER_INSTALL_COMMAND,
+    BROWSER_MISSING_MESSAGE,
     PageNotLoadedError,
     PlaywrightNotInstalledError,
     PlotNotDrawnError,
     convert_html_to_image,
 )
+from tests._scoped_stdlib import no_child_process
 
-# The launch error Playwright raises when the browser binary is absent — the ONLY
-# condition that may trigger an auto-install.
+# The launch error Playwright raises when the browser binary is absent — the only
+# launch error the converter reports as a missing browser.
 MISSING_BROWSER_ERROR = (
     "browserType.launch: Executable doesn't exist at "
     "/root/.cache/ms-playwright/chromium-1091/chrome-linux/chrome"
@@ -81,16 +83,30 @@ async def test_convert_html_to_png(tmp_path):
     mock_browser.close.assert_called_once()
 
 
-async def test_playwright_not_installed(tmp_path):
-    """Missing playwright module raises PlaywrightNotInstalledError."""
+async def test_a_missing_playwright_package_raises_its_import_error(tmp_path):
+    """A missing playwright package is a broken install, not a missing browser."""
     html_file = tmp_path / "plot.html"
     html_file.write_text("<html></html>")
     output_file = tmp_path / "plot.png"
 
-    # Remove playwright from sys.modules to trigger ImportError
     with patch.dict(sys.modules, {"playwright.async_api": None, "playwright": None}):
-        with pytest.raises(PlaywrightNotInstalledError, match="not installed"):
+        with pytest.raises(ImportError) as excinfo:
             await convert_html_to_image(html_file, output_file)
+
+    assert not isinstance(excinfo.value, PlaywrightNotInstalledError)
+
+
+def test_no_server_module_spells_a_browser_install_command():
+    """The converter states the one install command; no other module spells one."""
+    import osprey
+
+    root = Path(osprey.__file__).parent
+    spelled = sorted(
+        str(path.relative_to(root))
+        for path in root.rglob("*.py")
+        if "playwright install" in path.read_text(encoding="utf-8")
+    )
+    assert spelled == []
 
 
 async def test_invalid_format(tmp_path):
@@ -124,30 +140,22 @@ async def test_custom_viewport(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Chromium auto-install
+# A missing browser
 #
-# The browser is only ever installed in reaction to a launch that actually
-# failed for a missing binary. Any other outcome — a successful launch, or a
-# launch that failed for another reason — must not shell out to the network.
+# The converter never installs a browser: a launch that failed for a missing
+# binary raises the error that names the install command, and any other launch
+# failure propagates as itself. No outcome starts a subprocess.
 # ---------------------------------------------------------------------------
 
 
-class TestChromiumAutoInstall:
-    """Auto-install is reactive, at-most-once, and never masks other errors."""
+class TestMissingBrowser:
+    """A missing browser is reported with its install command, never installed."""
 
     @pytest.fixture(autouse=True)
-    def _install_calls(self, monkeypatch):
-        """Record install subprocesses instead of running them; reset the cache."""
-        calls: list[list[str]] = []
-
-        def _fake_run(cmd, **kwargs):
-            calls.append(list(cmd))
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-        monkeypatch.setattr(converter_mod.subprocess, "run", _fake_run)
-        monkeypatch.setattr(converter_mod, "_install_attempted", False)
-        monkeypatch.setattr(converter_mod, "_install_error", None)
-        return calls
+    def _subprocess_calls(self):
+        """Record every child process started instead of running it."""
+        with no_child_process() as started:
+            yield started
 
     @staticmethod
     def _html(tmp_path):
@@ -156,40 +164,36 @@ class TestChromiumAutoInstall:
         (tmp_path / "plot.png").write_bytes(b"fake")
         return html_file, tmp_path / "plot.png"
 
-    async def test_successful_launch_never_installs(self, tmp_path, _install_calls):
-        """A browser that launches is a browser that is installed — no subprocess.
-
-        Regression test for the sync-in-async availability probe: it raised inside
-        a running event loop, was misread as "browser missing", and installed
-        Chromium over the network on every single conversion.
-        """
+    async def test_successful_launch_starts_no_subprocess(self, tmp_path, _subprocess_calls):
+        """A browser that launches is a browser that is installed."""
         html_file, output_file = self._html(tmp_path)
         mock_mod, _, _ = _make_playwright_mock()
 
         with patch.dict(sys.modules, {"playwright.async_api": mock_mod}):
             await convert_html_to_image(html_file, output_file)
 
-        assert _install_calls == []
+        assert _subprocess_calls == []
 
-    async def test_missing_browser_installs_then_retries(self, tmp_path, _install_calls):
-        """A launch that fails for a missing binary installs once and retries."""
+    async def test_a_missing_browser_starts_no_install(self, tmp_path, _subprocess_calls):
+        """A launch that fails for a missing binary raises at once: no install, no retry."""
         html_file, output_file = self._html(tmp_path)
-        _, _, mock_browser = _make_playwright_mock()
         mock_mod, _, _ = _make_playwright_mock(
-            launch_side_effect=[Exception(MISSING_BROWSER_ERROR), mock_browser]
+            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)] * 2
         )
 
         with patch.dict(sys.modules, {"playwright.async_api": mock_mod}):
-            result = await convert_html_to_image(html_file, output_file)
+            with pytest.raises(PlaywrightNotInstalledError):
+                await convert_html_to_image(html_file, output_file)
 
-        assert result == output_file.resolve()
-        assert _install_calls == [[sys.executable, "-m", "playwright", "install", "chromium"]]
+        assert _subprocess_calls == []
+        pw = mock_mod.async_playwright.return_value.__aenter__.return_value
+        assert pw.chromium.launch.await_count == 1
 
-    async def test_install_attempted_at_most_once_per_process(self, tmp_path, _install_calls):
-        """A second conversion with a missing browser does not re-install."""
+    async def test_every_conversion_reports_the_missing_browser(self, tmp_path, _subprocess_calls):
+        """Each conversion with a missing browser raises; none starts an install."""
         html_file, output_file = self._html(tmp_path)
         mock_mod, _, _ = _make_playwright_mock(
-            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)] * 4
+            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)] * 2
         )
 
         with patch.dict(sys.modules, {"playwright.async_api": mock_mod}):
@@ -197,27 +201,33 @@ class TestChromiumAutoInstall:
                 with pytest.raises(PlaywrightNotInstalledError):
                     await convert_html_to_image(html_file, output_file)
 
-        assert len(_install_calls) == 1
+        assert _subprocess_calls == []
 
-    async def test_failed_install_reports_stderr(self, tmp_path, monkeypatch):
-        """A nonzero install surfaces as PlaywrightNotInstalledError with its stderr."""
+    async def test_the_error_names_the_install_command(self, tmp_path):
+        """The error names the fact, the command for this interpreter, and the image remedy."""
         html_file, output_file = self._html(tmp_path)
-
-        def _failing_run(cmd, **kwargs):
-            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="proxy blocked the CDN")
-
-        monkeypatch.setattr(converter_mod.subprocess, "run", _failing_run)
-        monkeypatch.setattr(converter_mod, "_install_attempted", False)
-        monkeypatch.setattr(converter_mod, "_install_error", None)
-
         mock_mod, _, _ = _make_playwright_mock(
-            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)] * 2
+            launch_side_effect=[Exception(MISSING_BROWSER_ERROR)]
         )
+
         with patch.dict(sys.modules, {"playwright.async_api": mock_mod}):
-            with pytest.raises(PlaywrightNotInstalledError, match="proxy blocked the CDN"):
+            with pytest.raises(PlaywrightNotInstalledError) as excinfo:
                 await convert_html_to_image(html_file, output_file)
 
-    async def test_unrelated_launch_failure_propagates(self, tmp_path, _install_calls):
+        message = str(excinfo.value)
+        assert message == BROWSER_MISSING_MESSAGE
+        assert "Headless Chromium is not installed" in message
+        assert sys.executable in message
+        assert "-m playwright install --only-shell chromium" in message
+        assert BROWSER_INSTALL_COMMAND in message
+        assert "images.skip_browser" in message
+
+    def test_the_missing_browser_message_is_one_sentence(self):
+        """One sentence: it ends with a period and holds no period followed by a space."""
+        assert BROWSER_MISSING_MESSAGE.endswith(".")
+        assert ". " not in BROWSER_MISSING_MESSAGE
+
+    async def test_unrelated_launch_failure_propagates(self, tmp_path, _subprocess_calls):
         """A launch failure that is not a missing binary surfaces as itself."""
         html_file, output_file = self._html(tmp_path)
         mock_mod, _, _ = _make_playwright_mock(
@@ -231,7 +241,7 @@ class TestChromiumAutoInstall:
                 await convert_html_to_image(html_file, output_file)
 
         assert not isinstance(excinfo.value, PlaywrightNotInstalledError)
-        assert _install_calls == []
+        assert _subprocess_calls == []
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,14 @@
+thing,frame,x_mm,y_mm,z_mm,ax_rad,ay_rad,az_rad,s_m,side_mm,height_mm,derived_assumes,box_mm,basis,document,version,state,locator
+XR01:QF1,XR-RING,1000.0,0.0,250.0,0.0,0.0,0.0,1.25,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 1
+XR01:QF1,XR-GIRDER,10.0,0.0,5.0,0.0,0.0,0.0,0.05,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 2
+XR01:IP1,XR-RING,1000.0,300.0,250.0,,,,1.25,0.0,300.0,,,inferred,XR-LAYOUT,A,released,sheet 1
+XR01:QD1,XR-GIRDER,20.0,0.0,5.0,0.0,0.0,0.0,0.8,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 2
+XR01:QD1,XR-RING,1750.0,0.0,250.0,0.0,0.0,0.0,2.0,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 1
+XR01:BEND1,XR-RING,2600.0,0.0,250.0,0.0,0.0,0.0,2.9,0.0,0.0,fixture: frame treated as the ring frame,,inferred,XR-LAYOUT,A,released,sheet 1
+XR02:QF1,XR-RING,9000.0,0.0,250.0,0.0,0.0,0.0,11.0,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 3
+XR02:SHIELD1,XR-RING,9500.0,-600.0,0.0,0.0,0.0,0.0,12.5,-600.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 3
+XR02:SAF1,XR-RING,9900.0,0.0,0.0,0.0,0.0,0.0,13.0,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 3
+XR/XR01/RK1,XR-HALL,500.0,0.0,0.0,0.0,0.0,1.570796,,,,,,stated,XR-RACKS,B,released,"sheet 1, row 2"
+XR02:IP1,XR-RING,9100.0,300.0,250.0,,,,,0.0,300.0,,,inferred,XR-LAYOUT,A,released,sheet 3
+XR02:SAF2,XR-RING,9950.0,0.0,0.0,0.0,0.0,0.0,13.5,0.0,0.0,,,stated,XR-LAYOUT,A,released,sheet 3
+XR/XR02/SAFE,XR-HALL,900.0,0.0,0.0,0.0,0.0,0.0,,,,,,stated,XR-LAYOUT,A,released,sheet 3

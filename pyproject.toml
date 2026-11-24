@@ -210,7 +210,7 @@ dependencies = [
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.16.0",
     # The facility file validates through a pydantic model generated from its
-    # LinkML schema (src/osprey/facility/schema/_generated/core.py).
+    # LinkML schema (packages/osprey-facility/src/osprey_facility/schema/_generated/core.py).
     "pydantic>=2.11,<3",
     # `osprey up --dev` builds a wheel from the local checkout. A shipped
     # CLI flag must not depend on an optional extra: an editable install without
@@ -235,7 +235,12 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.11.12",
+    "osprey-connectors>=2026.11.16",
+    # The facility description (facility.json, its schema, the layers that build
+    # it). No floor until the package releases on its own tags: until then a
+    # build is 0.0.postN, which a floor would make the image build refuse
+    # (osprey.deployment.wheel_build._require_members_satisfy_framework).
+    "osprey-facility",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -321,6 +326,9 @@ dev = [
     # client falls back to httpx, which starlette deprecates.
     "httpx2>=2.13.0",
     "pyaml-test-lattice==0.2.0",  # pyAML's test lattices, loaded by the pyAML view tests
+    # Validates a built facility.json against the published open JSON Schema in
+    # the schema-pin tests; only a transitive dependency otherwise.
+    "jsonschema>=4.26,<5",
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -447,7 +455,7 @@ virtual-accelerator = [
     "aioca>=1.7",
 ]
 
-# Alarm state from a Phoebus alarm server's Kafka topic (pv_directory.alarm_state).
+# Alarm state from a Phoebus alarm server's Kafka topic (channel_directory.alarm_state).
 # Direct rather than osprey-connectors[alarm-state]: the released connectors floor
 # has no such extra. The floor raise switches this to the connectors extra.
 alarm-state = [
@@ -469,12 +477,31 @@ all = [
     "osprey-framework[docs,dev,ariel,screen-capture-linux,gchat,teams]"
 ]
 
+# The checkout's own environment, never the framework's metadata: osprey-panels
+# is a standalone package the framework does not depend on, so it is named in no
+# [project] dependency or extra (a release must not resolve it from PyPI). uv
+# syncs this default group, so every `uv sync --extra dev` lane has the panel
+# engine for the root tests that exercise it; `uv export --no-dev` leaves it out.
+[dependency-groups]
+dev = ["osprey-panels"]
+
 [tool.uv.workspace]
-members = ["packages/osprey-connectors", "packages/osprey-optimizer", "packages/pyaml-cs-osprey"]
+members = [
+    "packages/osprey-connectors",
+    "packages/osprey-facility",
+    "packages/osprey-optimizer",
+    "packages/pyaml-cs-osprey",
+    # Last, not in sorted place: the members above are the ones the framework
+    # ships with (osprey.deployment.members.WORKSPACE_MEMBERS); osprey-panels is
+    # a workspace member the framework does not depend on (NOT_SHIPPED).
+    "packages/osprey-panels",
+]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
+osprey-facility = { workspace = true }
 osprey-optimizer = { workspace = true }
+osprey-panels = { workspace = true }
 pyaml-cs-osprey = { workspace = true }
 torch = { index = "pytorch-cpu" }
 
@@ -513,18 +540,12 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Simulation engine plug-ins, each entry naming the module that implements the
 # plug-in contract; a facility build reaches an engine only through this group.
-[project.entry-points."osprey.simulation.engines"]
+# The group is `osprey_connectors.simulation.engines`, the value of
+# `osprey_connectors.simulation.engines.ENGINE_GROUP`, which the build and the
+# virtual accelerator both read.
+[project.entry-points."osprey_connectors.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
 injection = "osprey.simulation.engines.injection"
-
-# Measurement kinds, each entry naming its KindDeclaration; a facility build
-# reaches a kind only through this group. The five below are the built-in ones.
-[project.entry-points."osprey.facility.kinds"]
-orm = "osprey.facility.kinds:ORM"
-dispersion = "osprey.facility.kinds:DISPERSION"
-trm = "osprey.facility.kinds:TRM"
-crm = "osprey.facility.kinds:CRM"
-chromaticity_monitor = "osprey.facility.kinds:CHROMATICITY_MONITOR"
 
 # Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
@@ -611,13 +632,18 @@ python_version = "3.11"
 mypy_path = """\
 src/osprey/templates/claude_code/claude/hooks:\
 src/osprey/templates/services/teams_bridge/relay:\
-src:packages/osprey-connectors/src:packages/osprey-optimizer/src:packages/pyaml-cs-osprey/src"""
+src:packages/osprey-connectors/src:packages/osprey-facility/src:packages/osprey-optimizer/src:packages/osprey-panels/src:packages/pyaml-cs-osprey/src"""
 explicit_package_bases = true
 files = [
     "src",
     "packages/osprey-connectors/src",
+    "packages/osprey-facility/src",
     "packages/osprey-optimizer/src",
+    "packages/osprey-panels/src",
     "packages/pyaml-cs-osprey/src",
+    # Static type contracts: files that prove a typing property only the type
+    # check can see. They are not test modules, so pytest does not collect them.
+    "tests/type_contracts",
 ]
 warn_return_any = true
 warn_unused_configs = true
@@ -634,7 +660,7 @@ exclude = [
     "^venv/",
     "_agent_data/",
     "__pycache__/",
-    "^src/osprey/facility/schema/_generated/",
+    "^packages/osprey-facility/src/osprey_facility/schema/_generated/",
 ]
 
 # The connectors package is held to mypy's strict checks, plus the error codes
@@ -790,7 +816,7 @@ ignore_missing_imports = true
 # `exclude` entry above only stops discovery, and importers still reach the
 # module, so `silent` keeps its types visible to them and its own errors quiet.
 [[tool.mypy.overrides]]
-module = ["osprey.facility.schema._generated.*"]
+module = ["osprey_facility.schema._generated.*"]
 follow_imports = "silent"
 
 [tool.pytest.ini_options]
@@ -799,6 +825,8 @@ addopts = "-ra -v --tb=short --strict-markers --color=yes"
 testpaths = [
     "tests",
     "packages/osprey-connectors/tests",
+    "packages/osprey-facility/tests",
+    "packages/osprey-panels/tests",
     "src/applications/*/tests"
 ]
 # The connectors suite's helpers (osprey_connectors_tests) are imported by the
@@ -807,6 +835,8 @@ testpaths = [
 # image imports it.
 pythonpath = [
     "packages/osprey-connectors/tests",
+    "packages/osprey-facility/tests",
+    "packages/osprey-panels/tests",
     "src/osprey/profiles/presets/apps/orbit-bump",
 ]
 python_files = [
@@ -857,6 +887,8 @@ markers = [
     "wallclock: Tests that assert an absolute wall-clock budget. Deselected from every parallel run, whose other workers would distort the clock they read; each is timed in a serial step that selects this marker. tests/deployment/test_ci_workflow_wiring.py LANE_LEAVING_MARKERS names the step and fails when a marked file has none.",
     "real_bounded_run: Test of run_captured's bounded (timeout/watch) runner itself — opts out of the conftest stub that routes bounded runs through the plain subprocess.run spool path the deploy tests fake",
     "pty: Real-terminal tests that run an osprey verb on a pty and read back the bytes an operator would have seen. POSIX-only (they self-skip elsewhere), and deselected from the parallel lane because they assert on repaint cadence and on a spinner advancing between frames, which three other xdist workers loading the box would distort; they get their own serial CI step instead. Carried per-test, not per-directory: tests/pty/test_stub_coverage.py needs no terminal and stays in the parallel lane.",
+    "wheel_build: Tests that read a built osprey-facility wheel named by OSPREY_FACILITY_WHEEL. Declared here as in the package's own pytest config; deselected from the root unit shards, the package's standalone CI job builds the wheel once and selects them.",
+    "foreign_header: Test that writes a facility.json whose header osprey_facility.reading.READS does not hold, on purpose (a /3 document, a header-less one, a non-object): the header-sweep check of tests that write facility.json skips it",
 ]
 
 # Import boundaries, checked by `lint-imports` (import-linter) in the lint job.
@@ -870,7 +902,7 @@ markers = [
 # imports core still makes into each feature. Only removals are expected: a
 # new core import of a feature breaks its contract.
 [tool.importlinter]
-root_packages = ["osprey", "osprey_connectors"]
+root_packages = ["osprey", "osprey_connectors", "osprey_facility", "osprey_panels"]
 
 [[tool.importlinter.contracts]]
 id = "connectors-standalone"
@@ -889,7 +921,10 @@ name = "The framework reaches the connector packages only through their namespac
 # them) are reached through the subpackage itself, and a module added there
 # later is private until it is exempted here. The simulation subpackage keeps
 # its modules public: its root is imported by readers that must not load
-# numpy, so the heavy modules are reached by their own names. The package's
+# numpy, so the heavy modules are reached by their own names. Among them,
+# `simulation.engines` is the engine plug-in contract the framework reads: the
+# entry-point group's name, the plug-in protocol, the calibration math and the
+# facility-defect refusal. The package's
 # top-level modules (config, types, posture_store, ...) are each their own
 # public API, except the private ones: `_config_read`, the config readers the
 # stand-in and the simulator share, and `_service_http`, the one HTTP path of
@@ -942,11 +977,20 @@ name = "The connector package's top-level modules, in layers"
 # record `control_context` parses, and `control_context` takes its root and
 # posture grammar from `posture_store`; `workspace` loads config through
 # `config`'s singleton, and `config` resolves paths through `workspace`.
+#
+# `command` fires a command through any control-system connector and compares
+# its status by the control-system contract's own rule, so it sits above them.
+#
+# `simulation.engines`, the engine plug-in contract, sits inside the simulation
+# layer and imports nothing from the package. A layer may not hold a module
+# another layer already contains, so that leaf is held by the connectors suite
+# (test_engine_contract.py), not by a layer of its own.
 type = "layers"
 layers = [
     "osprey_connectors.ipc",
     "osprey_connectors.factory",
     "osprey_connectors.archiver",
+    "osprey_connectors.command",
     "osprey_connectors.control_system",
     "osprey_connectors.alarm_log | osprey_connectors.put_log",
     "osprey_connectors.alarm_state",
@@ -1173,6 +1217,153 @@ ignore_imports = [
     "osprey.apps.sdk._wrappers -> osprey.services.bluesky_bridge.queue_backend",
 ]
 
+# Facility boundaries: the description (the osprey_facility package of
+# osprey-facility), the panel engine (the osprey_panels package of
+# osprey-panels) and the framework, which is the whole osprey package. The
+# simulation-engine contract lives in osprey_connectors.simulation.engines,
+# outside these lists.
+#
+# The module lists are the one classification; tests read them by contract id.
+# S1, S4 and S5 name whole packages and follow import chains, as
+# `connectors-standalone` does, so an edge whose chain crosses one of them
+# breaks it beside its own row. S2 and S3 name whole packages too but check
+# direct imports only. `osprey._version`, `osprey_facility._version` and
+# `osprey_panels._version` are written by the build and missing on a fresh
+# clone, so no list names them.
+#
+# Admission rule: the `ignore_imports` below are the edges that existed when
+# these contracts landed, one importer -> imported pair each, grouped under
+# the epic phase that removes them. Entries are only removed afterwards: a
+# removed import whose entry stays fails the check, as does a new crossing
+# import. The baseline is refreshed once, at the epic -> main merge, where the
+# moves made on main meet the check.
+
+[[tool.importlinter.contracts]]
+id = "facility-description-standalone"
+name = "osprey_facility never imports osprey"
+# S1, ruling 3 (description vs framework split as the code reads) and ruling 4
+# (the engine contract lives in osprey-connectors). The package installs where
+# osprey is absent, as `connectors-standalone` does: a fork or tool builds and
+# reads facility.json with it alone. It reaches the engine contract as
+# `osprey_connectors.simulation.engines`; S2 forbids it the panel engine.
+type = "forbidden"
+source_modules = ["osprey_facility"]
+forbidden_modules = ["osprey"]
+
+[[tool.importlinter.contracts]]
+id = "facility-description-without-panels"
+name = "The facility description never imports the panel engine"
+# S2, ruling 1 (document only): the description produces facility.json and
+# knows nothing of what reads it.
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["osprey_facility"]
+forbidden_modules = ["osprey_panels"]
+
+[[tool.importlinter.contracts]]
+id = "panels-document-only"
+name = "The panel engine reads facility.json, not facility code"
+# S3, ruling 1 (document only): the seam between the panel engine and the
+# description is the versioned document, so a fork tracks one file.
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["osprey_panels"]
+forbidden_modules = ["osprey_facility"]
+
+[[tool.importlinter.contracts]]
+id = "panels-standalone"
+name = "osprey_panels imports neither the framework nor osprey_connectors"
+# S4, ruling 3 (osprey-panels carries no connectors floor) and ruling 7 (a
+# fork replaces osprey-panels as a whole, so the engine depends on nothing
+# but the document). Both are forbidden whole, as packages; the description
+# is S3's.
+type = "forbidden"
+source_modules = ["osprey_panels"]
+forbidden_modules = ["osprey", "osprey_connectors"]
+
+[[tool.importlinter.contracts]]
+id = "framework-without-panels"
+name = "The framework never imports osprey_panels"
+# S5, ruling 5: osprey-panels ships its own command and the framework's
+# `osprey facility panels` is gone. The framework is the whole `osprey`
+# package and the engine is no longer inside it, so both read as packages.
+type = "forbidden"
+source_modules = ["osprey"]
+forbidden_modules = ["osprey_panels"]
+
+[[tool.importlinter.contracts]]
+id = "facility-public-api"
+name = "The framework reaches the facility description only through its public modules"
+# S6, ruling 5: osprey-facility declares its public modules and everything
+# else is private, as in `connectors-public-api`. Each public module serves one
+# consumer: a fork/tool, a kind plug-in, an app, or a framework job named by
+# the framework modules that import it. The rows are the "Public API" table of
+# packages/osprey-facility/README.md, one `module` | consumer row per line.
+# Public:
+#   `osprey_facility` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.mcp_server.python_executor`, `osprey.simulation.model_request`, `osprey.utils.facility`
+#   `osprey_facility.build` | framework job: `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views`
+#   `osprey_facility.errors` | framework job: `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.integrations.canopy`, `osprey.mcp_server.python_executor`, `osprey.registry`, `osprey.runtime`, `osprey.services.ariel_search`, `osprey.simulation`, `osprey.utils.facility`
+#   `osprey_facility.frontmatter` | framework job: `osprey.services.facility_knowledge`
+#   `osprey_facility.kinds` | kind plug-in
+#   `osprey_facility.layers` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.bundled`
+#   `osprey_facility.layers.list` | framework job: `osprey.cli.facility_cmd`
+#   `osprey_facility.layers.mml.family` | framework job: `osprey.services.channel_finder`
+#   `osprey_facility.layers.mml.importer` | framework job: `osprey.cli.facility_cmd`
+#   `osprey_facility.layers.mml.mapping` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.bundled`
+#   `osprey_facility.layers.mml.response_check` | framework job: `osprey.cli.facility_cmd`
+#   `osprey_facility.layers.mml.seed` | framework job: `osprey.cli.facility_cmd`
+#   `osprey_facility.layers.relations` | framework job: `osprey.cli.facility_cmd`
+#   `osprey_facility.measurement_groups` | framework job: `osprey.facility.views`
+#   `osprey_facility.pairing` | framework job: `osprey.facility.views`
+#   `osprey_facility.reading` | fork/tool
+#   `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search`
+#   `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search`
+#   `osprey_facility.relations` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.views`
+#   `osprey_facility.render` | framework job: `osprey.apps.sdk`, `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views`
+#   `osprey_facility.roots` | framework job: `osprey.cli`, `osprey.facility.bundled`
+#   `osprey_facility.scenarios` | framework job: `osprey.facility.views`, `osprey.simulation.apply`
+#   `osprey_facility.schema` | fork/tool
+#   `osprey_facility.served` | framework job: `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`
+#   `osprey_facility.sessions` | framework job: `osprey.agent_runner`, `osprey.interfaces.web_terminal`, `osprey.registry`, `osprey.simulation`
+#   `osprey_facility.simulated` | framework job: `osprey.facility.views`
+#   `osprey_facility.sources` | framework job: `osprey.facility.views`
+#   `osprey_facility.validate` | framework job: `osprey.cli`, `osprey.facility.views`, `osprey.mcp_server.channel_finder_graph`, `osprey.registry`
+# The modules listed below are the rest. `osprey_facility._version` is written
+# by the build and gitignored, so no list names it. The package's own modules
+# are its allowed importers; the panel engine reaches none of it (S3).
+type = "protected"
+as_packages = false
+protected_modules = [
+    "osprey_facility.combine",
+    "osprey_facility.compute",
+    "osprey_facility.knowledge_links",
+    "osprey_facility.places",
+    "osprey_facility.provenance",
+    "osprey_facility.wiring",
+    "osprey_facility.layers.mml",
+    "osprey_facility.layers.mml.decks",
+    "osprey_facility.layers.mml.directions",
+    "osprey_facility.layers.mml.fingerprint",
+    "osprey_facility.layers.mml.identity",
+    "osprey_facility.layers.mml.judgments",
+    "osprey_facility.layers.mml.loaders",
+    "osprey_facility.layers.mml.loaders.**",
+    "osprey_facility.layers.mml.normalize",
+    "osprey_facility.layers.mml.places",
+    "osprey_facility.layers.mml.rows",
+    "osprey_facility.layers.mml.systems",
+    "osprey_facility.layers.mml.wiring",
+    "osprey_facility.layers.relations.*",
+    "osprey_facility.schema._generate",
+    "osprey_facility.schema._generated",
+    "osprey_facility.schema._generated.**",
+    "osprey_facility.schema.compat",
+]
+allowed_importers = ["osprey_facility", "osprey_facility.**"]
+ignore_imports = [
+    # phase 4 — none today: the public set is what the framework imports now.
+]
+
 # Ruff configuration for modern Python linting
 [tool.ruff]
 line-length = 100
@@ -1183,7 +1374,11 @@ src = [
     "deployment",
     "packages/osprey-connectors/src",
     "packages/osprey-connectors/tests",
+    "packages/osprey-facility/src",
+    "packages/osprey-facility/tests",
     "packages/osprey-optimizer/src",
+    "packages/osprey-panels/src",
+    "packages/osprey-panels/tests",
     "packages/pyaml-cs-osprey/src",
 ]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and
@@ -1194,11 +1389,13 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_facility/_version.py",
     "*/src/osprey_optimizer/_version.py",
+    "*/src/osprey_panels/_version.py",
     "*/src/pyaml_cs_osprey/_version.py",
     # Generated from the facility schema by gen-pydantic; compared byte for byte
     # with a regeneration, so it is never reformatted.
-    "src/osprey/facility/schema/_generated/",
+    "packages/osprey-facility/src/osprey_facility/schema/_generated/",
 ]
 
 [tool.ruff.format]
@@ -1300,7 +1497,9 @@ source = [
     "interfaces",
     "deployment",
     "packages/osprey-connectors/src",
+    "packages/osprey-facility/src",
     "packages/osprey-optimizer/src",
+    "packages/osprey-panels/src",
     "packages/pyaml-cs-osprey/src",
 ]
 # Hooks ship as standalone scripts and are exercised by spawning them, so most of
@@ -1320,7 +1519,9 @@ omit = [
     # Written by the hatch-vcs build hook (gitignored); not source anyone maintains.
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_facility/_version.py",
     "*/src/osprey_optimizer/_version.py",
+    "*/src/osprey_panels/_version.py",
 ]
 
 [tool.coverage.report]

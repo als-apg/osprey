@@ -15,7 +15,8 @@ One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
 readback channel, paired or not; a channel whose role is ``none`` is no device.
 A settable carries ``settle_tolerance`` when its setpoint declares a
-``tolerance``: the number of an absolute one, ``{relative: <f>}`` of a relative
+``tolerance``, a further address of a wiring record (under ``also``) its
+record's: the number of an absolute one, ``{relative: <f>}`` of a relative
 one. A settable without one carries ``motion_band`` when the channel it reads
 back declares motion in its ``simulation`` seed: the envelope
 :func:`osprey_connectors.simulation.envelope.motion_envelope` derives from that
@@ -46,9 +47,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import FACILITY_FILE
-from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs
+from osprey_facility import FACILITY_FILE
+from osprey_facility.records import FacilityRecords
 
 __all__ = [
     "BLUESKY_DEVICES_FILE",
@@ -74,16 +75,17 @@ def _records(records: FacilityRecords, facility_file: Path) -> list[Any]:
     from osprey.channel_roster import channel_record
 
     source = _source(facility_file)
-    return [channel_record(channel, source) for channel in records.of_kind("channel")]
+    return [channel_record(channel, source, records) for channel in records.of_kind("channel")]
 
 
 def _tolerances(records: FacilityRecords) -> dict[str, Mapping[str, float]]:
-    """Each setpoint's declared ``tolerance`` record, by address."""
-    return {
-        channel["id"]: channel["tolerance"]
-        for channel in records.of_kind("channel")
-        if channel.get("tolerance")
-    }
+    """Each setpoint's settle ``tolerance`` record, by address; a further address of a wiring record takes its record's."""
+    tolerances: dict[str, Mapping[str, float]] = {}
+    for channel in records.of_kind("channel"):
+        held = records.record("channel", records.record_address(channel["id"])) or channel
+        if held.get("tolerance"):
+            tolerances[channel["id"]] = held["tolerance"]
+    return tolerances
 
 
 def _motion_bands(records: FacilityRecords) -> dict[str, float]:
@@ -191,8 +193,8 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The file written.
     """
-    from osprey.facility.validate import tolerance_warnings
     from osprey.services.bluesky_bridge.substrate_devices import write_devices_file
+    from osprey_facility.validate import tolerance_warnings
 
     root.mkdir(parents=True, exist_ok=True)
     facility_file = root.parent / FACILITY_FILE

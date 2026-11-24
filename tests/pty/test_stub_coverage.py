@@ -41,8 +41,19 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
-from tests.pty.conftest import StubRuntime, repo_root, stub_runtime_dir
+from tests._builds import BuiltProject
+from tests._coverage_handoff import without_coverage_handoff
+from tests.pty.conftest import (
+    EXEMPLAR_COMPLETE_MARKER,
+    EXEMPLAR_DIRNAME,
+    StubRuntime,
+    ensure_exemplar,
+    exemplar_cache_key,
+    repo_root,
+    stub_runtime_dir,
+)
 from tests.pty.stub_runtime import _stub_main
 
 #: The package whose runtime conversations must be covered.
@@ -298,10 +309,6 @@ def scan_deployment() -> list[_Seam]:
 # ---------------------------------------------------------------------------
 
 
-#: What ``[tool.coverage.run] patch = ["subprocess"]`` sets for child processes.
-_COVERAGE_HANDOFF = frozenset({"COVERAGE_PROCESS_CONFIG", "COVERAGE_PROCESS_START"})
-
-
 @pytest.fixture(scope="module")
 def discovered_seams() -> list[_Seam]:
     """The scan, once — it parses the whole package."""
@@ -315,7 +322,7 @@ def _run_stub(argv: list[str], stub: StubRuntime, cwd: Path) -> subprocess.Compl
     ``tests/``, which coverage omits, so a measured child would pay coverage's
     start-up and data-file write on every one of these spawns for nothing.
     """
-    env = {key: value for key, value in stub.env().items() if key not in _COVERAGE_HANDOFF}
+    env = without_coverage_handoff(stub.env())
     return subprocess.run(
         ["docker", *argv],
         cwd=cwd,
@@ -345,33 +352,40 @@ class TestScanner:
             f"it found {sorted(seams)} — the scanner is broken, not the stub"
         )
 
-    def test_scan_reads_a_compose_concatenation(self) -> None:
-        """``base_cmd + ["up", "-d", svc]`` is a compose ``up``, not a plain one."""
-        source = 'base_cmd = x\nup_cmd = base_cmd + ["up", "-d", service]\n'
-        seams = _seams_of_source(source)
-        assert seams == ["compose up"]
-
-    def test_scan_reads_a_plain_argv_with_a_namespace(self) -> None:
-        """``[runtime, "image", "inspect", …]`` is two words, not one."""
-        source = 'cmd = [runtime, "image", "inspect", "--format", "{{.Id}}", image]\n'
-        assert _seams_of_source(source) == ["image inspect"]
-
-    def test_scan_skips_a_flag_only_append(self) -> None:
-        """``cmd.append("--follow")`` adds a flag to a seam, not a seam."""
-        assert _seams_of_source('cmd.append("--follow")\n') == []
-
-    def test_scan_reads_a_compose_extend(self) -> None:
-        """``cmd.extend(["down", "--volumes"])`` names a subcommand like an append does."""
-        assert _seams_of_source('cmd.extend(["down", "--volumes"])\n') == ["compose down"]
-
-    def test_scan_skips_a_flag_only_extend(self) -> None:
-        """``ps_cmd.extend(["--format", "json"])`` adds arguments to a seam, not a seam."""
-        assert _seams_of_source('ps_cmd.extend(["--format", "json"])\n') == []
-
-    def test_scan_reads_an_inline_runtime_binary(self) -> None:
-        """``[get_runtime_command(config)[0], "build", …]`` is a plain ``build``."""
-        source = 'cmd = [get_runtime_command(config)[0], "build", "-t", tag]\n'
-        assert _seams_of_source(source) == ["build"]
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            # ``base_cmd + ["up", "-d", svc]`` is a compose ``up``, not a plain one.
+            pytest.param(
+                'base_cmd = x\nup_cmd = base_cmd + ["up", "-d", service]\n',
+                ["compose up"],
+                id="compose-concatenation",
+            ),
+            # ``[runtime, "image", "inspect", …]`` is two words, not one.
+            pytest.param(
+                'cmd = [runtime, "image", "inspect", "--format", "{{.Id}}", image]\n',
+                ["image inspect"],
+                id="plain-argv-with-a-namespace",
+            ),
+            # ``cmd.append("--follow")`` adds a flag to a seam, not a seam.
+            pytest.param('cmd.append("--follow")\n', [], id="flag-only-append"),
+            # ``cmd.extend(["down", "--volumes"])`` names a subcommand like an append does.
+            pytest.param(
+                'cmd.extend(["down", "--volumes"])\n', ["compose down"], id="compose-extend"
+            ),
+            # ``ps_cmd.extend(["--format", "json"])`` adds arguments to a seam, not a seam.
+            pytest.param('ps_cmd.extend(["--format", "json"])\n', [], id="flag-only-extend"),
+            # ``[get_runtime_command(config)[0], "build", …]`` is a plain ``build``.
+            pytest.param(
+                'cmd = [get_runtime_command(config)[0], "build", "-t", tag]\n',
+                ["build"],
+                id="inline-runtime-binary",
+            ),
+        ],
+    )
+    def test_scan_reads_a_snippet(self, source: str, expected: list[str]) -> None:
+        """Each snippet's seams, as the scanner names them (or none, for a flag-only call)."""
+        assert _seams_of_source(source) == expected
 
 
 def _seams_of_source(source: str) -> list[str]:
@@ -490,16 +504,80 @@ class TestStubIsReachable:
         assert detected.provider is runtime_helper.ComposeProvider.DOCKER_V2
 
 
+class TestSharedExemplar:
+    """The read-only exemplar is a complete render made at the path it is served from."""
+
+    def test_an_entry_without_its_marker_is_rendered_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """What a killed render leaves is wiped and rendered again; a marked entry is served."""
+        import tests.pty.conftest as pty_conftest
+
+        entry = tmp_path / "entry"
+        calls: list[Path] = []
+
+        def fake_render(destination: Path, preset: str = pty_conftest.EXEMPLAR_PRESET) -> Path:
+            assert preset == pty_conftest.EXEMPLAR_PRESET
+            calls.append(destination)
+            repo = destination / EXEMPLAR_DIRNAME
+            repo.mkdir(parents=True)
+            (repo / "rendered").touch()
+            return repo
+
+        monkeypatch.setattr(pty_conftest, "exemplar_cache_dir", lambda preset=None: entry)
+        monkeypatch.setattr(pty_conftest, "render_exemplar", fake_render)
+        leftover = entry / EXEMPLAR_DIRNAME / "leftover"
+        leftover.parent.mkdir(parents=True)
+        leftover.touch()
+
+        assert ensure_exemplar() == entry / EXEMPLAR_DIRNAME
+        assert not leftover.exists()
+        assert (entry / EXEMPLAR_DIRNAME / "rendered").is_file()
+        assert (entry / EXEMPLAR_COMPLETE_MARKER).is_file()
+        assert calls == [entry]
+
+        assert ensure_exemplar() == entry / EXEMPLAR_DIRNAME
+        assert calls == [entry]
+
+    def test_the_shared_exemplar_names_its_own_path(self, exemplar_repo: Path) -> None:
+        """The labels of the served tree state the checkout it is served at."""
+        from osprey.deployment.compose_generator import (
+            RenderedCheckout,
+            rendered_checkout,
+            repo_identity,
+        )
+
+        assert rendered_checkout(exemplar_repo) == RenderedCheckout(
+            frozenset({repo_identity(exemplar_repo)}), str(exemplar_repo)
+        )
+
+    def test_the_cache_key_names_the_checkout_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Byte-identical inputs at another checkout path key another entry."""
+        import tests.pty.conftest as pty_conftest
+
+        unpatched = exemplar_cache_key()
+        alias = tmp_path / "alias"
+        alias.symlink_to(repo_root(), target_is_directory=True)
+        monkeypatch.setattr(pty_conftest, "repo_root", lambda: alias)
+
+        assert exemplar_cache_key() != unpatched
+
+
 class TestStubAnswersPlausibly:
     """Exit 0 is not enough: the answers have to be usable ones."""
 
-    def test_compose_up_starts_the_services_the_exemplar_declares(
-        self, stub: StubRuntime, exemplar_repo: Path, tmp_path: Path
+    def test_compose_up_starts_the_services_the_build_declares(
+        self, stub: StubRuntime, built_demo: BuiltProject, tmp_path: Path
     ) -> None:
-        """The stub reads the rendered compose files rather than inventing services.
+        """The stub reads every rendered compose file rather than inventing services.
 
         This is what makes the ``ps`` that follows an ``up`` say something true:
-        the containers it lists are the ones the repo under test declares.
+        the containers it lists are the ones the repo under test declares, in
+        every compose file it renders. The shared demo build renders several,
+        so a stub that read only some of them would start too few. The stub
+        only reads the repo, and keeps its state under ``tmp_path``.
         """
         from osprey.deployment.container_lifecycle import (
             as_built_compose_files,
@@ -507,11 +585,20 @@ class TestStubAnswersPlausibly:
         )
         from osprey_connectors.config import load_project_config
 
-        config = load_project_config(str(as_built_config_path(exemplar_repo)), wrap_errors=True)
-        compose_files = as_built_compose_files(config, exemplar_repo)
-        assert compose_files, f"the exemplar rendered no compose files into {exemplar_repo}/build"
+        repo = built_demo.repo
+        config = load_project_config(str(as_built_config_path(repo)), wrap_errors=True)
+        compose_files = as_built_compose_files(config, repo)
+        assert len(compose_files) > 1, f"one compose file cannot show all are read: {compose_files}"
+        # Compose reads a file without ``services:`` too (the base network file).
+        declared = {
+            service
+            for path in compose_files
+            for service in yaml.safe_load((repo / path).read_text(encoding="utf-8")).get(
+                "services", {}
+            )
+        }
 
-        argv = ["compose", "--project-directory", str(exemplar_repo)]
+        argv = ["compose", "--project-directory", str(repo)]
         for path in compose_files:
             argv += ["-f", str(path)]
 
@@ -525,7 +612,21 @@ class TestStubAnswersPlausibly:
         records = [json.loads(line) for line in listing.stdout.splitlines() if line.strip()]
         assert records, "ps saw nothing after a compose up"
         assert all(record["Project"] == "ptyproj" for record in records)
-        assert {record["Service"] for record in records} == {"agent-record"}
+        started = {record["Service"] for record in records}
+        assert started == declared, (
+            f"declared but not started: {sorted(declared - started)}; "
+            f"started but not declared: {sorted(started - declared)}"
+        )
+        # A file that declares no services (the base network file) changes no
+        # service above, so the stub's own record of what it opened is checked:
+        # each of its readers opened every file it was handed.
+        handed = {(repo / path).resolve() for path in compose_files}
+        (up_record,) = [r for r in stub.invocations() if r["seam"] == "compose up"]
+        for reader in ("services", "labels"):
+            opened = {Path(p).resolve() for p in up_record["read"].get(reader, [])}
+            assert opened == handed, (
+                f"the stub's {reader} reader did not open {sorted(str(p) for p in handed - opened)}"
+            )
 
         down = _run_stub([*argv, "-p", "ptyproj", "down"], stub, tmp_path)
         assert down.returncode == 0

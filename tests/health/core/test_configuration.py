@@ -44,8 +44,8 @@ _CANONICAL_NAMES = (
     "dispatch",
     "service_capabilities",
     "ariel_modules",
-    "pv_directory",
-    "pv_directory_alarm_feed",
+    "channel_directory",
+    "channel_directory_alarm_feed",
 )
 
 
@@ -196,11 +196,6 @@ class TestStructure:
         assert "python_code_generator" in results["recommended_models"].message
         assert "model_configs" not in results
 
-    def test_recommended_model_present(self):
-        config = {"models": {"python_code_generator": {"provider": "p", "model_id": "m"}}}
-        results = _by_name(_run(_loaded_state(config)))
-        assert results["recommended_models"].status == Status.OK
-
     def test_invalid_model_config_missing_fields(self):
         config = {
             "models": {
@@ -214,10 +209,17 @@ class TestStructure:
         assert "missing model_id" in msg
         assert "bad" in msg
 
-    def test_valid_model_configs(self):
+    @pytest.mark.parametrize(
+        "row",
+        [
+            pytest.param("recommended_models", id="recommended_model_present"),
+            pytest.param("model_configs_valid", id="valid_model_configs"),
+        ],
+    )
+    def test_a_complete_recommended_model_is_ok(self, row):
         config = {"models": {"python_code_generator": {"provider": "p", "model_id": "m"}}}
         results = _by_name(_run(_loaded_state(config)))
-        assert results["model_configs_valid"].status == Status.OK
+        assert results[row].status == Status.OK
 
     def test_no_deployed_services(self):
         results = _by_name(_run(_loaded_state({})))

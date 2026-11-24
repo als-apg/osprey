@@ -577,19 +577,18 @@ def test_a_connector_error_names_the_activity_it_could_not_post():
     assert "ServiceError" in message
 
 
-def test_a_connector_transport_failure_raises_a_connector_error():
-    endpoint = ConnectorEndpoint(raises=httpx.ConnectError("no route to host"))
+@pytest.mark.parametrize(
+    ("raised", "match"),
+    [
+        pytest.param(httpx.ConnectError("no route to host"), "no route to host", id="transport"),
+        pytest.param(httpx.ReadTimeout("timed out"), "timed out", id="timed-out"),
+    ],
+)
+def test_a_failed_reply_request_raises_a_connector_error(raised, match):
+    endpoint = ConnectorEndpoint(raises=raised)
     client = make_connector(endpoint)
 
-    with pytest.raises(ConnectorError, match="no route to host"):
-        client.reply(SERVICE_URL, CHANNEL_CONVERSATION, ACTIVITY_ID, ACTIVITY)
-
-
-def test_a_timed_out_reply_raises_a_connector_error():
-    endpoint = ConnectorEndpoint(raises=httpx.ReadTimeout("timed out"))
-    client = make_connector(endpoint)
-
-    with pytest.raises(ConnectorError, match="timed out"):
+    with pytest.raises(ConnectorError, match=match):
         client.reply(SERVICE_URL, CHANNEL_CONVERSATION, ACTIVITY_ID, ACTIVITY)
 
 

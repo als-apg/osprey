@@ -18,6 +18,7 @@ from osprey.agent_runner.provider_env import provider_auth_secret_env
 from osprey.models.provider_registry import (
     _BUILTIN_PROVIDERS,
     ProviderRegistry,
+    _class_endpoint_env_var,
     get_provider_registry,
 )
 from osprey.models.providers.base import BaseProvider
@@ -112,6 +113,7 @@ class TestTablesAgreeWithTheDeclarations:
             assert entry.key_env_var == cls.api_key_env_var, name
             assert entry.api_protocol == cls.api_protocol, name
             assert entry.chat == cls.supports_chat(), name
+            assert entry.endpoint_env_var == _class_endpoint_env_var(cls), name
 
     def test_every_builtin_adapter_class_instantiates(self):
         for name, cls in _adapters().items():

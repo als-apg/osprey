@@ -61,8 +61,9 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import Annotated, Any, Final, Literal, get_args, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel, TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
+from pydantic_core import to_jsonable_python
 
 CHANNEL_ROLE_KEY: Final = "x-channel-role"
 """JSON-schema key under which a field's declared channel role is serialized."""
@@ -417,3 +418,109 @@ def resolve_regressor_column(
         if demand in columns:
             return demand
     return resolve_column(channel_name, columns)
+
+
+def validate_field_value(model: type[BaseModel], key: str, value: Any) -> Any:
+    """Coerce and validate *value* against *model*'s field *key*; return it JSON-safe.
+
+    The one judge of "is this value allowed for this field": a value an
+    operator or agent types into a draft and a default the plan itself declares
+    pass the same check, so a plan's own bounds hold whoever supplied the value.
+
+    The adapter is ``TypeAdapter(Annotated[field.annotation, field])`` -- the
+    field's own ``FieldInfo`` as the ``Annotated`` metadata, never unpacked with
+    a leading ``*``: the starred form raises ``TypeError`` for a field with no
+    ``Field()``-level constraints (an empty ``metadata`` list, and ``Annotated``
+    requires at least one argument), while the ``FieldInfo`` itself works
+    whether or not the field carries constraints. The coerced value is dumped
+    with ``mode="json"``, so a nested-model field comes back as plain dicts,
+    never live model instances.
+
+    Raises `KeyError` for a field *model* does not declare; a value the field
+    refuses raises pydantic's `ValidationError` unchanged.
+    """
+    field = model.model_fields.get(key)
+    if field is None:
+        raise KeyError(key)
+    adapter: TypeAdapter[Any] = TypeAdapter(Annotated[field.annotation, field])
+    return adapter.dump_python(adapter.validate_python(value), mode="json")
+
+
+def _stated(value: Any) -> Any:
+    """*value* as JSON-safe data, every model field read by its name.
+
+    Unlike a model dump, a field declared with ``exclude=True`` is stated: it
+    is still a parameter of the run, and a set that left it out would make the
+    next validation fill it again.
+    """
+    if isinstance(value, RootModel):
+        return _stated(value.root)
+    if isinstance(value, BaseModel):
+        return {name: _stated(getattr(value, name)) for name in type(value).model_fields}
+    if isinstance(value, Mapping):
+        return {to_jsonable_python(key): _stated(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_stated(item) for item in value]
+    return to_jsonable_python(value)
+
+
+def _validated(model: type[BaseModel], args: Mapping[str, Any]) -> dict[str, Any]:
+    """*args* validated by *model* and stated field by field.
+
+    ``ValidationError`` passes through; any other exception a default factory
+    or validator raises becomes a ``ValueError`` naming it, so a model that
+    cannot judge a set refuses it like one it judged invalid.
+    """
+    try:
+        stated: dict[str, Any] = _stated(model.model_validate(args))
+    except ValidationError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"the plan's model raised {type(exc).__name__}: {exc}") from exc
+    return stated
+
+
+def resolve_plan_args(model: type[BaseModel], args: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate *args* against *model* as a whole and return the complete set it states.
+
+    The one place a plan's defaults are filled for a run: every field the
+    caller left out is stated with its default, a default factory is called
+    once, and the model's cross-field rules are judged on the set as a whole.
+
+    Invariants of the returned set:
+
+    - It validates to itself: validating it again against *model* fills no
+      default, calls no factory and states the same set. A set for which that
+      does not hold (a field read by an alias, a validator that rewrites its
+      input) is refused here,
+      because whoever validates it next would read something other than what
+      was checked.
+    - Its values are JSON-safe.
+    - Its keys are *model*'s field names, in declaration order, including a
+      field the model excludes from its dump.
+
+    Raises:
+        ValidationError: *args* is not a valid set for *model*; pydantic's own
+            error, unchanged.
+        ValueError: a default factory or validator raised something other than
+            a validation error, or the validated set does not validate back to
+            itself; the message names the error or the first field that differs.
+    """
+    resolved = _validated(model, args)
+    try:
+        again = _validated(model, resolved)
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        field = ".".join(str(part) for part in error["loc"]) or "<model>"
+        raise ValueError(
+            f"the validated arguments do not validate again: {field}: {error['msg']}"
+        ) from exc
+    if again != resolved:
+        absent = object()
+        field = next(
+            key
+            for key in (*resolved, *again)
+            if resolved.get(key, absent) != again.get(key, absent)
+        )
+        raise ValueError(f"the validated arguments do not validate to themselves: {field}")
+    return resolved

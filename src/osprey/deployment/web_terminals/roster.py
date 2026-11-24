@@ -674,7 +674,19 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
         return ()
     where = archiver_settings_key(archiver)
     names: list[str] = []
-    for key, raw in read_credential_env_names(resolve_archiver_settings(archiver), where=where):
+    _add_credential_envs(names, resolve_archiver_settings(archiver), where=where)
+    return tuple(names)
+
+
+def _add_credential_envs(names: list[str], block: Any, *, where: str) -> None:
+    """Append the credential variables ``block`` names under ``auth:`` to ``names``, once each.
+
+    Raises:
+        ValueError: A name is not a plain identifier (see
+            :func:`config_archiver_credential_envs`), or the connection-settings
+            reader refuses the block.
+    """
+    for key, raw in read_credential_env_names(block, where=where):
         if not isinstance(raw, str) or not raw.strip():
             continue
         if not ENV_NAME_RE.match(raw):
@@ -684,6 +696,48 @@ def config_archiver_credential_envs(config: Any) -> tuple[str, ...]:
             )
         if raw not in names:
             names.append(raw)
+
+
+#: The ``channel_directory`` blocks that reach a service: the directory itself, then its sub-blocks.
+_CHANNEL_DIRECTORY_SUB_BLOCKS = ("alarm_log", "alarm_state", "put_log")
+
+
+def channel_directory_connection_blocks(config: Any) -> tuple[tuple[str, dict[str, Any]], ...]:
+    """Each ``channel_directory`` settings block a connector reads, with its dotted key.
+
+    A block counts only when it names a ``type``: a section without one lists
+    the simulator's channels and reaches no service, and a block the connector
+    never reads entitles nothing (see :func:`config_archiver_credential_envs`).
+    """
+    section = as_dict(as_dict(config).get("channel_directory"))
+    candidates = [("channel_directory", section)]
+    candidates += [
+        (f"channel_directory.{name}", as_dict(section.get(name)))
+        for name in _CHANNEL_DIRECTORY_SUB_BLOCKS
+    ]
+    return tuple(
+        (f"{key}.settings", as_dict(block.get("settings")))
+        for key, block in candidates
+        if isinstance(block.get("type"), str) and block.get("type")
+    )
+
+
+def config_channel_directory_credential_envs(config: Any) -> tuple[str, ...]:
+    """The variables ``config``'s channel directory services authenticate with, in order.
+
+    The directory, the alarm log, the alarm feed and the put log each read
+    their secret from the variable their own block names under ``auth:``, and
+    answer "not set" on every read without it. The consumers are the
+    ``channel-directory`` MCP server and the Channels panel inside the web terminal,
+    so the terminal is handed exactly those names, for the reason
+    :func:`config_archiver_credential_envs` gives. An empty tuple is no grant.
+
+    Raises:
+        ValueError: As :func:`config_archiver_credential_envs`.
+    """
+    names: list[str] = []
+    for where, settings in channel_directory_connection_blocks(config):
+        _add_credential_envs(names, settings, where=where)
     return tuple(names)
 
 
@@ -724,6 +778,20 @@ def config_archiver_ca_bundles(config: Any) -> tuple[str, ...]:
     return ca_bundle_mounts(
         resolve_archiver_settings(archiver), where=archiver_settings_key(archiver)
     )
+
+
+def config_channel_directory_ca_bundles(config: Any) -> tuple[str, ...]:
+    """The CA files ``config``'s channel directory blocks name, when they are on this host.
+
+    One path per file, in block order. See :func:`ca_bundle_mounts` for what is
+    mounted and why nothing else is.
+    """
+    paths: list[str] = []
+    for where, settings in channel_directory_connection_blocks(config):
+        for path in ca_bundle_mounts(settings, where=where):
+            if path not in paths:
+                paths.append(path)
+    return tuple(paths)
 
 
 def dispatch_tier_name(config: Mapping[str, Any]) -> str | None:
@@ -1044,9 +1112,10 @@ class PanelRosterGrant:
     :ivar service: The service key (``services.<k>``) whose compose lists the
         grant — the container each per-user terminal proxies that panel's tab
         into with the operator secret ITS container holds.
-    :ivar single_user_alias: Whether, on a deployment with no web-terminal
-        roster, the deployment-wide secret is accepted under the single-user
-        operator's name (``deployment.host_identity``).
+    :ivar names_single_user_operator: Whether, on a deployment with no
+        web-terminal roster, the deployment-wide secret is accepted under the
+        single-user operator's name (``deployment.host_identity``). Every
+        application row does; among the built-ins only the OPTIMIZER does.
     :ivar loopback_only: Whether the service publishes on loopback whatever
         ``deployment.bind_address`` says, as an application container does.
         ``False`` for a service that publishes on the deployment's interface:
@@ -1054,7 +1123,7 @@ class PanelRosterGrant:
     """
 
     service: str
-    single_user_alias: bool = False
+    names_single_user_operator: bool = False
     loopback_only: bool = False
 
 
@@ -1085,7 +1154,7 @@ class PanelGrant(TypedDict):
 #: The rows no application projects: panel id → the service holding its grant.
 BUILTIN_PANEL_ROSTER_GRANTS: Mapping[str, PanelRosterGrant] = {
     BLUESKY_PANEL_ID: PanelRosterGrant(service="bluesky_web"),
-    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", single_user_alias=True),
+    OPTIMIZER_PANEL_ID: PanelRosterGrant(service="optimizer_web", names_single_user_operator=True),
 }
 
 
@@ -1094,8 +1163,8 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
 
     The built-in rows, plus one per rendered ``services.<k>.roster_grant`` — the
     row an application's projection writes onto its panel's container as
-    ``{panel_id, single_user_alias}``. Read off the rendered service block,
-    never off ``app.yml``.
+    ``{panel_id}``. Read off the rendered service block, never off ``app.yml``;
+    any other key beside ``panel_id`` is ignored.
 
     :param config: The parsed deploy config.
     :return: The table, built-in rows first, then ``services`` order.
@@ -1119,10 +1188,72 @@ def panel_roster_grant_table(config: Any) -> dict[str, PanelRosterGrant]:
         # (compose_generator._refuse_fragment_document refuses it).
         table[panel_id] = PanelRosterGrant(
             service=str(key),
-            single_user_alias=row.get("single_user_alias") is True,
+            names_single_user_operator=True,
             loopback_only=True,
         )
     return table
+
+
+def app_panel_grant_missing(card: str, app: str, panel_id: str) -> str:
+    """The refusal for an application panel a roster card shows with no grant holder.
+
+    :param card: The roster card whose render shows the panel.
+    :param app: The application the panel belongs to.
+    :param panel_id: The panel's id.
+    :return: One sentence naming the card, the panel and the application, and
+        the ``app.yml`` line that grants it.
+    """
+    return (
+        f"roster card {card!r} shows panel {panel_id!r} of application {app!r}, but no "
+        f"container holds that panel's roster grant; add `roster_grant: {{}}` under "
+        f"`panel:` in {app!r}'s app.yml"
+    )
+
+
+def app_panels_without_roster_grant(
+    config: Any, project_root: Any, layer_root: Any = None
+) -> list[str]:
+    """Every roster card that shows an application panel no container holds a grant for.
+
+    Invariant: an application panel a roster card shows has a grant holder in
+    :func:`panel_roster_grant_table`. Without one the card's terminal proxies
+    the panel with a secret the panel's container was never handed, and every
+    request it sends is refused. An application panel is a ``web.panels.<id>``
+    block carrying ``app``, read off the card's rendered ``config.yml``; a
+    panel switched off is shown by nobody.
+
+    Args:
+        config: The parsed deploy config.
+        project_root: Deploy project root; relative ``project_path`` values
+            resolve against it.
+        layer_root: Where a build in flight has rendered its renders; see
+            :func:`_render_configs`.
+
+    Returns:
+        One :func:`app_panel_grant_missing` message per (card, panel), in
+        roster order and panel-id order; empty on a deployment with no roster.
+
+    Raises:
+        ValueError: A rendered ``services.<k>.roster_grant`` row is malformed
+            (:func:`panel_roster_grant_table`).
+    """
+    if not has_web_terminal_roster(config):
+        return []
+    table = panel_roster_grant_table(config)
+    renders = dict(_render_configs(config, project_root, layer_root))
+    problems: list[str] = []
+    for card, render in _card_renders(config):
+        if render is None:
+            continue
+        panels = as_dict(as_dict(as_dict(renders.get(render)).get("web")).get("panels"))
+        for panel_id in sorted(panels):
+            block = panels[panel_id]
+            if not panel_spec_enabled(block):
+                continue
+            app = as_dict(block).get("app")
+            if isinstance(app, str) and app and panel_id not in table:
+                problems.append(app_panel_grant_missing(card, app, panel_id))
+    return problems
 
 
 def renders_declaring_panel(
@@ -1180,6 +1311,26 @@ def _panel_roster_grants(
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
+    card_renders = _card_renders(config)
+    if not card_renders:
+        return []
+    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
+    return [
+        (card, terminal_secret_var(card))
+        for card, render in card_renders
+        if render in entitled_renders
+    ]
+
+
+def _card_renders(config: Any) -> list[tuple[str, str | None]]:
+    """Each roster card and the render its terminal runs, in roster order.
+
+    A shared card runs its own render; a person runs the render their entry or
+    role binds them to, else ``default_tier``.
+
+    :param config: The parsed deploy config.
+    :return: ``(card name, render name or None)`` pairs; empty with no roster.
+    """
     web_terminals = as_dict(as_dict(as_dict(config).get("modules")).get("web_terminals"))
     cards = roster_entries(web_terminals)
     if not cards:
@@ -1197,14 +1348,13 @@ def _panel_roster_grants(
     default_tier = web_terminals.get("default_tier")
     if not isinstance(default_tier, str) or not default_tier:
         default_tier = None
-    entitled_renders = renders_declaring_panel(config, project_root, panel_id, layer_root)
-
-    grants: list[tuple[str, str]] = []
-    for entry in cards:
-        tier = entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier
-        if tier in entitled_renders:
-            grants.append((entry["name"], terminal_secret_var(entry["name"])))
-    return grants
+    return [
+        (
+            entry["name"],
+            entry["app"] if is_app_entry(entry) else refs.get(entry["name"]) or default_tier,
+        )
+        for entry in cards
+    ]
 
 
 def has_web_terminal_roster(config: Any) -> bool:
@@ -1221,12 +1371,12 @@ def has_web_terminal_roster(config: Any) -> bool:
     return web_terminals.get("enabled") is not False and bool(roster_entries(web_terminals))
 
 
-def single_user_alias_services(config: Any) -> frozenset[str]:
+def single_user_operator_services(config: Any) -> frozenset[str]:
     """The services whose panel may accept the deployment-wide terminal secret.
 
-    The rows of :func:`panel_roster_grant_table` with ``single_user_alias``, on
-    a deployment with no roster: the candidates :func:`service_panel_grant`
-    grants the alias to. Its further conditions (bind address, a nameable
+    The rows of :func:`panel_roster_grant_table` that name the single-user
+    operator, on a deployment with no roster: the candidates
+    :func:`service_panel_grant` grants the alias to. Its further conditions (bind address, a nameable
     operator) only ever narrow this set.
 
     :param config: The parsed deploy config.
@@ -1234,7 +1384,9 @@ def single_user_alias_services(config: Any) -> frozenset[str]:
     if has_web_terminal_roster(config):
         return frozenset()
     return frozenset(
-        row.service for row in panel_roster_grant_table(config).values() if row.single_user_alias
+        row.service
+        for row in panel_roster_grant_table(config).values()
+        if row.names_single_user_operator
     )
 
 
@@ -1251,10 +1403,11 @@ def service_panel_grant(
     For the service :func:`panel_roster_grant_table` names as a panel's grant
     holder: one credential per entitled roster user, roster order, each read
     from its own ``OSPREY_TERMINAL_SECRET_<SUFFIX>`` with an empty default. On a
-    deployment with no roster, a row with ``single_user_alias`` instead accepts
-    the deployment-wide secret under the single-user operator's name: one
-    required credential, the account's variable read from
-    ``OSPREY_TERMINAL_SECRET``. No credentials for every other service.
+    deployment with no roster, a row that names the single-user operator (every
+    application panel's, and the OPTIMIZER's) instead accepts the
+    deployment-wide secret under that operator's name: one required credential,
+    the account's variable read from ``OSPREY_TERMINAL_SECRET``. No credentials
+    for every other service.
 
     The alias rests on one equivalence: on a single-user host the deployment
     secret is already the console's credential — ``osprey web`` admits it as the
@@ -1283,7 +1436,7 @@ def service_panel_grant(
     for panel_id, row in panel_roster_grant_table(config).items():
         if row.service != service_key:
             continue
-        if not row.single_user_alias or has_web_terminal_roster(config):
+        if not row.names_single_user_operator or has_web_terminal_roster(config):
             grants = _panel_roster_grants(config, project_root, panel_id, layer_root)
             return {
                 "credentials": [
@@ -1535,6 +1688,43 @@ def renders_needing_archiver_ca_bundles(
     grants: dict[str, tuple[str, ...]] = {}
     for render_name, render_config in _render_configs(config, project_root):
         paths = config_archiver_ca_bundles(render_config)
+        if paths:
+            grants[render_name] = paths
+    return grants
+
+
+def renders_needing_channel_directory_credentials(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog render whose channel directory names credentials to the variables it reads.
+
+    The channel directory's counterpart of :func:`renders_needing_archiver_credentials`,
+    over the same per-render ``config.yml`` files.
+
+    :return: ``{render_name: (env_var_name, ...)}`` for the referenced renders
+        whose ``channel_directory`` blocks name a credential variable.
+    :raises ValueError: when a render names a variable compose cannot carry
+        (see :func:`config_archiver_credential_envs`).
+    """
+    grants: dict[str, tuple[str, ...]] = {}
+    for render_name, render_config in _render_configs(config, project_root):
+        names = config_channel_directory_credential_envs(render_config)
+        if names:
+            grants[render_name] = names
+    return grants
+
+
+def renders_needing_channel_directory_ca_bundles(
+    config: Any, project_root: Any
+) -> dict[str, tuple[str, ...]]:
+    """Map each catalog render whose channel directory names a CA file on this host to those files.
+
+    :return: ``{render_name: (ca_path, ...)}`` for the referenced renders whose
+        ``channel_directory`` blocks name a CA file on this host.
+    """
+    grants: dict[str, tuple[str, ...]] = {}
+    for render_name, render_config in _render_configs(config, project_root):
+        paths = config_channel_directory_ca_bundles(render_config)
         if paths:
             grants[render_name] = paths
     return grants

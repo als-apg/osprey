@@ -4,6 +4,10 @@ A section answers only from the machine the session is on: the simulator's data
 on ``va``, the facility's services on ``live`` and on the ``standin`` that
 rehearses it, and otherwise nothing. :func:`service_targets` is that table,
 and :func:`has_simulator` the one answer to whether the ``va`` half of it exists.
+
+The section is ``channel_directory``; ``pv_directory`` is the key it was first
+released under, which a framework release from before the rename still hands
+over, so :class:`TestSectionKey` holds the two spellings to one table.
 """
 
 from __future__ import annotations
@@ -60,8 +64,8 @@ FULL_SECTION = {
 }
 
 
-def _config(section, *, base=SERVED_VA):
-    return {**copy.deepcopy(base), "pv_directory": copy.deepcopy(section)}
+def _config(section, *, base=SERVED_VA, key="channel_directory"):
+    return {**copy.deepcopy(base), key: copy.deepcopy(section)}
 
 
 def _table(section, *, base=SERVED_VA):
@@ -103,8 +107,10 @@ class TestShape:
         "config",
         [
             pytest.param({}, id="absent"),
-            pytest.param({"pv_directory": None}, id="null"),
-            pytest.param({"pv_directory": "channelfinder"}, id="not-a-mapping"),
+            pytest.param({"channel_directory": None}, id="null"),
+            pytest.param({"channel_directory": "channelfinder"}, id="not-a-mapping"),
+            pytest.param({"pv_directory": None}, id="released-key-null"),
+            pytest.param({"pv_directory": "channelfinder"}, id="released-key-not-a-mapping"),
         ],
     )
     def test_no_section_serves_nothing(self, config):
@@ -117,6 +123,53 @@ class TestShape:
         before = copy.deepcopy(config)
         service_targets(config)
         assert config == before
+
+
+def _specs(table):
+    return [spec for row in table.values() for spec in row.values() if spec is not None]
+
+
+class TestSectionKey:
+    def test_the_released_key_makes_the_same_table(self):
+        neutral = service_targets(_config(FULL_SECTION))
+        released = service_targets(_config(FULL_SECTION, key="pv_directory"))
+
+        assert released == neutral
+        assert _specs(neutral)
+
+    @pytest.mark.parametrize("key", ["channel_directory", "pv_directory"])
+    def test_every_spec_carries_the_key_it_was_read_under(self, key):
+        specs = _specs(service_targets(_config(FULL_SECTION, key=key)))
+
+        assert {spec.section for spec in specs} == {key}
+        assert {spec.settings_key for spec in specs} == {
+            f"{key}.settings",
+            f"{key}.alarm_log.settings",
+            f"{key}.alarm_state.settings",
+            f"{key}.put_log.settings",
+        }
+
+    def test_the_neutral_key_wins_when_a_config_carries_both(self):
+        # A framework from between the two spellings hands its section over under both.
+        other = {"type": "other", "settings": {"url": "https://other.example"}}
+        config = {**_config(FULL_SECTION), "pv_directory": other}
+
+        spec = service_targets(config)["directory"][TARGET_LIVE]
+
+        assert (spec.type, spec.section) == ("channelfinder", "channel_directory")
+
+    def test_a_null_neutral_key_is_no_section_whatever_the_released_key_holds(self):
+        config = {**SERVED_VA, "channel_directory": None, "pv_directory": FULL_SECTION}
+
+        for row in service_targets(config).values():
+            assert set(row.values()) == {None}
+
+    def test_a_spec_built_by_hand_names_the_neutral_section(self):
+        spec = BackendSpec(
+            kind="put_log", type="caputlog", target=TARGET_LIVE, settings={}, rehearsal=False
+        )
+
+        assert spec.settings_key == "channel_directory.put_log.settings"
 
 
 class TestDirectorySources:
@@ -287,8 +340,8 @@ class TestFold:
         table = service_targets(config)
         table["directory"][TARGET_LIVE].settings["exact_properties"].append("mutated")
         table["put_log"][TARGET_LIVE].settings["caveats"].append("mutated")
-        assert config["pv_directory"]["display"]["exact_properties"] == ["iocName", "hostName"]
-        assert config["pv_directory"]["put_log"]["caveats"] == ["put caveat"]
+        assert config["channel_directory"]["display"]["exact_properties"] == ["iocName", "hostName"]
+        assert config["channel_directory"]["put_log"]["caveats"] == ["put caveat"]
 
     def test_specs_of_two_targets_share_no_settings(self):
         row = _table(FULL_SECTION)["put_log"]

@@ -333,21 +333,26 @@ class TestGetStatus:
         # No stats -> entries defaults to 0.
         assert out["entries"] == 0
 
-    async def test_uri_with_credentials_is_masked(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("uri", "expected"),
+        [
+            pytest.param(
+                "postgresql://u:p@dbhost:5432/ariel", "dbhost:5432/ariel", id="credentials_masked"
+            ),
+            pytest.param(
+                "postgresql://localhost/ariel",
+                "postgresql://localhost/ariel",
+                id="no_credentials_passes_through",
+            ),
+        ],
+    )
+    async def test_reported_uri_masks_credentials(self, monkeypatch, uri, expected):
         repo = _status_repo()
         _patch_service(monkeypatch, _StubService(repository=repo))
 
-        out = await ops.get_status({"database": {"uri": "postgresql://u:p@dbhost:5432/ariel"}})
+        out = await ops.get_status({"database": {"uri": uri}})
 
-        assert out["database"]["uri"] == "dbhost:5432/ariel"
-
-    async def test_uri_without_credentials_passes_through(self, monkeypatch):
-        repo = _status_repo()
-        _patch_service(monkeypatch, _StubService(repository=repo))
-
-        out = await ops.get_status({"database": {"uri": "postgresql://localhost/ariel"}})
-
-        assert out["database"]["uri"] == "postgresql://localhost/ariel"
+        assert out["database"]["uri"] == expected
 
     async def test_connection_error_maps_to_friendly_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("could not connect to server"))
@@ -1035,18 +1040,21 @@ class TestRunSearch:
         assert "Unknown search mode 'does-not-exist'" in out["error"]
         assert "keyword, semantic" in out["error"]
 
-    async def test_connection_error_maps_to_friendly_message(self, monkeypatch):
-        _patch_service_raises(monkeypatch, RuntimeError("connection refused"))
+    @pytest.mark.parametrize(
+        ("error_text", "hint"),
+        [
+            pytest.param("connection refused", "osprey up", id="connection_error_friendly"),
+            pytest.param(
+                'relation "enhanced_entries" does not exist',
+                "osprey ariel migrate",
+                id="missing_relation_suggests_migrate",
+            ),
+        ],
+    )
+    async def test_service_error_maps_to_a_hint(self, monkeypatch, error_text, hint):
+        _patch_service_raises(monkeypatch, RuntimeError(error_text))
         out = await ops.run_search(dict(_DB), "q", "keyword", 5)
-        assert "osprey up" in out["error"]
-
-    async def test_missing_relation_suggests_migrate(self, monkeypatch):
-        _patch_service_raises(
-            monkeypatch,
-            RuntimeError('relation "enhanced_entries" does not exist'),
-        )
-        out = await ops.run_search(dict(_DB), "q", "keyword", 5)
-        assert "osprey ariel migrate" in out["error"]
+        assert hint in out["error"]
 
     async def test_generic_error_returns_raw_message(self, monkeypatch):
         _patch_service_raises(monkeypatch, RuntimeError("weird failure"))

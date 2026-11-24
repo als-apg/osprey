@@ -47,6 +47,7 @@ from osprey.cli import phase_reporter
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
 from osprey.deployment import container_lifecycle
 from osprey_connectors.simulation import archive as seed_mod
+from tests._scoped_stdlib import scoped
 
 #: The ``(1.2s)`` / ``(2m03s)`` suffix ``Phase.step`` appends to a slow lap.
 _DURATION = re.compile(r" \((?:\d+\.\d+s|\d+m\d{2}s)\)$")
@@ -169,7 +170,7 @@ def no_bare_subprocess(monkeypatch):
     def _forbidden(*args, **kwargs):
         raise AssertionError(f"a lifecycle site ran a bare subprocess: {args!r}")
 
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", _forbidden)
+    scoped(monkeypatch, container_lifecycle, "subprocess", run=_forbidden)
 
 
 # ---------------------------------------------------------------------------
@@ -845,10 +846,12 @@ def test_the_attached_start_hands_off_inside_its_open_phase(reporter, monkeypatc
     while the phase is open -- and it deliberately leaves it open, so an
     ``execvpe`` that raises (a missing compose binary) still gets its ``✗``.
     """
-    _exec_spy(reporter, monkeypatch)
+    manager = _exec_spy(reporter, monkeypatch)
 
     _start(_repo(tmp_path), detached=False)
 
+    # Without the hand-off having run, an open phase would prove nothing.
+    manager.hand_off.assert_called_once_with()
     assert reporter._phase is not None, "the hand-off closed the phase it committed"
 
 

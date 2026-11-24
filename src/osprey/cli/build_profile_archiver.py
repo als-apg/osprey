@@ -35,7 +35,7 @@ import difflib
 from dataclasses import dataclass, fields
 from typing import Any
 
-from osprey.port_layout import default_port
+from osprey.port_layout import default_port, layout_port_field
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY, invents_history, pairing_in_profile
@@ -176,7 +176,7 @@ class VAArchiverConfig:
     system, and that setting is a documented post-build flip — polling is what
     lets the flip take effect without restarting the service."""
 
-    port_host: int = default_port("mongo")
+    port_host: int = layout_port_field("mongo")
     """Host port the store publishes on, at the layout's ``mongo`` slot — that
     slot at the layout's own base here, and at the profile's resolved base once
     :func:`parse_va_archiver_block` fills an unspelled key. Only

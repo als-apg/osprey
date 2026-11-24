@@ -197,6 +197,74 @@ def test_a_refused_echo_leaves_the_setpoint_unchanged():
     assert model.get(["T:STEP:SP", "T:STEP:RB"]) == {"T:STEP:SP": 3.0, "T:STEP:RB": 3}
 
 
+def _index_pair_model(setpoint: dict[str, Any], nominal: object) -> TextureModel:
+    """A model with one setpoint ``X:SP`` paired with the labelled readback ``X:RB``."""
+    variables, seeds = _view()
+    variables["channels"] += [
+        _channel("X:SP", role="setpoint", pair="X:RB", writable=True, **setpoint),
+        _channel("X:RB", value_type="enum", options=["Off", "On", "Fault"]),
+    ]
+    seeds["seeds"]["X:SP"] = {"nominal": nominal}
+    return TextureModel(variables, seeds, clock=lambda: T0)
+
+
+def test_a_labelled_setpoint_reaches_a_readback_of_other_labels_by_index():
+    model = _index_pair_model(
+        {"value_type": "enum", "options": ["Clear", "Set", "Trip"]}, nominal="Set"
+    )
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": "Set", "X:RB": "On"}
+
+    model.set({"X:SP": "Trip"})
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": "Trip", "X:RB": "Fault"}
+
+    model.set({"X:SP": "Clear"})
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": "Clear", "X:RB": "Off"}
+
+
+def test_a_label_past_the_readbacks_labels_is_refused_and_holds_nothing():
+    variables, seeds = _view()
+    variables["channels"] += [
+        _channel(
+            "X:SP",
+            role="setpoint",
+            pair="X:RB",
+            writable=True,
+            value_type="enum",
+            options=["Clear", "Set", "Trip"],
+        ),
+        _channel("X:RB", value_type="bool", options=["Off", "On"]),
+    ]
+    seeds["seeds"]["X:SP"] = {"nominal": "Set"}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+
+    with pytest.raises(ValueError):
+        model.set({"X:SP": "Trip"})
+
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": "Set", "X:RB": "On"}
+
+
+@pytest.mark.parametrize("written", [1, 1.0], ids=["int", "integral-float"])
+def test_a_number_written_to_a_setpoint_is_the_index_of_its_readbacks_state(written):
+    model = _index_pair_model({}, nominal=2.0)
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": 2.0, "X:RB": "Fault"}
+
+    model.set({"X:SP": written})
+
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": 1.0, "X:RB": "On"}
+
+
+@pytest.mark.parametrize(
+    "written", [0.5, 3.0, -1.0, math.inf], ids=["fraction", "past", "negative", "inf"]
+)
+def test_a_number_that_is_no_index_of_the_readback_is_refused_and_holds_nothing(written):
+    model = _index_pair_model({}, nominal=1.0)
+
+    with pytest.raises(ValueError):
+        model.set({"X:SP": written})
+
+    assert model.get(["X:SP", "X:RB"]) == {"X:SP": 1.0, "X:RB": "On"}
+
+
 def test_a_setpoint_paired_with_itself_changes_no_other_channel():
     model = _model()
     before = model.held([name for name in model.supported_variables if name != "T:LONE:SP"])

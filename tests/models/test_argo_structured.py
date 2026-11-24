@@ -61,36 +61,23 @@ class TestCleanJsonResponse:
                 "Here you go: [1, 2]",
                 id="array_with_leading_text_is_not_extracted",
             ),
+            # Python booleans become JSON booleans, also after a comma and inside a fence.
+            pytest.param('{"active": True}', '{"active": true}', id="fixes_python_true"),
+            pytest.param('{"active": False}', '{"active": false}', id="fixes_python_false"),
+            pytest.param(
+                '{"a": True, "b": False}',
+                '{"a": true, "b": false}',
+                id="fixes_python_booleans_after_comma",
+            ),
+            pytest.param(
+                '```json\n{"active": True, "deleted": False}\n```',
+                '{"active": true, "deleted": false}',
+                id="combined_fence_and_booleans",
+            ),
         ],
     )
     def test_cleans(self, raw, expected):
         assert _clean_json_response(raw) == expected
-
-    def test_fixes_python_true(self):
-        """Converts Python True → JSON true."""
-        raw = '{"active": True}'
-        result = _clean_json_response(raw)
-        assert '"active": true' in result
-
-    def test_fixes_python_false(self):
-        """Converts Python False → JSON false."""
-        raw = '{"active": False}'
-        result = _clean_json_response(raw)
-        assert '"active": false' in result
-
-    def test_fixes_python_booleans_after_comma(self):
-        """Converts Python booleans after commas."""
-        raw = '{"a": True, "b": False}'
-        result = _clean_json_response(raw)
-        assert '"a": true' in result
-        assert '"b": false' in result
-
-    def test_combined_fence_and_booleans(self):
-        """Handles code fence + Python booleans together."""
-        raw = '```json\n{"active": True, "deleted": False}\n```'
-        result = _clean_json_response(raw)
-        assert '"active": true' in result
-        assert '"deleted": false' in result
 
 
 # --- Tests for _execute_argo_structured_output ---

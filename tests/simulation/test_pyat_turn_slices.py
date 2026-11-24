@@ -45,7 +45,7 @@ def ring() -> Any:
 @pytest.fixture(scope="module")
 def bunch(ring: Any) -> np.ndarray:
     shape = turns.declared_bunch(ring, 0, PARTICLES, **SHAPE)
-    return turns.launched_bunch(LAUNCH, shape, key="SR", shot=1, jitter=(0.0, 0.0))
+    return turns.launched_bunch(LAUNCH, shape, key="SR", shot=1)
 
 
 @pytest.fixture(scope="module")
@@ -106,11 +106,25 @@ def test_slices_track_in_calls_of_one_turn_when_the_budget_is_zero(
     assert calls == [1] * TURNS
 
 
+@pytest.mark.wallclock
 def test_no_slice_holds_the_interpreter_much_past_the_budget(
     ring: Any, refpts: np.ndarray, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    shape = turns.declared_bunch(ring, 0, 2000, **SHAPE)
-    heavy = turns.launched_bunch(LAUNCH, shape, key="SR", shot=2, jitter=(0.0, 0.0))
+    """A shot many budgets long is tracked in slices of about one budget each.
+
+    A thousand particles over 200 turns are five full particle chunks and a
+    short tail, each starting at one turn a slice and growing its step. A
+    step calibrated too long overruns the bound in every chunk, and a chunk
+    that inherits an overlong step instead of starting again overruns it at
+    each of the four chunk starts after the first; fewer chunks leave that
+    second bug to chance when this test runs first in its process, with a
+    slow first call. A chunked bunch tracked in one call a chunk passes here,
+    since its first span is as long as the others:
+    :func:`test_slices_track_in_calls_of_one_turn_when_the_budget_is_zero`
+    catches that.
+    """
+    shape = turns.declared_bunch(ring, 0, 1000, **SHAPE)
+    heavy = turns.launched_bunch(LAUNCH, shape, key="SR", shot=2)
     spans: list[float] = []
     track = at.lattice_track
 

@@ -10,8 +10,9 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.facility_cmd import KNOWLEDGE_PLACEHOLDER_LINE
-from osprey.facility.layers import LayerSourceInvalid
-from osprey.facility.layers.list import LAYER_DIR, import_list
+from osprey_facility.errors import LayerSourceInvalid
+from osprey_facility.layers.list import LAYER_DIR, import_list
+from tests._builds import FRAMEWORK_CHECKS
 
 
 def _csv(tmp_path: Path, text: str, name: str = "list.csv") -> Path:
@@ -21,8 +22,14 @@ def _csv(tmp_path: Path, text: str, name: str = "list.csv") -> Path:
 
 
 def _import(tmp_path: Path, text: str) -> tuple[Path, list[Path]]:
+    facility_dir, written, _lines = _import_lines(tmp_path, text)
+    return facility_dir, written
+
+
+def _import_lines(tmp_path: Path, text: str) -> tuple[Path, list[Path], list[str]]:
     facility_dir = tmp_path / "facility"
-    return facility_dir, import_list(_csv(tmp_path, text), facility_dir)
+    written, lines = import_list(_csv(tmp_path, text), facility_dir)
+    return facility_dir, written, lines
 
 
 def _channels(facility_dir: Path) -> list[dict[str, Any]]:
@@ -46,7 +53,11 @@ class TestColumns:
             "HALL:T,readback,,,HALL,degC,,\n",
         )
 
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "SR/Q1"}]
         assert _channels(facility_dir) == [
             {"id": "HALL:T", "role": "readback", "on": {"place": "HALL"}, "unit": "degC"},
             {"id": "Q1:RB", "on": {"device": "SR/Q1"}, "unit": "A"},
@@ -61,17 +72,31 @@ class TestColumns:
             },
         ]
 
-    def test_the_columns_may_come_in_any_order(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "unit,address\nmA,DCCT:I\n")
-        assert _channels(facility_dir) == [{"id": "DCCT:I", "unit": "mA"}]
-
-    def test_a_file_without_a_header_is_one_address_per_line(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "LAB:TEMP:02\n\nLAB:TEMP:01\n")
-        assert _channels(facility_dir) == [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEMP:02"}]
-
-    def test_a_byte_order_mark_is_not_part_of_the_header(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "﻿address,unit\nX:I,A\n")
-        assert _channels(facility_dir) == [{"id": "X:I", "unit": "A"}]
+    @pytest.mark.parametrize(
+        ("text", "channels"),
+        [
+            pytest.param(
+                "unit,address\nmA,DCCT:I\n",
+                [{"id": "DCCT:I", "unit": "mA"}],
+                id="the_columns_may_come_in_any_order",
+            ),
+            pytest.param(
+                "LAB:TEMP:02\n\nLAB:TEMP:01\n",
+                [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEMP:02"}],
+                id="a_file_without_a_header_is_one_address_per_line",
+            ),
+            pytest.param(
+                "﻿address,unit\nX:I,A\n",
+                [{"id": "X:I", "unit": "A"}],
+                id="a_byte_order_mark_is_not_part_of_the_header",
+            ),
+        ],
+    )
+    def test_the_file_reads_as_channels(
+        self, tmp_path: Path, text: str, channels: list[dict[str, Any]]
+    ) -> None:
+        facility_dir, _written = _import(tmp_path, text)
+        assert _channels(facility_dir) == channels
 
     def test_the_layer_seeds_nothing(self, tmp_path: Path) -> None:
         facility_dir, _written = _import(tmp_path, "address\nX:I\n")
@@ -83,42 +108,50 @@ class TestColumns:
 
 
 class TestRefusals:
-    def test_a_row_naming_both_a_device_and_a_place_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,device,place\nQ1:SP,SR/Q1,SR\n") == [
-            "facility: source-invalid: channel Q1:SP — list.csv row 2 names both a device "
-            "and a place; fix: keep one of `device` and `place` in list.csv"
-        ]
-
-    def test_an_unknown_role_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,role\nQ1:SP,write\n") == [
-            "facility: source-invalid: channel Q1:SP — list.csv row 2 states role write; "
-            "fix: write setpoint, readback or none, or leave it empty"
-        ]
-
-    def test_an_unknown_column_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,colour\nQ1:SP,red\n") == [
-            "facility: source-invalid: path list.csv — unknown column `colour`; fix: remove "
-            "the column; the columns are address, role, pair, device, place, unit, "
-            "description, tags, s, model"
-        ]
-
-    def test_a_row_without_an_address_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,unit\n,A\n") == [
-            "facility: source-invalid: path list.csv — row 2 has no address; fix: fill "
-            "`address` or remove the row"
-        ]
-
-    def test_an_address_listed_twice_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address\nX:I\nX:I\n") == [
-            "facility: source-invalid: channel X:I — list.csv rows 2 and 3 both state it; "
-            "fix: keep one row per address"
-        ]
-
-    def test_a_headerless_line_of_several_cells_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "X:I,A\n") == [
-            "facility: source-invalid: path list.csv — row 1 holds 2 cells and the file has "
-            "no header; fix: add a header row naming `address`, or write one address per line"
-        ]
+    @pytest.mark.parametrize(
+        ("text", "line"),
+        [
+            pytest.param(
+                "address,device,place\nQ1:SP,SR/Q1,SR\n",
+                "facility: source-invalid: channel Q1:SP — list.csv row 2 names both a device "
+                "and a place; fix: keep one of `device` and `place` in list.csv",
+                id="a_row_naming_both_a_device_and_a_place",
+            ),
+            pytest.param(
+                "address,role\nQ1:SP,write\n",
+                "facility: source-invalid: channel Q1:SP — list.csv row 2 states role write; "
+                "fix: write setpoint, readback or none, or leave it empty",
+                id="an_unknown_role",
+            ),
+            pytest.param(
+                "address,colour\nQ1:SP,red\n",
+                "facility: source-invalid: path list.csv — unknown column `colour`; fix: remove "
+                "the column; the columns are address, role, pair, device, place, unit, "
+                "description, tags, s, model",
+                id="an_unknown_column",
+            ),
+            pytest.param(
+                "address,unit\n,A\n",
+                "facility: source-invalid: path list.csv — row 2 has no address; fix: fill "
+                "`address` or remove the row",
+                id="a_row_without_an_address",
+            ),
+            pytest.param(
+                "address\nX:I\nX:I\n",
+                "facility: source-invalid: channel X:I — list.csv rows 2 and 3 both state it; "
+                "fix: keep one row per address",
+                id="an_address_listed_twice",
+            ),
+            pytest.param(
+                "X:I,A\n",
+                "facility: source-invalid: path list.csv — row 1 holds 2 cells and the file has "
+                "no header; fix: add a header row naming `address`, or write one address per line",
+                id="a_headerless_line_of_several_cells",
+            ),
+        ],
+    )
+    def test_is_source_invalid(self, tmp_path: Path, text: str, line: str) -> None:
+        assert _refused(tmp_path, text) == [line]
 
     def test_a_file_that_is_not_utf8_is_source_invalid(self, tmp_path: Path) -> None:
         path = tmp_path / "list.csv"
@@ -139,6 +172,75 @@ def _devices(facility_dir: Path) -> list[dict[str, Any]]:
     return yaml.safe_load((facility_dir / LAYER_DIR / "devices.yaml").read_text("utf-8"))
 
 
+class TestDevices:
+    def test_every_device_a_row_names_gets_a_record(self, tmp_path: Path) -> None:
+        facility_dir, written = _import(
+            tmp_path,
+            "address,role,device,unit,description\n"
+            "BL:M2:Pitch,readback,M2,mrad,Mirror pitch\n"
+            "BL:M1:Pitch,readback,M1,mrad,Mirror pitch\n"
+            "BL:M1:PitchSP,setpoint,M1,mrad,Mirror pitch setpoint\n"
+            "BL:T,readback,,degC,Hutch temperature\n",
+        )
+
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "M1"}, {"id": "M2"}]
+
+    def test_a_list_naming_no_device_removes_the_devices_file(self, tmp_path: Path) -> None:
+        facility_dir, _written = _import(tmp_path, "address,device\nG1:RB,L/G1\n")
+        (tmp_path / "list.csv").write_text("address,unit\nG1:RB,A\n", encoding="utf-8")
+
+        written, _lines = import_list(tmp_path / "list.csv", facility_dir)
+
+        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
+        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+
+    def test_devices_no_other_source_declares_are_named_in_one_line(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from tests.facility._synthetic_trees import write_tree
+
+        facility_dir = write_tree(
+            tmp_path / "facility",
+            {
+                "records/devices.yaml": [{"id": "M1"}],
+                "imported/other/devices.yaml": [{"id": "M2"}],
+            },
+        )
+        listing = _csv(tmp_path, "address,device\nA,M1\nB,M2\nC,M3\nD,M4\nE,M4\n")
+
+        first = import_list(listing, facility_dir)[1]
+        second = import_list(listing, facility_dir)[1]
+
+        assert first == second == ["import list: declared by this list only: M3, M4"]
+        assert capsys.readouterr() == ("", "")
+        assert _devices(facility_dir) == [{"id": "M1"}, {"id": "M2"}, {"id": "M3"}, {"id": "M4"}]
+
+    def test_a_list_that_is_the_only_source_of_devices_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        facility_dir, _written = _import(tmp_path, "address,device\nA,M1\n")
+        _written, lines = import_list(tmp_path / "list.csv", facility_dir)
+
+        assert lines == []
+        assert capsys.readouterr() == ("", "")
+
+    def test_a_list_whose_devices_are_all_declared_elsewhere_prints_nothing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from tests.facility._synthetic_trees import write_tree
+
+        facility_dir = write_tree(tmp_path / "facility", {"records/devices.yaml": [{"id": "M1"}]})
+
+        _written, lines = import_list(_csv(tmp_path, "address,device\nA,M1\n"), facility_dir)
+
+        assert lines == []
+        assert capsys.readouterr() == ("", "")
+
+
 class TestPositions:
     def test_a_stated_s_and_model_write_a_device_record(self, tmp_path: Path) -> None:
         facility_dir, written = _import(
@@ -157,6 +259,7 @@ class TestPositions:
         assert _devices(facility_dir) == [
             {"id": "L/G1", "s": 3.5, "model": "LINE"},
             {"id": "L/G2", "s": 1.0},
+            {"id": "L/G3"},
         ]
         assert [channel["on"] for channel in _channels(facility_dir)] == [
             {"device": "L/G1"},
@@ -165,27 +268,46 @@ class TestPositions:
             {"device": "L/G3"},
         ]
 
-    def test_an_import_stating_no_s_leaves_no_devices_file(self, tmp_path: Path) -> None:
+    def test_an_import_stating_no_s_leaves_the_device_without_one(self, tmp_path: Path) -> None:
         facility_dir, _written = _import(tmp_path, "address,device,s\nG1:RB,L/G1,2\n")
         (tmp_path / "list.csv").write_text("address,device\nG1:RB,L/G1\n", encoding="utf-8")
 
-        written = import_list(tmp_path / "list.csv", facility_dir)
+        import_list(tmp_path / "list.csv", facility_dir)
 
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
-        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+        assert _devices(facility_dir) == [{"id": "L/G1"}]
 
-    def test_s_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,place,s,model\nT:RB,HALL,2,LINE\n") == [
-            "facility: source-invalid: channel T:RB — list.csv row 2 states `s`, `model` with "
-            "no device; a position belongs to a device; fix: fill `device`, or empty `s` "
-            "and `model`"
-        ]
-
-    def test_model_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,model\nT:RB,LINE\n") == [
-            "facility: source-invalid: channel T:RB — list.csv row 2 states `model` with no "
-            "device; a position belongs to a device; fix: fill `device`, or empty `model`"
-        ]
+    @pytest.mark.parametrize(
+        ("text", "line"),
+        [
+            pytest.param(
+                "address,place,s,model\nT:RB,HALL,2,LINE\n",
+                "facility: source-invalid: channel T:RB — list.csv row 2 states `s`, `model` with "
+                "no device; a position belongs to a device; fix: fill `device`, or empty `s` "
+                "and `model`",
+                id="s_on_a_row_with_no_device",
+            ),
+            pytest.param(
+                "address,model\nT:RB,LINE\n",
+                "facility: source-invalid: channel T:RB — list.csv row 2 states `model` with no "
+                "device; a position belongs to a device; fix: fill `device`, or empty `model`",
+                id="model_on_a_row_with_no_device",
+            ),
+            pytest.param(
+                "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,4,LINE\n",
+                "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state s 3.5 and 4; "
+                "fix: state one `s` for the device",
+                id="rows_disagreeing_on_a_devices_s",
+            ),
+            pytest.param(
+                "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,3.5,SR\n",
+                "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state model LINE "
+                "and SR; fix: state one `model` for the device",
+                id="rows_disagreeing_on_a_devices_model",
+            ),
+        ],
+    )
+    def test_a_position_is_source_invalid(self, tmp_path: Path, text: str, line: str) -> None:
+        assert _refused(tmp_path, text) == [line]
 
     @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "3.5m"])
     def test_an_s_that_is_not_a_finite_number_is_source_invalid(
@@ -196,55 +318,66 @@ class TestPositions:
             "not a finite number; fix: write `s` in metres as a number"
         ]
 
-    def test_rows_disagreeing_on_a_devices_s_are_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(
-            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,4,LINE\n"
-        ) == [
-            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state s 3.5 and 4; "
-            "fix: state one `s` for the device"
-        ]
-
-    def test_rows_disagreeing_on_a_devices_model_are_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(
-            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,3.5,SR\n"
-        ) == [
-            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state model LINE "
-            "and SR; fix: state one `model` for the device"
-        ]
-
     def test_a_model_without_an_s_is_imported_with_a_warning(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        facility_dir, written = _import(tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n")
+        facility_dir, written, lines = _import_lines(
+            tmp_path, "address,device,model\nG1:RB,L/G1,LINE\n"
+        )
 
-        assert capsys.readouterr().err.splitlines() == [
+        assert lines == [
             "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
             "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
         ]
-        assert written == [facility_dir / LAYER_DIR / "channels.yaml"]
-        assert not (facility_dir / LAYER_DIR / "devices.yaml").exists()
+        assert capsys.readouterr() == ("", "")
+        assert written == [
+            facility_dir / LAYER_DIR / "channels.yaml",
+            facility_dir / LAYER_DIR / "devices.yaml",
+        ]
+        assert _devices(facility_dir) == [{"id": "L/G1"}]
         assert _channels(facility_dir) == [{"id": "G1:RB", "on": {"device": "L/G1"}}]
 
     def test_a_plain_list_prints_nothing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        _import(tmp_path, "address,device\nG1:RB,L/G1\n")
+        _facility_dir, _written, lines = _import_lines(tmp_path, "address,device\nG1:RB,L/G1\n")
 
+        assert lines == []
         assert capsys.readouterr() == ("", "")
+
+    def test_a_refusal_carries_the_warnings_found_before_it(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with pytest.raises(LayerSourceInvalid) as stop:
+            _import(tmp_path, "address,device,model,place\nG1:RB,L/G1,LINE,\nG2:RB,L/G2,,HALL\n")
+
+        warning = (
+            "import list: list.csv row 2 states model LINE for device L/G1 and no row states "
+            "its s; the model is ignored; fix: fill `s` on a row of the device, or empty `model`"
+        )
+        assert stop.value.warnings == (warning,)
+        assert capsys.readouterr() == ("", "")
+        stop.value.show()
+        err = capsys.readouterr().err.splitlines()
+        assert err[0] == warning
+        assert err[1:] == [error.format_message() for error in stop.value.errors]
+        assert len(err) == 2
 
     def test_a_listed_s_off_the_deck_of_a_wired_device_is_a_place_conflict(
         self, tmp_path: Path
     ) -> None:
         pytest.importorskip("at")
-        from osprey.facility.build import LATER_STAGES
-        from osprey.facility.validate import run_stages
+        from osprey_facility.build import LATER_STAGES
+        from osprey_facility.validate import run_stages
         from tests.facility._synthetic_trees import deck_tree, write_tree
 
         facility_dir = write_tree(tmp_path / "facility", deck_tree())
         listing = _csv(tmp_path, "address,device,s,model\nLQ:RB,LINE/Q1,1.5,LINE\n")
         import_list(listing, facility_dir)
 
-        result = run_stages(facility_dir, project_name="p", later=LATER_STAGES)
+        result = run_stages(
+            facility_dir, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS
+        )
 
         assert [error.format_message() for error in result.errors] == [
             "facility: place-conflict: device LINE/Q1 — layer list states s 1.5 in model LINE, "
@@ -281,6 +414,29 @@ class TestCommand:
             f"wrote data/facility/{LAYER_DIR}/channels.yaml\n"
         )
         assert _channels(repo / "data" / "facility") == [{"id": "LAB:TEMP:01"}]
+
+    def test_a_list_naming_devices_and_no_s_validates(self, tmp_path: Path) -> None:
+        from osprey.cli.main import cli
+        from tests._builds import init_project
+
+        repo = init_project(tmp_path, "hello-world", "demo")
+        listing = _csv(
+            tmp_path,
+            "address,role,device,unit,description\n"
+            "BL:M1:Pitch,readback,M1,mrad,Mirror pitch\n"
+            "BL:M1:PitchSP,setpoint,M1,mrad,Mirror pitch setpoint\n",
+        )
+
+        imported = _invoke(cli, listing, repo)
+        validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])
+
+        assert imported.exit_code == 0, imported.output
+        assert imported.stdout.splitlines()[-2:] == [
+            f"wrote data/facility/{LAYER_DIR}/channels.yaml",
+            f"wrote data/facility/{LAYER_DIR}/devices.yaml",
+        ]
+        assert "reference-missing" not in validated.stderr
+        assert validated.exit_code == 0, validated.output
 
     def test_import_list_replaces_a_wholly_bundled_facility_in_one_line(
         self, tmp_path: Path

@@ -53,6 +53,7 @@ from osprey.deployment.wheel_build import (
 from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import BUILD_DIR_NAME
+from tests._scoped_stdlib import scoped
 
 APP_PYPROJECT = """\
 [project]
@@ -162,10 +163,11 @@ def test_a_failed_wheel_build_names_the_package(
 ) -> None:
     monkeypatch.undo()
     root = _deployment(tmp_path / "repo")
-    monkeypatch.setattr(
-        wheel_build.subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(a, 1, stdout="", stderr="no backend"),
+    scoped(
+        monkeypatch,
+        wheel_build,
+        "subprocess",
+        run=lambda *a, **k: subprocess.CompletedProcess(a, 1, stdout="", stderr="no backend"),
     )
 
     with pytest.raises(BuildProfileError, match=r"(?s)apps/knob.*no backend"):
@@ -521,7 +523,7 @@ def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", run)
+    scoped(monkeypatch, "osprey.cli.build_environment", "subprocess", run=run)
     project = tmp_path / "build"
     project.mkdir()
     _create_project_venv(project, plan)

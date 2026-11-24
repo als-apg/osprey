@@ -20,13 +20,32 @@ the texture and one physics child per served model whose engine is not
   write a subscription fires for its channel when the held value changed or
   the channel moves under the active scenarios.
 
+**Evolution.** The composite is built without evolution: a time-driven model
+serves its start values and a write starts nothing. The ``evolve`` setting,
+``true``, builds it to evolve instead (see
+:class:`~osprey_connectors.simulation.composite.Composite`): a write is a
+client write, every read and write advances the models to the clock, and the
+tick also wakes at the composite's next deadline, advances it and fires the
+subscriptions of the channels a model emitted, a repeated value included. What
+the models reached this way lives in this connector's composite alone. No
+other connector sees it, and the journal does not carry it: a connector that
+replays the journal starts its models again from their start state and puts
+the journalled values back without a client write, so a replayed request
+starts no model again; a command's responses alone run on, from the instant
+its entry was journalled at.
+
 **Session writes.** Only :meth:`VAInProcessConnector.write_channel` journals: after
-the limits validator and a successful put it appends ``[seq, address, value]``
-to ``<simulation state dir>/inprocess/writes.json``, a document
+the limits validator and a successful put it appends ``[seq, address, value,
+t_s]``, ``t_s`` the instant the composite wrote it at
+(:meth:`~osprey_connectors.simulation.composite.Composite.write`), to
+``<simulation state dir>/inprocess/writes.json``, a document
 ``{active_set_sha256, seq, writes}`` updated under ``flock`` on
-``writes.json.lock`` and replaced atomically. Every operation reads the active
+``writes.json.lock`` and replaced atomically; an entry ``[seq, address,
+value]`` reads as a write with no time. Every operation reads the active
 scenario set first, then the journal: when ``seq`` moved, the composite is
-reset and the journal applied as one write, provided every entry is a setpoint
+reset and the journal replayed in ``seq`` order
+(:meth:`~osprey_connectors.simulation.composite.Composite.replay`), each
+command's responses timed from its entry's ``t_s``, provided every entry is a setpoint
 of the view, writable, inside its band, and was written under the current
 active set; otherwise nothing from it is applied, one line
 ``writes journal rejected: <address>: <reason>`` is logged, a
@@ -48,6 +67,7 @@ import inspect
 import json
 import math
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, TypeAlias, TypedDict, TypeGuard
@@ -67,6 +87,7 @@ from osprey_connectors.control_system._base import (
 from osprey_connectors.errors import (
     NOT_A_CHANNEL,
     ChannelNotFoundError,
+    ChannelUnreachableError,
     ConnectorUnavailableError,
     RefusalReason,
 )
@@ -90,6 +111,7 @@ if TYPE_CHECKING:
 logger = get_logger("va_in_process_connector")
 
 __all__ = [
+    "EVOLVE_SETTING",
     "JOURNAL_DIR",
     "JOURNAL_FILE",
     "JOURNAL_NOT_UPDATED",
@@ -105,6 +127,13 @@ __all__ = [
 
 #: The ``connect()`` setting naming the simulator view directory to serve.
 SIMULATOR_VIEW_SETTING = "simulator_view"
+
+#: The ``connect()`` setting that builds the composite to evolve; absent is ``False``.
+EVOLVE_SETTING = "evolve"
+
+#: The shortest wait between two looks at an evolving composite, in seconds: a
+#: deadline already past is met on the next look, never in a busy loop.
+_MIN_TICK_S = 0.01
 
 #: Why the in-process simulator refuses to connect without a built simulator view.
 NO_VIEW_MESSAGE = "the in-process simulator needs a built simulator view: run osprey build"
@@ -225,8 +254,9 @@ class _JournalDocument(TypedDict):
     writes: list[object]
 
 
-#: One journalled write, ``[seq, address, value]``.
-_JournalEntry: TypeAlias = tuple[int, str, object]
+#: One journalled write, ``[seq, address, value, t_s]``; ``t_s`` is ``None``
+#: for an entry written without its time.
+_JournalEntry: TypeAlias = tuple[int, str, object, float | None]
 
 
 class _Journal:
@@ -288,19 +318,62 @@ def _is_journal(document: object) -> TypeGuard[_JournalDocument]:
 
 
 def _journal_entry(entry: object) -> _JournalEntry | None:
-    """One journalled ``[seq, address, value]`` write, or ``None`` when it is malformed."""
-    if not isinstance(entry, list) or len(entry) != 3:
+    """One journalled ``[seq, address, value]`` or ``[seq, address, value, t_s]`` write.
+
+    ``None`` when it is malformed: ``t_s``, when present, is a finite number of
+    epoch seconds.
+    """
+    if not isinstance(entry, list) or len(entry) not in (3, 4):
         return None
-    seq_no, address, value = entry
+    seq_no, address, value, *rest = entry
     if not isinstance(seq_no, int) or isinstance(seq_no, bool) or not isinstance(address, str):
         return None
-    return seq_no, address, value
+    if not rest:
+        return seq_no, address, value, None
+    t_s = rest[0]
+    if not isinstance(t_s, int | float) or isinstance(t_s, bool) or not math.isfinite(t_s):
+        return None
+    return seq_no, address, value, float(t_s)
 
 
 def _mark(document: object, text: str) -> int | str:
     """What one look at the journal saw: its ``seq``, else its text, ``0`` when empty."""
     seq = _seq(document)
     return (text or 0) if seq is None else seq
+
+
+@dataclass
+class _Subscription:
+    """One subscription: its channel, its callbacks, and whether it was last told connected."""
+
+    address: str
+    callback: Callable[[ChannelValue], object]
+    on_connection: Callable[[bool], None] | None
+    connected: bool
+
+
+def _tell_connection(
+    address: str, on_connection: Callable[[bool], None] | None, connected: bool
+) -> None:
+    """Tell a subscription's ``on_connection`` its channel's state; a raise is logged."""
+    if on_connection is None:
+        return
+    try:
+        on_connection(connected)
+    except Exception as exc:
+        logger.warning(f"In-process connection callback for {address} raised: {exc}")
+
+
+async def _deliver(
+    address: str, callback: Callable[[ChannelValue], object], reading: ChannelValue
+) -> None:
+    """Hand a subscription's callback one reading, awaiting it; a raise is logged."""
+    try:
+        result = callback(reading)
+        if inspect.isawaitable(result):
+            await result
+    except Exception as exc:
+        logger.warning(f"In-process subscription callback for {address} raised: {exc}")
 
 
 class VAInProcessConnector(ControlSystemConnector):
@@ -317,10 +390,11 @@ class VAInProcessConnector(ControlSystemConnector):
         self._composite: Composite | None = None
         self._records: dict[str, ChannelRecord] = {}
         self._served: frozenset[str] = frozenset()
-        self._subscriptions: dict[str, tuple[str, Callable[[ChannelValue], object]]] = {}
+        self._subscriptions: dict[str, _Subscription] = {}
         self._last_held: dict[str, object] = {}
         self._tick_task: asyncio.Task[None] | None = None
         self._tick_s = 1.0
+        self._evolve = False
         self._channels: frozenset[str] = frozenset()
         self._journal: _Journal | None = None
         self._active_sha: str | None = None
@@ -340,18 +414,24 @@ class VAInProcessConnector(ControlSystemConnector):
                 - response_delay_ms: Simulated response delay (default: 10)
                 - simulator_view: The view directory to serve; absent serves
                   ``data/simulator/`` beside the loaded config.
+                - evolve: ``True`` builds the composite to evolve, so its
+                  time-driven models run in this connector (default: ``False``)
 
         Raises:
             RuntimeError: There is no built simulator view, or it is from an
                 older build.
             ValueError: ``simulation.tick_s`` in the rendered config is not a
-                number greater than zero.
+                number greater than zero, or ``evolve`` is not a boolean.
         """
         from osprey_connectors.simulation import resolve_tick_s
         from osprey_connectors.simulation.composite import Composite
 
         delay_ms: float = config.get("response_delay_ms", 10)
         self._response_delay = delay_ms / 1000.0
+        evolve = config.get(EVOLVE_SETTING, False)
+        if not isinstance(evolve, bool):
+            raise ValueError(f"{EVOLVE_SETTING} is {evolve!r}; use true or false")
+        self._evolve = evolve
 
         from osprey_connectors.control_system._limits_validator import LimitsValidator
 
@@ -373,11 +453,13 @@ class VAInProcessConnector(ControlSystemConnector):
                 | frozenset(view.status_addresses().values())
                 | {
                     address
-                    for signals in view.ioc_health_by_model().values()
+                    for signals in view.server_health_by_model().values()
                     for address in signals.values()
                 }
             )
-            self._composite = Composite(view, state_dir=state_dir, instance="inprocess")
+            self._composite = Composite(
+                view, state_dir=state_dir, instance="inprocess", evolve=self._evolve
+            )
         except ViewSchemaError as error:
             raise RuntimeError(str(error)) from None
         self._journal = _Journal(state_dir)
@@ -463,7 +545,11 @@ class VAInProcessConnector(ControlSystemConnector):
             return None
 
     def _replay(self, document: _JournalDocument | None, text: str) -> None:
-        """Reset the composite and apply the journal as one write, when it is well formed."""
+        """Reset the composite and replay the journal in order, when it is well formed.
+
+        The values are put back, not written: a journalled write was a client
+        write once, in the connector that took it, and is none here.
+        """
         assert self._composite is not None
         if self._holds_writes:
             self._composite.reset()
@@ -481,12 +567,13 @@ class VAInProcessConnector(ControlSystemConnector):
             return
         # Every entry is well formed: _rejection found none that is not.
         entries = [entry for entry in map(_journal_entry, writes) if entry is not None]
-        replayed: dict[str, object] = {
-            address: value
-            for _seq_no, address, value in sorted(entries, key=lambda entry: entry[0])
-        }
         try:
-            self._composite.set(replayed)
+            self._composite.replay(
+                [
+                    (address, value, t_s)
+                    for _seq_no, address, value, t_s in sorted(entries, key=lambda entry: entry[0])
+                ]
+            )
         except Exception as exc:
             self._composite.reset()
             self._reject(getattr(exc, "address", None) or JOURNAL_FILE, str(exc))
@@ -511,7 +598,7 @@ class VAInProcessConnector(ControlSystemConnector):
             entries.append(parsed)
         if document.get("active_set_sha256") != self._active_sha:
             return entries[0][1], "written under another active scenario set"
-        for _seq_no, address, value in entries:
+        for _seq_no, address, value, _t_s in entries:
             record = self._records.get(address)
             if record is None or address not in self._channels:
                 return address, NOT_A_CHANNEL
@@ -535,8 +622,8 @@ class VAInProcessConnector(ControlSystemConnector):
                     return address, f"{value!r} is outside [{low}, {high}]"
         return None
 
-    def _append(self, address: str, value: object) -> None:
-        """Append one write the composite took, under the journal's lock."""
+    def _append(self, address: str, value: object, t_s: float) -> None:
+        """Append one write the composite took at instant ``t_s``, under the journal's lock."""
         assert self._journal is not None
         with self._journal.locked():
             document, _text = self._journal.read()
@@ -546,7 +633,7 @@ class VAInProcessConnector(ControlSystemConnector):
             if _is_journal(document) and document.get("active_set_sha256") == self._active_sha:
                 writes = list(document["writes"])
             seq = (seq or 0) + 1
-            writes.append([seq, address, value])
+            writes.append([seq, address, value, t_s])
             self._journal.write(
                 {"active_set_sha256": self._active_sha, "seq": seq, "writes": writes}
             )
@@ -606,6 +693,20 @@ class VAInProcessConnector(ControlSystemConnector):
             raise ChannelNotFoundError(address)
         return self._composite
 
+    def _answering(self, address: str) -> Composite:
+        """The composite, once ``address`` is served and its simulated server is not stopped.
+
+        Raises:
+            ChannelNotFoundError: ``address`` is not a channel of the facility.
+            ChannelUnreachableError: A scenario's ``stopped_servers`` stops the server
+                serving ``address``: the channel gives no answer.
+            ConnectorUnavailableError: The connector is not connected.
+        """
+        composite = self._require(address)
+        if address in composite.stopped():
+            raise ChannelUnreachableError(address)
+        return composite
+
     def _wire(self, address: str, value: object) -> object:
         """A value as the wire carries it: a label as its index, a waveform as an array."""
         record = self._records.get(address)
@@ -645,7 +746,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _reading(self, address: str, *, held: bool) -> ChannelValue:
-        composite = self._require(address)
+        composite = self._answering(address)
         stored: object = composite.held([address])[address] if held else composite.get(address)
         metadata = self._metadata(address, composite)
         if metadata.enum_labels is not None and stored in metadata.enum_labels:
@@ -657,7 +758,7 @@ class VAInProcessConnector(ControlSystemConnector):
         )
 
     def _held_value(self, address: str) -> object:
-        composite = self._require(address)
+        composite = self._answering(address)
         return self._wire(address, composite.held([address])[address])
 
     # -- reads -----------------------------------------------------------------
@@ -673,6 +774,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
+            ChannelUnreachableError: A scenario stops the channel's simulated server.
         """
         await asyncio.sleep(self._response_delay)
         self._sync()
@@ -710,9 +812,9 @@ class VAInProcessConnector(ControlSystemConnector):
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        composite = self._require(channel_address)
+        self._require(channel_address)
         self._sync()
-        return self._metadata(channel_address, composite)
+        return self._metadata(channel_address, self._answering(channel_address))
 
     @override
     async def validate_channel(self, channel_address: str) -> bool:
@@ -764,6 +866,18 @@ class VAInProcessConnector(ControlSystemConnector):
                 error_message=str(unknown),
             )
         self._sync()
+        if channel_address in self._composite.stopped():
+            # As on the wire: a stopped server's channel never connects, so nothing is sent.
+            logger.warning(f"In-process write failed: {channel_address}: its server is stopped")
+            return channel_address, ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                outcome=WriteOutcome.FAILED,
+                error_message=(
+                    f"Failed to write to channel '{channel_address}': no value was sent "
+                    f"({ChannelUnreachableError(channel_address)}: its simulated server is stopped)"
+                ),
+            )
         if self._composite.supported_variables[channel_address].read_only:
             return channel_address, self._refused(
                 channel_address, value, f"Write to '{channel_address}' refused: {NOT_WRITABLE}"
@@ -850,7 +964,7 @@ class VAInProcessConnector(ControlSystemConnector):
 
         before = self._subscribed_held()
         try:
-            self._put(channel_address, stored)
+            t_s = self._put(channel_address, stored)
         except Exception as e:
             from lume.exceptions import ReadOnlyError
 
@@ -868,7 +982,7 @@ class VAInProcessConnector(ControlSystemConnector):
                 error_message=f"In-process write failed: {e}",
             )
         try:
-            self._append(channel_address, stored)
+            self._append(channel_address, stored, t_s)
         except OSError as exc:
             # The composite holds the write; only its survival across
             # connectors is lost.
@@ -917,9 +1031,12 @@ class VAInProcessConnector(ControlSystemConnector):
             notes=f"Observed {held}, sent {value} (in process)",
         )
 
-    def _put(self, channel_address: str, value: object) -> None:
-        """Set ``value`` in the composite; raises whatever the composite raises."""
-        self._require(channel_address).set({channel_address: value})
+    def _put(self, channel_address: str, value: object) -> float:
+        """Write ``value`` into the composite; returns the write's instant.
+
+        Raises whatever the composite raises.
+        """
+        return self._require(channel_address).write({channel_address: value})
 
     # -- subscriptions and the tick ------------------------------------------
 
@@ -931,28 +1048,33 @@ class VAInProcessConnector(ControlSystemConnector):
         *,
         on_connection: Callable[[bool], None] | None = None,
     ) -> str:
-        """Subscribe to a channel; the callback fires after a tick or a write.
+        """Subscribe to a channel; the callback fires now, then after a tick or a write.
 
-        A channel of the facility is served by this process and never drops, so
-        ``on_connection(True)`` comes once, before this returns, and ``False``
-        never does.
+        A channel of the facility is served by this process, so it drops only
+        while a scenario's ``stopped_servers`` stops its simulated server, as a
+        channel of a stopped server does on the wire: ``on_connection`` is told
+        the channel's state before this returns -- ``False`` when its server is
+        stopped, and the subscription then waits -- and told again on every
+        stop and restart. The callback is given the channel's current value
+        before this returns when the channel is up, and as its first callback
+        after a restart.
 
         Raises:
             ChannelNotFoundError: The address is not a channel of the facility.
         """
-        self._require(channel_address)
+        composite = self._require(channel_address)
         self._sync()
         sub_id = f"inprocess_{channel_address}_{id(callback)}"
-        self._subscriptions[sub_id] = (channel_address, callback)
-        self._last_held[channel_address] = self._held_value(channel_address)
+        connected = channel_address not in composite.stopped()
+        self._subscriptions[sub_id] = _Subscription(
+            channel_address, callback, on_connection, connected
+        )
+        if connected:
+            self._last_held[channel_address] = self._held_value(channel_address)
         logger.debug(f"In-process subscription created: {sub_id}")
-        if on_connection is not None:
-            try:
-                on_connection(True)
-            except Exception as exc:
-                logger.warning(
-                    f"In-process connection callback for {channel_address} raised: {exc}"
-                )
+        _tell_connection(channel_address, on_connection, connected)
+        if connected:
+            await _deliver(channel_address, callback, self._reading(channel_address, held=False))
         return sub_id
 
     @override
@@ -963,40 +1085,74 @@ class VAInProcessConnector(ControlSystemConnector):
             logger.debug(f"In-process subscription removed: {subscription_id}")
 
     def _subscribed_held(self) -> dict[str, object]:
-        addresses = sorted({address for address, _ in self._subscriptions.values()})
+        addresses = sorted({subscription.address for subscription in self._subscriptions.values()})
         if not addresses or self._composite is None:
             return {}
-        return {address: self._held_value(address) for address in addresses}
+        # A stopped server's channel gives no answer, so its subscription is quiet.
+        stopped = self._composite.stopped()
+        return {
+            address: self._held_value(address) for address in addresses if address not in stopped
+        }
 
     async def _notify(self, before: Mapping[str, object] | None = None) -> None:
-        """Fire each subscription whose held value changed or whose channel moves under the active scenarios."""
-        if not self._subscriptions or self._composite is None:
+        """Fire each subscription whose held value changed, whose channel moves under the
+        active scenarios, or whose channel a time-driven model emitted since the last call."""
+        if self._composite is None:
+            return
+        # Drained with or without a subscriber, so one that subscribes later is
+        # not told of what was emitted before it did.
+        emitted = self._composite.emitted() if self._evolve else frozenset()
+        if not self._subscriptions:
             return
         previous = self._last_held if before is None else before
         now = self._subscribed_held()
+        stopped = self._composite.stopped()
+        for address in stopped:
+            # Forgotten while stopped, so the first answer after a restart fires.
+            self._last_held.pop(address, None)
+        for subscription in list(self._subscriptions.values()):
+            connected = subscription.address not in stopped
+            if connected != subscription.connected:
+                subscription.connected = connected
+                _tell_connection(subscription.address, subscription.on_connection, connected)
         moving = self._composite.moving()
         due = {
             address
             for address, value in now.items()
-            if address in moving or not values_match(previous.get(address), value)
+            if address in moving
+            or address in emitted
+            or not values_match(previous.get(address), value)
         }
         self._last_held.update(now)
-        for address, callback in list(self._subscriptions.values()):
-            if address not in due:
-                continue
-            try:
-                result = callback(self._reading(address, held=False))
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                logger.warning(f"In-process subscription callback for {address} raised: {exc}")
+        for subscription in list(self._subscriptions.values()):
+            address, callback = subscription.address, subscription.callback
+            if address in due:
+                await _deliver(address, callback, self._reading(address, held=False))
+
+    def _wait_s(self) -> float:
+        """How long the tick sleeps: ``tick_s``, or less when a time-driven model's
+        deadline falls sooner, and never under :data:`_MIN_TICK_S`."""
+        if not self._evolve or self._composite is None:
+            return self._tick_s
+        deadline = self._composite.next_deadline()
+        if deadline is None:
+            return self._tick_s
+        return min(self._tick_s, max(deadline - self._composite.now(), _MIN_TICK_S))
 
     async def _tick(self) -> None:
-        """Every ``tick_s``: fire the subscriptions that are due."""
+        """Every ``tick_s``, and at each deadline of an evolving composite: advance
+        it and fire the subscriptions that are due."""
         while True:
-            await asyncio.sleep(self._tick_s)
+            try:
+                wait_s = self._wait_s()
+            except Exception as exc:
+                logger.warning(f"In-process tick failed: {exc}")
+                wait_s = self._tick_s
+            await asyncio.sleep(wait_s)
             try:
                 self._sync()
+                if self._evolve and self._composite is not None:
+                    self._composite.advance()
                 await self._notify()
             except Exception as exc:
                 logger.warning(f"In-process tick failed: {exc}")

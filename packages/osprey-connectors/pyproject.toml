@@ -90,13 +90,15 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # The framework releases the connectors built at HEAD must keep working under.
 # A framework release pins osprey-connectors with a floor and no ceiling, so a
 # rebuild of one resolves the newest connectors; the `connectors-compat` CI lane
-# and the nightly `connectors-compat-nightly.yml` run HEAD under each release
-# listed here (scripts/ci/connectors_compat_matrix.py reads it).
+# and the nightly `compat-nightly.yml` run HEAD under each release
+# listed here (`scripts/ci/compat_matrix.py --package connectors` reads it).
 #
 # Policy: the newest stable framework release, every stable release published
 # within the last six months, and any pre-release newer than the newest stable
 # until a stable release supersedes it. A release leaves `frameworks` for
-# `retired` when it falls outside that window, never because it fails.
+# `retired` when it falls outside that window, never because it fails. A
+# deliberate break inside the window is a recorded retirement: the release
+# moves to `retired` with its reason written beside it.
 #
 # The plan job holds both lists to the framework tags reachable from HEAD: a
 # tagged release newer than 2026.9.0b3 (the last framework paired with the
@@ -104,8 +106,13 @@ raw-options = { root = "../..", version_scheme = "post-release", scm = { git = {
 # follows it, and neither may name a release with no tag. The 2026.9.0 betas
 # are superseded at the cut-over rather than supported, so both start empty.
 [tool.osprey-connectors.compat]
-frameworks = ["2026.11.0"]
-retired = []
+frameworks = ["2026.11.1"]
+retired = [
+    # 2026.11.0: deliberate break. The simulation engines entry-point group was
+    # renamed to `osprey_connectors.simulation.engines` (owner ruling q-0002),
+    # and 2026.11.0 registers its engines under `osprey.simulation.engines` only.
+    "2026.11.0",
+]
 # Tests of the framework (Lane B) and of a release's own suite (the nightly)
 # that read the connectors' source tree as text rather than drive the
 # connectors: the tree they read is HEAD's checkout or the release's, never

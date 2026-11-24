@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.health.core import versions as versions_mod
 from osprey.health.core.versions import versions
 from osprey.health.models import Status
@@ -115,25 +117,20 @@ def test_canopy_wheel_without_a_record_at_the_pin_by_its_label(monkeypatch):
     assert row.value == f"{pin[:12]} = pin"
 
 
-def test_canopy_wheel_without_a_record_labelled_elsewhere_warns(monkeypatch):
+@pytest.mark.parametrize(
+    ("canopy_version", "label"),
+    [
+        pytest.param("0.0.2.dev291+gdeadbeef1", "deadbeef1", id="labelled_elsewhere"),
+        pytest.param("0.0.2", NO_RECORD, id="no_record_or_label"),
+    ],
+)
+def test_canopy_without_a_record_off_the_pin_warns(monkeypatch, canopy_version, label):
     row = _rows(
         _CANOPY_ON,
         monkeypatch,
         running="1",
         judgement=_judgement(Held(reason=NO_RECORD), UNPROVEN),
-        canopy_version="0.0.2.dev291+gdeadbeef1",
+        canopy_version=canopy_version,
     )["versions.canopy"]
     assert row.status is Status.WARNING
-    assert row.value == f"deadbeef1 ≠ pin {PROVEN_COMMITS['canopy'][:12]}"
-
-
-def test_canopy_without_a_record_or_a_label_warns(monkeypatch):
-    row = _rows(
-        _CANOPY_ON,
-        monkeypatch,
-        running="1",
-        judgement=_judgement(Held(reason=NO_RECORD), UNPROVEN),
-        canopy_version="0.0.2",
-    )["versions.canopy"]
-    assert row.status is Status.WARNING
-    assert row.value == f"{NO_RECORD} ≠ pin {PROVEN_COMMITS['canopy'][:12]}"
+    assert row.value == f"{label} ≠ pin {PROVEN_COMMITS['canopy'][:12]}"

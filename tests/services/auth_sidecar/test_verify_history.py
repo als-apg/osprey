@@ -318,24 +318,39 @@ class TestReaders:
         assert STALE_TABLES_HEADER not in response.headers
         assert response.headers[ENTRY_HEADER] == "reader:ext"
 
-    def test_a_withdrawn_reader_is_refused_on_the_next_request(self) -> None:
-        cookie = _cookie(_entry("reader:ext", subject="ext@partner.org"))
-        env = {**OIDC_ENV, "OSPREY_AUTH_READERS": "carol"}
-        assert _ask(_app(env), cookie).status_code == 401
-
-    def test_a_reader_whose_subject_was_removed_is_refused_not_skipped(self) -> None:
-        cookie = _cookie(_entry("reader:ext", subject="ext@partner.org"))
-        env = {k: v for k, v in OIDC_ENV.items() if k != "OSPREY_AUTH_READER_SUBJECT_EXT"}
-        assert _ask(_app(env), cookie).status_code == 401
-
-    def test_a_reader_whose_subject_changed_is_refused(self) -> None:
-        cookie = _cookie(_entry("reader:ext", subject="ext@partner.org"))
-        env = {**OIDC_ENV, "OSPREY_AUTH_READER_SUBJECT_EXT": "other@partner.org"}
-        assert _ask(_app(env), cookie).status_code == 401
-
-    def test_a_reader_entry_is_refused_under_password_login(self) -> None:
-        cookie = _cookie(_entry("reader:carol", subject="carol@x.org"))
-        env = {**PASSWORD_ENV, "OSPREY_AUTH_READER_SUBJECT_CAROL": "carol@x.org"}
+    @pytest.mark.parametrize(
+        ("entry_name", "subject", "env"),
+        [
+            pytest.param(
+                "reader:ext",
+                "ext@partner.org",
+                {**OIDC_ENV, "OSPREY_AUTH_READERS": "carol"},
+                id="withdrawn-reader-on-the-next-request",
+            ),
+            pytest.param(
+                "reader:ext",
+                "ext@partner.org",
+                {k: v for k, v in OIDC_ENV.items() if k != "OSPREY_AUTH_READER_SUBJECT_EXT"},
+                id="subject-removed-is-refused-not-skipped",
+            ),
+            pytest.param(
+                "reader:ext",
+                "ext@partner.org",
+                {**OIDC_ENV, "OSPREY_AUTH_READER_SUBJECT_EXT": "other@partner.org"},
+                id="subject-changed",
+            ),
+            pytest.param(
+                "reader:carol",
+                "carol@x.org",
+                {**PASSWORD_ENV, "OSPREY_AUTH_READER_SUBJECT_CAROL": "carol@x.org"},
+                id="under-password-login",
+            ),
+        ],
+    )
+    def test_a_reader_entry_is_refused(
+        self, entry_name: str, subject: str, env: dict[str, str]
+    ) -> None:
+        cookie = _cookie(_entry(entry_name, subject=subject))
         assert _ask(_app(env), cookie).status_code == 401
 
     def test_a_withdrawn_reader_beside_a_valid_card_leaves_the_card(self) -> None:

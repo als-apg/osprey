@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import doctest
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -53,11 +54,25 @@ def retired_uses(source: str) -> list[tuple[int, str]]:
     return uses
 
 
+def _may_use(source: str) -> bool:
+    """Whether *source* spells a retired name anywhere, so is worth parsing.
+
+    Exact for :func:`retired_uses`: an import alias and an attribute are each one
+    identifier token, which Python reads after NFKC normalization, so a use is
+    the name's own letters in the normalized text.
+    """
+    text = source if source.isascii() else unicodedata.normalize("NFKC", source)
+    return any(name in text for name in RETIRED_NAMES)
+
+
 def _offenders(files: list[Path]) -> list[str]:
     found: list[str] = []
     for path in files:
         rel = path.relative_to(REPO).as_posix()
-        for line, name in retired_uses(path.read_text(encoding="utf-8")):
+        source = path.read_text(encoding="utf-8")
+        if not _may_use(source):
+            continue
+        for line, name in retired_uses(source):
             found.append(f"{rel}:{line} {name}")
     return found
 
@@ -109,6 +124,21 @@ def test_no_test_outside_the_old_spelling_homes_uses_a_retired_spelling() -> Non
 )
 def test_the_scan_sees_every_spelling_of_a_retired_use(source: str) -> None:
     assert retired_uses(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from osprey.cli.build_profile_document import RETIRED_CATALOG_KEY\n",
+        "from osprey.cli import build_profile_document as d\nd.RETIRED_DEFAULT_TIER_KEY\n",
+        "from osprey.cli import build_profile_document as d\nd.\uff32ETIRED_TIER_KEY\n",
+    ],
+    ids=["import", "attribute", "nfkc-spelling"],
+)
+def test_the_prefilter_keeps_every_file_the_scan_would_flag(source: str) -> None:
+    """A file is skipped unparsed only when no retired use can be in it."""
+    assert retired_uses(source)
+    assert _may_use(source)
 
 
 def test_the_scan_ignores_other_retired_words() -> None:

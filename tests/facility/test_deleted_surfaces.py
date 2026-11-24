@@ -160,7 +160,7 @@ def test_the_deleted_module_is_gone(module: str) -> None:
 
 
 def test_a_surviving_module_resolves() -> None:
-    assert resolves("osprey.facility.layers.mml")
+    assert resolves("osprey_facility.layers.mml")
 
 
 def retired_source_hits(root: Path) -> list[str]:

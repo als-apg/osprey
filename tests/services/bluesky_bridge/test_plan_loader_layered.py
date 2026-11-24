@@ -739,3 +739,181 @@ def test_a_plan_declaring_no_roles_carries_empty_roles(
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
 
     assert plan_loader.get_facility_plans().plans["plain"].roles == ()
+
+
+# ---------------------------------------------------------------------------
+# The load gate: a default is held to its field's own rule, like a typed value
+# ---------------------------------------------------------------------------
+
+_DEFAULT_GATE_MARKER = "default of PARAMS field 'count' fails the field's own validation"
+
+
+def _plan_with_count_field(name: str, field_source: str) -> str:
+    """A read-only plan whose ``PARAMS`` holds one ``count`` field spelled as given."""
+    return (
+        "from pydantic import BaseModel, Field\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A plan with one defaulted field.",\n'
+        '    "writes": False,\n'
+        "}\n\n\n"
+        "def _broken():\n"
+        '    raise RuntimeError("factory is broken")\n\n\n'
+        "class PARAMS(BaseModel):\n"
+        "    label: str\n"
+        f"    count: int = {field_source}\n\n\n"
+        "def build_plan(devices, params):\n"
+        f'    return {{"plan": {name!r}}}\n'
+    )
+
+
+@pytest.mark.parametrize(
+    "field_source",
+    ["Field(default=1, ge=5)", "Field(default_factory=lambda: 1, ge=5)"],
+    ids=["static", "factory"],
+)
+def test_a_default_that_fails_its_own_field_is_quarantined(
+    field_source: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "good_plan.py", _valid_plan_source("good_plan"))
+    _write(layer_dir, "bad_default.py", _plan_with_count_field("bad_default", field_source))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "bad_default" not in facility.plans
+    assert "good_plan" in facility.plans
+    assert any(_DEFAULT_GATE_MARKER in message for message in _quarantine_warnings(caplog))
+
+
+def test_a_factory_that_raises_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(
+        layer_dir,
+        "raising_factory.py",
+        _plan_with_count_field("raising_factory", "Field(default_factory=_broken)"),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "raising_factory" not in facility.plans
+    messages = _quarantine_warnings(caplog)
+    assert any(_DEFAULT_GATE_MARKER in m and "factory is broken" in m for m in messages)
+
+
+@pytest.mark.parametrize(
+    "field_source",
+    ["Field(default=5, ge=5)", "Field(default_factory=lambda: 7, ge=5)"],
+    ids=["static", "factory"],
+)
+def test_a_plan_whose_defaults_pass_still_registers(
+    field_source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "fine_default.py", _plan_with_count_field("fine_default", field_source))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    assert "fine_default" in plan_loader.get_facility_plans().plans
+
+
+# ---------------------------------------------------------------------------
+# The load gate: presentation keys name only the plan's own parameters
+# ---------------------------------------------------------------------------
+
+
+def _plan_with_presentation(name: str, presentation: str) -> str:
+    """A read-only plan with ``label``/``count`` parameters and the given metadata lines."""
+    return (
+        "from pydantic import BaseModel\n\n\n"
+        "PLAN_METADATA = {\n"
+        f'    "name": {name!r},\n'
+        '    "description": "A plan that states its form.",\n'
+        '    "writes": False,\n'
+        f"{presentation}"
+        "}\n\n\n"
+        "class PARAMS(BaseModel):\n"
+        "    label: str\n"
+        "    count: int = 1\n\n\n"
+        "def build_plan(devices, params):\n"
+        f'    return {{"plan": {name!r}}}\n'
+    )
+
+
+def test_layout_naming_an_unknown_parameter_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "good_plan.py", _valid_plan_source("good_plan"))
+    _write(
+        layer_dir,
+        "stray_layout.py",
+        _plan_with_presentation(
+            "stray_layout", '    "layout": [["label", "gap"], ["count", "speed"]],\n'
+        ),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "stray_layout" not in facility.plans
+    assert "good_plan" in facility.plans
+    assert any(
+        "PLAN_METADATA layout names unknown parameter(s): gap, speed" in message
+        for message in _quarantine_warnings(caplog)
+    )
+
+
+def test_a_plan_with_a_layout_registers_and_serves_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(
+        layer_dir,
+        "laid_out.py",
+        _plan_with_presentation("laid_out", '    "layout": [["count", "label"]],\n'),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    spec = plan_loader.get_facility_plans().plans["laid_out"]
+    assert spec.to_dict()["metadata"]["layout"] == [["count", "label"]]
+
+
+def test_summary_naming_an_unknown_parameter_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "good_plan.py", _valid_plan_source("good_plan"))
+    _write(
+        layer_dir,
+        "stray_summary.py",
+        _plan_with_presentation(
+            "stray_summary", '    "summary": ["{label}", "{count} of {total} at {rate}"],\n'
+        ),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "stray_summary" not in facility.plans
+    assert "good_plan" in facility.plans
+    assert any(
+        "PLAN_METADATA summary names unknown parameter(s): rate, total" in message
+        for message in _quarantine_warnings(caplog)
+    )

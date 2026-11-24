@@ -23,6 +23,10 @@ from osprey.services.bluesky_bridge.validation_record import (
 def test_singleton_is_reachable_and_starts_empty() -> None:
     # The bridge-process singleton other tasks (2.3/2.4/2.5) import.
     assert isinstance(validation_records, ValidationRecordStore)
+    # Other tests in this process may record into the singleton, so "empty" is
+    # probed with a hash no test ever records.
+    fresh = hash_plan_body("# a plan body no test ever validates\n")
+    assert validation_records.has_passing_record(fresh) is False
 
 
 def test_unknown_hash_returns_false() -> None:

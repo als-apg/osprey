@@ -11,14 +11,14 @@
       "still"
     ],
     "addresses": {
-      "count": 4734,
+      "count": 4768,
       "excluded": "the suite's synthetic string channel and every waveform"
     },
     "nominal": "Channel Access read, repeated every 3 s until two snapshots agree exactly; a bool or enum as its label, a string as its text"
   },
   "channels": {
     "BR:DIAG:BPM:01:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 1.2163617389341784e-12
     },
     "BR:DIAG:BPM:01:POSITION:Y": {
       "nominal": 0.0
@@ -27,7 +27,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:02:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 5.108280916228341e-12
     },
     "BR:DIAG:BPM:02:POSITION:Y": {
       "nominal": 0.0
@@ -36,7 +36,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:03:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 2.628074730129659e-12
     },
     "BR:DIAG:BPM:03:POSITION:Y": {
       "nominal": 0.0
@@ -45,7 +45,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:04:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 1.0225453727471805e-12
     },
     "BR:DIAG:BPM:04:POSITION:Y": {
       "nominal": 0.0
@@ -54,7 +54,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:05:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 6.097828490054856e-13
     },
     "BR:DIAG:BPM:05:POSITION:Y": {
       "nominal": 0.0
@@ -63,7 +63,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:06:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 1.2162243624207362e-12
     },
     "BR:DIAG:BPM:06:POSITION:Y": {
       "nominal": 0.0
@@ -72,7 +72,7 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:07:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 5.1084208691299405e-12
     },
     "BR:DIAG:BPM:07:POSITION:Y": {
       "nominal": 0.0
@@ -81,12 +81,120 @@
       "nominal": "TRUE"
     },
     "BR:DIAG:BPM:08:POSITION:X": {
-      "nominal": 0.0
+      "nominal": 2.6282491073615933e-12
     },
     "BR:DIAG:BPM:08:POSITION:Y": {
       "nominal": 0.0
     },
     "BR:DIAG:BPM:08:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:09:POSITION:X": {
+      "nominal": 1.0223945396376434e-12
+    },
+    "BR:DIAG:BPM:09:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:09:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:10:POSITION:X": {
+      "nominal": 6.097927128861634e-13
+    },
+    "BR:DIAG:BPM:10:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:10:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:11:POSITION:X": {
+      "nominal": 1.21631009380368e-12
+    },
+    "BR:DIAG:BPM:11:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:11:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:12:POSITION:X": {
+      "nominal": 5.108001642338506e-12
+    },
+    "BR:DIAG:BPM:12:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:12:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:13:POSITION:X": {
+      "nominal": 2.6280940605176103e-12
+    },
+    "BR:DIAG:BPM:13:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:13:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:14:POSITION:X": {
+      "nominal": 1.0225650687306426e-12
+    },
+    "BR:DIAG:BPM:14:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:14:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:15:POSITION:X": {
+      "nominal": 6.096858881157556e-13
+    },
+    "BR:DIAG:BPM:15:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:15:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:16:POSITION:X": {
+      "nominal": 1.2162965885845734e-12
+    },
+    "BR:DIAG:BPM:16:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:16:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:17:POSITION:X": {
+      "nominal": 5.108599501687797e-12
+    },
+    "BR:DIAG:BPM:17:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:17:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:18:POSITION:X": {
+      "nominal": 2.628192555781636e-12
+    },
+    "BR:DIAG:BPM:18:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:18:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:19:POSITION:X": {
+      "nominal": 1.0224157815794614e-12
+    },
+    "BR:DIAG:BPM:19:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:19:STATUS:VALID": {
+      "nominal": "TRUE"
+    },
+    "BR:DIAG:BPM:20:POSITION:X": {
+      "nominal": 6.09831863188542e-13
+    },
+    "BR:DIAG:BPM:20:POSITION:Y": {
+      "nominal": 0.0
+    },
+    "BR:DIAG:BPM:20:STATUS:VALID": {
       "nominal": "TRUE"
     },
     "BR:DIAG:DCCT:01:CURRENT:RB": {
@@ -140,6 +248,12 @@
     "BR:DIAG:TV:05:PADDLE:SP": {
       "nominal": "FALSE"
     },
+    "BR:MAG:DIPOLE-RAMP:01:CURRENT:RB": {
+      "nominal": 799.9999999999999
+    },
+    "BR:MAG:DIPOLE-RAMP:01:CURRENT:SP": {
+      "nominal": 799.9999999999999
+    },
     "BR:MAG:DIPOLE-RAMP:01:GAIN:RB": {
       "nominal": 1.0
     },
@@ -155,100 +269,148 @@
     "BR:MAG:DIPOLE-RAMP:01:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:01:CURRENT:RB": {
-      "nominal": 325.578
+    "BR:MAG:HCM:01:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:01:CURRENT:SP": {
-      "nominal": 325.578
+    "BR:MAG:HCM:01:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:01:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:01:STATUS:READY": {
+    "BR:MAG:HCM:01:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:02:CURRENT:RB": {
-      "nominal": 329.08
+    "BR:MAG:HCM:02:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:02:CURRENT:SP": {
-      "nominal": 329.08
+    "BR:MAG:HCM:02:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:02:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:02:STATUS:READY": {
+    "BR:MAG:HCM:02:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:03:CURRENT:RB": {
-      "nominal": 329.201
+    "BR:MAG:HCM:03:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:03:CURRENT:SP": {
-      "nominal": 329.201
+    "BR:MAG:HCM:03:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:03:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:03:STATUS:READY": {
+    "BR:MAG:HCM:03:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:04:CURRENT:RB": {
-      "nominal": 325.898
+    "BR:MAG:HCM:04:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:04:CURRENT:SP": {
-      "nominal": 325.898
+    "BR:MAG:HCM:04:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:04:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:04:STATUS:READY": {
+    "BR:MAG:HCM:04:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:05:CURRENT:RB": {
-      "nominal": 320.399
+    "BR:MAG:HCM:05:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:05:CURRENT:SP": {
-      "nominal": 320.399
+    "BR:MAG:HCM:05:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:05:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:05:STATUS:READY": {
+    "BR:MAG:HCM:05:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:06:CURRENT:RB": {
-      "nominal": 314.752
+    "BR:MAG:HCM:06:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:06:CURRENT:SP": {
-      "nominal": 314.752
+    "BR:MAG:HCM:06:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:06:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:06:STATUS:READY": {
+    "BR:MAG:HCM:06:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:07:CURRENT:RB": {
-      "nominal": 311.058
+    "BR:MAG:HCM:07:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:07:CURRENT:SP": {
-      "nominal": 311.058
+    "BR:MAG:HCM:07:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:07:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:DIPOLE:07:STATUS:READY": {
+    "BR:MAG:HCM:07:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:08:CURRENT:RB": {
-      "nominal": 310.693
+    "BR:MAG:HCM:08:CURRENT:RB": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:08:CURRENT:SP": {
-      "nominal": 310.693
+    "BR:MAG:HCM:08:CURRENT:SP": {
+      "nominal": 0.0
     },
-    "BR:MAG:DIPOLE:08:STATUS:FAULT": {
-      "nominal": "FALSE"
+    "BR:MAG:HCM:08:STATUS:ON": {
+      "nominal": "TRUE"
     },
-    "BR:MAG:DIPOLE:08:STATUS:READY": {
+    "BR:MAG:HCM:09:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:09:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:09:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:10:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:10:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:10:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:11:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:11:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:11:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:12:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:12:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:12:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:13:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:13:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:13:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:14:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:14:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:14:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:15:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:15:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:15:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:HCM:16:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:16:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:HCM:16:STATUS:ON": {
       "nominal": "TRUE"
     },
     "BR:MAG:KICKER:01:STATUS:ON": {
@@ -259,6 +421,12 @@
     },
     "BR:MAG:KICKER:01:VOLTAGE:SP": {
       "nominal": 25.0
+    },
+    "BR:MAG:QD-RAMP:01:CURRENT:RB": {
+      "nominal": 105.0
+    },
+    "BR:MAG:QD-RAMP:01:CURRENT:SP": {
+      "nominal": 105.0
     },
     "BR:MAG:QD-RAMP:01:GAIN:RB": {
       "nominal": 1.0
@@ -275,53 +443,11 @@
     "BR:MAG:QD-RAMP:01:STATUS:ON": {
       "nominal": "TRUE"
     },
-    "BR:MAG:QD:01:CURRENT:RB": {
-      "nominal": 38.662
+    "BR:MAG:QF-RAMP:01:CURRENT:RB": {
+      "nominal": 110.0
     },
-    "BR:MAG:QD:01:CURRENT:SP": {
-      "nominal": 38.662
-    },
-    "BR:MAG:QD:01:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QD:01:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QD:02:CURRENT:RB": {
-      "nominal": 39.078
-    },
-    "BR:MAG:QD:02:CURRENT:SP": {
-      "nominal": 39.078
-    },
-    "BR:MAG:QD:02:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QD:02:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QD:03:CURRENT:RB": {
-      "nominal": 39.093
-    },
-    "BR:MAG:QD:03:CURRENT:SP": {
-      "nominal": 39.093
-    },
-    "BR:MAG:QD:03:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QD:03:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QD:04:CURRENT:RB": {
-      "nominal": 38.7
-    },
-    "BR:MAG:QD:04:CURRENT:SP": {
-      "nominal": 38.7
-    },
-    "BR:MAG:QD:04:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QD:04:STATUS:READY": {
-      "nominal": "TRUE"
+    "BR:MAG:QF-RAMP:01:CURRENT:SP": {
+      "nominal": 110.0
     },
     "BR:MAG:QF-RAMP:01:GAIN:RB": {
       "nominal": 1.0
@@ -336,54 +462,6 @@
       "nominal": 0.0
     },
     "BR:MAG:QF-RAMP:01:STATUS:ON": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QF:01:CURRENT:RB": {
-      "nominal": 45.784
-    },
-    "BR:MAG:QF:01:CURRENT:SP": {
-      "nominal": 45.784
-    },
-    "BR:MAG:QF:01:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QF:01:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QF:02:CURRENT:RB": {
-      "nominal": 46.277
-    },
-    "BR:MAG:QF:02:CURRENT:SP": {
-      "nominal": 46.277
-    },
-    "BR:MAG:QF:02:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QF:02:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QF:03:CURRENT:RB": {
-      "nominal": 46.294
-    },
-    "BR:MAG:QF:03:CURRENT:SP": {
-      "nominal": 46.294
-    },
-    "BR:MAG:QF:03:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QF:03:STATUS:READY": {
-      "nominal": "TRUE"
-    },
-    "BR:MAG:QF:04:CURRENT:RB": {
-      "nominal": 45.829
-    },
-    "BR:MAG:QF:04:CURRENT:SP": {
-      "nominal": 45.829
-    },
-    "BR:MAG:QF:04:STATUS:FAULT": {
-      "nominal": "FALSE"
-    },
-    "BR:MAG:QF:04:STATUS:READY": {
       "nominal": "TRUE"
     },
     "BR:MAG:SEPTUM:01:CURRENT:RB": {
@@ -402,6 +480,150 @@
       "nominal": 3000.0
     },
     "BR:MAG:SEPTUM:02:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:01:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:01:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:01:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:02:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:02:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:02:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:03:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:03:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:03:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:04:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:04:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:04:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:05:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:05:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:05:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:06:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:06:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:06:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:07:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:07:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:07:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:08:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:08:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:08:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:09:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:09:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:09:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:10:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:10:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:10:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:11:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:11:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:11:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:12:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:12:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:12:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:13:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:13:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:13:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:14:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:14:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:14:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:15:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:15:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:15:STATUS:ON": {
+      "nominal": "TRUE"
+    },
+    "BR:MAG:VCM:16:CURRENT:RB": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:16:CURRENT:SP": {
+      "nominal": 0.0
+    },
+    "BR:MAG:VCM:16:STATUS:ON": {
       "nominal": "TRUE"
     },
     "BTS:DIAG:BPM:01:POSITION:X": {
@@ -1148,126 +1370,6 @@
     "GTL:RF:SHB:02:VOLTAGE:SP": {
       "nominal": 12.0
     },
-    "LINE:DIAG:BPM:01:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:01:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:02:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:02:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:03:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:03:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:04:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:04:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:01:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:01:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:02:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:02:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:03:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:03:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:04:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:04:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:QD:01:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:01:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:02:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:02:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:03:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:03:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:04:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:04:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:01:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:01:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:02:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:02:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:03:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:03:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:04:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:04:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:VCM:01:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:01:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:02:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:02:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:03:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:03:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:04:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:04:CURRENT:SP": {
-      "nominal": 0.0
-    },
     "LN:DIAG:BPM:01:POSITION:X": {
       "nominal": 0.0
     },
@@ -1848,7 +1950,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:04:POSITION:X": {
-      "nominal": 0.006710791876723221
+      "nominal": 0.00671079187672322
     },
     "SR:DIAG:BPM:04:POSITION:Y": {
       "nominal": 0.0
@@ -2064,7 +2166,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:13:POSITION:X": {
-      "nominal": 0.014573062267032349
+      "nominal": 0.014573062267032347
     },
     "SR:DIAG:BPM:13:POSITION:Y": {
       "nominal": 0.0
@@ -2232,7 +2334,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:20:POSITION:X": {
-      "nominal": -0.006915339323727829
+      "nominal": -0.006915339323727828
     },
     "SR:DIAG:BPM:20:POSITION:Y": {
       "nominal": 0.0
@@ -2328,7 +2430,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:24:POSITION:X": {
-      "nominal": -0.0027343897273196926
+      "nominal": -0.002734389727319692
     },
     "SR:DIAG:BPM:24:POSITION:Y": {
       "nominal": 0.0
@@ -2496,7 +2598,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:31:POSITION:X": {
-      "nominal": 0.007748771623293547
+      "nominal": 0.007748771623293546
     },
     "SR:DIAG:BPM:31:POSITION:Y": {
       "nominal": 0.0
@@ -2592,7 +2694,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:35:POSITION:X": {
-      "nominal": -0.008612994108250324
+      "nominal": -0.008612994108250322
     },
     "SR:DIAG:BPM:35:POSITION:Y": {
       "nominal": 0.0
@@ -2616,7 +2718,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:36:POSITION:X": {
-      "nominal": -0.014396793661144498
+      "nominal": -0.014396793661144497
     },
     "SR:DIAG:BPM:36:POSITION:Y": {
       "nominal": 0.0
@@ -3480,7 +3582,7 @@
       "nominal": 100.0
     },
     "SR:DIAG:BPM:72:POSITION:X": {
-      "nominal": 0.0006702227760542982
+      "nominal": 0.0006702227760542981
     },
     "SR:DIAG:BPM:72:POSITION:Y": {
       "nominal": 0.0
@@ -14207,10 +14309,10 @@
     "SR:VAC:VALVE:24:STATUS:READY": {
       "nominal": "TRUE"
     },
-    "ca:SIM:BTS:STATUS": {
+    "ca:SIM:BR:STATUS": {
       "nominal": "ok"
     },
-    "ca:SIM:LINE:STATUS": {
+    "ca:SIM:BTS:STATUS": {
       "nominal": "ok"
     },
     "ca:SIM:LTB:STATUS": {

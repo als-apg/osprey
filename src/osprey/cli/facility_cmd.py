@@ -6,7 +6,7 @@ nothing. The checks are the build's own stages, run to the first that fails;
 every error of that stage is printed, sorted, one line each on stderr. A clean
 tree is then taken through the render of the repo's main profile, made in a
 temporary directory with the build's ``--skip-deps`` semantics and discarded, so
-every view :func:`osprey.facility.render.render_facility_outputs` writes is
+every view :func:`osprey.facility.views.outputs.render_facility_outputs` writes is
 checked against a real render without a file of it reaching the repo. On a clean
 tree the response check runs before the render and prints one line per kept
 response export. When the check left rows out of the comparison, a second line
@@ -66,7 +66,7 @@ neither a repo nor an export.
 
 ``osprey facility import list FILE`` writes a CSV channel list as the list
 layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
-states a device's ``s``, ``devices.yaml`` beside it. It writes channel and device
+names a device, ``devices.yaml`` beside it. It writes channel and device
 records. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes no layer file and exits 1.
 
@@ -84,6 +84,7 @@ command body, so ``osprey --help`` does not load them.
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,8 +98,8 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
     from osprey.facility.bundled import Classification
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.roots import FacilityRoots
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.roots import FacilityRoots
 
     from .build_profile_load import LoadedProfile
 
@@ -114,8 +115,13 @@ def facility() -> None:
 
 @facility.command("validate")
 @repo_option
+@click.option(
+    "--all-limits",
+    is_flag=True,
+    help="List every address of the limits findings, not the first ten.",
+)
 @click.pass_context
-def validate(ctx: click.Context, repo: Path | None) -> None:
+def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
     """Check data/facility/ and render every facility view in memory; writes nothing.
 
     A profile that states machine: validates that machine root, with the
@@ -134,13 +140,27 @@ def validate(ctx: click.Context, repo: Path | None) -> None:
     not change the exit code. A scenario that moves a readback beyond its
     setpoint's tolerance, and a lane whose float setpoints declare no
     tolerance, print the build's settle-tolerance warning on stderr; it does
-    not change the exit code. When the facility file holds relation claims,
-    one summary line closes stderr:
+    not change the exit code. Two limits findings follow on stderr, each a
+    ``limits:`` count line and one line per address (the first ten and a
+    count of the rest, unless --all-limits): the setpoints with no
+    limits record (served writable with no range when the target's limits
+    mode is ``optional``, refused otherwise) and the limits records that serve
+    their setpoint not writable until they state what their line lacks; they
+    report and change nothing, the exit code included. When the facility file
+    holds relation claims, one summary line closes stderr:
     ``relations: N claims (S stated, I inferred); A accepted, C contested``,
     with ``, X superseded`` appended when any claim is superseded; a facility
     without claims prints no such line.
     """
-    built = _build_in_memory(ctx, repo)
+    from osprey.facility.views.limits import limits_findings
+    from osprey.facility.views.simulator import unlisted_setpoints_writable
+    from osprey_facility.records import FacilityRecords
+
+    built = _build_in_memory(ctx, repo, read_config=True)
+    records = FacilityRecords(built.document)
+    writable = unlisted_setpoints_writable(built.rendered_config)
+    for finding in limits_findings(records, writable, every=all_limits):
+        click.echo(finding, err=True)
     line = _relation_summary(built.document)
     if line is not None:
         click.echo(line, err=True)
@@ -157,7 +177,7 @@ def _relation_summary(document: dict[str, Any]) -> str | None:
         with ``, X superseded`` appended when X is nonzero, or ``None`` when
         the file holds no claims. A claim without ``basis`` counts as stated.
     """
-    from osprey.facility.relations import ACCEPTED, CONTESTED, SUPERSEDED
+    from osprey_facility.relations import ACCEPTED, CONTESTED, SUPERSEDED
 
     claims = document.get("relations") or []
     if not claims:
@@ -208,12 +228,13 @@ def _build_in_memory(
     """
     import tempfile
 
-    from osprey.facility.build import LATER_STAGES
-    from osprey.facility.layers.mml.response_check import check_responses
-    from osprey.facility.layers.mml.response_check import report as report_responses
-    from osprey.facility.render import facility_digest
-    from osprey.facility.validate import report, report_warnings, run_stages
+    from osprey.registry.scenario_servers import check_scenario_servers
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.build import LATER_STAGES
+    from osprey_facility.layers.mml.response_check import check_responses
+    from osprey_facility.layers.mml.response_check import report as report_responses
+    from osprey_facility.render import facility_digest
+    from osprey_facility.validate import run_stages
 
     from .build_cmd import (
         _content_dir,
@@ -226,6 +247,7 @@ def _build_in_memory(
         _stated_machine_route,
     )
     from .build_environment import _plan_project_venv
+    from .facility_report import report_errors, report_warnings
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
@@ -274,9 +296,10 @@ def _build_in_memory(
         later=LATER_STAGES,
         content_dir=content_dir,
         judges_kinds=_judges_kinds(build_profile, content_dir),
+        extra_checks=(check_scenario_servers,),
     )
     if not result.ok:
-        report(result.errors)
+        report_errors(result.errors)
         ctx.exit(1)
     report_warnings(result.validated.warnings)
     document = result.validated.document
@@ -349,7 +372,7 @@ def _build_in_memory(
 
 def _counts(records: FacilityRecords) -> dict[str, Any]:
     """The records per kind, the relation claims, and the wiring records per model."""
-    from osprey.facility.records import RECORD_KINDS
+    from osprey_facility.records import RECORD_KINDS
 
     counts: dict[str, Any] = {
         key: len(records.of_kind(kind)) for kind, key, _id in RECORD_KINDS[:4]
@@ -368,7 +391,7 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
     ``reason`` is present only on a view the render does not carry.
     """
     from osprey.facility import views
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
     inputs = views.ViewInputs(
         records=FacilityRecords(built.document),
@@ -393,9 +416,9 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
 
 def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     """The ``facility show`` document of the whole facility."""
-    from osprey.facility.records import FacilityRecords
-    from osprey.facility.served import resolve_served
     from osprey.facility.views.facts import facts_document
+    from osprey_facility.records import FacilityRecords
+    from osprey_facility.served import resolve_served
 
     records = FacilityRecords(built.document)
     served = resolve_served(built.rendered_config, records)
@@ -429,7 +452,7 @@ def _claims_of(claims: list[Mapping[str, Any]], kind: str, id_: str) -> list[dic
     claim names it at both ends (``other`` is then the record itself). ``unit``
     is the unit given on the claim's place end, the object's first.
     """
-    from osprey.facility.relations import end_identity
+    from osprey_facility.relations import end_identity
 
     listed = []
     for claim in claims:
@@ -469,12 +492,12 @@ def _record(document: dict[str, Any], text: str) -> list[dict[str, Any]] | str:
 
     ``text`` is tried as a record id (every kind, ``RECORD_KINDS`` order), then
     as a relation claim id, then as a place or device name
-    (:meth:`~osprey.facility.records.FacilityRecords.lookup`); the first that
+    (:meth:`~osprey_facility.records.FacilityRecords.lookup`); the first that
     finds anything answers. Each entry's ``match`` says how it matched (``id``,
     ``claim``, ``name``, ``segment``); a place or device entry lists in
     ``claims`` the claims it is an end of.
     """
-    from osprey.facility.records import FacilityRecords
+    from osprey_facility.records import FacilityRecords
 
     records = FacilityRecords(document)
     claims = [claim for claim in document.get("relations") or [] if isinstance(claim, Mapping)]
@@ -673,11 +696,6 @@ def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
     return roots
 
 
-def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
-    """The machine root: ``machine:`` when the profile states it, else ``data/facility``."""
-    return _facility_roots(resolved, repo_root).machine
-
-
 def _shown(path: Path, repo_root: Path) -> str:
     """A path as the verb prints it: relative to the repo when it is inside it."""
     try:
@@ -692,7 +710,7 @@ KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page p
 
 def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
     """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
-    from osprey.facility.layers.mml.seed import (
+    from osprey_facility.layers.mml.seed import (
         IDENTITY_FILE,
         LIMITS_FILE,
         MEASUREMENT_DIR,
@@ -732,7 +750,7 @@ def _root_of(roots: FacilityRoots, relative: str) -> Path:
     The deployment's content directories are the content root's; everything
     else is the machine root's. For a single tree both are the same directory.
     """
-    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+    from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 
     if relative.split("/", 1)[0] in DEPLOYMENT_CONTENT_DIRS:
         return roots.content
@@ -748,11 +766,10 @@ def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
     is left out of that union: it never names a bundled facility and the
     import does not act on its class.
     """
-    import shutil
     import tempfile
 
     from osprey.facility.bundled import classify
-    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
+    from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
 
     if not roots.mounted:
         return classify(roots.machine, template_root)
@@ -790,7 +807,7 @@ def _prune_empty(facility_dir: Path) -> None:
     Version-control metadata is left as it is: a machine root that is a clone
     keeps its ``.git``.
     """
-    from osprey.facility.roots import is_vcs_metadata
+    from osprey_facility.roots import is_vcs_metadata
 
     directories = (
         path
@@ -808,7 +825,7 @@ def _holds_a_layer(facility_dir: Path) -> bool:
     Every format's layer holds a ``channels.yaml``. A mapping or a source file
     waiting in the layer directory for a first import is no layer.
     """
-    from osprey.facility.bundled import LAYER_ROOT
+    from osprey_facility.layers import LAYER_ROOT
 
     return any((facility_dir / LAYER_ROOT).glob("*/channels.yaml"))
 
@@ -819,8 +836,8 @@ def _replace_or_refuse(
     """Make the facility tree ready for a format; every format under the group calls it first.
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed, and files seeded under the former header are
-    named apart with the line that fixes them. A tree that already holds an
+    exit 1 with nothing changed; files seeded under the retired header are read
+    as seeded and named in one warning with the line that updates them. A tree that already holds an
     imported layer is past the first: records written by hand beside a layer
     are the facility's own additions, which the build combines with the layers,
     and no later import refuses them. Otherwise bundled files are replaced, and the
@@ -832,47 +849,43 @@ def _replace_or_refuse(
     are classified together; each bundled file is removed under its own root,
     and the knowledge indexes settled are the content root's.
     """
-    from osprey.facility.bundled import under_former_header
-    from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
+    from osprey_facility.layers import HEADER
 
     from .templates.manager import TemplateManager
 
     facility_dir = roots.machine
     writes = _writes()[verb]
     kinds = _classify(roots, Path(TemplateManager().template_root))
+    lines = []
+    if kinds.retired_header:
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+            "the retired header, read as seeded:",
+            *(_shown(facility_dir / path, repo_root) for path in kinds.retired_header),
+            f"set line 1 of each to: {HEADER}",
+        ]
     overlap = [
         (path, kind)
         for path in kinds.authored
         for entry, kind in writes
         if path == entry or path.startswith(f"{entry}/")
     ]
-    if overlap:
-        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
-        written = [(path, kind) for path, kind in overlap if path not in former]
-        if _holds_a_layer(facility_dir):
-            written = []
-        lines = []
-        if written:
-            found = {kind for _path, kind in written}
-            named = _named_together([kind for _entry, kind in writes if kind in found])
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
-                "records, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
-                "move corrections into fixes.yaml and remove the record sources, "
-                "or start a new repo: osprey init <name> --preset demo",
-            ]
-        if former:
-            lines += [
-                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
-                "the old header, which this import writes:",
-                *(_shown(facility_dir / path, repo_root) for path in former),
-                f"set line 1 of each to: {HEADER}",
-            ]
-        if lines:
-            click.echo("\n".join(lines), err=True)
-            ctx.exit(1)
+    refused = bool(overlap) and not _holds_a_layer(facility_dir)
+    if refused:
+        found = {kind for _path, kind in overlap}
+        named = _named_together([kind for _entry, kind in writes if kind in found])
+        lines += [
+            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+            "records, which this import writes:",
+            *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
+            "move corrections into fixes.yaml and remove the record sources, "
+            "or start a new repo: osprey init <name> --preset demo",
+        ]
+    if lines:
+        click.echo("\n".join(lines), err=True)
+    if refused:
+        ctx.exit(1)
     if kinds.bundled:
         _remove_bundled(roots, kinds.bundled)
         click.echo(
@@ -893,10 +906,9 @@ def _replace_or_refuse(
 def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
-    from importlib.resources import files
+    from osprey_facility.layers.mml.importer import exporter_script
 
-    exporter = files("osprey.facility.layers.mml").joinpath("mml_export.m")
-    click.echo(exporter.read_text(encoding="utf-8"), nl=False)
+    click.echo(exporter_script(), nl=False)
     ctx.exit(0)
 
 
@@ -968,10 +980,10 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
-    from osprey.facility.layers.mml.importer import MappingProblems
-    from osprey.facility.layers.mml.importer import import_mml as run_import
-    from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.errors import FacilityUsageError, MappingProblems
+    from osprey_facility.layers.mml.importer import import_mml as run_import
+    from osprey_facility.layers.mml.mapping import MAPPING_FILE, MappingError
 
     repo_root = find_repo_root(repo)
     try:
@@ -984,10 +996,12 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     facility_dir = roots.machine
 
     try:
-        for path in run_import(list(exports), facility_dir):
+        for path in run_import(list(exports), facility_dir, echo=click.echo):
             report(f"wrote {_shown(path, repo_root)}")
     except MappingProblems as stop:
         raise MappingProblems(Path(_shown(stop.path, repo_root)), stop.problems) from None
+    except FacilityUsageError as error:
+        raise click.UsageError(error.format_message(), ctx=ctx) from None
     except MappingError as error:
         mapping = _shown(facility_dir / MAPPING_FILE, repo_root)
         fail(f"{mapping} is not a valid mapping document.", str(error))
@@ -1022,17 +1036,22 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
       model        the model whose deck s is measured in
     A file without an address column holds one address per line.
 
-    Each device a row states s for is written with its s and model to
-    devices.yaml beside the channels. First replaces a bundled facility, saying
-    so in one line, refuses hand-written channel and device records, and seeds
-    the knowledge stub. Exits 1 and writes no layer file when a row names both a device and a place, states an
-    unknown role, has no address or repeats one, states s or model with no
-    device or an s that is not a number, when two rows state different
-    positions for one device, when the header names an unknown column, or
-    while the profile does not resolve.
+    Each device a row names is written to devices.yaml beside the channels,
+    with its s and model where a row states them. A misspelt device cell makes
+    a device of its own: when other sources declare devices too, the import
+    prints a line naming those only this list declares. First replaces a
+    bundled facility, saying so in one line, refuses hand-written channel and
+    device records, and seeds the knowledge stub. Exits 1 and writes no layer
+    file when a row names both a device and a place, states an unknown role,
+    has no address or repeats one, states s or model with no device or an s
+    that is not a number, when two rows state different positions for one
+    device, when the header names an unknown column, or while the profile does
+    not resolve.
     """
-    from osprey.facility.layers.list import import_list as run_import
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.layers.list import import_list as run_import
+
+    from .facility_report import report_lines
 
     repo_root = find_repo_root(repo)
     try:
@@ -1043,7 +1062,9 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
 
     _replace_or_refuse(ctx, "list", roots, repo_root)
 
-    for path in run_import(listing, roots.machine):
+    written, lines = run_import(listing, roots.machine)
+    report_lines(lines)
+    for path in written:
         report(f"wrote {_shown(path, repo_root)}")
 
 
@@ -1098,8 +1119,8 @@ def import_relations(
     name is refused, when any table has a row the layer refuses, or while the
     profile does not resolve.
     """
-    from osprey.facility.layers.relations import import_relations as run_import
     from osprey_connectors.errors import BuildProfileError
+    from osprey_facility.layers.relations import import_relations as run_import
 
     repo_root = find_repo_root(repo)
     try:

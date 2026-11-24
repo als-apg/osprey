@@ -36,7 +36,7 @@ whose kwargs are::
     {
       "control_system": {...},          # the full control_system config section
       "target": "live" | "va",          # the control target, never defaulted
-      "config_file": "/abs/config.yml", # optional: what CONFIG_FILE to read
+      "config_file": "/abs/config.yml", # optional: the config file to read
       "execution_mode": "readonly"      # optional: restrict this child to reads
     }
 
@@ -698,7 +698,12 @@ async def _build_connector(
         # The connector reads writes_enabled and the limits database — the home
         # of the per-channel confirm policy — from the project config, so the
         # child must be pointed at the same file the parent resolved against.
+        # Both names: the default config reads CONFIG_FILE, but
+        # resolve_config_path (behind every data-root lookup) reads only
+        # OSPREY_CONFIG, which this child would otherwise inherit from the
+        # parent's environment.
         os.environ["CONFIG_FILE"] = str(config_file)
+        os.environ["OSPREY_CONFIG"] = str(config_file)
     if payload.get("execution_mode") == "readonly":
         # Restriction only: an inherited readonly claim is never cleared here.
         os.environ[POSTURE_ENV_VAR] = SANDBOX_MODE

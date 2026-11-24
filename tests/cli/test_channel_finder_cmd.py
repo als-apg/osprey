@@ -17,7 +17,7 @@ import pytest
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
-from osprey.facility.records import FacilityRecords
+from osprey_facility.records import FacilityRecords
 from tests.cli._unrecorded import (
     a_host_local_record_is_up,
     act_as_a_recording_child,
@@ -453,37 +453,6 @@ class TestInContextIndexRender:
 
 
 # ============================================================================
-# Import Smoke Tests
-# ============================================================================
-
-
-class TestImportSmoke:
-    """Test that cleaned-up modules are importable."""
-
-    def test_channel_finder_cmd_importable(self):
-        """channel_finder_cmd module is importable."""
-        from osprey.cli.channel_finder_cmd import (
-            channel_finder,
-            preview,
-            validate,
-        )
-
-        assert channel_finder is not None
-        assert validate is not None
-        assert preview is not None
-
-    def test_import_native_tools(self):
-        """Native tool modules are importable."""
-        from osprey.services.channel_finder.tools.preview_database import preview_database
-        from osprey.services.channel_finder.tools.validate_database import (
-            validate_json_structure,
-        )
-
-        assert preview_database is not None
-        assert validate_json_structure is not None
-
-
-# ============================================================================
 # CLI Error Path Tests
 # ============================================================================
 
@@ -525,37 +494,29 @@ class TestCLIErrorPaths:
 class TestParseQueryIndices:
     """Tests for the _parse_query_indices helper."""
 
-    def test_all(self):
-        assert _parse_query_indices("all", 10) == list(range(10))
+    @pytest.mark.parametrize(
+        ("spec", "total", "expected"),
+        [
+            pytest.param("all", 10, list(range(10)), id="all"),
+            pytest.param("all", 0, [], id="all-zero-total"),
+            pytest.param("0:5", 10, [0, 1, 2, 3, 4], id="slice"),
+            pytest.param("0:100", 10, list(range(10)), id="slice-clamped"),
+            pytest.param("5:5", 10, [], id="slice-empty"),
+            pytest.param("0,5,10", 20, [0, 5, 10], id="comma-separated"),
+            pytest.param("3", 10, [3], id="single-index"),
+            pytest.param("10,5,0", 20, [0, 5, 10], id="comma-sorted"),
+        ],
+    )
+    def test_valid(self, spec, total, expected):
+        assert _parse_query_indices(spec, total) == expected
 
-    def test_all_zero_total(self):
-        assert _parse_query_indices("all", 0) == []
-
-    def test_slice(self):
-        assert _parse_query_indices("0:5", 10) == [0, 1, 2, 3, 4]
-
-    def test_slice_clamped(self):
-        assert _parse_query_indices("0:100", 10) == list(range(10))
-
-    def test_slice_empty(self):
-        assert _parse_query_indices("5:5", 10) == []
-
-    def test_comma_separated(self):
-        assert _parse_query_indices("0,5,10", 20) == [0, 5, 10]
-
-    def test_single_index(self):
-        assert _parse_query_indices("3", 10) == [3]
-
-    def test_comma_sorted(self):
-        assert _parse_query_indices("10,5,0", 20) == [0, 5, 10]
-
-    def test_invalid_text(self):
+    @pytest.mark.parametrize(
+        "spec",
+        [pytest.param("abc", id="text"), pytest.param("1:2:3", id="triple-colon")],
+    )
+    def test_invalid(self, spec):
         with pytest.raises(click.BadParameter):
-            _parse_query_indices("abc", 10)
-
-    def test_invalid_triple_colon(self):
-        with pytest.raises(click.BadParameter):
-            _parse_query_indices("1:2:3", 10)
+            _parse_query_indices(spec, 10)
 
 
 # ============================================================================
