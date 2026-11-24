@@ -176,7 +176,7 @@ def test_one_group_named_for_both_planes_gives_the_block_both_plane_arrays(
     tmp_path: Path,
 ) -> None:
     tree = measured_tree()
-    tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
+    tree["simulation/measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     render = _render(tmp_path, tree, {})
     line = hook_measurement(_facts(render), render)["LINE"]
     assert line["kinds"] == {"orm": {"hcor": "LINE_HCM_h", "vcor": "LINE_HCM_v"}}
@@ -201,13 +201,13 @@ def _with_crm(tree: dict[str, Any]) -> dict[str, Any]:
         {"id": "SX:SP", "role": "setpoint", "on": {"device": "SR/SX"}}
     )
     tree["records/groups.yaml"].append({"id": "SR/S", "members": ["SR/SX"]})
-    (sr,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (sr,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr["wiring"].append(
         {"address": "SX:SP", "element": "SX", "engine": {"attribute": "PolynomB", "index": 2}}
     )
-    tree["measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
-    tree["measurement/SR.yaml"]["kinds"] = ["trm", "crm"]
-    tree["measurement/SR.yaml"]["sextu_delta"] = 0.01
+    tree["simulation/measurement/SR.yaml"]["groups"]["sext"] = "SR/S"
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["trm", "crm"]
+    tree["simulation/measurement/SR.yaml"]["sextu_delta"] = 0.01
     return tree
 
 
@@ -221,7 +221,7 @@ def test_the_block_lists_each_listed_kind_with_every_role_it_steps(
     render = _render(tmp_path, built, {})
     block = hook_measurement(_facts(render), render)
     for model, entry in block.items():
-        listed = built[f"measurement/{model}.yaml"]["kinds"]
+        listed = built[f"simulation/measurement/{model}.yaml"]["kinds"]
         assert set(entry["kinds"]) == set(listed)
         for kind, stepped in entry["kinds"].items():
             assert set(stepped) == set(registered()[kind].stepped_roles)

@@ -700,7 +700,10 @@ def test_a_hierarchical_build_writes_the_index(built_demo: BuiltProject, tmp_pat
 
 @pytest.mark.parametrize(
     ("stated_in", "sources"),
-    [("fixes.yaml", ("fixes.yaml",)), ("records/channels.yaml", ("records/channels.yaml",))],
+    [
+        ("provenance/fixes.yaml", ("provenance/fixes.yaml",)),
+        ("records/channels.yaml", ("records/channels.yaml",)),
+    ],
 )
 def test_a_view_stop_names_the_file_that_states_its_record(
     tmp_path: Path, stated_in: str, sources: tuple[str, ...]
@@ -713,9 +716,9 @@ def test_a_view_stop_names_the_file_that_states_its_record(
 
     tree = plain_tree()
     channel = {"id": "_LAB:TEMP"}
-    if stated_in == "fixes.yaml":
+    if stated_in == "provenance/fixes.yaml":
         fix = {"op": "add", "kind": "channel", "id": channel["id"], "record": {}, "why": "A lab."}
-        tree["fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": [fix]}
+        tree["provenance/fixes.yaml"] = {"schema": FIXES_HEADER, "fixes": [fix]}
     else:
         tree["records/channels.yaml"].append(channel)
     document = build_facility(

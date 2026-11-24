@@ -28,7 +28,9 @@ MODEL = "SR"
 
 
 def _scenario(name: str) -> dict[str, Any]:
-    return yaml.safe_load((FACILITY / "scenarios" / f"{name}.yaml").read_text(encoding="utf-8"))
+    return yaml.safe_load(
+        (FACILITY / "simulation" / "scenarios" / f"{name}.yaml").read_text(encoding="utf-8")
+    )
 
 
 def test_an_unplaned_monitor_error_lands_on_both_readings() -> None:
@@ -46,7 +48,7 @@ def test_a_corrector_gain_is_its_setpoint_calibration() -> None:
 
 def test_the_demo_build_carries_every_scenario_verbatim(built_demo: Any) -> None:
     built = {s["name"]: s for s in built_demo.facility["scenarios"]}
-    for path in sorted((FACILITY / "scenarios").glob("*.yaml")):
+    for path in sorted((FACILITY / "simulation" / "scenarios").glob("*.yaml")):
         source = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert built[path.stem] == {"name": path.stem, **source}
 
@@ -60,7 +62,7 @@ TANGO = "sr/d-bpm/1/x"
 def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
     tree = plain_tree()
     tree["records/channels.yaml"].append({"id": TANGO, "on": {"device": "SR/BPM1"}})
-    tree["models.yaml"] = [
+    tree["simulation/models.yaml"] = [
         {
             "name": "optics",
             "engine": "pyat",
@@ -71,7 +73,10 @@ def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
         }
     ]
     faults = {"optics": {TANGO: {"offset": 1.0e-4, "roll": 0.01}}}
-    tree["scenarios/tango.yaml"] = {"faults": faults, "channel_faults": {"Q1:SP": "stuck"}}
+    tree["simulation/scenarios/tango.yaml"] = {
+        "faults": faults,
+        "channel_faults": {"Q1:SP": "stuck"},
+    }
 
     document = build_facility(
         write_tree(tmp_path / "facility", tree), project_name="demo", extra_checks=FRAMEWORK_CHECKS
@@ -93,7 +98,7 @@ def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
 ) -> None:
     tree = plain_tree()
     if authored is not None:
-        tree[f"scenarios/{name}.yaml"] = authored
+        tree[f"simulation/scenarios/{name}.yaml"] = authored
     facility_dir = write_tree(tmp_path / "facility", tree)
     document = build_facility(facility_dir, project_name="demo", extra_checks=FRAMEWORK_CHECKS)
 
@@ -112,7 +117,7 @@ def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
 
 def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -> None:
     tree = plain_tree()
-    tree["scenarios/hush.yaml"] = {"still": STILL_ALL.upper()}
+    tree["simulation/scenarios/hush.yaml"] = {"still": STILL_ALL.upper()}
 
     with pytest.raises(FacilityBuildError) as caught:
         build_facility(
@@ -132,7 +137,7 @@ def test_an_override_off_its_band_prints_every_digit_it_carries(tmp_path: Path) 
     tree["limits.yaml"] = {
         "records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.2345678}]
     }
-    tree["scenarios/warm.yaml"] = {"overrides": {"Q1:SP": 1.23456789}}
+    tree["simulation/scenarios/warm.yaml"] = {"overrides": {"Q1:SP": 1.23456789}}
 
     with pytest.raises(FacilityBuildError) as caught:
         build_facility(
@@ -147,7 +152,9 @@ def test_an_override_off_its_band_prints_every_digit_it_carries(tmp_path: Path) 
 def test_a_fault_value_off_its_range_prints_every_digit_it_carries() -> None:
     fault = SimpleNamespace(options=None, value_range=(0.0, 0.123456789))
 
-    errors = list(_value_errors("warm", ["scenarios/warm.yaml"], "offset", 0.1234567891, fault))
+    errors = list(
+        _value_errors("warm", ["simulation/scenarios/warm.yaml"], "offset", 0.1234567891, fault)
+    )
 
     assert [(error.detail, error.remedy) for error in errors] == [
         (

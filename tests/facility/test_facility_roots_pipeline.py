@@ -114,7 +114,7 @@ def test_a_nested_git_edit_leaves_the_digest_unchanged(tmp_path: Path) -> None:
     nested = _git(tree, "records")
     (top / "HEAD").write_text("ref: refs/heads/other\n")
     (nested / "objects" / "ab").write_bytes(b"\x00blob")
-    (tree / "decks" / ".git").write_text("gitdir: ../../.git/modules/decks\n")
+    (tree / "simulation" / "decks" / ".git").write_text("gitdir: ../../.git/modules/decks\n")
 
     assert facility_digest(tree) == before
 
@@ -318,6 +318,6 @@ def test_classify_skips_version_control_metadata(tmp_path: Path) -> None:
     before = classify(tree, TEMPLATE_ROOT)
     _git(tree)
     _git(tree, "records")
-    (tree / "decks" / ".git").write_text("gitdir: ../../.git/modules/decks\n")
+    (tree / "simulation" / "decks" / ".git").write_text("gitdir: ../../.git/modules/decks\n")
 
     assert classify(tree, TEMPLATE_ROOT) == before

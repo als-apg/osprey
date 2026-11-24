@@ -45,7 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
 CF_INDEX_DIR = GOLDEN_DIR / "cf_index_pre_line"
 
-QUERY_DIR = REPO_ROOT / "src/osprey/templates/facilities/example/benchmarks/cross_paradigm/queries"
+QUERY_DIR = REPO_ROOT / "src/osprey/templates/facilities/example/benchmarks/channel_finder"
 
 #: The benchmark queries the pre-LINE tree indexes are scored against; every
 #: query names the addresses it targets in ``targeted_pv``.
