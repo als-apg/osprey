@@ -258,11 +258,10 @@ of the IOCs view. Ask the agent *"which IOCs are down?"* and its
 the current setpoints and readbacks of the BTS correctors, quadrupoles and
 bends, the BTS BPM positions and the status and health channels of the IOC
 itself give no answer, so a BTS trajectory read or steering write fails. Only
-the IOC's answers stop, not the magnets or the beam: the other ``BTS:``
-channels (magnet statuses, screens, BPM sum signals, the charge monitor) are
-served by ``sim-texture`` and keep answering, as do the storage ring, the
-booster and the LTB line, and injection and the stored beam are unchanged.
-To start the IOC again, run ``osprey sim apply rf-thermal
+the IOC's answers stop: the other ``BTS:`` channels (magnet statuses, screens,
+BPM sum signals, the charge monitor) are served by ``sim-texture`` and keep
+answering, as do the storage ring, the booster and the LTB line, and injection
+and the stored beam are unchanged. To start the IOC again, run ``osprey sim apply rf-thermal
 demo-history``, and it returns to ``alive`` within two refresh periods. Both
 commands reseed the logbook and the archive windows of the active set
 (:doc:`/how-to/control-systems/use-virtual-accelerator`).
