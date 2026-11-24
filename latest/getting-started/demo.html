@@ -517,9 +517,8 @@ dependencies. Subsequent builds are near-instant.</p>
 agent reads and writes — a containerized simulator with LUME-backed physics, laid
 out in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> — and the <strong>archive</strong>, a
 MongoDB store and a recorder service that holds what those channels did.</p>
-<p>The simulator serves two physics models: <code class="docutils literal notranslate"><span class="pre">SR</span></code>, solved as a periodic machine,
-and <code class="docutils literal notranslate"><span class="pre">LINE</span></code>, a short synthetic transfer line solved single-pass, whose
-channels start with <code class="docutils literal notranslate"><span class="pre">LINE:</span></code>.</p>
+<p>The simulator serves three physics models: <code class="docutils literal notranslate"><span class="pre">SR</span></code>, solved as a periodic machine,
+and the transfer lines <code class="docutils literal notranslate"><span class="pre">LTB</span></code> and <code class="docutils literal notranslate"><span class="pre">BTS</span></code>, solved single-pass.</p>
 <p><strong>The first deploy seeds the archive</strong>, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
 serves, reporting a step under the start phase every 15 seconds or so while it
@@ -666,18 +665,21 @@ graph or the directory holds. For the other search strategies, see
 server went down. The preset’s server fleet service reads the heartbeat of
 every simulated server every 10 s. The simulator uses the EPICS words, so its
 servers are IOCs, and the panel lists them in the <strong>IOCs</strong> view, each as
-<code class="docutils literal notranslate"><span class="pre">alive</span></code>. The <code class="docutils literal notranslate"><span class="pre">line-server-stopped</span></code> scenario stops the transfer-line IOC
-<code class="docutils literal notranslate"><span class="pre">sim-LINE</span></code>. Add it to the active set:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal<span class="w"> </span>demo-history<span class="w"> </span>line-server-stopped
+<code class="docutils literal notranslate"><span class="pre">alive</span></code>. The <code class="docutils literal notranslate"><span class="pre">bts-server-stopped</span></code> scenario stops <code class="docutils literal notranslate"><span class="pre">sim-BTS</span></code>, the IOC of the
+booster-to-storage transfer line. Add it to the active set:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal<span class="w"> </span>demo-history<span class="w"> </span>bts-server-stopped
 </pre></div>
 </div>
-<p>Within two refresh periods <code class="docutils literal notranslate"><span class="pre">sim-LINE</span></code> turns <code class="docutils literal notranslate"><span class="pre">silent</span></code> and moves to the top
+<p>Within two refresh periods <code class="docutils literal notranslate"><span class="pre">sim-BTS</span></code> turns <code class="docutils literal notranslate"><span class="pre">silent</span></code> and moves to the top
 of the IOCs view. Ask the agent <em>“which IOCs are down?”</em> and its
 <code class="docutils literal notranslate"><span class="pre">server_fleet</span></code> tool names it. Everything the IOC serves goes quiet with it:
-every channel starting <code class="docutils literal notranslate"><span class="pre">LINE:</span></code> (BPMs, correctors, quadrupoles) and the
-status and health channels of the IOC itself give no answer, so a LINE scan
-or orbit read fails. The storage ring and the BTS and LTB lines keep
-answering. To start the IOC again, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">rf-thermal</span>
+the current setpoints and readbacks of the BTS correctors, quadrupoles and
+bends, the BTS BPM positions and the status and health channels of the IOC
+itself give no answer, so a BTS trajectory read or steering write fails. Only
+the IOC’s answers stop: the other <code class="docutils literal notranslate"><span class="pre">BTS:</span></code> channels (magnet statuses, screens,
+BPM sum signals, the charge monitor) are served by <code class="docutils literal notranslate"><span class="pre">sim-texture</span></code> and keep
+answering, as do the storage ring, the booster and the LTB line, and injection
+and the stored beam are unchanged. To start the IOC again, run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">rf-thermal</span>
 <span class="pre">demo-history</span></code>, and it returns to <code class="docutils literal notranslate"><span class="pre">alive</span></code> within two refresh periods. Both
 commands reseed the logbook and the archive windows of the active set
 (<a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>).

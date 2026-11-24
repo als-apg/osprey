@@ -734,23 +734,24 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
 .. code-block:: yaml
 
-   - name: LINE
+   - name: BTS
      engine: pyat
-     deck: decks/LINE.json
+     deck: decks/BTS.json
      settings:
        pyat:
          solve: single_pass
          twiss_in:
-           beta: [7.448848, 4.786082]
-           alpha: [-1.333207, 0.885765]
+           beta: [0.63, 9.6]
+           alpha: [-0.32, 2.42]
+           dispersion: [0.074, 0.018, 0.0, 0.0]
      wiring:
-     - address: LINE:DIAG:BPM:01:POSITION:X
-       element: BPM01
+     - address: BTS:DIAG:BPM:01:POSITION:X
+       element: BPM1
        engine:
          axis: x
        calibration:
          curve:
-           linear: {gain: 1.0, offset: 0.0}
+           linear: {gain: 0.001, offset: 0.0}
          energy_scaling: none
 
 The ``pyat`` settings may also carry ``error_elements``, a list of
@@ -857,16 +858,16 @@ further address is a channel of its own:
 
 .. code-block:: yaml
 
-   - id: LINE:RACK:03:UNIT:01:X
+   - id: BTS:RACK:03:UNIT:01:X
      label: BPM 01 horizontal position, as the rack unit names it
 
 and the record lists it under ``also``:
 
 .. code-block:: yaml
 
-   - address: LINE:DIAG:BPM:01:POSITION:X
-     also: [LINE:RACK:03:UNIT:01:X]
-     element: BPM01
+   - address: BTS:DIAG:BPM:01:POSITION:X
+     also: [BTS:RACK:03:UNIT:01:X]
+     element: BPM1
      engine:
        axis: x
 
@@ -881,7 +882,7 @@ carries no seed of its own, and a limit is still stated per address. A pair is s
 records' ``address`` names: the build stops when an address under ``also``
 states a ``pair``, and when a setpoint's ``pair`` names an address under
 ``also``. A fault variable is named by ``address``
-only (``LINE:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
+only (``BTS:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
 (``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
 either. An address belongs to one wiring record: the build stops when two
 records name it, and when two records read the same axis of one monitor.
