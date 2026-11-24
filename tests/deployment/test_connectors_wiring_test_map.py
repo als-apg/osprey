@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import subprocess
 import sys
 import tarfile
@@ -37,6 +38,13 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MAP_PATH = Path(__file__).with_name("connectors_wiring_test_map.json")
+
+#: The collecting host's platform, as ``osprey.integrations.canopy.proven.venue()``
+#: words it. ``tests/scripts/test_check.py`` puts that string into parametrize ids,
+#: so an id is recorded and compared with it replaced by ``VENUE_TOKEN``: the same
+#: test on another host is the same test.
+HOST_VENUE = f"{platform.system()} {platform.machine()}"
+VENUE_TOKEN = "<venue>"
 
 #: The test files this phase rewrites or deletes.
 BASE_FILES = (
@@ -78,6 +86,11 @@ with open(out, "w", encoding="utf-8") as handle:
 """
 
 
+def host_neutral(node_id: str, venue: str = HOST_VENUE) -> str:
+    """``node_id`` with the collecting host's platform replaced by ``VENUE_TOKEN``."""
+    return node_id.replace(venue, VENUE_TOKEN)
+
+
 def digest(ids: Iterable[str]) -> str:
     """The sha256 of the sorted ids, one per line."""
     return hashlib.sha256("\n".join(sorted(ids)).encode()).hexdigest()
@@ -86,7 +99,8 @@ def digest(ids: Iterable[str]) -> str:
 def collect(root: Path, files: Iterable[str]) -> dict[str, bool]:
     """Collect ``files`` (paths relative to ``root``) in a fresh pytest run.
 
-    Returns every collected node id mapped to whether it carries a skip marker.
+    Returns every collected node id, host-neutral (``host_neutral``), mapped to
+    whether it carries a skip marker.
     A file that does not exist is left out, so its ids read as not collected. Any
     other collection failure raises: a broken collection is never a pass.
     """
@@ -118,7 +132,7 @@ def collect(root: Path, files: Iterable[str]) -> dict[str, bool]:
         raise RuntimeError(
             f"collection of {present} in {root} exited {result['exit']}:\n{proc.stdout[-4000:]}"
         )
-    return result["items"]
+    return {host_neutral(node): held for node, held in result["items"].items()}
 
 
 def materialize(sha: str, dest: Path) -> Path:
@@ -345,6 +359,13 @@ def test_self_collection_sees_parametrize_cases_and_skip_markers(tmp_path: Path)
     }
 
 
+def test_self_ids_from_another_host_compare_equal() -> None:
+    darwin = "t.py::test_x[proven on <venue>]"
+    linux = "t.py::test_x[proven on Linux x86_64]"
+    assert host_neutral(darwin, "Darwin arm64") == host_neutral(linux, "Linux x86_64")
+    assert host_neutral(darwin, "Darwin arm64") == "t.py::test_x[proven on <venue>]"
+
+
 def test_self_a_broken_collection_raises(tmp_path: Path) -> None:
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     (tmp_path / "test_broken.py").write_text("import not_a_module_anywhere\n", encoding="utf-8")
@@ -357,7 +378,7 @@ def test_self_a_broken_collection_raises(tmp_path: Path) -> None:
 # (which recorded it) and Task 4.1 (which records the phase head) edit below this line.
 
 BASE_SHA = "5ae6e91a97a153543a22f8278fec9d9f6e027b8a"
-BASE_DIGEST = "c97c89e9aad96a14fd940c2c5593d01eea444c23c232e5d586e7d1a9e0693daa"
+BASE_DIGEST = "19e3c85db2b649c2e18e9097b2d9c823cf11defe966c79ded1c6f961d223a361"
 BASE_IDS: tuple[str, ...] = (
     "tests/deployment/test_ci_workflow_wiring.py::test_a_finished_revalidation_run_files_its_verdict",
     "tests/deployment/test_ci_workflow_wiring.py::test_a_finished_revalidation_run_files_its_verdict__mutation_drops_the_job",
@@ -1785,8 +1806,8 @@ BASE_IDS: tuple[str, ...] = (
     "tests/scripts/test_check.py::test_the_connectors_package_declares_its_own_lanes",
     "tests/scripts/test_check.py::test_the_contract_is_the_canopy_integrations_own",
     "tests/scripts/test_check.py::test_the_contract_runs_in_both_tiers_as_whole_directories",
-    "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb0-0-CANOPY at the proven commits: canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f-0-check: clean; CANOPY contract proven against canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f on Darwin arm64; not run, no base given: ]",
-    "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb1-0-CANOPY at the proven commits: canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f-0-check: clean; CANOPY contract proven against canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f on Darwin arm64]",
+    "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb0-0-CANOPY at the proven commits: canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f-0-check: clean; CANOPY contract proven against canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f on <venue>; not run, no base given: ]",
+    "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb1-0-CANOPY at the proven commits: canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f-0-check: clean; CANOPY contract proven against canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc, PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f on <venue>]",
     "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb2-2-CANOPY contract not run here: CANOPY is not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f-0-check: clean; not run here: canopy-contract (CANOPY contract not run here: CANOPY is not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f); not run, no base given: ]",
     "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb3-2-CANOPY contract not run here: CANOPY is not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f-2-check: refused: canopy-contract (CANOPY contract not run here: CANOPY is not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f: install canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc and PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f from git, PyDMConverter also as a uv pip --override)]",
     "tests/scripts/test_check.py::test_the_contract_runs_only_against_the_proven_install[verb4-1-CANOPY contract proves nothing here: canopy editable, records no commit, PyDMConverter not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f-2-check: refused: canopy-contract (CANOPY contract proves nothing here: canopy editable, records no commit, PyDMConverter not installed; this OSPREY is proven against canopy 8752ab771341, PyDMConverter 4b8183f39d0f: install canopy 8752ab771341e22460f39a0f8d2a3691aa3137bc and PyDMConverter 4b8183f39d0ff5c1c87a33f50fc438f9fd63e97f from git, PyDMConverter also as a uv pip --override)]",
