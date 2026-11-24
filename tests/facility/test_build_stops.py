@@ -279,6 +279,31 @@ def commanded(on: dict[str, Any] | None = None, state: dict[str, Any] | None = N
     return append("records/channels.yaml", changed(COMMAND_ON, on), changed(COMMAND_STATE, state))
 
 
+def responding(**slots: Any) -> dict[str, Any]:
+    """``COMMAND_STATE``'s seed, ``responds`` to ``COMMAND_ON`` with ``slots`` changed."""
+    return {"simulation": {"responds": {"to": "Q1:ON", "for_s": 0.5, **slots}}}
+
+
+#: A second command on the plain tree's quadrupole, and the idle status it pairs with.
+RESET_COMMAND = {
+    "id": "Q1:RESET",
+    "role": "setpoint",
+    "signal": "reset_command",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "pair": "Q1:FAULT",
+    "timeout_s": 1.0,
+    "on": {"device": "SR/Q1"},
+}
+RESET_STATE = {
+    "id": "Q1:FAULT",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "idle": "OFF",
+    "on": {"device": "SR/Q1"},
+}
+
+
 #: The groups file, and the group holding both of the deck tree's SR quadrupoles.
 GROUPS_FILE = "records/groups.yaml"
 QUAD_GROUP = {"id": "SR/Q", "members": ["SR/QF", "SR/QD"]}
@@ -358,6 +383,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ("reference_missing__pair", "reference-missing", "channel `pair`"),
     ("reference_missing__endpoint_of", "reference-missing", "channel `endpoint_of`"),
     ("reference_missing__linear_input", "reference-missing", "`linear` input"),
+    ("reference_missing__responds_to", "reference-missing", "`responds.to`"),
     ("reference_missing__group_member", "reference-missing", "group `members`"),
     ("reference_missing__wiring_address", "reference-missing", "wiring address"),
     ("reference_missing__slice_device", "reference-missing", "`slices[].device`"),
@@ -592,6 +618,17 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "archiver event time with a timezone offset",
     ),
+    (
+        "value_invalid__responds_status_type",
+        "value-invalid",
+        "`responds` on a float or waveform status",
+    ),
+    ("value_invalid__responds_for_s", "value-invalid", "`responds.for_s` not > 0"),
+    (
+        "value_invalid__responds_value_type",
+        "value-invalid",
+        "`responds.value` not of its channel's type",
+    ),
     ("seed_invalid__nominal_out_of_band", "seed-invalid", "nominal out of band"),
     ("seed_invalid__nominal_wired", "seed-invalid", "nominal on a wired channel"),
     ("seed_invalid__motion_on_setpoint", "seed-invalid", "noise/drift on a setpoint"),
@@ -617,6 +654,34 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "a scenario override on a channel any model wires as output",
     ),
     ("seed_invalid__fault_out_of_range", "seed-invalid", "a fault out of range"),
+    ("seed_invalid__responds_wired", "seed-invalid", "`responds` on a wired channel"),
+    (
+        "seed_invalid__responds_without_idle",
+        "seed-invalid",
+        "`responds` on a status that states no `idle`",
+    ),
+    (
+        "seed_invalid__responds_beside_own_value",
+        "seed-invalid",
+        "`responds` beside `nominal` or a value of the seed's own",
+    ),
+    (
+        "seed_invalid__responds_to_further_address",
+        "seed-invalid",
+        "`responds.to` naming a further address of a wiring record",
+    ),
+    ("seed_invalid__responds_to_no_command", "seed-invalid", "`responds.to` naming no command"),
+    (
+        "seed_invalid__responds_to_other_status",
+        "seed-invalid",
+        "`responds.to` naming a command paired with another channel",
+    ),
+    (
+        "seed_invalid__responds_value_missing",
+        "seed-invalid",
+        "`responds` without `value` on a status not of two labels",
+    ),
+    ("seed_invalid__responds_value_idle", "seed-invalid", "`responds.value` equal to `idle`"),
     (
         "seed_missing__band_excludes_zero",
         "seed-missing",
@@ -1194,6 +1259,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: reference-missing: channel BPM1:X — seeds.yaml `simulation.linear` names "
             "channel Q9:SP, which does not exist; fix: add channel Q9:SP or correct "
             "`simulation.linear`"
+        ),
+    ),
+    "reference_missing__responds_to": (
+        _plain(commanded(state=responding(to="Q9:ON"))),
+        (
+            "facility: reference-missing: channel Q1:STATE — records/channels.yaml "
+            "`simulation.responds.to` names channel Q9:ON, which does not exist; fix: add channel "
+            "Q9:ON or correct `simulation.responds.to`"
         ),
     ),
     "reference_missing__group_member": (
@@ -2220,6 +2293,32 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "a timezone offset; fix: write `at_time` as HH:MM:SS without an offset"
         ),
     ),
+    "value_invalid__responds_status_type": (
+        _plain(
+            commanded(
+                state={"value_type": "float", "options": None, "idle": 0.0, **responding(value=1.0)}
+            )
+        ),
+        (
+            "facility: value-invalid: channel Q1:STATE — a float channel carries `responds`; fix: "
+            "state `responds` on a bool, enum, int or string status"
+        ),
+    ),
+    "value_invalid__responds_for_s": (
+        _plain(commanded(state=responding(for_s=0))),
+        (
+            "facility: value-invalid: channel Q1:STATE — `responds.for_s` 0 is not a finite "
+            "number > 0; fix: state `responds.for_s` as the seconds the status reads its act"
+        ),
+    ),
+    "value_invalid__responds_value_type": (
+        _plain(commanded(state=responding(value="MAYBE"))),
+        (
+            "facility: value-invalid: channel Q1:STATE — `responds.value` of bool channel "
+            "Q1:STATE is 'MAYBE', not a label; fix: type `responds.value` by the channel, as "
+            "`idle`"
+        ),
+    ),
     "seed_invalid__nominal_out_of_band": (
         _plain(
             append("records/channels.yaml", EXTRA_SP),
@@ -2338,6 +2437,102 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: seed-invalid: scenario warm — `faults.SR.BPM1:X.gain` 20 lies above its "
             "range [0.1, 10]; fix: write a value inside [0.1, 10]"
+        ),
+    ),
+    "seed_invalid__responds_wired": (
+        _injection(
+            update("records/channels.yaml", 0, pair="INJ:SHOT:BUSY", timeout_s=2.0),
+            update(
+                "records/channels.yaml",
+                13,
+                idle=0.0,
+                simulation={"responds": {"to": "INJ:SHOT:REQ", "for_s": 0.5}},
+            ),
+        ),
+        (
+            "facility: seed-invalid: channel INJ:SHOT:BUSY — `responds` on a channel model CHAIN "
+            "wires; fix: remove `responds`; model `CHAIN` serves INJ:SHOT:BUSY"
+        ),
+    ),
+    "seed_invalid__responds_without_idle": (
+        _plain(commanded(on={"timeout_s": None}, state={"idle": None, **responding()})),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds` on a status that states no "
+            "`idle`; fix: state `idle` on Q1:STATE"
+        ),
+    ),
+    "seed_invalid__responds_beside_own_value": (
+        _plain(
+            commanded(
+                state={"simulation": {**responding()["simulation"], "nominal": "OFF"}},
+            )
+        ),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds` beside `nominal`; fix: remove "
+            "`nominal`; a responding status reads its `idle` when no act runs"
+        ),
+    ),
+    "seed_invalid__responds_to_further_address": (
+        _injection(
+            update("records/channels.yaml", 0, pair="INJ:SHOT:STATE", timeout_s=2.0),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "INJ:SHOT:STATE",
+                    "value_type": "int",
+                    "idle": 0,
+                    "simulation": {"responds": {"to": "INJ:RACK:REQ", "for_s": 0.5, "value": 1}},
+                },
+                {"id": "INJ:RACK:REQ", "role": "setpoint"},
+            ),
+            wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
+        ),
+        (
+            "facility: seed-invalid: channel INJ:SHOT:STATE — `responds.to` names INJ:RACK:REQ, "
+            "which wiring record CHAIN/INJ:SHOT:REQ states under `also`; fix: name INJ:SHOT:REQ; "
+            "a command is named by its record's address"
+        ),
+    ),
+    "seed_invalid__responds_to_no_command": (
+        _plain(commanded(state=responding(to="Q1:SP"))),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds.to` names Q1:SP, which is no "
+            "command; fix: name in `responds.to` a command whose `pair` is Q1:STATE"
+        ),
+    ),
+    "seed_invalid__responds_to_other_status": (
+        _plain(
+            commanded(state=responding(to="Q1:RESET")),
+            append("records/channels.yaml", RESET_COMMAND, RESET_STATE),
+        ),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds.to` names command Q1:RESET, "
+            "whose `pair` is Q1:FAULT; fix: name in `responds.to` a command whose `pair` is "
+            "Q1:STATE"
+        ),
+    ),
+    "seed_invalid__responds_value_missing": (
+        _plain(
+            commanded(
+                on={"value_type": "enum", "options": ["IDLE", "RAMPING", "FAULT"]},
+                state={
+                    "value_type": "enum",
+                    "options": ["IDLE", "RAMPING", "FAULT"],
+                    "idle": "IDLE",
+                    **responding(),
+                },
+            )
+        ),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds` states no `value` on a status "
+            "without exactly two labels; fix: state `responds.value`"
+        ),
+    ),
+    "seed_invalid__responds_value_idle": (
+        _plain(commanded(state=responding(value="OFF"))),
+        (
+            "facility: seed-invalid: channel Q1:STATE — `responds.value` 'OFF' is the status's "
+            "`idle`; fix: state as `responds.value` a value other than `idle`"
         ),
     ),
     "seed_missing__band_excludes_zero": (
