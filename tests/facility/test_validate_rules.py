@@ -22,8 +22,11 @@ from osprey_facility.validate import (
     STAGES,
     StageReport,
     known_classes,
+    limit_records,
+    missing_text,
     ordered_slots,
     record_missing,
+    record_range,
     record_writable,
     run_stages,
     schema_document,
@@ -1283,6 +1286,42 @@ class TestLimitRules:
     ) -> None:
         assert record_missing(record, role, value_type) == answer
         assert record_writable(record, role, value_type) is (answer == ())
+
+    @pytest.mark.parametrize(
+        ("record", "answer"),
+        [
+            ({"min_value": 0.0, "max_value": 1.0}, (0.0, 1.0)),
+            ({"min_value": 0, "max_value": 250}, (0.0, 250.0)),
+            ({"min_value": 0.0}, None),
+            ({"max_step": 0.5}, None),
+            ({"writable": True}, None),
+        ],
+        ids=["both-edges", "ints", "one-edge", "no-edge", "non-numeric"],
+    )
+    def test_a_record_states_its_range(
+        self, record: dict[str, Any], answer: tuple[float, float] | None
+    ) -> None:
+        span = record_range(record)
+        assert span == answer
+        assert span is None or all(type(edge) is float for edge in span)
+
+    def test_limit_records_are_the_records_by_address(self) -> None:
+        document = {
+            "limits": {
+                "records": [
+                    {"address": "Q2:SP", "min_value": 0.0},
+                    {"address": "Q1:SP", "max_value": 1.0},
+                ]
+            }
+        }
+        records = limit_records(document)
+        assert list(records) == ["Q1:SP", "Q2:SP"]
+        assert records["Q2:SP"] == {"address": "Q2:SP", "min_value": 0.0}
+        assert limit_records({}) == {}
+
+    def test_what_a_record_lacks_reads_as_one_phrase(self) -> None:
+        assert missing_text({"min_value": 0.0}, ("max_value",)) == "min_value 0.0, no max_value"
+        assert missing_text({}, ("writable",)) == "no writable: true"
 
     def test_integral_bounds_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
