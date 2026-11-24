@@ -34,9 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: The declaration, the one file that spells the facility tree's paths.
 DECLARATION = "packages/osprey-facility/src/osprey_facility/source_tree.py"
 
-#: The spellings of the slots a later layout moves that are not ordinary words:
-#: the moved files, the moved directories in their slash form, and the
-#: benchmark queries' directory.
+#: The spellings of the facility tree's slots that are not ordinary words: the
+#: files, the keyed and deck directories in their slash form, and the benchmark
+#: queries' directory. The grouping directories (``vocabulary``, ``provenance``,
+#: ``simulation``) are ordinary words and are not guarded on their own; a path
+#: under one is still caught by the name of the file or directory it ends in.
 GUARDED = (
     "classes.yaml",
     "signals.yaml",
@@ -48,12 +50,10 @@ GUARDED = (
     "scenarios/",
     "measurement/",
     "decks/",
-    "cross_paradigm",
+    "benchmarks/channel_finder",
 )
 
 _GENERATED = "packages/osprey-facility/src/osprey_facility/schema/_generated/core.py"
-_SDK_FACILITY = "src/osprey/apps/sdk/testing/_facility.py"
-_SDK_MEASURED = "src/osprey/apps/sdk/testing/_measured.py"
 _SIMULATION_VIEW = "packages/osprey-connectors/src/osprey_connectors/simulation/view.py"
 
 #: ``(file, constant text) -> (count, category)`` for each site still allowed
@@ -72,17 +72,8 @@ ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
         "`[{entry_id, when, author, title, text, tags?, categories?, loto_tag?, extra?, "
         "attachments?}]`, the entries the scenario narrates. `attachments` lists the entry's "
         "pictures, each `{path: <picture file>}` or `{plot: <plot spec .json>}`, relative to "
-        "the scenario's own directory `scenarios/<name>/`.",
+        "the scenario's own directory `simulation/scenarios/<name>/`.",
     ): (1, GENERATED_SCHEMA),
-    # The facility trees the app SDK's test helpers lay down.
-    (_SDK_FACILITY, "models.yaml"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_FACILITY, "decks/sr.json"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_FACILITY, "decks/line.json"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_MEASURED, "models.yaml"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_MEASURED, "decks/sr.json"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_MEASURED, "decks/line.json"): (2, PUBLIC_TEST_HELPER),
-    (_SDK_MEASURED, "measurement/SR.yaml"): (3, PUBLIC_TEST_HELPER),
-    (_SDK_MEASURED, "measurement/LINE.yaml"): (1, PUBLIC_TEST_HELPER),
 }
 
 
@@ -165,6 +156,19 @@ def test_an_identity_is_no_spelling() -> None:
 def test_a_directory_named_after_a_slash_is_a_spelling() -> None:
     (site,) = scan_source('WHERE = "data/facility/decks"\n', "where.py", GUARDED)
     assert site.spelling == "decks/"
+
+
+_GROUPED = """
+QUERIES = Path("data") / "facility" / "benchmarks" / "channel_finder"
+MODELS = "simulation/models.yaml"
+DECK = f"{root}/simulation/decks/{name}.json"
+WORD = "simulation"
+"""
+
+
+def test_a_path_under_a_grouping_directory_is_caught_by_its_last_name() -> None:
+    found = [(site.line, site.spelling) for site in scan_source(_GROUPED, "grouped.py", GUARDED)]
+    assert found == [(2, "benchmarks/channel_finder"), (3, "models.yaml"), (4, "decks/")]
 
 
 def test_a_stale_or_uncounted_allowance_is_reported() -> None:
