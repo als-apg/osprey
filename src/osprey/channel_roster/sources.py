@@ -18,7 +18,7 @@ never listed. Direction is the record's ``role``: a ``setpoint`` is settable,
 a ``readback`` is readable, and ``none`` states no direction. A setpoint's
 readback is its ``pair``, unless the pair is the setpoint itself. A further
 address of a wiring record (under ``also``) takes its record's ``pair``,
-``timeout_s`` and ``idle``.
+``timeout_s``, ``idle`` and ``started_by``.
 
 Failure is data, never an exception: a file no build has written is a
 :attr:`~osprey.channel_roster.records.RosterAbsenceReason.FACILITY_NOT_BUILT`
@@ -245,7 +245,7 @@ def channel_record(
 
     A further address of a wiring record (under ``also``) is that record under
     another name, read through :meth:`FacilityRecords.channel`: its readback,
-    kind, ``timeout_s`` and ``idle`` are the record's.
+    kind, ``timeout_s``, ``idle`` and ``started_by`` are the record's.
 
     Args:
         channel: The channel record.
@@ -281,6 +281,7 @@ def channel_record(
         command=read.get("command") is True,
         timeout_s=read.get("timeout_s"),
         idle=read.get("idle"),
+        started_by=read.get("started_by"),
     )
 
 
