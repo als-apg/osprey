@@ -68,7 +68,7 @@ def _tree() -> dict[str, Any]:
     channels += [{"id": address} for address in READINGS]
     return {
         "records/channels.yaml": channels,
-        "models.yaml": [
+        "simulation/models.yaml": [
             {
                 "name": MODEL,
                 "engine": "injection",
@@ -107,7 +107,7 @@ def _lines(report: StageReport) -> list[str]:
 
 
 def _wired(tree: dict[str, Any], address: str) -> dict[str, Any]:
-    return next(r for r in tree["models.yaml"][0]["wiring"] if r["address"] == address)
+    return next(r for r in tree["simulation/models.yaml"][0]["wiring"] if r["address"] == address)
 
 
 def _records(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -170,7 +170,7 @@ def test_start_value_absent_starts_at_zero_and_zero_outside_band_stops(tmp_path:
 
 def test_engine_model_stop_is_the_build_stop(tmp_path: Path) -> None:
     tree = _tree()
-    del tree["models.yaml"][0]["settings"]["injection"]["cycle"]
+    del tree["simulation/models.yaml"][0]["settings"]["injection"]["cycle"]
     lines = _lines(_run(tmp_path, tree))
     assert len(lines) == 1
     assert lines[0].startswith(f"facility: engine-invalid: model {MODEL} — ")
@@ -189,7 +189,7 @@ def test_engine_record_stop_names_the_wiring_record(tmp_path: Path) -> None:
 
 def test_topoff_seed_on_a_wired_channel_stops(tmp_path: Path) -> None:
     tree = _tree()
-    tree["seeds.yaml"] = {"STORED:RD": copy.deepcopy(TOPOFF)}
+    tree["simulation/seeds.yaml"] = {"STORED:RD": copy.deepcopy(TOPOFF)}
     assert _lines(_run(tmp_path, tree, later=())) == [
         f"facility: seed-invalid: channel STORED:RD — a `topoff` on a channel model {MODEL} "
         "wires; fix: remove `topoff`; the model computes the channel's value"
@@ -199,13 +199,13 @@ def test_topoff_seed_on_a_wired_channel_stops(tmp_path: Path) -> None:
 def test_topoff_seed_on_an_unwired_channel_still_builds(tmp_path: Path) -> None:
     tree = _tree()
     tree["records/channels.yaml"].append({"id": "DCCT", "unit": "mA"})
-    tree["seeds.yaml"] = {"DCCT": copy.deepcopy(TOPOFF)}
+    tree["simulation/seeds.yaml"] = {"DCCT": copy.deepcopy(TOPOFF)}
     assert _lines(_run(tmp_path, tree)) == []
 
 
 def test_nominal_on_a_wired_channel_keeps_its_stop(tmp_path: Path) -> None:
     tree = _tree()
-    tree["seeds.yaml"] = {"SRC": {"nominal": 1.0}}
+    tree["simulation/seeds.yaml"] = {"SRC": {"nominal": 1.0}}
     assert _lines(_run(tmp_path, tree, later=())) == [
         f"facility: seed-invalid: channel SRC — a `nominal` on a channel model {MODEL} wires; "
         "fix: remove `nominal`; the operating point comes from the deck"
@@ -220,7 +220,7 @@ def test_wiring_rules_do_not_load_the_lattice_engine(
 ) -> None:
     """A deckless non-lattice model, even with `pyat`-shaped settings, needs no pyat."""
     tree = _tree()
-    tree["models.yaml"][0]["settings"]["pyat"] = {"solve": "single_pass"}
+    tree["simulation/models.yaml"][0]["settings"]["pyat"] = {"solve": "single_pass"}
     monkeypatch.setitem(sys.modules, "osprey.simulation.engines.pyat", None)
     report = _run(tmp_path, tree, later=())
     assert _lines(report) == []
@@ -231,8 +231,9 @@ def test_wiring_rules_do_not_load_the_lattice_engine(
 #: sha256 of the lattice-only tree's facility file, compact sorted-key JSON,
 #: frozen from the build before deckless start values existed (that build's
 #: file plus the ``length`` and ``periodic`` each deck model now carries, and the
-#: ``/4`` header with its ``signals`` and ``relation_types`` vocabulary tables).
-LATTICE_ONLY_DIGEST = "1522bbc8589c220f31785cf66b1ea77e05c2360b1b6fce5fc49eab43a2e839ef"
+#: ``/4`` header with its ``signals`` and ``relation_types`` vocabulary tables), its
+#: provenance naming the models and decks by their ``simulation/`` source paths.
+LATTICE_ONLY_DIGEST = "05d70a5c0117c93c8fe318cfd44fe5145e86ff9cd55f043d6e6245e52c61f88a"
 
 
 def _lattice_tree() -> dict[str, Any]:
@@ -246,8 +247,8 @@ def _lattice_tree() -> dict[str, Any]:
         {"id": "QP:SP", "role": "setpoint", "pair": "QP:RB", "on": {"device": "SR/QP"}},
         {"id": "QP:RB", "on": {"device": "SR/QP"}},
     ]
-    setting = dict(tree["models.yaml"][0]["wiring"][1]["engine"])
-    tree["models.yaml"].append(
+    setting = dict(tree["simulation/models.yaml"][0]["wiring"][1]["engine"])
+    tree["simulation/models.yaml"].append(
         {
             "name": "optics",
             "engine": "pyat",
