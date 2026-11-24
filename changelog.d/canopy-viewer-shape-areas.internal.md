@@ -1,0 +1,1 @@
+Record the CANOPY payload's screen viewer at 2787ec50. A polygon with actions can take the pointer on its drawn shape instead of its box (`hitArea: "shape"`): a closed polygon over its inside and outline, an open one along its path, widened with `hitWidth`. Hovering tints the shape and shows one label, placed with `hoverLabelAt`. A polygon without `hitArea` renders as before.
