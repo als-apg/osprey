@@ -17,11 +17,20 @@ The autouse ``reset_state_between_tests`` fixture clears ``OSPREY_CONFIG`` /
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
-from osprey.utils.workspace import repo_root_for_agent_data
+from osprey.utils import workspace as framework_workspace
+from osprey.utils.workspace import (
+    PROTECTED_PATHS_CONFIG_KEY,
+    ProtectedPathsState,
+    anchor_protected_entry,
+    protected_roots_from_entries,
+    read_protected_paths,
+    repo_root_for_agent_data,
+)
 from osprey_connectors.workspace import (
     DEFAULT_AGENT_DATA_BASE_DIR,
     RENDERED_CONFIG_RELPATH,
@@ -373,3 +382,190 @@ class TestFrameworkCopiesOfConnectorPrivates:
         from osprey_connectors import config as connector_config
 
         assert connector_config._RUNTIME_WRITE_PATH_KEYS == RUNTIME_WRITE_PATH_KEYS
+
+
+class TestReadProtectedPaths:
+    """The one interpreter of the rendered protected-path key."""
+
+    def test_a_list_of_strings_is_present_in_order(self):
+        reading = read_protected_paths({PROTECTED_PATHS_CONFIG_KEY: ["plans", "/etc/osprey"]})
+
+        assert reading.state is ProtectedPathsState.PRESENT
+        assert reading.present
+        assert reading.entries == ("plans", "/etc/osprey")
+
+    def test_an_empty_list_is_a_valid_set(self):
+        reading = read_protected_paths({PROTECTED_PATHS_CONFIG_KEY: []})
+
+        assert reading.state is ProtectedPathsState.PRESENT
+        assert reading.entries == ()
+
+    def test_placeholders_and_home_are_returned_verbatim(self):
+        entries = ["~/plans", "${PLAN_DIR}/x"]
+        reading = read_protected_paths({PROTECTED_PATHS_CONFIG_KEY: entries})
+
+        assert reading.entries == tuple(entries)
+
+    @pytest.mark.parametrize("config", [{}, None, {"project_root": "/r"}])
+    def test_a_config_without_the_key_is_absent(self, config):
+        reading = read_protected_paths(config)
+
+        assert reading.state is ProtectedPathsState.ABSENT
+        assert not reading.present
+        assert reading.entries == ()
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(None, id="null"),
+            pytest.param("plans", id="bare-string"),
+            pytest.param(["plans", 3], id="list-with-int"),
+            pytest.param(["plans", None], id="list-with-null"),
+            pytest.param([["plans"]], id="list-with-list"),
+            pytest.param([{"path": "plans"}], id="list-with-mapping"),
+            pytest.param(["plans", ""], id="list-with-empty-string"),
+            pytest.param({"plans": True}, id="mapping"),
+            pytest.param(("plans",), id="tuple"),
+            pytest.param(True, id="boolean"),
+        ],
+    )
+    def test_anything_but_a_list_of_strings_is_malformed(self, value):
+        reading = read_protected_paths({PROTECTED_PATHS_CONFIG_KEY: value})
+
+        assert reading.state is ProtectedPathsState.MALFORMED
+        assert not reading.present
+        assert reading.entries == ()
+
+    def test_a_non_mapping_config_is_malformed(self):
+        assert read_protected_paths(["plans"]).state is ProtectedPathsState.MALFORMED
+
+
+class TestAnchorProtectedEntry:
+    """Placeholders, then ``~``, then the project root; no existence test."""
+
+    def test_a_placeholder_expands_against_the_given_environment(self, tmp_path):
+        anchored = anchor_protected_entry(
+            "${PLAN_DIR}/x", tmp_path / "repo", environ={"PLAN_DIR": str(tmp_path / "plans")}
+        )
+
+        assert anchored.path == (tmp_path / "plans" / "x").resolve()
+        assert anchored.protects
+
+    def test_a_placeholder_defaults_to_the_process_environment(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OSPREY_TEST_PLAN_DIR", str(tmp_path / "plans"))
+
+        anchored = anchor_protected_entry("$OSPREY_TEST_PLAN_DIR", tmp_path / "repo")
+
+        assert anchored.path == (tmp_path / "plans").resolve()
+
+    def test_home_is_expanded(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+        anchored = anchor_protected_entry("~/plans", tmp_path / "repo")
+
+        assert anchored.path == (tmp_path / "home" / "plans").resolve()
+
+    def test_a_placeholder_naming_home_is_expanded_then_anchored(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+        anchored = anchor_protected_entry(
+            "${WHERE}/plans", tmp_path / "repo", environ={"WHERE": "~"}
+        )
+
+        assert anchored.path == (tmp_path / "home" / "plans").resolve()
+
+    def test_an_absolute_entry_is_kept(self, tmp_path):
+        target = tmp_path / "elsewhere" / "prompt.md"
+
+        anchored = anchor_protected_entry(str(target), tmp_path / "repo")
+
+        assert anchored.path == target.resolve()
+
+    def test_a_relative_entry_anchors_at_the_project_root(self, tmp_path):
+        anchored = anchor_protected_entry("data/plans", tmp_path / "repo")
+
+        assert anchored.path == (tmp_path / "repo" / "data" / "plans").resolve()
+
+    def test_a_relative_entry_climbing_out_lands_at_its_real_location(self, tmp_path):
+        anchored = anchor_protected_entry("../shared/plans", tmp_path / "repo")
+
+        assert anchored.path == (tmp_path / "shared" / "plans").resolve()
+
+    def test_a_missing_location_is_still_anchored(self, tmp_path):
+        anchored = anchor_protected_entry("not/there/yet", tmp_path)
+
+        assert not (tmp_path / "not").exists()
+        assert anchored.protects
+
+    def test_an_unresolved_placeholder_protects_nothing(self, tmp_path):
+        anchored = anchor_protected_entry("${OSPREY_TEST_UNSET_VAR}/plans", tmp_path, environ={})
+
+        assert anchored.path is None
+        assert anchored.unresolved == ("${OSPREY_TEST_UNSET_VAR}",)
+        assert not anchored.protects
+
+    def test_an_entry_inside_a_permitted_root_protects_nothing(self, tmp_path):
+        agent_data = tmp_path / "var" / "agent_data"
+
+        anchored = anchor_protected_entry("var/agent_data/notes", tmp_path, [agent_data])
+
+        assert anchored.path == (agent_data / "notes").resolve()
+        assert anchored.inside_permitted == agent_data.resolve()
+        assert not anchored.protects
+
+    def test_an_entry_naming_a_permitted_root_itself_protects_nothing(self, tmp_path):
+        agent_data = tmp_path / "var" / "agent_data"
+
+        assert not anchor_protected_entry(str(agent_data), tmp_path, [agent_data]).protects
+
+    def test_an_entry_beside_a_permitted_root_still_protects(self, tmp_path):
+        agent_data = tmp_path / "var" / "agent_data"
+
+        anchored = anchor_protected_entry("var/agent_data_plans", tmp_path, [agent_data])
+
+        assert anchored.inside_permitted is None
+        assert anchored.protects
+
+    def test_an_entry_reaching_a_permitted_root_through_a_symlink_protects_nothing(self, tmp_path):
+        agent_data = tmp_path / "var" / "agent_data"
+        agent_data.mkdir(parents=True)
+        (tmp_path / "link").symlink_to(agent_data)
+
+        assert not anchor_protected_entry("link/notes", tmp_path, [agent_data]).protects
+
+
+class TestProtectedRootsFromEntries:
+    """The run-time union: what protects is kept, the rest reported once."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh_report_memory(self, monkeypatch):
+        monkeypatch.setattr(framework_workspace, "_reported_unprotecting", set())
+
+    def test_keeps_the_entries_that_protect_in_order(self, tmp_path):
+        agent_data = tmp_path / "var" / "agent_data"
+
+        roots = protected_roots_from_entries(
+            ["plans", "${UNSET_FOR_TEST}", "var/agent_data/x", "/abs/prompt.md"],
+            tmp_path,
+            [agent_data],
+            environ={},
+        )
+
+        assert roots == ((tmp_path / "plans").resolve(), Path("/abs/prompt.md").resolve())
+
+    def test_an_entry_that_protects_nothing_is_reported_once(self, tmp_path, caplog):
+        agent_data = tmp_path / "var" / "agent_data"
+        entries = ["${UNSET_FOR_TEST}/p", "var/agent_data/x"]
+
+        with caplog.at_level(logging.WARNING, logger=framework_workspace.__name__):
+            for _ in range(3):
+                protected_roots_from_entries(entries, tmp_path, [agent_data], environ={})
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert len(messages) == 2, messages
+        assert "${UNSET_FOR_TEST}" in messages[0]
+        assert "var/agent_data/x" in messages[1]
+        assert all(PROTECTED_PATHS_CONFIG_KEY in m for m in messages)
+
+    def test_no_entries_add_no_roots(self, tmp_path):
+        assert protected_roots_from_entries([], tmp_path) == ()

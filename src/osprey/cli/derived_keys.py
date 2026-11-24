@@ -6,7 +6,11 @@ of keys are NOT the operator's to state — the framework template
 (``templates/project/config.yml.j2``) writes them at build time from the
 project layout, the port layout, ``providers.yml``, or a profile FIELD
 (``project_name:``, ``provider:``, ``model:``, ``channel_finder_mode:``, ``default_panel:``,
-``panel_presets:``, ``hooks:``). Those are the *derived* keys.
+``panel_presets:``, ``hooks:``). Those are the *derived* keys. A few are
+written by the build itself rather than by the template — the python
+executor's protected-path set
+(:data:`~osprey.utils.workspace.PROTECTED_PATHS_CONFIG_KEY`), computed from the
+paths the profile names — and are derived keys on the same terms.
 
 A ``config:`` entry for one of them is a second home for one fact, and the
 losing copy is the silent one: the render overwrites it, so the profile says
@@ -39,6 +43,8 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 from typing import Any
 
+from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
+
 __all__ = ["DERIVED_KEYS", "derived_key_errors", "is_derived_key"]
 
 
@@ -52,6 +58,8 @@ _DERIVED_KEY_SOURCES: dict[str, str] = {
     "build_dir": "the build takes it from the repository it renders into",
     "file_paths": "the build derives these paths from the project layout",
     "agent_data.base_dir": "the build derives it from the project layout",
+    # The python executor's protected roots, written by the build itself.
+    PROTECTED_PATHS_CONFIG_KEY: "the build derives it from the paths the profile names",
     # The deployment's Python environment.
     "execution.environment.python": "the build derives it from the deployment's Python environment",
     "execution.environment.packages": (
