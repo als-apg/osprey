@@ -1,7 +1,7 @@
 # Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 - name: BTS
   engine: pyat
-  deck: decks/BTS.json
+  deck: simulation/decks/BTS.json
   settings:
     pyat:
       solve: single_pass
@@ -866,7 +866,7 @@
       energy_scaling: none
 - name: LTB
   engine: pyat
-  deck: decks/LTB.json
+  deck: simulation/decks/LTB.json
   settings:
     pyat:
       solve: single_pass
@@ -1489,7 +1489,7 @@
       energy_scaling: none
 - name: SR
   engine: pyat
-  deck: decks/SR.json
+  deck: simulation/decks/SR.json
   settings:
     pyat:
       solve: periodic
