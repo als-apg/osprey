@@ -118,7 +118,13 @@ from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 from . import document_plane, draft, runs
 from .history_removals import removed_runs
-from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels, resolve_plan_args
+from .plan_fields import (
+    MOVABLE_ROLE,
+    READABLE_ROLE,
+    TRIGGERED_ROLE,
+    collect_channels,
+    resolve_plan_args,
+)
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
@@ -474,20 +480,22 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 #
 # WHICH strings in the params are channel names is the plan's own declaration,
 # never a guess this module makes: an author annotates each channel field with
-# the role the plan gives it (movable / readable), the loader records what the
-# schema declared on `PlanSpec.roles`, and `plan_fields.collect_channels` reads
+# the role the plan gives it (movable / triggered / readable), the loader
+# records what the schema declared on `PlanSpec.roles`, and `plan_fields.collect_channels` reads
 # the supplied names back out of one params dict for one role. Field names match
 # EXACTLY — a field named ``setpoint`` supplies channels only from ``setpoint``
 # — so nothing here has to know, or approximate, any plan's parameter shape.
 
 
 def _referenced_channel_names(spec: PlanSpec[Any], plan_args: Any) -> tuple[set[str], set[str]]:
-    """The movable and readable channel names ``plan_args`` supplies, as two sets.
+    """The written and read channel names ``plan_args`` supplies, as two sets.
 
-    Both come from `plan_fields.collect_channels`, whose matching rule is the
-    NEAREST enclosing field name: the enclosing name is rebound at every mapping
-    level and carried unchanged across list levels, so a string is a channel
-    name only when the field *immediately* above it declared a role. Nesting is
+    Written is every movable and triggered name (a plan writes to both), read
+    every readable one. All come from `plan_fields.collect_channels`, whose
+    matching rule is the NEAREST enclosing field name: the enclosing name is
+    rebound at every mapping level and carried unchanged across list levels, so
+    a string is a channel name only when the field *immediately* above it
+    declared a role. Nesting is
     found (`grid_scan` carries a movable channel as ``axes[].setpoint``) without
     this module knowing that shape.
 
@@ -500,13 +508,14 @@ def _referenced_channel_names(spec: PlanSpec[Any], plan_args: Any) -> tuple[set[
     instead, and a miss leaves the worker as the enforcement point — which is
     the direction this check must always be wrong in.
 
-    The two roles are kept apart rather than merged because they are not the
-    same mistake: a movable name the worker lacks is the one the refusal is
+    The two sets are kept apart rather than merged because they are not the
+    same mistake: a written name the worker lacks is the one the refusal is
     built around (it would have armed hardware against nothing), and it is the
-    name the sentence leads with when both roles carry an unknown one.
+    name the sentence leads with when both sets carry an unknown one.
     """
     return (
-        set(collect_channels(spec.schema, plan_args, MOVABLE_ROLE)),
+        set(collect_channels(spec.schema, plan_args, MOVABLE_ROLE))
+        | set(collect_channels(spec.schema, plan_args, TRIGGERED_ROLE)),
         set(collect_channels(spec.schema, plan_args, READABLE_ROLE)),
     )
 
@@ -586,8 +595,8 @@ def _available_devices_phrase(available: AbstractSet[str], page_size: int) -> st
 
 def _refuse_unknown_devices(
     plan_name: str,
-    unknown_movable: set[str],
-    unknown_readable: set[str],
+    unknown_written: set[str],
+    unknown_read: set[str],
     available: AbstractSet[str],
     *,
     session_tier: bool,
@@ -602,11 +611,12 @@ def _refuse_unknown_devices(
     operator and the agent read the same sentence about the same event.
 
     Three deliberate differences from the run-time version, all additive:
-    ``devices`` carries EVERY unknown name across both roles (the run-time raise
+    ``devices`` carries EVERY unknown name across every role (the run-time raise
     can only ever report the first one it tripped over), the in-sentence device
     list is capped, and the one name the sentence quotes is drawn from the
-    movable names when there are any, because that is the reading under which a
-    start would have driven hardware toward a channel the worker never built.
+    written (movable or triggered) names when there are any, because that is
+    the reading under which a start would have written to a channel the worker
+    never built.
 
     How much of the namespace rides in the body is decided by one threshold,
     `device_page_size()`, read per request. At or below it the body carries
@@ -619,8 +629,8 @@ def _refuse_unknown_devices(
     400, not 409: the request itself names something that does not exist, and
     the fix is in the caller's hands — pick a name `GET /devices` lists.
     """
-    unknown = unknown_movable | unknown_readable
-    first = min(unknown_movable or unknown_readable)
+    unknown = unknown_written | unknown_read
+    first = min(unknown_written or unknown_read)
     label = "session plan" if session_tier else "plan"
     cap = device_page_size()
     facts: dict[str, Any] = {"plan": plan_name, "devices": sorted(unknown)}
@@ -720,14 +730,13 @@ async def _check_devices_exist(
     only moves the *legible* cases earlier, and an availability failure here
     must never cost an operator an enqueue that would have run.
 
-    **Both roles are checked.** A movable name the worker lacks is the refusal's
-    reason for existing (SC-7): the plan would have been armed to drive a
-    channel that does not exist. A readable name the worker lacks is refused on
-    exactly the same certainty — the run's very first read would raise on it —
-    and refusing it is what this check already did before roles were declared,
-    so nothing is loosened here and nothing is tightened. The two sets stay
-    apart because the refusal sentence leads with a movable name when there is
-    one; see `_refuse_unknown_devices`.
+    **Every role is checked.** A written (movable or triggered) name the worker
+    lacks is the refusal's reason for existing: the plan would have been armed
+    to write a channel that does not exist. A readable name the worker lacks is
+    refused on exactly the same certainty — the run's very first read would
+    raise on it. The written and read sets stay apart because the refusal
+    sentence leads with a written name when there is one; see
+    `_refuse_unknown_devices`.
 
     The names themselves come from `_built_device_names`, which keeps the
     worker's device tree across enqueues and refetches it only when the
@@ -742,12 +751,12 @@ async def _check_devices_exist(
         # schema, so this costs no re-walk.)
         return
 
-    movable, readable = _referenced_channel_names(spec, plan_args)
+    written, read = _referenced_channel_names(spec, plan_args)
     await _check_channel_names_built(
         backend,
         spec.name,
-        movable,
-        readable,
+        written,
+        read,
         status,
         session_tier=spec.provenance in ("session", "unreviewed"),
     )
@@ -756,8 +765,8 @@ async def _check_devices_exist(
 async def _check_channel_names_built(
     backend: QueueBackend,
     plan_name: str,
-    movable: AbstractSet[str],
-    readable: AbstractSet[str],
+    written: AbstractSet[str],
+    read: AbstractSet[str],
     status: Mapping[str, Any],
     *,
     session_tier: bool,
@@ -767,25 +776,26 @@ async def _check_channel_names_built(
     The one check both the enqueue (`_check_devices_exist`, over the resolved
     arguments the item carries) and session-plan validation (over its sample arguments) run, so
     the two refuse the same mistake with the same body and sentence
-    (`_refuse_unknown_devices`). ``movable`` and ``readable`` are the names the
-    plan's declared roles collected; ``session_tier`` picks the sentence's noun.
+    (`_refuse_unknown_devices`). ``written`` (movable and triggered) and
+    ``read`` (readable) are the names the plan's declared roles collected;
+    ``session_tier`` picks the sentence's noun.
 
     Fail-open where the answer is not certain: no names to check, or a worker
     whose device tree cannot be read or is empty (`_built_device_names`),
     returns without a refusal.
     """
-    if not movable and not readable:
+    if not written and not read:
         return
 
     built = await _built_device_names(backend, status)
     if built is None:
         return
 
-    unknown_movable = set(movable) - built
-    unknown_readable = set(readable) - built
-    if unknown_movable or unknown_readable:
+    unknown_written = set(written) - built
+    unknown_read = set(read) - built
+    if unknown_written or unknown_read:
         _refuse_unknown_devices(
-            plan_name, unknown_movable, unknown_readable, built, session_tier=session_tier
+            plan_name, unknown_written, unknown_read, built, session_tier=session_tier
         )
 
 
