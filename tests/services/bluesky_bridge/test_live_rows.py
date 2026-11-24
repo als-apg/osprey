@@ -337,6 +337,53 @@ def test_a_later_descriptor_adds_units_and_never_clears_them() -> None:
     assert live_rows.get("run-1")["units"] == {"x": "u-x", "y": "u-y"}
 
 
+def test_a_descriptor_records_each_declared_shape() -> None:
+    """A data key declares a shape when it is a list of sizes; a ragged axis is ``None``."""
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder(
+        "descriptor",
+        _descriptor_doc(
+            {
+                "x": {"dtype": "number", "shape": []},
+                "wave": {"dtype": "array", "shape": [1024]},
+                "image": {"dtype": "array", "shape": [2, 3]},
+                "ragged": {"dtype": "array", "shape": [None]},
+                "no_shape": {"dtype": "number"},
+                "bad": {"dtype": "array", "shape": [-1]},
+                "text": {"dtype": "array", "shape": "1024"},
+                "flag": {"dtype": "array", "shape": [True]},
+            }
+        ),
+    )
+
+    assert live_rows.get("run-1")["shapes"] == {
+        "x": [],
+        "wave": [1024],
+        "image": [2, 3],
+        "ragged": [None],
+    }
+
+
+def test_a_later_descriptor_adds_shapes_and_never_clears_them() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc({"x": {"shape": []}}))
+    recorder("descriptor", _descriptor_doc({"wave": {"shape": [8]}, "z": {}}))
+
+    assert live_rows.get("run-1")["shapes"] == {"x": [], "wave": [8]}
+
+
+def test_get_returns_a_copy_of_the_shapes() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", _descriptor_doc({"wave": {"shape": [8]}}))
+
+    live_rows.get("run-1")["shapes"]["wave"].append(9)
+
+    assert live_rows.get("run-1")["shapes"] == {"wave": [8]}
+
+
 def test_get_returns_a_copy_of_the_units() -> None:
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))
