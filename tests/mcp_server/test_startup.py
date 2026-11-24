@@ -169,7 +169,7 @@ def test_run_mcp_server_wires_startup_sequence(monkeypatch):
     configure.assert_called_once()
     import_module.assert_called_once_with("osprey.mcp_server.workspace.server")
     mod.create_server.assert_called_once()
-    server.run.assert_called_once()
+    server.run.assert_called_once_with(show_banner=False)
     # Logging must be configured BEFORE the server module is imported: anything
     # it logs at import time would otherwise be dropped, or worse, land on the
     # stdout the JSON-RPC transport owns.
@@ -239,7 +239,7 @@ def test_audit_middleware_is_skipped_off_stdio_with_one_named_warning(monkeypatc
     )
 
     server.add_middleware.assert_not_called()
-    server.run.assert_called_once()
+    server.run.assert_called_once_with(show_banner=False)
     skipped = [
         str(call)
         for call in mock_logger.warning.call_args_list
