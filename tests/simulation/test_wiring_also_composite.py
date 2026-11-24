@@ -65,11 +65,14 @@ TURN_X_ALSO = "RACK3:UNIT1:TBT:X"
 
 
 def _tree(*, also: bool = True) -> dict[str, Any]:
-    """The measured tree with the two second addresses, wired under ``also`` or not at all."""
+    """The measured tree with the two second addresses, wired under ``also`` or not at all.
+
+    Unwired, the second setpoint address states its role; under ``also`` it is its record's.
+    """
     tree = measured_tree()
     tree["records/channels.yaml"] += [
         {"id": READING_ALSO, "on": {"device": "SR/BPM1"}},
-        {"id": SETPOINT_ALSO, "role": "setpoint", "on": {"device": "SR/QD"}},
+        {"id": SETPOINT_ALSO, "on": {"device": "SR/QD"}, **({} if also else {"role": "setpoint"})},
     ]
     tree["limits.yaml"] = {
         "records": [
@@ -241,11 +244,7 @@ def _turn_by_turn_view(root: Path) -> Path:
     shutil.copytree(FIXTURE, facility_dir)
     channels = facility_dir / "records" / "channels.yaml"
     listed = yaml.safe_load(channels.read_text(encoding="utf-8"))
-    shape = next(c for c in listed if c["id"] == TURN_X[MONITOR])["shape"]
-    listed += [
-        {"id": ARM_ALSO, "role": "setpoint"},
-        {"id": TURN_X_ALSO, "value_type": "waveform", "shape": shape},
-    ]
+    listed += [{"id": ARM_ALSO}, {"id": TURN_X_ALSO}]
     channels.write_text(yaml.safe_dump(listed), encoding="utf-8")
     models = facility_dir / "models.yaml"
     document = yaml.safe_load(models.read_text(encoding="utf-8"))
