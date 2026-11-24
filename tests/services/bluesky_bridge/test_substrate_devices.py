@@ -221,6 +221,38 @@ class TestTolerancesAndMotionBands:
         assert readables[_RB]["unit"] == units[_RB]
         assert "unit" not in readables["SR:DIAG:MON:01:POSITION:X"]
 
+    def test_a_waveform_readable_carries_its_shape(self) -> None:
+        """A 1-D read record's shape is written as ``shape: [n]``, after its unit."""
+        from osprey.services.bluesky_bridge.devices._specs_from_file import (
+            validate_device_document,
+        )
+
+        waveform = ChannelRecord(
+            address="SR:DIAG:TRACE", source=_SOURCE, direction="read", shape=(500,)
+        )
+
+        document = devices_document((*_RECORDS, waveform), units={"SR:DIAG:TRACE": "A"})
+
+        readables = {entry["name"]: entry for entry in document["readables"]}
+        assert readables["SR:DIAG:TRACE"] == {
+            "name": "SR:DIAG:TRACE",
+            "pv": "SR:DIAG:TRACE",
+            "unit": "A",
+            "shape": [500],
+        }
+        assert "shape" not in readables["SR:DIAG:MON:01:POSITION:X"]
+        assert validate_device_document(document) == []
+
+    def test_a_readable_of_more_than_one_dimension_is_no_device(self) -> None:
+        image = ChannelRecord(
+            address="SR:DIAG:IMAGE", source=_SOURCE, direction="read", shape=(4, 8)
+        )
+
+        document = devices_document((*_RECORDS, image))
+
+        assert "SR:DIAG:IMAGE" not in {entry["name"] for entry in document["readables"]}
+        assert len(document["readables"]) == 2
+
     def test_no_mapping_writes_the_same_bytes(self, tmp_path: Path) -> None:
         """Roster-derived callers pass no mapping and see the file they always did."""
         plain = tmp_path / "plain.yml"
