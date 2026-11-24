@@ -244,7 +244,7 @@ class TestFixes:
             "was": {"object": {"mml": {"device": "Q1-PS", "port": "OUT1"}}},
             "why": "The export names the wrong output.",
         }
-        result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**_TREE, "provenance/fixes.yaml": _fixes(fix)})
         assert [e.format_message() for e in result.errors] == []
         claim = _relation(result, "q1-power")
         assert claim["object"] == {"device": "Q1-PS", "port": "OUT2"}
@@ -262,7 +262,7 @@ class TestFixes:
             },
             "why": "The export omits the spare feed.",
         }
-        result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**_TREE, "provenance/fixes.yaml": _fixes(fix)})
         assert [e.format_message() for e in result.errors] == []
         claim = _relation(result, "q1-power-spare")
         assert (claim["type"], claim["subject"], claim["object"]) == (
@@ -274,7 +274,7 @@ class TestFixes:
 
     def test_drop_addresses_a_claim_by_id(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "relation", "id": "q1-power", "why": "Not wired."}
-        result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**_TREE, "provenance/fixes.yaml": _fixes(fix)})
         assert [e.format_message() for e in result.errors] == []
         assert [r["id"] for r in result.document["relations"]] == ["q1-in-s01", "quads-power"]
         assert ("relation", "q1-power") in result.dropped
@@ -282,7 +282,7 @@ class TestFixes:
     def test_dropping_every_claim_emits_no_key(self, tmp_path: Path) -> None:
         tree = {**_TREE, "imported/mml/relations.yaml": [_claim("q1-power")]}
         fix = {"op": "drop", "kind": "relation", "id": "q1-power", "why": "x"}
-        result = _build(tmp_path, {**tree, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**tree, "provenance/fixes.yaml": _fixes(fix)})
         assert result.errors == []
         assert "relations" not in result.document
 
@@ -296,7 +296,7 @@ class TestFixes:
                 {"id": "Q1-PS", "class": "PowerSupply"},
             ],
         }
-        result = _build(tmp_path, {**tree, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**tree, "provenance/fixes.yaml": _fixes(fix)})
         err = _one(result.errors)
         assert (err.kind, err.record_kind, err.record_id) == ("fix-referenced", "device", "Q1-PS")
         assert err.detail == (
@@ -318,14 +318,14 @@ class TestFixes:
             ],
         }
         fix = {"op": "drop", "kind": "place", "id": "SR/S02", "why": "x"}
-        result = _build(tmp_path, {**tree, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**tree, "provenance/fixes.yaml": _fixes(fix)})
         err = _one(result.errors)
         assert (err.kind, err.record_kind, err.record_id) == ("fix-referenced", "place", "SR/S02")
         assert err.detail == "`drop` leaves 1 referrer(s): relation ps-in-s02 (object)"
 
     def test_dropping_a_group_a_claim_names_is_reported(self, tmp_path: Path) -> None:
         fix = {"op": "drop", "kind": "group", "id": "SR/QUAD", "why": "x"}
-        result = _build(tmp_path, {**_TREE, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**_TREE, "provenance/fixes.yaml": _fixes(fix)})
         err = _one(result.errors)
         assert (err.kind, err.record_kind, err.record_id) == ("fix-referenced", "group", "SR/QUAD")
         assert err.detail == "`drop` leaves 1 referrer(s): relation quads-power (subject)"
@@ -335,7 +335,7 @@ class TestFixes:
             {"op": "drop", "kind": "group", "id": "SR/QUAD", "why": "x"},
             {"op": "drop", "kind": "relation", "id": "quads-power", "why": "x"},
         )
-        result = _build(tmp_path, {**_TREE, "fixes.yaml": fixes})
+        result = _build(tmp_path, {**_TREE, "provenance/fixes.yaml": fixes})
         assert [e.format_message() for e in result.errors] == []
 
 
@@ -367,7 +367,7 @@ class TestGroupMembership:
             "Q2 in imported/csv/groups.yaml, not in imported/mml/groups.yaml; "
             "Q3 in imported/mml/groups.yaml, not in imported/csv/groups.yaml; "
             "the group carries all 3; fix: state the same members in each source, or add a "
-            "`set` fix for `members` to fixes.yaml"
+            "`set` fix for `members` to provenance/fixes.yaml"
         ]
 
     def test_three_sources_are_each_named(self, tmp_path: Path) -> None:
@@ -399,7 +399,7 @@ class TestGroupMembership:
             "was": {"members": {"mml": ["Q1", "Q3"], "csv": ["Q1", "Q2"]}},
             "why": "Q2 left the family.",
         }
-        result = _build(tmp_path, {**_TWO_STATEMENTS, "fixes.yaml": _fixes(fix)})
+        result = _build(tmp_path, {**_TWO_STATEMENTS, "provenance/fixes.yaml": _fixes(fix)})
         assert [e.format_message() for e in result.errors] == []
         assert result.warnings == []
         assert result.document["groups"][0]["members"] == ["Q1", "Q3"]

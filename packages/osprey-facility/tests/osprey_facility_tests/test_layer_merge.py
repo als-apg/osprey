@@ -71,7 +71,7 @@ class TestSourcesLoad:
 
     def test_wiring_id_is_model_slash_address(self, tmp_path: Path) -> None:
         models = [{"name": "lattice", "engine": "pyat", "wiring": [{"address": "A/B/C"}]}]
-        loaded = load_sources(_write(tmp_path, {"models.yaml": models}))
+        loaded = load_sources(_write(tmp_path, {"simulation/models.yaml": models}))
         assert [(r.kind, r.id) for r in loaded.sources.records] == [
             ("model", "lattice"),
             ("wiring", "lattice/A/B/C"),
@@ -99,7 +99,7 @@ class TestSourcesLoad:
     @pytest.mark.parametrize("slot", ["direction", "unit", "default", "value_range"])
     def test_computed_wiring_slot_is_source_invalid(self, tmp_path: Path, slot: str) -> None:
         models = [{"name": "lattice", "wiring": [{"address": "SR:Q1", slot: 1}]}]
-        err = _one(_load_errors(tmp_path, {"models.yaml": models}))
+        err = _one(_load_errors(tmp_path, {"simulation/models.yaml": models}))
         assert (err.kind, err.record_kind, err.record_id) == (
             "source-invalid",
             "wiring",
@@ -113,7 +113,9 @@ class TestSourcesLoad:
         assert "both a device and a place" in err.detail
 
     def test_model_name_outside_pn_local_is_source_invalid(self, tmp_path: Path) -> None:
-        err = _one(_load_errors(tmp_path, {"models.yaml": [{"name": "storage-lattice"}]}))
+        err = _one(
+            _load_errors(tmp_path, {"simulation/models.yaml": [{"name": "storage-lattice"}]})
+        )
         assert (err.kind, err.record_kind, err.record_id) == (
             "source-invalid",
             "model",
@@ -125,14 +127,14 @@ class TestSourcesLoad:
             _load_errors(
                 tmp_path,
                 {
-                    "models.yaml": [{"name": "Lattice"}],
+                    "simulation/models.yaml": [{"name": "Lattice"}],
                     "imported/mml/models.yaml": [{"name": "lattice"}],
                 },
             )
         )
         assert err.kind == "source-invalid"
         assert "Lattice, lattice" in err.detail
-        assert err.sources == ("models.yaml", "imported/mml/models.yaml")
+        assert err.sources == ("simulation/models.yaml", "imported/mml/models.yaml")
 
     def test_identity_code_outside_pn_local_is_source_invalid(self, tmp_path: Path) -> None:
         err = _one(_load_errors(tmp_path, {"identity.yaml": {"code": "bad-code"}}))
@@ -251,7 +253,9 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
-                "models.yaml": [{"name": "lattice", "settings": {"pyat": {"twiss_in": [1, 2]}}}],
+                "simulation/models.yaml": [
+                    {"name": "lattice", "settings": {"pyat": {"twiss_in": [1, 2]}}}
+                ],
                 "imported/mml/models.yaml": [
                     {"name": "lattice", "settings": {"pyat": {"solve": "closed"}}}
                 ],
@@ -265,7 +269,7 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
-                "seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
+                "simulation/seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
                 "imported/pairs/channels.yaml": [{"id": "SR:X", "simulation": {"follows": "none"}}],
             },
         )
@@ -283,7 +287,7 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
-                "seeds.yaml": {"SR:X": {"nominal": 1.5, "follows": "none"}},
+                "simulation/seeds.yaml": {"SR:X": {"nominal": 1.5, "follows": "none"}},
                 "imported/pairs/channels.yaml": [{"id": "SR:X", "simulation": {"follows": "SR:S"}}],
             },
         )
@@ -295,7 +299,7 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
-                "seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
+                "simulation/seeds.yaml": {"SR:X": {"nominal": 1.5, "noise": {"absolute": 0.1}}},
                 "imported/pairs/channels.yaml": [
                     {"id": "SR:X", "simulation": {"nominal": 1.5, "follows": "none"}}
                 ],
@@ -356,7 +360,7 @@ class TestLayerMerge:
         result = _build(
             tmp_path,
             {
-                "models.yaml": [
+                "simulation/models.yaml": [
                     {
                         "name": "lattice",
                         "wiring": [{"address": "SR:Q1", "slices": [{"element": "Q1"}]}],
@@ -382,7 +386,7 @@ class TestLayerMerge:
             tmp_path,
             {
                 "records/channels.yaml": [{"id": "SR:Q:SP", "on": {"device": "Q"}}],
-                "models.yaml": [
+                "simulation/models.yaml": [
                     {"name": "lattice", "wiring": [{"address": "SR:Q:SP", "slices": slices}]}
                 ],
             },
@@ -442,26 +446,28 @@ class TestLayerMerge:
             tmp_path,
             {
                 "imported/mml/channels.yaml": [{"id": "SR:X"}],
-                "seeds.yaml": {"SR:X": {"nominal": 0.5}},
+                "simulation/seeds.yaml": {"SR:X": {"nominal": 0.5}},
             },
         )
         channel = _record(result, "channels", "SR:X")
         assert channel["simulation"] == {"nominal": 0.5}
-        assert {"layer": "authored", "file": "seeds.yaml", "fields": ["simulation"]} in channel[
-            "provenance"
-        ]["sources"]
+        assert {
+            "layer": "authored",
+            "file": "simulation/seeds.yaml",
+            "fields": ["simulation"],
+        } in channel["provenance"]["sources"]
 
     def test_emission_order(self, tmp_path: Path) -> None:
         result = _build(
             tmp_path,
             {
                 "records/devices.yaml": [{"id": "Q2"}, {"id": "Q1"}],
-                "models.yaml": [
+                "simulation/models.yaml": [
                     {"name": "texture"},
                     {"name": "lattice", "wiring": [{"address": "Z"}, {"address": "A"}]},
                     {"name": "booster"},
                 ],
-                "classes.yaml": [{"class": "Quad"}, {"class": "BPM"}],
+                "vocabulary/classes.yaml": [{"class": "Quad"}, {"class": "BPM"}],
             },
         )
         document = result.document

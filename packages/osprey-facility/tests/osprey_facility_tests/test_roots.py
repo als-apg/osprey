@@ -101,7 +101,7 @@ def test_a_nested_content_name_stays_a_machine_entry_when_mounted() -> None:
     [
         "identity.yaml",
         "records.yaml",
-        "scenarios/warm.yaml",
+        "simulation/scenarios/warm.yaml",
         "knowledge.yaml",
         "ariel-notes/a.md",
         ".gitignore",

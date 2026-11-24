@@ -58,7 +58,7 @@ def _write_tree(root: Path, tree: dict[str, Any]) -> Path:
 def _built(tmp_path: Path, signals: list[dict[str, Any]] | None) -> dict[str, Any]:
     tree = _plain_tree()
     if signals is not None:
-        tree["signals.yaml"] = signals
+        tree["vocabulary/signals.yaml"] = signals
         for channel in tree["records/channels.yaml"]:
             if channel["id"] == "Q1:RB":
                 channel["signal"] = signals[0]["name"]

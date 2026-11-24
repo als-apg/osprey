@@ -70,7 +70,7 @@ def _tree(devices: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
     files: dict[str, Any] = {
         "records/places.yaml": [{"id": "SR"}, {"id": "SR/S01"}],
         "records/devices.yaml": devices,
-        "documents.yaml": _DOCS,
+        "provenance/documents.yaml": _DOCS,
     }
     files.update(extra)
     return files
@@ -230,7 +230,7 @@ class TestPartCycle:
         ]
         ranked = _run(
             tmp_path / "ranked",
-            _tree(devices, **{"records/relations.yaml": claims, "policy.yaml": _POLICY}),
+            _tree(devices, **{"records/relations.yaml": claims, "provenance/policy.yaml": _POLICY}),
         )
         assert _lines(ranked, "part-cycle") == []
 
@@ -305,7 +305,7 @@ def _place_tree(**extra: Any) -> dict[str, Any]:
     """Authored SR with two sectors; *extra* adds layer files."""
     files: dict[str, Any] = {
         "records/places.yaml": [{"id": "SR"}, {"id": "SR/S01"}, {"id": "SR/S02"}],
-        "documents.yaml": _DOCS,
+        "provenance/documents.yaml": _DOCS,
     }
     files.update(extra)
     return files
