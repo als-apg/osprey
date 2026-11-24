@@ -7,7 +7,11 @@ under test.
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from osprey.services.bluesky_bridge import live_rows
@@ -323,6 +327,93 @@ def test_a_numpy_scalar_cell_is_stored_as_a_python_scalar(value: object, stored_
 
     assert type(cell) is stored_type
     assert cell == value
+
+
+def test_json_cell_serves_utf8_bytes_as_text() -> None:
+    """Bytes that are UTF-8 text are that text, as a scalar and inside an array."""
+    assert live_rows.json_cell(b"abc") == "abc"
+    assert live_rows.json_cell(np.bytes_(b"abc")) == "abc"
+    assert live_rows.json_cell(np.array([b"a", b"b"])) == ["a", "b"]
+
+
+@pytest.mark.parametrize("value", [b"\xff\xfe", bytearray(b"\xff\xfe"), np.bytes_(b"\xff\xfe")])
+def test_json_cell_refuses_undecodable_bytes_as_not_text(value: object) -> None:
+    assert live_rows.json_cell(value) == {"refused": live_rows.REFUSED_NOT_TEXT}
+    assert live_rows.REFUSED_NOT_TEXT == "not text"
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (datetime(2026, 11, 24, 10, 0, 0), "2026-11-24T10:00:00Z"),
+        (datetime(2026, 11, 24, 10, 0, 0, 500000), "2026-11-24T10:00:00.5Z"),
+        (
+            datetime(2026, 11, 24, 11, 0, 0, 250000, tzinfo=timezone(timedelta(hours=1))),
+            "2026-11-24T10:00:00.25Z",
+        ),
+        (date(2026, 11, 24), "2026-11-24"),
+        (pd.Timestamp("2026-11-24T10:00:00.000000005"), "2026-11-24T10:00:00.000000005Z"),
+        (pd.Timestamp("2026-11-24T02:00:00", tz="US/Pacific"), "2026-11-24T10:00:00Z"),
+        (np.datetime64("2026-11-24T10:00:00.120000000", "ns"), "2026-11-24T10:00:00.12Z"),
+        (np.datetime64("2026-11-24", "D"), "2026-11-24"),
+    ],
+)
+def test_json_cell_spells_a_date_as_iso_text_in_utc(value: object, text: str) -> None:
+    """A date reads as ISO 8601 in UTC ending in Z, its fraction only when non-zero."""
+    assert live_rows.json_cell(value) == text
+
+
+def test_json_cell_spells_each_date_of_an_array() -> None:
+    dates = np.array(["2026-11-24T10:00:00", "2026-11-25T00:00:00"], dtype="datetime64[s]")
+
+    assert live_rows.json_cell(dates) == ["2026-11-24T10:00:00Z", "2026-11-25T00:00:00Z"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        1 + 2j,
+        np.complex128(1 + 2j),
+        {1, 2},
+        {"a": 1},
+        Decimal("1.5"),
+        np.timedelta64(5, "s"),
+        np.datetime64("NaT"),
+        pd.NaT,
+        object(),
+    ],
+)
+def test_json_cell_refuses_a_value_that_is_not_a_number_text_or_array(value: object) -> None:
+    assert live_rows.json_cell(value) == {"refused": live_rows.REFUSED_NOT_A_READING}
+    assert live_rows.REFUSED_NOT_A_READING == "not a number, text or array"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        np.array([b"a", b"\xff"]),
+        np.array([1.0, b"\xff"], dtype=object),
+        [1.0, [2.0, b"\xff"]],
+    ],
+)
+def test_json_cell_refuses_the_whole_cell_for_one_refused_element(value: object) -> None:
+    assert live_rows.json_cell(value) == {"refused": live_rows.REFUSED_NOT_TEXT}
+
+
+def test_json_cell_serves_a_tuple_as_a_list() -> None:
+    assert live_rows.json_cell((1.0, (2, "a"))) == [1.0, [2, "a"]]
+
+
+def test_a_refused_cell_is_stored_and_its_row_kept() -> None:
+    """A refused cell takes its place in the row; the reading beside it is intact."""
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"x": 1.5, "raw": b"\xff\xfe"}))
+
+    buf = live_rows.get("run-1")
+
+    assert buf["rows"] == [[1.5, {"refused": "not text"}]]
+    assert buf["total_seen"] == 1
 
 
 # =========================================================================

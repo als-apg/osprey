@@ -1042,6 +1042,27 @@ def test_a_non_finite_reading_is_null_whether_it_is_scalar_or_inside_a_waveform(
     assert response.json()["rows"] == [[None, [None, 1.0]]]
 
 
+def test_a_stored_complex_column_is_refused_cell_by_cell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A column of a dtype that is not a plain number goes through the cell rule.
+
+    A ``complex128`` column is not object dtype, yet its cells have no reading
+    spelling: each one is refused rather than written as encoder-invented text.
+    """
+    run_node = _run_node_with_events(
+        "uid-complex",
+        "run-complex",
+        [{"motor": 1.0, "det_iq": 1 + 2j}, {"motor": 2.0, "det_iq": 3j}],
+    )
+    _configured(monkeypatch, "run-complex", run_node)
+
+    result = app_module._from_tiled("run-complex", max_rows=100, offset=None, tail=False)
+
+    refused = {"refused": "not a number, text or array"}
+    assert result["rows"] == [[1.0, refused], [2.0, refused]]
+
+
 def test_the_figure_path_leaves_a_waveform_column_out_rather_than_plotting_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
