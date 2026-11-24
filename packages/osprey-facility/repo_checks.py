@@ -43,6 +43,9 @@ _ROW = re.compile(r"^\|\s*`(osprey_facility(?:\.\w+)*)`\s*\|\s*(.+?)\s*\|\s*$")
 
 #: Names that are public with no user in the tree, each with the reason.
 EXTENSION_POINTS: Mapping[str, str] = {
+    "osprey_facility.ADDRESS_SLOTS": (
+        "a fork or tool reads which channel slots a further address states for itself"
+    ),
     "osprey_facility.__version__": "a deployment or tool reads the installed release",
     "osprey_facility.kinds.CHROMATICITY_MONITOR_NAME": "a kind plug-in names a built-in kind",
     "osprey_facility.kinds.CRM_FILE": "a kind plug-in names a built-in kind's view file",
