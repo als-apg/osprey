@@ -250,6 +250,17 @@ class TestTheRecords:
         assert records["Q1:SP"].command is False
         assert roster.completion("Q1:ON") == ("Q1:ON", "Q1:STATE", "OFF", 5.0)
 
+    def test_a_setpoint_carries_the_command_that_starts_it(self, tmp_path: Path) -> None:
+        from tests.facility.test_positioner_rules import GO, POSITION
+        from tests.facility.test_positioner_rules import _tree as positioner_tree
+
+        write_facility_file(tmp_path, positioner_tree())
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert records[POSITION].started_by == GO
+        assert records[GO].started_by is None
+
     def test_a_models_status_channels_are_never_listed(self, tmp_path: Path) -> None:
         tree = deck_tree()
         write_facility_file(tmp_path, tree)
@@ -442,6 +453,30 @@ class TestFurtherAddresses:
 
         assert roster.completion(SETPOINT) == (SETPOINT, "QD:BUSY", 0, 2.0)
         assert roster.completion(FURTHER) == (FURTHER, "QD:BUSY", 0, 2.0)
+
+    def test_a_further_address_carries_its_records_start_command(self, tmp_path: Path) -> None:
+        from tests.facility.test_wiring_also import _tree
+
+        switch = {"value_type": "bool", "options": ["OFF", "ON"], "on": {"device": "SR/QD"}}
+        tree = _tree()
+        tree["records/channels.yaml"] += [
+            {"id": PAIRED, "on": {"device": "SR/QD"}},
+            {
+                "id": "QD:ON",
+                "role": "setpoint",
+                "signal": "power_on_command",
+                "pair": "QD:STATE",
+                "timeout_s": 5.0,
+                **switch,
+            },
+            {"id": "QD:STATE", "signal": "power_on_status", "idle": "OFF", **switch},
+        ]
+        (setpoint,) = [c for c in tree["records/channels.yaml"] if c["id"] == SETPOINT]
+        setpoint["started_by"] = "QD:ON"
+
+        records = _further_roster(tmp_path, tree, PAIRED)
+
+        assert records[SETPOINT].started_by == records[FURTHER].started_by == "QD:ON"
 
     def test_a_further_setpoint_reads_back_its_records_pair(self, tmp_path: Path) -> None:
         from tests.facility.test_wiring_also import _tree

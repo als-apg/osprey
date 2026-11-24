@@ -227,6 +227,9 @@ class ChannelRecord:
             states none.
         idle: On a status, what it reads while no act runs, the wiring
             record's for a further address; ``None`` when the file states none.
+        started_by: On a setpoint whose move a command starts, that command's
+            address; the wiring record's for a further address; ``None``
+            otherwise.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -247,6 +250,7 @@ class ChannelRecord:
     command: bool = False
     timeout_s: float | None = None
     idle: str | int | float | None = None
+    started_by: str | None = None
 
     def __post_init__(self) -> None:
         if not self.address:
