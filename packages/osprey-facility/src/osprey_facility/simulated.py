@@ -14,8 +14,8 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
-from osprey_connectors.simulation.view import SCENARIOS_DIR, SERVER_HEALTH_SIGNALS
-from osprey_facility import STILL_ALL
+from osprey_connectors.simulation.view import SERVER_HEALTH_SIGNALS
+from osprey_facility import STILL_ALL, source_tree
 from osprey_facility.records import ChannelSelection, FacilityRecords
 
 __all__ = [
@@ -86,7 +86,7 @@ def resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> lis
         return FacilityBuildError(
             "value-invalid",
             name,
-            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            [source_tree.keyed_file("scenarios", name)],
             remedy,
             record_kind="scenario",
             detail=detail,
