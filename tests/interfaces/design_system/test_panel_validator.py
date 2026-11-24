@@ -745,7 +745,7 @@ def _panel_name(page: Path) -> str:
 
 def test_the_shipped_panel_pages_are_found() -> None:
     names = {_panel_name(entry) for entry, _ in _shipped_panel_pages()}
-    assert {"reference", "bluesky", "optimizer", "health", "scaffold-app", "orbit-bump"} <= names
+    assert {"reference", "bluesky", "optimizer", "health", "scaffold-app"} <= names
 
 
 @pytest.mark.parametrize(

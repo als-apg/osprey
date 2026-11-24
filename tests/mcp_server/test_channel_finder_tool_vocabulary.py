@@ -70,7 +70,7 @@ MCP_SERVERS: tuple[str, ...] = (
 DISPATCH = "dispatch"
 
 #: Every application the presets ship; each one's tool server is a source of its own.
-APPLICATIONS: tuple[str, ...] = ("orbit-bump",)
+APPLICATIONS: tuple[str, ...] = ()
 
 SOURCES = MCP_SERVERS + (DISPATCH, "ariel_search") + APPLICATIONS
 

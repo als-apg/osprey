@@ -1219,11 +1219,9 @@ services:
     template: osprey.archive
 
 # ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/; none is on by default. Orbit
-# bump ships with OSPREY (strip, model bump, approval-gated apply):
-# `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
-# apps/orbit-bump/ and lists it as
-# apps: {orbit-bump: {}}
+# Each entry runs the application in apps/<name>/; none is on by default.
+# `osprey app new <name>` copies the scaffold into apps/<name>/ and lists it as
+# apps: {<name>: {}}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,

@@ -581,9 +581,6 @@ def summarize_scaffold(package: Path) -> None:
     for path in _files_under(scaffold):
         lines = len(path.read_bytes().splitlines())
         print(f"    {path.relative_to(scaffold).as_posix():44s} {lines:4d} lines")
-    example = package / "profiles" / "presets" / "apps" / "orbit-bump"
-    if example.is_dir():
-        print(f"  Worked example (several routes and tools, a writing panel): {example}")
 
 
 def summarize(package: Path) -> None:
