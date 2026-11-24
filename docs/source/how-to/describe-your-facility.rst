@@ -132,8 +132,9 @@ readback is its status, the channel that reports when what the command started,
 its act, is over; the fields ``idle`` and ``timeout_s`` say what the status reads
 while nothing runs and how long an act may take, so a write of the command can
 wait until the act is over, and a plan triggers such a command rather than
-setting it (:doc:`/how-to/bluesky/write-plans`). What a channel is comes from
-its fields:
+setting it (:doc:`/how-to/bluesky/write-plans`). A setpoint whose move such a
+command starts, such as a stage's target and its GO, names the command as
+``started_by``. What a channel is comes from its fields:
 
 .. list-table::
    :header-rows: 1
@@ -178,6 +179,12 @@ its fields:
    * - ``timeout_s``
      - On a command whose status states ``idle``: the longest one act may
        take, in seconds. A command and its status state the two together.
+   * - ``started_by``
+     - On a setpoint whose move a command starts, such as a stage's GO: the
+       command's address. The command states ``timeout_s``, its status states
+       ``idle``, and no other setpoint names it. In the simulation the
+       setpoint's readback moves when the command is written; on a setpoint a
+       served model wires the build stops.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
