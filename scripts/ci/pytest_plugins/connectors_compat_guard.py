@@ -11,7 +11,7 @@ every worker and at test time, from the interpreter's site-packages; a test
 errors in its setup otherwise.
 
 Loaded with ``-p connectors_compat_guard`` and this directory on
-``PYTHONPATH`` (scripts/ci/connectors_compat_lane.py does both). Standard
+``PYTHONPATH`` (scripts/ci/compat_lane.py does both). Standard
 library and pytest only: a release's own test environment loads it.
 """
 

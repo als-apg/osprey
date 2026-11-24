@@ -145,8 +145,9 @@ osprey-facility floor.
 *Why:* each package gets its own version and cadence. One parameterised workflow
 generalises the connectors' release stream instead of copying it twice.
 
-*Phase:* 6. *Today:* osprey-facility and osprey-panels are built from the
-checkout only and no release publishes them.
+*Phase:* 6. *Today:* an ``osprey-facility-v*`` or ``osprey-panels-v*`` tag
+runs ``release-package.yml``, which publishes that package to PyPI and nothing
+else. The framework's ``v*`` release builds neither.
 
 7. A fork is a separate distribution that replaces osprey-panels
 ----------------------------------------------------------------

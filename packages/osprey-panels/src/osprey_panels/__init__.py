@@ -15,6 +15,9 @@ written set against the model; :mod:`~osprey_panels.classes` groups the
 written screens into classes, each judged by one standard screen.
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
+
 from osprey_panels.describe import (
     channel_list,
     checkout,
@@ -55,6 +58,15 @@ from osprey_panels.tables import (
 )
 from osprey_panels.view import Target, View
 
+# The version comes from the package's own osprey-panels-v* calendar tags (see
+# pyproject.toml): a built distribution answers from its own metadata, and a
+# bare source tree — no dist installed, no build hook run — answers honestly
+# that it is unbuilt.
+try:
+    __version__ = _dist_version("osprey-panels")
+except PackageNotFoundError:  # pragma: no cover — source tree without an install
+    __version__ = "0.0.0+unbuilt"
+
 __all__ = [
     "Channel",
     "Citation",
@@ -71,6 +83,7 @@ __all__ = [
     "Target",
     "Thing",
     "View",
+    "__version__",
     "channel_state",
     "checkout",
     "describe",

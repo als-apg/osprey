@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 from typing import Any
 
 __all__ = [
@@ -18,9 +20,19 @@ __all__ = [
     "PN_LOCAL",
     "STILL_ALL",
     "TEXTURE",
+    "__version__",
     "fold_code",
     "wiring_addresses",
 ]
+
+# The version comes from the package's own osprey-facility-v* calendar tags (see
+# pyproject.toml): a built distribution answers from its own metadata, and a
+# bare source tree — no dist installed, no build hook run — answers honestly
+# that it is unbuilt.
+try:
+    __version__ = _dist_version("osprey-facility")
+except PackageNotFoundError:  # pragma: no cover — source tree without an install
+    __version__ = "0.0.0+unbuilt"
 
 PN_LOCAL = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 

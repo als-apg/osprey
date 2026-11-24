@@ -123,9 +123,21 @@ description's schema model, in ``osprey_facility/schema/_generated/`` of the
 
 - ``facility.schema.json`` is the current shape. It is open: it does not
   refuse a key it does not name, so a document with an added key validates.
+  Its ``$schema`` names the JSON Schema 2020-12 dialect and its ``$id`` the
+  URL it is served under, ending in the header's ``N``. Within one ``N`` the
+  current shape only grows additively, so the ``$id`` names the newest
+  additive form of ``N``.
 - ``facility-<N>.schema.json`` is the floor for version ``N``, written once
-  when ``N`` first appears and never rewritten. ``facility-4.schema.json`` is
-  today's floor.
+  when ``N`` first appears and never rewritten. It carries no ``$schema`` or
+  ``$id``. ``facility-4.schema.json`` is today's floor.
+- ``facility-<N>.final.schema.json`` is written at a bump of ``N``: the last
+  current of the old ``N``, with its ``$id``, so the old URL keeps serving.
+
+The docs serve these files, copied from the package at build time:
+
+- the current schema and each final at ``schemas/facility/<N>.schema.json``;
+  today that is ``https://als-apg.github.io/osprey/latest/schemas/facility/4.schema.json``;
+- each floor at ``schemas/facility/<N>.floor.schema.json``.
 
 ``uv run python -m osprey_facility.schema._generate`` regenerates them, and
 its ``--check`` fails when the current file is stale or a floor is missing. A
@@ -187,6 +199,11 @@ What holds today
      - ``packages/osprey-facility/tests/osprey_facility_tests/test_wheel_contents.py``:
        the built ``osprey-facility`` wheel holds both schema files where
        ``published_schema`` resolves them, and the compat module
+   * - The served schema's ``$id`` is the URL it is served under
+     - Enforced
+     - ``tests/docs/test_published_schemas.py``: the docs build hook copies the
+       package's schema files unchanged, and every served ``$id`` equals its
+       served URL
    * - Readers ignore unknown keys
      - Enforced for the panel engine
      - ``packages/osprey-panels/tests/osprey_panels_tests/test_unknown_keys.py``; the framework's readers

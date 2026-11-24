@@ -17,6 +17,31 @@ The MML layer, which reads a MATLAB Middle Layer export, needs the `mml` extra:
 pip install "osprey-facility[mml]"
 ```
 
+## Stability
+
+The package is released on its own CalVer tags, `osprey-facility-vYYYY.M.P`, by
+`.github/workflows/release-package.yml`, independently of the framework's `v*`
+tags.
+
+- **Window.** The framework releases the package must keep working under are
+  listed in `[tool.osprey-facility.compat]` in `pyproject.toml`: the newest
+  stable release, every stable release of the last six months, and any
+  pre-release newer than the newest stable. The `facility-compat` CI lane
+  installs each listed framework release and runs HEAD's package under it.
+- **Retirement.** A framework release leaves `frameworks` for `retired` when it
+  falls outside the window, or as a recorded break with its reason beside it;
+  never because it fails. The plan job holds both lists to the framework tags
+  reachable from HEAD.
+- **Floor, never pin.** A framework release requires `osprey-facility` with a
+  floor and no ceiling; the `framework-at-facility-floor` lane installs that
+  published floor under HEAD's framework.
+- **Schema `$id`.** The `$id` of the schema for format version N names the
+  newest additive form of N; a change that is not additive bumps N.
+- **Bumping N.** A facility release that first writes `/N+1` is cut only after
+  an `osprey-panels` release whose `reads` includes `/N+1` is on PyPI. The
+  facility package does not know panels exists; this is release order, not a
+  check.
+
 ## Public API
 
 The modules below are the package's public API; every other module is
@@ -29,6 +54,8 @@ Each public module lists its public names in `__all__`. `osprey_facility.kinds`
 also serves apps; `osprey_facility.reading` also serves the framework's checked
 readers. `osprey_facility.schema.published_schema()` returns the shipped JSON
 Schema: the current one, or `published_schema(4)` for a format version's floor.
+`osprey_facility.__version__` is the installed distribution's version, or
+`0.0.0+unbuilt` in a source tree with no install.
 
 | Module | Consumer |
 |---|---|

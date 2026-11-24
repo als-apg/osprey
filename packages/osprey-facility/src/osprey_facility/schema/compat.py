@@ -13,6 +13,12 @@ The comparison walks the keywords ``type``, ``anyOf``, ``$ref``, ``enum``,
 where they are the keys of a ``properties`` map, since there they name real
 properties.
 
+A top-level ``$schema`` or ``$id`` is the document's identity, not its shape: the
+dialect it is written in and the URL it is published at. :func:`classify` skips
+both at the root, so adding, changing or dropping either is neither breaking nor
+additive; the generator's own test checks that the identity is right. Below the
+root, ``$schema`` and ``$id`` compare like any other keyword.
+
 **Additive**: a new optional property, a new ``$defs`` entry, a new enum member.
 **Breaking**: a removed or renamed property, a changed ``type``, ``$ref``,
 ``anyOf`` or ``const``, a removed enum member, a newly required field. Any other
@@ -26,6 +32,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from osprey_facility.schema._generate import without_identity
 
 __all__ = ["Compatibility", "classify"]
 
@@ -71,7 +79,7 @@ def classify(old: Mapping[str, Any], new: Mapping[str, Any]) -> Compatibility:
     """
     breaking: list[str] = []
     additions: list[str] = []
-    _compare(old, new, "#", breaking, additions)
+    _compare(without_identity(old), without_identity(new), "#", breaking, additions)
     return Compatibility(tuple(breaking), tuple(additions))
 
 

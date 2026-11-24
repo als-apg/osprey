@@ -569,13 +569,15 @@ an already-running container.
    uv pip install build   # or: pip install build
 
 It also needs the checkout's release tags. Each wheel takes its version from
-git tags: the framework from ``v*``, and ``osprey-connectors`` from its own
-``osprey-connectors-v*``. A checkout with no connectors tag reachable builds
-that package as ``0.0.postN``. The framework's requirement on it refuses that
-version, so ``--dev`` stops before staging and says so.
+git tags: the framework from ``v*``, and ``osprey-connectors``,
+``osprey-facility`` and ``osprey-panels`` each from their own
+``<package>-v*``. A checkout with no tag of a package reachable builds that
+package as ``0.0.postN``. Where the framework's requirement on it refuses that
+version, ``--dev`` stops before staging and says so.
 
 To fix it, run ``git fetch --tags``. A fork or an internal mirror must sync the
-``osprey-connectors-v*`` tags as well as the ``v*`` ones.
+``osprey-connectors-v*``, ``osprey-facility-v*`` and ``osprey-panels-v*`` tags
+as well as the ``v*`` ones.
 
 A dev build installs third-party packages at the versions the checkout's
 ``uv.lock`` holds, not the newest the index has that day. So the images run

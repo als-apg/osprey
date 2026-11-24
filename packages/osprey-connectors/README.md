@@ -18,6 +18,9 @@ Documentation: <https://als-apg.github.io/osprey/latest/how-to/control-systems/u
 pip install osprey-connectors
 ```
 
+Releases are cut from `osprey-connectors-vYYYY.M.P` tags by
+`.github/workflows/release-package.yml`.
+
 [Use the Connectors Without the Framework](https://als-apg.github.io/osprey/latest/how-to/control-systems/use-connectors-standalone.html)
 reads a control system and its archiver from a script of your own, and says
 what needs a deployment.

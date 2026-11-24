@@ -1255,13 +1255,14 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
 
     lean, pyaml = "{scratch}/lean/bin/python", "{scratch}/pyaml/bin/python"
     optimizer = "{scratch}/optimizer/bin/python"
+    facility = "{scratch}/facility/bin/python"
     assert run("package") == [
         ["uv", "build"],
         ["uvx", "twine", "check", "dist/*"],
         ["uv", "build", "--package", "osprey-connectors"],
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
-        [lean, "-I", fw.LEAN_IMPORT_WALK],
+        [lean, "-I", fw.LEAN_IMPORT_WALK, "connectors"],
         ["uv", "build", "--package", "osprey-optimizer"],
         ["uv", "venv", "{scratch}/optimizer", "--python", "3.11"],
         [
@@ -1270,6 +1271,15 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ],
         [optimizer, "-c", fw.OPTIMIZER_BASE_PROBE],
         ["uv", "build", "--package", "osprey-facility"],
+        ["uvx", "twine", "check", "dist/osprey_facility-*.tar.gz", "dist/osprey_facility-*.whl"],
+        ["uv", "venv", "{scratch}/facility", "--python", "3.11"],
+        [
+            *("uv", "pip", "install", "--python", facility, "--find-links", "dist"),
+            *("dist/osprey_connectors-*.whl", "dist/osprey_facility-*.whl"),
+            "osprey-facility[mml]",
+        ],
+        [facility, "-I", fw.LEAN_IMPORT_WALK, "facility"],
+        [facility, "-I", "-c", fw.FACILITY_VERSION_PROBE],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
@@ -4506,7 +4516,9 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
     optimizer_build, optimizer_venv, optimizer_install, optimizer_probe, *rest = rest
-    facility_build, pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
+    facility_build, facility_twine, facility_venv, facility_install, *rest = rest
+    facility_walk, facility_version, *rest = rest
+    pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
         "twine",
@@ -4526,8 +4538,23 @@ def test_the_package_check_builds_into_an_empty_dist(
         python,
         "dist/osprey_connectors-1.0-py3-none-any.whl",
     ]
-    assert probe == [python, "-I", fw.LEAN_IMPORT_WALK]
+    assert probe == [python, "-I", fw.LEAN_IMPORT_WALK, "connectors"]
     assert facility_build == ["uv", "build", "--package", "osprey-facility"]
+    # Globs no built file matches pass through as written; the extra is its own part.
+    assert facility_twine == [
+        *("uvx", "twine", "check"),
+        *("dist/osprey_facility-*.tar.gz", "dist/osprey_facility-*.whl"),
+    ]
+    facility_python = f"{facility_venv[2]}/bin/python"
+    assert Path(facility_venv[2]).parent == Path(venv[2]).parent
+    assert facility_python != python, "the facility walk needs a venv of its own"
+    assert facility_install == [
+        *("uv", "pip", "install", "--python", facility_python, "--find-links", "dist"),
+        "dist/osprey_connectors-1.0-py3-none-any.whl",
+        *("dist/osprey_facility-*.whl", "osprey-facility[mml]"),
+    ]
+    assert facility_walk == [facility_python, "-I", fw.LEAN_IMPORT_WALK, "facility"]
+    assert facility_version == [facility_python, "-I", "-c", fw.FACILITY_VERSION_PROBE]
     assert pyaml_build == ["uv", "build", "--package", "pyaml-cs-osprey"]
     pyaml_python = f"{pyaml_venv[2]}/bin/python"
     assert pyaml_install[:5] == ["uv", "pip", "install", "--python", pyaml_python]
@@ -4942,12 +4969,15 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
 
 
 def test_the_facility_package_declares_its_own_lane() -> None:
-    """The lane that installs the facility package with no framework is the
-    package's, declared beside it and collected with the others."""
+    """The lanes that install the facility package with no framework, or with a
+    released one, are the package's, declared beside it and collected with the
+    others; the lane holding the framework to the facility floor is the
+    framework's."""
     own = {
         lane.job for lane in check.DECLARED.modules["packages/osprey-facility/repo_checks.py"].LANES
     }
-    assert own == {"osprey-facility-standalone"}
+    assert own == {"osprey-facility-standalone", "facility-compat-plan", "facility-compat"}
+    assert "framework-at-facility-floor" in {lane.job for lane in fw.LANES}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
 
