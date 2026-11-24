@@ -501,6 +501,27 @@ async def test_build_devices_hands_each_readable_its_shape() -> None:
     }
 
 
+def test_a_count_on_a_waveform_readable_records_its_true_shape() -> None:
+    """A real RunEngine records the descriptor the facility states and a cell of its length."""
+    import numpy as np
+    from bluesky import RunEngine
+    from bluesky import plans as bp
+
+    fake = FakeConnector(readbacks={"W:1": np.linspace(0.0, 1.0, 500)})
+    device = ConnectorReadable(fake, "W:1", name="w1", shape=(500,))
+    documents: list[tuple[str, dict[str, Any]]] = []
+
+    RunEngine(context_managers=[])(
+        bp.count([device]), lambda name, doc: documents.append((name, doc))
+    )
+
+    (descriptor,) = [doc for name, doc in documents if name == "descriptor"]
+    (event,) = [doc for name, doc in documents if name == "event"]
+    key = descriptor["data_keys"]["w1"]
+    assert (key["dtype"], key["shape"]) == ("array", [500])
+    assert len(event["data"]["w1"]) == 500
+
+
 async def test_a_settable_with_a_distinct_readback_reports_its_demand_too() -> None:
     """``<name>`` is where the device is, ``<name>_setpoint`` where it was told to go.
 
