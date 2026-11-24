@@ -225,3 +225,18 @@ def test_image_staging_leaves_out_exactly_these_root_entries(
         "docs",
         "notes.txt",
     }
+
+
+def test_example_root_holds_every_entry_the_layout_declares() -> None:
+    """Every top-level name the root layout declares is in the example root.
+
+    The outcome literals above cover only entries the example holds, so a
+    declared entry missing from the example would have no stated outcome on
+    either boundary. A newly declared entry fails here until it joins the
+    example and both literals state what happens to it.
+    """
+    from osprey import repo_layout
+
+    declared = set(repo_layout.top_level_names(repo_layout.ROOT_ENTRIES))
+    example = {entry.rstrip("/") for entry in EXAMPLE_ROOT_ENTRIES}
+    assert declared - example == set()
