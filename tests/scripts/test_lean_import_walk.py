@@ -1,7 +1,7 @@
-"""Pins scripts/ci/lean_import_walk.py: one walk, driven by the stream table.
+"""Pins scripts/ci/lean_import_walk.py: one walk, driven by the package table.
 
 Each test builds a scratch venv holding stand-in packages under a real
-stream's ``import_name`` and runs the walk with that venv's interpreter in
+package's ``import_name`` and runs the walk with that venv's interpreter in
 isolated mode, the way the package check and the release workflows do. A
 forbidden module that is importable is not enough to fail the walk; a package
 module that imports it is.
@@ -209,7 +209,7 @@ def test_a_missing_entry_module_fails(scratch: tuple[Path, Path]) -> None:
 
 
 @pytest.mark.parametrize("args", [(), ("framework",), ("connectors", "facility")])
-def test_the_walk_needs_exactly_one_known_stream_key(
+def test_the_walk_needs_exactly_one_known_package_key(
     scratch: tuple[Path, Path], args: tuple[str, ...]
 ) -> None:
     python, site = scratch
