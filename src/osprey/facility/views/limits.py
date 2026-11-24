@@ -32,7 +32,13 @@ from typing import Any
 from osprey.facility.views import ViewInputs
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_facility.records import FacilityRecords
-from osprey_facility.validate import LIMIT_BOUNDS, record_missing, record_writable
+from osprey_facility.validate import (
+    LIMIT_BOUNDS,
+    limit_records,
+    missing_text,
+    record_missing,
+    record_writable,
+)
 
 __all__ = [
     "LIMITS_FILE",
@@ -77,10 +83,8 @@ def _rows(records: FacilityRecords) -> list[tuple[str, Mapping[str, Any], str, s
     The last field says whether the channel is a command that states
     ``timeout_s``; a further address of a wiring record holds its record's.
     """
-    rows = (records.document.get("limits") or {}).get("records") or []
     resolved = []
-    for row in sorted(rows, key=lambda row: str(row["address"])):
-        address = str(row["address"])
+    for address, row in limit_records(records.document).items():
         channel = records.record("channel", address) or {}
         held = records.record("channel", records.record_address(address)) or channel
         timed = held.get("command") is True and "timeout_s" in held
@@ -118,7 +122,7 @@ def limits_findings(
         The lines, the open setpoints' first.
     """
     document = records.document
-    rows = {str(row["address"]): row for row in (document.get("limits") or {}).get("records") or []}
+    rows = limit_records(document)
     open_setpoints = sorted(
         str(channel["id"])
         for channel in document.get("channels") or []
@@ -150,9 +154,7 @@ def limits_findings(
 
 
 def _lacking(address: str, row: Mapping[str, Any], missing: tuple[str, ...]) -> str:
-    stated = [f"{slot} {row[slot]}" for slot in LIMIT_BOUNDS if row.get(slot) is not None]
-    lacks = ["no writable: true" if slot == "writable" else f"no {slot}" for slot in missing]
-    return f"  {address}: " + ", ".join([*stated, *lacks])
+    return f"  {address}: {missing_text(row, missing)}"
 
 
 def _listed(lines: list[str], every: bool) -> list[str]:

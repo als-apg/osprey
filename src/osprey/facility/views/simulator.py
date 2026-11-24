@@ -109,6 +109,7 @@ from osprey_facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
 from osprey_facility.records import FacilityRecords
 from osprey_facility.scenarios import scenario_logbook
 from osprey_facility.simulated import resolved_still, server_health_addresses, status_address
+from osprey_facility.validate import limit_records, record_range, record_writable
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -276,8 +277,6 @@ def unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
 
 
 def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
-    from osprey.facility.views.limits import limits_document
-
     doc = inputs.records.document
     models = sorted(doc.get("models", []), key=lambda model: str(model["name"]))
     owners: dict[str, str] = {}
@@ -285,7 +284,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         for record in model.get("wiring", []):
             for address in wiring_addresses(record):
                 owners.setdefault(address, str(model["name"]))
-    limits = limits_document(inputs.records)
+    limits = limit_records(doc)
     unlisted_writable = unlisted_setpoints_writable(inputs.rendered_config)
 
     from osprey_facility.pairing import simulated_pairs
@@ -300,11 +299,11 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     for record in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
         address = str(record["id"])
         role = record.get("role", DEFAULT_ROLE)
+        value_type = record.get("value_type", DEFAULT_VALUE_TYPE)
         entry = limits.get(address)
         if entry is not None:
-            writable = bool(entry["writable"])
-            bounds = (entry.get("min_value"), entry.get("max_value"))
-            value_range = list(bounds) if None not in bounds else None
+            writable = record_writable(entry, role, value_type)
+            value_range = list(span) if (span := record_range(entry)) else None
         else:
             writable = role == SETPOINT and unlisted_writable
             value_range = None
@@ -312,7 +311,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             "address": address,
             "role": role,
             "pair": followed.get(address, address) if role == SETPOINT else None,
-            "value_type": record.get("value_type", DEFAULT_VALUE_TYPE),
+            "value_type": value_type,
             "unit": record.get("unit"),
             "description": record.get("description"),
             "writable": writable,
