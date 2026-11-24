@@ -74,7 +74,7 @@ def records(kind: str) -> dict[str, dict[str, Any]]:
 
 
 def test_the_committed_seeds_are_the_generators_output() -> None:
-    committed = (TREE / "seeds.yaml").read_text(encoding="utf-8")
+    committed = (TREE / "simulation" / "seeds.yaml").read_text(encoding="utf-8")
     assert reseed_module().render() == committed
 
 
@@ -322,7 +322,8 @@ def small_tree(tmp_path: Path) -> Path:
     (tmp_path / "records").mkdir()
     (tmp_path / "records/devices.yaml").write_text(SMALL_DEVICES, encoding="utf-8")
     (tmp_path / "records/channels.yaml").write_text(SMALL_CHANNELS, encoding="utf-8")
-    (tmp_path / "seeds.yaml").write_text(SMALL_SEEDS, encoding="utf-8")
+    (tmp_path / "simulation").mkdir()
+    (tmp_path / "simulation" / "seeds.yaml").write_text(SMALL_SEEDS, encoding="utf-8")
     return tmp_path
 
 
@@ -335,7 +336,7 @@ def test_pulse_and_gate_round_trip_in_content_and_in_key_order(small_tree: Path)
     assert list(seeds["T:SEK:VOLTAGE:RB"]) == ["nominal", "gate", "clamp"]
     assert list(module.KEY_ORDER[:3]) == ["nominal", "pulse", "gate"]
     rendered = yaml.safe_dump(seeds, sort_keys=False)
-    (small_tree / "seeds.yaml").write_text(rendered, encoding="utf-8")
+    (small_tree / "simulation" / "seeds.yaml").write_text(rendered, encoding="utf-8")
     again = module.reseed(small_tree, rules=SMALL_RULES)
     assert yaml.safe_dump(again, sort_keys=False) == rendered
 

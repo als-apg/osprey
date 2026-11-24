@@ -18,7 +18,7 @@ takes no tolerance: it settles on its label, and its seed keeps its ``nominal``.
 Nor does a setpoint that states no unit, since a tolerance is in the channel's
 unit.
 
-The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
+The outputs are the committed ``simulation/seeds.yaml``, addresses sorted, each entry's
 keys in the order nominal, pulse, gate, noise, drift, clamp, linear, topoff,
 topoff_lifetime, written with one canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
 its tolerance lines stamped.
@@ -39,6 +39,7 @@ from typing import Any
 
 import yaml
 
+from osprey_facility import source_tree
 from osprey_facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,6 +99,9 @@ RULE_KEYS = frozenset(
 
 #: The file the setpoints' tolerances are stamped into.
 CHANNELS = "records/channels.yaml"
+
+#: The file the seeds are written to.
+SEEDS = source_tree.path("seeds")
 
 #: The literal a rule writes for a quantity that is absent.
 NONE = "none"
@@ -233,7 +237,7 @@ def reseed(
     rules = motion_rules(load_rules(rules_path) if rules is None else rules)
     channels = {record["id"]: record for record in load(tree / "records/channels.yaml")}
     devices = {record["id"]: record for record in load(tree / "records/devices.yaml")}
-    committed: dict[str, dict[str, Any]] = load(tree / "seeds.yaml")
+    committed: dict[str, dict[str, Any]] = load(tree / SEEDS)
     unknown = sorted(set(committed) - set(channels))
     if unknown:
         raise ReseedError(f"seeds for addresses with no channel record: {unknown[:5]}")
@@ -263,7 +267,7 @@ def reseed(
 
 
 def render(tree: Path = TREE, rules_path: Path = RULES) -> str:
-    """The text of the generated ``seeds.yaml``."""
+    """The text of the generated ``simulation/seeds.yaml``."""
     from osprey.facility.bundled import header_line
 
     text = yaml.safe_dump(reseed(tree, rules_path), sort_keys=False)
@@ -360,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--check", action="store_true", help="exit 1 if a committed output differs")
     args = parser.parse_args(argv)
-    outputs = {TREE / "seeds.yaml": render(), TREE / CHANNELS: stamp()}
+    outputs = {TREE / SEEDS: render(), TREE / CHANNELS: stamp()}
     if args.check:
         differing = [
             target for target, text in outputs.items() if target.read_text(encoding="utf-8") != text

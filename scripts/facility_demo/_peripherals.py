@@ -34,6 +34,8 @@ from typing import Any
 
 import _tree
 
+from osprey_facility import source_tree
+
 SECTORS = range(1, 13)
 
 #: The facility-added device classes, each the child of a vocabulary class.
@@ -1153,8 +1155,8 @@ def write_sources(tree: Path) -> None:
     """Merge the peripherals into the facility tree ``tree``.
 
     The devices, channels and groups go into ``records/``, the facility-added classes
-    into ``classes.yaml`` (written whole), and each channel's ``nominal`` (and the
-    valves' closed-switch ``gate``) into ``seeds.yaml``; the radiation monitors move to
+    into ``vocabulary/classes.yaml`` (written whole), and each channel's ``nominal`` (and
+    the valves' closed-switch ``gate``) into ``simulation/seeds.yaml``; the radiation monitors move to
     their sectors. Every other record keeps its text.
     """
     import _injector
@@ -1177,8 +1179,9 @@ def write_sources(tree: Path) -> None:
         "id",
         ordered=True,
     )
-    (tree / "classes.yaml").write_text(_tree.dump(list(CLASSES)), encoding="utf-8")
-    committed = _injector.reseed.load(tree / "seeds.yaml")
+    (tree / source_tree.path("classes")).write_text(_tree.dump(list(CLASSES)), encoding="utf-8")
+    seeds_path = tree / source_tree.path("seeds")
+    committed = _injector.reseed.load(seeds_path)
     for address, entry in seeds.items():
         kept = {k: v for k, v in committed.get(address, {}).items() if k not in entry}
         committed[address] = {**kept, **entry}
@@ -1191,4 +1194,4 @@ def write_sources(tree: Path) -> None:
         for address in sorted(committed)
         if committed[address]
     }
-    (tree / "seeds.yaml").write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    seeds_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
