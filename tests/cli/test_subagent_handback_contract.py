@@ -96,6 +96,15 @@ def test_orchestrator_focuses_a_handed_back_artifact(rendered_project):
     assert "artifact_read" in tail
 
 
+def test_orchestrator_relays_the_handed_back_identifiers_in_full(rendered_project):
+    rule = (rendered_project / ".claude" / "rules" / "artifacts.md").read_text(encoding="utf-8")
+    tail = " ".join(rule.split("## Subagent Hand-Backs", 1)[1].split("\n## ", 1)[0].split())
+
+    assert "relay the headline and the identifiers the hand-back lists" in tail
+    assert "Write each identifier out in full, one per line" in tail
+    assert "a range or a pattern" in tail
+
+
 def test_diagnose_reads_every_session_and_the_cited_artifacts(rendered_project):
     skill = (rendered_project / ".claude" / "skills" / "diagnose" / "SKILL.md").read_text(
         encoding="utf-8"

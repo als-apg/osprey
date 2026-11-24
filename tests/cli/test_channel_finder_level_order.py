@@ -138,6 +138,24 @@ def test_no_navigation_step_tells_the_agent_to_skip_a_level(tmp_path, name):
     assert not re.search(r"(?i)\bskip", navigation), navigation
 
 
+@pytest.mark.parametrize("name", DATABASES)
+def test_the_prompt_says_options_are_chosen_by_their_listed_names(tmp_path, name):
+    document = DATABASES[name]()
+    (tmp_path / "db.json").write_text(json.dumps(document), encoding="utf-8")
+    database = HierarchicalChannelDatabase(str(tmp_path / "db.json"))
+    step = " ".join(
+        _section(_rendered_agent(tmp_path, document), "### Step 2: Navigate level by level").split()
+    )
+
+    assert "Select them by the exact names `get_options` returned" in step
+    assert "there is no wildcard" in step
+    first, second = database.hierarchy_levels[:2]
+    listed = database.get_options_at_level(first, {})[0]["name"]
+    for unlisted in ("*", f"{listed}X"):
+        with pytest.raises(ValueError, match=re.escape(repr(unlisted))):
+            database.get_options_at_level(second, {first: unlisted})
+
+
 def _tool_doc(module: str) -> str:
     """The description an MCP client reads for the tool *module* defines."""
     tool = getattr(
@@ -174,6 +192,47 @@ def test_the_build_channels_example_names_every_level_and_holds_a_channel(built_
     selections = ast.literal_eval(example.group(1))
     assert list(selections) == database.hierarchy_levels
     assert database.build_existing_channels(selections)["channels"]
+
+
+def test_several_values_at_a_level_offer_the_options_under_each(built_demo, tmp_path):
+    database = _demo_database(built_demo, tmp_path)
+    machine, sector, child, grandchild = database.hierarchy_levels[:4]
+    top, sectors = max(
+        (
+            (
+                m["name"],
+                [o["name"] for o in database.get_options_at_level(sector, {machine: m["name"]})],
+            )
+            for m in database.get_options_at_level(machine, {})
+        ),
+        key=lambda pair: len(pair[1]),
+    )
+    per_sector: dict[str, None] = {}
+    for one in sectors:
+        for option in database.get_options_at_level(child, {machine: top, sector: one}):
+            per_sector.setdefault(option["name"], None)
+    together = database.get_options_at_level(child, {machine: top, sector: sectors})
+
+    assert len(sectors) > 1
+    assert [o["name"] for o in together] == list(per_sector)
+    for cls in [o["name"] for o in together][:3]:
+        under_each = {
+            o["name"]
+            for one in sectors
+            for o in _options_or_none(database, grandchild, {machine: top, sector: one, child: cls})
+        }
+        options = database.get_options_at_level(
+            grandchild, {machine: top, sector: sectors, child: cls}
+        )
+        assert {o["name"] for o in options} == under_each
+
+
+def _options_or_none(database, level, selections):
+    """The options at *level*, or none when a selected value has no node there."""
+    try:
+        return database.get_options_at_level(level, selections)
+    except ValueError:
+        return []
 
 
 def _absent_section(prompt: str, token: str) -> str:
