@@ -1,16 +1,19 @@
 """Moving facility sources by editing only the layout declaration.
 
-A fresh interpreter rebinds the declaration's registry to a layout where the
-vocabulary, provenance and simulation sources sit in their own directories and
-the benchmark queries sit under ``benchmarks/channel_finder``, before any
-consumer is imported. It then imports the reader, the validators and the
-layers and reports what they computed and read from trees in ``tmp_path``.
-Nothing in the repository moves.
+A fresh interpreter rebinds the declaration's registry to a layout that is
+neither the declared one nor any retired one: the vocabulary under ``terms/``,
+the provenance files under ``sources/``, the limits under ``machine/``, the
+simulation sources under ``sim/`` and the benchmark queries under
+``benchmarks/queries``, before any consumer is imported. It then imports the
+reader, the validators and the layers and reports what they computed and read
+from trees in ``tmp_path``. Nothing in the repository moves.
 
 Expected: every table that names a moved source follows it; the reader loads
 each source from its new path and records that path as provenance; a
-validator's error names the new path; imported layers stay flat; and the same
-files left at their old root locations are not read.
+validator's error names the new path; imported layers stay flat; the retired
+paths stay declared; the same files left at the declared layout's locations
+are not read; and a tree left at the retired paths is refused, with moves and
+deck edits that land on the substituted layout.
 """
 
 from __future__ import annotations
@@ -26,17 +29,18 @@ import yaml
 
 #: Each moved source and where it sits in the moved layout.
 _MOVED: dict[str, str] = {
-    "classes": "vocabulary/classes.yaml",
-    "signals": "vocabulary/signals.yaml",
-    "documents": "provenance/documents.yaml",
-    "policy": "provenance/policy.yaml",
-    "fixes": "provenance/fixes.yaml",
-    "models": "simulation/models.yaml",
-    "seeds": "simulation/seeds.yaml",
-    "decks": "simulation/decks",
-    "measurement": "simulation/measurement",
-    "scenarios": "simulation/scenarios",
-    "benchmark_queries": "benchmarks/channel_finder",
+    "classes": "terms/classes.yaml",
+    "signals": "terms/signals.yaml",
+    "documents": "sources/documents.yaml",
+    "policy": "sources/policy.yaml",
+    "fixes": "sources/fixes.yaml",
+    "limits": "machine/limits.yaml",
+    "models": "sim/models.yaml",
+    "seeds": "sim/seeds.yaml",
+    "decks": "sim/decks",
+    "measurement": "sim/measurement",
+    "scenarios": "sim/scenarios",
+    "benchmark_queries": "benchmarks/queries",
 }
 
 _CHANNELS = [
@@ -71,6 +75,27 @@ _MOVED_TREE: dict[str, Any] = {
     "identity.yaml": {"code": "demo"},
     "records/places.yaml": _PLACES,
     "records/channels.yaml": _CHANNELS[:1],
+    "terms/classes.yaml": _CLASSES,
+    "terms/signals.yaml": _SIGNALS,
+    "sources/documents.yaml": _DOCUMENTS,
+    "sources/policy.yaml": _POLICY,
+    "sources/fixes.yaml": _FIXES,
+    "sim/models.yaml": _AUTHORED_MODELS,
+    "sim/seeds.yaml": _SEEDS,
+    "sim/scenarios/quiet.yaml": _SCENARIO,
+    "sim/measurement/ring.yaml": {},
+    "sim/decks/ring.json": "{}\n",
+    "imported/mml/channels.yaml": _CHANNELS[1:],
+    "imported/mml/models.yaml": _LAYER_MODELS,
+    "imported/mml/decks/transfer.json": "{}\n",
+}
+
+#: The same sources where the declared layout puts them, beside some that stay put.
+_DECLARED_TREE: dict[str, Any] = {
+    "identity.yaml": {"code": "demo"},
+    "limits.yaml": {},
+    "records/places.yaml": _PLACES,
+    "records/channels.yaml": _CHANNELS[:1],
     "vocabulary/classes.yaml": _CLASSES,
     "vocabulary/signals.yaml": _SIGNALS,
     "provenance/documents.yaml": _DOCUMENTS,
@@ -80,33 +105,22 @@ _MOVED_TREE: dict[str, Any] = {
     "simulation/seeds.yaml": _SEEDS,
     "simulation/scenarios/quiet.yaml": _SCENARIO,
     "simulation/measurement/ring.yaml": {},
-    "simulation/decks/ring.json": "{}\n",
-    "imported/mml/channels.yaml": _CHANNELS[1:],
-    "imported/mml/models.yaml": _LAYER_MODELS,
-    "imported/mml/decks/transfer.json": "{}\n",
 }
 
-#: The same sources at their root locations, beside one that sits where it moved to.
-_OLD_TREE: dict[str, Any] = {
+#: Sources at the retired paths, with a deck value under the retired decks directory.
+_RETIRED_TREE: dict[str, Any] = {
     "identity.yaml": {"code": "demo"},
-    "records/places.yaml": _PLACES,
-    "records/channels.yaml": _CHANNELS[:1],
     "classes.yaml": _CLASSES,
-    "signals.yaml": _SIGNALS,
-    "documents.yaml": _DOCUMENTS,
-    "policy.yaml": _POLICY,
-    "fixes.yaml": _FIXES,
-    "models.yaml": _AUTHORED_MODELS,
-    "seeds.yaml": _SEEDS,
+    "models.yaml": "- name: ring\n  engine: pyat\n  deck: decks/ring.json\n",
+    "decks/ring.json": "{}\n",
     "scenarios/quiet.yaml": _SCENARIO,
-    "measurement/ring.yaml": {},
 }
 
 #: A seed for an address no channel has: a validator stop on the seeds file.
 _BAD_SEED_TREE: dict[str, Any] = {
     "records/places.yaml": _PLACES,
     "records/channels.yaml": _CHANNELS[:1],
-    "simulation/seeds.yaml": {"SR:NOWHERE": {"nominal": 0.0}},
+    "sim/seeds.yaml": {"SR:NOWHERE": {"nominal": 0.0}},
 }
 
 #: Runs in a fresh interpreter: rebinds the registry, then imports the consumers.
@@ -125,13 +139,14 @@ source_tree._FACILITY_SLOTS = source_tree._with_paths(json.loads(sys.argv[1]))
 
 from osprey_facility import combine, compute, knowledge_links, layers, sources, validate, wiring
 from osprey_facility.build import build_facility
+from osprey_facility.errors import RetiredLayoutRefused
 from osprey_facility.layers import list as list_layer
 from osprey_facility.layers import relations as relations_layer
 from osprey_facility.layers.mml import decks as mml_decks
 from osprey_facility.layers.mml import mapping as mml_mapping
 from osprey_facility.layers.mml import seed as mml_seed
 
-moved, old, bad_seed = (Path(arg) for arg in sys.argv[2:5])
+moved, declared, bad_seed, retired = (Path(arg) for arg in sys.argv[2:6])
 
 
 def errors(found):
@@ -157,6 +172,18 @@ def loaded(root):
         "measurement": sorted(got.measurement),
         "records": [[r.kind, r.id, r.layer, r.file] for r in got.records],
     }
+
+
+def refused(read):
+    try:
+        read()
+    except RetiredLayoutRefused as stop:
+        return {
+            "moves": [[m.old, m.new] for m in stop.layout.moves],
+            "deck_edits": [[e.old, e.new] for e in stop.layout.deck_edits],
+            "message": stop.message,
+        }
+    return None
 
 
 def provenance(document):
@@ -202,6 +229,8 @@ print(json.dumps({
         "decks slot": source_tree.path("decks"),
         "in-context queries": source_tree.path("in_context_queries"),
         "tree queries": source_tree.path("tree_queries"),
+        "retired moves": source_tree.retired_moves(),
+        "retired deck prefix": source_tree.retired_deck_prefix(),
     },
     "moved": loaded(moved),
     "provenance": provenance(document),
@@ -209,8 +238,14 @@ print(json.dumps({
         record["id"]: [record.get("description"), record["provenance"]["fixes"]]
         for record in document["channels"]
     },
-    "old": loaded(old),
+    "declared": loaded(declared),
     "bad_seed": {"failed": report.failed, "errors": errors(report.errors)},
+    "retired": {
+        "load_sources": refused(lambda: sources.load_sources(retired)),
+        "run_stages": refused(
+            lambda: validate.run_stages(retired, project_name="demo", extra_checks=())
+        ),
+    },
 }, default=sorted))
 """
 
@@ -230,7 +265,12 @@ def probe(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     base = tmp_path_factory.mktemp("substitution")
     trees = [
         _write(base / name, files)
-        for name, files in (("moved", _MOVED_TREE), ("old", _OLD_TREE), ("bad", _BAD_SEED_TREE))
+        for name, files in (
+            ("moved", _MOVED_TREE),
+            ("declared", _DECLARED_TREE),
+            ("bad", _BAD_SEED_TREE),
+            ("retired", _RETIRED_TREE),
+        )
     ]
     done = subprocess.run(
         [sys.executable, "-c", _PROBE, json.dumps(_MOVED), *map(str, trees)],
@@ -253,25 +293,25 @@ def test_the_registry_is_rebound_before_any_consumer_is_imported(probe: dict[str
 def test_the_root_file_table_keeps_only_the_files_left_at_the_root(
     probe: dict[str, Any],
 ) -> None:
-    assert probe["tables"]["sources._TOP_FILES"] == ["identity.yaml", "limits.yaml"]
+    assert probe["tables"]["sources._TOP_FILES"] == ["identity.yaml"]
 
 
 def test_the_document_slot_files_follow(probe: dict[str, Any]) -> None:
     assert probe["tables"]["validate._TOP_SLOT_FILES"] == {
-        "limits": "limits.yaml",
-        "classes": "vocabulary/classes.yaml",
-        "signals": "vocabulary/signals.yaml",
+        "limits": "machine/limits.yaml",
+        "classes": "terms/classes.yaml",
+        "signals": "terms/signals.yaml",
         "identity": "identity.yaml",
-        "documents": "provenance/documents.yaml",
+        "documents": "sources/documents.yaml",
     }
 
 
 def test_the_validation_constants_follow(probe: dict[str, Any]) -> None:
     tables = probe["tables"]
-    assert tables["combine.FIXES_FILE"] == "provenance/fixes.yaml"
-    assert tables["compute._MODELS_FILE"] == "simulation/models.yaml"
-    assert tables["wiring._MODELS_FILE"] == "simulation/models.yaml"
-    assert tables["compute._LIMITS_FILE"] == "limits.yaml"
+    assert tables["combine.FIXES_FILE"] == "sources/fixes.yaml"
+    assert tables["compute._MODELS_FILE"] == "sim/models.yaml"
+    assert tables["wiring._MODELS_FILE"] == "sim/models.yaml"
+    assert tables["compute._LIMITS_FILE"] == "machine/limits.yaml"
     assert tables["knowledge_links.KNOWLEDGE_DIR"] == "knowledge"
 
 
@@ -289,12 +329,12 @@ _SEED_KEYS = (
 def test_the_importer_seed_paths_follow(probe: dict[str, Any]) -> None:
     tables = probe["tables"]
     assert {key: tables[f"seed.{key}"] for key in _SEED_KEYS} == {
-        "LIMITS_FILE": "limits.yaml",
-        "READOUT_FILE": "simulation/scenarios/readout.yaml",
-        "SEEDS_FILE": "simulation/seeds.yaml",
-        "CLASSES_FILE": "vocabulary/classes.yaml",
+        "LIMITS_FILE": "machine/limits.yaml",
+        "READOUT_FILE": "sim/scenarios/readout.yaml",
+        "SEEDS_FILE": "sim/seeds.yaml",
+        "CLASSES_FILE": "terms/classes.yaml",
         "IDENTITY_FILE": "identity.yaml",
-        "MEASUREMENT_DIR": "simulation/measurement",
+        "MEASUREMENT_DIR": "sim/measurement",
     }
 
 
@@ -323,9 +363,29 @@ def test_the_layer_constants_stay_flat(probe: dict[str, Any]) -> None:
 
 def test_the_moved_directories_and_their_files_follow(probe: dict[str, Any]) -> None:
     tables = probe["tables"]
-    assert tables["decks slot"] == "simulation/decks"
-    assert tables["in-context queries"] == "benchmarks/channel_finder/in_context_queries.json"
-    assert tables["tree queries"] == "benchmarks/channel_finder/tree_queries.json"
+    assert tables["decks slot"] == "sim/decks"
+    assert tables["in-context queries"] == "benchmarks/queries/in_context_queries.json"
+    assert tables["tree queries"] == "benchmarks/queries/tree_queries.json"
+
+
+def test_the_retired_paths_stay_declared_and_point_at_the_moved_layout(
+    probe: dict[str, Any],
+) -> None:
+    tables = probe["tables"]
+    assert tables["retired moves"] == [
+        ["classes.yaml", "terms/classes.yaml", False],
+        ["signals.yaml", "terms/signals.yaml", False],
+        ["models.yaml", "sim/models.yaml", False],
+        ["seeds.yaml", "sim/seeds.yaml", False],
+        ["fixes.yaml", "sources/fixes.yaml", False],
+        ["documents.yaml", "sources/documents.yaml", False],
+        ["policy.yaml", "sources/policy.yaml", False],
+        ["scenarios", "sim/scenarios", False],
+        ["measurement", "sim/measurement", False],
+        ["decks", "sim/decks", False],
+        ["benchmarks/cross_paradigm/queries", "benchmarks/queries", True],
+    ]
+    assert tables["retired deck prefix"] == ["decks/", "sim/decks/"]
 
 
 # --- the reader on the moved tree ------------------------------------------------------
@@ -349,7 +409,7 @@ def test_each_record_names_the_file_it_was_read_from(probe: dict[str, Any]) -> N
     assert sorted(probe["moved"]["records"]) == [
         ["channel", "SR:BPM1:X", "authored", "records/channels.yaml"],
         ["channel", "TL:BPM1:X", "mml", "imported/mml/channels.yaml"],
-        ["model", "ring", "authored", "simulation/models.yaml"],
+        ["model", "ring", "authored", "sim/models.yaml"],
         ["model", "transfer", "mml", "imported/mml/models.yaml"],
         ["place", "SR", "authored", "records/places.yaml"],
         ["place", "TL", "authored", "records/places.yaml"],
@@ -360,15 +420,15 @@ def test_the_built_file_carries_the_new_paths_as_provenance(probe: dict[str, Any
     built = probe["provenance"]
     assert built["models"] == {
         "ring": [
-            ["authored", "simulation/measurement/ring.yaml"],
-            ["authored", "simulation/models.yaml"],
+            ["authored", "sim/measurement/ring.yaml"],
+            ["authored", "sim/models.yaml"],
         ],
         "transfer": [["mml", "imported/mml/models.yaml"]],
     }
     assert built["channels"] == {
         "SR:BPM1:X": [
             ["authored", "records/channels.yaml"],
-            ["authored", "simulation/seeds.yaml"],
+            ["authored", "sim/seeds.yaml"],
         ],
         "TL:BPM1:X": [["mml", "imported/mml/channels.yaml"]],
     }
@@ -386,38 +446,54 @@ def test_a_validator_error_names_the_new_path(probe: dict[str, Any]) -> None:
     bad = probe["bad_seed"]
     assert bad["failed"] is not None
     assert [e["sources"] for e in bad["errors"] if e["record_id"] == "SR:NOWHERE"] == [
-        ["simulation/seeds.yaml"]
+        ["sim/seeds.yaml"]
     ]
 
 
-# --- the old root locations ------------------------------------------------------------
+# --- the declared layout's locations --------------------------------------------------
 
 
-def test_sources_left_at_their_old_locations_are_not_read(probe: dict[str, Any]) -> None:
-    old = probe["old"]
-    assert old["classes"] == []
-    assert old["signals"] == []
-    assert old["documents"] == []
-    assert old["policy"] is None
-    assert old["fixes"] is None
-    assert old["seeds"] == {}
-    assert old["scenarios"] == []
-    assert old["measurement"] == []
-    assert [r for r in old["records"] if r[0] == "model"] == []
+def test_sources_left_at_the_declared_locations_are_not_read(probe: dict[str, Any]) -> None:
+    declared = probe["declared"]
+    assert declared["classes"] == []
+    assert declared["signals"] == []
+    assert declared["documents"] == []
+    assert declared["policy"] is None
+    assert declared["fixes"] is None
+    assert declared["seeds"] == {}
+    assert declared["scenarios"] == []
+    assert declared["measurement"] == []
+    assert [r for r in declared["records"] if r[0] == "model"] == []
 
 
-def test_old_root_files_are_refused_as_strays(probe: dict[str, Any]) -> None:
+def test_a_root_file_that_moved_away_is_refused_as_a_stray(probe: dict[str, Any]) -> None:
     strays = sorted(
         e["sources"][0]
-        for e in probe["old"]["errors"]
+        for e in probe["declared"]["errors"]
         if e["detail"] == "is not a facility source file"
     )
-    assert strays == [
-        "classes.yaml",
-        "documents.yaml",
-        "fixes.yaml",
-        "models.yaml",
-        "policy.yaml",
-        "seeds.yaml",
-        "signals.yaml",
-    ]
+    assert strays == ["limits.yaml"]
+
+
+# --- the retired locations ------------------------------------------------------------
+
+
+def test_sources_left_at_the_retired_locations_are_refused(probe: dict[str, Any]) -> None:
+    for entry in ("load_sources", "run_stages"):
+        refused = probe["retired"][entry]
+        assert refused is not None, entry
+        assert refused["moves"] == [
+            ["classes.yaml", "terms/classes.yaml"],
+            ["models.yaml", "sim/models.yaml"],
+            ["scenarios", "sim/scenarios"],
+            ["decks", "sim/decks"],
+        ]
+        assert refused["deck_edits"] == [["decks/ring.json", "sim/decks/ring.json"]]
+
+
+def test_the_refusal_prints_commands_for_the_substituted_layout(probe: dict[str, Any]) -> None:
+    lines = probe["retired"]["load_sources"]["message"].splitlines()
+    assert "mkdir -p terms sim" in lines
+    assert "mv decks sim/decks" in lines
+    assert "perl -pi -e 's{decks/}{sim/decks/} if $. == 3' sim/models.yaml" in lines
+    assert lines[-1] == "# or run: osprey init --revalidate"

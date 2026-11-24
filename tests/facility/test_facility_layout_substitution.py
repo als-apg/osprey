@@ -1,15 +1,17 @@
 """Moving facility sources by editing only the layout declaration: the framework side.
 
 A fresh interpreter rebinds the facility tree's layout registry to a layout
-where the vocabulary, provenance and simulation sources sit in their own
-directories and the benchmark queries sit under ``benchmarks/channel_finder``,
-before any consumer is imported. It then imports the framework's consumers of
-that layout and reports what they computed, read and wrote on trees in
-``tmp_path``. Nothing in the repository moves.
+that is neither the declared one nor any retired one: the vocabulary under
+``terms/``, the provenance files under ``sources/``, the limits under
+``machine/``, the simulation sources under ``sim/`` and the benchmark queries
+under ``benchmarks/queries``, before any consumer is imported. It then imports
+the framework's consumers of that layout and reports what they computed, read
+and wrote on trees in ``tmp_path``. Nothing in the repository moves.
 
-Expected: every framework reader of a moved source follows it; a message that
-names a moved source names its new path; what a render writes keeps its own
-names; and the deployment's content directories are the same three.
+Expected: every framework reader of a moved source follows it and never takes
+the file at the declared layout's place; a message that names a moved source
+names its new path; what a render writes keeps its own names; and the
+deployment's content directories are the same three.
 """
 
 from __future__ import annotations
@@ -25,17 +27,18 @@ import yaml
 
 #: Each moved source and where it sits in the moved layout.
 _MOVED: dict[str, str] = {
-    "classes": "vocabulary/classes.yaml",
-    "signals": "vocabulary/signals.yaml",
-    "documents": "provenance/documents.yaml",
-    "policy": "provenance/policy.yaml",
-    "fixes": "provenance/fixes.yaml",
-    "models": "simulation/models.yaml",
-    "seeds": "simulation/seeds.yaml",
-    "decks": "simulation/decks",
-    "measurement": "simulation/measurement",
-    "scenarios": "simulation/scenarios",
-    "benchmark_queries": "benchmarks/channel_finder",
+    "classes": "terms/classes.yaml",
+    "signals": "terms/signals.yaml",
+    "documents": "sources/documents.yaml",
+    "policy": "sources/policy.yaml",
+    "fixes": "sources/fixes.yaml",
+    "limits": "machine/limits.yaml",
+    "models": "sim/models.yaml",
+    "seeds": "sim/seeds.yaml",
+    "decks": "sim/decks",
+    "measurement": "sim/measurement",
+    "scenarios": "sim/scenarios",
+    "benchmark_queries": "benchmarks/queries",
 }
 
 #: The first bytes of a PNG picture, enough for a logbook attachment.
@@ -56,52 +59,52 @@ _SCENARIO = {
     ],
 }
 
-#: A facility tree in the moved layout, each moved file also left at its old place.
+#: A facility tree in the moved layout, each moved file also left at its declared place.
 _FACILITY_TREE: dict[str, Any] = {
     "identity.yaml": {"code": "demo"},
     "records/places.yaml": [{"id": "SR"}],
     "records/channels.yaml": [{"id": "SR:BPM1:X", "on": {"place": "SR"}}],
-    "simulation/models.yaml": [{"name": "ring", "engine": "pyat"}],
-    "simulation/measurement/ring.yaml": {},
-    "simulation/scenarios/quiet.yaml": _SCENARIO,
-    "simulation/scenarios/quiet/plots/trend.png": _PNG + "moved",
-    "simulation/decks/ring.json": '{"deck": "moved"}\n',
-    "benchmarks/channel_finder/in_context_queries.json": '["moved in context"]\n',
-    "benchmarks/channel_finder/tree_queries.json": '["moved tree"]\n',
-    # The old places, which no reader may take.
-    "scenarios/quiet/plots/trend.png": _PNG + "old",
-    "decks/ring.json": '{"deck": "old"}\n',
-    "benchmarks/cross_paradigm/queries/in_context_queries.json": '["old in context"]\n',
-    "benchmarks/cross_paradigm/queries/tree_queries.json": '["old tree"]\n',
+    "sim/models.yaml": [{"name": "ring", "engine": "pyat"}],
+    "sim/measurement/ring.yaml": {},
+    "sim/scenarios/quiet.yaml": _SCENARIO,
+    "sim/scenarios/quiet/plots/trend.png": _PNG + "moved",
+    "sim/decks/ring.json": '{"deck": "moved"}\n',
+    "benchmarks/queries/in_context_queries.json": '["moved in context"]\n',
+    "benchmarks/queries/tree_queries.json": '["moved tree"]\n',
+    # The declared places, which no reader may take.
+    "simulation/scenarios/quiet/plots/trend.png": _PNG + "declared",
+    "simulation/decks/ring.json": '{"deck": "declared"}\n',
+    "benchmarks/channel_finder/in_context_queries.json": '["declared in context"]\n',
+    "benchmarks/channel_finder/tree_queries.json": '["declared tree"]\n',
 }
 
 #: A facility tree in the moved layout whose benchmarks hold no tree query set.
 _NO_TREE_QUERIES: dict[str, Any] = {
     "identity.yaml": {"code": "demo"},
-    "benchmarks/channel_finder/in_context_queries.json": "[]\n",
-    "benchmarks/cross_paradigm/queries/tree_queries.json": "[]\n",
+    "benchmarks/queries/in_context_queries.json": "[]\n",
+    "benchmarks/channel_finder/tree_queries.json": "[]\n",
 }
 
 #: A profile's data tree whose benchmarks hold more than the query sources.
 _DATA_TREE_SHARED: dict[str, Any] = {
     "facility/identity.yaml": {"code": "demo"},
     "facility/knowledge/index.md": "# Notes\n",
-    "facility/benchmarks/channel_finder/tree_queries.json": "[]\n",
-    "facility/benchmarks/channel_finder/in_context_queries.json": "[]\n",
+    "facility/benchmarks/queries/tree_queries.json": "[]\n",
+    "facility/benchmarks/queries/in_context_queries.json": "[]\n",
     "facility/benchmarks/README.md": "Benchmarks.\n",
-    "facility/benchmarks/cross_paradigm/notes.md": "Kept.\n",
+    "facility/benchmarks/channel_finder/notes.md": "Kept.\n",
     "other/keep.txt": "Kept.\n",
 }
 
 #: A profile's data tree whose benchmarks hold the query sources and nothing else.
 _DATA_TREE_ALONE: dict[str, Any] = {
     "facility/identity.yaml": {"code": "demo"},
-    "facility/benchmarks/channel_finder/tree_queries.json": "[]\n",
+    "facility/benchmarks/queries/tree_queries.json": "[]\n",
 }
 
 #: A profile's data tree whose facility holds only the query sources.
 _DATA_TREE_ONLY_QUERIES: dict[str, Any] = {
-    "facility/benchmarks/channel_finder/tree_queries.json": "[]\n",
+    "facility/benchmarks/queries/tree_queries.json": "[]\n",
     "other/keep.txt": "Kept.\n",
 }
 
@@ -344,7 +347,7 @@ def test_the_registry_is_rebound_before_any_consumer_is_imported(probe: dict[str
 
 
 def test_the_query_sources_directory_follows(probe: dict[str, Any]) -> None:
-    assert probe["benchmarks"]["QUERY_SOURCES"] == "benchmarks/channel_finder"
+    assert probe["benchmarks"]["QUERY_SOURCES"] == "benchmarks/queries"
     assert probe["benchmarks"]["names"] == ["in_context_queries.json", "tree_queries.json"]
 
 
@@ -357,17 +360,15 @@ def test_the_view_reads_each_query_file_from_the_new_directory(probe: dict[str, 
 
 def test_the_view_is_wanted_by_the_new_directory_alone(probe: dict[str, Any]) -> None:
     assert probe["benchmarks"]["wanted"] == [True, "channel_finder.benchmark.dataset_path"]
-    assert probe["benchmarks"]["unwanted"] == [False, "data/facility/benchmarks/channel_finder"]
+    assert probe["benchmarks"]["unwanted"] == [False, "data/facility/benchmarks/queries"]
 
 
 def test_a_missing_query_file_is_named_at_its_new_path(probe: dict[str, Any]) -> None:
     refusal = probe["benchmarks"]["refusal"]
     assert refusal is not None
-    assert "the facility ships no data/facility/benchmarks/channel_finder/tree_queries.json" in (
-        refusal
-    )
-    assert "add tree_queries.json to data/facility/benchmarks/channel_finder/" in refusal
-    assert "cross_paradigm" not in refusal
+    assert "the facility ships no data/facility/benchmarks/queries/tree_queries.json" in refusal
+    assert "add tree_queries.json to data/facility/benchmarks/queries/" in refusal
+    assert "benchmarks/channel_finder" not in refusal
 
 
 # --- the scaffolding copy --------------------------------------------------------------
@@ -376,7 +377,7 @@ def test_a_missing_query_file_is_named_at_its_new_path(probe: dict[str, Any]) ->
 def test_the_copy_skips_the_query_directory_and_nothing_beside_it(probe: dict[str, Any]) -> None:
     assert probe["copied"]["shared"]["files"] == [
         "facility/benchmarks/README.md",
-        "facility/benchmarks/cross_paradigm/notes.md",
+        "facility/benchmarks/channel_finder/notes.md",
         "facility/identity.yaml",
         "facility/knowledge/index.md",
         "other/keep.txt",
@@ -404,12 +405,12 @@ def test_the_import_writes_table_follows(probe: dict[str, Any]) -> None:
             ["records/channels.yaml", "channel"],
             ["records/devices.yaml", "device"],
             ["records/groups.yaml", "group"],
-            ["simulation/models.yaml", "model"],
-            ["simulation/decks", "deck"],
-            ["simulation/seeds.yaml", "seed"],
-            ["limits.yaml", "limit"],
+            ["sim/models.yaml", "model"],
+            ["sim/decks", "deck"],
+            ["sim/seeds.yaml", "seed"],
+            ["machine/limits.yaml", "limit"],
             ["identity.yaml", "identity"],
-            ["simulation/measurement", "measurement"],
+            ["sim/measurement", "measurement"],
         ],
         "list": [["records/channels.yaml", "channel"], ["records/devices.yaml", "device"]],
         "relations": [],
@@ -436,18 +437,18 @@ def test_the_simulator_view_copies_from_the_moved_sources(probe: dict[str, Any])
 
 def test_a_scenario_session_error_names_the_new_path(probe: dict[str, Any]) -> None:
     servers = probe["scenario_servers"]
-    assert servers["files"] == ["simulation/scenarios/warm.yaml"]
-    assert servers["detail"].startswith("simulation/scenarios/warm.yaml `sessions[0]")
+    assert servers["files"] == ["sim/scenarios/warm.yaml"]
+    assert servers["detail"].startswith("sim/scenarios/warm.yaml `sessions[0]")
 
 
 def test_a_missing_corrector_step_names_the_new_path(probe: dict[str, Any]) -> None:
     message, suggestion = probe["step_refusal"]
-    assert message.startswith("simulation/measurement/ring.yaml states no ")
-    assert suggestion.endswith(" (radians) to simulation/measurement/ring.yaml and rebuild.")
+    assert message.startswith("sim/measurement/ring.yaml states no ")
+    assert suggestion.endswith(" (radians) to sim/measurement/ring.yaml and rebuild.")
 
 
 def test_the_injection_engine_names_the_new_models_file(probe: dict[str, Any]) -> None:
-    assert probe["injection_sources"] == ["simulation/models.yaml"]
+    assert probe["injection_sources"] == ["sim/models.yaml"]
 
 
 # --- what does not move ----------------------------------------------------------------
@@ -470,7 +471,7 @@ _DATA_TREE_ONE_SEGMENT: dict[str, Any] = {
     "facility/queries/tree_queries.json": "[]\n",
     "facility/queries/in_context_queries.json": "[]\n",
     "facility/queries_notes/keep.md": "Kept.\n",
-    "facility/benchmarks/cross_paradigm/queries/tree_queries.json": "[]\n",
+    "facility/benchmarks/channel_finder/tree_queries.json": "[]\n",
     "facility/knowledge/index.md": "# Notes\n",
     "other/queries/keep.txt": "Kept.\n",
 }
@@ -526,7 +527,7 @@ def test_the_copy_skips_a_top_level_query_directory_and_nothing_beside_it(
     one_segment_copy: dict[str, Any],
 ) -> None:
     assert one_segment_copy["files"] == [
-        "facility/benchmarks/cross_paradigm/queries/tree_queries.json",
+        "facility/benchmarks/channel_finder/tree_queries.json",
         "facility/identity.yaml",
         "facility/knowledge/index.md",
         "facility/queries_notes/keep.md",

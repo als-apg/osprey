@@ -78,6 +78,7 @@ Schema: the current one, or `published_schema(4)` for a format version's floor.
 | `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search` |
 | `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search` |
 | `osprey_facility.relations` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.views` |
+| `osprey_facility.retired` | framework job: `osprey.cli` |
 | `osprey_facility.render` | framework job: `osprey.apps.sdk`, `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views` |
 | `osprey_facility.roots` | framework job: `osprey.cli`, `osprey.facility.bundled` |
 | `osprey_facility.scenarios` | framework job: `osprey.facility.views`, `osprey.simulation.apply` |
