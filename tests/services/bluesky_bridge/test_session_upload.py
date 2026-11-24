@@ -28,6 +28,7 @@ import pytest
 
 from osprey.services.bluesky_bridge.plan_fields import resolve_plan_args
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
 from osprey.services.bluesky_bridge.queue_backend import (
     REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
     REASON_SESSION_PLAN_UNVALIDATED,
@@ -248,7 +249,7 @@ def test_a_channel_named_by_an_undeclared_field_is_not_resolvable() -> None:
         list(namespace["sample_scan"](knob="motor"))
 
     message = str(excinfo.value)
-    assert "do not declare as a movable or readable channel" in message
+    assert "do not declare as a movable, triggered or readable channel" in message
     assert "motor" in message
 
 
@@ -1063,3 +1064,72 @@ def test_every_plan_wrapper_survives_the_managers_model_construction(factory_nam
 
     model = pydantic.create_model("Model", kwargs=(dict[str, kwargs_param.annotation], {}))
     assert model(kwargs={"anything": 1}).kwargs == {"anything": 1}
+
+
+# ---------------------------------------------------------------------------
+# A device the plan triggers: declared as one, and cancelled on every exit but
+# the plan's own return
+# ---------------------------------------------------------------------------
+
+
+class FakeTriggering(FakeDevice):
+    """A device whose trigger states one write, and which counts its cancels."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.cancels = 0
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        return (ChannelWrite(f"{self.name}:CMD", 1),)
+
+    def cancel_trigger(self) -> None:
+        self.cancels += 1
+
+
+TRIGGERING_PLAN_SOURCE = """PLAN_METADATA = {"name": "shots", "description": "d", "writes": True}
+
+from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import ReadableChannels, TriggeredChannels
+
+
+class PARAMS(BaseModel):
+    detectors: TriggeredChannels = Field(default_factory=list)
+    monitors: ReadableChannels = Field(default_factory=list)
+
+
+def build_plan(devices, params):
+    yield ("first", sorted(devices))
+    yield ("second", None)
+"""
+
+
+def test_the_session_wrapper_refuses_and_cancels_the_same_way() -> None:
+    detector = FakeTriggering("mca")
+    namespace = worker_namespace(mca=detector)
+    run_upload_script(namespace, "shots", TRIGGERING_PLAN_SOURCE)
+    plan = namespace["shots"]
+
+    # Named as readable: refused before the plan is built.
+    with pytest.raises(ValueError) as raised:
+        next(plan(monitors=["mca"]))
+    assert str(raised.value) == (
+        "plan 'shots' names 'mca' as a readable channel; 'mca' is triggered, not read "
+        "— declare it under a triggered field"
+    )
+
+    # The plan's own return cancels nothing.
+    assert [message[0] for message in plan(detectors=["mca"])] == ["first", "second"]
+    assert detector.cancels == 0
+
+    # An exception thrown into the run, and a run closed early, each cancel once.
+    run = plan(detectors=["mca"])
+    next(run)
+    with pytest.raises(RuntimeError):
+        run.throw(RuntimeError("aborted"))
+    assert detector.cancels == 1
+
+    run = plan(detectors=["mca"])
+    next(run)
+    run.close()
+    assert detector.cancels == 2
