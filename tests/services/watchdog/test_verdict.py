@@ -269,36 +269,52 @@ class TestModel:
     def test_prompt_ref_is_derived(self):
         assert make_verdict().prompt_ref == PROMPT_REF
 
-    def test_a_mismatched_prompt_ref_is_refused(self):
-        with pytest.raises(ValidationError):
-            make_verdict(prompt_ref="other:ref")
-
-    def test_decision_verdict_requires_threshold(self):
-        with pytest.raises(ValidationError):
-            make_verdict(threshold=None)
-
     def test_uncalibrated_by_default(self):
         assert make_verdict().uncalibrated is True
 
-    def test_unavailable_requires_error_type(self):
-        with pytest.raises(ValidationError):
-            make_verdict(status="unavailable", flagged=False)
-
-    def test_unavailable_is_never_flagged(self):
-        with pytest.raises(ValidationError):
-            make_verdict(status="unavailable", flagged=True, error_type="timeout")
-
-    def test_ok_carries_no_error_type(self):
-        with pytest.raises(ValidationError):
-            make_verdict(error_type="timeout")
-
-    def test_unknown_error_type_refused(self):
-        with pytest.raises(ValidationError):
-            make_verdict(status="unavailable", flagged=False, error_type="oops")
-
-    def test_unknown_field_refused(self):
-        with pytest.raises(ValidationError):
-            make_verdict(is_ok=True)
+    @pytest.mark.parametrize(
+        ("overrides", "match"),
+        [
+            pytest.param(
+                {"prompt_ref": "other:ref"},
+                "prompt_ref must be <record_session_id>:<submission_id>",
+                id="a-mismatched-prompt-ref-is-refused",
+            ),
+            pytest.param(
+                {"threshold": None},
+                "a decision verdict carries its threshold",
+                id="decision-verdict-requires-threshold",
+            ),
+            pytest.param(
+                {"status": "unavailable", "flagged": False},
+                "an unavailable verdict names its error_type",
+                id="unavailable-requires-error-type",
+            ),
+            pytest.param(
+                {"status": "unavailable", "flagged": True, "error_type": "timeout"},
+                "an unavailable verdict is not flagged",
+                id="unavailable-is-never-flagged",
+            ),
+            pytest.param(
+                {"error_type": "timeout"},
+                "an ok verdict carries no error_type",
+                id="ok-carries-no-error-type",
+            ),
+            pytest.param(
+                {"status": "unavailable", "flagged": False, "error_type": "oops"},
+                r"error_type\n.*\[type=literal_error",
+                id="unknown-error-type-refused",
+            ),
+            pytest.param(
+                {"is_ok": True},
+                r"is_ok\n.*\[type=extra_forbidden",
+                id="unknown-field-refused",
+            ),
+        ],
+    )
+    def test_an_invalid_verdict_is_refused(self, overrides, match):
+        with pytest.raises(ValidationError, match=match):
+            make_verdict(**overrides)
 
     def test_error_types_match_the_contract(self):
         assert set(typing.get_args(ErrorType)) == {

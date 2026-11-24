@@ -430,7 +430,7 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     with _approved(), assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(operations=[])
 
-    _exc_ctx["envelope"]
+    assert "No write operations provided" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
@@ -448,7 +448,7 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await fn(operations=[{"value": 42.0}])
 
-    _exc_ctx["envelope"]
+    assert "'channel' key" in _exc_ctx["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------

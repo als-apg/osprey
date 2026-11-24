@@ -155,35 +155,25 @@ class TestLookupTypes:
 
         assert _code(tmp_path, "x.svg") == "not_an_image"
 
-    def test_text_named_png_is_not_an_image(self, tmp_path: Path) -> None:
-        _write(tmp_path / "fake.png", "This is a note, not a picture.\n")
+    @pytest.mark.parametrize(
+        ("filename", "data", "expected_code"),
+        [
+            pytest.param(
+                "fake.png", "This is a note, not a picture.\n", "not_an_image", id="text-named-png"
+            ),
+            pytest.param("doc.png", b"%PDF-1.7\n" + b"\x00" * 64, "not_an_image", id="pdf"),
+            pytest.param("empty.png", b"", "not_an_image", id="empty-file"),
+            pytest.param("pic.bmp", _picture("BMP"), "disallowed_type", id="bmp"),
+            pytest.param("pic.tif", _picture("TIFF"), "disallowed_type", id="tiff"),
+            pytest.param("pic.avif", _AVIF_HEAD, "disallowed_type", id="avif-header"),
+        ],
+    )
+    def test_a_file_that_is_no_allowed_image_is_refused(
+        self, tmp_path: Path, filename: str, data: bytes | str, expected_code: str
+    ) -> None:
+        _write(tmp_path / filename, data)
 
-        assert _code(tmp_path, "fake.png") == "not_an_image"
-
-    def test_pdf_is_not_an_image(self, tmp_path: Path) -> None:
-        _write(tmp_path / "doc.png", b"%PDF-1.7\n" + b"\x00" * 64)
-
-        assert _code(tmp_path, "doc.png") == "not_an_image"
-
-    def test_empty_file_is_not_an_image(self, tmp_path: Path) -> None:
-        _write(tmp_path / "empty.png", b"")
-
-        assert _code(tmp_path, "empty.png") == "not_an_image"
-
-    def test_bmp_is_disallowed(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pic.bmp", _picture("BMP"))
-
-        assert _code(tmp_path, "pic.bmp") == "disallowed_type"
-
-    def test_tiff_is_disallowed(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pic.tif", _picture("TIFF"))
-
-        assert _code(tmp_path, "pic.tif") == "disallowed_type"
-
-    def test_avif_header_is_disallowed(self, tmp_path: Path) -> None:
-        _write(tmp_path / "pic.avif", _AVIF_HEAD)
-
-        assert _code(tmp_path, "pic.avif") == "disallowed_type"
+        assert _code(tmp_path, filename) == expected_code
 
     def test_no_decoder_is_called(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path / "a.png", _picture("PNG"))

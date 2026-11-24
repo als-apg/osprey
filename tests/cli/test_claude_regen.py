@@ -1052,7 +1052,7 @@ class TestDisableServers:
         project_dir, _ = self._create_and_regen(tmp_path, disable_servers=["ariel"])
 
         content = (project_dir / "CLAUDE.md").read_text()
-        assert "ariel" not in content.lower() or "ariel" not in content
+        assert "ariel" not in content.lower()
 
     def test_disable_agent_removes_agent_file(self, tmp_path):
         """Disabling logbook-search produces an empty agent file."""
@@ -1257,11 +1257,11 @@ class TestDisableServers:
 
     def test_disable_core_server_allowed(self, tmp_path):
         """Users can disable any server including core ones."""
-        project_dir, result = self._create_and_regen(tmp_path, disable_servers=["ariel"])
+        project_dir, result = self._create_and_regen(tmp_path, disable_servers=["controls"])
 
         mcp_data = json.loads((project_dir / ".mcp.json").read_text())
-        assert "ariel" not in mcp_data["mcpServers"]
-        assert "ariel" in result["disabled_servers"]
+        assert "controls" not in mcp_data["mcpServers"]
+        assert "controls" in result["disabled_servers"]
 
     def test_context_includes_overrides(self, tmp_path):
         """build_claude_code_context includes enabled_servers and enabled_agents."""

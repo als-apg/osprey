@@ -124,7 +124,8 @@ def test_resolve_preset_bundle_returns_the_name_and_its_app_template() -> None:
 
 def test_resolve_preset_bundle_normalizes_the_underscore_spelling() -> None:
     """Both CLI spellings of a preset resolve to the same answer."""
-    assert _resolve_preset_bundle("demo") == _resolve_preset_bundle("demo")
+    assert _resolve_preset_bundle("hello_world") == _resolve_preset_bundle("hello-world")
+    assert _resolve_preset_bundle("hello_world")[0] == "hello-world"
 
 
 def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:

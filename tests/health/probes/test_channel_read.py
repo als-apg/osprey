@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
 from tests.facility.served_tree import in_process_config, served_tree
 
 from osprey.health.models import Status
@@ -104,45 +105,36 @@ async def test_units_appended_to_value() -> None:
     assert result.value == "401.2 mA"
 
 
-async def test_inside_ok_range_is_ok() -> None:
-    result = await _run(
-        {"address": "X", "ok_range": [0, 10], "warn_range": [-5, 20]},
-        _SpyConnector(value=5),
-    )
-    assert result.status is Status.OK
-
-
-async def test_outside_ok_inside_warn_is_warning() -> None:
-    result = await _run(
-        {"address": "X", "ok_range": [0, 10], "warn_range": [0, 20]},
-        _SpyConnector(value=12),
-    )
-    assert result.status is Status.WARNING
-    assert "outside ok range" in result.message
-
-
-async def test_outside_warn_is_error() -> None:
-    result = await _run(
-        {"address": "X", "ok_range": [0, 10], "warn_range": [0, 20]},
-        _SpyConnector(value=25),
-    )
-    assert result.status is Status.ERROR
-    assert "outside warn range" in result.message
-
-
-async def test_only_ok_range_outside_is_warning() -> None:
-    result = await _run({"address": "X", "ok_range": [0, 10]}, _SpyConnector(value=12))
-    assert result.status is Status.WARNING
-
-
-async def test_only_warn_range_outside_is_error() -> None:
-    result = await _run({"address": "X", "warn_range": [0, 20]}, _SpyConnector(value=25))
-    assert result.status is Status.ERROR
-
-
-async def test_range_boundaries_are_inclusive() -> None:
-    result = await _run({"address": "X", "ok_range": [0, 10]}, _SpyConnector(value=10))
-    assert result.status is Status.OK
+@pytest.mark.parametrize(
+    ("ranges", "value", "status", "needle"),
+    [
+        pytest.param(
+            {"ok_range": [0, 10], "warn_range": [-5, 20]}, 5, Status.OK, None, id="inside_ok_range"
+        ),
+        pytest.param(
+            {"ok_range": [0, 10], "warn_range": [0, 20]},
+            12,
+            Status.WARNING,
+            "outside ok range",
+            id="outside_ok_inside_warn",
+        ),
+        pytest.param(
+            {"ok_range": [0, 10], "warn_range": [0, 20]},
+            25,
+            Status.ERROR,
+            "outside warn range",
+            id="outside_warn",
+        ),
+        pytest.param({"ok_range": [0, 10]}, 12, Status.WARNING, None, id="only_ok_range_outside"),
+        pytest.param({"warn_range": [0, 20]}, 25, Status.ERROR, None, id="only_warn_range_outside"),
+        pytest.param({"ok_range": [0, 10]}, 10, Status.OK, None, id="range_boundaries_inclusive"),
+    ],
+)
+async def test_a_value_is_classified_by_its_bands(ranges, value, status, needle) -> None:
+    result = await _run({"address": "X", **ranges}, _SpyConnector(value=value))
+    assert result.status is status
+    if needle is not None:
+        assert needle in result.message
 
 
 async def test_non_numeric_value_with_range_is_error() -> None:

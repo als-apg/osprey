@@ -58,48 +58,34 @@ def test_empty_registry_is_valid():
     validate_registry([])
 
 
-def test_duplicate_name_rejected():
-    with pytest.raises(ValueError, match="duplicate recipe name"):
-        validate_registry([_standalone("dup"), _standalone("dup")])
-
-
-def test_duplicate_output_filename_rejected():
-    a = _stack_static("a", subviews=(SubView("#x", "shared"),))
-    b = _stack_static("b", subviews=(SubView("#y", "shared"),))
-    with pytest.raises(ValueError, match="duplicate output filename"):
-        validate_registry([a, b])
-
-
-def test_element_mode_requires_selector():
-    with pytest.raises(ValueError, match="element_selector"):
-        validate_registry([_standalone("e", capture_mode="element")])
-
-
-def test_element_mode_with_selector_ok():
-    validate_registry(
-        [_standalone("e", capture_mode="element", element_selector="osprey-theme-switcher")]
-    )
-
-
-def test_agentic_requires_prompt_and_wait_for():
-    with pytest.raises(ValueError, match="prompt and wait_for"):
-        validate_registry([DocShot(name="h", environment="tutorial_stack", kind="agentic")])
-
-
-def test_init_sets_need_the_tutorial_stack():
-    with pytest.raises(ValueError, match="init_sets"):
-        validate_registry([_standalone(init_sets=("apps.corrector-trim={}",))])
-
-
-def test_init_sets_are_key_value_pairs():
-    with pytest.raises(ValueError, match="KEY=VALUE"):
-        validate_registry([_stack_static(init_sets=("apps.corrector-trim",))])
-    validate_registry([_stack_static(init_sets=("apps.corrector-trim={}",))])
-
-
-def test_agentic_must_be_tutorial_stack():
-    with pytest.raises(ValueError, match="tutorial_stack"):
-        validate_registry(
+@pytest.mark.parametrize(
+    ("shots", "match"),
+    [
+        pytest.param(
+            [_standalone("dup"), _standalone("dup")], "duplicate recipe name", id="duplicate-name"
+        ),
+        pytest.param(
+            [
+                _stack_static("a", subviews=(SubView("#x", "shared"),)),
+                _stack_static("b", subviews=(SubView("#y", "shared"),)),
+            ],
+            "duplicate output filename",
+            id="duplicate-output",
+        ),
+        pytest.param(
+            [_standalone("e", capture_mode="element")], "element_selector", id="element-selector"
+        ),
+        pytest.param(
+            [DocShot(name="h", environment="tutorial_stack", kind="agentic")],
+            "prompt and wait_for",
+            id="agentic-prompt",
+        ),
+        pytest.param(
+            [_standalone(init_sets=("apps.corrector-trim={}",))],
+            "init_sets",
+            id="init-sets-need-tutorial-stack",
+        ),
+        pytest.param(
             [
                 DocShot(
                     name="h",
@@ -109,23 +95,35 @@ def test_agentic_must_be_tutorial_stack():
                     prompt="p",
                     wait_for="plot",
                 )
-            ]
-        )
+            ],
+            "tutorial_stack",
+            id="agentic-stack",
+        ),
+        pytest.param(
+            [DocShot(name="s", environment="standalone_interface", kind="static")],
+            "app_factory",
+            id="app-factory",
+        ),
+        pytest.param([_standalone("s", themes=("light", "sepia"))], "themes", id="bad-theme"),
+        pytest.param([_standalone("s", themes=())], "themes", id="empty-themes"),
+        pytest.param([_hub(stage="nope")], "unknown stage", id="unknown-stage"),
+    ],
+)
+def test_validate_registry_refuses(shots, match):
+    with pytest.raises(ValueError, match=match):
+        validate_registry(shots)
 
 
-def test_standalone_requires_app_factory():
-    with pytest.raises(ValueError, match="app_factory"):
-        validate_registry([DocShot(name="s", environment="standalone_interface", kind="static")])
+def test_element_mode_with_selector_ok():
+    validate_registry(
+        [_standalone("e", capture_mode="element", element_selector="osprey-theme-switcher")]
+    )
 
 
-def test_bad_theme_rejected():
-    with pytest.raises(ValueError, match="themes"):
-        validate_registry([_standalone("s", themes=("light", "sepia"))])
-
-
-def test_empty_themes_rejected():
-    with pytest.raises(ValueError, match="themes"):
-        validate_registry([_standalone("s", themes=())])
+def test_init_sets_are_key_value_pairs():
+    with pytest.raises(ValueError, match="KEY=VALUE"):
+        validate_registry([_stack_static(init_sets=("apps.corrector-trim",))])
+    validate_registry([_stack_static(init_sets=("apps.corrector-trim={}",))])
 
 
 def _probe_stage(monkeypatch) -> None:
@@ -140,11 +138,6 @@ def test_stage_requires_hermetic_hub(monkeypatch):
     _probe_stage(monkeypatch)
     with pytest.raises(ValueError, match="hermetic_hub"):
         validate_registry([_standalone(stage="probe")])
-
-
-def test_unknown_stage_rejected():
-    with pytest.raises(ValueError, match="unknown stage"):
-        validate_registry([_hub(stage="nope")])
 
 
 def test_hermetic_hub_with_a_known_stage_is_valid(monkeypatch):
@@ -253,16 +246,17 @@ def test_cli_run_no_recipes_selected(monkeypatch, capsys):
 
 
 @pytest.mark.usefixtures("sample_registry")
-def test_cli_only_unknown_recipe(capsys):
-    assert main(["--only", "nope"]) == 1
-    assert "No recipe named" in capsys.readouterr().err
-
-
-@pytest.mark.usefixtures("sample_registry")
-def test_cli_only_needs_flag_hint(capsys):
-    # 'hero' is agentic; running --only hero without --agentic should hint.
-    assert main(["--only", "hero"]) == 1
-    assert "--agentic" in capsys.readouterr().err
+@pytest.mark.parametrize(
+    ("name", "hint"),
+    [
+        pytest.param("nope", "No recipe named", id="unknown-recipe"),
+        # 'hero' is agentic; running --only hero without --agentic should hint.
+        pytest.param("hero", "--agentic", id="needs-flag-hint"),
+    ],
+)
+def test_cli_only_refuses(capsys, name, hint):
+    assert main(["--only", name]) == 1
+    assert hint in capsys.readouterr().err
 
 
 def test_cli_invalid_registry_returns_two(monkeypatch, capsys):

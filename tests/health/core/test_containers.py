@@ -95,16 +95,6 @@ async def _rows(callable_) -> dict[str, CheckResult]:
     return {r.name: r for r in results}
 
 
-async def test_factory_returns_awaitable_callable(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _record(repo)
-    _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"))
-    category = containers(_config(repo, []), probe=_boom_probe)
-    results = await category()
-    assert isinstance(results, list)
-
-
 async def test_full_mode_emits_available_and_per_service(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

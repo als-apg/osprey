@@ -106,16 +106,23 @@ def test_no_url_when_the_fleet_is_off(config, monkeypatch):
     assert fleet_url(config) is None
 
 
-def test_the_override_wins_and_loses_its_trailing_slash(monkeypatch):
-    monkeypatch.setenv(SERVER_FLEET_URL_ENV_VAR, "http://server-fleet:9/")
+@pytest.mark.parametrize(
+    ("override", "expected"),
+    [
+        pytest.param(
+            "http://server-fleet:9/",
+            "http://server-fleet:9",
+            id="the-override-wins-and-loses-its-trailing-slash",
+        ),
+        pytest.param(
+            "", "http://127.0.0.1:18184", id="an-empty-override-falls-back-to-the-configured-port"
+        ),
+    ],
+)
+def test_the_url_override(monkeypatch, override, expected):
+    monkeypatch.setenv(SERVER_FLEET_URL_ENV_VAR, override)
     config = {**FLEET_ON, "services": {"server_fleet": {"port": 18184}}}
-    assert fleet_url(config) == "http://server-fleet:9"
-
-
-def test_an_empty_override_falls_back_to_the_configured_port(monkeypatch):
-    monkeypatch.setenv(SERVER_FLEET_URL_ENV_VAR, "")
-    config = {**FLEET_ON, "services": {"server_fleet": {"port": 18184}}}
-    assert fleet_url(config) == "http://127.0.0.1:18184"
+    assert fleet_url(config) == expected
 
 
 @pytest.mark.parametrize(

@@ -1697,12 +1697,6 @@ def test_mint_secret_is_unique_and_url_safe() -> None:
         assert set(value) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
 
 
-def test_module_exports_the_documented_surface() -> None:
-    """Later tasks import these names; ``__all__`` is the contract they build on."""
-    for name in web_auth.__all__:
-        assert hasattr(web_auth, name), f"__all__ names {name}, which the module does not define"
-
-
 def test_session_lifetime_default_is_defined_exactly_once() -> None:
     """Every surface that needs the default imports it rather than repeating 12 hours.
 

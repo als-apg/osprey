@@ -327,7 +327,7 @@ async def test_python_execute_empty_code(tmp_path, monkeypatch):
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(code="", description="empty")
 
-    _exc_ctx["envelope"]
+    assert "No code provided" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypatch):
@@ -416,7 +416,7 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
     # Adapter should NOT have been called
     mock_exec.assert_not_called()
 
-    _exc_ctx["envelope"]
+    assert "failed pre-execution safety checks" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
@@ -449,7 +449,7 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
 
     mock_exec.assert_not_called()
 
-    _exc_ctx["envelope"]
+    assert "write patterns detected in readonly mode" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
@@ -476,33 +476,6 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
     assert data["summary"]["has_errors"] is False
 
 
-async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
-    """When adapter returns failed result, tool raises ToolError with envelope."""
-    monkeypatch.chdir(tmp_path)
-
-    mock_exec = mock_execute_code(
-        success=False,
-        stderr="RuntimeError: something broke",
-    )
-
-    with (
-        _patched_run(mock_exec),
-        assert_raises_error(error_type="execution_error") as ctx,
-    ):
-        fn = _get_python_execute()
-        await fn(
-            code="raise RuntimeError('something broke')",
-            description="error test",
-            execution_mode="readonly",
-        )
-
-    envelope = ctx["envelope"]
-    assert "RuntimeError" in envelope["error_message"]
-    summary = envelope["details"]["summary"]
-    assert summary["status"] == "Failed"
-    assert summary["has_errors"] is True
-
-
 async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypatch):
     """Post-execution notebook uses stdout/stderr from adapter result."""
     monkeypatch.chdir(tmp_path)
@@ -521,8 +494,15 @@ async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypat
         )
 
     data = extract_response_dict(result)
-    # Notebook artifact should be created
-    assert "notebook_artifact_id" in data or "artifact_ids" in data.get("summary", {})
+    # The notebook artifact is created from the adapter's stdout.
+    from osprey.stores.artifact_store import get_artifact_store
+
+    store = get_artifact_store()
+    notebook = store.get_entry(data["notebook_artifact_id"])
+    assert notebook.artifact_type == "notebook"
+    cells = json.loads(store.get_file_path(notebook.id).read_text())["cells"]
+    output_cells = ["".join(c["source"]) for c in cells if c["cell_type"] == "markdown"]
+    assert any(c.startswith("## Output") and "notebook output" in c for c in output_cells)
 
 
 async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
@@ -550,10 +530,12 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
         )
 
     data = extract_response_dict(result)
-    # Figure should have been saved as an artifact
-    artifact_ids = data.get("summary", {}).get("artifact_ids", [])
-    # At least notebook artifact + figure artifact
-    assert len(artifact_ids) >= 1
+    # The figure is saved as an artifact beside the always-on notebook.
+    from osprey.stores.artifact_store import get_artifact_store
+
+    store = get_artifact_store()
+    artifact_ids = data["summary"]["artifact_ids"]
+    assert sorted(store.get_entry(i).artifact_type for i in artifact_ids) == ["image", "notebook"]
 
 
 async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):

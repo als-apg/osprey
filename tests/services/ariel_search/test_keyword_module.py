@@ -285,8 +285,8 @@ class TestPatternPredicates:
     ):
         """The `*` of a SQL-injection probe never becomes a pattern predicate.
 
-        The companion of ``test_union_select_injection`` in ``test_search.py``:
-        that one pins the query as literal text, this one pins that the pattern
+        The companion of ``test_injection_is_treated_as_literal_text[union-select]``
+        in ``test_search.py``: that one pins the query as literal text, this one pins that the pattern
         machinery declines it too -- ``*`` alone has no literal run at all.
         """
         await keyword_search("test UNION SELECT * FROM users --", mock_repository, mock_config)

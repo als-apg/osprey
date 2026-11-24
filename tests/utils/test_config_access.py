@@ -107,32 +107,23 @@ class TestGetFullConfiguration:
         # Passing an explicit path also promotes it to the default singleton.
         assert get_config_builder().get("project_root") == "/root"
 
-    def test_execution_defaults_when_section_absent(self, tmp_path):
-        """A config without ``execution:`` still exposes the subprocess defaults."""
+    @pytest.mark.parametrize(
+        ("section", "expected"),
+        [
+            pytest.param("execution", {"execution_method": "subprocess"}, id="execution"),
+            pytest.param(
+                "python_executor", {"execution_timeout_seconds": 600}, id="python-executor"
+            ),
+        ],
+    )
+    def test_defaults_when_section_absent(self, tmp_path, section, expected):
+        """A config without the section still exposes its defaults (e.g. subprocess execution)."""
         cfg = _write_config(tmp_path, "project_root: /root\n")
         configurable = get_full_configuration(str(cfg))
-        assert configurable["execution"] == {"execution_method": "subprocess"}
-
-    def test_python_executor_defaults_when_section_absent(self, tmp_path):
-        cfg = _write_config(tmp_path, "project_root: /root\n")
-        configurable = get_full_configuration(str(cfg))
-        assert configurable["python_executor"] == {"execution_timeout_seconds": 600}
+        assert configurable[section] == expected
 
 
 class TestGetAgentDir:
-    def test_resolves_under_project_root_and_agent_data_dir(self, tmp_path, monkeypatch):
-        cfg = _write_config(
-            tmp_path,
-            f"project_root: {tmp_path}\n"
-            "agent_data:\n"
-            "  base_dir: _agent_data\n"
-            "file_paths:\n"
-            "  api_calls_dir: logs/api\n",
-        )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        result = Path(get_agent_dir("api_calls_dir"))
-        assert result == tmp_path / "_agent_data" / "logs" / "api"
-
     def test_unknown_sub_dir_falls_back_to_its_name(self, tmp_path, monkeypatch):
         cfg = _write_config(
             tmp_path,

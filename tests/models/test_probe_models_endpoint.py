@@ -94,14 +94,26 @@ def test_openai_direct_probes_the_vendor_listing(fake_get):
     assert result.reachable is True
 
 
-def test_ds4_lists_under_v1(fake_get):
-    probe_models_endpoint(DS4ProviderAdapter, "http://127.0.0.1:8000/v1", None)
-    assert fake_get["calls"][0]["url"] == "http://127.0.0.1:8000/v1/models"
-
-
-def test_base_without_v1_gets_it_appended(fake_get):
-    probe_models_endpoint(VLLMProviderAdapter, "http://host:8001/", None)
-    assert fake_get["calls"][0]["url"] == "http://host:8001/v1/models"
+@pytest.mark.parametrize(
+    ("adapter", "base", "url"),
+    [
+        pytest.param(
+            DS4ProviderAdapter,
+            "http://127.0.0.1:8000/v1",
+            "http://127.0.0.1:8000/v1/models",
+            id="ds4_lists_under_v1",
+        ),
+        pytest.param(
+            VLLMProviderAdapter,
+            "http://host:8001/",
+            "http://host:8001/v1/models",
+            id="base_without_v1_gets_it_appended",
+        ),
+    ],
+)
+def test_the_listing_url(fake_get, adapter, base, url):
+    probe_models_endpoint(adapter, base, None)
+    assert fake_get["calls"][0]["url"] == url
 
 
 def test_keyless_route_never_sends_bearer_none(fake_get):
@@ -116,14 +128,17 @@ def test_missing_key_on_a_keyed_route_omits_the_header(fake_get):
     assert "Authorization" not in fake_get["calls"][0]["headers"]
 
 
-def test_google_is_not_probed(fake_get):
-    result = probe_models_endpoint(GoogleProviderAdapter, None, "k")
-    assert result == HealthResult(None, "not probed", None)
-    assert fake_get["calls"] == []
-
-
-def test_no_resolvable_base_is_not_probed(fake_get):
-    result = probe_models_endpoint(CBorgProviderAdapter, None, "k")
+@pytest.mark.parametrize(
+    "adapter",
+    [
+        # Google declares no listing probe.
+        pytest.param(GoogleProviderAdapter, id="google_is_not_probed"),
+        # CBorg declares one, but no base URL resolves.
+        pytest.param(CBorgProviderAdapter, id="no_resolvable_base_is_not_probed"),
+    ],
+)
+def test_a_route_without_a_probe_is_not_probed(fake_get, adapter):
+    result = probe_models_endpoint(adapter, None, "k")
     assert result == HealthResult(None, "not probed", None)
     assert fake_get["calls"] == []
 
@@ -159,15 +174,15 @@ def test_listing_serving_the_model_is_healthy(fake_get):
     assert result.reason is None
 
 
-def test_connection_error_is_unreachable(fake_get):
-    fake_get["raise"] = httpx.ConnectError("refused")
-    result = probe_models_endpoint(DS4ProviderAdapter, "http://127.0.0.1:8000/v1", None)
-    assert result.reachable is False
-    assert result.reason == "unreachable"
-
-
-def test_timeout_is_unreachable(fake_get):
-    fake_get["raise"] = httpx.ReadTimeout("slow")
+@pytest.mark.parametrize(
+    "raised",
+    [
+        pytest.param(httpx.ConnectError("refused"), id="connection_error_is_unreachable"),
+        pytest.param(httpx.ReadTimeout("slow"), id="timeout_is_unreachable"),
+    ],
+)
+def test_a_transport_failure_is_unreachable(fake_get, raised):
+    fake_get["raise"] = raised
     result = probe_models_endpoint(DS4ProviderAdapter, "http://127.0.0.1:8000/v1", None)
     assert result.reachable is False
     assert result.reason == "unreachable"

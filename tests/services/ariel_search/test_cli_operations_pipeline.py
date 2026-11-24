@@ -1756,7 +1756,11 @@ class TestResolveEntryExpander:
     def test_resolve_without_progress_returns_the_expander(self, unit_vocabulary_file):
         config = ops._ariel_config(_expanding(dict(_DB), unit_vocabulary_file))
 
-        assert ops._resolve_entry_expander(config, None) is not None
+        silent = ops._resolve_entry_expander(config, None)
+        reported = ops._resolve_entry_expander(config, [].append)
+
+        assert silent is not None
+        assert silent.key == reported.key
 
     def test_resolve_unusable_vocabulary_raises_module_config_error(self, tmp_path):
         from osprey.services.ariel_search.exceptions import ModuleConfigError

@@ -506,9 +506,10 @@ async def test_abort_reports_pending_while_the_manager_is_still_unwinding(
     assert result["abort_pending"] is True
 
 
-async def test_abort_without_a_manager_fails_closed() -> None:
+@pytest.mark.parametrize("method", ["abort", "devices_allowed"])
+async def test_a_call_without_a_manager_fails_closed(method: str) -> None:
     with pytest.raises(QueueUnavailableError) as excinfo:
-        await QueueBackend(None).abort()
+        await getattr(QueueBackend(None), method)()
     assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
@@ -548,21 +549,37 @@ async def test_devices_allowed_reads_the_manager() -> None:
     assert manager.method_names() == ["devices_allowed"]
 
 
-async def test_devices_allowed_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError) as excinfo:
-        await QueueBackend(None).devices_allowed()
-    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
-
-
 # ------------------------------------------------------------------ capability
 
 
-async def test_capability_is_executable_on_a_virtual_accelerator(connector) -> None:
-    connector("virtual_accelerator")
+@pytest.mark.parametrize(
+    ("configured", "can_execute", "reason"),
+    [
+        pytest.param(
+            "virtual_accelerator",
+            True,
+            qb.REASON_EXECUTABLE,
+            id="executable-on-a-virtual-accelerator",
+        ),
+        pytest.param(
+            "doocs", False, qb.REASON_UNSUPPORTED_CONNECTOR, id="rejects-an-unsupported-connector"
+        ),
+        pytest.param(
+            FileNotFoundError("no config mounted"),
+            False,
+            qb.REASON_CONFIG_UNREADABLE,
+            id="fails-closed-when-the-config-is-unreadable",
+        ),
+    ],
+)
+async def test_capability_follows_the_connector(
+    connector, configured: object, can_execute: bool, reason: str
+) -> None:
+    connector(configured)
     capability = await QueueBackend(FakeManager(status=status_doc())).capability()
 
-    assert capability.can_execute is True
-    assert capability.reason == qb.REASON_EXECUTABLE
+    assert capability.can_execute is can_execute
+    assert capability.reason == reason
 
 
 async def test_capability_on_mock_names_the_flip_command(connector) -> None:
@@ -582,22 +599,6 @@ async def test_capability_never_probes_the_manager_on_mock(connector) -> None:
     # A browse-only deployment is not expected to have a queue server at all, so
     # the connector answer must win before anything reaches for one.
     assert manager.calls == []
-
-
-async def test_capability_rejects_an_unsupported_connector(connector) -> None:
-    connector("doocs")
-    capability = await QueueBackend(FakeManager(status=status_doc())).capability()
-
-    assert capability.can_execute is False
-    assert capability.reason == qb.REASON_UNSUPPORTED_CONNECTOR
-
-
-async def test_capability_fails_closed_when_the_config_is_unreadable(connector) -> None:
-    connector(FileNotFoundError("no config mounted"))
-    capability = await QueueBackend(FakeManager(status=status_doc())).capability()
-
-    assert capability.can_execute is False
-    assert capability.reason == qb.REASON_CONFIG_UNREADABLE
 
 
 async def test_capability_fails_closed_without_a_configured_manager(connector) -> None:

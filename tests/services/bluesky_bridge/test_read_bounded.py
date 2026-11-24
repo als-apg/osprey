@@ -102,17 +102,21 @@ def test_read_data_caps_at_max_rows_and_flags_truncated(client: TestClient) -> N
     assert body["truncated"] is True
 
 
-def test_read_data_offset_paginates_forward(client: TestClient) -> None:
-    _feed("run-5", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get("/runs/run-5/data?max_rows=2&offset=2").json()
-    assert body["rows"] == [[2.0], [3.0]]
-    assert body["truncated"] is True
-
-
-def test_read_data_tail_returns_most_recent_rows(client: TestClient) -> None:
-    _feed("run-6", [{"x": float(i)} for i in range(5)], stop=True)
-    body = client.get("/runs/run-6/data?max_rows=2&tail=true").json()
-    assert body["rows"] == [[3.0], [4.0]]
+@pytest.mark.parametrize(
+    ("run_id", "query", "expected_rows"),
+    [
+        pytest.param("run-5", "max_rows=2&offset=2", [[2.0], [3.0]], id="offset-paginates-forward"),
+        pytest.param(
+            "run-6", "max_rows=2&tail=true", [[3.0], [4.0]], id="tail-returns-most-recent-rows"
+        ),
+    ],
+)
+def test_read_data_window_is_truncated(
+    client: TestClient, run_id: str, query: str, expected_rows: list[list[float]]
+) -> None:
+    _feed(run_id, [{"x": float(i)} for i in range(5)], stop=True)
+    body = client.get(f"/runs/{run_id}/data?{query}").json()
+    assert body["rows"] == expected_rows
     assert body["truncated"] is True
 
 

@@ -307,10 +307,18 @@ class TestDenials:
 class TestOidcMode:
     """OIDC sessions carry no generation tag, and must not be asked for one."""
 
-    def test_entry_without_a_tag_authorizes(self) -> None:
-        cookie = _mint(_unlocked("alice", stored=None))
+    @pytest.mark.parametrize(
+        "user",
+        [
+            pytest.param("alice", id="entry-without-a-tag"),
+            # No stored hash exists in this mode, so its absence denies nothing.
+            pytest.param("bob", id="unmapped-roster-user"),
+        ],
+    )
+    def test_entry_without_a_tag_authorizes(self, user: str) -> None:
+        cookie = _mint(_unlocked(user, stored=None))
         with TestClient(_app(OIDC_ENV)) as client:
-            assert _verify(client, "alice", cookie).status_code == 200
+            assert _verify(client, user, cookie).status_code == 200
 
     def test_a_non_empty_tag_is_ignored(self) -> None:
         """Informational, and deliberate: OIDC never consults the tag.
@@ -323,12 +331,6 @@ class TestOidcMode:
         cookie = _mint(_unlocked("alice", stored=ROTATED_ALICE_HASH))
         with TestClient(_app(OIDC_ENV)) as client:
             assert _verify(client, "alice", cookie).status_code == 200
-
-    def test_unmapped_roster_user_still_authorizes(self) -> None:
-        """No stored hash exists in this mode, so its absence denies nothing."""
-        cookie = _mint(_unlocked("bob", stored=None))
-        with TestClient(_app(OIDC_ENV)) as client:
-            assert _verify(client, "bob", cookie).status_code == 200
 
     def test_revocation_and_expiry_still_apply(self) -> None:
         expired = _mint(_unlocked("alice", stored=None, ttl=-1.0))

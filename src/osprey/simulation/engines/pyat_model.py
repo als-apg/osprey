@@ -103,6 +103,10 @@ from osprey.simulation.engines.pyat_faults import (
     READOUT_IDENTITY,
     ROLL,
     ROLL_IDENTITY,
+    SUM_GAIN,
+    SUM_GAIN_ATTRIBUTE,
+    SUM_GAIN_IDENTITY,
+    SUM_SIGNAL,
     SUPPLY_FIELDS,
     SUPPLY_IDENTITY,
     supply_attribute,
@@ -116,6 +120,7 @@ from osprey.simulation.engines.pyat_variables import (
     PyATReadOnlyNDVariable,
     PyATWritableEnumVariable,
     ReadbackCalibration,
+    TurnArrayVariable,
 )
 from osprey_connectors.simulation.engines import check_inverse
 
@@ -240,6 +245,25 @@ def _monitor_faults(
             )
         )
     return faults, list(by_element)
+
+
+def _sum_faults(channels: Iterable[Variable], seeds: Mapping[str, float]) -> list[FaultVariable]:
+    """Declare each turn-by-turn monitor's sum gain, on its first sum record."""
+    faults: dict[str, FaultVariable] = {}
+    for variable in channels:
+        if not isinstance(variable, TurnArrayVariable) or variable.signal != SUM_SIGNAL:
+            continue
+        if variable.monitor in faults:
+            continue
+        name = _fault_name(variable.name, SUM_GAIN)
+        faults[variable.monitor] = PyATWritableScalarVariable(
+            name=name,
+            bindings=[ElementBinding(element_name=variable.monitor, attribute=SUM_GAIN_ATTRIBUTE)],
+            default_value=seeds.get(name, SUM_GAIN_IDENTITY),
+            value_range=FAULT_BOUNDS.get(SUM_GAIN),
+            default_validation_config=ConfigEnum.ERROR,
+        )
+    return list(faults.values())
 
 
 def _calibration_faults(
@@ -530,12 +554,13 @@ class PyATLatticeModel(LUMEPyATModel):
 
         monitor_faults, monitors = _monitor_faults(channels, seeds)
         calibration_faults = _calibration_faults(channels, seeds)
-        declared = [*monitor_faults, *calibration_faults]
+        declared = [*monitor_faults, *_sum_faults(channels, seeds), *calibration_faults]
         if unknown := sorted(set(seeds) - {fault.name for fault in declared}):
             raise ValueError(
                 f"fault seeds name {unknown}, which the model does not declare; a monitor "
                 f"readback takes {sorted(READOUT_IDENTITY)} (and {ROLL!r} on its x-axis or "
-                f"only readback), a PolynomB or KickAngle setpoint takes "
+                f"only readback), a turn-by-turn monitor's sum record {SUM_GAIN!r}, "
+                f"a PolynomB or KickAngle setpoint takes "
                 f"{sorted(SUPPLY_IDENTITY)}, a Frequency or TimeLag setpoint 'cal_offset' "
                 f"and a Voltage setpoint 'cal_factor'"
             )

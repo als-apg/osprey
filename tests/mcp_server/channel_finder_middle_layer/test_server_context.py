@@ -69,7 +69,7 @@ def test_registry_loads_database(tmp_path, monkeypatch):
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ml_context()
     reg = get_cf_ml_context()
-    assert reg.database is not None
+    assert reg.database.list_families("SR") == [{"name": "BPM", "description": ""}]
 
 
 def test_registry_loads_database_from_an_env_placeholder_path(tmp_path, monkeypatch):
@@ -89,7 +89,7 @@ def test_registry_loads_database_from_an_env_placeholder_path(tmp_path, monkeypa
     (tmp_path / "config.yml").write_text(config)
     initialize_cf_ml_context()
     reg = get_cf_ml_context()
-    assert reg.database is not None
+    assert reg.database.list_families("SR") == [{"name": "BPM", "description": ""}]
 
 
 def test_query_max_rows_defaults_when_unset(tmp_path, monkeypatch):

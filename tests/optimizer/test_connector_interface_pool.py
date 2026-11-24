@@ -96,10 +96,17 @@ def test_a_write_inside_limits_lands_and_reads_back(project):
     assert interface.read_many(["KNOB:POS:SP"])["KNOB:POS:SP"].value == pytest.approx(0.5)
 
 
-def test_a_write_outside_the_channel_limits_is_refused(project):
+@pytest.mark.parametrize(
+    ("channel", "value"),
+    [
+        pytest.param("KNOB:POS:SP", 6.0, id="a-write-outside-the-channel-limits"),
+        pytest.param("BPM:POS:Y", 1.0, id="a-read-only-channel"),
+    ],
+)
+def test_a_write_the_channel_does_not_allow_is_refused(project, channel, value):
     project()
     with pytest.raises(WriteRefusedError):
-        ConnectorInterface("live").set_values({"KNOB:POS:SP": 6.0})
+        ConnectorInterface("live").set_values({channel: value})
 
 
 def test_a_step_larger_than_max_step_is_refused(project):
@@ -109,12 +116,6 @@ def test_a_step_larger_than_max_step_is_refused(project):
     with pytest.raises(WriteRefusedError):
         interface.set_values({"KNOB:POS:SP": 2.0})  # 1.5 from 0.5, max_step 1.0
     assert interface.read_many(["KNOB:POS:SP"])["KNOB:POS:SP"].value == pytest.approx(0.5)
-
-
-def test_a_read_only_channel_is_refused(project):
-    project()
-    with pytest.raises(WriteRefusedError):
-        ConnectorInterface("live").set_values({"BPM:POS:Y": 1.0})
 
 
 def test_writes_are_refused_while_the_tier_allows_none(project):

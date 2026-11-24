@@ -811,7 +811,8 @@ class TestSyntheticExport:
             for other in bound
             if one < other and bound[one] == bound[other]
         ]
-        assert pairs
+        # SQ is the skew quadrupole on SF's elements; the two monitors share theirs.
+        assert pairs == [("SF", "SQ"), ("BPMx", "BPMy")]
 
     def test_the_synthetic_one_device_family_is_written_flat(self):
         """A one-device family's rows are flat arrays and its one index a bare number."""

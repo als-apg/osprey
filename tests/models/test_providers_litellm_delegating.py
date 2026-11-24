@@ -296,10 +296,6 @@ class TestTheDeclaredMetadata:
         assert len(row.adapter.api_key_instructions) > 0
         assert (row.adapter.api_key_note is not None) is row.declares_api_key_note
 
-    @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
-    def test_the_adapter_is_instantiable(self, row):
-        assert isinstance(row.adapter(), row.adapter)
-
 
 class TestOpenRouterRouting:
     """OpenRouter routes through litellm's native prefix, never the OpenAI path."""

@@ -324,29 +324,41 @@ class TestPanelsPayload:
         assert payload["default"] == "config"
 
 
+def _spelling_id(spelling: str) -> str:
+    """A node-id-safe name for a quoted spelling: ``" off "`` is ``off_padded``."""
+    stripped = spelling.strip()
+    return stripped if stripped == spelling else f"{stripped}_padded"
+
+
 class TestCoerceConfigFlag:
     """The pure coercion: what a config file is allowed to say."""
 
-    def test_real_booleans_pass_through(self):
-        assert coerce_config_flag(CONFIG_PANEL_KEY, False, True) is False
-        assert coerce_config_flag(CONFIG_PANEL_KEY, True, False) is True
-
-    def test_absent_key_takes_the_default(self):
-        assert coerce_config_flag(CONFIG_PANEL_KEY, None, True) is True
-        assert coerce_config_flag(CONFIG_PANEL_KEY, None, False) is False
-
-    def test_quoted_false_is_honoured(self):
-        """The case a plain ``bool()`` gets wrong on a default-ON switch.
-
-        ``bool("false")`` is ``True``: a deployment that wrote the switch OFF
-        in quotes would read as having asked for it ON.
-        """
-        for spelling in ("false", "False", " off ", "no", "0"):
-            assert coerce_config_flag(CONFIG_PANEL_KEY, spelling, True) is False
-
-    def test_quoted_true_is_honoured(self):
-        for spelling in ("true", "TRUE", "on", "yes", "1"):
-            assert coerce_config_flag(CONFIG_PANEL_KEY, spelling, False) is True
+    @pytest.mark.parametrize(
+        ("raw", "default", "expected"),
+        [
+            pytest.param(False, True, False, id="real_booleans_pass_through-False"),
+            pytest.param(True, False, True, id="real_booleans_pass_through-True"),
+            pytest.param(None, True, True, id="absent_key_takes_the_default-True"),
+            pytest.param(None, False, False, id="absent_key_takes_the_default-False"),
+            # The quoted-false cases are the ones a plain ``bool()`` gets wrong on a
+            # default-ON switch: ``bool("false")`` is ``True``, so a deployment that
+            # wrote the switch OFF in quotes would read as having asked for it ON.
+            *(
+                pytest.param(
+                    spelling, True, False, id=f"quoted_false_is_honoured-{_spelling_id(spelling)}"
+                )
+                for spelling in ("false", "False", " off ", "no", "0")
+            ),
+            *(
+                pytest.param(
+                    spelling, False, True, id=f"quoted_true_is_honoured-{_spelling_id(spelling)}"
+                )
+                for spelling in ("true", "TRUE", "on", "yes", "1")
+            ),
+        ],
+    )
+    def test_a_flag_is_coerced(self, raw, default, expected):
+        assert coerce_config_flag(CONFIG_PANEL_KEY, raw, default) is expected
 
     def test_uninterpretable_value_warns_and_takes_the_default(self, caplog):
         with caplog.at_level(logging.WARNING):

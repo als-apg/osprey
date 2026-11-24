@@ -13,6 +13,9 @@ Covers every mutation type exposed by the web settings panel and CLI:
 
 from __future__ import annotations
 
+import functools
+import operator
+
 import pytest
 
 from osprey.utils.config_writer import (
@@ -152,17 +155,30 @@ class TestCommentPreservation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("dotted_key", "value"),
+    [
+        pytest.param("control_system.writes_enabled", True, id="toggle-false-to-true"),
+        pytest.param("artifact_server.auto_launch", False, id="toggle-true-to-false"),
+        pytest.param("control_system.connector.epics.timeout_s", 10.0, id="float"),
+        pytest.param(
+            "control_system.connector.virtual_accelerator.timeout_s",
+            0.5,
+            id="float-in-a-sibling-block",
+        ),
+        pytest.param("approval.default_policy", "selective", id="enum-string"),
+        pytest.param("artifact_server.host", "0.0.0.0", id="string-with-special-chars"),
+    ],
+)
+def test_update_round_trips(config_file, dotted_key, value):
+    """A scalar the web UI writes (toggle, number input, select) reads back as written."""
+    config_update_fields(config_file, {dotted_key: value})
+    got = functools.reduce(operator.getitem, dotted_key.split("."), config_read(config_file))
+    assert got == value
+    assert type(got) is type(value)
+
+
 class TestBooleanUpdates:
-    def test_toggle_false_to_true(self, config_file):
-        config_update_fields(config_file, {"control_system.writes_enabled": True})
-        data = config_read(config_file)
-        assert data["control_system"]["writes_enabled"] is True
-
-    def test_toggle_true_to_false(self, config_file):
-        config_update_fields(config_file, {"artifact_server.auto_launch": False})
-        data = config_read(config_file)
-        assert data["artifact_server"]["auto_launch"] is False
-
     def test_nested_boolean(self, config_file):
         config_update_fields(
             config_file,
@@ -187,26 +203,6 @@ class TestNumericUpdates:
         data = config_read(config_file)
         assert data["artifact_server"]["port"] == 9999
 
-    def test_float_update(self, config_file):
-        config_update_fields(
-            config_file,
-            {
-                "control_system.connector.epics.timeout_s": 10.0,
-            },
-        )
-        data = config_read(config_file)
-        assert data["control_system"]["connector"]["epics"]["timeout_s"] == 10.0
-
-    def test_float_in_a_sibling_block(self, config_file):
-        config_update_fields(
-            config_file,
-            {
-                "control_system.connector.virtual_accelerator.timeout_s": 0.5,
-            },
-        )
-        data = config_read(config_file)
-        assert data["control_system"]["connector"]["virtual_accelerator"]["timeout_s"] == 0.5
-
     def test_deeply_nested_integer(self, config_file):
         config_update_fields(
             config_file,
@@ -224,16 +220,6 @@ class TestNumericUpdates:
 
 
 class TestStringUpdates:
-    def test_enum_string(self, config_file):
-        config_update_fields(config_file, {"approval.default_policy": "selective"})
-        data = config_read(config_file)
-        assert data["approval"]["default_policy"] == "selective"
-
-    def test_string_with_special_chars(self, config_file):
-        config_update_fields(config_file, {"artifact_server.host": "0.0.0.0"})
-        data = config_read(config_file)
-        assert data["artifact_server"]["host"] == "0.0.0.0"
-
     def test_null_to_string(self, config_file):
         config_update_fields(
             config_file,
@@ -444,8 +430,17 @@ class TestConfigRead:
         import json
 
         data = config_read(config_file)
-        serialized = json.dumps(data)
-        assert isinstance(serialized, str)
+
+        def plain_types(node):
+            if isinstance(node, dict):
+                return {type(node)} | {t for v in node.values() for t in plain_types(v)}
+            if isinstance(node, list):
+                return {type(node)} | {t for v in node for t in plain_types(v)}
+            return {type(node)}
+
+        # No ruamel wrapper types survive, so the dict round-trips through JSON unchanged.
+        assert plain_types(data) <= {dict, list, str, int, float, bool, type(None)}
+        assert json.loads(json.dumps(data)) == data
 
     def test_a_non_mapping_document_reads_as_empty(self, tmp_path):
         p = tmp_path / "list.yml"

@@ -128,31 +128,34 @@ def test_a_run_for_an_owner_whose_switch_is_allowed_writes() -> None:
     assert interface.read_many([CHANNEL])[CHANNEL].value == pytest.approx(0.5)
 
 
+@pytest.mark.parametrize(
+    ("dispatch_run", "owner", "reason"),
+    [
+        pytest.param(False, None, "owner_unknown", id="a-run-for-nobody-is-refused-owner-unknown"),
+        pytest.param(
+            False,
+            "carol",
+            "owner_unknown",
+            id="a-run-for-an-owner-the-map-does-not-name-is-refused-owner-unknown",
+        ),
+        pytest.param(
+            True,
+            None,
+            "owner_unscheduled",
+            id="a-scheduled-run-for-nobody-is-refused-owner-unscheduled",
+        ),
+    ],
+)
 @pytest.mark.usefixtures("deployment")
-def test_a_run_for_nobody_is_refused_owner_unknown() -> None:
-    stamp_owner(None)
-    with pytest.raises(WriteRefusedError) as caught:
-        ConnectorInterface(TARGET).set_values({CHANNEL: 0.5})
-    assert _refused("owner_unknown") in str(caught.value)
-
-
-@pytest.mark.usefixtures("deployment")
-def test_a_scheduled_run_for_nobody_is_refused_owner_unscheduled(
-    monkeypatch: pytest.MonkeyPatch,
+def test_a_run_without_a_mapped_owner_is_refused(
+    monkeypatch: pytest.MonkeyPatch, dispatch_run: bool, owner: str | None, reason: str
 ) -> None:
-    monkeypatch.setenv(posture_store.DISPATCH_RUN_ENV_VAR, "1")
-    stamp_owner(None)
+    if dispatch_run:
+        monkeypatch.setenv(posture_store.DISPATCH_RUN_ENV_VAR, "1")
+    stamp_owner(owner)
     with pytest.raises(WriteRefusedError) as caught:
         ConnectorInterface(TARGET).set_values({CHANNEL: 0.5})
-    assert _refused("owner_unscheduled") in str(caught.value)
-
-
-@pytest.mark.usefixtures("deployment")
-def test_a_run_for_an_owner_the_map_does_not_name_is_refused_owner_unknown() -> None:
-    stamp_owner("carol")
-    with pytest.raises(WriteRefusedError) as caught:
-        ConnectorInterface(TARGET).set_values({CHANNEL: 0.5})
-    assert _refused("owner_unknown") in str(caught.value)
+    assert _refused(reason) in str(caught.value)
 
 
 @pytest.mark.usefixtures("deployment")

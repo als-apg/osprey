@@ -212,9 +212,10 @@ def test_a_legacy_stored_on_reads_as_asked(tmp_path, run):
 def test_a_compaction_describes_it_again(tmp_path, run):
     """A rebuilt context may have lost the block; a start of any source restates it."""
     _record(tmp_path, "va", 2)
-    run("SessionStart", source="startup")
+    first = run("SessionStart", source="startup")
 
-    assert run("SessionStart", source="compact") is not None
+    assert first
+    assert run("SessionStart", source="compact") == first
 
 
 def test_an_old_sandbox_narrowing_is_not_a_state_word(tmp_path, run):

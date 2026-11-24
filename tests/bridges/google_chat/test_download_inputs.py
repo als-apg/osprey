@@ -43,6 +43,7 @@ from osprey.bridges.google_chat.config import GoogleChatBridgeConfig
 from osprey.bridges.google_chat.events import (
     GC_ATTACHMENTS,
     GC_DRIVE_ATTACHMENTS,
+    GC_MESSAGE_NAME,
     GC_QUOTED_ATTACHMENTS,
     GC_QUOTED_DRIVE_ATTACHMENTS,
 )
@@ -575,9 +576,22 @@ def test_two_people_asking_in_one_conversation_are_never_grouped_together():
 
 def test_one_person_asking_twice_in_one_conversation_groups_together():
     ops, _ = make_ops()
-    entry = {"history_key": SPACE, "sender_id": "users/9"}
+    first = {
+        "history_key": SPACE,
+        "sender_id": "users/9",
+        "message_id": f"{SPACE}/messages/1",
+        GC_MESSAGE_NAME: f"{SPACE}/messages/1",
+        "text": "what is the beam current?",
+    }
+    # The same person in the same conversation, but a different message.
+    second = {
+        **first,
+        "message_id": f"{SPACE}/messages/2",
+        GC_MESSAGE_NAME: f"{SPACE}/messages/2",
+        "text": "and the lifetime?",
+    }
 
-    assert ops.coalesce_key(dict(entry)) == ops.coalesce_key(dict(entry))
+    assert ops.coalesce_key(first) == ops.coalesce_key(second) == [SPACE, "users/9"]
 
 
 @pytest.mark.parametrize(

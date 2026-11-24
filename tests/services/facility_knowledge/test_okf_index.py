@@ -77,11 +77,6 @@ class TestSynthesizeDescription:
         )
         assert result == "Contains 3 entries: MAIN BPMx, MAIN bpmx_slow, MAIN CH."
 
-    def test_no_model_call(self):
-        """Verify determinism: calling twice returns identical output."""
-        children = [("X", ""), ("Y", "Ydesc")]
-        assert _synthesize_description(children) == _synthesize_description(children)
-
 
 # ---------------------------------------------------------------------------
 # regenerate_indexes — core behaviour
@@ -561,6 +556,11 @@ class TestValidateIndex:
 
         written = regenerate_indexes(tmp_path)
 
+        assert set(written) == {
+            tmp_path / "index.md",
+            tmp_path / "systems" / "index.md",
+            tmp_path / "devices" / "index.md",
+        }
         for idx_path in written:
             validate_index(idx_path, bundle_root=tmp_path)  # must not raise
 
@@ -656,14 +656,31 @@ class TestRootIndexMetadata:
         assert text.startswith(self._METADATA + "\n# Device\n")
         assert "# Old" not in text
 
-    def test_an_earlier_declared_version_is_kept(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("initial_index", "expected_prefix"),
+        [
+            pytest.param(
+                '---\nokf_version: "0.1"\n---\n\n',
+                '---\nokf_version: "0.1"\n---\n\n# Device\n',
+                id="an-earlier-declared-version-is-kept",
+            ),
+            pytest.param(
+                "---\nkey: [\n---\n\n# Old\n",
+                '---\nokf_version: "0.3"\n---\n\n# Device\n',
+                id="unparseable-root-frontmatter-is-replaced",
+            ),
+        ],
+    )
+    def test_the_root_frontmatter_after_regeneration(
+        self, tmp_path: Path, initial_index: str, expected_prefix: str
+    ) -> None:
         _concept(tmp_path, "a.md", type_="Device", title="A")
-        (tmp_path / "index.md").write_text('---\nokf_version: "0.1"\n---\n\n', encoding="utf-8")
+        (tmp_path / "index.md").write_text(initial_index, encoding="utf-8")
 
         regenerate_indexes(tmp_path)
 
         text = (tmp_path / "index.md").read_text(encoding="utf-8")
-        assert text.startswith('---\nokf_version: "0.1"\n---\n\n# Device\n')
+        assert text.startswith(expected_prefix)
 
     def test_a_root_index_with_metadata_has_no_drift(self, tmp_path: Path) -> None:
         _concept(tmp_path, "a.md", type_="Device", title="A")
@@ -681,15 +698,6 @@ class TestRootIndexMetadata:
         regenerate_indexes(tmp_path)
 
         assert (tmp_path / "index.md").read_bytes() == before
-
-    def test_unparseable_root_frontmatter_is_replaced(self, tmp_path: Path) -> None:
-        _concept(tmp_path, "a.md", type_="Device", title="A")
-        (tmp_path / "index.md").write_text("---\nkey: [\n---\n\n# Old\n", encoding="utf-8")
-
-        regenerate_indexes(tmp_path)
-
-        text = (tmp_path / "index.md").read_text(encoding="utf-8")
-        assert text.startswith('---\nokf_version: "0.3"\n---\n\n# Device\n')
 
     def test_metadata_passes_validation(self, tmp_path: Path) -> None:
         idx = tmp_path / "index.md"

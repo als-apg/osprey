@@ -120,31 +120,24 @@ async def _assert_confined(
     return out
 
 
-async def test_keyword_strict_tier_is_confined(repo: ARIELRepository, config: ARIELConfig) -> None:
+@pytest.mark.parametrize(
+    ("query", "expected_id", "tier"),
+    [
+        pytest.param("kicker misfire", "strict-a", "strict", id="strict"),
+        pytest.param("septum water flow magnet", "partial-a", "partial", id="partial"),
+        pytest.param("quadrupolle", "fuzzy-a", "fuzzy", id="fuzzy"),
+    ],
+)
+async def test_keyword_tier_is_confined(
+    repo: ARIELRepository, config: ARIELConfig, query: str, expected_id: str, tier: str
+) -> None:
+    """Each keyword tier returns only the entries the filter admits."""
     flt = EntryFilter.parse(ALICE, FILTER_DIMS)
 
-    out = await keyword_search("kicker misfire", repo, config, entry_filter=flt, offset=0)
+    out = await keyword_search(query, repo, config, entry_filter=flt, offset=0)
 
-    out = await _assert_confined(out, flt, repo, config, expect={"strict-a"})
-    assert out.tier == "strict"
-
-
-async def test_keyword_partial_tier_is_confined(repo: ARIELRepository, config: ARIELConfig) -> None:
-    flt = EntryFilter.parse(ALICE, FILTER_DIMS)
-
-    out = await keyword_search("septum water flow magnet", repo, config, entry_filter=flt, offset=0)
-
-    out = await _assert_confined(out, flt, repo, config, expect={"partial-a"})
-    assert out.tier == "partial"
-
-
-async def test_keyword_fuzzy_tier_is_confined(repo: ARIELRepository, config: ARIELConfig) -> None:
-    flt = EntryFilter.parse(ALICE, FILTER_DIMS)
-
-    out = await keyword_search("quadrupolle", repo, config, entry_filter=flt, offset=0)
-
-    out = await _assert_confined(out, flt, repo, config, expect={"fuzzy-a"})
-    assert out.tier == "fuzzy"
+    out = await _assert_confined(out, flt, repo, config, expect={expected_id})
+    assert out.tier == tier
 
 
 async def test_legacy_author_still_leaves_fuzzy_unfiltered(

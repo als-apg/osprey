@@ -2549,9 +2549,20 @@ def test_named_files_are_added_to_what_the_range_selects() -> None:
     )
 
 
-def test_a_named_path_that_is_not_a_test_file_is_refused() -> None:
-    with pytest.raises(check.Refused, match="notes.txt"):
-        selected("quick", named=("notes.txt",))
+@pytest.mark.parametrize(
+    ("named", "match"),
+    [
+        pytest.param("notes.txt", "notes.txt", id="a-named-path-that-is-not-a-test-file"),
+        pytest.param(
+            "tests/cli/test_nope.py::test_x",
+            "tests/cli/test_nope.py is not a file",
+            id="a-named-node-id-whose-file-is-absent",
+        ),
+    ],
+)
+def test_a_named_target_that_is_not_a_test_is_refused(named: str, match: str) -> None:
+    with pytest.raises(check.Refused, match=match):
+        selected("quick", named=(named,))
 
 
 def test_a_named_node_id_goes_to_pytest_as_given() -> None:
@@ -2564,11 +2575,6 @@ def test_a_named_directory_goes_to_pytest_as_the_directory() -> None:
     got = selected("quick", named=("tests/cli/",))
     assert got["pytest"].paths == ("tests/cli",)
     assert got["vitest"].state == check.NOT_TOUCHED
-
-
-def test_a_named_node_id_whose_file_is_absent_is_refused() -> None:
-    with pytest.raises(check.Refused, match="tests/cli/test_nope.py is not a file"):
-        selected("quick", named=("tests/cli/test_nope.py::test_x",))
 
 
 def test_a_node_id_of_a_file_whose_runner_takes_none_is_refused() -> None:
@@ -4361,8 +4367,17 @@ def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
 
 
-def test_a_hand_typed_parallel_sweep_is_named_with_its_line() -> None:
-    text = "# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n"
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n", id="one-line"),
+        pytest.param(
+            "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n",
+            id="a-continued-sweep-command-is-read-as-one-line",
+        ),
+    ],
+)
+def test_a_hand_typed_parallel_sweep_is_named_with_its_line(text: str) -> None:
     assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
         "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
     ]
@@ -4375,13 +4390,6 @@ def test_a_serial_line_a_check_py_line_and_flag_prose_pass() -> None:
         "A test that flakes under `-n 4` shares state.\n"
     )
     assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == []
-
-
-def test_a_continued_sweep_command_is_read_as_one_line() -> None:
-    text = "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n"
-    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
-        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
-    ]
 
 
 def test_an_exception_that_matches_no_line_is_named() -> None:

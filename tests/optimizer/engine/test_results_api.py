@@ -126,21 +126,19 @@ class TestGetResultDetailsEndpoint:
         assert body["initial_point"] == {"var1": 1.0}
         assert len(body["data_records"]) == 2
 
-    def test_not_found(self, client: TestClient) -> None:
-        with patch(
-            "osprey_optimizer.results.load_results",
-            side_effect=FileNotFoundError("gone"),
-        ):
-            resp = client.get("/results/env/missing")
-        assert resp.status_code == 404
-
-    def test_error(self, client: TestClient) -> None:
-        with patch(
-            "osprey_optimizer.results.load_results",
-            side_effect=RuntimeError("corrupt"),
-        ):
-            resp = client.get("/results/env/bad")
-        assert resp.status_code == 500
+    @pytest.mark.parametrize(
+        ("name", "side_effect", "status"),
+        [
+            pytest.param("missing", FileNotFoundError("gone"), 404, id="not-found"),
+            pytest.param("bad", RuntimeError("corrupt"), 500, id="error"),
+        ],
+    )
+    def test_a_failed_load_answers_its_status(
+        self, client: TestClient, name: str, side_effect: Exception, status: int
+    ) -> None:
+        with patch("osprey_optimizer.results.load_results", side_effect=side_effect):
+            resp = client.get(f"/results/env/{name}")
+        assert resp.status_code == status
 
     def test_path_traversal_rejected(self, client: TestClient) -> None:
         """A traversal identifier is rejected before load_results is ever called."""

@@ -329,15 +329,18 @@ def test_reads_under_a_protected_root_still_work(project: _Project):
     assert out == "ALLOWED"
 
 
-def test_execution_folder_writes_are_allowed(project: _Project):
-    """The run's own output folder is permitted even under a protected parent."""
-    out = project.probe(f"open({str(project.execution_folder / 'artifact.json')!r}, 'w').close()")
-    assert out == "ALLOWED"
-
-
-def test_unrelated_paths_are_untouched(project: _Project):
-    """Denylist, not allowlist: everything outside the protected set is fine."""
-    out = project.probe(f"open({str(project.source_file.parent / 'scratch.txt')!r}, 'w').close()")
+@pytest.mark.parametrize(
+    "target",
+    [
+        # The run's own output folder is permitted even under a protected parent.
+        pytest.param(lambda p: p.execution_folder / "artifact.json", id="execution-folder"),
+        # Denylist, not allowlist: everything outside the protected set is fine.
+        pytest.param(lambda p: p.source_file.parent / "scratch.txt", id="unrelated-path"),
+    ],
+)
+def test_a_write_outside_the_protected_set_is_allowed(project: _Project, target):
+    """A write the denylist does not cover runs as ordinary work."""
+    out = project.probe(f"open({str(target(project))!r}, 'w').close()")
     assert out == "ALLOWED"
 
 

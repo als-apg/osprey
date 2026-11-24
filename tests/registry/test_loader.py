@@ -221,14 +221,17 @@ class TestLoadRegistryFromModule:
         with pytest.raises(RegistryError, match="Multiple RegistryConfigProvider"):
             load_registry_from_module("some.module")
 
-    def test_import_error_labels_module(self):
-        with pytest.raises(RegistryError, match="module totally.bogus.pkg"):
-            load_registry_from_module("totally.bogus.pkg")
-
-    def test_import_error_labels_application(self):
-        # applications.<name>.registry -> "<name> application" in the message.
-        with pytest.raises(RegistryError, match="myapp application"):
-            load_registry_from_module("applications.myapp.registry")
+    @pytest.mark.parametrize(
+        ("module", "match"),
+        [
+            pytest.param("totally.bogus.pkg", "module totally.bogus.pkg", id="module"),
+            # applications.<name>.registry -> "<name> application" in the message.
+            pytest.param("applications.myapp.registry", "myapp application", id="application"),
+        ],
+    )
+    def test_import_error_labels(self, module, match):
+        with pytest.raises(RegistryError, match=match):
+            load_registry_from_module(module)
 
     def test_provider_exception_wrapped(self, monkeypatch):
         class _Boom(RegistryConfigProvider):

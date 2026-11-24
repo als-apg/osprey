@@ -64,7 +64,7 @@ def tree_only_doc() -> dict:
 
     ``system:device:signal`` over ``SR``/``BR``. The baseline shape: exercises
     plain tree recursion in ``_hierarchical_naming._build_channel_map`` and the
-    tree branch of ``_hierarchical_query._navigate_to_node`` /
+    tree branch of ``_hierarchical_query._navigate_to_nodes`` /
     ``_extract_tree_options`` with nothing else in play. ``BR`` has no children,
     so it is an automatic leaf (no ``_is_leaf`` marker needed) -- use it to
     reach the "node has no children" early return in ``_is_leaf_node``.
@@ -265,7 +265,7 @@ def hybrid_expansion_doc() -> dict:
     expands ``CH`` into ``CH-1``..``CH-3`` and assigns each instance to the
     surrounding *tree* level, and ``_hierarchical_query._extract_tree_options``
     returns the expanded instances instead of the container name ``CH``.
-    ``_navigate_to_node`` and ``_collect_separator_overrides`` reach their
+    ``_navigate_to_nodes`` and ``_collect_separator_overrides`` reach their
     "selection is an expanded instance, find the container that generates it"
     fallbacks with a selection such as ``device="CH-2"``.
 

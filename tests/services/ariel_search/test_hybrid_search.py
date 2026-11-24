@@ -781,36 +781,68 @@ class TestRankingAndHydration:
         assert [score for _, score, _ in results] == [1.0, 0.5, 0.33]
 
     @pytest.mark.asyncio
-    async def test_snippet_is_carried_as_the_highlight(self, search_calls):
-        client = StubClient([make_hit("1", snippet="7: water leak")])
-        repo = StubRepository([{**make_entry("1"), "raw_text": "Cooling\n\nwater leak"}])
+    @pytest.mark.parametrize(
+        ("snippet", "raw_text", "expected"),
+        [
+            pytest.param(
+                "7: water leak", "Cooling\n\nwater leak", ["water leak"], id="snippet_carried"
+            ),
+            # qmd quotes the mirror document: a diff-style hunk header, line numbers,
+            # the ``# Entry`` heading and the provenance lines the writer adds. The
+            # highlight keeps only what the entry itself says, minus its subject line
+            # (the row already shows it).
+            pytest.param(
+                "5: @@ -4,6 @@ (3 before, 3 after)\n"
+                "6: Source: Example eLog.\n"
+                "7: title: Linac gun cathode replacement.\n"
+                "8: \n"
+                "9: Linac gun cathode replacement\n"
+                "10: \n"
+                "11: Replaced the thermionic cathode after 12,000 hours.",
+                "Linac gun cathode replacement\n\n"
+                "Replaced the thermionic cathode after 12,000 hours.",
+                ["Replaced the thermionic cathode after 12,000 hours."],
+                id="mirror_scaffolding_stripped",
+            ),
+            # The row already shows the subject; it previews the body instead.
+            pytest.param(
+                "8: \n9: Linac gun cathode replacement\n10: ",
+                "Linac gun cathode replacement\n\nReplaced the thermionic cathode.",
+                [],
+                id="excerpt_of_only_the_subject",
+            ),
+            pytest.param(
+                "9: water leak in sector 3",
+                "water leak in sector 3",
+                ["water leak in sector 3"],
+                id="one_line_entry_keeps_its_only_line",
+            ),
+            # A hit centred on the heading carries no entry text; the row then falls
+            # back to the entry's own text rather than showing the heading.
+            pytest.param(
+                "1: @@ -1,3 @@ (0 before, 7 after)\n"
+                "2: # Entry 1\n"
+                "3: \n"
+                "4: Logged by operator on 2024-06-01T12:00:00+00:00.",
+                None,
+                [],
+                id="snippet_of_scaffolding_only",
+            ),
+            pytest.param("", None, [], id="missing_snippet"),
+        ],
+    )
+    async def test_highlight_is_the_entry_text_the_snippet_quotes(
+        self, search_calls, snippet, raw_text, expected
+    ):
+        """The qmd snippet becomes the highlight, reduced to the entry's own text.
 
-        _, _, highlights = (
-            await hybrid_search(
-                "beam", repo, make_config(), client=client, search_calls=search_calls
-            )
-        )[0]
-
-        assert highlights == ["water leak"]
-
-    @pytest.mark.asyncio
-    async def test_highlight_is_entry_text_without_the_mirror_scaffolding(self, search_calls):
-        """qmd quotes the mirror document: a diff-style hunk header, line numbers,
-        the ``# Entry`` heading and the provenance lines the writer adds. The
-        highlight keeps only what the entry itself says, minus its subject line
-        (the row already shows it)."""
-        snippet = (
-            "5: @@ -4,6 @@ (3 before, 3 after)\n"
-            "6: Source: Example eLog.\n"
-            "7: title: Linac gun cathode replacement.\n"
-            "8: \n"
-            "9: Linac gun cathode replacement\n"
-            "10: \n"
-            "11: Replaced the thermionic cathode after 12,000 hours."
-        )
-        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode after 12,000 hours."
+        ``raw_text=None`` keeps ``make_entry``'s default body.
+        """
+        entry = make_entry("1")
+        if raw_text is not None:
+            entry = {**entry, "raw_text": raw_text}
         client = StubClient([make_hit("1", snippet=snippet)])
-        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
+        repo = StubRepository([entry])
 
         _, _, highlights = (
             await hybrid_search(
@@ -818,70 +850,7 @@ class TestRankingAndHydration:
             )
         )[0]
 
-        assert highlights == ["Replaced the thermionic cathode after 12,000 hours."]
-
-    @pytest.mark.asyncio
-    async def test_an_excerpt_of_only_the_subject_yields_no_highlight(self, search_calls):
-        """The row already shows the subject; it previews the body instead."""
-        snippet = "8: \n9: Linac gun cathode replacement\n10: "
-        raw = "Linac gun cathode replacement\n\nReplaced the thermionic cathode."
-        client = StubClient([make_hit("1", snippet=snippet)])
-        repo = StubRepository([{**make_entry("1"), "raw_text": raw}])
-
-        _, _, highlights = (
-            await hybrid_search(
-                "beam", repo, make_config(), client=client, search_calls=search_calls
-            )
-        )[0]
-
-        assert highlights == []
-
-    @pytest.mark.asyncio
-    async def test_a_one_line_entry_keeps_its_only_line(self, search_calls):
-        client = StubClient([make_hit("1", snippet="9: water leak in sector 3")])
-        repo = StubRepository([{**make_entry("1"), "raw_text": "water leak in sector 3"}])
-
-        _, _, highlights = (
-            await hybrid_search(
-                "beam", repo, make_config(), client=client, search_calls=search_calls
-            )
-        )[0]
-
-        assert highlights == ["water leak in sector 3"]
-
-    @pytest.mark.asyncio
-    async def test_a_snippet_of_scaffolding_only_yields_no_highlight(self, search_calls):
-        """A hit centred on the heading carries no entry text; the row then falls
-        back to the entry's own text rather than showing the heading."""
-        snippet = (
-            "1: @@ -1,3 @@ (0 before, 7 after)\n"
-            "2: # Entry 1\n"
-            "3: \n"
-            "4: Logged by operator on 2024-06-01T12:00:00+00:00."
-        )
-        client = StubClient([make_hit("1", snippet=snippet)])
-        repo = StubRepository([make_entry("1")])
-
-        _, _, highlights = (
-            await hybrid_search(
-                "beam", repo, make_config(), client=client, search_calls=search_calls
-            )
-        )[0]
-
-        assert highlights == []
-
-    @pytest.mark.asyncio
-    async def test_missing_snippet_yields_no_highlights(self, search_calls):
-        client = StubClient([make_hit("1", snippet="")])
-        repo = StubRepository([make_entry("1")])
-
-        _, _, highlights = (
-            await hybrid_search(
-                "beam", repo, make_config(), client=client, search_calls=search_calls
-            )
-        )[0]
-
-        assert highlights == []
+        assert highlights == expected
 
     @pytest.mark.asyncio
     async def test_entry_body_comes_from_postgres_not_the_index(self, search_calls):

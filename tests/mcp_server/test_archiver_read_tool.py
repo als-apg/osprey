@@ -610,7 +610,7 @@ async def test_archiver_read_empty_channels():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=[], start_time="2024-01-15T10:00:00")
 
-    _exc_ctx["envelope"]
+    assert "No channels provided" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):

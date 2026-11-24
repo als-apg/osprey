@@ -328,22 +328,20 @@ class TestEnsureRunningOwnership:
 class TestLoopbackFor:
     """Wildcard bind hosts are normalized to a client-reachable loopback."""
 
-    def test_wildcard_ipv4(self):
+    @pytest.mark.parametrize(
+        ("host", "expected"),
+        [
+            pytest.param("0.0.0.0", "127.0.0.1", id="wildcard_ipv4"),
+            pytest.param("", "127.0.0.1", id="wildcard_ipv4-empty"),
+            pytest.param("::", "::1", id="wildcard_ipv6"),
+            pytest.param("10.0.0.5", "10.0.0.5", id="concrete_host_passthrough"),
+            pytest.param("127.0.0.1", "127.0.0.1", id="concrete_host_passthrough-loopback"),
+        ],
+    )
+    def test_loopback_for(self, host, expected):
         from osprey.infrastructure.server_launcher import _loopback_for
 
-        assert _loopback_for("0.0.0.0") == "127.0.0.1"
-        assert _loopback_for("") == "127.0.0.1"
-
-    def test_wildcard_ipv6(self):
-        from osprey.infrastructure.server_launcher import _loopback_for
-
-        assert _loopback_for("::") == "::1"
-
-    def test_concrete_host_passthrough(self):
-        from osprey.infrastructure.server_launcher import _loopback_for
-
-        assert _loopback_for("10.0.0.5") == "10.0.0.5"
-        assert _loopback_for("127.0.0.1") == "127.0.0.1"
+        assert _loopback_for(host) == expected
 
 
 class TestTheTwoProbesAnswerDifferentQuestions:

@@ -396,6 +396,29 @@ class TestDescribe:
             engine.describe(record)
         assert text in str(caught.value)
 
+    @pytest.mark.parametrize(
+        ("signal", "element", "write"),
+        [
+            ("turn_x", "BPM1", False),
+            ("turn_sum", "BPM1", False),
+            ("armed", "BPM1", False),
+            ("turns_tracked", None, False),
+            ("stored", None, True),
+            ("offset_x", None, True),
+        ],
+    )
+    def test_a_calibration_is_refused_on_every_signal(
+        self, signal: str, element: str | None, write: bool
+    ) -> None:
+        record = _record(signal, "SR:TBT:RECORD", element=element, write=write)
+        engine.describe(record)
+        record["calibration"] = {"curve": {"linear": {"gain": 1000.0, "offset": 0.0}}}
+        with pytest.raises(ValueError, match="SR:TBT:RECORD") as caught:
+            engine.describe(record)
+        assert f"signal {signal} states a calibration" in str(caught.value)
+        assert "remove the calibration" in str(caught.value)
+        assert ("fault `gain`" in str(caught.value)) == (signal == "turn_sum")
+
     def test_signal_beside_other_engine_words_is_refused(self) -> None:
         record = _record("arm", "B1:ARM", element="BPM1", write=True)
         record["engine"]["attribute"] = "KickAngle"

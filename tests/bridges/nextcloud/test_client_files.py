@@ -359,10 +359,16 @@ def test_share_type_is_the_room_share():
 def test_share_tolerates_a_duplicate(status, message):
     """Redelivering the same artifact must be a no-op, not a failure."""
 
-    def duplicate(_request):
+    seen: list[httpx.Request] = []
+
+    def duplicate(request):
+        seen.append(request)
         return _ocs_failure(status, message)
 
     _client(duplicate).share_to_room(f"{RUN_DIR}/plot.png", "roomA")
+
+    # The share was asked for and refused as a duplicate, not skipped.
+    assert len(seen) == 1
 
 
 def test_share_raises_on_a_genuine_permission_failure():

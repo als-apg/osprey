@@ -439,10 +439,6 @@ class TestProviderAvailability:
         """Ensure at least one provider is available."""
         assert len(available_providers) > 0, "No LLM providers available for testing"
 
-    def test_provider_detection(self, available_providers):
-        """Document which providers are available."""
-        print(f"\nAvailable: {list(available_providers.keys())}")
-
 
 class TestExtendedThinking:
     """Test Anthropic extended thinking (provider-specific feature)."""

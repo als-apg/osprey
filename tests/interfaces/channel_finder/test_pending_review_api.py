@@ -77,8 +77,17 @@ def test_get_existing_item(pending_review_client):
     assert resp.json()["query"] == "magnets"
 
 
-def test_get_missing_item(pending_review_client):
-    resp = pending_review_client.get("/api/pending-reviews/nonexistent")
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        pytest.param("get", "/api/pending-reviews/nonexistent", id="get"),
+        pytest.param("post", "/api/pending-reviews/nonexistent/approve", id="approve"),
+        pytest.param("delete", "/api/pending-reviews/nonexistent", id="dismiss"),
+    ],
+)
+def test_missing_item(pending_review_client, method, path):
+    """Reading, approving or dismissing an item that does not exist is a 404."""
+    resp = getattr(pending_review_client, method)(path)
     assert resp.status_code == 404
 
 
@@ -185,11 +194,6 @@ def test_approve_falls_back_to_config_facility(pending_review_client):
     assert len(hints) == 1
 
 
-def test_approve_missing_item(pending_review_client):
-    resp = pending_review_client.post("/api/pending-reviews/nonexistent/approve")
-    assert resp.status_code == 404
-
-
 # ------------------------------------------------------------------
 # 5. Dismiss endpoint
 # ------------------------------------------------------------------
@@ -205,11 +209,6 @@ def test_dismiss_deletes_item(pending_review_client):
 
     # Verify deleted
     assert store.get_item(item_id) is None
-
-
-def test_dismiss_missing_item(pending_review_client):
-    resp = pending_review_client.delete("/api/pending-reviews/nonexistent")
-    assert resp.status_code == 404
 
 
 # ------------------------------------------------------------------

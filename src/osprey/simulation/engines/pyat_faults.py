@@ -35,6 +35,14 @@ sample by sample -- through the same monitor's same faults. Both run
 everything that monitor reports, in one order: roll, offset, polarity, noise,
 gain.
 
+**The sum of a turn-by-turn monitor has one fault, its own gain.** The
+monitor's ``turn_sum`` record carries ``gain`` (:data:`SUM_GAIN_IDENTITY`),
+held on the monitor's element as :data:`SUM_GAIN_ATTRIBUTE`
+(:func:`sum_gain`): the factor on what that monitor's sum reads of the beam,
+injected and stored, so two monitors read one charge differently. It is the
+sum's alone: no position reads it, and the position faults never reach the
+sum.
+
 **Element errors are keyed by the element, not by an address.** One series
 supply address feeds many magnets, so a magnet's own misalignment and its own
 multipole error cannot hang off the address. Every element a non-monitor
@@ -101,6 +109,16 @@ FAULT_SEPARATOR = "/"
 #: The roll a monitor carries once, at its identity.
 ROLL = "roll"
 ROLL_IDENTITY = 0.0
+
+#: The wiring signal of a turn-by-turn monitor's sum array, the record that
+#: carries the monitor's sum gain.
+SUM_SIGNAL = "turn_sum"
+#: The one fault field a sum record carries, and its identity: a monitor
+#: whose sum reads the beam at the ring's own sum per unit charge.
+SUM_GAIN = "gain"
+SUM_GAIN_IDENTITY = 1.0
+#: The element attribute that holds a monitor's sum gain.
+SUM_GAIN_ATTRIBUTE = "readout_gain_sum"
 
 #: Engine attribute -> the supply calibration fields a setpoint on it carries.
 #: A magnet supply takes both. A cavity setpoint takes the one that names a
@@ -454,7 +472,10 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
     ``polarity`` on its own axis; each monitor element carries one ``roll``, on
     its x-axis readback or else its first one. A monitor has one readback per
     axis: a second address of the same reading is stated under the record's
-    ``also``, which this engine never sees. A setpoint (``direction: write``) on ``PolynomB`` or
+    ``also``, which this engine never sees. A turn-by-turn monitor's sum
+    record (an engine ``signal`` of :data:`SUM_SIGNAL`) carries ``gain``, the
+    monitor's sum gain; where two records read one monitor's sum, the first
+    carries it. A setpoint (``direction: write``) on ``PolynomB`` or
     ``KickAngle`` carries ``cal_factor`` and ``cal_offset``; a cavity setpoint
     carries one of the two (:data:`SUPPLY_FIELDS`): ``cal_offset`` on
     ``Frequency`` and on ``TimeLag``, ``cal_factor`` on ``Voltage``.
@@ -491,6 +512,7 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
         raise ErrorElementsError(problems[0])
     slots: dict[str, FaultSlot] = {}
     monitors: dict[str, dict[str, str]] = {}
+    sums: dict[str, str] = {}
     magnets: dict[str, bool] = {}
     addresses: set[str] = set()
 
@@ -510,6 +532,8 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
         element = _first_element(record)
         if element is None:
             continue
+        if _slot(block, "signal") == SUM_SIGNAL:
+            sums.setdefault(element, address)
         if not (attribute is None and axis in _AXES):
             polynomial = attribute in MULTIPOLE_PREFIXES.values()
             for bound in _bound_elements(record):
@@ -529,6 +553,8 @@ def fault_variables(wiring: Iterable[Any], settings: Any = None) -> dict[str, Fa
             for field in READOUT_IDENTITY:
                 declare(address, field, element)
         declare(axes.get("x") or next(iter(axes.values())), ROLL, element)
+    for element, address in sums.items():
+        declare(address, SUM_GAIN, element)
     slotless = sorted(e for e in declared if e in addresses or e in monitors)
     if slotless:
         raise ErrorElementsError(
@@ -646,6 +672,18 @@ def _readout_faults(element: Any) -> dict[str, float]:
     }
     faults[ROLL] = float(getattr(element, f"readout_{ROLL}", ROLL_IDENTITY))
     return faults
+
+
+def sum_gain(element: Any) -> float:
+    """The sum gain ``element`` holds; 1 where it holds none.
+
+    Args:
+        element: A monitor's deck element.
+
+    Returns:
+        The factor on the beam sum that monitor reads.
+    """
+    return float(getattr(element, SUM_GAIN_ATTRIBUTE, SUM_GAIN_IDENTITY))
 
 
 def _normal(address: str | None, width: float, t_ms: int | float) -> float:
@@ -863,6 +901,10 @@ __all__ = [
     "MISALIGNMENT_BOUNDS",
     "MULTIPOLE_INDICES",
     "READOUT_IDENTITY",
+    "SUM_GAIN",
+    "SUM_GAIN_ATTRIBUTE",
+    "SUM_GAIN_IDENTITY",
+    "SUM_SIGNAL",
     "SUPPLY_FIELDS",
     "SUPPLY_IDENTITY",
     "bpm_read",
@@ -875,6 +917,7 @@ __all__ = [
     "multipole_field",
     "readout",
     "rolled",
+    "sum_gain",
     "supply_attribute",
     "supply_calibration",
 ]

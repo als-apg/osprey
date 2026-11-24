@@ -160,31 +160,11 @@ class TestAnthropicCacheControl:
 class TestNonAnthropicProviders:
     """Test that non-Anthropic providers get clean dicts."""
 
-    def test_openai_no_cache_markers(self):
-        req = ChatCompletionRequest(
-            messages=[
-                ChatMessage("system", "sys"),
-                ChatMessage("user", "hello"),
-            ]
-        )
-        result = req.to_litellm_messages(provider="openai")
-        for msg in result:
-            assert isinstance(msg["content"], str)
-            assert "cache_control" not in msg
-
-    @pytest.mark.parametrize("provider", ["google", None], ids=["google", "none-provider"])
+    @pytest.mark.parametrize(
+        "provider", ["openai", "google", None], ids=["openai", "google", "none-provider"]
+    )
     def test_a_non_anthropic_provider_gets_no_cache_markers(self, provider):
-        req = ChatCompletionRequest(
-            messages=[
-                ChatMessage("system", "sys"),
-                ChatMessage("user", "hello"),
-            ]
-        )
-        result = req.to_litellm_messages(provider=provider)
-        for msg in result:
-            assert isinstance(msg["content"], str)
-
-    def test_non_anthropic_content_stays_string(self):
+        """Every message, the assistant turn included, stays a plain string."""
         req = ChatCompletionRequest(
             messages=[
                 ChatMessage("system", "sys"),
@@ -192,9 +172,10 @@ class TestNonAnthropicProviders:
                 ChatMessage("assistant", "hi"),
             ]
         )
-        result = req.to_litellm_messages(provider="openai")
+        result = req.to_litellm_messages(provider=provider)
         for msg in result:
             assert isinstance(msg["content"], str)
+            assert "cache_control" not in msg
 
 
 class TestToSingleString:

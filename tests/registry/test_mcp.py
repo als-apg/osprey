@@ -1248,21 +1248,41 @@ class TestResolveAgents:
         assert custom[0]["is_custom"] is True
         assert custom[0]["description"] == "Searches the facility DB."
 
-    def test_custom_agent_with_condition_disabled(self):
-        """Custom agent with condition key not in ctx → disabled."""
+    @pytest.mark.parametrize(
+        ("agent_spec", "expected_enabled"),
+        [
+            # condition key not in ctx → disabled
+            pytest.param(
+                {"description": "Needs feature.", "condition": "my_feature"},
+                False,
+                id="condition-disabled",
+            ),
+            # server_dependency on inactive server → disabled
+            pytest.param(
+                {
+                    "description": "Depends on missing server.",
+                    "server_dependency": "nonexistent-server",
+                },
+                False,
+                id="server-dependency-disabled",
+            ),
+            # server_dependency on active server → enabled ("controls" is enabled by default)
+            pytest.param(
+                {"description": "Depends on controls.", "server_dependency": "controls"},
+                True,
+                id="server-dependency-enabled",
+            ),
+        ],
+    )
+    def test_custom_agent_gating(self, agent_spec, expected_enabled):
+        """A custom agent's condition / server_dependency decides whether it is enabled."""
         ctx = _base_ctx()
         servers = resolve_servers({}, ctx)
         agents = resolve_agents(
-            {
-                "agents": {
-                    "cond-agent": {"description": "Needs feature.", "condition": "my_feature"}
-                }
-            },
-            ctx,
-            resolved_servers=servers,
+            {"agents": {"gated-agent": agent_spec}}, ctx, resolved_servers=servers
         )
         names = {a["name"]: a["enabled"] for a in agents}
-        assert names["cond-agent"] is False
+        assert names["gated-agent"] is expected_enabled
 
     def test_custom_agent_with_condition_enabled(self):
         """Custom agent with condition key in ctx → enabled."""
@@ -1279,45 +1299,6 @@ class TestResolveAgents:
         )
         names = {a["name"]: a["enabled"] for a in agents}
         assert names["cond-agent"] is True
-
-    def test_custom_agent_with_server_dependency_disabled(self):
-        """Custom agent with server_dependency on inactive server → disabled."""
-        ctx = _base_ctx()
-        servers = resolve_servers({}, ctx)
-        agents = resolve_agents(
-            {
-                "agents": {
-                    "dep-agent": {
-                        "description": "Depends on missing server.",
-                        "server_dependency": "nonexistent-server",
-                    }
-                }
-            },
-            ctx,
-            resolved_servers=servers,
-        )
-        names = {a["name"]: a["enabled"] for a in agents}
-        assert names["dep-agent"] is False
-
-    def test_custom_agent_with_server_dependency_enabled(self):
-        """Custom agent with server_dependency on active server → enabled."""
-        ctx = _base_ctx()
-        servers = resolve_servers({}, ctx)
-        # "controls" is enabled by default
-        agents = resolve_agents(
-            {
-                "agents": {
-                    "dep-agent": {
-                        "description": "Depends on controls.",
-                        "server_dependency": "controls",
-                    }
-                }
-            },
-            ctx,
-            resolved_servers=servers,
-        )
-        names = {a["name"]: a["enabled"] for a in agents}
-        assert names["dep-agent"] is True
 
     def test_custom_agent_explicitly_disabled(self):
         """Custom agent with enabled: false in config → not created."""

@@ -23,7 +23,11 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_emit import effective_config_subtree
 from osprey.cli.build_profile_load import load_profile
 from osprey.cli.build_profile_merge import resolve_profile_document
-from osprey.cli.build_profile_presets import _presets_dir, preset_data_bundle
+from osprey.cli.build_profile_presets import (
+    DEFAULT_DATA_BUNDLE,
+    _presets_dir,
+    preset_data_bundle,
+)
 from osprey.cli.templates.claude_code import _channel_directory_context, _graphdb_configured
 from osprey.deployment.web_terminals.lint import lint_shared_render
 from osprey.registry.mcp import resolve_servers
@@ -637,8 +641,10 @@ def test_preset_data_bundle_refuses_an_app(name: str) -> None:
 
 
 def test_preset_data_bundle_still_answers_for_a_deployment() -> None:
-    assert preset_data_bundle("demo") == preset_data_bundle("demo")
-    assert isinstance(preset_data_bundle(None), str)
+    # hello-world reads its own bundle, which differs from the fallback default.
+    assert preset_data_bundle("hello-world") == "hello_world"
+    assert preset_data_bundle("demo") == "demo"
+    assert preset_data_bundle(None) == DEFAULT_DATA_BUNDLE
 
 
 # ── the lint that guards the pins ───────────────────────────────────────────

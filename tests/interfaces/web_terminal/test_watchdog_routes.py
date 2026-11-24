@@ -474,13 +474,27 @@ async def test_frames_reach_the_chat_feed_unchanged():
 
 @pytest.mark.asyncio
 async def test_a_failed_broadcast_costs_only_the_notice():
+    session = OperatorSession(cwd="/tmp", env={})
+    feed, _hello = session.subscribe()
+    session.__class__ = type(
+        "ActiveSession", (OperatorSession,), {"is_active": property(lambda _self: True)}
+    )
+    broadcast = MagicMock(side_effect=RuntimeError("down"))
     app = SimpleNamespace(
         state=SimpleNamespace(
-            broadcaster=SimpleNamespace(broadcast=MagicMock(side_effect=RuntimeError("down"))),
-            operator_registry=FakePool(),
+            broadcaster=SimpleNamespace(broadcast=broadcast),
+            operator_registry=SimpleNamespace(
+                get_chat_session=lambda key: session if key == KEY else None
+            ),
         )
     )
-    await make_notifier(app)({"type": "watchdog_status", "session_key": KEY})
+
+    frame = {"type": "watchdog_status", "session_key": KEY}
+    await make_notifier(app)(frame)
+
+    broadcast.assert_called_once()
+    delivered = feed.get_nowait()
+    assert chat_routes._strip_for_chat(delivered) == {**frame, "seq": delivered["seq"]}
 
 
 # ---- The app's wiring ----

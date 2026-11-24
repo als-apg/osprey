@@ -176,7 +176,7 @@ async def test_filter_options_unknown_field(ariel_registry):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await fn(field="unknown")
 
-    _exc_ctx["envelope"]
+    assert "Unknown filter field: unknown" in _exc_ctx["envelope"]["error_message"]
 
 
 @pytest.mark.parametrize(
