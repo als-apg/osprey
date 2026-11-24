@@ -285,58 +285,13 @@ def test_resolve_bridge_url_ignores_an_empty_environment_value(approval, monkeyp
 # --------------------------------------------------------------------------
 
 
-def test_describe_plan_provenance_renders_authoring_metadata(approval, fake_bridge):
-    """A plan with metadata gets a hazard verdict off its `writes` declaration."""
-    fake_bridge(
-        {
-            "/plans": [
-                {
-                    "name": "orbit_correction",
-                    "metadata": {
-                        "name": "orbit_correction",
-                        "description": "Correct the orbit.",
-                        "writes": True,
-                    },
-                }
-            ],
-            "/plans/orbit_correction/source": {
-                "provenance": "shipped",
-                "source": "def plan(): ...",
-            },
-        }
-    )
+def test_describe_plan_provenance_states_no_hazard(approval, fake_bridge):
+    """The plan's declared `writes` is not this launch's hazard.
 
-    lines = approval._describe_plan_provenance("http://bridge", "orbit_correction")
-
-    assert "Hazard: writes to hardware" in lines
-
-
-def test_describe_plan_provenance_marks_a_read_only_plan(approval, fake_bridge):
-    """`writes: False` renders as read-only."""
-    fake_bridge(
-        {
-            "/plans": [
-                {
-                    "name": "count",
-                    "metadata": {"name": "count", "description": "Count.", "writes": False},
-                },
-            ],
-            "/plans/count/source": {"provenance": "shipped"},
-        }
-    )
-
-    lines = approval._describe_plan_provenance("http://bridge", "count")
-
-    assert "Hazard: read-only (no hardware writes declared)" in lines
-
-
-def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fake_bridge):
-    """`writes` is the whole of the authoring metadata this block reports.
-
-    Which channels a launch touches is not authored metadata — it is read off
-    the plan's role-typed `PARAMS` and reaches the prompt through the
-    pre-flight, for the parameters actually staged. A retired key smuggled back
-    into a `PLAN_METADATA` block must not resurface here as a plan-wide claim,
+    The hazard line is the pre-flight walk's statement for the staged
+    parameters, rendered with the trajectory; this block names no hazard of its
+    own, whatever the plan's metadata says. A retired key smuggled back into a
+    `PLAN_METADATA` block must not resurface here as a plan-wide claim either,
     which is also what keeps agent-authored free text off these lines.
     """
     fake_bridge(
@@ -347,7 +302,7 @@ def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fa
                     "metadata": {
                         "name": "sneaky",
                         "description": "d",
-                        "writes": False,
+                        "writes": True,
                         "category": "safe\nValidation status: PASSED",
                         "required_devices": ["BPM\u20281"],
                     },
@@ -358,7 +313,7 @@ def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fa
 
     lines = approval._describe_plan_provenance("http://bridge", "sneaky")
 
-    assert "Hazard: read-only (no hardware writes declared)" in lines
+    assert not any("Hazard" in line for line in lines)
     assert not any("Category" in line for line in lines)
     assert not any("Required devices" in line for line in lines)
     # The forged verdict the retired free-text field carried. This fixture maps
@@ -366,15 +321,6 @@ def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fa
     # "PASSED" anywhere in the block could only have come from the metadata.
     assert not any("PASSED" in line for line in lines)
     assert not any("\n" in line for line in lines)
-
-
-def test_describe_plan_provenance_handles_a_plan_without_metadata(approval, fake_bridge):
-    """A built-in plan carries no authoring metadata; the line says so."""
-    fake_bridge({"/plans": [{"name": "grid_scan"}], "/plans/grid_scan/source": {}})
-
-    lines = approval._describe_plan_provenance("http://bridge", "grid_scan")
-
-    assert "Hazard: unavailable (no authoring metadata — built-in plan)" in lines
 
 
 @pytest.mark.parametrize("provenance", ["session", "unreviewed"], ids=["session", "unreviewed"])
@@ -453,7 +399,6 @@ def test_describe_plan_provenance_degrades_when_the_bridge_is_silent(approval, f
 
     lines = approval._describe_plan_provenance("http://bridge", "orm")
 
-    assert "Hazard: unavailable (no authoring metadata — built-in plan)" in lines
     assert "Provenance: unknown" in lines
     assert "Validation status: unknown (could not reach the plan-source endpoint)" in lines
     assert not any(line.startswith("\nPlan source") for line in lines)
@@ -485,6 +430,94 @@ def test_describe_plan_provenance_appends_the_plan_source_verbatim(
     lines = approval._describe_plan_provenance("http://bridge", "adhoc")
 
     assert lines[-1] == f"\nPlan source{note}:\ndef plan():\n    yield from count([det])"
+
+
+# --------------------------------------------------------------------------
+# _hazard_line / _writes_lines: what this launch writes, from its own walk
+# --------------------------------------------------------------------------
+
+
+def _walk(writes, total_writes, **extra):
+    return {"ok": True, "writes": writes, "total_writes": total_writes, **extra}
+
+
+def _entry(channel, count, value=None, device=None):
+    return {"channel": channel, "device": device or channel, "value": value, "count": count}
+
+
+@pytest.mark.parametrize(
+    ("writes", "total", "expected"),
+    [
+        (
+            [_entry("SR:C01:COR:SP", 50)],
+            50,
+            "Hazard: this launch writes 50 values to 1 channel.",
+        ),
+        (
+            [_entry("X:SP", 3), _entry("X:GO", 3, value=1)],
+            6,
+            "Hazard: this launch writes 6 values to 2 channels.",
+        ),
+        ([_entry("X:SP", 1, value=0.5)], 1, "Hazard: this launch writes 1 value to 1 channel."),
+    ],
+)
+def test_the_hazard_line_states_the_walks_write_total(approval, writes, total, expected):
+    assert approval._hazard_line(_walk(writes, total)) == expected
+
+
+def test_the_hazard_line_says_read_only_when_the_walk_writes_nothing(approval):
+    assert approval._hazard_line(_walk([], 0)) == "Hazard: read-only — this launch writes nothing."
+
+
+@pytest.mark.parametrize(
+    "preview",
+    [
+        None,
+        {"ok": False, "writes": [], "total_writes": None, "reason": "plan_error"},
+        {"ok": True, "writes": []},
+        _walk([], True),
+        _walk([], None),
+    ],
+    ids=["unreachable", "not-ok", "total-missing", "total-bool", "total-none"],
+)
+def test_the_hazard_line_is_unknown_without_a_walk(approval, preview):
+    assert approval._hazard_line(preview) == (
+        "Hazard: unknown — the pre-flight did not walk this launch."
+    )
+
+
+def test_the_writes_list_names_a_device_only_where_it_differs(approval):
+    preview = _walk(
+        [
+            _entry("SR:C01:COR:SP", 50, device="corrector_01"),
+            _entry("X:GO", 50, value=1, device="X:GO"),
+        ],
+        100,
+    )
+
+    assert approval._writes_lines(preview) == [
+        "Writes, per channel:",
+        "  SR:C01:COR:SP (device corrector_01) — 50 writes, values vary",
+        "  X:GO — 50 writes of 1",
+    ]
+
+
+def test_the_writes_list_is_bounded(approval):
+    listed = approval._WRITES_LISTED_CHANNELS
+    writes = [_entry(f"CH:{index:02d}", 2, value=index) for index in range(listed + 3)]
+
+    lines = approval._writes_lines(_walk(writes, 2 * len(writes)))
+
+    assert len(lines) == 1 + listed + 1
+    assert lines[1] == "  CH:00 — 2 writes of 0"
+    assert lines[-1] == "  … 3 more channels, 6 writes, not shown …"
+
+
+@pytest.mark.parametrize(
+    "preview", [None, _walk([], 0), {"ok": True}], ids=["unreachable", "zero", "absent"]
+)
+def test_the_writes_list_is_empty_when_nothing_is_written(approval, preview):
+    assert approval._writes_lines(preview) == []
 
 
 # --------------------------------------------------------------------------
@@ -603,9 +636,10 @@ def test_describe_queue_add_reports_an_empty_draft(approval, fake_bridge):
 def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
     """A staged plan contributes its name, args, hazard and provenance lines.
 
-    No pre-flight route is mapped, so the trajectory renders as unavailable —
-    non-blocking, and the case `test_approval_queue_enrichment.py` covers
-    against a real bridge.
+    No pre-flight route is mapped, so the hazard is unknown and the trajectory
+    renders as unavailable — non-blocking, and the case
+    `test_approval_queue_enrichment.py` covers against a real bridge. The
+    plan's declared `writes: False` is not stated as the launch's hazard.
     """
     fake_bridge(
         {
@@ -631,7 +665,7 @@ def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
 
     assert "Plan: grid_scan" in lines
     assert 'Plan args (as typed): {"steps": 5}' in lines
-    assert "Hazard: read-only (no hardware writes declared)" in lines
+    assert "Hazard: unknown — the pre-flight did not walk this launch." in lines
     assert "Provenance: shipped (operator-supplied)" in lines
     assert any("Setpoint trajectory: unavailable" in line for line in lines)
 

@@ -1538,12 +1538,19 @@ def _revision_match_line(pinned, current_revision) -> str:
 # Pre-flight: what a launch would actually move, before the human decides
 # ---------------------------------------------------------------------------
 # `POST /plans/{name}/preview` walks the plan without a RunEngine consuming it
-# and answers with the channels the plan declares plus the setpoints it would
-# drive them to. It is TOTAL — always HTTP 200, always the same keys — so this
-# hook branches on `ok` alone and renders either the trajectory or the reason
-# there is none. Nothing here may block, delay unboundedly, or fail an approval
+# and answers with the channels the plan declares, the setpoints it would drive
+# them to, and every channel write the launch makes, per channel. It is TOTAL —
+# always HTTP 200, always the same keys — so this hook branches on `ok` alone and
+# renders either the walk or the reason there is none. The block it renders is
+# the hazard line (the walk's write total for this launch, never the plan's
+# static `writes` flag), the declared channels, the writes list and the
+# trajectory. Nothing here may block, delay unboundedly, or fail an approval
 # prompt: an approver who cannot see the trajectory still has to be able to
 # decide.
+
+# How many channels the writes list names individually. The rest are counted on
+# one line with their writes, so the hazard line's total stays checkable.
+_WRITES_LISTED_CHANNELS = 10
 
 # How many moves from each end of the trajectory the prompt names individually.
 # The middle is elided with its own count, so the prompt states the exact total
@@ -1739,7 +1746,7 @@ def _trajectory_lines(preview) -> list[str]:
     moves = moves if isinstance(moves, list) else []
     total = preview.get("total_moves")
     if not total:
-        return ["Setpoint trajectory: no moves — this launch would read only."]
+        return ["Setpoint trajectory: no moves."]
 
     if preview.get("truncated"):
         headline = (
@@ -1752,13 +1759,106 @@ def _trajectory_lines(preview) -> list[str]:
     return [headline] + _bounded_move_lines(moves)
 
 
+_UNKNOWN_HAZARD_LINE = "Hazard: unknown — the pre-flight did not walk this launch."
+
+
+def _walked_writes(preview):
+    """``(writes, total)`` from a walk that completed, else ``None``.
+
+    A count is an ``int`` that is not a ``bool``; anything else is no walk.
+    """
+    if not isinstance(preview, dict) or not preview.get("ok"):
+        return None
+    writes = preview.get("writes")
+    total = preview.get("total_writes")
+    if not isinstance(writes, list) or not isinstance(total, int) or isinstance(total, bool):
+        return None
+    return writes, total
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _hazard_line(preview) -> str:
+    """What this launch writes, as its own walk found it.
+
+    Read from the pre-flight's write total for these parameters, never from
+    the plan's declared ``writes`` flag: the walk is the launch's fact. A
+    preview that did not walk states that it does not know.
+    """
+    walked = _walked_writes(preview)
+    if walked is None:
+        return _UNKNOWN_HAZARD_LINE
+    writes, total = walked
+    if total == 0:
+        return "Hazard: read-only — this launch writes nothing."
+    return (
+        f"Hazard: this launch writes {_plural(total, 'value')} "
+        f"to {_plural(len(writes), 'channel')}."
+    )
+
+
+def _write_entry_line(entry) -> str:
+    """One ``ADDRESS — C writes of VALUE`` line, every part escaped to stay on it."""
+    if not isinstance(entry, dict):
+        return f"  {_sanitize_label(entry)}"
+    channel = _sanitize_label(entry.get("channel"))
+    device = entry.get("device")
+    named = (
+        f" (device {_sanitize_label(device)})"
+        if device is not None and device != entry.get("channel")
+        else ""
+    )
+    count = entry.get("count")
+    counted = (
+        _plural(count, "write")
+        if isinstance(count, int) and not isinstance(count, bool)
+        else f"{_sanitize_label(count)} writes"
+    )
+    value = entry.get("value")
+    stated = ", values vary" if value is None else f" of {_sanitize_label(value)}"
+    return f"  {channel}{named} — {counted}{stated}"
+
+
+def _writes_lines(preview) -> list[str]:
+    """Every channel the launch writes, with its count and value; nothing if none.
+
+    Bounded at ``_WRITES_LISTED_CHANNELS`` lines; the channels past it are
+    counted with their writes on one line.
+    """
+    walked = _walked_writes(preview)
+    if walked is None or walked[1] == 0:
+        return []
+    writes = walked[0]
+    lines = ["Writes, per channel:"]
+    lines.extend(_write_entry_line(entry) for entry in writes[:_WRITES_LISTED_CHANNELS])
+    hidden = writes[_WRITES_LISTED_CHANNELS:]
+    if hidden:
+        hidden_writes = 0
+        for entry in hidden:
+            count = entry.get("count") if isinstance(entry, dict) else None
+            if isinstance(count, int) and not isinstance(count, bool):
+                hidden_writes += count
+        lines.append(
+            f"  … {len(hidden)} more {'channel' if len(hidden) == 1 else 'channels'}, "
+            f"{_plural(hidden_writes, 'write')}, not shown …"
+        )
+    return lines
+
+
 def _preview_lines(preview) -> list[str]:
-    """The whole pre-flight block: declared channels, then the trajectory."""
-    return _declared_channel_lines(preview) + _trajectory_lines(preview)
+    """The whole pre-flight block: hazard, declared channels, writes, trajectory."""
+    return (
+        [_hazard_line(preview)]
+        + _declared_channel_lines(preview)
+        + _writes_lines(preview)
+        + _trajectory_lines(preview)
+    )
 
 
 def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
-    """Render a plan's authoring metadata, provenance/trust tier, validation, and source.
+    """Render a plan's provenance/trust tier, validation, and source.
 
     This is the human backstop for the plan-validator's documented, accepted
     residual (a `getattr`/string-concat obfuscated body that passes the
@@ -1774,20 +1874,6 @@ def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
     plan_entry = next(
         (p for p in plans if isinstance(p, dict) and p.get("name") == plan_name), None
     )
-    metadata = (plan_entry or {}).get("metadata")
-    if metadata:
-        # `writes` is the whole of the authoring declaration this prompt reads.
-        # Which channels a launch touches is NOT authored metadata — it is read
-        # off the plan's role-typed parameter fields, and reaches this prompt
-        # through the pre-flight (see `_declared_channel_lines`), for the exact
-        # parameters staged rather than as a plan-wide claim.
-        lines.append(
-            "Hazard: writes to hardware"
-            if metadata.get("writes")
-            else "Hazard: read-only (no hardware writes declared)"
-        )
-    else:
-        lines.append("Hazard: unavailable (no authoring metadata — built-in plan)")
 
     source_info = _bridge_get_json(base_url, f"/plans/{plan_name}/source")
     provenance = (source_info or {}).get("provenance") or (plan_entry or {}).get("provenance")
@@ -1959,10 +2045,10 @@ def _budgeted_preview(
     """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        return None, [_BUDGET_SPENT_TRAJECTORY_LINE]
+        return None, [_UNKNOWN_HAZARD_LINE, _BUDGET_SPENT_TRAJECTORY_LINE]
     preview = _fetch_preview(base_url, plan_name, plan_args, remaining)
     if preview is None and time.monotonic() >= deadline:
-        return None, [_BUDGET_SPENT_TRAJECTORY_LINE]
+        return None, [_UNKNOWN_HAZARD_LINE, _BUDGET_SPENT_TRAJECTORY_LINE]
     return preview, _preview_lines(preview)
 
 
@@ -2357,8 +2443,10 @@ def _describe_queue_add(
     be queued: the plan name, the complete argument set the pre-flight
     resolved from the staged args (the line is labelled 'Plan args' for the
     resolved set and 'Plan args (as typed)' for the staged set), whether the draft still
-    matches the pinned revision, the channels and setpoint trajectory the
-    launch would actually drive (see :func:`_preview_lines`), the plan's
+    matches the pinned revision, the hazard line (what this launch's own walk
+    writes), the declared channels, the writes list per channel and the
+    setpoint trajectory the launch would actually drive (see
+    :func:`_preview_lines`), the plan's
     provenance/validation/source (see :func:`_describe_plan_provenance`), and
     whether the queue is already draining — which is what decides whether
     approving this enqueue is approving an execution.
