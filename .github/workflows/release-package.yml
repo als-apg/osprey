@@ -1,30 +1,35 @@
-name: Release osprey-connectors to PyPI
+name: Release a component package to PyPI
 
 on:
   push:
     tags:
-      - 'osprey-connectors-v2*'  # calendar tags like osprey-connectors-v2026.10.0
+      # Calendar tags like osprey-facility-v2026.12.0, one glob per stream.
+      - 'osprey-connectors-v2*'
+      - 'osprey-facility-v2*'
+      - 'osprey-panels-v2*'
 
-# osprey-connectors has its own calendar stream, on its own
-# osprey-connectors-vYYYY.M.P tags (bN / rcN for pre-releases), cut when the
-# package changes rather than with every framework release — see
-# packages/osprey-connectors/pyproject.toml. This workflow is that stream's
-# whole release: one tag builds, checks and publishes the connectors wheel and
-# sdist and nothing else. The framework's v-tags run release.yml, which never
-# builds this package; the framework declares only a floor on it, and its own
-# release proves the floor resolves from PyPI.
+# Each component package (osprey-connectors, osprey-facility, osprey-panels)
+# has its own calendar stream, on its own <dist>-vYYYY.M.P tags (bN / rcN for
+# pre-releases), cut when the package changes rather than with every framework
+# release. This workflow is the whole release of every such stream: one tag
+# builds, checks and publishes that stream's wheel and sdist and nothing else.
+# What differs between the streams (the package, its lanes, its environment,
+# its changelog, its smoke command) is read from scripts/ci/release_streams.py
+# by the `resolve` job, never spelled here. The framework's v-tags run
+# release.yml, which builds none of these packages; the framework declares only
+# floors on them, and its own release proves the floors resolve from PyPI.
 #
 # The trigger is a tag push and nothing else: no dispatch, so no run publishes
-# a commit nobody tagged. The `2` keeps the retired osprey-connectors-v0.1.0
-# line out, as the package's describe glob does. Every job is also guarded on
-# the tag ref, so a trigger widened later cannot run a publish from a branch,
-# and on the repository, so a tag on a mirror or fork builds and publishes
-# nothing.
+# a commit nobody tagged. The `2` keeps retired lines such as
+# osprey-connectors-v0.1.0 out, as each package's describe glob does. Every job
+# is also guarded on the tag refs, so a trigger widened later cannot run a
+# publish from a branch, and on the repository, so a tag on a mirror or fork
+# builds and publishes nothing.
 #
-# On PyPI, osprey-connectors' trusted publisher names this workflow file and
-# the `pypi-connectors` environment, and nothing else can upload it: the
-# framework's publisher (release.yml, `pypi`) is registered on
-# osprey-framework, not here.
+# On PyPI, each package's trusted publisher names this workflow file and the
+# stream's environment (`pypi-connectors`, `pypi-facility`, `pypi-panels`),
+# and nothing else can upload it: the framework's publisher (release.yml,
+# `pypi`) is registered on osprey-framework, not on these.
 
 # Nothing at workflow level writes. The two jobs that do — the PyPI upload
 # (`id-token`) and the GitHub release (`contents`) — say so in their own block.
@@ -32,14 +37,47 @@ permissions:
   contents: read
 
 jobs:
-  # Nothing else in this workflow runs a test. The connectors package is proved
+  # The one place a tag becomes a stream. A ref outside the three globs, or a
+  # version not spelled in canonical PEP 440 form (`-rc1`, `2026.01.0`), fails
+  # here, before anything is built: the table refuses a spelling rather than
+  # normalising it, so the version every later job compares against is the one
+  # the wheel carries.
+  resolve:
+    name: Resolve The Release Stream
+    runs-on: ubuntu-latest
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    outputs:
+      key: ${{ steps.stream.outputs.key }}
+      dist: ${{ steps.stream.outputs.dist }}
+      import_name: ${{ steps.stream.outputs.import_name }}
+      package_dir: ${{ steps.stream.outputs.package_dir }}
+      environment: ${{ steps.stream.outputs.environment }}
+      changelog: ${{ steps.stream.outputs.changelog }}
+      tag_prefix: ${{ steps.stream.outputs.tag_prefix }}
+      lean_extras: ${{ steps.stream.outputs.lean_extras }}
+      smoke: ${{ steps.stream.outputs.smoke }}
+      version: ${{ steps.stream.outputs.version }}
+      prerelease: ${{ steps.stream.outputs.prerelease }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Resolve the stream from the tag
+      id: stream
+      run: python3 scripts/ci/release_streams.py resolve "$GITHUB_REF"
+
+  # Nothing else in this workflow runs a test. A component package is proved
   # by always-on lanes rather than model-spending ones, so no label is involved
-  # here: what the gate asks is that the ci.yml run on the tagged tree ran them
-  # and every one of them went green.
+  # here: what the gate asks is that the ci.yml run on the tagged tree ran the
+  # stream's lanes and every one of them went green.
   verify-ci:
     name: Verify CI On The Tagged Tree
     runs-on: ubuntu-latest
-    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    needs: [resolve]
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
     # A job-level block REPLACES the workflow's scopes rather than extending
     # them. Reading another workflow's runs needs `actions: read`.
     permissions:
@@ -56,9 +94,9 @@ jobs:
     - name: Require the tagged commit on main
       # Releases are cut from main (the release skill). The lane gate
       # below cannot tell: a commit off main whose tree had a green run passes
-      # it. And a connectors tag main cannot reach leaves main's dev builds
-      # describing from an older connectors tag, below the framework's floor.
-      # Shared with release.yml; tests/deployment/test_ci_workflow_wiring.py
+      # it. And a component tag main cannot reach leaves main's dev builds
+      # describing from an older tag of that package, below the framework's
+      # floor. Shared with release.yml; tests/deployment/test_ci_workflow_wiring.py
       # holds the two copies equal and runs this one against a scratch repo.
       env:
         TAG_SHA: ${{ github.sha }}
@@ -73,40 +111,32 @@ jobs:
         echo "✅ $TAG_NAME is on main"
 
     - name: Require a green CI run on this tree
-      # scripts/ci/require_green_lanes.py, shared with release.yml.
+      # scripts/ci/require_green_lanes.py, shared with release.yml. The lanes
+      # are the stream's `required_lanes` in scripts/ci/release_streams.py, one
+      # per line as <ci.yml job id>=<rendered job-name prefix>: the unit and
+      # lint lanes, the package's own build and framework-free suite, and for a
+      # stream with a compatibility contract its backward-compatibility lanes.
+      # A compatibility lane that stands down (no release listed yet, no floor
+      # declared yet) concludes success, so it never blocks a tag it has
+      # nothing to prove for. The list is assigned before the gate runs, so a
+      # ref the table refuses fails this step rather than reaching the gate.
+      # tests/deployment/test_ci_workflow_wiring.py pins every stream's list
+      # against ci.yml.
       env:
         GH_TOKEN: ${{ github.token }}
         REPO: ${{ github.repository }}
         TAG_SHA: ${{ github.sha }}
         TAG_NAME: ${{ github.ref_name }}
-        # The lanes that prove the connectors package, one per line:
-        # <ci.yml job id>=<rendered job-name prefix>. The unit lane (whose
-        # shards run the package suite beside the framework), lint (lockfile,
-        # ruff, the changelog gate), the package job's lean wheel, the
-        # framework-free suite, and the backward-compatibility lanes: the
-        # connectors under every listed framework release, and the framework at
-        # its connectors floor. A compatibility lane that stands down (no
-        # release listed yet, a floor that predates the independent releases)
-        # concludes success, so it never blocks a tag it has nothing to prove
-        # for. tests/deployment/test_ci_workflow_wiring.py fails while a
-        # compatibility lane in ci.yml is missing here.
-        REQUIRED_LANES: |
-          test=Test Python
-          lint=Lint and Code Quality
-          package=Package Build
-          connectors-standalone=Connectors Standalone Tests
-          connectors-compat=Connectors Compat
-          framework-at-connectors-floor=Framework at Connectors Floor Tests
-      run: python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES"
+      run: |
+        set -euo pipefail
+        REQUIRED_LANES="$(python3 scripts/ci/release_streams.py lanes "$GITHUB_REF")"
+        python3 scripts/ci/require_green_lanes.py --lanes "$REQUIRED_LANES"
 
   build:
-    name: Build osprey-connectors
+    name: Build The Package
     runs-on: ubuntu-latest
-    needs: [verify-ci]
-    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
+    needs: [resolve, verify-ci]
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
 
     steps:
     - name: Checkout repository
@@ -121,28 +151,11 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: Derive the version from the tag
-      id: version
-      # PEP 440-normalized, because that is what the backend stamps and what the
-      # filenames carry: a tag spelled osprey-connectors-v2026.10.0-rc1 builds
-      # 2026.10.0rc1. Anything that is not exactly X.Y.Z is a pre-release, the
-      # same rule release.yml applies to the framework's tags.
-      env:
-        TAG_NAME: ${{ github.ref_name }}
-      run: |
-        RAW="${TAG_NAME#osprey-connectors-v}"
-        VERSION="$(uv run --no-project --with packaging python -c \
-          'import sys; from packaging.version import Version; print(Version(sys.argv[1]))' "$RAW")"
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-        if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          echo "prerelease=false" >> "$GITHUB_OUTPUT"
-        else
-          echo "prerelease=true" >> "$GITHUB_OUTPUT"
-        fi
-        echo "Tag $TAG_NAME -> osprey-connectors $VERSION"
-
     - name: Build package
-      run: uv build --package osprey-connectors
+      # The tagged stream's package and no other workspace member.
+      env:
+        DIST: ${{ needs.resolve.outputs.dist }}
+      run: uv build --package "$DIST"
 
     - name: Verify built versions match tag
       # The version comes from the describe, not a literal, so this checks the
@@ -151,16 +164,18 @@ jobs:
       # tag does not fail the build — it silently yields 0.0.postN+g… or the
       # previous tag's .postN — so this is what catches that before PyPI does.
       env:
-        VERSION: ${{ steps.version.outputs.version }}
+        DIST: ${{ needs.resolve.outputs.dist }}
+        VERSION: ${{ needs.resolve.outputs.version }}
       run: |
         ls -l dist/
         status=0
+        PREFIX="${DIST//-/_}-"
         shopt -s nullglob
         files=(dist/*)
-        wheels=(dist/osprey_connectors-*.whl)
-        sdists=(dist/osprey_connectors-*.tar.gz)
+        wheels=(dist/"$PREFIX"*.whl)
+        sdists=(dist/"$PREFIX"*.tar.gz)
         if [ "${#wheels[@]}" -ne 1 ] || [ "${#sdists[@]}" -ne 1 ] || [ "${#files[@]}" -ne 2 ]; then
-          echo "❌ expected one osprey-connectors wheel and one sdist in dist/, found: ${files[*]}"
+          echo "❌ expected one $DIST wheel and one sdist in dist/, found: ${files[*]}"
           status=1
         fi
         for file in "${wheels[@]}" "${sdists[@]}"; do
@@ -169,7 +184,7 @@ jobs:
           if [[ "$name" == *.whl ]]; then
             BUILT="$(echo "$name" | cut -d'-' -f2)"
           else
-            BUILT="${name#osprey_connectors-}"
+            BUILT="${name#"$PREFIX"}"
             BUILT="${BUILT%.tar.gz}"
           fi
           echo "$name: $BUILT"
@@ -189,21 +204,23 @@ jobs:
     - name: Upload distribution artifacts
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
-        name: connectors-distributions
+        name: ${{ needs.resolve.outputs.key }}-distributions
         path: dist/
 
   verify-install:
     name: Verify The Wheel On A Bare Venv
     runs-on: ubuntu-latest
-    needs: [build]
-    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    needs: [resolve, build]
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
 
     # The wheel about to be published, installed into a fresh venv with every
-    # dependency resolved from PyPI, then walked by the same lean import check
-    # ci.yml's `package` job runs: every module imports, and nothing of the
-    # framework or the agent stack is loaded.
+    # dependency resolved from PyPI (with the stream's extras, so the walk
+    # imports what they gate), then walked by the same lean import check every
+    # PR runs: every module imports, and nothing the stream forbids is loaded.
+    # Then the installed `__version__` must be the tag's, and the stream's smoke
+    # command runs from the venv.
     steps:
-    # For scripts/ci/connectors_lean_import_walk.py.
+    # For scripts/ci/lean_import_walk.py and the stream table it reads.
     - name: Checkout repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
@@ -212,34 +229,56 @@ jobs:
     - name: Download distribution artifacts
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
-        name: connectors-distributions
+        name: ${{ needs.resolve.outputs.key }}-distributions
         path: dist/
 
     - name: Install uv
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
 
     - name: Install the wheel with deps from PyPI and import-walk it
+      # The extras are a separate requirement on the package name, never a
+      # bracket after the wheel glob, which the shell reads as a character
+      # class. The smoke command is relative to the venv, so it runs the
+      # installed entry point and not whatever is first on PATH.
       env:
-        VERSION: ${{ needs.build.outputs.version }}
+        KEY: ${{ needs.resolve.outputs.key }}
+        DIST: ${{ needs.resolve.outputs.dist }}
+        IMPORT_NAME: ${{ needs.resolve.outputs.import_name }}
+        LEAN_EXTRAS: ${{ needs.resolve.outputs.lean_extras }}
+        SMOKE: ${{ needs.resolve.outputs.smoke }}
+        VERSION: ${{ needs.resolve.outputs.version }}
       run: |
+        set -euo pipefail
+        shopt -s nullglob
+        wheels=(dist/"${DIST//-/_}"-*.whl)
+        [ "${#wheels[@]}" -eq 1 ]
+        install=("${wheels[0]}")
+        if [ -n "$LEAN_EXTRAS" ]; then
+          install+=("${DIST}[${LEAN_EXTRAS}]")
+        fi
         uv venv /tmp/lean-check --python 3.11
-        uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl
-        /tmp/lean-check/bin/python -I scripts/ci/connectors_lean_import_walk.py
-        INSTALLED="$(/tmp/lean-check/bin/python -I -c 'import osprey_connectors; print(osprey_connectors.__version__)')"
-        echo "osprey_connectors.__version__ = $INSTALLED"
+        uv pip install --python /tmp/lean-check/bin/python "${install[@]}"
+        /tmp/lean-check/bin/python -I scripts/ci/lean_import_walk.py "$KEY"
+        INSTALLED="$(/tmp/lean-check/bin/python -I -c "import $IMPORT_NAME; print($IMPORT_NAME.__version__)")"
+        echo "$IMPORT_NAME.__version__ = $INSTALLED"
         [ "$INSTALLED" = "$VERSION" ]
+        if [ -n "$SMOKE" ]; then
+          read -ra smoke <<< "$SMOKE"
+          "/tmp/lean-check/${smoke[0]}" "${smoke[@]:1}"
+        fi
 
   publish-to-pypi:
-    name: Publish osprey-connectors to PyPI
+    name: Publish The Package To PyPI
     # `verify-ci` already gates `build`, so this repeats it — deliberately.
     # The publish is the one step nobody can take back, and a future edit that
     # re-wires the chain above must not be able to un-gate it silently.
-    needs: [verify-ci, build, verify-install]
-    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    needs: [resolve, verify-ci, build, verify-install]
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
     runs-on: ubuntu-latest
+    # The stream's own environment, which its PyPI trusted publisher names.
     environment:
-      name: pypi-connectors
-      url: https://pypi.org/project/osprey-connectors/${{ needs.build.outputs.version }}/
+      name: ${{ needs.resolve.outputs.environment }}
+      url: https://pypi.org/project/${{ needs.resolve.outputs.dist }}/${{ needs.resolve.outputs.version }}/
     # Trusted publishing: the OIDC token is minted for this job alone.
     permissions:
       id-token: write
@@ -248,11 +287,11 @@ jobs:
     - name: Download distribution artifacts
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
-        name: connectors-distributions
+        name: ${{ needs.resolve.outputs.key }}-distributions
         path: dist/
 
     # skip-existing lets a re-pushed tag complete a publish that stopped halfway.
-    - name: Publish osprey-connectors to PyPI
+    - name: Publish the package to PyPI
       uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086  # v1.14.3
       with:
         packages-dir: dist/
@@ -261,8 +300,8 @@ jobs:
 
   create-github-release:
     name: Create GitHub Release
-    needs: [build, publish-to-pypi]
-    if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')
+    needs: [resolve, build, publish-to-pypi]
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
     runs-on: ubuntu-latest
     permissions:
       contents: write  # creating the release
@@ -273,25 +312,26 @@ jobs:
       with:
         persist-credentials: false
 
-    - name: Extract release notes from the connectors CHANGELOG
-      # The package's own changelog, folded from packages/osprey-connectors/
-      # changelog.d/ by `scripts/changelog_fragments.py apply --root
-      # packages/osprey-connectors`, and read by the same script release.yml
-      # reads the framework's with.
+    - name: Extract release notes from the package CHANGELOG
+      # The package's own changelog, folded from <package_dir>/changelog.d/ by
+      # `scripts/changelog_fragments.py apply --root <package_dir>`, and read by
+      # the same script release.yml reads the framework's with.
       env:
-        VERSION: ${{ needs.build.outputs.version }}
+        CHANGELOG: ${{ needs.resolve.outputs.changelog }}
+        DIST: ${{ needs.resolve.outputs.dist }}
+        VERSION: ${{ needs.resolve.outputs.version }}
       run: |
-        echo "Extracting release notes for osprey-connectors $VERSION"
-        python3 scripts/ci/release_notes.py packages/osprey-connectors/CHANGELOG.md "$VERSION" > release_notes.md
+        echo "Extracting release notes for $DIST $VERSION"
+        python3 scripts/ci/release_notes.py "$CHANGELOG" "$VERSION" > release_notes.md
         cat release_notes.md
 
     - name: Create Release
       uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3  # v3.0.4
       with:
-        name: osprey-connectors v${{ needs.build.outputs.version }}
+        name: ${{ needs.resolve.outputs.dist }} v${{ needs.resolve.outputs.version }}
         body_path: release_notes.md
         draft: false
-        prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
-        # "Latest" stays the framework's: a connectors release is never what a
+        prerelease: ${{ needs.resolve.outputs.prerelease == 'true' }}
+        # "Latest" stays the framework's: a component release is never what a
         # reader landing on the repository's releases page should install.
         make_latest: false

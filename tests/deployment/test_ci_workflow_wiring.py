@@ -3884,6 +3884,8 @@ def test_an_always_on_lane_never_skips_past_the_gate__mutation_conditions_the_up
     assert _always_on_lanes_that_can_skip_unseen(mutated) == [
         "connectors-compat <- connectors-compat-plan",
         "framework-at-connectors-floor <- connectors-compat-plan",
+        # The facility floor lane installs the connectors floor too.
+        "framework-at-facility-floor <- connectors-compat-plan",
     ]
 
 
@@ -10535,23 +10537,294 @@ def test_the_tag_gate_requires_every_dispatch_stack_cell() -> None:
     assert gate.missing_lanes(skipped_job, lanes) == dict.fromkeys(lanes, "no such job in the run")
 
 
-RELEASE_FLOOR_JOB = "verify-connectors-floor"
+RELEASE_FLOOR_JOB = "verify-component-floors"
+RELEASE_FLOOR_PLAN = "Plan the component floors"
+RELEASE_FLOOR_INSTALL = "Install the built wheels with every floor together"
+RELEASE_FLOOR_SCAN = "Scan the built framework for component names the floors lack"
+#: The scan step's interpreter, swapped for a stand-in when a test runs the step.
+RELEASE_FLOOR_PYTHON = "/tmp/floor-check/bin/python -I"
 
 
-def test_the_floor_scan_blocks_the_publish_and_runs_as_a_release_scan() -> None:
+def _release_floor_step(release: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(s for s in release["jobs"][RELEASE_FLOOR_JOB]["steps"] if s.get("name") == name)
+
+
+def _root_requirement(dist: str) -> str:
+    """The root pyproject.toml's requirement on ``dist``, as written."""
+    deps = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
+    return next(d for d in deps if canonicalize_name(Requirement(d).name) == dist)
+
+
+def _root_connectors_floor() -> str:
+    (spec,) = Requirement(_root_requirement("osprey-connectors")).specifier
+    assert spec.operator == ">=", spec
+    return spec.version
+
+
+def _release_floor_root(
+    tmp_path: Path, deps: list[str], *, facility_requires: list[str] | None = None
+) -> Path:
+    """A tagged scratch tree for ``compat_matrix.py --root``: ``deps`` as the
+    root's dependencies, the connectors window as at HEAD, and a release tag for
+    every ``>=`` floor in ``deps``."""
+    root = tmp_path / "release-root"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "scratch"\ndependencies = {json.dumps(deps)}\n'
+    )
+    for dist, listed, retired in (
+        ("osprey-facility", [], []),
+        ("osprey-connectors", ["2026.11.1"], ["2026.11.0"]),
+    ):
+        project = ""
+        if dist == "osprey-facility" and facility_requires is not None:
+            project = (
+                f'[project]\nname = "{dist}"\ndependencies = {json.dumps(facility_requires)}\n'
+            )
+        (root / "packages" / dist).mkdir(parents=True)
+        (root / "packages" / dist / "pyproject.toml").write_text(
+            f"{project}[tool.{dist}.compat]\nframeworks = {json.dumps(listed)}\n"
+            f"retired = {json.dumps(retired)}\n"
+        )
+    for argv in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "scratch"]):
+        subprocess.run([*_SCRATCH_GIT, "-C", str(root), *argv], check=True, timeout=60)
+    tags = ["v2026.11.0", "v2026.11.1"]
+    for dep in deps:
+        requirement = Requirement(dep)
+        tags += [
+            f"{requirement.name}-v{s.version}" for s in requirement.specifier if s.operator == ">="
+        ]
+    for tag in tags:
+        subprocess.run([*_SCRATCH_GIT, "-C", str(root), "tag", tag], check=True, timeout=60)
+    return root
+
+
+class _FloorPlan(NamedTuple):
+    returncode: int
+    log: str
+    outputs: dict[str, str]
+
+
+def _run_release_floor_plan(release: dict[str, Any], root: Path) -> _FloorPlan:
+    """The job's plan step, run as written in ``root`` with this checkout's scripts."""
+    script = _release_floor_step(release, RELEASE_FLOOR_PLAN)["run"].replace(
+        "scripts/ci", str(REPO_ROOT / "scripts" / "ci")
+    )
+    output = root.parent / "github-output"
+    output.write_text("")
+    env = {**os.environ, "GITHUB_OUTPUT": str(output)}
+    done = subprocess.run(
+        ["bash", "-e", "-c", script],
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    return _FloorPlan(done.returncode, done.stdout + done.stderr, outputs)
+
+
+def _run_release_floor_scan(
+    release: dict[str, Any], scans: str, python: str, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """The job's scan step over ``scans``, in this checkout, ``python`` as its interpreter."""
+    script = _release_floor_step(release, RELEASE_FLOOR_SCAN)["run"]
+    assert RELEASE_FLOOR_PYTHON in script, "the scan no longer runs the floor venv's python -I"
+    script = script.replace(RELEASE_FLOOR_PYTHON, python)
+    return subprocess.run(
+        ["bash", "-e", "-c", script],
+        cwd=REPO_ROOT,
+        env={**os.environ, **env, "SCANS": scans},
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+
+def _release_floor_scan_argv(release: dict[str, Any], scans: str, tmp_path: Path) -> dict[str, str]:
+    """``{target: the scan's argument line}``, the interpreter a stub that echoes."""
+    stub = tmp_path / "echo-python"
+    stub.write_text('#!/bin/sh\necho "ARGV $*"\n')
+    stub.chmod(0o755)
+    done = _run_release_floor_scan(release, scans, '"$SCAN_PYTHON"', {"SCAN_PYTHON": str(stub)})
+    assert done.returncode == 0, done.stdout + done.stderr
+    lines = [line[5:] for line in done.stdout.splitlines() if line.startswith("ARGV ")]
+    return {shlex.split(line)[shlex.split(line).index("--target") + 1]: line for line in lines}
+
+
+def _release_floor_install_calls(
+    release: dict[str, Any], requirements: str, tmp_path: Path
+) -> list[str]:
+    """Every ``uv`` call the install step makes for ``requirements``, ``uv`` stubbed."""
+    bin_dir = tmp_path / "stub-bin"
+    bin_dir.mkdir()
+    log = tmp_path / "uv-calls"
+    (bin_dir / "uv").write_text(f'#!/bin/sh\necho "$*" >> {shlex.quote(str(log))}\n')
+    (bin_dir / "uv").chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "REQUIREMENTS": requirements,
+    }
+    script = _release_floor_step(release, RELEASE_FLOOR_INSTALL)["run"]
+    subprocess.run(["bash", "-e", "-c", script], cwd=tmp_path, env=env, check=True, timeout=60)
+    return log.read_text().splitlines()
+
+
+def test_the_floor_scan_blocks_the_publish_and_runs_as_a_release_scan(tmp_path: Path) -> None:
     """A tag is refused while the framework imports connectors code its floor
     lacks. Without ``--release`` the scan forgives every such import that has a
-    stand-in, which is the case the job exists to refuse."""
-    release = yaml.safe_load(RELEASE_YML.read_text())
+    stand-in, which is the case the job exists to refuse. Run against a tree
+    declaring the root's own requirements, the job holds the connectors scan to
+    the root's connectors floor and reads both of its floor consumers."""
+    release = _load_release()
     assert RELEASE_FLOOR_JOB in release["jobs"]["publish-to-pypi"]["needs"], (
         f"publish-to-pypi does not wait for {RELEASE_FLOOR_JOB}"
     )
     runs = " ".join(step.get("run", "") for step in release["jobs"][RELEASE_FLOOR_JOB]["steps"])
     assert "scan_framework_imports.py" in runs
     assert "--release" in runs, "the floor scan forgives imports a stand-in covers"
-    assert "connectors_compat_matrix.py floor" in runs, "the scan is not held to the floor"
+    assert "compat_matrix.py" in runs and '"floor"' in runs, "the scan is not held to the floor"
+    deps = [_root_requirement("osprey-connectors"), _root_requirement("osprey-facility")]
+    plan = _run_release_floor_plan(release, _release_floor_root(tmp_path, deps))
+    assert plan.returncode == 0, plan.log
+    floor = _root_connectors_floor()
+    assert plan.outputs["requirements"] == f"osprey-connectors=={floor}", (
+        "the scan is not held to the floor"
+    )
+    scanned = _release_floor_scan_argv(release, plan.outputs["scans"], tmp_path)
+    assert list(scanned) == ["osprey_connectors"], scanned
+    argv = shlex.split(scanned["osprey_connectors"])
+    assert "--release" in argv, "the floor scan forgives imports a stand-in covers"
     for package in ("osprey", "pyaml_cs_osprey"):
-        assert f"--package {package}" in runs, f"the floor scan does not read {package}"
+        assert f"--package {package}" in scanned["osprey_connectors"], (
+            f"the floor scan does not read {package}"
+        )
+
+
+def test_the_component_floors_plan_needs_the_connectors_floor(
+    tmp_path: Path, deps: list[str] | None = None
+) -> None:
+    """With the root's requirements the plan succeeds and stands osprey-facility
+    down with its reason logged, while the root lists it without a floor."""
+    if deps is None:
+        deps = [_root_requirement("osprey-connectors"), _root_requirement("osprey-facility")]
+    plan = _run_release_floor_plan(_load_release(), _release_floor_root(tmp_path, deps))
+    assert plan.returncode == 0, f"the floor plan failed: {plan.log}"
+    if Requirement(_root_requirement("osprey-facility")).specifier:
+        return  # the root declares a facility floor: nothing stands down
+    assert "osprey-facility stands down" in plan.log, plan.log
+    assert "osprey-facility==" not in plan.outputs["requirements"]
+
+
+def test_the_component_floors_plan__mutation_removes_the_connectors_floor(tmp_path: Path) -> None:
+    deps = ["osprey-connectors", _root_requirement("osprey-facility")]
+    with pytest.raises(AssertionError, match="the floor plan failed") as failure:
+        test_the_component_floors_plan_needs_the_connectors_floor(tmp_path, deps)
+    assert "::error::osprey-connectors" in str(failure.value)
+
+
+#: A stand-in facility floor, declared only in a scratch root.
+STAND_IN_FACILITY_FLOOR = "2026.12.0"
+
+
+def _armed_release_floor_plan(
+    release: dict[str, Any], tmp_path: Path, *, facility_requires: list[str] | None = None
+) -> _FloorPlan:
+    """The plan over a root that adds ``osprey-facility>=`` the stand-in floor."""
+    deps = [_root_requirement("osprey-connectors"), f"osprey-facility>={STAND_IN_FACILITY_FLOOR}"]
+    if facility_requires is None:
+        facility_requires = [_root_requirement("osprey-connectors")]
+    root = _release_floor_root(tmp_path, deps, facility_requires=facility_requires)
+    plan = _run_release_floor_plan(release, root)
+    assert plan.returncode == 0, plan.log
+    return plan
+
+
+def test_the_component_floors_job_checks_a_declared_facility_floor(
+    tmp_path: Path, release: dict[str, Any] | None = None
+) -> None:
+    """Declaring an ``osprey-facility>=`` floor in the root pyproject.toml is
+    all it takes: with no workflow edit the job installs the facility floor
+    together with the connectors floor and the framework wheel, and scans the
+    facility's floor consumers for its names."""
+    release = release if release is not None else _load_release()
+    plan = _armed_release_floor_plan(release, tmp_path)
+    connectors = f"osprey-connectors=={_root_connectors_floor()}"
+    facility = f"osprey-facility=={STAND_IN_FACILITY_FLOOR}"
+    assert facility in plan.outputs["requirements"].split(), (
+        f"the job does not check the facility floor: {plan.outputs}"
+    )
+    calls = [
+        c
+        for c in _release_floor_install_calls(release, plan.outputs["requirements"], tmp_path)
+        if "osprey_framework-" in c
+    ]
+    assert len(calls) == 1 and {connectors, facility} <= set(calls[0].split()), (
+        f"the floors are not installed together: {calls}"
+    )
+    assert "within the framework's connectors floor" in plan.log, plan.log
+    scanned = _release_floor_scan_argv(release, plan.outputs["scans"], tmp_path)
+    assert sorted(scanned) == ["osprey_connectors", "osprey_facility"], scanned
+    facility_argv = shlex.split(scanned["osprey_facility"])
+    packages = [facility_argv[i + 1] for i, a in enumerate(facility_argv) if a == "--package"]
+    (stream,) = (s for s in _stream_table().STREAMS if s.key == "facility")
+    assert packages == list(stream.floor_consumers) == ["osprey"], packages
+    assert "--release" in facility_argv
+
+
+def test_the_component_floors_job__mutation_checks_connectors_only(tmp_path: Path) -> None:
+    mutated = _load_release()
+    step = _release_floor_step(mutated, RELEASE_FLOOR_PLAN)
+    old = "(s for s in STREAMS if s.compat)"
+    assert old in step["run"]
+    step["run"] = step["run"].replace(old, '(s for s in STREAMS if s.key == "connectors")')
+    with pytest.raises(AssertionError, match="does not check the facility floor"):
+        test_the_component_floors_job_checks_a_declared_facility_floor(tmp_path, mutated)
+
+
+def test_the_component_floors_job__mutation_installs_one_floor(tmp_path: Path) -> None:
+    mutated = _load_release()
+    step = _release_floor_step(mutated, RELEASE_FLOOR_INSTALL)
+    assert '"${floors[@]}"' in step["run"]
+    step["run"] = step["run"].replace('"${floors[@]}"', '"${floors[0]}"')
+    with pytest.raises(AssertionError, match="not installed together"):
+        test_the_component_floors_job_checks_a_declared_facility_floor(tmp_path, mutated)
+
+
+def test_the_component_floors_plan_reports_a_facility_connectors_requirement_above_the_floor(
+    tmp_path: Path,
+) -> None:
+    """A facility whose own connectors requirement is above the framework's
+    connectors floor is named before the install that would fail on it."""
+    above = "2099.1.0"
+    plan = _armed_release_floor_plan(
+        _load_release(), tmp_path, facility_requires=[f"osprey-connectors>={above}"]
+    )
+    assert (
+        f"osprey-facility at HEAD requires osprey-connectors>={above}, above the framework's"
+        f" connectors floor {_root_connectors_floor()}"
+    ) in plan.log, plan.log
+
+
+def test_the_component_floors_facility_scan_passes_over_the_real_trees(
+    tmp_path: Path, head_facility_wheel: Path
+) -> None:
+    """The job's real facility scan command, armed by a stand-in floor, over the
+    real floor-consumer trees with HEAD facility as that floor, exits 0."""
+    release = _load_release()
+    plan = _armed_release_floor_plan(release, tmp_path)
+    facility = [s for s in plan.outputs["scans"].split() if s.startswith("osprey_facility:")]
+    assert facility == ["osprey_facility:osprey"], plan.outputs
+    # `-I` ignores PYTHONPATH, so the unpacked wheel goes in by an explicit path.
+    done = _run_release_floor_scan(
+        release,
+        facility[0],
+        '"$SCAN_PYTHON" -c "$ON_PATH" "$SITE"',
+        {"SCAN_PYTHON": sys.executable, "ON_PATH": _ON_PATH, "SITE": str(head_facility_wheel)},
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
 
 
 def test_the_tag_gate_blocks_the_publish() -> None:
@@ -10941,35 +11214,178 @@ def test_every_publishing_job_runs_only_upstream__mutation_adds_a_pushing_job_to
 
 
 # ---------------------------------------------------------------------------
-# osprey-connectors releases from its own tags, through its own workflow
+# Every component package releases from its own tags, through one workflow
 # ---------------------------------------------------------------------------
 #
-# The connectors package has its own calendar stream on osprey-connectors-v2*
-# tags, so it publishes from release-connectors.yml and release.yml stops
-# building it. What is pinned: the connectors workflow fires on those tags and
-# nothing else (no dispatch); its publish waits on the CI gate, the build and
-# the install check, under its own PyPI environment, with the OIDC scope on
-# that job alone; its version check refuses a build that is not the tag; and
-# the framework release builds exactly its lockstep members.
+# osprey-connectors, osprey-facility and osprey-panels each have their own
+# calendar stream on `<dist>-v2*` tags, and all three publish from the one
+# parameterised release-package.yml: a `resolve` job turns the tag into the
+# stream's record in scripts/ci/release_streams.py, and every later job reads
+# its outputs. What is pinned, for every stream: the workflow fires on the three
+# tag globs and nothing else (no dispatch, never a framework `v*` tag); every
+# job is guarded fail-closed on the repository and those refs; the gate requires
+# the stream's own lanes; a stream's tag builds, checks, installs and publishes
+# that stream's package and no other, under its own PyPI environment, with the
+# OIDC scope on the publish job alone; the version check refuses a build that is
+# not the tag; and the GitHub release reads the package's own changelog and is
+# never Latest. The release.yml tests further down pin the framework release.
+#
+# The environment names, dists and lane sets below are independent pins, typed
+# here rather than read from STREAMS, so an edit to the stream table alone
+# cannot move what a tag publishes to: the environments are the ones the owner
+# registers on PyPI and GitHub.
 
-CONNECTORS_RELEASE_YML = RELEASE_YML.with_name("release-connectors.yml")
-CONNECTORS_GATE_JOB = "verify-ci"
-CONNECTORS_BUILD_JOB = "build"
-CONNECTORS_INSTALL_JOB = "verify-install"
-CONNECTORS_TAG_GUARD = (
-    f"{_REPOSITORY_GUARD} && startsWith(github.ref, 'refs/tags/osprey-connectors-v2')"
+PACKAGE_RELEASE_YML = RELEASE_YML.with_name("release-package.yml")
+RESOLVE_JOB = "resolve"
+PACKAGE_GATE_JOB = "verify-ci"
+PACKAGE_BUILD_JOB = "build"
+PACKAGE_INSTALL_JOB = "verify-install"
+RELEASE_JOB = "create-github-release"
+VERSION_STEP = "Verify built versions match tag"
+BUILD_STEP = "Build package"
+PACKAGE_INSTALL_STEP = "Install the wheel with deps from PyPI and import-walk it"
+NOTES_STEP = "Extract release notes from the package CHANGELOG"
+PRERELEASE_FLAG = "${{ needs.resolve.outputs.prerelease == 'true' }}"
+LEAN_CHECK_VENV = "/tmp/lean-check"
+LEAN_WALK_SCRIPT = "scripts/ci/lean_import_walk.py"
+#: Each package-check walk: (bare venv interpreter, stream key).
+LEAN_WALKS = (
+    ("{scratch}/lean/bin/python", "connectors"),
+    ("{scratch}/facility/bin/python", "facility"),
 )
-CONNECTORS_ENVIRONMENT = "pypi-connectors"
-CONNECTORS_VERSION_STEP = "Verify built versions match tag"
-LEAN_WALK_SCRIPT = "scripts/ci/connectors_lean_import_walk.py"
-#: The always-on lanes that prove the package. The backward-compatibility lanes
-#: join the gate whenever ci.yml carries them; the test below fails if one is missing.
-CONNECTORS_LANES = frozenset({"test", "lint", "package", "connectors-standalone"})
-CONNECTORS_COMPAT_LANES = frozenset({"connectors-compat", "framework-at-connectors-floor"})
+PANELS_STANDALONE_JOB = "osprey-panels-standalone"
+RELEASE_STREAMS_PATH = REPO_ROOT / "scripts" / "ci" / "release_streams.py"
+#: The version every stream's tag is resolved at below.
+TAGGED = "2026.12.0"
+
+#: Independent pins (not read from STREAMS).
+PACKAGE_TAG_GLOBS = ("osprey-connectors-v2*", "osprey-facility-v2*", "osprey-panels-v2*")
+PACKAGE_ENVIRONMENTS = {
+    "connectors": "pypi-connectors",
+    "facility": "pypi-facility",
+    "panels": "pypi-panels",
+}
+PACKAGE_DISTS = {
+    "connectors": "osprey-connectors",
+    "facility": "osprey-facility",
+    "panels": "osprey-panels",
+}
+#: What verify-install adds to the wheel: the extras the lean walk imports under.
+PACKAGE_INSTALL_EXTRAS = {"facility": "osprey-facility[mml]"}
+#: What verify-install runs after the version probe, from the bare venv.
+PACKAGE_SMOKE = {"panels": [f"{LEAN_CHECK_VENV}/bin/osprey-panels", "--help"]}
+#: The lanes each stream's gate requires: the always-on lanes that prove the
+#: package and, for a stream with a compatibility contract, its compat lane and
+#: the framework at its floor. Facility also requires the framework at the
+#: connectors floor, the lane in which HEAD facility runs at its own floor.
+PACKAGE_LANES = {
+    "connectors": frozenset(
+        {
+            "test",
+            "lint",
+            "package",
+            "connectors-standalone",
+            "connectors-compat",
+            "framework-at-connectors-floor",
+        }
+    ),
+    "facility": frozenset(
+        {
+            "test",
+            "lint",
+            "package",
+            "osprey-facility-standalone",
+            "facility-compat",
+            "framework-at-facility-floor",
+            "framework-at-connectors-floor",
+        }
+    ),
+    "panels": frozenset({"test", "lint", "osprey-panels-standalone"}),
+}
 
 
-def _load_connectors_release() -> dict[str, Any]:
-    return yaml.safe_load(CONNECTORS_RELEASE_YML.read_text())
+def _stream_table() -> ModuleType:
+    """scripts/ci/release_streams.py, under the module name the compat section
+    loads it by, so both sections read one module object."""
+    name = "_wiring_release_streams"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, RELEASE_STREAMS_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # the frozen dataclasses resolve their module
+    spec.loader.exec_module(module)
+    return module
+
+
+#: Every stream key, in table order: the generic checks run once per stream.
+PACKAGE_STREAMS = tuple(s.key for s in _stream_table().STREAMS)
+
+
+def _load_package_release() -> dict[str, Any]:
+    return yaml.safe_load(PACKAGE_RELEASE_YML.read_text())
+
+
+def _table_stream(key: str) -> Any:
+    return next(s for s in _stream_table().STREAMS if s.key == key)
+
+
+def _ref(key: str, version: str = TAGGED) -> str:
+    """The full ``GITHUB_REF`` of *key*'s tag at *version*."""
+    return f"{_stream_table().TAG_REF_PREFIX}{_table_stream(key).tag_prefix}{version}"
+
+
+def _stream_outputs(key: str, version: str = TAGGED) -> dict[str, str]:
+    """What the ``resolve`` job outputs for *key*'s tag at *version*."""
+    return dict(_stream_table().resolve_outputs(_ref(key, version)))
+
+
+def _file_prefix(key: str) -> str:
+    """The wheel/sdist file-name prefix, from the pinned dist."""
+    return PACKAGE_DISTS[key].replace("-", "_") + "-"
+
+
+_RESOLVE_OUTPUT = re.compile(r"\$\{\{\s*needs\.resolve\.outputs\.(\w+)\s*\}\}")
+
+
+def _render_resolved(value: object, outputs: dict[str, str]) -> str:
+    """*value* as Actions renders it for a run whose ``resolve`` job output
+    *outputs*. Any other expression is refused: these values read the stream
+    from ``resolve`` and nothing else."""
+
+    def sub(match: re.Match[str]) -> str:
+        assert match.group(1) in outputs, f"{match.group(0)} names no resolve output"
+        return outputs[match.group(1)]
+
+    rendered = _RESOLVE_OUTPUT.sub(sub, str(value))
+    assert "${{" not in rendered, f"{value!r} reads more than the resolve outputs"
+    return rendered
+
+
+def _named_step(release: dict[str, Any], job: str, name: str) -> dict[str, Any]:
+    found = [s for s in release["jobs"][job]["steps"] if s.get("name") == name]
+    assert len(found) == 1, f"{job} has no single {name!r} step"
+    return found[0]
+
+
+def _python3_on_path(tmp_path: Path) -> str:
+    """A PATH whose ``python3`` is this interpreter (a runner's bare python3)."""
+    shim = tmp_path / "python3-shim"
+    shim.mkdir(exist_ok=True)
+    link = shim / "python3"
+    if not link.exists():
+        link.symlink_to(sys.executable)
+    return f"{shim}{os.pathsep}{os.environ['PATH']}"
+
+
+def _package_tag_guard() -> str:
+    """``repo && (A || B || C)``: one tag-ref prefix per stream, from STREAMS."""
+    table = _stream_table()
+    arms = " || ".join(
+        f"startsWith(github.ref, '{table.TAG_REF_PREFIX}{s.tag_glob.removesuffix('*')}')"
+        for s in table.STREAMS
+    )
+    return f"{_REPOSITORY_GUARD} && ({arms})"
 
 
 def _github_tag_glob_matches(pattern: str, tag: str) -> bool:
@@ -10983,64 +11399,245 @@ def _tag_filters(release: dict[str, Any]) -> list[str]:
     return release[True]["push"]["tags"]
 
 
+def test_the_stream_table_carries_the_pinned_names(streams: tuple[Any, ...] | None = None) -> None:
+    """The table the workflow reads names the environments the owner registers,
+    the dists, the tag globs, and each stream's lanes."""
+    streams = streams if streams is not None else _stream_table().STREAMS
+    environments = {s.key: s.environment for s in streams}
+    assert environments == PACKAGE_ENVIRONMENTS, (
+        f"the stream table names environments {environments}"
+    )
+    assert {s.key: s.dist for s in streams} == PACKAGE_DISTS
+    assert tuple(s.tag_glob for s in streams) == PACKAGE_TAG_GLOBS
+    lanes = {s.key: frozenset(job for job, _ in s.required_lanes) for s in streams}
+    assert lanes == PACKAGE_LANES, f"the stream table requires lanes {lanes}"
+
+
+def test_the_stream_table_carries_the_pinned_names__mutation_misspelt_environment() -> None:
+    streams = tuple(
+        replace(s, environment="pypi-facilty") if s.key == "facility" else s
+        for s in _stream_table().STREAMS
+    )
+    with pytest.raises(AssertionError, match="names environments"):
+        test_the_stream_table_carries_the_pinned_names(streams)
+
+
+@pytest.mark.parametrize("key", ["connectors", "facility"])
+def test_the_stream_table_carries_the_pinned_names__mutation_drops_a_compat_lane(key: str) -> None:
+    streams = tuple(
+        replace(
+            s, required_lanes=tuple(lane for lane in s.required_lanes if lane[0] != f"{key}-compat")
+        )
+        if s.key == key
+        else s
+        for s in _stream_table().STREAMS
+    )
+    with pytest.raises(AssertionError, match="requires lanes"):
+        test_the_stream_table_carries_the_pinned_names(streams)
+
+
+def _assert_fires(tag: str, stream: str | None, framework: bool, release: dict[str, Any]) -> None:
+    fires = {
+        "package": any(_github_tag_glob_matches(p, tag) for p in _tag_filters(release)),
+        "framework": any(_github_tag_glob_matches(p, tag) for p in _tag_filters(_load_release())),
+    }
+    assert fires == {"package": stream is not None, "framework": framework}, f"{tag} fires {fires}"
+    if stream is not None:
+        resolved = _stream_table().stream_for(_stream_table().TAG_REF_PREFIX + tag)[0].key
+        assert resolved == stream, f"{tag} resolves to the {resolved} stream"
+
+
 @pytest.mark.parametrize(
-    ("tag", "connectors", "framework"),
+    ("tag", "stream", "framework"),
     [
-        ("osprey-connectors-v2026.10.0", True, False),
-        ("osprey-connectors-v2026.10.0b1", True, False),
-        ("osprey-connectors-v2027.1.3rc2", True, False),
-        ("osprey-connectors-v0.1.0", False, False),  # retired; PyPI carries 0.1.0
-        ("v2026.10.0", False, True),
-        ("v2026.9.0b3", False, True),
-        ("checkpoint-2026-10-01", False, False),
+        pytest.param(tag, stream, framework, id=tag)
+        for tag, stream, framework in (
+            ("osprey-connectors-v2026.10.0", "connectors", False),
+            ("osprey-connectors-v2026.10.0b1", "connectors", False),
+            ("osprey-connectors-v2027.1.3rc2", "connectors", False),
+            ("osprey-connectors-v0.1.0", None, False),  # retired; PyPI carries 0.1.0
+            ("osprey-facility-v2026.12.0", "facility", False),
+            ("osprey-facility-v2026.12.0rc1", "facility", False),
+            ("osprey-panels-v2026.12.0", "panels", False),
+            ("osprey-panels-v2027.2.1b2", "panels", False),
+            ("osprey-panels-v1.0.0", None, False),
+            ("v2026.10.0", None, True),
+            ("v2026.9.0b3", None, True),
+            ("checkpoint-2026-10-01", None, False),
+        )
     ],
 )
 def test_each_release_workflow_fires_only_on_its_own_tags(
-    tag: str, connectors: bool, framework: bool
+    tag: str, stream: str | None, framework: bool
 ) -> None:
-    fires = {
-        "connectors": any(
-            _github_tag_glob_matches(p, tag) for p in _tag_filters(_load_connectors_release())
-        ),
-        "framework": any(_github_tag_glob_matches(p, tag) for p in _tag_filters(_load_release())),
-    }
-    assert fires == {"connectors": connectors, "framework": framework}, tag
+    """A stream's tag fires release-package.yml and resolves to that stream; a
+    framework tag fires release.yml alone."""
+    _assert_fires(tag, stream, framework, _load_package_release())
 
 
-def test_the_connectors_release_has_no_other_trigger() -> None:
+def test_each_release_workflow_fires__mutation_framework_glob() -> None:
+    mutated = _load_package_release()
+    _tag_filters(mutated).append("v*")
+    with pytest.raises(AssertionError, match="v2026.10.0 fires"):
+        _assert_fires("v2026.10.0", None, True, mutated)
+
+
+def test_the_package_release_has_no_other_trigger(release: dict[str, Any] | None = None) -> None:
     """No dispatch: nothing publishes a commit nobody tagged."""
-    triggers = _load_connectors_release()[True]
-    assert triggers == {"push": {"tags": ["osprey-connectors-v2*"]}}
+    release = release if release is not None else _load_package_release()
+    triggers = release[True]
+    assert triggers == {"push": {"tags": list(PACKAGE_TAG_GLOBS)}}, (
+        f"the release fires on {triggers}"
+    )
+    assert _tag_filters(release) == [s.tag_glob for s in _stream_table().STREAMS]
 
 
-def test_every_connectors_job_runs_only_on_a_connectors_tag(
+def test_the_package_release_has_no_other_trigger__mutation_dispatch() -> None:
+    mutated = _load_package_release()
+    mutated[True]["workflow_dispatch"] = None
+    with pytest.raises(AssertionError, match="the release fires on"):
+        test_the_package_release_has_no_other_trigger(mutated)
+
+
+def test_every_package_release_job_runs_only_on_a_stream_tag(
     release: dict[str, Any] | None = None,
 ) -> None:
-    release = release if release is not None else _load_connectors_release()
+    """``repo && (A || B || C)``: the repository is a top-level conjunct, so the
+    guard fails closed, and the tag arms are the streams' prefixes."""
+    release = release if release is not None else _load_package_release()
+    guard = _package_tag_guard()
+    assert RESOLVE_JOB in release["jobs"], "the release has no resolve job"
     for name, job in release["jobs"].items():
-        assert job.get("if") == CONNECTORS_TAG_GUARD, (
-            f"{name} is not guarded on the repository and the tag ref"
+        condition = str(job.get("if", ""))
+        conjuncts = _top_level_conjuncts(condition)
+        assert conjuncts is not None and _REPOSITORY_GUARD in conjuncts, (
+            f"{name} is not guarded fail-closed: the repository is no top-level conjunct "
+            f"of {condition!r}"
         )
+        assert condition == guard, f"{name} is not guarded on the repository and the tag refs"
 
 
-def test_every_connectors_job_runs_only_on_a_connectors_tag__mutation_drops_a_guard() -> None:
-    mutated = _load_connectors_release()
+def test_every_package_release_job__mutation_drops_a_guard() -> None:
+    mutated = _load_package_release()
     del mutated["jobs"]["publish-to-pypi"]["if"]
     with pytest.raises(AssertionError, match="publish-to-pypi is not guarded"):
-        test_every_connectors_job_runs_only_on_a_connectors_tag(mutated)
+        test_every_package_release_job_runs_only_on_a_stream_tag(mutated)
 
 
-def test_the_connectors_publish_is_gated_and_scoped(release: dict[str, Any] | None = None) -> None:
+def test_every_package_release_job__mutation_drops_the_parentheses() -> None:
+    mutated = _load_package_release()
+    job = mutated["jobs"]["build"]
+    job["if"] = job["if"].replace("&& (", "&& ").removesuffix(")")
+    with pytest.raises(AssertionError, match="build is not guarded fail-closed"):
+        test_every_package_release_job_runs_only_on_a_stream_tag(mutated)
+
+
+def test_every_package_release_job__mutation_drops_a_stream() -> None:
+    mutated = _load_package_release()
+    job = mutated["jobs"]["verify-install"]
+    job["if"] = job["if"].replace(" || startsWith(github.ref, 'refs/tags/osprey-panels-v2')", "")
+    with pytest.raises(AssertionError, match="verify-install is not guarded on the repository"):
+        test_every_package_release_job_runs_only_on_a_stream_tag(mutated)
+
+
+def test_the_resolve_job_hands_every_stream_output_on(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """``resolve`` runs the table on the full ref and forwards each of its
+    outputs; a job that reads one needs ``resolve`` directly, as Actions requires."""
+    release = release if release is not None else _load_package_release()
+    job = release["jobs"][RESOLVE_JOB]
+    steps = [s for s in job["steps"] if "release_streams.py" in s.get("run", "")]
+    assert len(steps) == 1, "resolve does not run the stream table once"
+    assert steps[0]["run"].strip() == 'python3 scripts/ci/release_streams.py resolve "$GITHUB_REF"'
+    names = [name for name, _ in _stream_table().resolve_outputs(_ref("connectors"))]
+    expected = {n: f"${{{{ steps.{steps[0]['id']}.outputs.{n} }}}}" for n in names}
+    assert job.get("outputs") == expected, f"resolve does not forward {sorted(names)}"
+    for name, other in release["jobs"].items():
+        if "needs.resolve." in yaml.safe_dump(other):
+            assert RESOLVE_JOB in other.get("needs", []), (
+                f"{name} reads resolve outputs without needing {RESOLVE_JOB}"
+            )
+
+
+def test_the_resolve_job__mutation_a_reader_skips_resolve() -> None:
+    mutated = _load_package_release()
+    mutated["jobs"]["verify-install"]["needs"] = ["build"]
+    with pytest.raises(AssertionError, match="verify-install reads resolve outputs"):
+        test_the_resolve_job_hands_every_stream_output_on(mutated)
+
+
+def test_the_resolve_job__mutation_drops_an_output() -> None:
+    mutated = _load_package_release()
+    del mutated["jobs"][RESOLVE_JOB]["outputs"]["smoke"]
+    with pytest.raises(AssertionError, match="resolve does not forward"):
+        test_the_resolve_job_hands_every_stream_output_on(mutated)
+
+
+def _run_resolve(
+    tmp_path: Path, ref: str, release: dict[str, Any] | None = None
+) -> tuple[int, str]:
+    release = release if release is not None else _load_package_release()
+    step = next(s for s in release["jobs"][RESOLVE_JOB]["steps"] if "run" in s)
+    output = tmp_path / "github-output"
+    output.write_text("")
+    env = {
+        **os.environ,
+        "GITHUB_REF": ref,
+        "GITHUB_OUTPUT": str(output),
+        "PATH": _python3_on_path(tmp_path),
+    }
+    done = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return done.returncode, output.read_text()
+
+
+def test_the_resolve_job_refuses_a_non_canonical_tag(
+    tmp_path: Path, release: dict[str, Any] | None = None
+) -> None:
+    """``-rc1`` fires the trigger but is not the version the wheel carries, so
+    the run stops at ``resolve``, before anything is built."""
+    code, written = _run_resolve(tmp_path, "refs/tags/osprey-panels-v2026.12.0-rc1", release)
+    assert code != 0 and written == "", f"resolve accepted a non-canonical tag (exit {code})"
+    for key in PACKAGE_STREAMS:
+        code, written = _run_resolve(tmp_path, _ref(key), release)
+        assert code == 0 and f"key={key}\n" in written, f"resolve refused the {key} tag"
+
+
+def test_the_resolve_job__mutation_ignores_a_refusal(tmp_path: Path) -> None:
+    mutated = _load_package_release()
+    step = next(s for s in mutated["jobs"][RESOLVE_JOB]["steps"] if "run" in s)
+    step["run"] = step["run"].rstrip() + " || true\n"
+    with pytest.raises(AssertionError, match="accepted a non-canonical tag"):
+        test_the_resolve_job_refuses_a_non_canonical_tag(tmp_path, mutated)
+
+
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_publish_is_gated_and_scoped(
+    key: str, release: dict[str, Any] | None = None, outputs: dict[str, str] | None = None
+) -> None:
     """The upload waits on the CI gate, the build and the install check; it
-    runs in the package's own environment, which the PyPI trusted publisher
+    runs in the stream's own environment, which its PyPI trusted publisher
     names; and it alone holds the OIDC scope."""
-    release = release if release is not None else _load_connectors_release()
+    release = release if release is not None else _load_package_release()
+    outputs = outputs if outputs is not None else _stream_outputs(key)
     publish = release["jobs"]["publish-to-pypi"]
-    assert {CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB, CONNECTORS_INSTALL_JOB} <= set(
-        publish["needs"]
-    ), f"the publish needs {publish['needs']}"
-    assert publish["environment"]["name"] == CONNECTORS_ENVIRONMENT, (
-        f"the publish runs in environment {publish['environment']['name']!r}"
+    assert {PACKAGE_GATE_JOB, PACKAGE_BUILD_JOB, PACKAGE_INSTALL_JOB} <= set(publish["needs"]), (
+        f"the publish needs {publish['needs']}"
+    )
+    environment = _render_resolved(publish["environment"]["name"], outputs)
+    assert environment == PACKAGE_ENVIRONMENTS[key], (
+        f"the {key} publish runs in environment {environment!r}"
+    )
+    url = _render_resolved(publish["environment"]["url"], outputs)
+    assert url == f"https://pypi.org/project/{PACKAGE_DISTS[key]}/{outputs['version']}/", (
+        f"the {key} publish links {url}"
     )
     assert publish.get("permissions") == {"id-token": "write"}, "publish must hold id-token"
     assert "id-token" not in release.get("permissions", {}), (
@@ -11051,84 +11648,159 @@ def test_the_connectors_publish_is_gated_and_scoped(release: dict[str, Any] | No
     test_every_publish_step_skips_existing_files({"jobs": {PUBLISH_JOB: publish}})
 
 
-def test_the_connectors_publish__mutation_workflow_level_id_token() -> None:
-    mutated = _load_connectors_release()
+def test_the_package_publish__mutation_workflow_level_id_token() -> None:
+    mutated = _load_package_release()
     mutated["permissions"]["id-token"] = "write"
     with pytest.raises(AssertionError, match="workflow level"):
-        test_the_connectors_publish_is_gated_and_scoped(mutated)
+        test_the_package_publish_is_gated_and_scoped("connectors", mutated)
 
 
-def test_the_connectors_publish__mutation_ungated() -> None:
-    mutated = _load_connectors_release()
-    mutated["jobs"]["publish-to-pypi"]["needs"] = [CONNECTORS_BUILD_JOB]
+def test_the_package_publish__mutation_ungated() -> None:
+    mutated = _load_package_release()
+    mutated["jobs"]["publish-to-pypi"]["needs"] = [RESOLVE_JOB, PACKAGE_BUILD_JOB]
     with pytest.raises(AssertionError, match="the publish needs"):
-        test_the_connectors_publish_is_gated_and_scoped(mutated)
+        test_the_package_publish_is_gated_and_scoped("connectors", mutated)
 
 
-def test_the_connectors_publish__mutation_framework_environment() -> None:
-    mutated = _load_connectors_release()
+def test_the_package_publish__mutation_framework_environment() -> None:
+    mutated = _load_package_release()
     mutated["jobs"]["publish-to-pypi"]["environment"]["name"] = "pypi"
     with pytest.raises(AssertionError, match="runs in environment 'pypi'"):
-        test_the_connectors_publish_is_gated_and_scoped(mutated)
+        test_the_package_publish_is_gated_and_scoped("connectors", mutated)
 
 
-def test_the_connectors_gate_requires_the_connectors_lanes(
-    workflow: dict[str, Any], release: dict[str, Any] | None = None
-) -> None:
-    """The four always-on lanes, plus every compatibility lane ci.yml has."""
-    release = release if release is not None else _load_connectors_release()
-    lanes = _gate_lanes(release, CONNECTORS_GATE_JOB)
-    expected = CONNECTORS_LANES | (CONNECTORS_COMPAT_LANES & set(_jobs(workflow)))
-    assert set(lanes) == expected, f"the connectors gate requires {sorted(lanes)}"
-    _assert_lane_prefixes_match(workflow, lanes, CONNECTORS_RELEASE_YML.name)
+def test_the_package_publish__mutation_connectors_environment_for_every_stream() -> None:
+    """The shape a copy of the old connectors workflow would have."""
+    mutated = _load_package_release()
+    mutated["jobs"]["publish-to-pypi"]["environment"]["name"] = "pypi-connectors"
+    with pytest.raises(AssertionError, match="facility publish runs in environment"):
+        test_the_package_publish_is_gated_and_scoped("facility", mutated)
 
 
-def test_the_connectors_gate__mutation_a_compat_lane_lands_ungated() -> None:
-    """ci.yml carries a compatibility lane the connectors gate does not list."""
-    release = _load_connectors_release()
-    step = _gate_step(release, CONNECTORS_GATE_JOB)
-    step["env"][GREEN_LANES_ENV] = "\n".join(
-        line
-        for line in step["env"][GREEN_LANES_ENV].splitlines()
-        if not line.strip().startswith("connectors-compat=")
+def test_the_package_publish__mutation_misspelt_environment() -> None:
+    outputs = {**_stream_outputs("facility"), "environment": "pypi-facilty"}
+    with pytest.raises(AssertionError, match="runs in environment 'pypi-facilty'"):
+        test_the_package_publish_is_gated_and_scoped("facility", outputs=outputs)
+
+
+def _run_gate(
+    tmp_path: Path, ref: str, release: dict[str, Any] | None = None, table: str | None = None
+) -> tuple[int, list[str] | None]:
+    """Run verify-ci's lane-gate step for *ref*, with the real stream table (or
+    *table*) and a stand-in gate that records its arguments. Returns the exit
+    code and the stand-in's arguments, ``None`` when it never ran."""
+    release = release if release is not None else _load_package_release()
+    step = _gate_step(release, PACKAGE_GATE_JOB)
+    scripts = tmp_path / "scripts" / "ci"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "release_streams.py").write_text(table or RELEASE_STREAMS_PATH.read_text())
+    (scripts / "require_green_lanes.py").write_text(
+        "import json, sys\nopen('gate-args.json', 'w').write(json.dumps(sys.argv[1:]))\n"
     )
-    with pytest.raises(AssertionError, match="the connectors gate requires"):
-        test_the_connectors_gate_requires_the_connectors_lanes(_load_workflow(), release)
+    recorded = tmp_path / "gate-args.json"
+    recorded.unlink(missing_ok=True)
+    env = {**os.environ, "GITHUB_REF": ref, "PATH": _python3_on_path(tmp_path)}
+    done = subprocess.run(
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return done.returncode, json.loads(recorded.read_text()) if recorded.exists() else None
 
 
-def test_the_connectors_gate__mutation_renames_a_lane() -> None:
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_gate_requires_each_streams_lanes(
+    key: str,
+    workflow: dict[str, Any],
+    tmp_path: Path,
+    release: dict[str, Any] | None = None,
+    table: str | None = None,
+) -> None:
+    """The lanes the gate step hands the shared gate for a stream's tag are
+    that stream's pinned lanes, each rendered by ci.yml under its prefix."""
+    code, args = _run_gate(tmp_path, _ref(key), release, table)
+    assert code == 0 and args is not None, f"the {key} gate step failed (exit {code})"
+    assert len(args) == 2 and args[0] == "--lanes", f"the gate runs with {args}"
+    lanes = _green_lanes_module().parse_lanes(args[1])
+    assert set(lanes) == PACKAGE_LANES[key], f"the {key} gate requires {sorted(lanes)}"
+    _assert_lane_prefixes_match(workflow, lanes, PACKAGE_RELEASE_YML.name)
+
+
+@pytest.mark.parametrize("key", ["connectors", "facility"])
+def test_the_package_gate__mutation_a_compat_lane_lands_ungated(key: str, tmp_path: Path) -> None:
+    """ci.yml carries a compatibility lane the stream's gate does not list."""
+    text = RELEASE_STREAMS_PATH.read_text()
+    mutated = "\n".join(line for line in text.splitlines() if f'("{key}-compat", ' not in line)
+    assert mutated != text, f"no {key}-compat lane in the table; this mutation is stale"
+    with pytest.raises(AssertionError, match=f"the {key} gate requires"):
+        test_the_package_gate_requires_each_streams_lanes(
+            key, _load_workflow(), tmp_path, table=mutated
+        )
+
+
+def test_the_package_gate__mutation_renames_a_lane(tmp_path: Path) -> None:
     workflow = _load_workflow()
     _jobs(workflow)["connectors-standalone"]["name"] = "Standalone connectors suite"
-    with pytest.raises(AssertionError, match="release-connectors.yml looks for"):
-        test_the_connectors_gate_requires_the_connectors_lanes(workflow)
+    with pytest.raises(AssertionError, match="release-package.yml looks for"):
+        test_the_package_gate_requires_each_streams_lanes("connectors", workflow, tmp_path)
 
 
-def test_the_connectors_gate_blocks_the_build() -> None:
-    release = _load_connectors_release()
-    assert release["jobs"][CONNECTORS_BUILD_JOB]["needs"] == [CONNECTORS_GATE_JOB]
-    assert release["jobs"][CONNECTORS_GATE_JOB]["permissions"]["actions"] == "read"
+def test_the_package_gate_fails_when_the_table_refuses_the_ref(
+    tmp_path: Path, release: dict[str, Any] | None = None
+) -> None:
+    """The lanes are assigned before the gate runs, under ``set -e``, so a ref
+    the table refuses fails the step and never reaches the gate."""
+    code, args = _run_gate(tmp_path, "refs/tags/osprey-panels-v2026.12.0-rc1", release)
+    assert code != 0 and args is None, f"a refused ref reached the gate with {args}"
+
+
+def test_the_package_gate_fails__mutation_no_errexit(tmp_path: Path) -> None:
+    mutated = _load_package_release()
+    step = _gate_step(mutated, PACKAGE_GATE_JOB)
+    step["run"] = step["run"].replace("set -euo pipefail\n", "")
+    with pytest.raises(AssertionError, match="a refused ref reached the gate"):
+        test_the_package_gate_fails_when_the_table_refuses_the_ref(tmp_path, mutated)
+
+
+def test_the_package_gate_blocks_the_build(release: dict[str, Any] | None = None) -> None:
+    release = release if release is not None else _load_package_release()
+    jobs = release["jobs"]
+    assert jobs[PACKAGE_GATE_JOB]["needs"] == [RESOLVE_JOB]
+    needs = jobs[PACKAGE_BUILD_JOB]["needs"]
+    assert needs == [RESOLVE_JOB, PACKAGE_GATE_JOB], f"the build needs {needs}"
+    assert jobs[PACKAGE_GATE_JOB]["permissions"]["actions"] == "read"
+
+
+def test_the_package_gate_blocks_the_build__mutation_ungated_build() -> None:
+    mutated = _load_package_release()
+    mutated["jobs"][PACKAGE_BUILD_JOB]["needs"] = [RESOLVE_JOB]
+    with pytest.raises(AssertionError, match="the build needs"):
+        test_the_package_gate_blocks_the_build(mutated)
 
 
 def test_both_release_workflows_run_the_shared_lane_gate() -> None:
     for release, job in (
         (_load_release(), RELEASE_GATE_JOB),
-        (_load_connectors_release(), CONNECTORS_GATE_JOB),
+        (_load_package_release(), PACKAGE_GATE_JOB),
     ):
         step = _gate_step(release, job)
         assert "python3 - <<" not in step["run"], f"{job} still carries an inline gate"
 
 
-def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
-    step = next(
-        s
-        for s in _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
-        if s.get("name") == CONNECTORS_VERSION_STEP
-    )
+def _run_version_check(
+    tmp_path: Path, key: str, files: list[str], release: dict[str, Any] | None = None
+) -> int:
+    release = release if release is not None else _load_package_release()
+    step = _named_step(release, PACKAGE_BUILD_JOB, VERSION_STEP)
+    outputs = _stream_outputs(key)
     dist = tmp_path / "dist"
     dist.mkdir()
     for name in files:
         (dist / name).write_text("")
-    env = {**os.environ, "VERSION": version}
+    env = {**os.environ, **{k: _render_resolved(v, outputs) for k, v in step["env"].items()}}
     return subprocess.run(
         ["bash", "-c", step["run"]],
         cwd=tmp_path,
@@ -11139,45 +11811,191 @@ def _run_version_check(tmp_path: Path, version: str, files: list[str]) -> int:
     ).returncode
 
 
-@pytest.mark.parametrize(
-    ("files", "ok"),
-    [
-        (
-            ["osprey_connectors-2026.10.0-py3-none-any.whl", "osprey_connectors-2026.10.0.tar.gz"],
-            True,
-        ),
-        (
-            [
-                "osprey_connectors-2026.9.0b3.post4-py3-none-any.whl",
-                "osprey_connectors-2026.9.0b3.post4.tar.gz",
-            ],
-            False,
-        ),
-        (["osprey_connectors-2026.10.0-py3-none-any.whl"], False),  # no sdist
-        (
-            [
-                "osprey_connectors-2026.10.0-py3-none-any.whl",
-                "osprey_connectors-2026.10.0.tar.gz",
-                "osprey_framework-2026.10.0-py3-none-any.whl",
-            ],
-            False,
-        ),
-    ],
+def _version_check_files(key: str, case: str) -> list[str]:
+    own = _file_prefix(key)
+    other = _file_prefix(next(k for k in PACKAGE_DISTS if k != key))
+    return {
+        "own": [f"{own}{TAGGED}-py3-none-any.whl", f"{own}{TAGGED}.tar.gz"],
+        "post": [f"{own}2026.11.0.post4-py3-none-any.whl", f"{own}2026.11.0.post4.tar.gz"],
+        "no-sdist": [f"{own}{TAGGED}-py3-none-any.whl"],
+        "framework-wheel": [
+            f"{own}{TAGGED}-py3-none-any.whl",
+            f"{own}{TAGGED}.tar.gz",
+            f"osprey_framework-{TAGGED}-py3-none-any.whl",
+        ],
+        # A stream's tag never ships another stream's package.
+        "another-stream": [f"{other}{TAGGED}-py3-none-any.whl", f"{other}{TAGGED}.tar.gz"],
+    }[case]
+
+
+_VERSION_CASES = (
+    ("own", True),
+    ("post", False),
+    ("no-sdist", False),
+    ("framework-wheel", False),
+    ("another-stream", False),
 )
-def test_the_connectors_version_check_refuses_anything_but_the_tag(
-    tmp_path: Path, files: list[str], ok: bool
+
+
+@pytest.mark.parametrize(
+    ("key", "case", "ok"),
+    [pytest.param(k, c, ok, id=f"{k}-{c}") for k in PACKAGE_STREAMS for c, ok in _VERSION_CASES],
+)
+def test_the_package_version_check_refuses_anything_but_the_tag(
+    tmp_path: Path, key: str, case: str, ok: bool
 ) -> None:
-    assert (_run_version_check(tmp_path, "2026.10.0", files) == 0) is ok
+    """Exactly one wheel and one sdist of the tagged stream's package, both at the tag."""
+    assert (_run_version_check(tmp_path, key, _version_check_files(key, case)) == 0) is ok
 
 
-def test_the_connectors_build_builds_the_package_alone() -> None:
-    steps = _load_connectors_release()["jobs"][CONNECTORS_BUILD_JOB]["steps"]
-    runs = [s.get("run", "") for s in steps]
-    assert "uv build --package osprey-connectors" in runs
-    assert not any("--all-packages" in r for r in runs)
-    assert any("${TAG_NAME#osprey-connectors-v}" in r for r in runs), (
-        "the version is not derived from the tag minus its prefix"
+def test_the_package_version_check__mutation_connectors_glob(tmp_path: Path) -> None:
+    """The check the connectors-only workflow had refuses a facility build."""
+    mutated = _load_package_release()
+    step = _named_step(mutated, PACKAGE_BUILD_JOB, VERSION_STEP)
+    step["run"] = step["run"].replace('"$PREFIX"', "osprey_connectors-")
+    assert (
+        _run_version_check(tmp_path, "facility", _version_check_files("facility", "own"), mutated)
+        != 0
     )
+
+
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_build_builds_its_stream_alone(
+    key: str, release: dict[str, Any] | None = None
+) -> None:
+    """A stream's tag builds that stream's package and no other member, at the
+    tag minus its prefix, which ``resolve`` refuses rather than normalises."""
+    release = release if release is not None else _load_package_release()
+    steps = release["jobs"][PACKAGE_BUILD_JOB]["steps"]
+    runs = [s.get("run", "") for s in steps]
+    build = _named_step(release, PACKAGE_BUILD_JOB, BUILD_STEP)
+    assert build["run"].strip() == 'uv build --package "$DIST"', f"the build runs {build['run']!r}"
+    dist = _render_resolved(build["env"]["DIST"], _stream_outputs(key))
+    assert dist == PACKAGE_DISTS[key], f"a {key} tag builds {dist}"
+    assert not any("--all-packages" in r for r in runs)
+    assert not any("packaging" in r for r in runs), "the build normalises the version again"
+    for version in (TAGGED, "2026.12.0rc1", "2027.1.3b2"):
+        assert _stream_outputs(key, version)["version"] == version, (
+            "the version is not derived from the tag minus its prefix"
+        )
+
+
+def test_the_package_build__mutation_builds_connectors_for_every_tag() -> None:
+    mutated = _load_package_release()
+    _named_step(mutated, PACKAGE_BUILD_JOB, BUILD_STEP)["env"]["DIST"] = "osprey-connectors"
+    with pytest.raises(AssertionError, match="a facility tag builds osprey-connectors"):
+        test_the_package_build_builds_its_stream_alone("facility", mutated)
+
+
+_RECORDER = """#!/bin/sh
+{ printf '%s' "$0"; for arg in "$@"; do printf '\\t%s' "$arg"; done; printf '\\n'; } >> "$CALLS"
+"""
+
+
+def _run_install_check(
+    tmp_path: Path, key: str, release: dict[str, Any] | None = None, installed: str | None = None
+) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    """Run verify-install's step for *key* with ``uv`` and the bare venv stood
+    in by recorders. Returns the run and every command it ran, the venv spelled
+    back as ``/tmp/lean-check``."""
+    release = release if release is not None else _load_package_release()
+    step = _named_step(release, PACKAGE_INSTALL_JOB, PACKAGE_INSTALL_STEP)
+    outputs = _stream_outputs(key)
+    venv = tmp_path / "venv"
+    tools = tmp_path / "tools"
+    for directory in (venv / "bin", tools, tmp_path / "dist"):
+        directory.mkdir(parents=True)
+    recorders = [
+        (tools / "uv", ""),
+        (venv / "bin" / "python", 'case "$*" in *__version__*) echo "$FAKE_VERSION";; esac\n'),
+    ]
+    if outputs["smoke"]:
+        recorders.append((venv / outputs["smoke"].split()[0], ""))
+    for path, extra in recorders:
+        path.write_text(_RECORDER + extra)
+        path.chmod(0o755)
+    for name in _version_check_files(key, "own"):
+        (tmp_path / "dist" / name).write_text("")
+    calls = tmp_path / "calls.log"
+    run = step["run"].replace(LEAN_CHECK_VENV, str(venv))
+    assert run != step["run"], f"verify-install no longer installs into {LEAN_CHECK_VENV}"
+    env = {
+        **os.environ,
+        **{k: _render_resolved(v, outputs) for k, v in step["env"].items()},
+        "PATH": f"{tools}{os.pathsep}{os.environ['PATH']}",
+        "CALLS": str(calls),
+        "FAKE_VERSION": installed or outputs["version"],
+    }
+    done = subprocess.run(
+        ["bash", "-c", run], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60
+    )
+    lines = calls.read_text().splitlines() if calls.exists() else []
+    spelled = [
+        line.replace(str(tools / "uv"), "uv").replace(str(venv), LEAN_CHECK_VENV).split("\t")
+        for line in lines
+    ]
+    return done, spelled
+
+
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+    key: str, tmp_path: Path, release: dict[str, Any] | None = None, installed: str | None = None
+) -> None:
+    """The stream's wheel (with its extras as a separate requirement) goes into
+    the bare venv, the shared walk runs on the stream's key, the installed
+    ``__version__`` must be the tag's, and the smoke command runs venv-qualified."""
+    done, calls = _run_install_check(tmp_path, key, release, installed)
+    assert done.returncode == 0, f"the {key} install check failed: {done.stdout}{done.stderr}"
+    venv_python = f"{LEAN_CHECK_VENV}/bin/python"
+    module = PACKAGE_DISTS[key].replace("-", "_")
+    extras = [PACKAGE_INSTALL_EXTRAS[key]] if key in PACKAGE_INSTALL_EXTRAS else []
+    expected = [
+        ["uv", "venv", LEAN_CHECK_VENV, "--python", "3.11"],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            venv_python,
+            f"dist/{_file_prefix(key)}{TAGGED}-py3-none-any.whl",
+            *extras,
+        ],
+        [venv_python, "-I", LEAN_WALK_SCRIPT, key],
+        [venv_python, "-I", "-c", f"import {module}; print({module}.__version__)"],
+    ]
+    if key in PACKAGE_SMOKE:
+        expected.append(PACKAGE_SMOKE[key])
+    assert calls == expected, f"the {key} install check runs {calls}"
+
+
+def test_the_package_install_check__mutation_unqualified_smoke(tmp_path: Path) -> None:
+    """``bin/osprey-panels`` from the checkout is not the installed entry point."""
+    mutated = _load_package_release()
+    step = _named_step(mutated, PACKAGE_INSTALL_JOB, PACKAGE_INSTALL_STEP)
+    step["run"] = step["run"].replace(f'"{LEAN_CHECK_VENV}/${{smoke[0]}}"', '"${smoke[0]}"')
+    with pytest.raises(AssertionError, match="the panels install check"):
+        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+            "panels", tmp_path, mutated
+        )
+
+
+def test_the_package_install_check__mutation_drops_the_extras(tmp_path: Path) -> None:
+    mutated = _load_package_release()
+    step = _named_step(mutated, PACKAGE_INSTALL_JOB, PACKAGE_INSTALL_STEP)
+    run = step["run"]
+    step["run"] = run.replace('install+=("${DIST}[${LEAN_EXTRAS}]")', ":")
+    assert step["run"] != run, "the extras moved; this mutation is stale"
+    with pytest.raises(AssertionError, match="the facility install check runs"):
+        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+            "facility", tmp_path, mutated
+        )
+
+
+def test_the_package_install_check__mutation_installed_version_differs(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="the connectors install check failed"):
+        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+            "connectors", tmp_path, installed="2026.11.0.post4"
+        )
 
 
 def _lean_walk_invocations(steps: list[dict[str, Any]]) -> list[str]:
@@ -11189,12 +12007,13 @@ def test_both_lean_wheel_checks_run_the_shared_walk(
 ) -> None:
     """The wheel a tag publishes passes the check every PR runs, isolated from the
     checkout. Every PR runs it through the package check, whose steps are
-    declared once, in ``PACKAGE_STEPS`` of scripts/check.py."""
+    declared once, in ``PACKAGE_STEPS`` of scripts/check.py: one walk per
+    stream the check builds, each named by its key in the stream table."""
     steps = framework_checks.PACKAGE_STEPS if package_steps is None else package_steps
     walks = [step for step in steps if LEAN_WALK_SCRIPT in step]
-    assert walks == [("{scratch}/lean/bin/python", "-I", LEAN_WALK_SCRIPT)], (
-        f"the package check must run {LEAN_WALK_SCRIPT} once, in isolated mode from the "
-        f"bare venv; it runs {walks}"
+    assert walks == [(python, "-I", LEAN_WALK_SCRIPT, key) for python, key in LEAN_WALKS], (
+        f"the package check must run {LEAN_WALK_SCRIPT} once per stream, in isolated mode "
+        f"from its bare venv; it runs {walks}"
     )
     assert (
         "uv",
@@ -11204,38 +12023,174 @@ def test_both_lean_wheel_checks_run_the_shared_walk(
         "{scratch}/lean/bin/python",
         "dist/osprey_connectors-*.whl",
     ) in steps
-    runs = _lean_walk_invocations(
-        _load_connectors_release()["jobs"][CONNECTORS_INSTALL_JOB]["steps"]
-    )
-    where = "release-connectors.yml verify-install"
+    # The release half: one walk, on the resolved stream key, from the bare venv
+    # the wheel went into. test_the_package_install_check_walks_probes_and_smokes_the_wheel
+    # runs it per stream.
+    install = _load_package_release()["jobs"][PACKAGE_INSTALL_JOB]
+    runs = _lean_walk_invocations(install["steps"])
+    where = f"{PACKAGE_RELEASE_YML.name} {PACKAGE_INSTALL_JOB}"
     assert len(runs) == 1, f"{where} does not run {LEAN_WALK_SCRIPT}"
-    assert f"/tmp/lean-check/bin/python -I {LEAN_WALK_SCRIPT}" in runs[0], (
+    assert f'{LEAN_CHECK_VENV}/bin/python -I {LEAN_WALK_SCRIPT} "$KEY"\n' in runs[0], (
         f"{where} must run the walk in isolated mode from the bare venv"
     )
-    assert (
-        "uv pip install --python /tmp/lean-check/bin/python dist/osprey_connectors-*.whl" in runs[0]
+    assert f'uv pip install --python {LEAN_CHECK_VENV}/bin/python "${{install[@]}}"' in runs[0]
+    step = _named_step(
+        {"jobs": {PACKAGE_INSTALL_JOB: install}}, PACKAGE_INSTALL_JOB, PACKAGE_INSTALL_STEP
     )
+    assert step["env"]["KEY"] == "${{ needs.resolve.outputs.key }}"
 
 
 def test_both_lean_wheel_checks_run_the_shared_walk__mutation_inline_probe() -> None:
     """The regression: the package check walks the wheel with a copy of its own."""
     steps = tuple(
         ("{scratch}/lean/bin/python", "-c", "import osprey_connectors")
-        if LEAN_WALK_SCRIPT in step
+        if LEAN_WALK_SCRIPT in step and "connectors" in step
         else step
         for step in framework_checks.PACKAGE_STEPS
     )
-    with pytest.raises(AssertionError, match="must run scripts/ci/connectors_lean_import_walk"):
+    assert steps != framework_checks.PACKAGE_STEPS, "no connectors walk; this mutation is stale"
+    with pytest.raises(AssertionError, match="must run scripts/ci/lean_import_walk"):
         test_both_lean_wheel_checks_run_the_shared_walk(steps)
 
 
-def test_the_connectors_jobs_that_read_tags_fetch_them(
+def test_both_lean_wheel_checks_run_the_shared_walk__mutation_drops_the_stream_key() -> None:
+    """A walk with no key walks no stream: the script refuses it, so the step
+    must name the stream."""
+    steps = tuple(
+        step[:-1] if LEAN_WALK_SCRIPT in step and step[-1] == "facility" else step
+        for step in framework_checks.PACKAGE_STEPS
+    )
+    assert steps != framework_checks.PACKAGE_STEPS, "no facility walk; this mutation is stale"
+    with pytest.raises(AssertionError, match="once per stream"):
+        test_both_lean_wheel_checks_run_the_shared_walk(steps)
+
+
+def _facility_lean_wheel_install_missing(steps: tuple[tuple[str, ...], ...]) -> list[str]:
+    """What the facility walk's install lacks (empty = only local OSPREY wheels)."""
+    python = {key: py for py, key in LEAN_WALKS}["facility"]
+    installs = [s for s in steps if s[:3] == ("uv", "pip", "install") and python in s]
+    if len(installs) != 1:
+        return [f"one install into {python}"]
+    install = installs[0]
+    missing = [
+        part
+        for part in (
+            "dist/osprey_facility-*.whl",
+            "osprey-facility[mml]",
+            "dist/osprey_connectors-*.whl",
+        )
+        if part not in install
+    ]
+    if "--find-links" not in install or install[install.index("--find-links") + 1] != "dist":
+        missing.append("--find-links dist")
+    # A bracket glob is a character class to the shell and to _expand alike.
+    missing += [f"no glob extra ({part})" for part in install if "*" in part and "[" in part]
+    missing += [f"no framework wheel ({part})" for part in install if "osprey_framework" in part]
+    return missing
+
+
+def test_the_facility_lean_wheel_installs_only_local_osprey_wheels() -> None:
+    """The facility walk judges this tree's wheel and its ``mml`` extra, with the
+    connectors wheel this check built: the wheel and the extra are separate
+    parts, and ``--find-links dist`` plus the named connectors wheel keep every
+    OSPREY package off PyPI. Third-party dependencies come from the index."""
+    assert _facility_lean_wheel_install_missing(framework_checks.PACKAGE_STEPS) == []
+    steps = framework_checks.PACKAGE_STEPS
+    build = steps.index(("uv", "build", "--package", "osprey-facility"))
+    twine = steps.index(
+        ("uvx", "twine", "check", "dist/osprey_facility-*.tar.gz", "dist/osprey_facility-*.whl")
+    )
+    walk = steps.index(("{scratch}/facility/bin/python", "-I", LEAN_WALK_SCRIPT, "facility"))
+    probe = next(
+        i
+        for i, step in enumerate(steps)
+        if step[:3] == ("{scratch}/facility/bin/python", "-I", "-c")
+        and "osprey_facility.__version__" in step[-1]
+    )
+    assert build < twine < walk < probe
+
+
+def test_the_facility_lean_wheel_installs_only_local_osprey_wheels__mutation_glob_extra() -> None:
+    steps = tuple(
+        tuple("dist/osprey_facility-*.whl[mml]" if p == "osprey-facility[mml]" else p for p in s)
+        for s in framework_checks.PACKAGE_STEPS
+    )
+    assert steps != framework_checks.PACKAGE_STEPS, "no facility extra; this mutation is stale"
+    assert _facility_lean_wheel_install_missing(steps) != []
+
+
+def test_the_facility_lean_wheel_installs_only_local_osprey_wheels__mutation_no_find_links() -> (
+    None
+):
+    steps = tuple(
+        tuple(p for p in s if p not in ("--find-links", "dist"))
+        if "{scratch}/facility/bin/python" in s and s[:3] == ("uv", "pip", "install")
+        else s
+        for s in framework_checks.PACKAGE_STEPS
+    )
+    assert steps != framework_checks.PACKAGE_STEPS, "no facility install; this mutation is stale"
+    assert "--find-links dist" in _facility_lean_wheel_install_missing(steps)
+
+
+def _panels_lane_runs(workflow: dict[str, Any] | None = None) -> str:
+    wf = _load_workflow() if workflow is None else workflow
+    return "\n".join(s.get("run", "") for s in _jobs(wf)[PANELS_STANDALONE_JOB]["steps"])
+
+
+def _panels_lean_wheel_missing(runs: str) -> list[str]:
+    """What the panels lane's release-path checks lack (empty = all present, in order)."""
+    wanted = (
+        "uv build --package osprey-panels --out-dir dist/",
+        '[ "${#wheels[@]}" -eq 1 ]',
+        '[ "${#sdists[@]}" -eq 1 ]',
+        'uvx twine check "${sdists[0]}" "${wheels[0]}"',
+        "uv pip install --python /tmp/panels-lean/bin/python dist/osprey_panels-*.whl",
+        f"/tmp/panels-lean/bin/python -I {LEAN_WALK_SCRIPT} panels\n",
+        "/tmp/panels-lean/bin/python -I -c 'import osprey_panels; print(osprey_panels.__version__)'",
+    )
+    missing = [line for line in wanted if line not in runs]
+    if missing:
+        return missing
+    positions = [runs.index(line) for line in wanted]
+    if positions != sorted(positions):
+        return ["the build, twine check, install, walk and version probe in that order"]
+    if "--wheel" in runs.split("uv build --package osprey-panels", 1)[1].split("\n", 1)[0]:
+        return ["an sdist build (the wheel built from it)"]
+    return []
+
+
+def test_the_panels_lane_lean_wheel_walks_the_wheel_it_builds() -> None:
+    """Panels is not built by the package check; its standalone lane builds the
+    sdist and the wheel from it, as release-package.yml will, has twine judge
+    exactly one of each, and walks that wheel from a bare venv. The walk refuses
+    the framework and the other component packages."""
+    assert _panels_lean_wheel_missing(_panels_lane_runs()) == []
+
+
+def test_the_panels_lane_lean_wheel_walks_the_wheel_it_builds__mutation_wheel_only() -> None:
+    runs = _panels_lane_runs()
+    mutated = runs.replace(
+        "uv build --package osprey-panels --out-dir dist/",
+        "uv build --package osprey-panels --wheel --out-dir dist/",
+    )
+    assert mutated != runs, "the panels build moved; this mutation is stale"
+    assert _panels_lean_wheel_missing(mutated) != []
+
+
+def test_the_panels_lane_lean_wheel_walks_the_wheel_it_builds__mutation_drops_the_walk() -> None:
+    runs = _panels_lane_runs()
+    mutated = runs.replace(f"-I {LEAN_WALK_SCRIPT} panels", "-I -c 'import osprey_panels'")
+    assert mutated != runs, "the panels walk moved; this mutation is stale"
+    assert _panels_lean_wheel_missing(mutated) != []
+
+
+def test_the_package_jobs_that_read_tags_fetch_them(
     release: dict[str, Any] | None = None,
 ) -> None:
     """The gate walks the tag's parents and the build describes the package's
     tags; a shallow checkout has neither and builds a wrong version silently."""
-    release = release if release is not None else _load_connectors_release()
-    for job in (CONNECTORS_GATE_JOB, CONNECTORS_BUILD_JOB):
+    release = release if release is not None else _load_package_release()
+    for job in (PACKAGE_GATE_JOB, PACKAGE_BUILD_JOB):
         checkout = next(
             s
             for s in release["jobs"][job]["steps"]
@@ -11244,33 +12199,129 @@ def test_the_connectors_jobs_that_read_tags_fetch_them(
         assert checkout.get("with", {}).get("fetch-depth") == 0, f"{job} checks out shallow"
 
 
-def test_the_connectors_jobs_that_read_tags_fetch_them__mutation_shallow_build() -> None:
-    mutated = _load_connectors_release()
-    for step in mutated["jobs"][CONNECTORS_BUILD_JOB]["steps"]:
+def test_the_package_jobs_that_read_tags_fetch_them__mutation_shallow_build() -> None:
+    mutated = _load_package_release()
+    for step in mutated["jobs"][PACKAGE_BUILD_JOB]["steps"]:
         if str(step.get("uses", "")).startswith("actions/checkout@"):
             step.pop("with")
     with pytest.raises(AssertionError, match="build checks out shallow"):
-        test_the_connectors_jobs_that_read_tags_fetch_them(mutated)
+        test_the_package_jobs_that_read_tags_fetch_them(mutated)
+
+
+def test_the_package_artifacts_travel_under_the_streams_name(
+    release: dict[str, Any] | None = None,
+) -> None:
+    """The upload and both downloads name one artifact, the stream's."""
+    release = release if release is not None else _load_package_release()
+    for key in PACKAGE_STREAMS:
+        outputs = _stream_outputs(key)
+        names = {
+            f"{job}/{step['uses'].split('@')[0]}": _render_resolved(step["with"]["name"], outputs)
+            for job, spec in release["jobs"].items()
+            for step in spec["steps"]
+            if str(step.get("uses", "")).startswith(
+                ("actions/upload-artifact@", "actions/download-artifact@")
+            )
+        }
+        assert len(names) == 3 and set(names.values()) == {f"{key}-distributions"}, (
+            f"the {key} artifacts travel as {names}"
+        )
+
+
+def test_the_package_artifacts__mutation_a_fixed_name() -> None:
+    mutated = _load_package_release()
+    for step in mutated["jobs"]["publish-to-pypi"]["steps"]:
+        if str(step.get("uses", "")).startswith("actions/download-artifact@"):
+            step["with"]["name"] = "connectors-distributions"
+    with pytest.raises(AssertionError, match="the facility artifacts travel"):
+        test_the_package_artifacts_travel_under_the_streams_name(mutated)
 
 
 def test_both_release_workflows_extract_notes_with_the_shared_script() -> None:
     for release, changelog in (
         (_load_release(), "CHANGELOG.md"),
-        (_load_connectors_release(), "packages/osprey-connectors/CHANGELOG.md"),
+        (_load_package_release(), '"$CHANGELOG"'),
     ):
-        runs = " ".join(s.get("run", "") for s in release["jobs"]["create-github-release"]["steps"])
+        runs = " ".join(s.get("run", "") for s in release["jobs"][RELEASE_JOB]["steps"])
         assert f'python3 scripts/ci/release_notes.py {changelog} "$VERSION"' in runs
         assert "sed -n" not in runs, "an inline sed extractor drops a last section's last line"
 
 
-def test_the_connectors_release_notes_come_from_its_own_changelog() -> None:
-    job = _load_connectors_release()["jobs"]["create-github-release"]
-    runs = " ".join(s.get("run", "") for s in job["steps"])
-    assert "packages/osprey-connectors/CHANGELOG.md" in runs
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_release_notes_come_from_its_own_changelog(
+    key: str, release: dict[str, Any] | None = None
+) -> None:
+    """The notes are the package's own changelog section; the release is named
+    ``<dist> v<version>`` and never becomes Latest."""
+    release = release if release is not None else _load_package_release()
+    outputs = _stream_outputs(key)
+    job = release["jobs"][RELEASE_JOB]
+    notes = _named_step(release, RELEASE_JOB, NOTES_STEP)
+    changelog = _render_resolved(notes["env"]["CHANGELOG"], outputs)
+    assert changelog == f"packages/{PACKAGE_DISTS[key]}/CHANGELOG.md", (
+        f"the {key} notes come from {changelog}"
+    )
+    assert _render_resolved(notes["env"]["VERSION"], outputs) == outputs["version"]
     create = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("softprops/"))
-    assert create["with"]["make_latest"] is False, "a connectors release must not become Latest"
-    assert create["with"]["name"].startswith("osprey-connectors v")
+    assert create["with"]["make_latest"] is False, f"a {key} release must not become Latest"
+    name = _render_resolved(create["with"]["name"], outputs)
+    assert name == f"{PACKAGE_DISTS[key]} v{outputs['version']}", (
+        f"the {key} release is named {name!r}"
+    )
     assert job["permissions"] == {"contents": "write"}
+
+
+def test_the_package_release_notes__mutation_connectors_changelog() -> None:
+    mutated = _load_package_release()
+    notes = _named_step(mutated, RELEASE_JOB, NOTES_STEP)
+    notes["env"]["CHANGELOG"] = "packages/osprey-connectors/CHANGELOG.md"
+    with pytest.raises(AssertionError, match="the facility notes come from"):
+        test_the_package_release_notes_come_from_its_own_changelog("facility", mutated)
+
+
+def test_the_package_release_notes__mutation_becomes_latest() -> None:
+    mutated = _load_package_release()
+    for step in mutated["jobs"][RELEASE_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("softprops/"):
+            step["with"]["make_latest"] = True
+    with pytest.raises(AssertionError, match="must not become Latest"):
+        test_the_package_release_notes_come_from_its_own_changelog("panels", mutated)
+
+
+@pytest.mark.parametrize("key", PACKAGE_STREAMS)
+def test_the_package_release_flags_its_prereleases(
+    key: str, release: dict[str, Any] | None = None
+) -> None:
+    """Exactly ``X.Y.Z`` is a final release, the whitelist release.yml uses;
+    every other version is flagged a pre-release on the GitHub release."""
+    release = release if release is not None else _load_package_release()
+    create = next(
+        s
+        for s in release["jobs"][RELEASE_JOB]["steps"]
+        if str(s.get("uses", "")).startswith("softprops/")
+    )
+    assert create["with"]["prerelease"] == PRERELEASE_FLAG, (
+        f"the release flags prerelease as {create['with']['prerelease']!r}"
+    )
+    for version, flagged in (
+        (TAGGED, "false"),
+        ("2026.12.0rc1", "true"),
+        ("2026.12.0b2", "true"),
+        ("2026.12.0a1", "true"),
+        ("2026.12.0.dev3", "true"),
+    ):
+        assert _stream_outputs(key, version)["prerelease"] == flagged, (
+            f"{key} {version} is misflagged"
+        )
+
+
+def test_the_package_release_flags__mutation_inverted() -> None:
+    mutated = _load_package_release()
+    for step in mutated["jobs"][RELEASE_JOB]["steps"]:
+        if str(step.get("uses", "")).startswith("softprops/"):
+            step["with"]["prerelease"] = "${{ needs.resolve.outputs.prerelease == 'false' }}"
+    with pytest.raises(AssertionError, match="flags prerelease as"):
+        test_the_package_release_flags_its_prereleases("connectors", mutated)
 
 
 def _framework_build_commands(release: dict[str, Any]) -> list[str]:
@@ -11281,15 +12332,16 @@ def _framework_build_commands(release: dict[str, Any]) -> list[str]:
 def test_the_framework_release_builds_its_lockstep_members_only(
     release: dict[str, Any] | None = None,
 ) -> None:
-    """Every workspace member but osprey-connectors, osprey-facility and
-    osprey-panels rides the v-tag (osprey-facility and osprey-panels have no
-    release until their own tag streams exist); a member added later fails here
-    until the release builds it."""
+    """Every workspace member but the STREAMS packages (osprey-connectors,
+    osprey-facility and osprey-panels, each released from its own tags by
+    release-package.yml) rides the v-tag; a member added later fails here until
+    the release builds it."""
     release = release if release is not None else _load_release()
     members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
         "members"
     ]
-    own_streams = {"osprey-connectors", "osprey-facility", "osprey-panels"}
+    own_streams = {s.dist for s in _stream_table().STREAMS}
+    assert {"osprey-connectors", "osprey-facility", "osprey-panels"} <= own_streams
     lockstep = sorted(Path(m).name for m in members if Path(m).name not in own_streams)
     expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
     assert _framework_build_commands(release) == expected, (
@@ -11307,17 +12359,42 @@ def test_the_framework_release_builds__mutation_all_packages() -> None:
         test_the_framework_release_builds_its_lockstep_members_only(mutated)
 
 
-def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Path) -> None:
-    step = next(
-        s
-        for s in _load_release()["jobs"]["build"]["steps"]
-        if s.get("name") == CONNECTORS_VERSION_STEP
+def _component_dists() -> str:
+    """What build's `List the component streams` step exports as `component_dists`."""
+    release = _load_release()
+    step = next(s for s in release["jobs"]["build"]["steps"] if s.get("id") == "streams")
+    assert "release_streams.py dists --joined" in step["run"]
+    assert release["jobs"]["build"]["outputs"]["component_dists"] == (
+        "${{ steps.streams.outputs.component_dists }}"
     )
+    return subprocess.run(
+        [sys.executable, str(RELEASE_STREAMS_PATH), "dists", "--joined"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=60,
+    ).stdout.strip()
+
+
+def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Path) -> None:
+    """The refusal is derived from STREAMS: a wheel of any component stream in
+    dist/ fails the check, and an empty stream list fails it rather than
+    checking nothing."""
+    step = next(
+        s for s in _load_release()["jobs"]["build"]["steps"] if s.get("name") == VERSION_STEP
+    )
+    assert step["env"]["COMPONENT_DISTS"] == "${{ steps.streams.outputs.component_dists }}"
+    dists = _component_dists()
+    assert dists.split() == [s.dist_prefix for s in _stream_table().STREAMS]
     dist = tmp_path / "dist"
     dist.mkdir()
-    env = {**os.environ, "GITHUB_REF": "refs/tags/v2026.10.0"}
 
-    def run() -> int:
+    def run(component_dists: str = dists) -> int:
+        env = {
+            **os.environ,
+            "GITHUB_REF": "refs/tags/v2026.10.0",
+            "COMPONENT_DISTS": component_dists,
+        }
         return subprocess.run(
             ["bash", "-c", step["run"]],
             cwd=tmp_path,
@@ -11333,8 +12410,12 @@ def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Pat
     ):
         (dist / name).write_text("")
     assert run() == 0
-    (dist / "osprey_connectors-2026.10.0-py3-none-any.whl").write_text("")
-    assert run() != 0
+    assert run("") != 0, "an empty stream list leaves the refusal checking nothing"
+    for prefix in dists.split():
+        component = dist / f"{prefix}2026.10.0-py3-none-any.whl"
+        component.write_text("")
+        assert run() != 0, f"the version check accepts {component.name}"
+        component.unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -11361,7 +12442,7 @@ def _both_releases() -> list[tuple[str, dict[str, Any], str]]:
     """``(file name, workflow, gate job)`` for each release workflow."""
     return [
         (RELEASE_YML.name, _load_release(), RELEASE_GATE_JOB),
-        (CONNECTORS_RELEASE_YML.name, _load_connectors_release(), CONNECTORS_GATE_JOB),
+        (PACKAGE_RELEASE_YML.name, _load_package_release(), PACKAGE_GATE_JOB),
     ]
 
 
@@ -11374,7 +12455,7 @@ def _assert_least_privilege(name: str, release: dict[str, Any]) -> None:
     )
 
 
-@pytest.mark.parametrize("index", [0, 1], ids=["release.yml", "release-connectors.yml"])
+@pytest.mark.parametrize("index", [0, 1], ids=["release.yml", "release-package.yml"])
 def test_each_release_workflow_writes_only_where_it_must(index: int) -> None:
     name, release, _ = _both_releases()[index]
     _assert_least_privilege(name, release)
@@ -11438,11 +12519,11 @@ def test_both_release_gates_require_the_tag_on_main() -> None:
 
 
 def test_both_release_gates_require_the_tag_on_main__mutation_drops_one() -> None:
-    release = _load_connectors_release()
-    steps = release["jobs"][CONNECTORS_GATE_JOB]["steps"]
+    release = _load_package_release()
+    steps = release["jobs"][PACKAGE_GATE_JOB]["steps"]
     steps[:] = [s for s in steps if s.get("name") != ON_MAIN_STEP]
     with pytest.raises(AssertionError, match="has no"):
-        _on_main_step(release, CONNECTORS_GATE_JOB)
+        _on_main_step(release, PACKAGE_GATE_JOB)
 
 
 def _git_in(cwd: Path, *args: str) -> str:
@@ -11866,10 +12947,17 @@ def _twine_verdict_missing(steps: tuple[tuple[str, ...], ...]) -> list[str]:
     """What the twine check is missing (empty = its own status decides)."""
     if TWINE_CHECK_STEP not in steps:
         return ["a twine check"]
+    # Every twine step is twine itself, argv for argv over dist/ artifacts:
+    # the framework's dist/* and any one package's own sdist and wheel.
     return [
         f"twine's own status on {step!r}"
         for step in steps
-        if any("twine" in part for part in step) and step != TWINE_CHECK_STEP
+        if any("twine" in part for part in step)
+        and not (
+            step[:3] == TWINE_CHECK_STEP[:3]
+            and len(step) > 3
+            and all(part.startswith("dist/") for part in step[3:])
+        )
     ]
 
 
@@ -13102,6 +14190,10 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         "osprey_framework-2026.9.1.tar.gz",
         "osprey_connectors-2026.9.1-py3-none-any.whl",
         "osprey_connectors-2026.9.1.tar.gz",
+        "osprey_facility-2026.9.1-py3-none-any.whl",
+        "osprey_facility-2026.9.1.tar.gz",
+        "osprey_panels-2026.9.1-py3-none-any.whl",
+        "osprey_panels-2026.9.1.tar.gz",
         "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "osprey_optimizer-2026.9.1.tar.gz",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
@@ -13110,13 +14202,17 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
         (dist / name).write_text("")
     sibling = tmp_path / "sibling"
     script = _release_staging_script(release).replace(RELEASE_SIBLING_DIR, str(sibling))
-    subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, check=True, timeout=60)
+    env = {**os.environ, "COMPONENT_DISTS": _component_dists()}
+    subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script], cwd=tmp_path, env=env, check=True, timeout=60
+    )
     return sorted(p.name for p in sibling.iterdir())
 
 
 def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
-    # osprey-connectors is absent even from a dist/ that holds it: it releases
-    # on its own tags, so the framework's floor on it must resolve from PyPI.
+    # Every component stream's wheel is absent even from a dist/ that holds it:
+    # each releases on its own tags, so the framework's floor on it must resolve
+    # from PyPI.
     assert _staged_siblings(release, tmp_path) == [
         "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
@@ -13136,8 +14232,8 @@ def _with_staging(release: dict[str, Any], staging: str) -> dict[str, Any]:
 def test_the_release_gate_stages_every_member_wheel_but_the_framework(tmp_path: Path) -> None:
     """The framework depends on every lockstep member, so a sibling left out of
     the find-links fails the gate on the tag that first ships it; the
-    framework's own wheel, any sdist, or a connectors wheel staged there would
-    let an unpublished pin resolve."""
+    framework's own wheel, any sdist, or a component wheel (connectors,
+    facility, panels) staged there would let an unpublished pin resolve."""
     _assert_release_stages_every_member_wheel(yaml.safe_load(RELEASE_YML.read_text()), tmp_path)
 
 
@@ -13165,14 +14261,33 @@ def test_the_release_resolves_osprey_facility_from_pypi_only(
 ) -> None:
     """osprey-facility releases on its own tags, so the framework release
     builds no wheel of it and the PyPI gate never installs it from the
-    checkout: a framework that needs it publishes only once PyPI has it."""
+    checkout: a framework that needs it publishes only once PyPI has it. The
+    gate's staging excludes its wheel by name through the refusal derived from
+    STREAMS (build's `component_dists`), not by a literal in the step, and
+    gets no checkout to build one from."""
     release = release if release is not None else _load_release()
     names = ("osprey-facility", "osprey_facility")
     built = [c for c in _framework_build_commands(release) if any(n in c for n in names)]
     assert not built, f"the framework release builds osprey-facility: {built}"
-    verify = yaml.safe_dump(release["jobs"][RELEASE_VERIFY_JOB]["steps"])
+    assert "osprey_facility-" in _component_dists().split(), (
+        "the derived refusal does not name osprey-facility"
+    )
+    steps = release["jobs"][RELEASE_VERIFY_JOB]["steps"]
+    (staging,) = (s for s in steps if RELEASE_SIBLING_DIR in str(s.get("run", "")))
+    assert (staging.get("env") or {}).get("COMPONENT_DISTS") == (
+        "${{ needs.build.outputs.component_dists }}"
+    ), f"{RELEASE_VERIFY_JOB} does not read the derived refusal"
+    assert not [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")], (
+        f"{RELEASE_VERIFY_JOB} checks out the tree"
+    )
+    verify = yaml.safe_dump(steps)
     assert not any(n in verify for n in names), (
         f"{RELEASE_VERIFY_JOB} installs osprey-facility from the checkout"
+    )
+    with tempfile.TemporaryDirectory() as scratch:
+        staged = _staged_siblings(release, Path(scratch))
+    assert not [w for w in staged if w.startswith("osprey_facility-")], (
+        f"{RELEASE_VERIFY_JOB} installs osprey-facility from the checkout: {staged}"
     )
     needs = release["jobs"][PUBLISH_JOB]["needs"]
     needs = [needs] if isinstance(needs, str) else needs
@@ -13907,33 +15022,109 @@ def test_the_lookup_lane_map__mutation_renames_a_key() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Connectors compatibility lanes: Lane A runs HEAD connectors under every
-# supported framework release, Lane B runs HEAD framework at its connectors
-# floor, and the nightly runs Lane A and each release's own tests. Each stands
-# down until the cut-over, and the stand-down has to lift by data alone
+# Compatibility lanes, one set per stream released with a compat window
+# (release_streams.py `compat=True`): Lane A runs the HEAD package under every
+# supported framework release, Lane B runs HEAD framework at the package's
+# floor, and the nightly runs Lane A for each stream and the connectors
+# release's own tests. Each stands down until data lifts it.
 # ---------------------------------------------------------------------------
 
-COMPAT_PLAN_JOB = "connectors-compat-plan"
-COMPAT_JOB = "connectors-compat"
-FLOOR_COMPAT_JOB = "framework-at-connectors-floor"
+RELEASE_STREAMS_SCRIPT = REPO_ROOT / "scripts" / "ci" / "release_streams.py"
+COMPAT_MATRIX_SCRIPT = REPO_ROOT / "scripts" / "ci" / "compat_matrix.py"
+COMPAT_LANE_SCRIPT = REPO_ROOT / "scripts" / "ci" / "compat_lane.py"
+NIGHTLY_YML = REPO_ROOT / ".github" / "workflows" / "compat-nightly.yml"
+SCAN_SCRIPT = (
+    "packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py"
+)
 COMPAT_LISTED = "matrix.framework != ''"
 COMPAT_UNLISTED = "matrix.framework == ''"
-FLOOR_ARMED = "needs.connectors-compat-plan.outputs.floor-applicable == 'true'"
-FLOOR_DISARMED = "needs.connectors-compat-plan.outputs.floor-applicable != 'true'"
-COMPAT_MATRIX_SCRIPT = REPO_ROOT / "scripts" / "ci" / "connectors_compat_matrix.py"
-COMPAT_LANE = "python3 scripts/ci/connectors_compat_lane.py"
-NIGHTLY_YML = REPO_ROOT / ".github" / "workflows" / "connectors-compat-nightly.yml"
-NIGHTLY_PLAN_JOB = "plan"
-NIGHTLY_LANE_JOBS = ("connectors-compat", "release-tests")
+NIGHTLY_LANE_JOBS = ("connectors-compat", "facility-compat", "release-tests")
 NIGHTLY_REPORT_JOB = "report-failure"
+#: The tree each floor-consumer import name is scanned at.
+CONSUMER_TREES = {
+    "osprey": "src/osprey",
+    "pyaml_cs_osprey": "packages/pyaml-cs-osprey/src/pyaml_cs_osprey",
+    "osprey_facility": "packages/osprey-facility/src/osprey_facility",
+}
+#: The framework suites `framework-at-facility-floor` runs against the floor.
+FACILITY_FLOOR_SUITE = (
+    "tests/cli/test_facility_validate.py",
+    "tests/cli/test_facility_name_resolution.py",
+    "tests/cli/test_facility_error_output.py",
+    "tests/cli/test_facility_cmd_machine_root.py",
+    "tests/build_pipeline/test_facility_render_roots.py",
+)
+
+
+def _load_script(name: str, path: Path) -> Any:
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # the frozen dataclasses resolve their module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _compat_matrix_module() -> Any:
-    spec = importlib.util.spec_from_file_location("connectors_compat_matrix", COMPAT_MATRIX_SCRIPT)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return _load_script("_wiring_compat_matrix", COMPAT_MATRIX_SCRIPT)
+
+
+def _compat_lane_module() -> Any:
+    return _load_script("_wiring_compat_lane", COMPAT_LANE_SCRIPT)
+
+
+def _release_streams() -> Any:
+    return _load_script("_wiring_release_streams", RELEASE_STREAMS_SCRIPT)
+
+
+COMPAT_STREAMS = tuple(s.key for s in _release_streams().STREAMS if s.compat)
+
+
+def _stream(key: str) -> Any:
+    return next(s for s in _release_streams().STREAMS if s.key == key)
+
+
+def _plan_job(key: str) -> str:
+    return f"{key}-compat-plan"
+
+
+def _compat_job(key: str) -> str:
+    return f"{key}-compat"
+
+
+def _floor_job(key: str) -> str:
+    return f"framework-at-{key}-floor"
+
+
+def _nightly_plan_job(key: str) -> str:
+    return f"{key}-plan"
+
+
+def _floor_armed(key: str) -> str:
+    return f"needs.{_plan_job(key)}.outputs.floor-applicable == 'true'"
+
+
+def _floor_disarmed(key: str) -> str:
+    return f"needs.{_plan_job(key)}.outputs.floor-applicable != 'true'"
+
+
+def _compat_lane(key: str) -> str:
+    return f"python3 scripts/ci/compat_lane.py --package {key}"
+
+
+#: What each floor lane needs: the facility floor lane installs the connectors floor too.
+FLOOR_NEEDS = {
+    "connectors": "connectors-compat-plan",
+    "facility": ["facility-compat-plan", "connectors-compat-plan"],
+}
+#: The nightly plan each nightly lane reads.
+NIGHTLY_PLAN_OF = {
+    "connectors-compat": "connectors-plan",
+    "facility-compat": "facility-plan",
+    "release-tests": "connectors-plan",
+}
 
 
 def _load_nightly() -> dict[str, Any]:
@@ -13971,160 +15162,581 @@ def _runs(wf: dict[str, Any], job_name: str) -> str:
     return " ".join(str(step.get("run", "")) for step in _jobs(wf)[job_name]["steps"])
 
 
-def test_the_compat_lanes_read_the_plan(workflow: dict[str, Any]) -> None:
+def _floor_step(wf: dict[str, Any], key: str, prefix: str) -> dict[str, Any]:
+    steps = [s for s in _jobs(wf)[_floor_job(key)]["steps"] if s.get("name", "").startswith(prefix)]
+    assert len(steps) == 1, (key, prefix)
+    return steps[0]
+
+
+def _floor_install(wf: dict[str, Any], key: str) -> str:
+    return _floor_step(wf, key, "Install the framework with the floor")["run"]
+
+
+def _floor_scan(wf: dict[str, Any], key: str) -> str:
+    return _floor_step(wf, key, "Scan the framework for")["run"]
+
+
+def _scan_trees(scan: str) -> tuple[str | None, list[str]]:
+    """The scan's ``--target`` (``None``: the default, the connectors) and its trees."""
+    argv = shlex.split(scan)
+    assert argv[:2] == [".venv/bin/python", "-I"] and argv[2] == SCAN_SCRIPT, argv
+    target, trees, rest = None, [], argv[3:]
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--target":
+            target = rest.pop(0)
+        else:
+            assert not arg.startswith("-"), arg
+            trees.append(arg)
+    return target, trees
+
+
+def _floor_install_problems(wf: dict[str, Any], key: str) -> list[str]:
+    """What the floor lane's install gets wrong about which packages are the floor.
+
+    ``--no-sources`` drops every workspace source (``--no-sources-package`` alone
+    leaves the root's pyaml-cs-osprey one, which ``uv pip install`` of the root
+    refuses), so the workspace members that are not under test are named by
+    path or they would come from PyPI. Connectors: the floor connectors and the
+    editable HEAD facility. Facility: the floor facility with the connectors
+    floor beside it, and no editable facility.
+    """
+    install = _floor_install(wf, key)
+    needed = ["--no-sources ", "-e ./packages/pyaml-cs-osprey ", "-e ./packages/osprey-optimizer "]
+    if key == "connectors":
+        needed += ["-e ./packages/osprey-facility ", '"osprey-connectors==$FLOOR"']
+        refused = []
+    else:
+        needed += ['"osprey-facility==$FLOOR"', '"osprey-connectors==$CONNECTORS_FLOOR"']
+        refused = ["./packages/osprey-facility", "./packages/osprey-connectors"]
+    return [f"missing {n.strip()!r}" for n in needed if n not in install] + [
+        f"installs {r!r}" for r in refused if r in install
+    ]
+
+
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_compat_lanes_read_the_plan(workflow: dict[str, Any], key: str) -> None:
     jobs = _jobs(workflow)
-    assert jobs[COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
-    assert jobs[FLOOR_COMPAT_JOB]["needs"] == COMPAT_PLAN_JOB
-    assert jobs[COMPAT_JOB]["strategy"]["matrix"] == (
-        "${{ fromJSON(needs.connectors-compat-plan.outputs.matrix) }}"
+    assert jobs[_compat_job(key)]["needs"] == _plan_job(key)
+    assert jobs[_floor_job(key)]["needs"] == FLOOR_NEEDS[key]
+    assert jobs[_compat_job(key)]["strategy"]["matrix"] == (
+        f"${{{{ fromJSON(needs.{_plan_job(key)}.outputs.matrix) }}}}"
     )
-    plan_runs = [step.get("run", "") for step in jobs[COMPAT_PLAN_JOB]["steps"]]
-    assert "python3 scripts/ci/connectors_compat_matrix.py github-output" in plan_runs
+    plan_runs = [step.get("run", "") for step in jobs[_plan_job(key)]["steps"]]
+    assert f"python3 scripts/ci/compat_matrix.py --package {key} github-output" in plan_runs
+    env = jobs[_floor_job(key)]["env"]
+    assert env["FLOOR"] == f"${{{{ needs.{_plan_job(key)}.outputs.floor }}}}"
+    if key == "facility":
+        assert env["CONNECTORS_FLOOR"] == "${{ needs.connectors-compat-plan.outputs.floor }}"
 
 
-@pytest.mark.parametrize("source", ["ci", "nightly"])
-def test_the_plan_reads_the_full_history(source: str) -> None:
+@pytest.mark.parametrize(
+    ("source", "key"), [(s, k) for s in ("ci", "nightly") for k in COMPAT_STREAMS]
+)
+def test_the_plan_reads_the_full_history(source: str, key: str) -> None:
     """The plan holds the declarations to every tag reachable from HEAD, which a
     shallow checkout hides (the script refuses one)."""
     wf, job = (
-        (_load_workflow(), COMPAT_PLAN_JOB)
+        (_load_workflow(), _plan_job(key))
         if source == "ci"
-        else (_load_nightly(), NIGHTLY_PLAN_JOB)
+        else (_load_nightly(), _nightly_plan_job(key))
     )
     checkout = _jobs(wf)[job]["steps"][0]
     assert checkout["uses"].startswith("actions/checkout@")
     assert checkout.get("with", {}).get("fetch-depth") == 0
 
 
-def test_the_compat_lanes_carry_no_job_level_condition(workflow: dict[str, Any]) -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_compat_lanes_carry_no_job_level_condition(workflow: dict[str, Any], key: str) -> None:
     """A job-level ``if:`` would skip the lane, which the gate reads as red; the
     stand-down is a step so the lane is green for the reason its log states."""
-    for job_name in (COMPAT_PLAN_JOB, COMPAT_JOB, FLOOR_COMPAT_JOB):
+    for job_name in (_plan_job(key), _compat_job(key), _floor_job(key)):
         assert "if" not in _jobs(workflow)[job_name], job_name
 
 
-def test_lane_a_stands_down_only_on_the_empty_cell(workflow: dict[str, Any]) -> None:
-    assert _stand_down_problems(workflow, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED) == []
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_a_stands_down_only_on_the_empty_cell(workflow: dict[str, Any], key: str) -> None:
+    assert _stand_down_problems(workflow, _compat_job(key), COMPAT_LISTED, COMPAT_UNLISTED) == []
 
 
-def test_lane_a_stands_down_only_on_the_empty_cell__mutation_gates_a_step_elsewhere() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[COMPAT_JOB]["steps"][-1]["if"] = "github.event_name == 'push'"
-    assert len(_stand_down_problems(mutated, COMPAT_JOB, COMPAT_LISTED, COMPAT_UNLISTED)) == 1
-
-
-def test_lane_b_stands_down_only_while_the_floor_predates_independence(
-    workflow: dict[str, Any],
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_a_stands_down_only_on_the_empty_cell__mutation_gates_a_step_elsewhere(
+    key: str,
 ) -> None:
-    assert _stand_down_problems(workflow, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED) == []
-
-
-def test_lane_b_stands_down_only_while__mutation_ungates_a_step() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[FLOOR_COMPAT_JOB]["steps"][-1].pop("if")
-    assert len(_stand_down_problems(mutated, FLOOR_COMPAT_JOB, FLOOR_ARMED, FLOOR_DISARMED)) == 1
+    _jobs(mutated)[_compat_job(key)]["steps"][-1]["if"] = "github.event_name == 'push'"
+    assert len(_stand_down_problems(mutated, _compat_job(key), COMPAT_LISTED, COMPAT_UNLISTED)) == 1
 
 
-def test_the_empty_cell_prints_the_reason_the_plan_gives() -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_stands_down_only_while_the_floor_predates_independence(
+    workflow: dict[str, Any], key: str
+) -> None:
+    """Connectors: until the floor names an independent release. Facility: also
+    while the root lists it with no floor at all (FLOOR_OPTIONAL); the plan
+    prints ``floor-applicable=false`` for both, and a required floor that is
+    missing fails the plan instead."""
+    assert (
+        _stand_down_problems(workflow, _floor_job(key), _floor_armed(key), _floor_disarmed(key))
+        == []
+    )
+
+
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_stands_down_only_while__mutation_ungates_a_step(key: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[_floor_job(key)]["steps"][-1].pop("if")
+    assert (
+        len(_stand_down_problems(mutated, _floor_job(key), _floor_armed(key), _floor_disarmed(key)))
+        == 1
+    )
+
+
+def test_only_an_optional_floor_stands_lane_b_down_when_missing() -> None:
+    """The connectors floor is required: listed bare, the plan fails rather than
+    standing the lane down green. The facility floor is optional."""
+    compat = _compat_matrix_module()
+    assert compat.CONNECTORS.floor_optional is False
+    assert compat.FACILITY.floor_optional is True
+    bare = {"project": {"dependencies": ["osprey-connectors", "osprey-facility"]}}
+    assert compat.floor(compat.FACILITY, bare) is None
+    with pytest.raises(ValueError, match="expected one 'osprey-connectors>='"):
+        compat.floor(compat.CONNECTORS, bare)
+
+
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_empty_cell_prints_the_reason_the_plan_gives(key: str) -> None:
     """One wording, the script's: the stand-down step echoes the cell's reason."""
-    for wf, job in [(_load_workflow(), COMPAT_JOB)] + [
-        (_load_nightly(), j) for j in NIGHTLY_LANE_JOBS
+    nightly_jobs = [j for j in NIGHTLY_LANE_JOBS if NIGHTLY_PLAN_OF[j] == _nightly_plan_job(key)]
+    for wf, job in [(_load_workflow(), _compat_job(key))] + [
+        (_load_nightly(), j) for j in nightly_jobs
     ]:
         step = _jobs(wf)[job]["steps"][0]
         assert step["env"] == {"REASON": "${{ matrix.reason }}"}, job
         assert step["run"].strip() == 'echo "$REASON"', job
-    assert _compat_matrix_module().matrix([])["include"][0]["reason"]
+    compat = _compat_matrix_module()
+    assert compat.matrix(compat.PACKAGES[key], [])["include"][0]["reason"]
 
 
-def test_lane_a_runs_the_shared_steps(workflow: dict[str, Any]) -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_a_runs_the_shared_steps(workflow: dict[str, Any], key: str) -> None:
     """The nightly's dry run exercises Lane A only if both run the same driver;
-    the driver runs every compat script ``python -I`` (test_connectors_compat_lane.py)."""
-    for wf, job in ((workflow, COMPAT_JOB), (_load_nightly(), "connectors-compat")):
+    the driver runs every compat script ``python -I`` (test_compat_lane.py)."""
+    for wf, job in ((workflow, _compat_job(key)), (_load_nightly(), _compat_job(key))):
         runs = _runs(wf, job)
-        assert f"{COMPAT_LANE} install" in runs, job
-        assert f"{COMPAT_LANE} check" in runs, job
+        assert f"{_compat_lane(key)} install" in runs, job
+        assert f"{_compat_lane(key)} check" in runs, job
         assert "osprey_connectors_tests/compat" not in runs, job
 
 
-def test_lane_a_installs_the_wheel_built_at_head(workflow: dict[str, Any]) -> None:
-    runs = _runs(workflow, COMPAT_JOB)
-    assert "uv build --package osprey-connectors --wheel --out-dir dist/" in runs
-    assert "--connectors head" in runs
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_a_installs_the_wheel_built_at_head(workflow: dict[str, Any], key: str) -> None:
+    runs = _runs(workflow, _compat_job(key))
+    assert f"uv build --package {_stream(key).dist} --wheel --out-dir dist/" in runs
+    assert "--under-test head" in runs
 
 
-def test_lane_b_installs_the_published_metadata_at_the_floor(workflow: dict[str, Any]) -> None:
-    """Only the connectors leave the workspace. ``--no-sources`` drops every
-    workspace source (``--no-sources-package osprey-connectors`` alone leaves the
-    root's pyaml-cs-osprey one, which ``uv pip install`` of the root refuses), so
-    the workspace pyaml-cs-osprey, osprey-optimizer and osprey-facility are named
-    by their paths or they would come from PyPI (where osprey-facility has no
-    release)."""
-    install = _find_named_step(
-        workflow, FLOOR_COMPAT_JOB, "Install the framework with the floor connectors"
-    )["run"]
-    assert "--no-sources " in install
-    assert "-e ./packages/pyaml-cs-osprey " in install
-    assert "-e ./packages/osprey-optimizer " in install
-    assert "-e ./packages/osprey-facility " in install
-    assert '"osprey-connectors==$FLOOR"' in install
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_installs_the_published_metadata_at_the_floor(
+    workflow: dict[str, Any], key: str
+) -> None:
+    assert _floor_install_problems(workflow, key) == []
 
 
-def test_lane_b_holds_the_suites_to_the_floor(workflow: dict[str, Any]) -> None:
-    runs = _runs(workflow, FLOOR_COMPAT_JOB)
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_installs_the_published_metadata__mutation_swaps_the_floors(key: str) -> None:
+    """Connectors' lane losing its editable facility, facility's losing the
+    connectors floor or gaining the editable facility: each is caught."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _floor_step(mutated, key, "Install the framework with the floor")
+    if key == "connectors":
+        step["run"] = step["run"].replace("-e ./packages/osprey-facility ", "")
+        assert _floor_install_problems(mutated, key) == ["missing '-e ./packages/osprey-facility'"]
+    else:
+        step["run"] = step["run"].replace(
+            '"osprey-connectors==$CONNECTORS_FLOOR"', "-e ./packages/osprey-facility"
+        )
+        assert len(_floor_install_problems(mutated, key)) == 2
+
+
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_holds_the_suites_to_the_floor(workflow: dict[str, Any], key: str) -> None:
+    stream = _stream(key)
+    runs = _runs(workflow, _floor_job(key))
     assert (
-        f"{COMPAT_LANE} assert-installed --python .venv/bin/python --module osprey_connectors "
-        '--connectors-version "$FLOOR"'
+        f"{_compat_lane(key)} assert-installed --python .venv/bin/python "
+        f'--module {stream.import_name} --version "$FLOOR"'
     ) in runs
     assert (
-        f"{COMPAT_LANE} pytest --python .venv/bin/python --installed osprey_connectors --" in runs
+        f"{_compat_lane(key)} pytest --python .venv/bin/python --installed {stream.import_name} --"
+        in runs
     )
-    scan = _find_named_step(
-        workflow, FLOOR_COMPAT_JOB, "Scan the framework for connectors names the floor lacks"
-    )["run"]
+    scan = _floor_scan(workflow, key)
     assert scan.startswith(".venv/bin/python -I ")
-    assert "src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey" in scan
+    target, trees = _scan_trees(scan)
+    consumers = [CONSUMER_TREES[name] for name in stream.floor_consumers]
+    assert trees[: len(consumers)] == consumers
+    if key == "connectors":
+        assert target is None
+        assert "src/osprey packages/pyaml-cs-osprey/src/pyaml_cs_osprey" in scan
+        assert trees == [*consumers, CONSUMER_TREES["osprey_facility"]]
+    else:
+        # pyaml_cs_osprey has no osprey_facility import site, and the scan
+        # exits 2 on a tree without one.
+        assert target == "osprey_facility"
+        assert trees == consumers
 
 
-def test_the_stand_down_lifts_once_the_floor_is_an_independent_release() -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_lane_b_holds_the_suites__mutation_scans_another_tree(key: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _floor_step(mutated, key, "Scan the framework for")
+    step["run"] = step["run"].replace("src/osprey", "src/osprey_other", 1)
+    with pytest.raises(AssertionError):
+        test_lane_b_holds_the_suites_to_the_floor(mutated, key)
+
+
+def test_the_facility_floor_lane_runs_the_named_framework_suite(workflow: dict[str, Any]) -> None:
+    """Named suites, not tests/facility: the package's own tests there hold only
+    at HEAD, and test_facility_json_schema.py imports osprey_panels, which a
+    ``.[dev]`` install does not carry. The source-text tests are deselected by
+    the driver (``compat_lane.py pytest``)."""
+    runs = _runs(workflow, _floor_job("facility"))
+    argv = shlex.split(runs.split("--installed osprey_facility --", 1)[1])
+    suites = [a for a in argv if a.startswith("tests/")]
+    assert tuple(suites) == FACILITY_FLOOR_SUITE
+    assert "tests/facility" not in suites
+    for suite in suites:
+        assert (REPO_ROOT / suite).is_file(), suite
+
+
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_stand_down_lifts_once_the_floor_is_an_independent_release(key: str) -> None:
     """The declarations agree with the tags this checkout carries. Only the plan
     job is authoritative for the tag rules: a shallow checkout, or one with no
-    framework tag after the last paired release, checks what it can."""
+    framework tag after the cutoff, checks what it can."""
     compat = _compat_matrix_module()
+    package = compat.PACKAGES[key]
     try:
         tags: list[str] | None = compat.reachable_tags()
     except ValueError:
         tags = None
-    if tags is not None and not compat.framework_releases(tags):
+    if tags is not None and not compat.framework_releases(package, tags):
         tags = None
     assert (
         compat.problems(
-            compat.supported_frameworks(),
-            compat.retired_frameworks(),
-            compat.connectors_floor(),
+            package,
+            compat.supported_frameworks(package),
+            compat.retired_frameworks(package),
+            compat.floor(package),
             tags,
         )
         == []
     )
 
 
-def test_the_stand_down_lifts__mutation_raises_the_floor_without_its_tag() -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_stand_down_lifts__mutation_raises_the_floor_without_its_tag(key: str) -> None:
     compat = _compat_matrix_module()
-    assert compat.problems([], [], compat.FIRST_INDEPENDENT_CONNECTORS, []) != []
+    package = compat.PACKAGES[key]
+    assert compat.problems(package, [], [], package.first_independent or "2099.1.0", []) != []
+
+
+def _required_lane_problems(wf: dict[str, Any]) -> list[str]:
+    """Each stream's required lane that is not a ci.yml job of that rendered
+    name the gate waits for, and each compat plan job the gate does not wait for."""
+    jobs = _jobs(wf)
+    needs = set(jobs["all-checks-passed"]["needs"])
+    problems = []
+    for stream in _release_streams().STREAMS:
+        for job_id, prefix in stream.required_lanes:
+            if job_id not in jobs:
+                problems.append(f"{stream.key}: no ci.yml job {job_id}")
+                continue
+            if not str(jobs[job_id].get("name", "")).startswith(prefix):
+                problems.append(f"{stream.key}: {job_id} is not named {prefix!r}…")
+            if job_id not in needs:
+                problems.append(f"{stream.key}: all-checks-passed does not need {job_id}")
+    for key in COMPAT_STREAMS:
+        if _plan_job(key) not in needs:
+            problems.append(f"all-checks-passed does not need {_plan_job(key)}")
+    return problems
+
+
+def test_every_streams_required_lanes_are_ci_jobs_of_their_names(
+    workflow: dict[str, Any],
+) -> None:
+    assert _required_lane_problems(workflow) == []
+
+
+def test_every_streams_required_lanes__mutation_renames_and_drops_lanes() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    jobs = _jobs(mutated)
+    jobs["facility-compat"]["name"] = "Facility compatibility"
+    jobs["all-checks-passed"]["needs"].remove("framework-at-facility-floor")
+    jobs["all-checks-passed"]["needs"].remove("facility-compat-plan")
+    assert _required_lane_problems(mutated) == [
+        "facility: facility-compat is not named 'Facility Compat'…",
+        "facility: all-checks-passed does not need framework-at-facility-floor",
+        "all-checks-passed does not need facility-compat-plan",
+    ]
+
+
+def _connectors_compat_scans_facility_problems(wf: dict[str, Any], lane: Any) -> list[str]:
+    """`connectors-compat` holds an installed osprey_facility to the HEAD
+    connectors: the cell runs the connectors driver's check, whose probe names
+    osprey_facility whenever it is installed, and the check scans each package
+    the probe names."""
+    problems = []
+    if f"{_compat_lane('connectors')} check" not in _runs(wf, "connectors-compat"):
+        problems.append("connectors-compat does not run the connectors check")
+    probe = json.loads(
+        subprocess.run(
+            [sys.executable, "-I", "-c", lane._PROBE],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+        ).stdout
+    )
+    if "osprey_facility" not in probe["packages"]:
+        problems.append("the probe does not name an installed osprey_facility")
+    commands = lane.check_commands(
+        lane.CONNECTORS, Path("python"), probe["packages"], Path("w"), require_view=False
+    )
+    scan = commands[0][1]
+    if scan[scan.index("-I") + 1 :][1:].count("osprey_facility") != 1:
+        problems.append("the connectors scan does not read osprey_facility")
+    return problems
+
+
+def test_connectors_compat_scans_the_installed_facility(workflow: dict[str, Any]) -> None:
+    assert importlib.util.find_spec("osprey_facility") is not None
+    assert _connectors_compat_scans_facility_problems(workflow, _compat_lane_module()) == []
+
+
+def test_connectors_compat_scans_the_installed_facility__mutation_drops_it_from_the_probe() -> None:
+    lane = _compat_lane_module()
+    stripped = ModuleType("stripped_compat_lane")
+    stripped._PROBE = lane._PROBE.replace('+ (["osprey_facility"] if facility else [])', "")  # type: ignore[attr-defined]
+    stripped.CONNECTORS = lane.CONNECTORS  # type: ignore[attr-defined]
+    stripped.check_commands = lane.check_commands  # type: ignore[attr-defined]
+    assert stripped._PROBE != lane._PROBE  # type: ignore[attr-defined]
+    assert _connectors_compat_scans_facility_problems(_load_workflow(), stripped) == [
+        "the probe does not name an installed osprey_facility",
+        "the connectors scan does not read osprey_facility",
+    ]
+
+
+# -- framework-at-facility-floor, armed ---------------------------------------
+
+_SCRATCH_GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+
+
+def _scratch_floor_root(tmp_path: Path, facility_floor: str) -> Path:
+    """A tagged tree declaring ``osprey-facility>=facility_floor``."""
+    root = tmp_path / "root"
+    root.mkdir()
+    deps = ["osprey-connectors>=2026.11.15", f"osprey-facility>={facility_floor}"]
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "scratch"\ndependencies = {json.dumps(deps)}\n'
+    )
+    # The connectors window as at HEAD; the facility one empty.
+    for dist, listed, retired in (
+        ("osprey-facility", [], []),
+        ("osprey-connectors", ["2026.11.1"], ["2026.11.0"]),
+    ):
+        (root / "packages" / dist).mkdir(parents=True)
+        (root / "packages" / dist / "pyproject.toml").write_text(
+            f"[tool.{dist}.compat]\nframeworks = {json.dumps(listed)}\n"
+            f"retired = {json.dumps(retired)}\n"
+        )
+    for argv in (["init", "-q"], ["add", "."], ["commit", "-q", "-m", "scratch"]):
+        subprocess.run([*_SCRATCH_GIT, "-C", str(root), *argv], check=True, timeout=60)
+    for tag in ("v2026.11.0", "v2026.11.1", "osprey-connectors-v2026.11.15"):
+        subprocess.run([*_SCRATCH_GIT, "-C", str(root), "tag", tag], check=True, timeout=60)
+    subprocess.run(
+        [*_SCRATCH_GIT, "-C", str(root), "tag", f"osprey-facility-v{facility_floor}"],
+        check=True,
+        timeout=60,
+    )
+    return root
+
+
+def _plan_outputs(key: str, root: Path) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k != "GITHUB_OUTPUT"}
+    done = subprocess.run(
+        [
+            sys.executable,
+            str(COMPAT_MATRIX_SCRIPT),
+            "--package",
+            key,
+            "--root",
+            str(root),
+            "github-output",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+    assert done.returncode == 0, done.stderr
+    return dict(line.split("=", 1) for line in done.stdout.splitlines())
+
+
+def _render_needs(text: str, outputs: dict[str, dict[str, str]]) -> str:
+    """``${{ needs.<job>.outputs.<name> }}`` replaced by the plan's outputs."""
+    return re.sub(
+        r"\$\{\{\s*needs\.([\w-]+)\.outputs\.([\w-]+)\s*\}\}",
+        lambda m: outputs[m[1]][m[2]],
+        text,
+    )
+
+
+def _armed_floor_argv(wf: dict[str, Any], root: Path) -> dict[str, list[str]]:
+    """The armed facility floor lane's install and assert-installed argv, as the
+    plans of ``root`` render them; fails when the plan would stand it down."""
+    outputs = {key: _plan_outputs(key, root) for key in ("facility", "connectors")}
+    plans = {_plan_job(key): outputs[key] for key in outputs}
+    job = _jobs(wf)[_floor_job("facility")]
+    assert job["steps"][1]["if"] == _floor_armed("facility")
+    assert plans[_plan_job("facility")]["floor-applicable"] == "true", "the plan stands it down"
+    env = {name: _render_needs(value, plans) for name, value in job["env"].items()}
+    expand = lambda text: [os.path.expandvars(a) for a in shlex.split(text)]  # noqa: E731
+    with mock.patch.dict(os.environ, env):
+        install = expand(_floor_install(wf, "facility").splitlines()[-1])
+        asserted = expand(_floor_step(wf, "facility", "Hold the lane to the floor")["run"])
+    return {"install": install, "assert": asserted}
+
+
+def test_the_armed_facility_floor_lane_selects_the_floor_wheel(
+    workflow: dict[str, Any], tmp_path: Path
+) -> None:
+    """Against a tree that declares a facility floor, the plan arms the lane and
+    its steps install and hold exactly that facility release, from the index,
+    with the connectors floor."""
+    argv = _armed_floor_argv(workflow, _scratch_floor_root(tmp_path, "2026.12.0"))
+    install = argv["install"]
+    assert install[:3] == ["uv", "pip", "install"]
+    assert "osprey-facility==2026.12.0" in install
+    assert "osprey-connectors==2026.11.15" in install
+    assert not [a for a in install if "packages/osprey-facility" in a]
+    assert argv["assert"][-2:] == ["--version", "2026.12.0"]
+    assert "--module" in argv["assert"] and "osprey_facility" in argv["assert"]
+
+
+def test_the_armed_facility_floor_lane__mutation_installs_head_facility(
+    tmp_path: Path,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _floor_step(mutated, "facility", "Install the framework with the floor")
+    step["run"] = step["run"].replace('"osprey-facility==$FLOOR"', "-e ./packages/osprey-facility")
+    with pytest.raises(AssertionError):
+        test_the_armed_facility_floor_lane_selects_the_floor_wheel(mutated, tmp_path)
+
+
+#: Runs ``argv[2]`` as ``__main__`` with ``argv[1]`` first on ``sys.path``.
+_ON_PATH = (
+    "import runpy, sys; sys.path.insert(0, sys.argv.pop(1)); "
+    "sys.argv.pop(0); runpy.run_path(sys.argv[0], run_name='__main__')"
+)
+
+
+@pytest.fixture(scope="module")
+def head_facility_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """HEAD osprey_facility installed non-editable: its wheel, unpacked."""
+    out = tmp_path_factory.mktemp("facility-wheel")
+    subprocess.run(
+        ["uv", "build", "--package", "osprey-facility", "--wheel", "--out-dir", str(out / "dist")],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        timeout=600,
+    )
+    (wheel,) = (out / "dist").glob("osprey_facility-*.whl")
+    site = out / "site"
+    with __import__("zipfile").ZipFile(wheel) as archive:
+        archive.extractall(site)
+    return site
+
+
+def test_the_armed_facility_floor_scan_passes_over_the_real_trees(
+    workflow: dict[str, Any], head_facility_wheel: Path
+) -> None:
+    """The armed scan command over the real floor-consumer trees, HEAD facility
+    as the stand-in floor, exits 0; a tree with no osprey_facility import site
+    would exit 2."""
+    argv = shlex.split(_floor_scan(workflow, "facility"))
+    assert argv[1] == "-I"
+    # `-I` ignores PYTHONPATH, so the unpacked wheel goes in by an explicit path.
+    argv[:2] = [sys.executable, "-c", _ON_PATH, str(head_facility_wheel)]
+    done = subprocess.run(argv, cwd=REPO_ROOT, capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stdout + done.stderr
+
+
+def test_the_facility_floor_suite_collects_with_the_facility_installed(
+    head_facility_wheel: Path,
+) -> None:
+    """The named suite collects with HEAD facility from an installed wheel, not
+    the workspace tree, ahead of the editable install."""
+    env = {**outer_run_free_env(), "PYTHONPATH": str(head_facility_wheel)}
+    probe = subprocess.run(
+        [sys.executable, "-c", "import osprey_facility; print(osprey_facility.__file__)"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+        check=True,
+    )
+    assert probe.stdout.strip().startswith(str(head_facility_wheel)), probe.stdout
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            *FACILITY_FLOOR_SUITE,
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=600,
+    )
+    assert done.returncode == 0, done.stdout[-4000:] + done.stderr[-4000:]
+    assert " tests collected" in done.stdout or "tests collected" in done.stdout
 
 
 # -- the nightly ---------------------------------------------------------------
 
 
-def test_the_nightly_dispatch_names_a_release_and_the_connectors(nightly: dict[str, Any]) -> None:
+@pytest.mark.parametrize("key", COMPAT_STREAMS)
+def test_the_nightly_dispatch_names_a_release_and_the_connectors(
+    nightly: dict[str, Any], key: str
+) -> None:
     inputs = _on(nightly)["workflow_dispatch"]["inputs"]
     assert inputs["framework"]["default"] == ""
     assert inputs["connectors"]["default"] == "head"
     assert nightly["env"]["CONNECTORS"] == "${{ inputs.connectors || 'head' }}"
-    plan = _jobs(nightly)[NIGHTLY_PLAN_JOB]["steps"][-1]
+    plan = _jobs(nightly)[_nightly_plan_job(key)]["steps"][-1]
     assert plan["env"] == {"DISPATCHED": "${{ inputs.framework }}"}
     assert plan["run"] == (
-        'python3 scripts/ci/connectors_compat_matrix.py github-output --framework "$DISPATCHED"'
+        f'python3 scripts/ci/compat_matrix.py --package {key} github-output --framework "$DISPATCHED"'
     )
+
+
+def test_the_nightly_runs_lane_a_for_every_compat_stream(nightly: dict[str, Any]) -> None:
+    """One plan and one Lane A per stream; the release's own tests stay connectors-only."""
+    jobs = set(_jobs(nightly))
+    for key in COMPAT_STREAMS:
+        assert {_nightly_plan_job(key), _compat_job(key)} <= jobs, key
+    assert jobs - {NIGHTLY_REPORT_JOB} == set(NIGHTLY_LANE_JOBS) | set(NIGHTLY_PLAN_OF.values())
+    assert "--package connectors" in _runs(nightly, "release-tests")
+    assert "--package facility" not in _runs(nightly, "release-tests")
 
 
 @pytest.mark.parametrize("job", NIGHTLY_LANE_JOBS)
@@ -14133,8 +15745,10 @@ def test_the_nightly_lanes_stand_down_only_on_the_empty_cell(
 ) -> None:
     jobs = _jobs(nightly)
     assert "if" not in jobs[job], job
-    assert jobs[job]["needs"] == NIGHTLY_PLAN_JOB
-    assert jobs[job]["strategy"]["matrix"] == "${{ fromJSON(needs.plan.outputs.matrix) }}"
+    assert jobs[job]["needs"] == NIGHTLY_PLAN_OF[job]
+    assert jobs[job]["strategy"]["matrix"] == (
+        f"${{{{ fromJSON(needs.{NIGHTLY_PLAN_OF[job]}.outputs.matrix) }}}}"
+    )
     assert _stand_down_problems(nightly, job, COMPAT_LISTED, COMPAT_UNLISTED) == []
 
 
@@ -14148,9 +15762,10 @@ def test_the_release_tests_run_guarded_against_the_installed_packages(
     nightly: dict[str, Any],
 ) -> None:
     runs = _runs(nightly, "release-tests")
-    assert f'{COMPAT_LANE} install --venv "$RELEASE_DIR/.venv"' in runs
+    lane = _compat_lane("connectors")
+    assert f'{lane} install --venv "$RELEASE_DIR/.venv"' in runs
     assert "--extra dev" in runs
-    assert f"{COMPAT_LANE} replace-connectors-tree" in runs
+    assert f"{lane} replace-tree" in runs
     assert "--installed osprey --installed osprey_connectors --" in runs
     assert "rm -rf" not in runs, "the release's sources stay: its tests read them"
 
@@ -14166,7 +15781,7 @@ def test_only_the_report_job_may_write_issues(nightly: dict[str, Any]) -> None:
 
 
 def test_the_report_job_files_for_a_failed_scheduled_run(nightly: dict[str, Any]) -> None:
-    """Every other job is needed, the plan's failure included, and a dispatched
+    """Every other job is needed, each plan's failure included, and a dispatched
     dry run files nothing."""
     report = _jobs(nightly)[NIGHTLY_REPORT_JOB]
     assert set(report["needs"]) == set(_jobs(nightly)) - {NIGHTLY_REPORT_JOB}
@@ -14181,7 +15796,8 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
         for step in job["steps"]
         if str(step.get("uses", "")).startswith("actions/checkout@")
     ]
-    assert len(checkouts) == 4
+    # Each plan and Lane A one; release-tests two (HEAD and the release's tag).
+    assert len(checkouts) == 2 * len(COMPAT_STREAMS) + 2
     for name, step in checkouts:
         assert step["with"]["persist-credentials"] is False, (name, step.get("name"))
 
@@ -16657,7 +18273,7 @@ def test_every_spending_lane_and_stack_cell__mutation_opts_a_cell_out(job_id: st
 
 
 # ---------------------------------------------------------------------------
-# `connectors_compat_matrix.py` reads the tags reachable from HEAD and refuses a
+# `compat_matrix.py` reads the tags reachable from HEAD and refuses a
 # shallow checkout. A job that calls it after the default one-commit checkout
 # fails on its first run; in release.yml that run is a pushed release tag.
 # ---------------------------------------------------------------------------
@@ -16669,7 +18285,7 @@ def _jobs_calling_the_compat_matrix_shallow(documents: dict[str, dict[str, Any]]
     for path, document in documents.items():
         for job_id, job in (document.get("jobs") or {}).items():
             steps = job.get("steps") or []
-            if not any("connectors_compat_matrix.py" in str(s.get("run", "")) for s in steps):
+            if not any("compat_matrix.py" in str(s.get("run", "")) for s in steps):
                 continue
             checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout@")]
             if not any((s.get("with") or {}).get("fetch-depth") == 0 for s in checkouts):
@@ -16679,17 +18295,15 @@ def _jobs_calling_the_compat_matrix_shallow(documents: dict[str, dict[str, Any]]
 
 def test_every_job_that_reads_the_compat_matrix_checks_out_full_history() -> None:
     shallow = _jobs_calling_the_compat_matrix_shallow(_github_documents())
-    assert shallow == [], (
-        f"jobs calling connectors_compat_matrix.py on a shallow checkout: {shallow}"
-    )
+    assert shallow == [], f"jobs calling compat_matrix.py on a shallow checkout: {shallow}"
 
 
 def test_every_job_that_reads_the_compat_matrix__mutation_drops_the_depth() -> None:
     documents = _github_documents()
     release = documents[".github/workflows/release.yml"]
-    for step in release["jobs"]["verify-connectors-floor"]["steps"]:
+    for step in release["jobs"]["verify-component-floors"]["steps"]:
         if str(step.get("uses", "")).startswith("actions/checkout@"):
             step["with"].pop("fetch-depth", None)
     assert _jobs_calling_the_compat_matrix_shallow(documents) == [
-        ".github/workflows/release.yml:verify-connectors-floor"
+        ".github/workflows/release.yml:verify-component-floors"
     ]
