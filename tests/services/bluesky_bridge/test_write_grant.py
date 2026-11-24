@@ -365,3 +365,184 @@ def test_a_bridge_with_no_requests_directory_reports_nothing(
     monkeypatch.delenv(wa.REQUESTS_DIR_ENV_VAR, raising=False)
     monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, ME)
     assert write_grant.awaiting_approval() is None
+
+
+# --- the switch moving while a run waits -------------------------------------
+
+
+class _SwitchMover(threading.Thread):
+    """Moves the switch as soon as the run files its request, then (optionally) approves it."""
+
+    def __init__(self, ledger: Path, root: Path, switch: dict[str, str], *, approve: bool) -> None:
+        super().__init__(daemon=True)
+        self.ledger = ledger
+        self.root = root
+        self.switch = switch
+        self.approve = approve
+        self.seen: list[wa.WriteRequest] = []
+        self.done = threading.Event()
+
+    def run(self) -> None:
+        while not self.done.is_set() and not self.seen:
+            requests, _ = wa.list_requests(self.ledger / wa.REQUESTS_DIR_NAME)
+            if requests:
+                self.seen.extend(requests)
+                write_control_context(self.root, target=TARGET, switch=self.switch)
+                if self.approve:
+                    wa.approve_request(requests[0], surface="cli")
+            time.sleep(0.01)
+
+
+def _moving(ledger: Path, tmp_path: Path, switch: dict[str, str], *, approve: bool) -> _SwitchMover:
+    mover = _SwitchMover(ledger, tmp_path / "root", switch, approve=approve)
+    mover.start()
+    return mover
+
+
+def test_turning_writes_off_while_a_run_waits_ends_it_and_an_approval_after_moves_nothing(
+    ledger: Path, tmp_path: Path
+) -> None:
+    # The person stops the machine, then (by mistake, or another person) approves.
+    mover = _moving(ledger, tmp_path, {}, approve=True)
+    connector = _Connector()
+    try:
+        with pytest.raises(write_grant.WriteAuthorizationError, match="switch_off"):
+            _run(_scan, connector)
+    finally:
+        mover.done.set()
+        mover.join(timeout=2)
+
+    assert len(mover.seen) == 1
+    assert connector.writes == []
+    requests, _ = wa.list_requests(ledger / wa.REQUESTS_DIR_NAME)
+    assert requests == ()  # withdrawn
+    assert wa.named_authorization() is None
+
+
+def test_turning_writes_to_allowed_while_a_run_waits_issues_its_own_grant(
+    ledger: Path, tmp_path: Path
+) -> None:
+    mover = _moving(ledger, tmp_path, {TARGET: "allowed"}, approve=False)
+    connector = _Connector()
+    try:
+        _run(_scan, connector)
+    finally:
+        mover.done.set()
+        mover.join(timeout=2)
+
+    assert connector.writes == [1.0, 2.0, 3.0]
+    assert len(mover.seen) == 1
+    requests, _ = wa.list_requests(ledger / wa.REQUESTS_DIR_NAME)
+    assert requests == ()
+    [grant] = [
+        wa._parse_grant(path.read_text())
+        for path in ledger.glob("*.json")
+        if not path.name.endswith(".ledger.json")
+    ]
+    assert grant.approver.surface == wa.SELF_ISSUE_SURFACE
+
+
+# --- a boolean is the 0/1 it stands for --------------------------------------
+
+
+def _screen_in_and_out(devices: Any, params: Any) -> Iterator[Any]:
+    """Insert a screen with ``True`` and retract it with ``False``: an enum channel's shape."""
+    quad = devices[params.quad]
+    for value in (True, False):
+        yield from bps.mv(quad, value)
+
+
+def test_a_boolean_write_is_approved_and_sent_as_its_integer(person: _Person) -> None:
+    connector = _Connector()
+
+    _run(_screen_in_and_out, connector)
+
+    assert connector.writes == [1, 0]
+    assert all(type(value) is int for value in connector.writes)
+    [request] = person.seen
+    assert request.channels == {CHANNEL: wa.ChannelRange(0.0, 1.0)}
+    assert request.steps == 2
+
+
+def test_a_value_that_is_no_number_still_ends_the_run_before_it_asks(person: _Person) -> None:
+    def _text(devices: Any, params: Any) -> Iterator[Any]:
+        yield from bps.mv(devices[params.quad], "IN")
+
+    connector = _Connector()
+
+    with pytest.raises(write_grant.WriteAuthorizationError, match="finite numbers only"):
+        _run(_text, connector)
+
+    assert person.seen == []
+    assert connector.writes == []
+
+
+# --- what a dead worker left behind ------------------------------------------
+
+
+def _file_request(label: str) -> wa.WriteRequest:
+    return wa.write_request(
+        TARGET,
+        {CHANNEL: (1.0, 3.0)},
+        steps=3,
+        expires_at_ns=time.time_ns() + 600 * 10**9,
+        lease_s=60.0,
+        label=label,
+        owner=ME,
+    )
+
+
+def test_a_new_worker_withdraws_only_the_requests_its_own_holder_left(
+    ledger: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "bluesky-va-queueserver")
+    other_lane = _file_request("bluesky orm on the other lane")
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "queueserver")
+    first = _file_request("bluesky orm, worker died waiting")
+    second = _file_request("bluesky orm, worker died waiting again")
+
+    withdrawn = write_grant.withdraw_leftover_requests()
+
+    assert set(withdrawn) == {first.id, second.id}
+    requests, _ = wa.list_requests(ledger / wa.REQUESTS_DIR_NAME)
+    assert [request.id for request in requests] == [other_lane.id]
+
+
+def test_without_a_ledger_directory_a_new_worker_withdraws_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(wa.LEDGER_DIR_ENV_VAR, raising=False)
+    assert write_grant.withdraw_leftover_requests() == ()
+
+
+@pytest.mark.usefixtures("ledger")
+def test_opening_the_worker_environment_withdraws_what_a_dead_worker_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(write_grant, "withdraw_leftover_requests", lambda: calls.append(True))
+    device = ConnectorSettable(_Connector(), CHANNEL, name=DEVICE)
+
+    qserver_startup.build_namespace(
+        {}, run_engine=RunEngine(context_managers=[]), devices={DEVICE: device}, plans={}
+    )
+
+    assert calls == [True]
+
+
+def test_the_bridge_reports_the_newest_request_of_its_worker(
+    ledger: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(wa.REQUESTS_DIR_ENV_VAR, str(ledger / wa.REQUESTS_DIR_NAME))
+    monkeypatch.setenv(write_grant.WORKER_HOLDER_ENV, ME)
+    _file_request("older")
+    time.sleep(0.01)
+    newer = _file_request("newer")
+
+    reported = write_grant.awaiting_approval()
+
+    assert reported is not None
+    assert reported["id"] == newer.id

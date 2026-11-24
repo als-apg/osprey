@@ -959,6 +959,11 @@ def build_namespace(
             "(browse-only worker; the queue has nothing to execute)"
         )
     else:
+        from osprey.services.bluesky_bridge.write_grant import withdraw_leftover_requests
+
+        # Before any plan runs: a request this holder still has filed was
+        # left by a worker that died waiting for its approval.
+        withdraw_leftover_requests()
         plan_functions = build_plan_functions(devices, plans)
         namespace.update(plan_functions)
         logger.info(

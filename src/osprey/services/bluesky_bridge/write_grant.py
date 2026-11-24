@@ -21,6 +21,13 @@ module gives each plan run its own, the way an optimizer run holds one:
    ``sleep`` messages so the RunEngine still pauses and aborts. At ``off`` it
    asks nobody and the run goes on exactly as before: the connector refuses
    its writes. A plan that writes nothing asks nobody.
+
+   The switch is read again on every poll of the wait and once more when the
+   approval arrives. Turned to ``off``, the run ends ``switch_off`` and its
+   request is withdrawn, so an approval given after a stop never moves the
+   machine (the connector honours a grant at ``off``: it is the stop that
+   ends one). Turned to ``allowed``, the worker issues the grant itself and
+   stops waiting.
 3. **Extend.** Before each ``set`` the worker checks the grant it holds against
    that write (:func:`_shortfall`), without asking the verdict: the connector
    still judges every write. When the survey fell short — no step left, a value outside its range, a
@@ -35,6 +42,14 @@ module gives each plan run its own, the way an optimizer run holds one:
 A denial, an expiry of the wait, or a run aborted while it waits ends the
 plan with :class:`WriteAuthorizationError` and leaves the machine where it
 is: nothing is restored on the run's behalf.
+
+A grant covers finite numbers. A boolean (an enum screen moved with ``True``)
+is surveyed, judged and written as the ``0``/``1`` it stands for; any other
+value that is not a finite number ends the run before it asks anybody.
+
+A worker that dies while it waits leaves its request behind. The next worker
+of the same holder withdraws every request of that holder when its
+environment opens (:func:`withdraw_leftover_requests`), before any plan runs.
 
 The flow is on only where the worker has a ledger directory
 (``OSPREY_WRITE_LEDGER_DIR``), which the compose template binds; without one
@@ -134,9 +149,27 @@ def _write_of(msg: Any) -> tuple[str, Any, str | None] | None:
     return address, msg.args[0], target if isinstance(target, str) else None
 
 
+def _is_boolean(value: Any) -> bool:
+    """A Python or NumPy boolean: a value a grant judges as the ``0``/``1`` it stands for."""
+    return isinstance(value, bool) or type(value).__name__ == "bool_"
+
+
+def _numeric(msg: Any) -> Any:
+    """*msg* with a boolean value replaced by its ``0``/``1``, else *msg* itself.
+
+    A grant's ranges refuse a boolean, so a governed run sends the integer an
+    enum channel takes anyway: the same write, in the form the grant judges.
+    """
+    if not msg.args or not _is_boolean(msg.args[0]):
+        return msg
+    return msg._replace(args=(int(msg.args[0]), *msg.args[1:]))
+
+
 def _number(address: str, value: Any) -> float:
     """*value* as a finite float, or the error a write authorization would refuse it with."""
-    if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(value):
+    if _is_boolean(value):
+        return float(int(value))
+    if not isinstance(value, numbers.Real) or not math.isfinite(value):
         raise WriteAuthorizationError(
             "auth_range",
             f"The plan sets {address} to {value!r}; a write authorization covers "
@@ -336,12 +369,19 @@ class PlanAuthorization:
         deadline = time.monotonic() + wait_s
         try:
             while True:
+                issued = self._switch(request.id, channels, steps, expires_at_ns, label)
+                if issued is not None:
+                    return issued
                 try:
                     grant = wa.approved_grant(request.id, owner=self.owner)
                 except wa.AuthorizationRefused as refused:
                     raise WriteAuthorizationError(refused.reason, str(refused)) from refused
                 if grant is not None:
-                    return grant
+                    # Once more: a stop that landed between this poll's read
+                    # and the approval leaves the approved grant unused. It
+                    # was never leased, so it authorizes nothing.
+                    issued = self._switch(request.id, channels, steps, expires_at_ns, label)
+                    return grant if issued is None else issued
                 if time.monotonic() >= deadline:
                     raise WriteAuthorizationError(
                         "auth_timeout",
@@ -351,6 +391,53 @@ class PlanAuthorization:
                 yield from bps.sleep(POLL_S)
         finally:
             self._withdraw()
+
+    def _switch(
+        self,
+        request_id: str,
+        channels: dict[str, tuple[float, float]],
+        steps: int,
+        expires_at_ns: int,
+        label: str,
+    ) -> Any:
+        """Read the switch while the run waits: the worker's own grant at ``allowed``, else ``None``.
+
+        Read the way the run's acquire reads it, by asking to self-issue: at
+        ``asked`` that is refused ``auth_revoked`` and the wait goes on; at
+        ``allowed`` the grant is issued and the run stops waiting. A grant the
+        run then leaves unused was never leased, so it authorizes nothing and
+        blocks nobody.
+
+        Raises:
+            WriteAuthorizationError: ``switch_off`` once writes are off, so the
+                request is withdrawn and an approval given after the stop is
+                never used; any other refusal as the acquire raises it.
+        """
+        from osprey_connectors import write_authorization as wa
+
+        assert self.target is not None
+        try:
+            return wa.self_issue(
+                _section(),
+                self.target,
+                channels,
+                steps=steps,
+                expires_at_ns=expires_at_ns,
+                lease_s=LEASE_S,
+                label=label,
+                owner=self.owner,
+            )
+        except wa.AuthorizationRefused as refused:
+            if refused.reason == "auth_revoked":  # asked: a person still decides
+                return None
+            if refused.reason == "switch_off":
+                raise WriteAuthorizationError(
+                    "switch_off",
+                    f"Writes to {self.target} were turned off while plan {self.plan_name!r} "
+                    f"waited for approval of write request {request_id}; the request is "
+                    "withdrawn.",
+                ) from refused
+            raise WriteAuthorizationError(refused.reason, str(refused)) from refused
 
     def _withdraw(self) -> None:
         from osprey_connectors import write_authorization as wa
@@ -472,8 +559,11 @@ def awaiting_approval() -> dict[str, Any] | None:
     read-only (``OSPREY_WRITE_REQUESTS_DIR``), narrowed to the requests filed
     by this lane's queueserver (:data:`WORKER_HOLDER_ENV`). A worker runs one
     plan at a time and withdraws its request once it is answered or the run
-    ends, so a live request is the running plan's. ``None`` when there is none,
-    or when the bridge has no directory to read.
+    ends, and a new worker withdraws what a dead one left
+    (:func:`withdraw_leftover_requests`), so a live request is the running
+    plan's. Should two be there at once, the newest is the one a run waits
+    on. ``None`` when there is none, or when the bridge has no directory to
+    read.
     """
     from datetime import UTC, datetime
     from pathlib import Path
@@ -492,7 +582,7 @@ def awaiting_approval() -> dict[str, Any] | None:
     mine = [r for r in requests if r.holder == holder and r.expires_at_ns > now]
     if not mine:
         return None
-    request = min(mine, key=lambda r: r.requested_at_ns)
+    request = max(mine, key=lambda r: r.requested_at_ns)
 
     def iso(ns: int) -> str:
         return datetime.fromtimestamp(ns / 1e9, tz=UTC).isoformat(timespec="seconds")
@@ -507,6 +597,50 @@ def awaiting_approval() -> dict[str, Any] | None:
         "requested_at": iso(request.requested_at_ns),
         "expires_at": iso(request.expires_at_ns),
     }
+
+
+def withdraw_leftover_requests() -> tuple[str, ...]:
+    """Withdraw every request this worker's holder left behind; the ids withdrawn.
+
+    Called when the worker's environment opens, before any plan runs: a
+    request still filed under this holder then belongs to a worker that died
+    while it waited (a restarted container, a closed environment). Left in
+    place it would stay on the chip until it expires, and approving it would
+    issue a grant no run holds. Each lane's worker is its own holder, so
+    another lane's requests are never touched. Nothing happens without a
+    ledger directory.
+    """
+    if not enabled():
+        return ()
+    from osprey_connectors import write_authorization as wa
+    from osprey_connectors.identity import acting_identity
+
+    directory = wa.requests_dir()
+    if directory is None:
+        return ()
+    try:
+        requests, _unreadable = wa.list_requests(directory)
+    except OSError:
+        logger.warning("Could not list the write requests in %s", directory, exc_info=True)
+        return ()
+    holder = acting_identity()
+    withdrawn = []
+    for request in requests:
+        if request.holder != holder:
+            continue
+        try:
+            if wa.withdraw_request(request.id):
+                withdrawn.append(request.id)
+        except Exception:  # a request left behind expires; it never authorizes anything
+            logger.warning("Could not withdraw write request %s", request.id, exc_info=True)
+    if withdrawn:
+        logger.warning(
+            "Withdrew %d write request(s) a previous worker of %s left waiting: %s",
+            len(withdrawn),
+            holder,
+            ", ".join(withdrawn),
+        )
+    return tuple(withdrawn)
 
 
 def run_under_grant(
@@ -544,6 +678,11 @@ def run_under_grant(
             write = _write_of(msg)
             if write is None or authorization.ungoverned:
                 return None, None
+            numeric = _numeric(msg)
+            if numeric is not msg:
+                # Only swapped: the mutator sees the new message as one of
+                # its own and brings it back here, where it is judged once.
+                return single_gen(numeric), None
 
             def head() -> Generator[Any, Any, Any]:
                 yield from authorization.before_write(*write)
