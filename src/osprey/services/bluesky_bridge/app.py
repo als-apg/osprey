@@ -1774,6 +1774,19 @@ def _stream_units(stream: Any, columns: Sequence[str]) -> dict[str, str]:
     return {column: declared[column] for column in columns if column in declared}
 
 
+def _stream_shapes(stream: Any, columns: Sequence[str]) -> dict[str, list[int | None]]:
+    """Each of ``columns``' shapes as the stream's stored descriptors declare them.
+
+    The sibling of `_stream_units`, read through the rule the live recorder
+    applies (`live_rows.declared_shapes`). A column no descriptor gives a
+    shape has none.
+    """
+    declared: dict[str, list[int | None]] = {}
+    for descriptor in stream.descriptors:
+        declared.update(live_rows.declared_shapes(descriptor))
+    return {column: declared[column] for column in columns if column in declared}
+
+
 def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     """One run's full stored state, read from the durable Tiled catalog.
 
@@ -1798,9 +1811,9 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     JSON values: a scalar reading is a number, a waveform reading is a list of
     numbers (`_json_rows`), and neither is ever text describing itself.
 
-    ``units`` is each column's unit as the stream's stored descriptors declare
-    it (`_stream_units`), the same map the live buffer keeps from the
-    descriptors it was sent.
+    ``units`` and ``shapes`` are each column's unit and shape as the stream's
+    stored descriptors declare them (`_stream_units`, `_stream_shapes`), the
+    same maps the live buffer keeps from the descriptors it was sent.
 
     ``partial`` is the absence of a stop document, the same signal ``partial``
     means everywhere else, and never the run record: a run still executing
@@ -1839,6 +1852,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         rows: list[Any] = []
         total_seen = 0
         units: dict[str, str] = {}
+        shapes: dict[str, list[int | None]] = {}
     else:
         table = _primary_table(run_node)
         if "seq_num" in table.columns:
@@ -1847,12 +1861,14 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         rows = _json_rows(table[columns])
         total_seen = len(table)
         units = _stream_units(run_node["primary"], columns)
+        shapes = _stream_shapes(run_node["primary"], columns)
 
     return {
         "columns": columns,
         "rows": rows,
         "total_seen": total_seen,
         "units": units,
+        "shapes": shapes,
         "partial": metadata.get("stop") is None,
         "plan": start.get(PLAN_META_KEY),
         "run_uid": start.get("uid"),
@@ -1950,7 +1966,7 @@ def _data_response(
     """`get_run_data`'s body, built from whichever source is holding the run.
 
     *held* is everything one source knows about the run — ``columns``,
-    ``rows``, ``total_seen``, ``partial``, ``units`` and the ``plan`` stamp — as the live
+    ``rows``, ``total_seen``, ``partial``, ``units``, ``shapes`` and the ``plan`` stamp — as the live
     buffer (`live_rows.get`) and the catalog snapshot (`_tiled_run_snapshot`)
     both spell it. That shared spelling is what lets one function shape both
     answers, and shaping both here is the point: the route's promise is that a
@@ -1968,8 +1984,10 @@ def _data_response(
       window `_window` cuts — statistics over a page of a run describe the
       page.
     - ``columns`` states each column once, in row order, as ``{"name",
-      "unit"}``: ``unit`` is what the run declared for it and ``None`` when
-      it declared none, so a row's values are read by position against it.
+      "unit", "shape"}``: ``unit`` is what the run declared for it and
+      ``None`` when it declared none; ``shape`` is the size per axis it
+      declared (``[]`` for a scalar) and ``None`` when it declared none, never
+      a guess from the cells. A row's values are read by position against it.
     - Each cell is a plain JSON value (`live_rows.json_cell`): a scalar
       reading is a number, an array reading is a list of numbers.
 
@@ -1982,9 +2000,10 @@ def _data_response(
     result.update(
         _window(held["columns"], held["rows"], held["total_seen"], max_rows, offset, tail)
     )
-    declared = held["units"]
+    units, shapes = held["units"], held["shapes"]
     result["columns"] = [
-        {"name": column, "unit": declared.get(column)} for column in result["columns"]
+        {"name": column, "unit": units.get(column), "shape": shapes.get(column)}
+        for column in result["columns"]
     ]
     if held["partial"]:
         result["partial"] = True
@@ -2085,8 +2104,10 @@ def get_run_data(
     has none carries the reason it has none. See `_run_analysis`.
 
     ``columns`` lists each column once, in the order every row's values
-    follow, as ``{"name", "unit"}``; ``unit`` is the one the run's descriptors
-    declared for it, ``None`` when they declared none.
+    follow, as ``{"name", "unit", "shape"}``; ``unit`` is the one the run's
+    descriptors declared for it, ``None`` when they declared none; ``shape``
+    is the size per axis they declared (``[]`` for a scalar, ``[1024]`` for a
+    waveform), ``None`` when they declared none.
     """
     generation = figure_cache.snapshot_generation(run_id)
     buf = live_rows.get(run_id)

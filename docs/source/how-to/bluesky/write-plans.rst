@@ -202,7 +202,7 @@ data.
 A device carries the ``unit`` its channel states in the facility file. A
 settable with a separate readback also carries its setpoint's unit, as
 ``setpoint_unit``. Every run records them, so ``get_run_data`` and the run's
-figure state each column's unit.
+figure state each column's unit, and an array column its shape.
 
 Don't edit this file: the build rewrites it every time. To change the device
 set, change the channels under ``data/facility/`` and build again.
