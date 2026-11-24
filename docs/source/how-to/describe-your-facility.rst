@@ -30,17 +30,20 @@ The tree
        channels.yaml           the control-system channels
        groups.yaml             named sets of devices
        relations.yaml          claims that two records are related
-     classes.yaml              device classes the facility adds
-     signals.yaml              signal roles the facility adds
-     models.yaml               the simulation models and their wiring
-     decks/                    the decks those models name
+     vocabulary/
+       classes.yaml            device classes the facility adds
+       signals.yaml            signal roles the facility adds
+     provenance/
+       documents.yaml          the source documents records and claims cite
+       policy.yaml             how the build ranks competing claims
+       fixes.yaml              corrections to records another source states
+     simulation/
+       models.yaml             the simulation models and their wiring
+       decks/                  the decks those models name
+       seeds.yaml              how a channel no model wires behaves when simulated
+       measurement/<model>.yaml  the measurements a model allows
+       scenarios/<name>.yaml   ways the simulated machine departs from its baseline
      limits.yaml               the write limits
-     seeds.yaml                how a channel no model wires behaves when simulated
-     measurement/<model>.yaml  the measurements a model allows
-     scenarios/<name>.yaml     ways the simulated machine departs from its baseline
-     documents.yaml            the source documents records and claims cite
-     policy.yaml               how the build ranks competing claims
-     fixes.yaml                corrections to records another source states
      imported/<layer>/         records an importer wrote
      knowledge/                the facility knowledge pages
      ariel/vocabulary.yml      the logbook shorthand ARIEL expands
@@ -48,10 +51,10 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-demo preset ships all of them except ``signals.yaml``, ``fixes.yaml`` and
+demo preset ships all of them except ``vocabulary/signals.yaml``, ``provenance/fixes.yaml`` and
 ``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
-``seeds.yaml``.
+``simulation/seeds.yaml``.
 
 Check the tree at any time, without writing anything:
 
@@ -69,6 +72,15 @@ record counts, the models and the views; given an id it prints that record
 with the layer and file each of its fields came from, the fields the build
 filled and the fixes applied. Both are described in full under
 :ref:`cli-osprey-facility`.
+
+A tree that still holds a file at a retired path, such as ``classes.yaml`` in
+place of ``vocabulary/classes.yaml`` or ``scenarios/`` in place of
+``simulation/scenarios/``, is refused before anything is read. The refusal is a
+block to paste into a shell: ``#`` comments, then the ``mkdir``, ``git mv`` and
+``mv`` lines that move each file to its current path, and the edit of every
+``deck:`` value that names ``decks/``. A file at both paths is named instead;
+keep one. ``osprey init --revalidate`` makes the same moves and prints the diff
+(:ref:`the retired paths <cli-osprey-init-revalidate>`).
 
 Identity
 ========
@@ -118,7 +130,7 @@ that are not coarse all name one place; the claim's unit is not copied.
 
 **Devices** name a ``class``, either one of the shared vocabulary's classes
 (``Quadrupole``, ``BeamPositionMonitor``, ``Gauge``) or one the facility adds
-in ``classes.yaml``. A device may state its ``place``, a ``label``, other
+in ``vocabulary/classes.yaml``. A device may state its ``place``, a ``label``, other
 ``names`` people use for it, and a position: ``s`` in metres along the deck of
 its ``model``. A device a model wires takes its position from the deck.
 
@@ -240,8 +252,8 @@ seven conditions:
 * a required attribute is missing;
 * the subject and object name the same end, port included.
 
-``policy.yaml`` ranks competing claims by the kind of document they cite, as
-declared in ``documents.yaml``: ``relations.precedence`` lists kinds per
+``provenance/policy.yaml`` ranks competing claims by the kind of document they cite, as
+declared in ``provenance/documents.yaml``: ``relations.precedence`` lists kinds per
 relation type or as ``default``. Between claims whose documents rank the same,
 a stated claim breaks the tie over an inferred one unless
 ``stated_over_inferred: false``. Without a policy, competing claims stay
@@ -253,7 +265,7 @@ superseded one no edge. Each claim is also a node carrying its source, so a
 query can go from an edge to the document behind it
 (:ref:`reference-facility-graph`).
 
-``classes.yaml`` adds device classes the shared vocabulary lacks, each as the
+``vocabulary/classes.yaml`` adds device classes the shared vocabulary lacks, each as the
 child of an existing class:
 
 .. code-block:: yaml
@@ -262,7 +274,7 @@ child of an existing class:
      parent: Magnet
      aliases: [insertion device, ID]
 
-``signals.yaml`` adds signal roles the vocabulary lacks; one it already has is
+``vocabulary/signals.yaml`` adds signal roles the vocabulary lacks; one it already has is
 refused:
 
 .. code-block:: yaml
@@ -293,7 +305,7 @@ Layers
 ======
 
 Records reach the build from several sources at once, and each source is a
-*layer*. ``records/``, ``models.yaml``, ``seeds.yaml`` and ``measurement/``
+*layer*. ``records/``, ``simulation/models.yaml``, ``simulation/seeds.yaml`` and ``simulation/measurement/``
 are the layer ``authored``; each directory under ``imported/`` is the layer of
 that name. A layer states only
 the fields its source states.
@@ -308,7 +320,7 @@ until they agree or a ``set`` fix names ``members``. A place's or device's
 ``scheme_names`` are joined too, so a layer can add a name to a record another
 layer states; one name in one scheme that two layers state with different
 content is still a ``layer-conflict``.
-A channel's seed (``simulation``, which ``seeds.yaml`` states too) is joined
+A channel's seed (``simulation``, which ``simulation/seeds.yaml`` states too) is joined
 per key: one layer may state ``follows`` and another the seed's values, and
 only one key two layers state differently is a ``layer-conflict``.
 
@@ -381,10 +393,10 @@ steps; each is described in :doc:`/how-to/import-mml-export`.
 
 The record files under ``imported/mml/`` belong to the import and are
 rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
-absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml``, ``measurement/<model>.yaml`` and ``scenarios/readout.yaml``
+absent. The import also creates ``limits.yaml``, ``simulation/seeds.yaml``,
+``identity.yaml``, ``simulation/measurement/<model>.yaml`` and ``simulation/scenarios/readout.yaml``
 when they do not exist, and never rewrites them afterwards. It creates
-``classes.yaml`` when absent; when the file exists, the import appends only
+``vocabulary/classes.yaml`` when absent; when the file exists, the import appends only
 the classes it lacks and leaves its rows as written. It replaces a bundled
 facility, saying so in one line, and refuses only hand-written records of the
 kinds it writes, naming each file. That refusal guards the first import: once
@@ -406,7 +418,7 @@ address per line.
 
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
-into ``fixes.yaml``. Each device a row names is written to
+into ``provenance/fixes.yaml``. Each device a row names is written to
 ``imported/list/devices.yaml``, with its ``s`` where a row gives one; a
 ``model`` column names the model whose deck ``s`` is measured along. A
 misspelt ``device`` cell makes a device of its own: when other sources declare
@@ -525,7 +537,7 @@ refusal is reported and the import writes nothing. The layer name matches
 Fixes
 =====
 
-``fixes.yaml`` corrects a record another source states, without editing that
+``provenance/fixes.yaml`` corrects a record another source states, without editing that
 source. Each fix names a record and gives the reason. These two correct the
 channel list above:
 
@@ -593,7 +605,7 @@ limits. The hello-world and demo presets ship ``optional``.
 Seeds
 =====
 
-``seeds.yaml`` says how a channel behaves in the simulator when no model
+``simulation/seeds.yaml`` says how a channel behaves in the simulator when no model
 wires it. It is keyed by address. The preset's booster current starts at
 1.2 mA with Gaussian noise:
 
@@ -728,7 +740,7 @@ see the same gated value.
 Models and decks
 ================
 
-``models.yaml`` lists the simulation models. A model has a ``name``, the
+``simulation/models.yaml`` lists the simulation models. A model has a ``name``, the
 ``engine`` that runs it, the ``deck`` it runs over, the engine's ``settings``
 and a ``wiring`` list that ties channel addresses to elements of the deck:
 
@@ -736,7 +748,7 @@ and a ``wiring`` list that ties channel addresses to elements of the deck:
 
    - name: BTS
      engine: pyat
-     deck: decks/BTS.json
+     deck: simulation/decks/BTS.json
      settings:
        pyat:
          solve: single_pass
@@ -890,13 +902,13 @@ records name it, and when two records read the same axis of one monitor.
 Measurement
 ===========
 
-``measurement/<model>.yaml`` states which measurements a model allows and
+``simulation/measurement/<model>.yaml`` states which measurements a model allows and
 what they use. The demo preset ships this one for its storage
 ring:
 
-.. literalinclude:: ../../../src/osprey/templates/facilities/example/measurement/SR.yaml
+.. literalinclude:: ../../../src/osprey/templates/facilities/example/simulation/measurement/SR.yaml
    :language: yaml
-   :caption: measurement/SR.yaml
+   :caption: simulation/measurement/SR.yaml
    :start-after: Delete this line to make the file yours.
 
 ``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
@@ -947,7 +959,7 @@ that run these measurements are in :doc:`measure-with-pyaml`.
 Scenarios
 =========
 
-Each file under ``scenarios/`` is one way the simulated machine departs from
+Each file under ``simulation/scenarios/`` is one way the simulated machine departs from
 its baseline: value overrides, model and channel faults, its own motion
 (drivers, couplings, noise), archive history and logbook entries. The
 simulator activates the scenarios marked ``start: true`` when it first comes

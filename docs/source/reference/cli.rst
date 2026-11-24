@@ -153,6 +153,8 @@ no container runtime answers. To keep the old data instead, pass
 
 ``--no-git`` — Skip ``git init`` and the initial commit.
 
+.. _cli-osprey-init-revalidate:
+
 ``--revalidate [--preset NAME]`` — Bring an existing deployment repository to
 this OSPREY in place: the current profile vocabulary, what the presets changed
 since the repository last took them, the provider entries and keys OSPREY
@@ -184,6 +186,33 @@ output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
 retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
+
+Each facility tree the profile and its variants build from is moved off its
+retired paths, relative to ``data/facility/`` (``git mv`` where tracked):
+
+======================================  ==================================
+Retired path                            Current path
+======================================  ==================================
+``classes.yaml``                        ``vocabulary/classes.yaml``
+``signals.yaml``                        ``vocabulary/signals.yaml``
+``models.yaml``                         ``simulation/models.yaml``
+``seeds.yaml``                          ``simulation/seeds.yaml``
+``fixes.yaml``                          ``provenance/fixes.yaml``
+``documents.yaml``                      ``provenance/documents.yaml``
+``policy.yaml``                         ``provenance/policy.yaml``
+``scenarios/``                          ``simulation/scenarios/``
+``measurement/``                        ``simulation/measurement/``
+``decks/``                              ``simulation/decks/``
+``benchmarks/cross_paradigm/queries/``  ``benchmarks/channel_finder/``
+======================================  ==================================
+
+A ``deck:`` value in ``simulation/models.yaml`` that begins ``decks/`` is
+rewritten to begin ``simulation/decks/``. A file at both a retired path and its
+current path stops the run before anything is written; keep one. A tree in
+another repository, such as a mounted machine repository, is not touched: the
+commands that move it are printed under "Left for you to do by hand". Run them
+there and commit, then commit the new submodule commit in the deployment
+(:ref:`upgrade order <machine-repository-upgrade>`).
 
 The step is one-way: an older OSPREY refuses the revalidated repository. To go
 back, check out the repository as it was before the commit and install the
@@ -1422,7 +1451,7 @@ osprey sim
 ==========
 
 List, inspect and apply the scenarios of a simulated deployment. The scenarios
-are authored under ``data/facility/scenarios/`` and served from the simulator
+are authored under ``data/facility/simulation/scenarios/`` and served from the simulator
 view the build writes under ``build/data/simulator/``; a repo with no build, or
 a build with no simulator view, exits 1 with ``run 'osprey build' first``.
 ``osprey sim`` alone prints its help, naming the three verbs. All three verbs
