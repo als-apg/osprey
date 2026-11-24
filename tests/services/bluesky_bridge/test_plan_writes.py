@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from bluesky.utils import Msg
 
+from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
 from osprey.services.bluesky_bridge.plan_writes import (
     ChannelWrite,
     UndeclaredWriteError,
@@ -23,6 +24,7 @@ from osprey.services.bluesky_bridge.plan_writes import (
     held_to_declaration,
     message_writes,
 )
+from tests.services.bluesky_bridge._fake_connector import FakeConnector
 
 
 class _SilentSettable:
@@ -99,6 +101,12 @@ def test_a_message_to_an_object_without_the_verb_writes_nothing() -> None:
     assert message_writes(Msg("trigger", readable)) == ()
     assert message_writes(Msg("read", readable)) == ()
     assert message_writes(Msg("open_run", None)) == ()
+
+
+def test_a_connector_settable_states_its_one_setpoint_write() -> None:
+    device = ConnectorSettable(FakeConnector(), "SR:SP", readback_pv="SR:RB", name="motor")
+
+    assert message_writes(Msg("set", device, 2.5)) == (ChannelWrite("SR:SP", 2.5),)
 
 
 def _drain(plan: Any) -> list[Any]:
