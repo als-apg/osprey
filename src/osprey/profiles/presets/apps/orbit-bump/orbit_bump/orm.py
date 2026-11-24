@@ -19,8 +19,6 @@ from typing import Any
 
 import numpy as np
 
-from orbit_bump.ring import start_model
-
 _log = logging.getLogger(__name__)
 
 #: No build has run for the model yet.
@@ -155,17 +153,13 @@ class OrmCache:
         self._lock = threading.Lock()
         self._entries: dict[str, _Entry] = {}
 
-    def start(self, configured: str | None = None) -> str | None:
-        """Start the start model's build; its name, or None when no model is offered.
-
-        Args:
-            configured: The deployment's start model; the first closed-orbit model
-                when omitted or not offered.
-        """
-        model = start_model(list(self._sdk.closed_orbit_models()), configured)
-        if model is not None:
-            self.ensure(model)
-        return model
+    def start(self) -> str | None:
+        """Start the first closed-orbit model's build; its name, or None when there is none."""
+        models: list[str] = list(self._sdk.closed_orbit_models())
+        if not models:
+            return None
+        self.ensure(models[0])
+        return models[0]
 
     def ensure(self, model: str) -> OrmState:
         """Start the model's build when it has never run; the entry's state either way."""

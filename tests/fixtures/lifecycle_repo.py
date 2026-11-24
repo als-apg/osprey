@@ -1402,10 +1402,9 @@ services:
 # ── Applications ─────────────────────────────────────────────────────────────
 # Each entry runs the application in apps/<name>/; none is on by default. Orbit
 # bump ships with OSPREY (strip, model bump, approval-gated apply):
-# `osprey init --preset demo --set 'apps.orbit-bump.config.start_model=SR'`
-# copies it into apps/orbit-bump/ and lists it, opening on the storage ring
-# (with no start_model it opens on the first closed-orbit model by name), as
-# apps: {orbit-bump: {config: {start_model: SR}}}
+# `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
+# apps/orbit-bump/ and lists it as
+# apps: {orbit-bump: {}}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,

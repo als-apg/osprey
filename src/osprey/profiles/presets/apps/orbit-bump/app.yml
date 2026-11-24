@@ -1,5 +1,4 @@
 # A local closed-orbit bump: a panel and a tool per panel action over one backend; the write is the plan's apply.
-# Config (apps.orbit-bump.config): start_model, the model the app opens on; the first offered when unset.
 name: orbit-bump
 summary: Solves a local orbit bump over a ring's BPMs and correctors and applies it on approval.
 containers:

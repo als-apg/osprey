@@ -143,23 +143,6 @@ describe('the orbit-bump panel', () => {
       expect(field(root, 'no-model').hidden).toBe(true);
     });
 
-    it('opens on the start model the state names', () => {
-      const models = [model('BOOSTER', 'idle'), model('SR')];
-      showState(root, state({ models, start_model: 'SR' }));
-      expect(panelOf(root).selection.model).toBe('SR');
-    });
-
-    it('opens on the first model when the state names no start model', () => {
-      showState(root, state({ models: [model('BOOSTER', 'idle'), model('SR')] }));
-      expect(panelOf(root).selection.model).toBe('BOOSTER');
-    });
-
-    it('opens on the first model when the start model is not offered', () => {
-      const models = [model('BOOSTER', 'idle'), model('SR')];
-      showState(root, state({ models, start_model: 'ABSENT' }));
-      expect(panelOf(root).selection.model).toBe('BOOSTER');
-    });
-
     it('offers no dropdown when one model is offered', () => {
       showState(root, state());
       expect(field(root, 'model').hidden).toBe(true);

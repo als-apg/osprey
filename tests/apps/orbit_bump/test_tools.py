@@ -491,16 +491,6 @@ def test_the_view_defaults_to_the_panels_draft_then_the_plan() -> None:
     assert tools.digest(_state(), None, model="OTHER")["bpms"] == []
 
 
-@pytest.mark.parametrize(
-    ("start", "shown"), [("OTHER", "OTHER"), (None, "RING"), ("ABSENT", "RING")]
-)
-def test_the_view_with_no_draft_or_plan_shows_the_start_model(start, shown) -> None:
-    assert tools.digest(_state(start_model=start), None)["model"] == shown
-    assert tools.digest(_state(), None)["model"] == "RING"
-    draft = {"plane": "x", "model": "RING", "targets": {}}
-    assert tools.digest(_state(start_model="OTHER", draft=draft), None)["model"] == "RING"
-
-
 def test_the_bpms_filter_is_the_panels_zoom() -> None:
     answer = tools.digest(_state(), None, bpms=["m3", "m1"])
     assert [row["element"] for row in answer["bpms"]] == ["m1", "m3"]
