@@ -490,8 +490,9 @@ def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
 def test_the_data_body_carries_the_declared_units_of_its_columns(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each served column is one ``{"name", "unit"}`` record carrying the unit
-    the run declared for it, or null, whatever window of rows the read asked for."""
+    """Each served column is one ``{"name", "unit", "shape"}`` record carrying
+    the unit the run declared for it, or null, whatever window of rows the read
+    asked for."""
     declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
     rows = [{"motor": float(i), "det": i} for i in range(5)]
     run_node = _run_node_with_events(
@@ -502,7 +503,9 @@ def test_the_data_body_carries_the_declared_units_of_its_columns(
     whole = app_module._from_tiled("run-b", max_rows=100, offset=None, tail=False)
     page = app_module._from_tiled("run-b", max_rows=1, offset=2, tail=False)
 
-    expected = [{"name": name, "unit": declared[name].get("units")} for name in _names(whole)]
+    expected = [
+        {"name": name, "unit": declared[name].get("units"), "shape": None} for name in _names(whole)
+    ]
     assert sorted(_names(whole)) == sorted(declared)
     assert whole["columns"] == page["columns"] == expected
     assert "units" not in whole
@@ -528,10 +531,63 @@ def test_the_live_data_body_carries_the_declared_units_of_its_columns() -> None:
         live_rows._clear()
 
     assert body["columns"] == [
-        {"name": name, "unit": declared[name].get("units")} for name in _names(body)
+        {"name": name, "unit": declared[name].get("units"), "shape": None} for name in _names(body)
     ]
     assert sorted(_names(body)) == sorted(declared)
     assert "units" not in body
+
+
+def test_each_column_states_the_shape_its_descriptor_declares(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scalar states ``[]``, an array its size per axis, on both sources."""
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge import live_rows
+    from osprey.services.bluesky_bridge.app import app
+    from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+
+    declared = {"motor": {"dtype": "number", "shape": []}, "wave": {"dtype": "array", "shape": [3]}}
+    run_node = _run_node_with_events(
+        "bluesky-uid-s", "run-s", [{"motor": 1.0, "wave": 2.0}], descriptors=[_descriptor(declared)]
+    )
+    _configured(monkeypatch, "run-s", run_node)
+    stored = app_module._from_tiled("run-s", max_rows=100, offset=None, tail=False)
+
+    live_rows._clear()
+    try:
+        recorder = LiveRowRecorder(key="run-live-shapes")
+        recorder("start", {"uid": "uid"})
+        recorder("descriptor", _descriptor(declared))
+        recorder("event", {"data": {"motor": 1.0, "wave": [0.0, 1.0, 2.0]}})
+        live = TestClient(app).get("/runs/run-live-shapes/data").json()
+    finally:
+        live_rows._clear()
+
+    for body in (stored, live):
+        assert {column["name"]: column["shape"] for column in body["columns"]} == {
+            name: key["shape"] for name, key in declared.items()
+        }
+
+
+def test_a_column_no_descriptor_declares_states_no_shape() -> None:
+    """A column whose shape nothing declared states ``None``, never a guess from its cells."""
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge import live_rows
+    from osprey.services.bluesky_bridge.app import app
+    from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+
+    live_rows._clear()
+    try:
+        recorder = LiveRowRecorder(key="run-live-noshape")
+        recorder("start", {"uid": "uid"})
+        recorder("event", {"data": {"x": 1.0, "wave": [0.0, 1.0]}})
+        body = TestClient(app).get("/runs/run-live-noshape/data").json()
+    finally:
+        live_rows._clear()
+
+    assert [column["shape"] for column in body["columns"]] == [None, None]
 
 
 def test_a_run_with_no_primary_stream_declares_no_units(monkeypatch: pytest.MonkeyPatch) -> None:

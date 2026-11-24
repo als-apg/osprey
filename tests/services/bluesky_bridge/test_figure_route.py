@@ -513,6 +513,7 @@ def test_malformed_source_snapshot_is_params_mismatch(
             "total_seen": 1,  # fewer than the rows physically present: impossible
             "plan": None,
             "units": {},
+            "shapes": {},
         },
     )
 
@@ -577,6 +578,7 @@ def test_render_is_handed_the_window_with_the_sources_completeness(
             "total_seen": total_seen,
             "plan": {"name": "watcher", "kwargs": {}},
             "units": {},
+            "shapes": {},
         },
     )
 
@@ -769,6 +771,7 @@ def test_settled_hit_revalidates_total_seen_against_the_buffer(
             "total_seen": total_seen,
             "plan": {"name": "echo", "kwargs": {}},
             "units": {},
+            "shapes": {},
         }
 
     monkeypatch.setattr(live_rows, "get", lambda run_id: snapshot(2, 1.0))

@@ -571,6 +571,7 @@ def test_a_run_read_back_from_storage_carries_the_same_statistics(
         "plan": _stamp(axis="motor", monitors=["det"]),
         "run_uid": "engine-stored",
         "units": {},
+        "shapes": {},
     }
     monkeypatch.setattr(app_module, "_tiled_run_snapshot", lambda run_id: snapshot)
 
@@ -596,6 +597,7 @@ def test_a_stored_run_still_in_flight_after_a_restart_is_not_fitted(
         "plan": _stamp(axis="motor", monitors=["det"]),
         "run_uid": "engine-stored",
         "units": {},
+        "shapes": {},
     }
     monkeypatch.setattr(app_module, "_tiled_run_snapshot", lambda run_id: snapshot)
 
