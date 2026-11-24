@@ -10,6 +10,7 @@ Written to ``<render>/data/bluesky_devices.yml``::
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, motion_band: <band>}
     readables:
       - {name: <readback>, pv: <readback>, unit: <unit>}
+      - {name: <waveform>, pv: <waveform>, unit: <unit>, shape: [<n>]}
 
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
@@ -28,6 +29,11 @@ non-empty ``unit``: a paired settable's readback, an unpaired settable's
 setpoint, a readable's channel. A paired settable whose setpoint states one
 also carries ``setpoint_unit``. A device whose channel states no unit carries
 no unit key.
+
+A readable on a waveform channel of one dimension carries ``shape: [<n>]``,
+the channel's ``shape``, and each run records it as an array of that length.
+A readback of more than one dimension is no device: writing the view warns,
+once per build, naming each one.
 
 Writing the view warns, once per build, of each scenario that moves a
 toleranced readback beyond its tolerance, and, per lane that does not serve
@@ -154,7 +160,7 @@ def _lanes(inputs: ViewInputs) -> list[tuple[str, bool, float]]:
 
 
 def _warn_once(inputs: ViewInputs, warning: str) -> None:
-    """Print one tolerance warning, once per build."""
+    """Print one build warning, once per build."""
     from osprey.cli import output
 
     if inputs.reported is not None:
@@ -163,6 +169,19 @@ def _warn_once(inputs: ViewInputs, warning: str) -> None:
         inputs.reported.add(warning)
     summary, _, detail = warning.partition("\n")
     output.warn(summary, detail or None)
+
+
+def _beyond_one_dimension(records: list[Any]) -> str | None:
+    """The warning naming each readback of more than one dimension, or ``None``."""
+    addresses = [
+        record.address
+        for record in records
+        if record.direction == "read" and record.shape is not None and len(record.shape) > 1
+    ]
+    if not addresses:
+        return None
+    summary = f"{len(addresses)} readback channel(s) of more than one dimension are no plan device"
+    return "\n".join((summary, *addresses))
 
 
 def bluesky_configured(inputs: ViewInputs) -> bool:
@@ -199,9 +218,10 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     root.mkdir(parents=True, exist_ok=True)
     facility_file = root.parent / FACILITY_FILE
     target = root / BLUESKY_DEVICES_FILE
+    records = _records(inputs.records, facility_file)
     write_devices_file(
         target,
-        _records(inputs.records, facility_file),
+        records,
         source=_source(facility_file),
         schema=BLUESKY_DEVICES_SCHEMA,
         tolerances=_tolerances(inputs.records),
@@ -210,4 +230,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)
+    left_out = _beyond_one_dimension(records)
+    if left_out is not None:
+        _warn_once(inputs, left_out)
     return [target]
