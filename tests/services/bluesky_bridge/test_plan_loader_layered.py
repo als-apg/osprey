@@ -65,6 +65,7 @@ def _writing_plan_source(name: str, *, params_block: str) -> str:
         "    MovableChannel,\n"
         "    MovableChannels,\n"
         "    ReadableChannels,\n"
+        "    TriggeredChannels,\n"
         ")\n\n\n"
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
@@ -581,7 +582,13 @@ def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
 # The load gate: a declared write must name the channels it moves
 # ---------------------------------------------------------------------------
 
-_GAP_MARKER = "declares writes: true but no movable channel field in PARAMS"
+_GAP_MARKER = "declares writes: true but no movable or triggered channel field in PARAMS"
+
+_TRIGGERED_PARAMS = (
+    "class PARAMS(BaseModel):\n"
+    "    detectors: TriggeredChannels = Field(..., min_length=1)\n"
+    "    monitors: ReadableChannels = Field(default_factory=list)\n\n\n"
+)
 
 _MOVABLE_PARAMS = (
     "class PARAMS(BaseModel):\n"
@@ -714,6 +721,70 @@ def test_movable_fields_without_a_declared_write_are_not_gated(
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
 
     assert "conservative" in plan_loader.get_facility_plans().plans
+
+
+def test_a_writing_plan_with_only_a_triggered_field_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Triggering a device writes to it, so a triggered field satisfies a
+    declared write as a movable one does."""
+    layer_dir = tmp_path / "layer"
+    _write(layer_dir, "shots.py", _writing_plan_source("shots", params_block=_TRIGGERED_PARAMS))
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    spec = plan_loader.get_facility_plans().plans["shots"]
+    assert spec.roles == (("detectors", "triggered"), ("monitors", "readable"))
+
+
+def test_a_read_only_plan_with_a_triggered_field_is_quarantined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A plan that says it writes nothing while declaring a channel it triggers
+    contradicts itself, and is refused at load."""
+    layer_dir = tmp_path / "layer"
+    source = _writing_plan_source("quiet_shots", params_block=_TRIGGERED_PARAMS).replace(
+        '"writes": True', '"writes": False'
+    )
+    assert '"writes": False' in source
+    _write(layer_dir, "quiet_shots.py", source)
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "quiet_shots" not in facility.plans
+    assert any(
+        "declares writes: false but PARAMS has a triggered channel field — triggering a "
+        "device writes to it" in message
+        for message in _quarantine_warnings(caplog)
+    )
+
+
+def test_a_writing_plan_with_only_readable_fields_is_still_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The third marking widens what satisfies the gate, not what passes it
+    without a declaration: readable fields alone still leave a write unnamed."""
+    layer_dir = tmp_path / "layer"
+    _write(
+        layer_dir,
+        "reads_only.py",
+        _writing_plan_source("reads_only", params_block=_READABLE_ONLY_PARAMS),
+    )
+
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", layer_dir)
+
+    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
+        facility = plan_loader.get_facility_plans()
+
+    assert "reads_only" not in facility.plans
+    assert any(
+        "a plan that changes machine state must declare which channels it moves or triggers"
+        in message
+        for message in _quarantine_warnings(caplog)
+    )
 
 
 def test_roles_are_exposed_on_the_loaded_spec_in_declaration_order(

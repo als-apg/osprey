@@ -75,7 +75,7 @@ from pydantic import BaseModel, ValidationError
 from osprey.utils.module_loading import load_by_path
 
 from .figure import REASON_RENDER_NOT_SUPPORTED_FOR_SESSION_PLANS, Figure, RowWindow
-from .plan_fields import MOVABLE_ROLE, channel_roles, validate_field_value
+from .plan_fields import MOVABLE_ROLE, TRIGGERED_ROLE, channel_roles, validate_field_value
 from .plan_metadata import check_presentation_names, parse_plan_metadata
 from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body
@@ -416,18 +416,21 @@ def _load_plan_file(
     gate would wrongly quarantine them too.
 
     Every tier passes one further contract check, the LOAD GATE: a plan whose
-    metadata declares ``writes: true`` must name at least one movable channel
-    field in its ``PARAMS`` (read via `plan_fields.channel_roles`). A plan that
-    claims to change machine state without declaring what it moves is
-    unenforceable downstream — the enqueue pre-check, the pre-flight preview and
-    the permission entries all describe a write in terms of those declared
-    fields, and with none of them there is nothing to check, show, or arm.
+    metadata declares ``writes: true`` must name at least one movable or
+    triggered channel field in its ``PARAMS`` (read via
+    `plan_fields.channel_roles`). A plan that claims to change machine state
+    without declaring what it moves or triggers is unenforceable downstream —
+    the enqueue pre-check, the pre-flight preview and the permission entries
+    all describe a write in terms of those declared fields, and with none of
+    them there is nothing to check, show, or arm.
     Catching it at load time makes it an authoring error the author sees once,
-    rather than a silently under-described write at every launch. The reverse
-    (declared movable fields with ``writes: false``) is deliberately NOT gated:
-    that direction fails safe, and a plan may legitimately take a channel name
-    it only reads back. Plans are stored with their introspected roles on
-    `PlanSpec.roles`, so no request-time consumer re-walks the schema. The
+    rather than a silently under-described write at every launch. A triggered
+    field under ``writes: false`` is refused too: triggering a device writes to
+    it, so that plan's declaration contradicts itself. A movable field under
+    ``writes: false`` is deliberately NOT gated: that direction fails safe, and
+    a plan may legitimately take a channel name it only reads back. Plans are
+    stored with their introspected roles on `PlanSpec.roles`, so no
+    request-time consumer re-walks the schema. The
     same gate holds every default of ``PARAMS`` -- written or made by a
     factory -- to its field's own rule, like a typed value
     (`_check_defaults`): a plan whose own default breaks its own bounds is
@@ -470,11 +473,17 @@ def _load_plan_file(
             )
         check_presentation_names(meta, params_schema.model_fields, source=str(path))
         roles = tuple(channel_roles(params_schema))
-        if meta.writes and not any(role == MOVABLE_ROLE for _, role in roles):
+        declared_roles = {role for _, role in roles}
+        if meta.writes and not declared_roles & {MOVABLE_ROLE, TRIGGERED_ROLE}:
             raise PlanLoaderError(
-                f"{path}: PLAN_METADATA declares writes: true but no movable channel "
-                f"field in PARAMS — a plan that changes machine state must declare "
-                f"which channels it moves"
+                f"{path}: PLAN_METADATA declares writes: true but no movable or triggered "
+                f"channel field in PARAMS — a plan that changes machine state must declare "
+                f"which channels it moves or triggers"
+            )
+        if not meta.writes and TRIGGERED_ROLE in declared_roles:
+            raise PlanLoaderError(
+                f"{path}: PLAN_METADATA declares writes: false but PARAMS has a triggered "
+                f"channel field — triggering a device writes to it"
             )
         _check_defaults(path, params_schema)
         spec = PlanSpec(
