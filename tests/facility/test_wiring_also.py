@@ -16,12 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.apps.sdk.testing import model
 from osprey.facility.views.simulator import write_simulator_view
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import FacilityRecords
+from tests.facility._injection_fixture import FIXTURE as INJECTION
+from tests.facility._injection_fixture import MODEL as INJECTION_MODEL
 from tests.facility._pyaml_trees import built_document, measured_tree, view_inputs
 
 #: A reading and a setpoint the measured tree wires, and a second address for each.
@@ -43,7 +46,7 @@ def _tree() -> dict[str, Any]:
     tree = measured_tree()
     tree["records/channels.yaml"] += [
         {"id": READING_ALSO, "on": {"device": "SR/BPM1"}},
-        {"id": SETPOINT_ALSO, "role": "setpoint", "on": {"device": "SR/QD"}},
+        {"id": SETPOINT_ALSO, "on": {"device": "SR/QD"}},
     ]
     _record(tree, READING)["also"] = [READING_ALSO]
     _record(tree, SETPOINT)["also"] = [SETPOINT_ALSO]
@@ -119,11 +122,46 @@ def test_the_records_give_each_address_its_records_address(tmp_path: Path) -> No
     assert records.record_address("RACK3:SPARE") == "RACK3:SPARE"
 
 
+def _row(document: dict[str, Any], address: str) -> dict[str, Any]:
+    return next(channel for channel in document["channels"] if channel["id"] == address)
+
+
+def test_a_further_address_is_built_with_its_records_kind_as_a_default(tmp_path: Path) -> None:
+    row = _row(built_document(tmp_path, _tree())[0], SETPOINT_ALSO)
+
+    assert (row["role"], row["value_type"]) == ("setpoint", "float")
+    assert {"role", "value_type"} <= set(row["provenance"]["defaults"])
+    assert "pair" not in row
+
+
+def test_a_further_address_of_a_bool_record_is_built_with_its_records_labels(
+    tmp_path: Path,
+) -> None:
+    tree = {
+        rel: yaml.safe_load((INJECTION / rel).read_text(encoding="utf-8"))
+        for rel in ("models.yaml", "limits.yaml", "records/channels.yaml")
+    }
+    tree["records/channels.yaml"][0].update(value_type="bool", options=["Idle", "Fire"])
+    tree["records/channels.yaml"].append({"id": "INJ:RACK:REQ"})
+    model(tree, INJECTION_MODEL)["wiring"][0]["also"] = ["INJ:RACK:REQ"]
+
+    row = _row(built_document(tmp_path, tree)[0], "INJ:RACK:REQ")
+
+    assert (row["role"], row["value_type"], row["options"]) == (
+        "setpoint",
+        "bool",
+        ["Idle", "Fire"],
+    )
+    assert {"role", "value_type", "options"} <= set(row["provenance"]["defaults"])
+    assert "pair" not in row
+
+
 def test_a_facility_stating_no_also_is_written_as_before(tmp_path: Path) -> None:
-    """Dropping ``also`` changes the further addresses' owner and nothing else."""
+    """Dropping ``also``, the former further addresses stating their kind, changes their owner only."""
     plain = _tree()
     for address in (READING, SETPOINT):
         del _record(plain, address)["also"]
+    _channel(plain, SETPOINT_ALSO)["role"] = "setpoint"
 
     with_also = _variables(tmp_path / "also", _tree())
     without = _variables(tmp_path / "plain", plain)
