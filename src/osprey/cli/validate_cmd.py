@@ -120,6 +120,8 @@ def check_profile_file(profile_file: Path) -> None:
         click.UsageError: With every accumulated problem, so the caller exits 2.
         FacilityBuildError: When ``machine:`` names no usable machine root, the
             same stop ``osprey build`` raises.
+        RetiredLayoutRefused: When the facility tree holds a source at a
+            retired path, the same stop ``osprey build`` raises.
     """
     from .build_profile import resolve_build_profile
     from .build_profile_canopy import profile_home_screen_errors, repo_home_screen_errors
@@ -159,9 +161,14 @@ def check_profile_file(profile_file: Path) -> None:
         raise click.UsageError(str(e)) from e
 
     # Where the deployment reads its facility, checked exactly as the build
-    # checks it: a `machine:` naming an empty submodule or overlapping `data:`
-    # stops here with the same facility stop the build would raise.
-    build_profile.resolved_facility_roots(profile_dir)
+    # checks it: a `machine:` naming an empty submodule or overlapping `data:`,
+    # or a facility tree holding sources at retired paths, stops here with the
+    # same facility stop the build would raise.
+    facility_roots = build_profile.resolved_facility_roots(profile_dir)
+    if facility_roots is not None:
+        from osprey_facility.retired import refuse_retired
+
+        refuse_retired(facility_roots.machine, facility_roots.content)
 
     # The multi-user web stack the profile declares, judged on the config the
     # build would render — the `config:` block with the `deploy:` block's

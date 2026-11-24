@@ -77,7 +77,8 @@ from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DI
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
-from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
+from osprey_facility.errors import FacilityBuildWarning, FacilityError
+from osprey_facility.retired import refuse_retired
 
 from .build_environment import (
     _create_project_venv,
@@ -4151,6 +4152,15 @@ def _build_repo(
             resolved = replace(resolved, profile=canopy_kept)
         build_profile = resolved.profile
 
+        # Where machine facts and the deployment's own content are read,
+        # resolved once for the whole build. A named machine root that is
+        # missing (an uninitialised submodule) or overlaps `data:` stops here,
+        # and so does a facility tree holding sources at retired paths: before
+        # any output directory exists or a lifecycle step runs.
+        facility_roots = build_profile.resolved_facility_roots(repo_root)
+        if facility_roots is not None:
+            refuse_retired(facility_roots.machine, facility_roots.content)
+
         # The deployment's name is the profile's: every host-visible name — the
         # compose project, volumes, image tags, each render — derives
         # from it, so a clone under any folder name deploys as the same thing,
@@ -4320,11 +4330,7 @@ def _build_repo(
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
-        # Where machine facts and the deployment's own content are read,
-        # resolved once for the whole build. A named machine root that is
-        # missing (an uninitialised submodule) or overlaps `data:` stops here.
-        facility_roots = build_profile.resolved_facility_roots(repo_root)
-        assert facility_roots is not None  # `data:` resolved above
+        assert facility_roots is not None  # resolved from the same `data:`
         # A limits file the profile ships itself is a stop: the build writes
         # that file from the facility's limits.yaml. The guard checks the
         # deployment's files; a mounted machine only changes where the remedy
@@ -4645,7 +4651,7 @@ def _build_repo(
         if remedy is not None:
             logger.error("→ %s", remedy)
         raise click.Abort() from e
-    except FacilityBuildError:
+    except FacilityError:
         raise
     except Exception as e:
         logger.error("✗ Unexpected error: %s", e)
