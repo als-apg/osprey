@@ -1518,6 +1518,10 @@ describe('formatCell', () => {
     expect(formatCell([])).toBe('[0]');
     expect(formatCell([null, 'x', Infinity])).toBe('[3]');
   });
+
+  test('a refused cell reads as refused and its reason', () => {
+    expect(formatCell({ refused: 'not text' })).toBe('refused: not text');
+  });
 });
 
 describe('createResultsView', () => {

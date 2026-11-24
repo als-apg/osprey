@@ -47,6 +47,15 @@ describe('csvField', () => {
     expect(csvField(Infinity)).toBe('Infinity');
   });
 
+  test('a refused cell is written as refused and its reason', () => {
+    // A refusal is a value the run recorded and the bridge could not serve,
+    // a different fact from a channel never read, so it is not blanked.
+    expect(csvField({ refused: 'not text' })).toBe('refused: not text');
+    expect(csvField({ refused: 'not a number, text or array' })).toBe(
+      '"refused: not a number, text or array"'
+    );
+  });
+
   test('plain strings pass through unquoted', () => {
     expect(csvField('BPM:72:POSITION:X')).toBe('BPM:72:POSITION:X');
     expect(csvField('')).toBe('');
