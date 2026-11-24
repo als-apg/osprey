@@ -21,7 +21,9 @@ defaults are filled and recorded in each record's provenance: a channel that
 states no description but names a signal is given one composed from its
 owner, its signal and its unit, recorded as a default; a setpoint that
 states no ``pair`` is paired by the rule of ``pairing.py``, else with itself,
-recorded as a default.
+recorded as a default. A further address of a wiring record (under ``also``)
+is given its record's kind (``role``, ``value_type``, ``options``, ``shape``),
+each recorded as a default, and no other default: no ``pair``, no description.
 
 ``fixes.yaml``::
 
@@ -62,7 +64,7 @@ from typing import Any
 import yaml
 
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
-from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility import ADDRESS_KIND, DEFAULT_ROLE, TEXTURE, wiring_addresses
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey_facility.pairing import PAIR_RULE, derive_pairs
 from osprey_facility.provenance import Stating, add_defaults, build_provenance
@@ -924,17 +926,27 @@ class _Combiner:
     def _emit(self) -> dict[str, Any]:
         merged = {key: self._merged(record) for key, record in sorted(self.records.items())}
         devices = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "device"}
-        for (kind, _rid), (fields, defaults) in merged.items():
-            if kind == "channel":
+        further = _further_addresses(merged)
+        for (kind, rid), (fields, defaults) in merged.items():
+            if kind == "channel" and rid not in further:
                 _channel_defaults(fields, defaults)
                 _channel_description(fields, defaults, devices)
             elif kind == "group" and "kind" not in fields:
                 fields["kind"] = DEFAULT_GROUP_KIND
                 defaults.add("kind")
-        channels = {rid: fields for (kind, rid), (fields, _) in merged.items() if kind == "channel"}
+        for rid, own in further.items():
+            fields, defaults = merged[("channel", rid)]
+            _further_kind(fields, defaults, merged[("channel", own)][0])
+        channels = {
+            rid: fields
+            for (kind, rid), (fields, _) in merged.items()
+            if kind == "channel" and rid not in further
+        }
         derived = derive_pairs(channels)
         for (kind, rid), (fields, defaults) in merged.items():
-            if kind == "channel" and fields["role"] == "setpoint" and "pair" not in fields:
+            if kind != "channel" or rid in further:
+                continue
+            if fields["role"] == "setpoint" and "pair" not in fields:
                 fields["pair"] = derived.get(rid, rid)
                 defaults.add("pair")
         rules = {("channel", rid): [(PAIR_RULE, ("pair",))] for rid in derived}
@@ -1125,6 +1137,37 @@ def _by_name(table: str, added: Iterable[Mapping[str, Any]] = ()) -> list[dict[s
 
     rows = [*vocabulary()[table], *added]
     return sorted(copy.deepcopy(rows), key=lambda row: str(row.get("name")))
+
+
+def _further_addresses(
+    merged: Mapping[tuple[str, str], tuple[dict[str, Any], set[str]]],
+) -> dict[str, str]:
+    """Each further address of a wiring record (under ``also``), mapped to the record's ``address``.
+
+    Only a name that is a channel, of a record whose ``address`` is a channel,
+    is mapped; the first record naming it wins.
+    """
+    further: dict[str, str] = {}
+    for (kind, _rid), (fields, _) in merged.items():
+        if kind != "wiring":
+            continue
+        own, *names = wiring_addresses(fields) or [None]
+        if ("channel", own) not in merged:
+            continue
+        for name in names:
+            if name != own and ("channel", name) in merged:
+                further.setdefault(name, str(own))
+    return further
+
+
+def _further_kind(fields: dict[str, Any], defaults: set[str], record: Mapping[str, Any]) -> None:
+    """Write a further address's kind from its record's channel, each slot recorded as a default."""
+    for slot in ADDRESS_KIND:
+        if slot not in fields and slot in record:
+            fields[slot] = copy.deepcopy(record[slot])
+            defaults.add(slot)
+    if "on" not in fields:
+        defaults.add("on")
 
 
 def _channel_defaults(fields: dict[str, Any], defaults: set[str]) -> None:
