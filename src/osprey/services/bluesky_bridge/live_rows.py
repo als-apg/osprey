@@ -19,8 +19,10 @@ Document handling (bluesky's plain-dict document protocol):
   RunEngine's own uid (see :class:`LiveRowRecorder`) — marked partial, and
   stamped with the recorder's opaque ``plan`` value if it was given one.
 - ``descriptor``: each ``data_keys`` entry that declares a non-empty string
-  ``units`` records that unit under its column name. A later descriptor adds
-  units, never clears them; a column whose data key declares none has none.
+  ``units`` records that unit under its column name, and each that declares a
+  ``shape`` (:func:`declared_shapes`) records that shape. A later descriptor
+  adds units and shapes, never clears them; a column whose data key declares
+  none has none.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. Each cell is
   stored as a plain JSON value (:func:`json_cell`): an array reading is a
@@ -119,6 +121,7 @@ def max_rows_per_run() -> int:
 
 
 _lock = Lock()
+# Each buffer also holds "shapes", each column's declared size per axis.
 # run_uid -> {"columns": [...], "rows": [[...], ...], "partial": bool,
 #             "total_seen": int, "plan": Any | None, "units": {column: unit}}
 _buffers: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -127,7 +130,7 @@ _buffers: OrderedDict[str, dict[str, Any]] = OrderedDict()
 def get(run_uid: str) -> dict[str, Any] | None:
     """A snapshot of the live buffer for *run_uid* (or None if unknown).
 
-    ``columns``, ``rows`` and ``units`` are copies, so a caller cannot reach
+    ``columns``, ``rows``, ``units`` and ``shapes`` are copies, so a caller cannot reach
     back into the buffer through them. A cell that is a list is not copied: it
     is shared with the buffer, and a caller must not mutate it. ``plan`` is
     whatever the recorder was handed and is returned by reference — this module
@@ -144,6 +147,7 @@ def get(run_uid: str) -> dict[str, Any] | None:
             "total_seen": buf["total_seen"],
             "plan": buf["plan"],
             "units": dict(buf["units"]),
+            "shapes": {column: list(shape) for column, shape in buf["shapes"].items()},
         }
 
 
@@ -161,6 +165,29 @@ def declared_units(descriptor: Any) -> dict[str, str]:
         for column, key in data_keys.items()
         if isinstance(key, dict) and isinstance(key.get("units"), str) and key["units"]
     }
+
+
+def declared_shapes(descriptor: Any) -> dict[str, list[int | None]]:
+    """The shapes one descriptor document declares, by data key.
+
+    A data key declares a shape when its ``shape`` is a list whose every entry
+    is an integer >= 0, or ``None`` for a ragged axis; ``[]`` is a scalar. Any
+    other entry, and any malformed descriptor, declares none.
+    """
+    data_keys = descriptor.get("data_keys") if isinstance(descriptor, dict) else None
+    if not isinstance(data_keys, dict):
+        return {}
+    return {
+        column: list(key["shape"])
+        for column, key in data_keys.items()
+        if isinstance(key, dict) and _is_shape(key.get("shape"))
+    }
+
+
+def _is_shape(shape: Any) -> bool:
+    return isinstance(shape, list) and all(
+        size is None or (type(size) is int and size >= 0) for size in shape
+    )
 
 
 def json_cell(value: Any) -> Any:
@@ -250,6 +277,7 @@ class LiveRowRecorder:
                 "total_seen": 0,
                 "plan": self._plan,
                 "units": {},
+                "shapes": {},
             }
             _buffers.move_to_end(uid)
             while len(_buffers) > retained_runs:
@@ -258,13 +286,15 @@ class LiveRowRecorder:
     def _on_descriptor(self, doc: dict[str, Any]) -> None:
         if not self._uid:
             return
-        declared = declared_units(doc)
-        if not declared:
+        units = declared_units(doc)
+        shapes = declared_shapes(doc)
+        if not units and not shapes:
             return
         with _lock:
             buf = _buffers.get(self._uid)
             if buf is not None:
-                buf["units"].update(declared)
+                buf["units"].update(units)
+                buf["shapes"].update(shapes)
 
     def _on_event(self, doc: dict[str, Any]) -> None:
         if not self._uid:
