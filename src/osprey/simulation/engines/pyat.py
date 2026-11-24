@@ -28,6 +28,8 @@ These functions read a deck -- a lattice file pyAT loads with
 * :func:`error_text` gives the one line a failed build or solve reports;
 * :func:`readout` turns solved monitor positions into what each monitor
   reports;
+* :func:`served_settings` names the files a model's settings state beside
+  the deck, so a served view carries them with its copy of the deck.
 * :func:`fault_variables` names every fault a model built from a wiring and
   its settings declares, without building it.
 
@@ -107,6 +109,7 @@ __all__ = [
     "prepare",
     "readout",
     "response_matrix",
+    "served_settings",
     "start_values",
     "take_inputs",
 ]
@@ -1207,6 +1210,23 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     raise ValueError(
         f"{field(wiring_record, 'address')} is no setpoint, monitor, readback or optics output"
     )
+
+
+def served_settings(settings: Any, carry: Callable[[str], str]) -> Any:
+    """The settings a served view holds, every file they name carried beside the deck.
+
+    Args:
+        settings: The model's settings, as authored.
+        carry: Takes a file's path as stated, relative to the directory of
+            the model's deck, and returns the path the view serves it under,
+            relative to the directory of the view's copy of the deck.
+
+    Returns:
+        The settings, naming the carried files: the tables of the
+        ``turn_by_turn`` block's pickups
+        (:func:`pyat_turn_settings.served_settings`).
+    """
+    return turn_settings.served_settings(settings, carry)
 
 
 def describe_input(input_record: Any) -> Mapping[str, Any]:

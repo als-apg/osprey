@@ -6,6 +6,7 @@ Written into ``<render>/data/simulator/``::
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
                           server_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
+    decks/<model>.<file>    a byte copy of each file the model's settings name beside its deck
     variables.json       {schema: osprey.facility.simulator/4, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
     follows.json         {schema: osprey.facility.follows/1, totals: {...}, pairs: [...]}
@@ -21,7 +22,9 @@ so a render's deck set does not depend on ``simulation.models``.
 
 ``variables.json`` lists every model record of the facility file, sorted by
 name, as ``{name, engine, served, settings, deck, wiring, inputs?}``: ``deck`` is the
-copy's path under ``data/simulator/`` or null, ``wiring`` is
+copy's path under ``data/simulator/`` or null, ``settings`` are the model's
+settings with every file they name beside the deck named as the view carries
+it (:func:`served_settings`), ``wiring`` is
 ``simulator_wiring`` of the model (empty for a model without wiring) and
 ``inputs`` is the model's ``inputs`` verbatim, in declared order, present only
 when the model declares one, so a model without inputs is written as under
@@ -125,6 +128,7 @@ __all__ = [
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "served_deck_path",
+    "served_settings",
     "simulator_wiring",
     "unlisted_setpoints_writable",
     "withdraw_scenarios",
@@ -253,6 +257,54 @@ def served_deck_path(model: Mapping[str, Any]) -> str | None:
     return f"{DECKS_DIR}/{model['name']}{Path(deck).suffix}"
 
 
+def served_settings(
+    inputs: ViewInputs, model: Mapping[str, Any]
+) -> tuple[dict[str, Any], dict[str, Path]]:
+    """A model's settings as the view holds them, and the files they name beside the deck.
+
+    A model's settings may name a file relative to the directory of its deck.
+    The view holds a copy of the deck and nothing else of that directory, so
+    the model's engine is asked which files those are
+    (``served_settings(settings, carry)`` of the plug-in): each is served as
+    ``decks/<model>.<file name>``, numbered when two files of one model share
+    a name, and the settings in the view name that copy.
+
+    Args:
+        inputs: The render's view inputs.
+        model: A facility-file model record.
+
+    Returns:
+        ``(settings, files)``: the settings ``variables.json`` lists for the
+        model, and each carried file's path under the view with the file it
+        is a copy of. The settings as authored and no file for a model with
+        no deck, or whose engine states no ``served_settings``.
+    """
+    from osprey_facility.scenarios import engine_plugin
+
+    settings = copy.deepcopy(model.get("settings") or {})
+    files: dict[str, Path] = {}
+    deck, engine = model.get("deck"), model.get("engine")
+    plugin = engine_plugin(str(engine)) if deck and engine else None
+    served = None if plugin is None else getattr(plugin, "served_settings", None)
+    if served is None:
+        return settings, files
+    directory = (inputs.facility_dir / str(deck)).parent
+    names: dict[Path, str] = {}
+
+    def carry(stated: str) -> str:
+        source = (directory / stated).resolve()
+        if source not in names:
+            name, count = f"{model['name']}.{source.name}", 1
+            while f"{DECKS_DIR}/{name}" in files:
+                count += 1
+                name = f"{model['name']}.{count}.{source.name}"
+            names[source] = name
+            files[f"{DECKS_DIR}/{name}"] = source
+        return names[source]
+
+    return dict(served(settings, carry)), files
+
+
 def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
     """A waveform channel's ``value_type`` and ``shape``; nothing for any other channel."""
     if not is_waveform(channel.get("value_type")):
@@ -336,7 +388,7 @@ def _model_entry(inputs: ViewInputs, model: Mapping[str, Any]) -> dict[str, Any]
         "name": model["name"],
         "engine": model.get("engine"),
         "served": model["name"] in inputs.served,
-        "settings": copy.deepcopy(model.get("settings") or {}),
+        "settings": served_settings(inputs, model)[0],
         "deck": served_deck_path(model),
         "wiring": simulator_wiring(inputs.records, str(model["name"])),
     }
@@ -556,6 +608,10 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
         target = root / served
         target.write_bytes((inputs.facility_dir / model["deck"]).read_bytes())
         written.append(target)
+        for carried, source in served_settings(inputs, model)[1].items():
+            target = root / carried
+            target.write_bytes(source.read_bytes())
+            written.append(target)
     return written
 
 

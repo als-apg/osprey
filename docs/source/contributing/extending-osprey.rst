@@ -341,7 +341,12 @@ What a plug-in is given and asked for:
     ``variables.json``.
   - ``deck`` is the path of the model's deck, ``decks/<model>.<its suffix>``,
     or ``None`` for a model that names none.
-  - ``settings`` is the model record's settings.
+  - ``settings`` is the model record's settings. Where they name a file
+    beside the deck, state ``served_settings(settings, carry)``: the build
+    calls it without a deck load, ``carry`` takes each path as stated and
+    returns the path the view serves the file under, relative to its copy
+    of the deck, and the function returns the settings naming those copies.
+    A plug-in without it gets its settings as authored and the deck alone.
   - ``active`` holds the active scenarios' setpoint values and fault seeds.
 
 - **Set and get.** The composite reaches the model only through its ``set()``
