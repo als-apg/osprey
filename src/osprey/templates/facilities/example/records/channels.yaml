@@ -2570,6 +2570,7 @@
   pair: ES1:MOT:STAGE:01:POSITION:RB
   tolerance:
     absolute: 0.01
+  started_by: ES1:MOT:STAGE:01:MOVE:SP
   'on':
     device: ES1/STAGE01
   signal: position_setpoint
