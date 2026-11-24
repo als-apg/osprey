@@ -103,6 +103,22 @@
 # `derived` and `no-fallback` say nothing on their own, so each carries a
 # `default_note:` naming the derivation or the consequence. That is what stops
 # the two from becoming an escape hatch from reading the code.
+#
+# THE `path:` COLUMN — whether `osprey build` protects what the key names from
+# agent code the python executor runs. A key carries one when its last segment
+# holds a path-like word (path, dir, file, bundle, ca, module, plugins, ...),
+# when its default or a shipped value is path-shaped, or when the build's
+# protected-path table (osprey.cli.build_protected_paths.CONFIG_PATH_KEYS)
+# names it:
+#
+#   path: protect               the build protects what it names;
+#   path: {exempt: <reason>}    it needs no protection: not-a-path,
+#                               already-confined, derived-not-statable,
+#                               runtime-output, other-container-filesystem,
+#                               or the reason in its own words.
+#
+# The keys marked `protect` are exactly the build's table; the guard checks
+# both directions (failure mode 12).
 
 # ---------------------------------------------------------------------------
 # keys — every dotted path the framework template renders or a preset's
@@ -115,6 +131,7 @@ keys:
     default: derived
     default_note: the profile's top-level `project_name:` field
   build_dir:
+    path: {exempt: 'derived-not-statable (and build/ is already protected)'}
     evidence: 'config\.get\("build_dir", "\./build"\)'
     default: ./build
   # Top-level deploy switches, read straight off the loaded config and named
@@ -162,10 +179,12 @@ keys:
     default_note: >-
       registry-mode web terminals are refused with no url (REGISTRY_MODE_MISSING_URL)
   project_root:
+    path: {exempt: 'derived-not-statable'}
     evidence: 'config\.get\("project_root"\)'
     default: derived
     default_note: the repo root the loaded config.yml sits in
   registry_path:
+    path: protect
     rendered: false
     evidence: 'registry_path'
     note: >-
@@ -176,6 +195,18 @@ keys:
       `registry.manager.resolve_registry_path`, which also accepts the
       `application.registry_path` alias and lets the `REGISTRY_PATH`
       environment variable outrank both.
+    default: no-fallback
+    default_note: >-
+      unset names no application registry, and the framework-only registry is
+      used
+
+  application.registry_path:
+    rendered: false
+    evidence: 'application\.get\("registry_path"\)'
+    path: protect
+    note: >-
+      The accepted alias of `registry_path`, read by the same resolver only
+      when the top-level spelling is unset. No preset spells it.
     default: no-fallback
     default_note: >-
       unset names no application registry, and the framework-only registry is
@@ -218,6 +249,21 @@ keys:
   # `config:` — the profile parser refuses that spelling — so every row is
   # `rendered: false`.
   agent_record: {rendered: false, evidence: 'AGENT_RECORD_BLOCK = "agent_record"', default: {}}
+  # The build writes the deployment's protected-path set into this key in every
+  # render, an empty list when the profile names no path. No template renders it
+  # and the profile parser refuses a spelling of it.
+  protected_paths:
+    path: {exempt: 'derived-not-statable (the build writes the list itself)'}
+    rendered: false
+    evidence: 'PROTECTED_PATHS_CONFIG_KEY: Final = "protected_paths"'
+    note: >-
+      The paths the profile names that agent code the python executor runs may
+      not change: plan directories, CA bundles, registry modules, corpora and
+      the other build and service inputs, in the profile's own spelling.
+    default: no-fallback
+    default_note: >-
+      the python executor refuses agent code, and `osprey up` and `osprey restart`
+      refuse to start, on a build without the key; `osprey build` writes it
   agent_record.backend:
     rendered: false
     evidence: '"agent_record\.backend"'
@@ -238,13 +284,13 @@ keys:
   agent_record.port: {rendered: false, evidence: '"agent_record\.port"', default: derived, default_note: the layout's agent_record slot at this deployment's port base}
   agent_record.memory: {rendered: false, evidence: '"agent_record\.memory"', default: 1g}
   agent_record.clickhouse: {rendered: false, evidence: 'class ClickHouseConfig', default: {}}
-  agent_record.clickhouse.image: {rendered: false, evidence: '"agent_record\.clickhouse\.image"', default: 'clickhouse/clickhouse-server:26.8.18.2'}
+  agent_record.clickhouse.image: {rendered: false, evidence: '"agent_record\.clickhouse\.image"', default: 'clickhouse/clickhouse-server:26.8.18.2', path: {exempt: 'not-a-path (an image reference)'}}
   agent_record.clickhouse.memory: {rendered: false, evidence: '"agent_record\.clickhouse\.memory"', default: 2g}
   # ── Code review ─────────────────────────────────────────────────────
   # Read uncached from the rendered file by osprey.services.code_review.settings.
   code_review.enabled: {rendered: false, evidence: 'code_review\.enabled must be', default: false}
   code_review.level: {rendered: false, evidence: 'code_review\.level must be', default: block}
-  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: data/code_review/reviewer.md}
+  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: data/code_review/reviewer.md, path: {exempt: 'already-confined'}}
   code_review.modes: {rendered: false, evidence: 'code_review\.modes must be', default: [readwrite]}
   code_review.time_limit: {rendered: false, evidence: 'code_review\.time_limit must be', default: 60.0}
   deployment.port_base:
@@ -311,6 +357,7 @@ keys:
       both read it, and a login naming it is refused. Unset builds natively.
     default: ''
   images.site_ca:
+    path: protect
     rendered: false
     evidence: '"OSPREY_SITE_CA": "site_ca"'
     note: >-
@@ -392,7 +439,7 @@ keys:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}
   services.postgresql: {evidence: 'get_config_value\("services\.postgresql", \{\}\)', default: {}}
-  services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql"}
+  services.postgresql.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/postgresql", path: protect}
   services.postgresql.database_name: {evidence: 'database_name', default: ariel}
   services.postgresql.username: {covered-by: services.postgresql, default: ariel}
   services.postgresql.port_host: {evidence: 'port_host', default: derived, default_note: the layout's postgres slot at this deployment's port base}
@@ -412,6 +459,7 @@ keys:
       itself, which is the thing a config file has to match.
     default: null
   services.qmd.path:
+    path: protect
     evidence: 'service_config\["path"\]'
     note: >-
       Same generic compose-generator read as the postgresql `path`
@@ -448,6 +496,7 @@ keys:
       working container as failed. Rendered as the template's `start_period`.
     default: 3600
   services.qmd.models_dir:
+    path: protect
     rendered: false
     evidence: '_absolute_path\(block\.get\("models_dir"\)'
     note: >-
@@ -464,6 +513,7 @@ keys:
       unhealthy container an hour later.
     default: null
   services.qmd.corpora:
+    path: protect
     rendered: false
     evidence: '_declared_corpora\(block\.get\("corpora"\)\)'
     note: >-
@@ -495,6 +545,7 @@ keys:
     evidence: '_graphdb_block\(config\)'
     default: null
   services.graphdb.path:
+    path: protect
     evidence: 'service_config\["path"\]'
     note: >-
       Same generic compose-generator read as the postgresql/qmd
@@ -533,6 +584,7 @@ keys:
     default: derived
     default_note: the layout's graphdb_http slot at this deployment's port base
   services.graphdb.ttl_path:
+    path: protect
     rendered: false
     evidence: '_optional_text\(block\.get\("ttl_path"\)'
     note: >-
@@ -781,6 +833,7 @@ keys:
     default: derived
     default_note: osprey_images.bluesky_bridge
   services.bluesky.tiled_image:
+    path: {exempt: 'not-a-path (an image reference)'}
     rendered: false
     evidence: 'services\.bluesky\.tiled_image'
     note: Upstream pin for the Tiled sidecar the Bluesky stack runs beside the bridge.
@@ -878,6 +931,7 @@ keys:
       `services[instance_key]`, which names no service and would prove nothing.
     default: null
   services.live_standin.path:
+    path: protect
     covered-by: services.live_standin
     note: >-
       Always `./services/virtual_accelerator`, the same fragment directory the
@@ -938,7 +992,7 @@ keys:
   # notes.service_instance_families. Rows the demo preset's
   # deploying render carries are live; the rest are `rendered: false`.
   services.bluesky: {evidence: 'LANE_ONE = "bluesky"', default: null}
-  services.bluesky.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky injector writes ./services/bluesky"}
+  services.bluesky.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky injector writes ./services/bluesky", path: protect}
   services.bluesky.port: {evidence: 'PortSlot\("bluesky", 80, "services", "services\.bluesky\.port"\)', default: derived, default_note: the layout's bluesky slot at this deployment's port base; a second lane takes the bluesky_second_lane slot}
   services.bluesky.tiled_enabled: {evidence: 'svc\.tiled_enabled \| default\(false\)', default: false}
   services.bluesky.tiled_port: {evidence: '"tiled": "services\.bluesky\.tiled_port"', default: derived, default_note: the layout's tiled slot at this deployment's port base}
@@ -953,12 +1007,13 @@ keys:
     default: derived
     default_note: the co-deployed virtual accelerator, the compose template's fallback
   services.bluesky.ca_name_servers:
+    path: {exempt: 'not-a-path (Channel Access name servers)'}
     rendered: false
     evidence: 'EPICS_CA_NAME_SERVERS: "\{\{ svc\.ca_name_servers \}\}"'
     note: Written beside `target` for a lane serving the live machine or the stand-in.
     default: derived
     default_note: the virtual-accelerator container, which the template addresses without being told
-  services.bluesky.plan_dir: {rendered: false, evidence: 'service\.get\("plan_dir"\)', default: null}
+  services.bluesky.plan_dir: {rendered: false, evidence: 'service\.get\("plan_dir"\)', default: null, path: protect}
   services.bluesky.excluded_plans: {rendered: false, evidence: '_as_str_list\(source\.get\("excluded_plans"\)\)', default: null}
   services.bluesky.device_page_size: {rendered: false, evidence: 'BLUESKY_DEVICE_PAGE_SIZE: "\{\{ svc\.device_page_size', default: 500}
   services.bluesky.settle_timeout_s: {rendered: false, evidence: 'BLUESKY_SETTLE_TIMEOUT_S: "\{\{ svc\.settle_timeout_s', default: 5.0}
@@ -978,21 +1033,21 @@ keys:
   services.bluesky.external.insecure_plaintext: {rendered: false, evidence: 'external_block\["insecure_plaintext"\]', default: false}
   services.bluesky.external.tiled_uri: {rendered: false, evidence: 'BLUESKY_TILED_URI: "\{\{ external\.tiled_uri', default: null}
   services.bluesky.external.tiled_api_key_env: {rendered: false, evidence: 'external\.tiled_api_key_env \}\}', default: null}
-  services.bluesky.external.parameter_schema_mounts: {rendered: false, evidence: 'for m in external\.parameter_schema_mounts', default: []}
-  services.bluesky.external.parameter_schemas_env: {rendered: false, evidence: 'external\.parameter_schemas_env \}\}', default: null}
+  services.bluesky.external.parameter_schema_mounts: {rendered: false, evidence: 'for m in external\.parameter_schema_mounts', default: [], path: protect}
+  services.bluesky.external.parameter_schemas_env: {rendered: false, evidence: 'external\.parameter_schemas_env \}\}', default: null, path: {exempt: 'not-a-path (the container variable the schema mounts are announced in)'}}
   services.bluesky.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.bluesky\)', default: []}
   services.bluesky_web: {evidence: 'hostenv\.passthrough\(services\.bluesky_web\)', default: null}
-  services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web"}
+  services.bluesky_web.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the bluesky-web injector writes ./services/bluesky_web", path: protect}
   services.bluesky_web.port: {evidence: '"bluesky-web": "services\.bluesky_web\.port"', default: derived, default_note: the layout's bluesky_web slot at this deployment's port base}
   services.optimizer.port: {rendered: false, evidence: '"optimizer": "services\.optimizer\.port"', default: derived, default_note: the layout's optimizer slot at this deployment's port base}
-  services.optimizer.environments_dir: {rendered: false, evidence: 'svc\.environments_dir \}\}:/app/environments:ro', default: null}
+  services.optimizer.environments_dir: {rendered: false, evidence: 'svc\.environments_dir \}\}:/app/environments:ro', default: null, path: protect}
   services.optimizer_web: {rendered: false, evidence: 'hostenv\.passthrough\(services\.optimizer_web\)', default: null}
-  services.optimizer_web.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the optimizer-web injector writes ./services/optimizer_web"}
+  services.optimizer_web.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the optimizer-web injector writes ./services/optimizer_web", path: protect}
   services.optimizer_web.port: {rendered: false, evidence: '"optimizer-web": "services\.optimizer_web\.port"', default: derived, default_note: the layout's optimizer_web slot at this deployment's port base}
   # The server fleet service: live in the demo preset's deploying render, whose
   # `channel_directory.fleet` block makes the server fleet injector write it.
   services.server_fleet: {evidence: 'set svc = \(services \| default\(\{\}, true\)\)\.server_fleet', default: null, note: "Written by the build exactly when channel_directory.fleet is set; the server fleet service"}
-  services.server_fleet.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the server fleet injector writes ./services/server_fleet"}
+  services.server_fleet.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the server fleet injector writes ./services/server_fleet", path: protect}
   services.server_fleet.port: {evidence: 'PortSlot\("server_fleet", 84', default: derived, default_note: the layout's server_fleet slot at this deployment's port base}
   services.server_fleet.image:
     rendered: false
@@ -1006,14 +1061,14 @@ keys:
     default_note: osprey_images.worker — the server fleet service runs the worker image
   services.server_fleet.network: {rendered: false, evidence: 'set on_host = \(svc\.network \| default\(.bridge., true\)\) == .host.', default: bridge}
   services.virtual_accelerator: {evidence: 'set svc = services\[instance_key\]', default: null}
-  services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator"}
+  services.virtual_accelerator.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the VA injector writes ./services/virtual_accelerator", path: protect}
   services.virtual_accelerator.port: {evidence: 'dotted_get\(config, "services\.virtual_accelerator\.port"\) or DEFAULT_VA_PORT', default: derived, default_note: the virtual accelerator's Channel Access default port}
   services.event_dispatcher: {evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: null}
-  services.event_dispatcher.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/event_dispatcher"}
+  services.event_dispatcher.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/event_dispatcher", path: protect}
   services.event_dispatcher.port: {evidence: 'PortSlot\("dispatcher", 10, "dispatch", "services\.event_dispatcher\.port"\)', default: derived, default_note: the layout's dispatcher slot at this deployment's port base}
   services.event_dispatcher.facility_name: {evidence: 'OSPREY_FACILITY_NAME: "\{\{ services\.event_dispatcher\.facility_name', default: ""}
   services.event_dispatcher.channel_strip_prefix: {evidence: 'CHANNEL_STRIP_PREFIX: "\{\{ services\.event_dispatcher\.channel_strip_prefix', default: ""}
-  services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: []}
+  services.event_dispatcher.additional_dirs: {evidence: 'container_cfg\.get\("additional_dirs", \[\]\)', default: [], path: protect}
   services.event_dispatcher.network: {evidence: 'services\.event_dispatcher\.network \| default\(.bridge., true\)', default: bridge}
   services.event_dispatcher.transport:
     rendered: false
@@ -1041,7 +1096,7 @@ keys:
     default_note: 127.0.0.1 on the host network, 0.0.0.0 on the bridge network
   services.event_dispatcher.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.event_dispatcher\)', default: []}
   services.dispatch_worker: {evidence: 'hostenv\.passthrough\(services\.dispatch_worker\)', default: null}
-  services.dispatch_worker.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/dispatch_worker"}
+  services.dispatch_worker.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the dispatch injector writes ./services/dispatch_worker", path: protect}
   services.dispatch_worker.worker_count: {evidence: 'services\.dispatch_worker\.worker_count \| default\(1\)', default: 1}
   services.dispatch_worker.worker_port_base: {evidence: 'PortSlot\("worker", 10, "dispatch", "services\.dispatch_worker\.worker_port_base"\)', default: derived, default_note: the layout's worker slot at this deployment's port base}
   services.dispatch_worker.workspace_mode: {evidence: 'services\.dispatch_worker\.workspace_mode \| default\(.isolated.\)', default: isolated}
@@ -1064,14 +1119,14 @@ keys:
       deployment's own render.
     default: null
   services.mongodb: {evidence: 'hostenv\.passthrough\(services\.mongodb\)', default: null}
-  services.mongodb.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/mongodb"}
+  services.mongodb.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/mongodb", path: protect}
   services.mongodb.port_host: {evidence: 'PortSlot\("mongo", 801, "stores", "services\.mongodb\.port_host"\)', default: derived, default_note: the layout's mongo slot at this deployment's port base}
   services.mongodb.username: {covered-by: services.mongodb, default: n/a}
   services.mongodb.compression: {evidence: 'get\(_ARCHIVER_STORE_SERVICE\) or \{\}\)\.get\("compression"\)', default: zstd}
   services.archiver_recorder: {evidence: 'hostenv\.passthrough\(services\.archiver_recorder\)', default: null}
-  services.archiver_recorder.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder"}
+  services.archiver_recorder.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the archiver-store injector writes ./services/archiver_recorder", path: protect}
   services.archive: {evidence: 'set svc = services\.archive \| default', default: null}
-  services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive"}
+  services.archive.path: {evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the build writes ./services/archive", path: protect}
   services.archive.network: {rendered: false, covered-by: services.archive, default: bridge}
   services.ariel_sync.network: {rendered: false, evidence: 'set svc = services\.ariel_sync \| default', default: bridge}
   services.graphdb.network: {rendered: false, covered-by: services.graphdb, default: bridge}
@@ -1080,27 +1135,27 @@ keys:
     evidence: '_text\(section\.get\("username"\), DEFAULT_USERNAME, "services\.graphdb\.username"\)'
     note: The graph store's login, read beside `uri`.
     default: neo4j
-  services.gchat_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Google Chat injector writes ./services/gchat_bridge"}
+  services.gchat_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Google Chat injector writes ./services/gchat_bridge", path: protect}
   services.gchat_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.gchat_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's gchat_bridge.trigger (gchat-question)}
   services.gchat_bridge.env: {rendered: false, data-map: true, evidence: 'hostenv\.passthrough\(services\.gchat_bridge\)', default: []}
-  services.nextcloud_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Nextcloud Talk injector writes ./services/nextcloud_bridge"}
+  services.nextcloud_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Nextcloud Talk injector writes ./services/nextcloud_bridge", path: protect}
   services.nextcloud_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.nextcloud_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's nextcloud_bridge.trigger (nextcloud-question)}
-  services.teams_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Teams injector writes ./services/teams_bridge"}
+  services.teams_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Teams injector writes ./services/teams_bridge", path: protect}
   services.teams_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.teams_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's teams_bridge.trigger (teams-question)}
-  services.slack_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Slack injector writes ./services/slack_bridge"}
+  services.slack_bridge.path: {rendered: false, evidence: 'service_config\["path"\]', default: no-fallback, default_note: "the compose generator indexes service_config['path'] and raises when absent; the Slack injector writes ./services/slack_bridge", path: protect}
   services.slack_bridge.trigger: {rendered: false, evidence: 'DISPATCH_TRIGGER: "\{\{ services\.slack_bridge\.trigger', default: no-fallback, default_note: the injector always writes the profile's slack_bridge.trigger (slack-question)}
   web.panels.events: {covered-by: web.panels, default: n/a}
   web.panels.events.url: {evidence: 'url = str\(spec\.get\("url"\) or ""\)', default: derived, default_note: "http://localhost:<the dispatcher's port>, written by the dispatch injector"}
-  web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard}
+  web.panels.events.path: {evidence: 'path = str\(spec\.get\("path"\) or "/"\)', default: /dashboard, path: {exempt: 'not-a-path (URL path)'}}
   web.panels.events.label: {evidence: 'label = str\(spec\.get\("label"\) or panel_id\.upper\(\)\)', default: Events}
-  web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health}
+  web.panels.events.health_endpoint: {evidence: 'endpoint = spec\.get\("health_endpoint"\)', default: /health, path: {exempt: 'not-a-path (URL path)'}}
   web.panels.bluesky: {covered-by: web.panels, default: n/a}
   web.panels.bluesky.url: {covered-by: web.panels.events.url, default: derived, default_note: "the bluesky-web sidecar's loopback URL, written by the bluesky-web injector"}
-  web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/}
+  web.panels.bluesky.path: {covered-by: web.panels.events.path, default: /bluesky/, path: {exempt: 'not-a-path (URL path)'}}
   web.panels.bluesky.label: {covered-by: web.panels.events.label, default: Bluesky}
   web.panels.optimizer: {rendered: false, covered-by: web.panels, default: n/a}
   web.panels.optimizer.url: {rendered: false, covered-by: web.panels.events.url, default: derived, default_note: "the optimizer-web sidecar's loopback URL, written by the optimizer-web injector"}
-  web.panels.optimizer.path: {rendered: false, covered-by: web.panels.events.path, default: /optimizer/}
+  web.panels.optimizer.path: {rendered: false, covered-by: web.panels.events.path, default: /optimizer/, path: {exempt: 'not-a-path (URL path)'}}
   web.panels.optimizer.label: {rendered: false, covered-by: web.panels.events.label, default: Optimizer}
   web.panels.optimizer.read_timeout_s: {rendered: false, covered-by: web.panels.<app-panel>.read_timeout_s, default: derived, default_note: "the optimizer client's 80 s budget plus a 10 s margin (OPTIMIZER_PANEL_READ_TIMEOUT_S), written by the optimizer-web injector; the host's setting, projected into attached renders (an explicit null included), which may not set their own"}
 
@@ -1117,7 +1172,7 @@ keys:
   services.<app-container>.audit_identity: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.bind_env: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.command: {covered-by: services.<app-container>, default: n/a}
-  services.<app-container>.config_file: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.config_file: {covered-by: services.<app-container>, default: n/a, path: {exempt: 'derived-not-statable (its source, apps/, is protected)'}}
   services.<app-container>.control_identity: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.drives_target: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.env: {covered-by: services.<app-container>, default: n/a}
@@ -1125,7 +1180,7 @@ keys:
   services.<app-container>.image: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.launch_token_env: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.network: {covered-by: services.<app-container>, default: n/a}
-  services.<app-container>.path: {covered-by: services.<app-container>, default: n/a}
+  services.<app-container>.path: {covered-by: services.<app-container>, default: n/a, path: {exempt: 'derived-not-statable (its source, apps/, is protected)'}}
   services.<app-container>.port: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.roster_grant: {covered-by: services.<app-container>, default: n/a}
   services.<app-container>.roster_grant.panel_id: {covered-by: services.<app-container>.roster_grant, default: n/a}
@@ -1157,7 +1212,7 @@ keys:
   web.panels.<app-panel>.icon: {rendered: false, covered-by: web.panels.<app-panel>, default: no-fallback, default_note: "written only when the application's manifest declares panel.icon; the guard's fixture application declares none"}
   web.panels.<app-panel>.label: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.launch_token_env: {covered-by: web.panels.<app-panel>, default: n/a}
-  web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a}
+  web.panels.<app-panel>.path: {covered-by: web.panels.<app-panel>, default: n/a, path: {exempt: 'not-a-path (URL path)'}}
   web.panels.<app-panel>.read_timeout_s: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.url: {covered-by: web.panels.<app-panel>, default: n/a}
   dispatch:
@@ -1193,7 +1248,7 @@ keys:
   apps.<app>.approval.<tool>: {covered-by: apps.<app>.approval, default: n/a}
   apps.<app>.approval.<tool>.prompt: {covered-by: apps.<app>.approval.<tool>, default: n/a}
   apps.<app>.approval.<tool>.panel_id: {covered-by: apps.<app>.approval.<tool>, default: n/a}
-  apps.<app>.approval.<tool>.state_path: {covered-by: apps.<app>.approval.<tool>, default: n/a}
+  apps.<app>.approval.<tool>.state_path: {covered-by: apps.<app>.approval.<tool>, default: n/a, path: {exempt: 'not-a-path (URL path)'}}
   apps.<app>.approval.<tool>.display_lines_key: {covered-by: apps.<app>.approval.<tool>, default: n/a}
   apps.<app>.approval.<tool>.bind: {covered-by: apps.<app>.approval.<tool>, default: n/a}
   apps.<app>.approval.<tool>.require: {covered-by: apps.<app>.approval.<tool>, default: n/a}
@@ -1310,6 +1365,17 @@ keys:
       seconds between the served composite's timed passes; no preset states it,
       the resolver holds the default; a value at or below 0 stops the build
     default: 0.1
+  simulation.state_dir:
+    rendered: false
+    evidence: 'SIMULATION_STATE_DIR_CONFIG_KEY = "simulation\.state_dir"'
+    path: {exempt: 'runtime-output (written by the simulator at run time, inside the agent data zone by default; no build reads it)'}
+    note: >-
+      Where the simulator keeps its mutable scenario state. No preset states
+      it; the resolver places it in the agent data zone.
+    default: derived
+    default_note: >-
+      a directory under the agent data root, resolved by
+      `resolve_simulation_state_dir`
   simulation.default_scenarios:
     evidence: '\.get\("default_scenarios"\)'
     facility-fact: true
@@ -1389,6 +1455,7 @@ keys:
     default_note: >-
       an unstated leaf is not False — it means the deployment configured no limits checking, and the write paths fail closed
   control_system.limits_checking.database_path:
+    path: {exempt: 'derived-not-statable (its source, data/facility/limits.yaml, is under data/)'}
     rendered: false
     evidence: 'config_lookup\(LIMITS_DATABASE_CONFIG_KEY, None\)'
     note: >-
@@ -1951,7 +2018,7 @@ keys:
   archiver.epics_archiver.timeout_s: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
   # The appliance mounts its retrieval servlet at /retrieval; a reverse proxy in
   # front of it may publish the servlet under another prefix.
-  archiver.epics_archiver.retrieval_path: {covered-by: archiver.epics_archiver, rendered: false, default: '/retrieval'}
+  archiver.epics_archiver.retrieval_path: {covered-by: archiver.epics_archiver, rendered: false, default: '/retrieval', path: {exempt: 'not-a-path (URL path)'}}
   archiver.epics_archiver.auth:
     rendered: false
     covered-by: archiver.epics_archiver
@@ -1965,6 +2032,7 @@ keys:
   archiver.epics_archiver.auth.password_env: {covered-by: archiver.epics_archiver, rendered: false, default: null}
   archiver.epics_archiver.tls: {covered-by: archiver.epics_archiver, rendered: false, default: null}
   archiver.epics_archiver.tls.ca_bundle:
+    path: protect
     rendered: false
     covered-by: archiver.epics_archiver
     note: >-
@@ -2043,7 +2111,7 @@ keys:
       the login the store checks — the database the user is defined in, the
       user, and the environment variable that holds its password
     default: {}
-  archiver.mongodb_archiver.auth.source: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
+  archiver.mongodb_archiver.auth.source: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own", path: {exempt: 'not-a-path (the authentication database name)'}}
   archiver.mongodb_archiver.auth.username: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.auth.password_env: {rendered: false, covered-by: archiver.mongodb_archiver.auth, default: no-fallback, default_note: "the connector raises ValueError naming this key; the build writes the whole block and an external store names its own"}
   archiver.mongodb_archiver.timeout_s: {rendered: false, covered-by: archiver.mongodb_archiver, default: 60}
@@ -2057,6 +2125,7 @@ keys:
     default: null
   archiver.mongodb_archiver.tls: {rendered: false, covered-by: archiver.mongodb_archiver, default: {}}
   archiver.mongodb_archiver.tls.ca_bundle:
+    path: protect
     rendered: false
     covered-by: archiver.mongodb_archiver.tls
     note: >-
@@ -2079,10 +2148,11 @@ keys:
     default: no-fallback
     default_note: >-
       the build derives the block from the deployment's Python environment; no runtime reader
-  execution.environment.python: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+  execution.environment.python: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader", path: {exempt: 'derived-not-statable (its source, environment.python, is a protected profile field)'}}
   execution.environment.packages: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   execution.environment.inherit_exclude: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   python_executor:
+    path: {exempt: 'not-a-path (a block; its members are decided one by one)'}
     rendered: false
     evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
     note: >-
@@ -2137,6 +2207,7 @@ keys:
     evidence: '\(config or \{\}\)\.get\("agent_data"\) or \{\}'
     default: {}
   agent_data.base_dir:
+    path: {exempt: 'derived-not-statable (it is the permitted root)'}
     evidence: 'section\.get\("base_dir"\) or DEFAULT_AGENT_DATA_BASE_DIR'
     note: >-
       The only key naming this directory. Anchored on the resolver's return
@@ -2145,9 +2216,11 @@ keys:
       so it would have stayed green if the reader itself were deleted.
     default: var/agent_data
   file_paths:
+    path: {exempt: 'derived-not-statable'}
     evidence: 'config\.get\("file_paths", \{\}\)'
     default: {}
   file_paths.registry_exports_dir:
+    path: {exempt: 'derived-not-statable'}
     evidence: 'get_agent_dir\("registry_exports_dir"\)'
     note: >-
       Absent from file_paths, the subdirectory falls back to the KEY'S OWN NAME
@@ -2157,6 +2230,7 @@ keys:
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
   screen_capture.output_dir:
+    path: {exempt: 'runtime-output'}
     rendered: false
     evidence: 'get\("screen_capture", \{\}\) or \{\}\)\.get\("output_dir"\)'
     note: >-
@@ -2230,7 +2304,7 @@ keys:
       api.providers.openrouter.api_key, else OPENROUTER_API_KEY
   api.jev.routes.typesafe.max_request_tokens: {covered-by: api.jev, rendered: false, default: 60000}
   api.jev.routes.typesafe.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
-  api.jev.routes.openrouter.model: {covered-by: api.jev, rendered: false, default: typesafe/jev-1.13}
+  api.jev.routes.openrouter.model: {covered-by: api.jev, rendered: false, default: typesafe/jev-1.13, path: {exempt: 'not-a-path (a model name)'}}
   api.jev.routes.openrouter.max_request_tokens: {covered-by: api.jev, rendered: false, default: 30000}
   api.jev.routes.openrouter.max_state_plus_question_tokens: {covered-by: api.jev, rendered: false, default: 30000}
   api.jev.routes.openai.model: {covered-by: api.jev, rendered: false, default: null}
@@ -2288,7 +2362,7 @@ keys:
     default: {}
   claude_code.servers.controls: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.controls.enabled: {covered-by: claude_code.servers.controls, default: derived, default_note: the controls server's FRAMEWORK_SERVERS default_enabled}
-  claude_code.servers.python: {covered-by: claude_code.servers, default: n/a}
+  claude_code.servers.python: {covered-by: claude_code.servers, default: n/a, path: {exempt: 'not-a-path (an MCP server name)'}}
   claude_code.servers.python.enabled: {covered-by: claude_code.servers.python, default: derived, default_note: the python server's FRAMEWORK_SERVERS default_enabled}
   claude_code.servers.ariel: {covered-by: claude_code.servers, default: n/a}
   claude_code.servers.ariel.enabled: {covered-by: claude_code.servers.ariel, default: derived, default_note: the ariel server's FRAMEWORK_SERVERS default_enabled}
@@ -2464,18 +2538,18 @@ keys:
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.in_context.database: {covered-by: channel_finder.pipelines.in_context, default: {}}
-  channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: ''}
+  channel_finder.pipelines.in_context.database.path: {covered-by: channel_finder.pipelines.in_context.database, default: '', path: {exempt: 'derived-not-statable'}}
   channel_finder.pipelines.in_context.subagent_model: {evidence: 'subagent_model', default: derived, default_note: the outer agent's claude_code.provider and default_model}
   channel_finder.pipelines.hierarchical: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.hierarchical.database: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
-  channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: ''}
+  channel_finder.pipelines.hierarchical.database.path: {covered-by: channel_finder.pipelines.hierarchical.database, default: '', path: {exempt: 'derived-not-statable'}}
   channel_finder.pipelines.hierarchical.feedback: {covered-by: channel_finder.pipelines.hierarchical, default: {}}
   channel_finder.pipelines.hierarchical.feedback.enabled: {covered-by: channel_finder.pipelines.hierarchical.feedback, default: false}
-  channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json}
+  channel_finder.pipelines.hierarchical.feedback.store_path: {evidence: 'store_path', default: var/agent_data/feedback/hierarchical_feedback.json, path: {exempt: 'derived-not-statable (and runtime-output)'}}
   channel_finder.pipelines.middle_layer: {covered-by: channel_finder.pipelines, default: {}}
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
-  channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
-  channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null}
+  channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: '', path: {exempt: 'derived-not-statable'}}
+  channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null, path: {exempt: 'derived-not-statable'}}
   channel_finder.query_max_rows:
     evidence: 'positive_int\(\s*cf_config\.get\("query_max_rows"\)'
     note: >-
@@ -2499,6 +2573,7 @@ keys:
       sources is refused at build.
     default: {}
   channel_finder.benchmark.dataset_path:
+    path: {exempt: 'already-confined (the build refuses a value outside the data/ of the render)'}
     rendered: false
     evidence: 'No benchmark query set configured'
     facility-fact: true
@@ -2568,7 +2643,7 @@ keys:
   channel_directory.settings.auth.username: {rendered: false, covered-by: channel_directory.settings.auth, default: null}
   channel_directory.settings.auth.password_env: {rendered: false, covered-by: channel_directory.settings.auth, default: null}
   channel_directory.settings.tls: {rendered: false, covered-by: channel_directory.settings, default: null}
-  channel_directory.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.settings.tls, default: null}
+  channel_directory.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.settings.tls, default: null, path: protect}
   channel_directory.description_property: {rendered: false, evidence: 'get\("description_property"\)', default: recordDesc}
   channel_directory.caveats: {rendered: false, evidence: '_present\(caveats=block\.get\("caveats"\)\)', default: []}
   channel_directory.display: {rendered: false, evidence: 'self\._section\.get\("display"\)', default: {}}
@@ -2647,8 +2722,9 @@ keys:
   channel_directory.alarm_state.settings.auth.mechanism: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: PLAIN}
   channel_directory.alarm_state.settings.auth.cleartext: {rendered: false, covered-by: channel_directory.alarm_state.settings.auth, default: false}
   channel_directory.alarm_state.settings.tls: {rendered: false, covered-by: channel_directory.alarm_state.settings, default: null}
-  channel_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.alarm_state.settings.tls, default: null}
+  channel_directory.alarm_state.settings.tls.ca_bundle: {rendered: false, covered-by: channel_directory.alarm_state.settings.tls, default: null, path: protect}
   channel_directory.alarm_state.replay_file:
+    path: protect
     evidence: 'block\.get\("replay_file"\)'
     default: no-fallback
     default_note: >-
@@ -2697,7 +2773,7 @@ keys:
   channel_directory.fleet.listing_deadline_s: {rendered: false, evidence: 'fleet\.get\("listing_deadline_s"\)', default: 60.0}
   channel_directory.fleet.group_by: {rendered: false, evidence: 'fleet\.get\("group_by"\)', default: host}
   channel_directory.fleet.classes: {rendered: false, data-map: true, evidence: 'fleet\.get\("classes"\)', default: {}}
-  channel_directory.fleet.roster_sources: {rendered: false, evidence: 'fleet\.get\("roster_sources"\)', default: []}
+  channel_directory.fleet.roster_sources: {rendered: false, evidence: 'fleet\.get\("roster_sources"\)', default: [], path: {exempt: 'not-a-path'}}
 
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
@@ -2715,7 +2791,7 @@ keys:
     default_note: >-
       config load refuses an ingestion block that names no adapter -- there is no
       adapter registered under a generic name to fall back to
-  ariel.ingestion.source_url: {rendered: false, evidence: 'source_url', default: null}
+  ariel.ingestion.source_url: {rendered: false, evidence: 'source_url', default: null, path: protect}
   ariel.ingestion.verify_ssl:
     rendered: false
     evidence: 'data\.get\("verify_ssl", True\)'
@@ -2726,6 +2802,7 @@ keys:
       guard.
     default: true
   ariel.ingestion.ca_bundle:
+    path: protect
     rendered: false
     evidence: 'data\.get\("ca_bundle"\)'
     note: >-
@@ -2771,6 +2848,7 @@ keys:
   ariel.web.port: {rendered: false, covered-by: ariel.web, default: derived, default_note: the layout's ariel slot at this deployment's port base}
   ariel.web.auto_launch: {rendered: false, covered-by: ariel.web, default: true}
   ariel.entry_url_template:
+    path: {exempt: 'not-a-path (a URL template)'}
     rendered: false
     evidence: 'get_config_value\("ariel\.entry_url_template"'
     note: >-
@@ -2860,6 +2938,7 @@ keys:
       left behind is inert rather than a startup failure. Listed in `osprey.facility.settings`.
     default: false
   ariel.vocabulary.path:
+    path: protect
     rendered: false
     evidence: '_VOCABULARY_PREFIX\}\.path must be a non-empty string'
     facility-fact: true
@@ -2914,6 +2993,7 @@ keys:
       enabled search module" can never go stale because nothing restates it.
     default: null
   ariel.search_modules:
+    path: {exempt: 'not-a-path (a block; its members are decided one by one)'}
     evidence: 'config_dict\.get\("search_modules", \{\}\)\.items\(\)'
     default: {}
   ariel.search_modules.keyword: {covered-by: ariel.search_modules, default: n/a}
@@ -3025,6 +3105,7 @@ keys:
       like `rerank` above; lowering it trades recall for speed.
     default: 40
   ariel.enhancement_modules:
+    path: {exempt: 'not-a-path (a block; its members are decided one by one)'}
     evidence: 'get\("enhancement_modules", \{\}\)'
     note: >-
       Pinned to the loader that reads the block rather than to the bare word,
@@ -3082,6 +3163,7 @@ keys:
       presets.
     default: 8
   ariel.enhancement_modules.image_caption.prompt_template:
+    path: {exempt: 'not-a-path (template text)'}
     rendered: false
     evidence: 'config\.get\("prompt_template"\) or DEFAULT_CAPTION_PROMPT'
     note: >-
@@ -3200,6 +3282,7 @@ keys:
       refused at config parse naming the key.
     default: true
   ariel.attachments.max_file_mb:
+    path: {exempt: 'not-a-path (a size)'}
     rendered: false
     evidence: 'ariel\.attachments\.max_file_mb must be an integer >= 1'
     note: >-
@@ -3221,6 +3304,7 @@ keys:
       configure time.
     default: 8000
   ariel.enhancement_modules.semantic_processor.prompt_template:
+    path: {exempt: 'not-a-path (template text)'}
     rendered: false
     evidence: 'config\.get\("prompt_template"\)'
     note: >-
@@ -3250,6 +3334,18 @@ keys:
     evidence: 'get_enhancement_module_config\("qmd_export"\)'
     default: {}
   ariel.enhancement_modules.qmd_export.enabled: {covered-by: ariel.enhancement_modules.qmd_export, default: false}
+  ariel.enhancement_modules.qmd_export.mirror_path:
+    rendered: false
+    evidence: '_qmd_export_setting\(config, "mirror_path"\)'
+    path: protect
+    note: >-
+      The module-block spelling of the mirror directory. ARIEL's loader and the
+      compose generator read it when `settings.mirror_path` is unset; the
+      presets ship the `settings.` spelling.
+    default: no-fallback
+    default_note: >-
+      an enabled export with neither spelling is refused by the exporter at run
+      time, and the search sidecar indexes no ARIEL corpus
   ariel.enhancement_modules.qmd_export.settings:
     evidence: 'export\.get\("settings"\)'
     note: >-
@@ -3262,6 +3358,7 @@ keys:
       directory the mirror is.
     default: {}
   ariel.enhancement_modules.qmd_export.settings.mirror_path:
+    path: protect
     evidence: 'config\.get\("mirror_path"\)'
     note: >-
       Config-relative, resolved against the directory holding config.yml — the
@@ -3298,6 +3395,7 @@ keys:
       appears, and the evidence anchors on it.
     default: null
   facility_knowledge.bundle_path:
+    path: protect
     evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
     default: required
     default_note: >-
@@ -3342,6 +3440,7 @@ keys:
       `artifact_server.categories` is refused at build.
     default: {}
   artifact_server.max_timeseries_file_mb:
+    path: {exempt: 'not-a-path (a size)'}
     rendered: false
     evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
     note: >-
@@ -3383,6 +3482,7 @@ keys:
       preference. No preset carries it.
     default: 7979
   phoebus.panels:
+    path: protect
     rendered: false
     data-map: true
     evidence: 'load_osprey_config\(\)\.get\("phoebus", \{\}\)\.get\("panels", \{\}\)'
@@ -3411,6 +3511,7 @@ keys:
       value is refused by name at build and by the server. No preset carries it.
     default: read
   phoebus.snapshot_dir:
+    path: {exempt: 'runtime-output'}
     rendered: false
     evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("snapshot_dir"\)'
     note: >-
@@ -3418,6 +3519,7 @@ keys:
     default: derived
     default_note: <agent_data.base_dir>/screenshots, anchored on the project root
   phoebus.plot_dir:
+    path: {exempt: 'runtime-output'}
     rendered: false
     evidence: '\(config\.get\("phoebus", \{\}\) or \{\}\)\.get\("plot_dir"\)'
     note: >-
@@ -3544,6 +3646,7 @@ keys:
     evidence: '_parse_title\(health\.get\("title"\)\)'
     default: System Health
   health.plugins:
+    path: protect
     rendered: false
     evidence: '_parse_plugins\(health\.get\("plugins"\)\)'
     note: >-
@@ -3617,6 +3720,7 @@ keys:
       boolean, or a file that cannot be read, keeps the default.
     default: true
   web.file_watch_reconcile_interval_s:
+    path: {exempt: 'not-a-path (an interval)'}
     rendered: false
     evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
     note: >-
@@ -3629,13 +3733,14 @@ keys:
       logged and the default kept; no value switches the pass off.
     default: 2.0
   web.allow_runtime_panels:
+    path: {exempt: 'not-a-path (a switch)'}
     rendered: false
     evidence: 'allow_runtime_panels = bool\(web_cfg\.get\("allow_runtime_panels", False\)\)'
     note: >-
       Serves the panels a running agent writes to disk. Commented in
       control-assistant; fail-closed on a malformed bundle.
     default: false
-  web.panels: {evidence: 'web\.panels', default: {}}
+  web.panels: {evidence: 'web\.panels', default: {}, path: {exempt: 'not-a-path (a block; its members are decided one by one)'}}
   # One pair per BUILTIN_PANELS entry. The framework template renders the block
   # for every builtin the profile's `web_panels:` selects, so the enumeration
   # here is the panel registry's, not a template's — a new builtin arrives as a
@@ -3708,6 +3813,7 @@ keys:
       keeps the default.
     default: 268435456
   web.panels.canopy.theme_file:
+    path: protect
     evidence: '_panel_settings\(config\)\.get\("theme_file"\)'
     note: >-
       A colour theme for the per-user CANOPY panel, passed to both of its
@@ -4015,6 +4121,26 @@ keys:
       below is `false` rather than "unstated".
     default: false
 
+  bluesky.plan_dirs:
+    rendered: false
+    evidence: 'config\.get\("bluesky", \{\}\)\.get\("plan_dirs"\)'
+    path: protect
+    note: >-
+      Extra plan directories the Bluesky bridge scans and loads plans from, at
+      the preset trust tier. A string is read as a one-entry list. Only a
+      commented example in the demo preset spells it.
+    default: []
+  bluesky.plan_module:
+    rendered: false
+    evidence: 'config\.get\("bluesky", \{\}\)\.get\("plan_module"\)'
+    path: protect
+    note: >-
+      A Python module the Bluesky bridge loads and executes as its plan module;
+      the environment variable the bridge reads first outranks it. No preset
+      states it.
+    default: no-fallback
+    default_note: >-
+      unset loads no plan module beyond the plan directories
   # ── Multi-user web terminals ────────────────────────────────────────
   # The roster, its logins, and the landing page. Preset-side throughout
   # (only demo ships a block), and read by
@@ -4030,7 +4156,17 @@ keys:
     default_note: >-
       the render raises when it is absent and the deployment needs an external
       origin — any configured user, or authentication enabled
-  modules: {evidence: 'config\.get\("modules"\) or \{\}', default: {}}
+  modules: {evidence: 'config\.get\("modules"\) or \{\}', default: {}, path: {exempt: 'not-a-path (a block; its members are decided one by one)'}}
+  modules.shared_disk.host_path:
+    rendered: false
+    evidence: 'host_path = shared_disk\.get\("host_path"\)'
+    path: {exempt: 'a shared data disk that is meant to be written; its only reader is vestigial'}
+    note: >-
+      The host directory of a shared data disk, checked at start-up when
+      `modules.shared_disk.enabled` is true. No preset states it.
+    default: no-fallback
+    default_note: >-
+      unset, the start-up check of the shared disk has nothing to check
   modules.web_terminals:
     evidence: 'as_dict\(as_dict\(config\.get\("modules"\)\)\.get\("web_terminals"\)\)'
     note: >-
@@ -4039,6 +4175,7 @@ keys:
     default: {}
   modules.web_terminals.enabled: {covered-by: modules.web_terminals, default: false}
   modules.web_terminals.image_source:
+    path: {exempt: 'not-a-path'}
     evidence: 'web_terminals\.get\("image_source"\) == "local"'
     default: registry
   modules.web_terminals.default_tier:
@@ -4122,6 +4259,7 @@ keys:
     default: false
   modules.web_terminals.landing: {evidence: 'as_dict\(web_terminals\.get\("landing"\)\)', default: {}}
   modules.web_terminals.landing.notices:
+    path: protect
     evidence: 'if "notices" not in landing_cfg'
     note: >-
       Three-way, which is why the default is not simply the list: absent gets
@@ -4231,6 +4369,7 @@ keys:
     evidence: '_port_int\(tls\.get\("port"\), TLS_LISTEN_PORT\)'
     default: 443
   modules.web_terminals.tls.cert:
+    path: {exempt: 'other-container-filesystem'}
     rendered: false
     evidence: '"tls_cert": tls\.get\("cert"\)'
     note: The certificate's path inside the nginx container.
@@ -4241,6 +4380,7 @@ keys:
     note: The key's path inside the nginx container.
     default: null
   modules.web_terminals.tls.host_cert_dir:
+    path: protect
     rendered: false
     evidence: 'tls\.get\("host_cert_dir"\)'
     note: >-
