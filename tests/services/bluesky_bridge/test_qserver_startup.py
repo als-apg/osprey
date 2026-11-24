@@ -2174,3 +2174,43 @@ def test_an_abort_cancels_an_unfinished_trigger_and_nothing_is_written(
 
     assert run_engine.state == "idle"
     assert connector.write_calls == []
+
+
+class _CountsItsCancels(_StatesATriggerWrite):
+    """A device a plan triggers, counting how often its trigger is cancelled."""
+
+    def __init__(self) -> None:
+        self.cancels = 0
+
+    def cancel_trigger(self) -> None:
+        self.cancels += 1
+
+
+def test_the_catalog_wrapper_cancels_on_every_end_but_the_plans_own_return(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plans = _catalog(tmp_path, monkeypatch, "shot", source=_triggering_plan_source)
+    detector = _CountsItsCancels()
+    plan_function = qserver_startup.build_plan_functions({"mca_01": detector}, plans)["shot"]
+
+    # The plan's own return cancels nothing.
+    assert [message.command for message in plan_function(detector="mca_01")] == [
+        "open_run",
+        "checkpoint",
+        "trigger",
+        "wait",
+        "close_run",
+    ]
+    assert detector.cancels == 0
+
+    # An exception thrown into the run, and a run closed early, each cancel once.
+    run = plan_function(detector="mca_01")
+    next(run)
+    with pytest.raises(RuntimeError):
+        run.throw(RuntimeError("aborted"))
+    assert detector.cancels == 1
+
+    run = plan_function(detector="mca_01")
+    next(run)
+    run.close()
+    assert detector.cancels == 2
