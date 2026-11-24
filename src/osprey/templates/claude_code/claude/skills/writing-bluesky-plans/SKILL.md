@@ -214,19 +214,22 @@ serve either step. Choosing a different corrector is the fix — not a smaller
 
 ---
 
-## Declare what the plan moves and what it reads
+## Declare what the plan moves, triggers and reads
 
 A bare `list[str]` field says nothing about what the plan will *do* to those
-channels. Four annotations from
+channels. The annotations from
 `osprey.services.bluesky_bridge.plan_fields` say it outright:
 
 | Annotation | Field shape | Meaning |
 | --- | --- | --- |
 | `MovableChannels` | `list[str]` | channels the plan drives to a value |
+| `TriggeredChannels` | `list[str]` | channels the plan fires, waits for and records |
 | `ReadableChannels` | `list[str]` | channels the plan records without driving |
 | `MovableChannel` | `str` | one driven channel, for a nested model |
+| `TriggeredChannel` | `str` | one triggered channel, for a nested model |
 | `ReadableChannel` | `str` | one recorded channel, for a nested model |
 | `OptionalMovableChannel` | `str \| None` | one driven channel the operator may leave unset |
+| `OptionalTriggeredChannel` | `str \| None` | one triggered channel the operator may leave unset |
 | `OptionalReadableChannel` | `str \| None` | one recorded channel the operator may leave unset |
 
 **An optional channel takes the `Optional…` type, never `MovableChannel |
@@ -264,6 +267,34 @@ class PARAMS(BaseModel):
     readbacks: ReadableChannels = Field(..., min_length=1)
     axes: list[GridAxis] = Field(..., min_length=1)
 ```
+
+A command the facility gives a completion signal is triggered, never set: the
+plan fires it and waits for its act to end, and the run records the command's
+status under the command's own name. Declare it under a triggered field and
+drive it with `bps.trigger_and_read`, or `bps.trigger` with a `wait`:
+
+```python
+from bluesky import plan_stubs as bps
+from pydantic import BaseModel, Field
+
+from osprey.services.bluesky_bridge.plan_fields import ReadableChannels, TriggeredChannels
+
+
+class PARAMS(BaseModel):
+    commands: TriggeredChannels = Field(..., min_length=1)
+    monitors: ReadableChannels = Field(default_factory=list)
+
+
+def build_plan(devices, params):
+    commands = [devices[name] for name in params.commands]
+    monitors = [devices[name] for name in params.monitors]
+    ...
+    yield from bps.trigger_and_read([*commands, *monitors])
+```
+
+The worker refuses a run that names such a command under a movable or a
+readable field, before anything is written. An abort cancels an unfinished
+trigger, so no command is written after it.
 
 **The role is additive.** It records intent and validates nothing, so
 `min_length`, `title`, `description` and any `x-widget` presentation hint stay
@@ -360,16 +391,23 @@ A plan that declares `writes: true` promises two things about itself, and both
 are enforced rather than trusted. Neither gate fires for a read-only plan. A
 third gate holds every plan to what its dry run actually did.
 
-**1. It must declare at least one movable channel field.** Otherwise the plan
-is quarantined at load — it never reaches the catalog, and the log carries:
+**1. It must declare at least one movable or triggered channel field.**
+Otherwise the plan is quarantined at load — it never reaches the catalog, and
+the log carries:
 
 ```
-PLAN_METADATA declares writes: true but no movable channel field in PARAMS —
-a plan that changes machine state must declare which channels it moves
+PLAN_METADATA declares writes: true but no movable or triggered channel field
+in PARAMS — a plan that changes machine state must declare which channels it
+moves or triggers
 ```
 
 The fix is an annotation, not a metadata edit: mark the field that carries the
-channels you drive as `MovableChannels` / `MovableChannel`. (A misspelled role
+channels you drive as `MovableChannels` / `MovableChannel`, or the commands you
+fire as `TriggeredChannels` / `TriggeredChannel`. The reverse holds too:
+triggering a device writes to it, so a plan that declares `writes: false` and a
+triggered field is quarantined with
+`PLAN_METADATA declares writes: false but PARAMS has a triggered channel field
+— triggering a device writes to it`. (A misspelled role
 reads as *no* role, so a typo quarantines the plan rather than sliding past.)
 
 **2. It must open a run and declare that run's point count.** The dry run

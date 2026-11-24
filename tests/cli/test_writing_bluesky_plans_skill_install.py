@@ -162,11 +162,12 @@ class TestWritingBlueskyPlansSkillStructure:
         """The two refusals an author actually hits, with their own remedies.
 
         Quoted close enough to be recognizable when one lands: the load-gate
-        quarantine (writes without a movable field) and the dry-run point-count
-        rejection.
+        quarantine (writes without a movable or triggered field) and the
+        dry-run point-count rejection.
         """
         prose = _prose(skill_text)
-        assert "declares writes: true but no movable channel field in params" in prose
+        assert "declares writes: true but no movable or triggered channel field in params" in prose
+        assert "declares writes: false but params has a triggered channel field" in prose
         assert "dry-run gate:" in prose
         assert "opened a run that declares no point count" in prose
         assert "declares that it moves channels but opened no run" in prose

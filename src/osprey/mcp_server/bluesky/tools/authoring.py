@@ -80,8 +80,10 @@ async def write_plan(
     Which channels the plan touches is NOT declared here. Declare it in the
     ``body``'s `PARAMS` model with the role-typed field helpers from
     ``osprey.services.bluesky_bridge.plan_fields`` — ``MovableChannels`` /
-    ``ReadableChannels`` for a list field, ``MovableChannel`` /
-    ``ReadableChannel`` for one channel inside a nested model. Every consumer
+    ``TriggeredChannels`` / ``ReadableChannels`` for a list field,
+    ``MovableChannel`` / ``TriggeredChannel`` / ``ReadableChannel`` for one
+    channel inside a nested model. A command the plan fires and waits for is
+    triggered, never movable. Every consumer
     (dry-run mocks, the pre-queue channel check, the devices your
     ``build_plan`` is handed, the default figure) reads those fields, so an
     undeclared channel is simply not available to the plan.
@@ -89,9 +91,11 @@ async def write_plan(
     Args:
         name: Plan name — must be a valid Python identifier; doubles as the
             on-disk file stem and the generated metadata's ``name`` field.
-        writes: Whether this plan moves a channel (vs. reading only). Passing
-            true obliges the ``body`` to declare at least one movable channel
-            field; the load gate quarantines a plan that declares none. It has
+        writes: Whether this plan moves or triggers a channel (vs. reading
+            only). Passing true obliges the ``body`` to declare at least one
+            movable or triggered channel field; the load gate quarantines a
+            plan that declares none, and a ``writes: false`` plan with a
+            triggered field. It has
             no effect on whether writes actually happen; that is governed
             entirely by the write verdict (the ``control_system.writes`` tier
             and the owner's switch).
@@ -127,7 +131,8 @@ async def write_plan(
                 "Check writes is present and a bool — it and name/description are "
                 "the whole metadata contract.",
                 "Declare the channels in the body's PARAMS with the role-typed "
-                "field helpers (MovableChannels/ReadableChannels), not in this call.",
+                "field helpers (MovableChannels/TriggeredChannels/ReadableChannels), "
+                "not in this call.",
             ],
         )
 
