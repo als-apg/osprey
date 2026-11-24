@@ -992,7 +992,7 @@ class TestRunQuickstart:
 
         scenarios = (
             Path(__file__).resolve().parents[3]
-            / "src/osprey/templates/facilities/example/scenarios"
+            / "src/osprey/templates/facilities/example/simulation/scenarios"
         )
         write_scenarios_view(tmp_path, facility_scenarios(scenarios), scenarios)
         config = {"ariel": dict(_DB)}

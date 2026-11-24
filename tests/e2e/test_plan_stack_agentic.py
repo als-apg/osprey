@@ -3399,7 +3399,7 @@ def _describe_queue_deployment(repo: Path) -> None:
     prompt section and no measurement tool, and a measurement request has the
     queue as its one route.
     """
-    shutil.rmtree(repo / "data" / "facility" / "measurement")
+    shutil.rmtree(repo / "data" / "facility" / "simulation" / "measurement")
 
 
 def _assert_no_pyaml_surface(repo: Path) -> None:

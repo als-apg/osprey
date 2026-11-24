@@ -32,8 +32,8 @@ SR_KINDS = ["orm", "dispersion", "trm"]
 
 def _tree() -> dict[str, Any]:
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"]["kinds"] = list(SR_KINDS)
-    tree["measurement/SR.yaml"] |= {"corrector_delta": 1.0e-5, "frequency_delta": 100.0}
+    tree["simulation/measurement/SR.yaml"]["kinds"] = list(SR_KINDS)
+    tree["simulation/measurement/SR.yaml"] |= {"corrector_delta": 1.0e-5, "frequency_delta": 100.0}
     return tree
 
 
@@ -210,7 +210,7 @@ def test_a_kind_the_model_lacks_is_refused_naming_what_it_needs(
 def test_a_kind_the_file_does_not_allow_is_refused_naming_the_allowed(config_path: Path):
     """SR has the tune and the RF, but its measurement file leaves the monitor out."""
     assert _refusal(config_path, kind="chromaticity_monitor") == (
-        "chromaticity_monitor is not a kind measurement/SR.yaml allows; it allows: "
+        "chromaticity_monitor is not a kind simulation/measurement/SR.yaml allows; it allows: "
         "dispersion, orm, trm"
     )
 

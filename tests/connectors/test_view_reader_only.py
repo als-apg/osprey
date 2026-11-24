@@ -41,7 +41,7 @@ WRITER = "src/osprey/facility/views/simulator.py"
 #: Where a token matches without opening a view, each with why.
 ZONES: dict[str, str] = {
     "packages/osprey-facility/src/osprey_facility/layers/**": (
-        "the importers join their facility tree's own seeds.yaml as SEEDS_FILE, not the view"
+        "the importers join their facility tree's own simulation/seeds.yaml as SEEDS_FILE, not the view"
     ),
     "src/osprey/interfaces/lattice_dashboard/catalog.py": (
         "names the view's variables file for the dashboard's change signature; "

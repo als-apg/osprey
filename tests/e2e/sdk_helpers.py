@@ -964,7 +964,7 @@ def activate_scenarios(repo: Path, *names: str, now=None):
 #
 # A scenario benchmark asks the agent to *derive* a fault from instrument data.
 # Its ground truth ships inside the deployment repo as the facility's
-# ``data/facility/scenarios/<name>.yaml``, whose ``description`` names the
+# ``data/facility/simulation/scenarios/<name>.yaml``, whose ``description`` names the
 # seeded fault outright — and the agent's cwd IS the render, whose simulator
 # view lists every scenario with its blocks in ``data/simulator/scenarios.json``
 # and copies its attached files under ``data/simulator/scenarios/<name>/``. Left alone, the cheapest route to a correct
@@ -1021,8 +1021,8 @@ def conceal_scenario_ground_truth(repo: Path, *scenarios: str) -> None:
         AssertionError: a concealed name is still readable from the agent's tree.
     """
     facility_dirs = (
-        Path(repo) / "data" / "facility" / "scenarios",
-        render_dir(repo) / "data" / "facility" / "scenarios",
+        Path(repo) / "data" / "facility" / "simulation" / "scenarios",
+        render_dir(repo) / "data" / "facility" / "simulation" / "scenarios",
     )
     view = SimulatorView.of_render(render_dir(repo))
     withdraw_scenarios(view.path, scenarios)

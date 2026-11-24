@@ -187,8 +187,8 @@ async def test_a_reset_in_one_is_seen_by_the_other(view):
 
 async def test_a_scenario_change_empties_the_journal(view):
     root = view.parent.parent.parent
-    (root / "data" / "facility" / "scenarios").mkdir()
-    (root / "data" / "facility" / "scenarios" / "quiet.yaml").write_text(
+    (root / "data" / "facility" / "simulation" / "scenarios").mkdir(parents=True)
+    (root / "data" / "facility" / "simulation" / "scenarios" / "quiet.yaml").write_text(
         "description: A quiet machine.\n"
     )
     view = _rebuild(view)
@@ -205,8 +205,8 @@ async def test_a_scenario_change_empties_the_journal(view):
 
 async def test_a_second_connector_keeps_what_the_first_wrote_after_a_scenario_change(view):
     root = view.parent.parent.parent
-    (root / "data" / "facility" / "scenarios").mkdir()
-    (root / "data" / "facility" / "scenarios" / "quiet.yaml").write_text(
+    (root / "data" / "facility" / "simulation" / "scenarios").mkdir(parents=True)
+    (root / "data" / "facility" / "simulation" / "scenarios" / "quiet.yaml").write_text(
         "description: A quiet machine.\n"
     )
     view = _rebuild(view)

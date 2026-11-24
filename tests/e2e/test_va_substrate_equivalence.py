@@ -406,7 +406,7 @@ def _author_stuck_scenario(repo: Path, setpoint: str) -> None:
         "description": "One corrector setpoint takes writes and forwards none to the model.",
         "channel_faults": {setpoint: "stuck"},
     }
-    path = repo / "data" / "facility" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
+    path = repo / "data" / "facility" / "simulation" / "scenarios" / f"{P5_STUCK_SCENARIO}.yaml"
     path.write_text(yaml.safe_dump(scenario, sort_keys=False), encoding="utf-8")
 
 
