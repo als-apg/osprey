@@ -10,12 +10,17 @@ first undeclared write is sent.
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import pkgutil
 from typing import Any
 
 import pytest
 from bluesky.utils import Msg
 
+from osprey.services.bluesky_bridge import devices as devices_package
 from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.devices.mock import MockReadable, MockSettable
 from osprey.services.bluesky_bridge.plan_writes import (
     ChannelWrite,
     UndeclaredWriteError,
@@ -107,6 +112,40 @@ def test_a_connector_settable_states_its_one_setpoint_write() -> None:
     device = ConnectorSettable(FakeConnector(), "SR:SP", readback_pv="SR:RB", name="motor")
 
     assert message_writes(Msg("set", device, 2.5)) == (ChannelWrite("SR:SP", 2.5),)
+
+
+def test_a_mock_settable_states_one_write_to_the_channel_it_stands_in_for() -> None:
+    device = MockSettable(name="SR:C01:COR:SP")
+
+    assert message_writes(Msg("set", device, 0.5)) == (ChannelWrite("SR:C01:COR:SP", 0.5),)
+
+
+def test_a_mock_readable_states_that_its_trigger_writes_nothing() -> None:
+    assert message_writes(Msg("trigger", MockReadable(name="SR:C01:BPM:X"))) == ()
+
+
+def _shipped_plan_device_classes() -> list[type]:
+    classes: list[type] = []
+    for module_info in pkgutil.iter_modules(devices_package.__path__):
+        module = importlib.import_module(f"{devices_package.__name__}.{module_info.name}")
+        for _, cls in inspect.getmembers(module, inspect.isclass):
+            if cls.__module__ != module.__name__:
+                continue
+            if any(callable(getattr(cls, verb, None)) for verb in ("set", "trigger")):
+                classes.append(cls)
+    return classes
+
+
+def test_every_shipped_plan_device_class_states_the_writes_of_each_verb_it_has() -> None:
+    classes = _shipped_plan_device_classes()
+
+    assert {ConnectorSettable, MockSettable, MockReadable} <= set(classes)
+    for cls in classes:
+        for verb, statement in (("set", "set_writes"), ("trigger", "trigger_writes")):
+            if callable(getattr(cls, verb, None)):
+                assert callable(getattr(cls, statement, None)), (
+                    f"{cls.__qualname__} has {verb}() but no {statement}()"
+                )
 
 
 def _drain(plan: Any) -> list[Any]:
