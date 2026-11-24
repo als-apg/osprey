@@ -793,6 +793,10 @@ def build_tiled_writer(env: Mapping[str, str] | None = None) -> Any | None:
     no Tiled server, where run data lives only in the bridge's live-row buffer.
     Imports ``TiledWriter`` from ``bluesky.callbacks.tiled_writer``, not from
     ``tiled``.
+
+    ``max_array_size=-1`` keeps every array reading, at any length, in the run's
+    table, the one part of a run the data route reads; the writer would
+    otherwise move an array of more than 16 elements into a node of its own.
     """
     env = os.environ if env is None else env
     uri = env.get(TILED_URI_ENV)
@@ -801,7 +805,7 @@ def build_tiled_writer(env: Mapping[str, str] | None = None) -> Any | None:
 
     from bluesky.callbacks.tiled_writer import TiledWriter
 
-    return TiledWriter.from_uri(uri, api_key=env.get(TILED_API_KEY_ENV))
+    return TiledWriter.from_uri(uri, api_key=env.get(TILED_API_KEY_ENV), max_array_size=-1)
 
 
 def build_zmq_publisher(env: Mapping[str, str] | None = None) -> Any | None:
