@@ -105,10 +105,12 @@ SEEDS_FILE: Final = "seeds.json"
 SEEDS_SCHEMA = "osprey.facility.seeds/2"
 SCENARIOS_FILE: Final = "scenarios.json"
 SCENARIOS_SCHEMA = "osprey.facility.scenarios/3"
-#: The directory holding a byte copy of each deck-bearing model's deck.
+#: The view's directory holding a byte copy of each deck-bearing model's deck.
+#: An output name of the view, not the facility tree's decks source path.
 DECKS_DIR = "decks"
-#: The directory holding each scenario's attached files, ``scenarios/<name>/``,
-#: under the facility tree and under the view alike.
+#: The view's directory holding each scenario's attached files,
+#: ``scenarios/<name>/``. An output name of the view, not the facility tree's
+#: scenarios source path.
 SCENARIOS_DIR = "scenarios"
 
 #: Each view file and the schema it carries.

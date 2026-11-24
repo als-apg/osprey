@@ -49,7 +49,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.facility.views import ViewInputs, report_note
 from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
-from osprey_facility import TEXTURE
+from osprey_facility import TEXTURE, source_tree
 from osprey_facility.measurement_groups import (
     GROUP_ROLES,
     ROLE_PLANES,
@@ -75,7 +75,7 @@ __all__ = [
 ]
 
 #: The file a model record is named in when no source states it.
-_MODELS_FILE = "models.yaml"
+_MODELS_FILE = source_tree.path("models")
 
 #: The deck's copy beside the configuration.
 LATTICE_FILE = "lattice.json"
@@ -165,7 +165,7 @@ def measured_models(inputs: ViewInputs) -> tuple[list[str], dict[str, str]]:
         if not model.get("deck"):
             omitted[name] = "the model names no deck"
         elif not model.get("measurement"):
-            omitted[name] = f"no measurement/{name}.yaml"
+            omitted[name] = f"no {source_tree.keyed_file('measurement', name)}"
         else:
             written.append(name)
     return written, omitted

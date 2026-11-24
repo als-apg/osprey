@@ -52,6 +52,7 @@ def scenario_server_errors(
     Returns:
         One ``reference-missing`` per unknown server.
     """
+    from osprey_facility import source_tree
     from osprey_facility.errors import FacilityBuildError
     from osprey_facility.sessions import ToolStep, parse_sessions
 
@@ -61,7 +62,7 @@ def scenario_server_errors(
         if not isinstance(scenario, dict) or scenario.get("sessions") is None:
             continue
         name = str(scenario.get("name"))
-        files = [f"scenarios/{name}.yaml"]
+        files = [source_tree.keyed_file("scenarios", name)]
         try:
             sessions = parse_sessions(scenario["sessions"], prefix=f"{files[0]} `sessions`")
         except ValueError:

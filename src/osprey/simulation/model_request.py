@@ -167,7 +167,7 @@ def _model(view: Any, model: object) -> Any:
 
 
 def _corrector_delta(render_root: Path, model: str) -> float:
-    from osprey_facility import FACILITY_FILE
+    from osprey_facility import FACILITY_FILE, source_tree
     from osprey_facility.errors import FacilityFileError
     from osprey_facility.reading import load_facility
 
@@ -189,10 +189,10 @@ def _corrector_delta(render_root: Path, model: str) -> float:
         or not math.isfinite(value)
         or value == 0
     ):
+        source = source_tree.keyed_file("measurement", model)
         _refuse(
-            f"measurement/{model}.yaml states no {STEP_KEY}, the kick-angle step the response "
-            "is solved at",
-            f"Add {STEP_KEY} (radians) to measurement/{model}.yaml and rebuild.",
+            f"{source} states no {STEP_KEY}, the kick-angle step the response is solved at",
+            f"Add {STEP_KEY} (radians) to {source} and rebuild.",
         )
     return float(value)
 

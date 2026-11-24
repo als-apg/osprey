@@ -103,7 +103,7 @@ from osprey_connectors.simulation.view import (
     VARIABLES_SCHEMA,
     SimulatorView,
 )
-from osprey_facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
+from osprey_facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, source_tree, wiring_addresses
 from osprey_facility.records import FacilityRecords
 from osprey_facility.scenarios import scenario_logbook
 from osprey_facility.simulated import resolved_still, server_health_addresses, status_address
@@ -407,7 +407,7 @@ def _split_stopped_servers(
         raise FacilityBuildError(
             "value-invalid",
             name,
-            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            [source_tree.keyed_file("scenarios", name)],
             f"serve the model in this render, remove `{unserved[0]}` from `stopped_servers`, "
             f"or drop `{name}` from `simulation.default_scenarios`; "
             f"this render serves {', '.join(f'`{ioc}`' for ioc in sorted(known))}",
@@ -498,7 +498,7 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     copies: dict[Path, Path] = {}
     for scenario in inputs.records.document.get("scenarios", []):
         name = str(scenario["name"])
-        source = inputs.facility_dir / SCENARIOS_DIR / name
+        source = inputs.facility_dir / source_tree.keyed_dir("scenarios", name)
         scenario_logbook(scenario, source)
         for entry in scenario.get("logbook") or []:
             for item in entry.get("attachments") or []:
