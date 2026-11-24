@@ -1027,7 +1027,8 @@ for it, or its slices mix zero-length and thick elements.</p>
 <p><strong>Simulator.</strong> The view lists every channel address of the facility and each
 served model’s status address (<code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>), every model with its wiring (<code class="docutils literal notranslate"><span class="pre">variables.json</span></code>), the
 models this render serves (<code class="docutils literal notranslate"><span class="pre">served_models.json</span></code>), the seeds, the scenarios
-and a byte copy of each deck. A simulator serves exactly the channels of
+and a byte copy of each deck and of each file a model’s settings name
+beside it, such as a pickup’s table. A simulator serves exactly the channels of
 <code class="docutils literal notranslate"><span class="pre">addresses.json</span></code>; an address outside it does not exist.</p>
 <p><strong>Limits.</strong> One entry per record of <code class="docutils literal notranslate"><span class="pre">limits.yaml</span></code> and nothing else. A
 channel without a record is decided at write time by

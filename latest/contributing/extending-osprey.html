@@ -747,7 +747,12 @@ It returns the <code class="docutils literal notranslate"><span class="pre">LUME
 <code class="docutils literal notranslate"><span class="pre">variables.json</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">deck</span></code> is the path of the model’s deck, <code class="docutils literal notranslate"><span class="pre">decks/&lt;model&gt;.&lt;its</span> <span class="pre">suffix&gt;</span></code>,
 or <code class="docutils literal notranslate"><span class="pre">None</span></code> for a model that names none.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">settings</span></code> is the model record’s settings.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">settings</span></code> is the model record’s settings. Where they name a file
+beside the deck, state <code class="docutils literal notranslate"><span class="pre">served_settings(settings,</span> <span class="pre">carry)</span></code>: the build
+calls it without a deck load, <code class="docutils literal notranslate"><span class="pre">carry</span></code> takes each path as stated and
+returns the path the view serves the file under, relative to its copy
+of the deck, and the function returns the settings naming those copies.
+A plug-in without it gets its settings as authored and the deck alone.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">active</span></code> holds the active scenarios’ setpoint values and fault seeds.</p></li>
 </ul>
 </li>
