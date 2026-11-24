@@ -583,6 +583,7 @@ _ROLE_MOCK_BODY_HEADER = textwrap.dedent(
         MovableChannel,
         MovableChannels,
         ReadableChannels,
+        TriggeredChannels,
         scan_metadata,
     )
 
@@ -851,6 +852,103 @@ class TestDryRunRoleMocks:
         assert result.readable_channels == tuple(
             sorted(sample_args["readbacks"] + sample_args["monitors"])
         )
+
+    async def test_a_count_on_a_triggered_channel_passes_and_names_it(self):
+        """A triggered channel gets the triggerable stand-in, a plan that only
+        triggers and reads passes, and the pass names the triggered channel
+        apart from the read ones."""
+        body = _role_mock_body(
+            textwrap.dedent(
+                """\
+                class PARAMS(BaseModel):
+                    detectors: TriggeredChannels = Field(..., min_length=1)
+                    readbacks: ReadableChannels = Field(default_factory=list)
+                """
+            ),
+            textwrap.dedent(
+                """\
+                def build_plan(devices, params):
+                    detector = devices["d1"]
+                    readable = devices["b1"]
+                    _assert_mock_kinds(
+                        {"d1": detector, "b1": readable},
+                        {"d1": "MockTriggerable", "b1": "MockReadable"},
+                    )
+
+                    @bpp.stage_decorator([detector, readable])
+                    @bpp.run_decorator(
+                        md=scan_metadata(
+                            movable=[],
+                            readable=params.readbacks,
+                            points=2,
+                            triggered=params.detectors,
+                        )
+                    )
+                    def _count():
+                        for _ in range(2):
+                            yield from bps.trigger_and_read([detector, readable])
+                        if detector.trigger_count != 2:
+                            raise AssertionError(f"triggered {detector.trigger_count} times")
+
+                    return _count()
+                """
+            ),
+        )
+        result = await validate_plan(
+            body,
+            plan_name="role_mocks",
+            sample_args={"detectors": ["d1"], "readbacks": ["b1"]},
+        )
+
+        assert result.passed is True, result.reasons
+        assert result.triggered_channels == ("d1",)
+        assert result.movable_channels == ()
+        assert result.readable_channels == ("b1",)
+
+    async def test_the_triggered_stand_in_records_the_column_the_device_records(self):
+        """The stand-in reports one data key named exactly for the channel, the
+        column a real triggered device records, so what a dry run proves about
+        the run's columns holds for the real run."""
+        body = _role_mock_body(
+            textwrap.dedent(
+                """\
+                class PARAMS(BaseModel):
+                    detectors: TriggeredChannels = Field(..., min_length=1)
+                """
+            ),
+            textwrap.dedent(
+                """\
+                def build_plan(devices, params):
+                    detector = devices["d1"]
+
+                    @bpp.run_decorator(
+                        md=scan_metadata(
+                            movable=[], readable=[], points=1, triggered=params.detectors
+                        )
+                    )
+                    def _one():
+                        reading = yield from bps.trigger_and_read([detector])
+                        if set(reading) != {"d1"}:
+                            raise AssertionError(f"recorded columns {sorted(reading)}")
+                        if detector.trigger_writes()[0].address != "d1":
+                            raise AssertionError("the stand-in states no write to its channel")
+
+                    return _one()
+                """
+            ),
+        )
+        result = await validate_plan(
+            body, plan_name="role_mocks", sample_args={"detectors": ["d1"]}
+        )
+
+        assert result.passed is True, result.reasons
+        assert result.triggered_channels == ("d1",)
+        from osprey.services.bluesky_bridge.devices.mock import build_devices as build_mock_devices
+
+        stand_ins = await build_mock_devices(
+            settable_names=(), readable_names=(), triggered_names=("d1",)
+        )
+        assert set(await stand_ins["d1"].describe()) == {"d1"}
 
     async def test_a_pass_with_no_declared_role_reports_no_channels(self):
         """The fallback mocks a role-less body is driven against are the dry
