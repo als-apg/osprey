@@ -10,8 +10,9 @@ enforcement. It is a process boundary on the host, not a sandbox or container.
 The code runs with an allowlisted copy of the executor's environment, not the
 executor's own (see :ref:`python-executor-secrets-zone`). It does not run
 inside an isolated machine. Code it runs can write anywhere the executor
-process can, apart from the deployment's own sources and render.
-:ref:`python-executor-protected-paths` covers those, and also says plainly how
+process can, apart from the deployment's own sources and render and the
+paths its profile names under the keys the build protects.
+:ref:`python-executor-protected-paths` lists those, and also says plainly how
 far that protection goes.
 The OSPREY agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
@@ -120,7 +121,8 @@ Ten safety layers are applied in sequence:
 
 2. **Protected-path policy** (``path_policy_issues``)---reads the submitted
    source and refuses code that aims a write at the deployment's own
-   sources or render. Applied in **every** execution mode; see
+   sources or render, or at a path a protected profile key names. Applied in **every**
+   execution mode; see
    :ref:`python-executor-protected-paths`.
 
 3. **Readonly import denylist** (``check_readonly_imports``)---a
@@ -468,9 +470,16 @@ Reads are unchanged: ``read_channel()``, and a client library's own reads in a
 What executed code may not change
 ---------------------------------
 
-Refusing control-system writes is one boundary; this is a different one. Whatever
+Refusing control-system writes is one boundary; this is a different one. It
+applies to code run through the python-executor tools (``execute``,
+``execute_file``, ``pyaml_measure`` and ``model_response_matrix``). Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Four locations are protected:
+
+Two lists make up what it may not change: a fixed list of names at the
+deployment root, and the paths the protected rows of the build's key table
+name.
+
+**The fixed list.** These names are protected in every deployment:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -478,10 +487,12 @@ Four locations are protected:
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
 
-  - ``profile.yml``, with ``triggers.yml``, ``ci-extra.yml`` and
-    ``osprey.service`` beside it
-  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/`` and ``scripts/``
-    directories
+  - ``profile.yml``, with ``providers.yml``, ``triggers.yml``,
+    ``ci-extra.yml``, ``osprey.service`` and ``.dockerignore`` beside it
+  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/``, ``scripts/`` and
+    ``watchdogs/`` directories, and the directory under the retired spelling
+    of ``tiers/``
+  - ``.osprey/``, which holds the saved copy of what the presets produced
   - the convention directories (``rules/``, ``skills/``, ``agents/``,
     ``commands/``, ``output-styles/``, ``hooks/``, ``web-terminal-context/``,
     ``mcp_servers/``, ``services/``)
@@ -492,22 +503,139 @@ Four locations are protected:
   the record itself, the services' own state and the daily archive. Together
   they hold the record of what was refused. A run that could rewrite them
   could erase or forge the evidence of its own refusal.
-- **The pre-upgrade audit files** --- the files a deployment kept before the
-  agent record. Nothing writes them, and they stay protected for the
-  same reason.
+- **The pre-upgrade audit files** --- the files a deployment
+  kept before the agent record. Nothing writes them, and they stay protected
+  for the same reason.
 
-A protected entry that does not exist yet is protected all the same: in a repo
-with no ``apps/`` directory, creating one is exactly the write to refuse.
+**The paths the profile names.** A profile can name locations outside those
+names that the build or a service reads: a plan directory, a CA bundle, a
+registry module, a search corpus, a panel file. Each path-valued key is a row
+of a key table kept with the build, and every row is either protected or
+exempt with a stated reason. ``osprey build`` reads the resolved profile ---
+the ``extends`` chain, the selected host variant and every login file ---
+and writes the paths the protected rows name as one list, ``protected_paths``,
+into every configuration file it renders. The protected rows are:
 
-This boundary is about *zones* — whole trees, wherever inside them a path lands.
-A companion boundary, :ref:`the protected set <config-protected-set>`, closes
+- the profile's own inputs: ``extends`` files, ``data``, ``machine``,
+  ``dispatch.triggers``, ``services.<name>.template`` and local-path
+  ``dependencies``
+- ``environment.python`` and ``python_env`` (the interpreter file)
+- ``lifecycle.pre_build[].cwd``
+- ``bluesky.plan_dir``, ``bluesky.plan_dirs``, ``bluesky.plan_module`` and
+  ``bluesky.external.parameter_schemas``
+- ``optimizer.environments_dir``
+- ``deploy.host.project_path``, when the deploy host is this host
+- the service settings ``services.<name>.path``, ``services.qmd.models_dir``,
+  ``services.qmd.corpora`` (``source`` and ``index_dir``),
+  ``services.graphdb.ttl_path``, ``services.bluesky.plan_dir``,
+  ``services.bluesky.external.parameter_schema_mounts``,
+  ``services.optimizer.environments_dir`` and
+  ``services.event_dispatcher.additional_dirs``
+- ``registry_path`` (or ``application.registry_path``) and the ``.py``
+  entries of ``health.plugins``
+- ``facility_knowledge.bundle_path``, ``ariel.vocabulary.path``,
+  ``ariel.ingestion.source_url`` when it is a file path, and the qmd export
+  ``mirror_path`` in either spelling
+- ``channel_directory.alarm_state.replay_file`` (other than ``demo:<name>``),
+  the ``phoebus.panels`` files, ``web.panels.canopy.theme_file`` and
+  ``modules.web_terminals.landing.notices``
+- the TLS files: ``images.site_ca``, the ``tls.ca_bundle`` of
+  ``archiver.epics_archiver``, ``archiver.mongodb_archiver``,
+  ``channel_directory.settings`` and
+  ``channel_directory.alarm_state.settings``, ``ariel.ingestion.ca_bundle``
+  and ``modules.web_terminals.tls.host_cert_dir``
+
+A ``services.<name>.path`` or ``services.graphdb.ttl_path`` value that stays
+inside ``build/`` is already covered by the render zone. Besides keys that are
+not paths, are derived by the build, are already confined, or name where a run writes its output
+(screen captures, Phoebus snapshots and plots, simulation state) or a file
+inside another container (the web-terminal TLS cert and key), three keys are
+exempt by decision: ``extra_mounts`` in a login file (the operator states each mount's
+mode and the container enforces it), ``apps.<name>.config`` (its schema belongs
+to the application, so OSPREY does not guess which members are paths) and
+``modules.shared_disk.host_path`` (a shared data disk that is meant to be
+written). Agent code may write anywhere the protected rows and the fixed list
+do not reach.
+
+**What an entry covers.** A directory entry protects its whole tree. A file
+entry protects that file only; its neighbours stay writable. Removing, renaming
+or moving a directory that contains a protected location is refused, as is
+moving or linking a prepared directory onto the missing parent of one. Creating
+that parent is allowed. A protected location that does not exist yet is
+protected all the same: in a repo with no ``apps/`` directory, creating one is
+exactly the write to refuse. An entry keeps the profile's spelling; ``~`` and
+``${VAR}`` placeholders are expanded in the executor's environment when a run
+starts.
+
+**A deployment without the list.** The list reaches the executor only through
+the build output. A deployment whose rendered ``config.yml`` lacks the list,
+carries it malformed, or cannot be read --- a build made before the list
+existed, for example --- cannot have its profile-named paths protected. The
+python-executor tools then run no agent code at all and say: run
+``osprey build``. This refusal is not a refused write: it is audited with its
+own reason, ``no_protected_paths``, and raises its own alert. ``osprey up``
+and ``osprey restart`` refuse to start such a build and name ``osprey build``;
+``osprey up --as-built`` starts it anyway, with the warning that the python
+executor refuses agent code until ``osprey build``. ``osprey status``,
+``osprey chat`` and ``osprey query`` report the same state. The executor reads
+the list once per run, from the configuration file rather than a cache, so a
+rebuild takes effect at the next run without a restart. Outside a deployment
+(a project root with no ``profile.yml``) a missing list is not refused: the
+loaded configuration's list is used when it carries a well-formed one, and the
+fixed list applies as everywhere.
+
+**How a new key is decided.** A test walks the profile schema --- the profile
+fields, the top-level profile keys and the keys a login file may state --- and
+fails when a field that can hold a string is neither in one of the build's
+path tables nor exempt with a reason. A check on the configuration key
+manifest fails when a key whose name or default looks like a path carries no
+``path: protect`` or ``path: exempt`` decision, or when the keys marked
+``protect`` differ from the build's table. At build time, a path-shaped value
+stated under a configuration key no table decides produces a warning naming
+the key; the build continues and that path is not protected. Two gaps remain:
+members of free-form mappings the schema test does not walk, and a path stated
+under an undecided key in a form that does not look like a path, which
+produces no warning.
+
+**Limits.** These are known and not covered:
+
+- ``environment.python`` and ``python_env`` protect the interpreter file, not
+  its library tree.
+- ``ariel.ingestion.source_url`` protects the file only, not the
+  ``attachments/`` directory beside it.
+- Application settings (``apps.<name>.config``) are not read for paths. A
+  service setting no row names is not protected; a path-shaped value there
+  gets the same build warning as any undecided key.
+- ``health.plugins`` entries that are not ``.py`` paths (dotted module names)
+  are not protected.
+- A registry module chosen through ``REGISTRY_PATH``, or a Bluesky plan module
+  chosen through an environment variable, is not covered; only the
+  profile-stated value is.
+- An entry naming the deployment root or one of its ancestors is never
+  protected as a tree: a local package there contributes its
+  ``pyproject.toml`` only, a working directory there contributes nothing, and
+  ``osprey build`` prints a note naming the key.
+- An absolute host path is protected at that path. Code running inside a
+  container sees the host location only where it is mounted, under the
+  container's own path, and the entry does not follow it there.
+- An entry whose placeholder is unset when the run starts, or that lands inside
+  the agent data zone, protects nothing; the executor logs a warning once per
+  entry. A protected path the profile states inside the agent data zone is
+  refused at build, naming the key and the path.
+- An undecided path-shaped value is only warned about at build; it is not
+  protected.
+- Notebook cells run in a kernel, not through the executor, and the
+  executor's file refusals do not bind it
+  (:ref:`architecture-safety-chain-residual`).
+
+This boundary is about locations, wherever inside them a path lands. A
+companion boundary, :ref:`the protected set <config-protected-set>`, closes
 named files and config keys to every agent-side writer (the settings panels,
 the galleries, the ``setup_patch`` tool) rather than to executed code.
 
 The agent's own data zone (``var/agent_data/``) and the run's execution folder
 are carved back out. As a result, analysis output, figures and saved
-artifacts keep working normally, as does everything else on disk the executor
-process can reach.
+artifacts keep working normally.
 
 **Both modes, same answer.** ``readwrite`` buys a run human approval to move a
 magnet; it buys no approval to rewrite ``profile.yml``. Only the wording of the
@@ -524,8 +652,10 @@ Two layers enforce the set:
    ``open()`` in a write mode, ``Path.write_text``/``Path.open``, the
    ``shutil`` copy/move/remove family, ``os.remove``/``rename``/``mkdir`` and
    friends. Any call whose path is written out as a literal landing inside a
-   protected location is refused before anything is spawned. That way the
-   agent gets a readable message instead of a traceback. A path the code computes at
+   protected location, or containing one for a remove or a move, is refused
+   before anything is spawned. A relative literal is resolved against the
+   run's working directory, the deployment root. That way the agent gets a
+   readable message instead of a traceback. A path the code computes at
    runtime is deliberately *not* guessed at here; it is left to layer 2.
    The same pass refuses code that names the runtime guard's own internals,
    which is the one thing that guard cannot police for itself.
@@ -534,12 +664,14 @@ Two layers enforce the set:
    submitted code. It intercepts the filesystem entry points (``open``,
    ``io.open``, ``os.open``, ``os.truncate``, ``os.remove``, ``os.unlink``,
    ``os.rmdir``, ``os.removedirs``, ``os.rename``, ``os.replace``,
-   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, and
-   ``shutil.copy``, ``copy2``, ``copyfile``, ``move`` and ``rmtree``). It
-   raises ``PermissionError`` for a write landing in a protected location,
-   however the path was assembled. The protected locations are resolved by
-   the parent process and baked into the guard as fixed strings; the
-   subprocess never works them out for itself.
+   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, their
+   ``posix`` counterparts, and ``shutil.copy``, ``copy2``, ``copyfile``,
+   ``move`` and ``rmtree``). It raises ``PermissionError`` for a write landing
+   in a protected location, however the path was assembled. A name given
+   relative to a directory descriptor is judged against that descriptor's
+   directory, where the platform can name it (Linux and macOS). The protected
+   locations are resolved by the parent process and baked into the guard as
+   fixed strings; the subprocess never works them out for itself.
 
 .. warning::
 
