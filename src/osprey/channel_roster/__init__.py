@@ -43,6 +43,7 @@ from .records import (
     SOURCE_LABELS,
     ChannelDirection,
     ChannelRecord,
+    CommandCompletion,
     RosterAbsence,
     RosterAbsenceReason,
     RosterResult,
@@ -62,6 +63,7 @@ from .sources import (
 #: that exercise one stage, but they are the package's own vocabulary.
 __all__ = [
     "ChannelRecord",
+    "CommandCompletion",
     "RosterAbsence",
     "RosterAbsenceReason",
     "RosterResult",

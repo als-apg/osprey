@@ -2,7 +2,7 @@
 
 ``_elements.load_elements()`` reads ``injector_elements.tsv``; this module turns
 the rows of the sections it emits into records and merges them into a facility
-tree, the way ``_line.py`` merges the transfer line: a record already in a file
+tree with ``_tree.merge``: a record already in a file
 keeps its position, a new one is added, every other record keeps its text.
 
 It emits the storage ring's two injection septa, SEK (``SR:MAG:SEPTUM:01``) and
@@ -63,9 +63,9 @@ from pathlib import Path
 from typing import Any
 
 import _elements
-import _line
 import _standin
 import _transfer
+import _tree
 
 from osprey_connectors.simulation.values import is_waveform
 
@@ -822,7 +822,7 @@ def _merge_seeds(
         for address in sorted(committed)
         if committed[address]
     }
-    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    text = _tree.origin_line() + yaml.safe_dump(document, sort_keys=False)
     path.write_text(text, encoding="utf-8")
 
 
@@ -837,14 +837,14 @@ def write_sources(tree: Path) -> None:
     """
     records = tree / "records"
     lines = (_standin, _transfer)
-    _line._merge(records / "places.yaml", places(), "id", ordered=False)
+    _tree.merge(records / "places.yaml", places(), "id", ordered=False)
     emitters = (
         ("devices", devices() + booster_devices() + [r for x in lines for r in x.devices()]),
         ("channels", channels() + booster_channels() + [r for x in lines for r in x.channels()]),
         ("groups", groups() + booster_groups() + line_groups()),
     )
     for name, emitted in emitters:
-        _line._merge(records / f"{name}.yaml", emitted, "id", ordered=True)
+        _tree.merge(records / f"{name}.yaml", emitted, "id", ordered=True)
     _merge_seeds(
         tree / "seeds.yaml",
         {**seeds(), **booster_seeds(), **_standin.seeds(), **_transfer.seeds()},

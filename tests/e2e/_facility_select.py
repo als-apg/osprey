@@ -243,10 +243,10 @@ def lane_selection(view: SimulatorView) -> LaneSelection:
 def second_models(view: SimulatorView, document: dict[str, Any]) -> tuple[str, ...]:
     """The served models a lane tests beside the lane model, sorted by name.
 
-    A second model is served, is not :func:`lane_model`, measures ``orm`` and
-    not ``dispersion`` (its ``measurement.kinds`` in the built ``document``),
-    and seeds none of the addresses it wires: its readings are its solved
-    lattice alone.
+    A second model is served, is not :func:`lane_model`, and measures ``orm``
+    and not ``dispersion`` (its ``measurement.kinds`` in the built
+    ``document``): a single-pass line. Its readings may carry seeded motion, so
+    a lane that needs its solved lattice alone serves it still.
     """
     lane = lane_model(view)
     served = set(view.served())
@@ -255,8 +255,6 @@ def second_models(view: SimulatorView, document: dict[str, Any]) -> tuple[str, .
         name = str(entry["name"])
         kinds = (entry.get("measurement") or {}).get("kinds") or ()
         if name not in served or name == lane or "orm" not in kinds or "dispersion" in kinds:
-            continue
-        if any(view.seed(binding.address) is not None for binding in view.bindings(model=name)):
             continue
         found.append(name)
     return tuple(sorted(found))
@@ -267,8 +265,7 @@ def second_model(view: SimulatorView, document: dict[str, Any]) -> str:
     found = second_models(view, document)
     if not found:
         raise AssertionError(
-            "no served model other than the lane model measures orm without dispersion "
-            "and seeds none of its addresses"
+            "no served model other than the lane model measures orm without dispersion"
         )
     return found[0]
 

@@ -166,9 +166,10 @@ async def test_a_stopped_channels_subscription_stays_quiet(connected: Any) -> No
     connector, state_dir = connected
     seen: list[Any] = []
     await connector.subscribe(HEARTBEAT, seen.append)
+    assert len(seen) == 1, "the current value, sent on subscribing"
     _activate(state_dir, STOP_M)
     await connector._notify()
-    assert seen == []
+    assert len(seen) == 1
 
 
 async def test_a_subscription_made_while_stopped_waits_and_is_told_disconnected(

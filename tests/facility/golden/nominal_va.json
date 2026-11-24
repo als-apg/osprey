@@ -11,7 +11,7 @@
       "still"
     ],
     "addresses": {
-      "count": 4734,
+      "count": 4693,
       "excluded": "the suite's synthetic string channel and every waveform"
     },
     "nominal": "Channel Access read, repeated every 3 s until two snapshots agree exactly; a bool or enum as its label, a string as its text"
@@ -1147,126 +1147,6 @@
     },
     "GTL:RF:SHB:02:VOLTAGE:SP": {
       "nominal": 12.0
-    },
-    "LINE:DIAG:BPM:01:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:01:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:02:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:02:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:03:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:03:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:04:POSITION:X": {
-      "nominal": 0.0
-    },
-    "LINE:DIAG:BPM:04:POSITION:Y": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:01:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:01:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:02:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:02:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:03:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:03:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:04:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:HCM:04:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:QD:01:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:01:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:02:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:02:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:03:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:03:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:04:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QD:04:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:01:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:01:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:02:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:02:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:03:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:03:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:04:CURRENT:RB": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:QF:04:CURRENT:SP": {
-      "nominal": 120.0
-    },
-    "LINE:MAG:VCM:01:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:01:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:02:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:02:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:03:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:03:CURRENT:SP": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:04:CURRENT:RB": {
-      "nominal": 0.0
-    },
-    "LINE:MAG:VCM:04:CURRENT:SP": {
-      "nominal": 0.0
     },
     "LN:DIAG:BPM:01:POSITION:X": {
       "nominal": 0.0
@@ -14208,9 +14088,6 @@
       "nominal": "TRUE"
     },
     "ca:SIM:BTS:STATUS": {
-      "nominal": "ok"
-    },
-    "ca:SIM:LINE:STATUS": {
       "nominal": "ok"
     },
     "ca:SIM:LTB:STATUS": {

@@ -36,6 +36,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 import zmq.auth
 
@@ -259,6 +260,33 @@ def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
         "fraction": 1.0,
         "complete": True,
     }
+
+
+def test_a_waveform_reading_crosses_the_plane_and_is_served(plane, certificates, publishers):
+    """An array reading pickled by the worker is served by the data route as a list."""
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge.app import app
+
+    publisher = _publisher(publishers, plane, certificates)
+    _establish_link(publisher)
+
+    run_uid = "run-engine-uid-wave"
+    descriptor_uid = "descriptor-wave"
+    publisher("start", _start_doc(run_uid, run_id="osprey-run-wave"))
+    publisher("descriptor", _descriptor_doc(descriptor_uid, run_uid))
+    publisher("event", _event_doc(descriptor_uid, 1, {"det_wave": np.arange(3.0)}))
+    publisher("stop", _stop_doc(run_uid, 1))
+
+    _wait_for(
+        lambda: (live_rows.get("osprey-run-wave") or {}).get("partial") is False,
+        "the run's stop document",
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).get("/runs/osprey-run-wave/data")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rows"] == [[[0.0, 1.0, 2.0]]]
 
 
 def _assert_refused(forged, authorized, label: str) -> None:

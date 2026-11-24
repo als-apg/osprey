@@ -730,15 +730,5 @@
       "BTS:MAG:DIPOLE:03:CURRENT:RB"
     ],
     "category": "single-target"
-  },
-  {
-    "user_query": "What are the horizontal corrector setpoints in the four-cell LINE transfer line?",
-    "targeted_pv": [
-      "LINE:MAG:HCM:01:CURRENT:SP",
-      "LINE:MAG:HCM:02:CURRENT:SP",
-      "LINE:MAG:HCM:03:CURRENT:SP",
-      "LINE:MAG:HCM:04:CURRENT:SP"
-    ],
-    "category": "aggregate"
   }
 ]

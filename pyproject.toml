@@ -978,6 +978,9 @@ name = "The connector package's top-level modules, in layers"
 # posture grammar from `posture_store`; `workspace` loads config through
 # `config`'s singleton, and `config` resolves paths through `workspace`.
 #
+# `command` fires a command through any control-system connector and compares
+# its status by the control-system contract's own rule, so it sits above them.
+#
 # `simulation.engines`, the engine plug-in contract, sits inside the simulation
 # layer and imports nothing from the package. A layer may not hold a module
 # another layer already contains, so that leaf is held by the connectors suite
@@ -987,6 +990,7 @@ layers = [
     "osprey_connectors.ipc",
     "osprey_connectors.factory",
     "osprey_connectors.archiver",
+    "osprey_connectors.command",
     "osprey_connectors.control_system",
     "osprey_connectors.alarm_log | osprey_connectors.put_log",
     "osprey_connectors.alarm_state",
@@ -1312,7 +1316,7 @@ name = "The framework reaches the facility description only through its public m
 #   `osprey_facility.measurement_groups` | framework job: `osprey.facility.views`
 #   `osprey_facility.pairing` | framework job: `osprey.facility.views`
 #   `osprey_facility.reading` | fork/tool
-#   `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.services.ariel_search`
+#   `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search`
 #   `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search`
 #   `osprey_facility.relations` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.views`
 #   `osprey_facility.render` | framework job: `osprey.apps.sdk`, `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views`

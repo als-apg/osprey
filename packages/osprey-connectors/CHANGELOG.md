@@ -20,6 +20,26 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.16] - 2026-11-23
+
+### Added
+
+- The simulator serves a status that reads a stated value for a stated time after a write to its command (`responds`), and moves a readback when its start command is written (`started_by`). The in-process journal records each write's time (#2892, #2893).
+- The simulator view reader refuses `started_by` on a setpoint a physics model serves; a setpoint the texture serves is moved by its start command (#2892).
+- `osprey_connectors.command.fire` fires a command channel and waits for its status to leave and return to its idle value (#2892, #2893).
+- The in-process simulator runs its time-driven models when its connector block
+  states `evolve: true`: a request write takes a shot, reads, writes and the
+  tick advance the models, and the tick wakes at the composite's next deadline
+  to fire the subscriptions of what was emitted. The default is unchanged.
+  `Composite.now()` reads the composite's clock.
+
+### Changed
+
+- A subscription to the in-process simulator receives the channel's current value as its first callback, as one to the served simulator does (#2892, #2893).
+- A replay of the in-process simulator's writes journal restores the journalled
+  values instead of writing them, so no model is told a client wrote them. On a
+  connector that evolves, a journalled request therefore starts no second shot.
+
 ## [2026.11.15] - 2026-11-22
 
 ### Added

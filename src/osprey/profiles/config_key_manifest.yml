@@ -1560,6 +1560,10 @@ keys:
   # serve the simulator in process at the connector's own delay and do not
   # state it, so a deployment that wants a slower machine authors it itself.
   control_system.connector.virtual_accelerator.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
+  # Read by the in-process simulator's `connect()` alone, in the connectors
+  # package, so the block carries the evidence. `rendered: false`: no preset
+  # states it; a test deployment that needs shots authors it itself.
+  control_system.connector.virtual_accelerator.evolve: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: false}
   control_system.connector.virtual_accelerator.timeout_s: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
   # `super().connect()`, so the step-read budget above is read from this type's

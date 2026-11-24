@@ -17,7 +17,8 @@ follows from no setpoint. The readback's seed states the exception both ways:
 ``follows: <setpoint>`` makes its pair followed, ``follows: none`` stops it
 (:func:`pair_follows`, :func:`simulated_pairs`). Through a seed a labelled
 readback may follow a setpoint of other type by index: a labelled setpoint of as
-many labels, or a number written to the setpoint (:func:`index_copy`).
+many labels, or a number written to the setpoint (:func:`index_copy`). A readback
+that states ``idle`` reports an act, so the simulation follows it from no setpoint.
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ _WHY_NONE = "the readback's seed follows none"
 _WHY_SHARED = "several setpoints name the readback"
 _WHY_TYPES = "the setpoint and the readback hold values of different types"
 _WHY_OTHER = "the readback's seed follows another setpoint"
+_WHY_IDLE = "the readback states `idle`"
 
 #: The rule :func:`derive_pairs` applies, named where a derived pair is shown.
 PAIR_RULE = "the one readback of the same quantity where the setpoint sits"
@@ -205,7 +207,8 @@ def pair_follows(channels: Mapping[str, Mapping[str, Any]]) -> list[Follow]:
     decides when it states ``follows``: the setpoint it names is followed, and no
     other, copying the value when the two hold values of one type and the state
     by index where :func:`index_copy` allows. Otherwise the readback is followed
-    when exactly one setpoint names it and the two hold values of one type.
+    when exactly one setpoint names it and the two hold values of one type. A
+    readback that states ``idle`` the simulation follows from no setpoint.
 
     Args:
         channels: Every channel's fields by address, with ``role``, ``pair`` and
@@ -228,6 +231,8 @@ def pair_follows(channels: Mapping[str, Mapping[str, Any]]) -> list[Follow]:
         for setpoint in sorted(setpoints):
             if channel is None:
                 found.append(Follow(setpoint, readback, NOT_FOLLOWED, "the readback is no channel"))
+            elif "idle" in channel:
+                found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_IDLE))
             elif len(setpoints) > 1:
                 found.append(Follow(setpoint, readback, NOT_FOLLOWED, _WHY_SHARED))
             elif follows == FOLLOWS_NONE:

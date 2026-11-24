@@ -131,7 +131,7 @@ PATH_ONLY: frozenset[str] = frozenset(
         # Puts that path into the roster source it resolves, a dataclass field (plan deviation).
         "osprey.channel_roster.sources.resolve_roster_source",
         # Returns and memoizes the path it has read through load_facility (plan deviation).
-        "osprey.runtime._facility_channels",
+        "osprey.runtime._facility_records",
     }
 )
 
@@ -679,7 +679,7 @@ def test_path_only_is_the_ruled_list():
             "osprey.cli.profile_conventions",
             "osprey.channel_roster.sources.facility_file_path",
             "osprey.channel_roster.sources.resolve_roster_source",
-            "osprey.runtime._facility_channels",
+            "osprey.runtime._facility_records",
         }
     )
     idx = index(SRC)

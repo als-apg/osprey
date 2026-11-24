@@ -7,7 +7,7 @@ preset's bundled facility, ``templates/facilities/example``:
 * a block that states whole records is pasted into one scratch copy of the
   preset, at the file it belongs to, and the copy must pass the facility
   validator (the checks of ``osprey facility validate``);
-* a block that shows part of a preset record (the top-off seed, the ``LINE``
+* a block that shows part of a preset record (the top-off seed, the ``BTS``
   model) must be a subset of that record as the preset states it;
 * the channel list the page includes is imported the way ``osprey facility
   import list`` does it, into the preset with its bundled files replaced, and
@@ -189,8 +189,8 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "code: ca": ("identity.yaml", _update),
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
-    "- id: LINE:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
-    "- address: LINE:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("LINE")),
+    "- id: BTS:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
+    "- address: BTS:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("BTS")),
     "- class: Undulator": ("classes.yaml", _by("class")),
     "- name: taper_setpoint": ("signals.yaml", _by("name")),
     "# data/facility/imported/names/channels.yaml": (
@@ -210,7 +210,7 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
 #: Blocks that show part of a preset record, by first line: the preset file.
 SUBSETS: dict[str, str] = {
     "SR:DIAG:DCCT:01:CURRENT:RB:": "seeds.yaml",
-    "- name: LINE": "models.yaml",
+    "- name: BTS": "models.yaml",
 }
 
 #: The fixes block, applied on top of the imported channel list.
