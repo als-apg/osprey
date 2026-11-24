@@ -247,6 +247,42 @@ def test_a_local_path_dependency_exempts_its_root_directory_and_nothing_else(tmp
     assert unknown_root_entries(tmp_path, known) == ["strayed"]
 
 
+def test_root_directories_named_by_service_keys_are_known_and_a_stray_is_not(tmp_path: Path):
+    """``optimizer.environments_dir``, ``bluesky.plan_dir`` and every
+    ``bluesky.external.parameter_schemas`` host path name root directories the
+    build mounts; they are not typos. A stray beside them still is, and a path
+    above the root exempts nothing."""
+    from osprey.cli.build_persistence import _profile_known_root_entries
+    from osprey.cli.build_profile_model import BuildProfile
+    from osprey.cli.build_profile_schema import (
+        BlueskyConfig,
+        BlueskyExternalConfig,
+        OptimizerConfig,
+    )
+    from osprey.cli.profile_conventions import unknown_root_entries
+
+    for directory in ("optimizer/environments", "facility-plans", "plan-schemas", "strayed"):
+        (tmp_path / directory).mkdir(parents=True)
+    profile = BuildProfile(
+        name="p",
+        optimizer=OptimizerConfig(environments_dir="optimizer/environments"),
+        bluesky=BlueskyConfig(
+            plan_dir="./facility-plans",
+            external=BlueskyExternalConfig(
+                parameter_schemas={
+                    "scan.trajectory": "plan-schemas/trajectory.json",
+                    "scan.detector": "../outside/detector.json",
+                },
+            ),
+        ),
+    )
+
+    known = _profile_known_root_entries(profile, tmp_path / "profile.yml")
+
+    assert unknown_root_entries(tmp_path, known) == ["strayed"]
+    assert ".." not in known
+
+
 def test_known_root_entries_skip_paths_above_the_profile():
     from osprey.cli.build_persistence import _profile_known_root_entries
     from osprey.cli.build_profile_model import BuildProfile

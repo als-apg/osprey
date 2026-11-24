@@ -178,8 +178,10 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     Feeds the unknown-root-entry warning's ``extra_known``: the profile's own
     filename plus the first path component of every profile-relative path the
     profile declares — ``data:``, ``machine:`` (the mounted machine root, often
-    a git submodule), ``dispatch.triggers``, each ``services.*.template``, and
-    every local-path ``dependencies`` entry under the profile root (a package
+    a git submodule), ``dispatch.triggers``, each ``services.*.template``, the
+    mounted ``optimizer.environments_dir`` and ``bluesky.plan_dir``, each host
+    path of ``bluesky.external.parameter_schemas``, and every local-path
+    ``dependencies`` entry under the profile root (a package
     the build turns into a wheel, such as ``./kinds/<name>``). A path that
     points above the profile root contributes nothing (its first component is
     not a root entry), and a bundled ``dispatch.triggers`` name harmlessly
@@ -193,6 +195,12 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     if profile.dispatch is not None:
         candidates.append(profile.dispatch.triggers)
     candidates.extend(service.template for service in profile.services.values())
+    if profile.optimizer is not None:
+        candidates.append(profile.optimizer.environments_dir)
+    if profile.bluesky is not None:
+        candidates.append(profile.bluesky.plan_dir)
+        if profile.bluesky.external is not None:
+            candidates.extend(profile.bluesky.external.parameter_schemas.values())
 
     for candidate in candidates:
         if not isinstance(candidate, str) or not candidate.strip():
