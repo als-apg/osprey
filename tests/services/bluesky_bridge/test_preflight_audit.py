@@ -33,7 +33,9 @@ class _Connector:
 def _declared(*addresses: str) -> dict:
     connector = _Connector()
     return {
-        f"d{i}": SimpleNamespace(_osprey_connector=connector, _read_pv=address)
+        f"d{i}": SimpleNamespace(
+            _osprey_connector=connector, channel_addresses=lambda a=address: (a,)
+        )
         for i, address in enumerate(addresses)
     }
 
@@ -119,7 +121,7 @@ def test_a_failing_probe_files_refused_with_counts(ledger):
 
 
 def test_a_skipped_probe_files_skipped(ledger):
-    declared = {"d0": SimpleNamespace(_read_pv="A:1")}
+    declared = {"d0": SimpleNamespace(channel_addresses=lambda: ("A:1",))}
     assert _drive(declared, None) is None
 
     (record,) = ledger()

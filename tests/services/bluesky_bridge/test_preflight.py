@@ -456,3 +456,34 @@ def test_cancel_reaches_every_declared_device_that_can_cancel() -> None:
     cancel_unfinished_triggers({"MCA1": first, "BPM1": _ReadsOnTrigger("BPM1"), "MCA2": second})
 
     assert (first.cancelled, second.cancelled) == (1, 1)
+
+
+# ---------------------------------------------------------------------------
+# What each device asks the probe to reach
+# ---------------------------------------------------------------------------
+
+
+def test_a_triggerable_probes_its_command_and_its_status() -> None:
+    from osprey.services.bluesky_bridge.devices.connector import (
+        ConnectorReadable,
+        ConnectorSettable,
+        ConnectorTriggerable,
+    )
+    from osprey.services.bluesky_bridge.preflight import _declared_addresses
+
+    declared = {
+        "mca": ConnectorTriggerable(
+            StubConnector(), "ES1:MCA01:ACQ", "ES1:MCA01:STATUS", idle=0, timeout_s=5.0
+        ),
+        "cor": ConnectorSettable(StubConnector(), "COR:SP", readback_pv="COR:RB"),
+        "bpm": ConnectorReadable(StubConnector(), "BPM:X"),
+        "bare": object(),
+    }
+
+    assert _declared_addresses(declared) == [
+        "ES1:MCA01:ACQ",
+        "ES1:MCA01:STATUS",
+        "COR:SP",
+        "COR:RB",
+        "BPM:X",
+    ]
