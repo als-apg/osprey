@@ -1,0 +1,1 @@
+A further address of a wiring record (under `also`) states only its id, place, names, description and label; every other channel slot, `unit` and `role` included, is its record's, and stating one stops the build naming the record's address.
