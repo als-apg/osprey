@@ -97,10 +97,8 @@ async def test_entry_get_nonexistent(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entry_get()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(entry_id="nonexistent")
-
-    _exc_ctx["envelope"]
 
 
 async def test_entry_get_empty_id():
@@ -109,7 +107,7 @@ async def test_entry_get_empty_id():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(entry_id="")
 
-    _exc_ctx["envelope"]
+    assert "entry_id is required" in _exc_ctx["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------
@@ -172,20 +170,20 @@ async def test_entry_create_minimal_fields(ariel_registry):
 
 
 @pytest.mark.parametrize(
-    ("subject", "details"),
+    ("subject", "details", "missing"),
     [
         # Empty subject returns validation error.
-        pytest.param("", "some details", id="empty-subject"),
+        pytest.param("", "some details", "subject", id="empty-subject"),
         # Empty details returns validation error.
-        pytest.param("A subject", "", id="empty-details"),
+        pytest.param("A subject", "", "details", id="empty-details"),
     ],
 )
-async def test_entry_create_empty_field_is_a_validation_error(subject, details):
+async def test_entry_create_empty_field_is_a_validation_error(subject, details, missing):
     fn = _get_entry_create()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(subject=subject, details=details)
 
-    _exc_ctx["envelope"]
+    assert f"{missing} is required" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_entry_create_with_file_paths(tmp_path, ariel_registry):
@@ -848,7 +846,7 @@ async def test_entries_by_ids_empty_list():
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(entry_ids=[])
 
-    _exc_ctx["envelope"]
+    assert "entry_ids list is empty" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_entries_by_ids_max_limit_exceeded():
@@ -871,10 +869,9 @@ async def test_entries_by_ids_service_error(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_entries_by_ids()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="internal_error") as ctx:
             await fn(entry_ids=["e1"])
-
-    _exc_ctx["envelope"]
+        assert "DB down" in ctx["envelope"]["error_message"]
 
 
 async def test_entries_by_ids_carries_the_read_budget(ariel_registry):

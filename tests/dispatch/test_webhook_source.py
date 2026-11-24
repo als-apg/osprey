@@ -45,9 +45,23 @@ def started_source(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_handle_unauthorized_wrong_token(started_source):
+@pytest.mark.parametrize(
+    "header",
+    [
+        pytest.param("Bearer wrong", id="wrong-token"),
+        # A bearer outside ASCII is refused, never raised on.
+        #
+        # ``compare_digest`` refuses two ``str`` arguments unless both are ASCII-only,
+        # and an Authorization header carries whatever bytes a caller chose — which
+        # the route adapter hands here as the latin-1 text Starlette decoded. Compared
+        # as strings, a wrong credential would answer 500 instead of 401, and the
+        # route would be the one surface a caller could fault from outside.
+        pytest.param("Bearer tökén", id="non-ascii-header"),
+    ],
+)
+async def test_handle_unauthorized_bad_bearer(started_source, header):
     source, _, callback = started_source
-    body, status = await source._handle("deploy", "Bearer wrong", {})
+    body, status = await source._handle("deploy", header, {})
     assert status == 401
     assert body == {"detail": "Unauthorized"}
     assert callback.calls == []
@@ -58,23 +72,6 @@ async def test_handle_unauthorized_missing_header(started_source):
     source, _, callback = started_source
     body, status = await source._handle("deploy", "", {})
     assert status == 401
-    assert callback.calls == []
-
-
-@pytest.mark.asyncio
-async def test_handle_unauthorized_non_ascii_header(started_source):
-    """A bearer outside ASCII is refused, never raised on.
-
-    ``compare_digest`` refuses two ``str`` arguments unless both are ASCII-only,
-    and an Authorization header carries whatever bytes a caller chose — which
-    the route adapter hands here as the latin-1 text Starlette decoded. Compared
-    as strings, a wrong credential would answer 500 instead of 401, and the
-    route would be the one surface a caller could fault from outside.
-    """
-    source, _, callback = started_source
-    body, status = await source._handle("deploy", "Bearer tökén", {})
-    assert status == 401
-    assert body == {"detail": "Unauthorized"}
     assert callback.calls == []
 
 

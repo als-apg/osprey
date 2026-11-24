@@ -73,17 +73,14 @@ class TestValidateLeafModule:
 class TestValidateIdentity:
     @pytest.mark.parametrize(
         "name",
-        ["alice", "carol", "_svc", "a", "a" * 32, "carol-2", "alice_b", "x9"],
+        [
+            # Plain names.
+            *["alice", "carol", "_svc", "a", "a" * 32, "carol-2", "alice_b", "x9"],
+            # Dotted names.
+            *["alice.smith", "a.b.c", "alice.", "_a.b", "first.last-2", "a." + "b" * 30],
+        ],
     )
-    def test_validate_accepts_plain_names(self, name: str) -> None:
-        validate_identity(name)
-        validate_identity(name, allow_service=True)
-
-    @pytest.mark.parametrize(
-        "name",
-        ["alice.smith", "a.b.c", "alice.", "_a.b", "first.last-2", "a." + "b" * 30],
-    )
-    def test_validate_accepts_dotted_names(self, name: str) -> None:
+    def test_validate_accepts_plain_and_dotted_names(self, name: str) -> None:
         validate_identity(name)
         validate_identity(name, allow_service=True)
 
@@ -95,49 +92,38 @@ class TestValidateIdentity:
     @pytest.mark.parametrize(
         "name",
         [
-            "",
-            "Alice",
-            "1alice",
-            "-alice",
-            "al ice",
-            "alicé",
-            "a" * 33,
-            "alice$",
-            ".alice",
-            ".",
-            "..",
-            "a." + "b" * 31,
+            # Bad charset or length.
+            *["", "Alice", "1alice", "-alice", "al ice", "alicé", "a" * 33, "alice$"],
+            *[".alice", ".", "..", "a." + "b" * 31],
+            # passwd separators: ``fullmatch`` with ``\Z``, so a trailing newline
+            # cannot slip past ``$``.
+            *["alice:x", "alice\n", "alice\nroot", "alice\r", "a:0:0::/:/bin/sh"],
         ],
     )
-    def test_validate_refuses_bad_charset(self, name: str) -> None:
+    def test_validate_refuses_bad_charset_and_passwd_separators(self, name: str) -> None:
         with pytest.raises(ValueError):
             validate_identity(name)
         with pytest.raises(ValueError):
             validate_identity(name, allow_service=True)
 
     @pytest.mark.parametrize(
-        "name",
-        ["alice:x", "alice\n", "alice\nroot", "alice\r", "a:0:0::/:/bin/sh"],
+        ("name", "match"),
+        [
+            # The canonical names, and dotted osprey names.
+            *[
+                pytest.param(name, "reserved", id=name)
+                for name in ["root", "osprey", "osprey.", "osprey.x", "osprey.optimizer"]
+            ],
+            # The base image's own accounts.
+            *[pytest.param(name, "base image", id=name) for name in sorted(BASE_IMAGE_ACCOUNTS)],
+        ],
     )
-    def test_validate_refuses_passwd_separators(self, name: str) -> None:
-        """``fullmatch`` with ``\\Z`` — a trailing newline cannot slip past ``$``."""
-        with pytest.raises(ValueError):
+    def test_validate_refuses_reserved_and_base_image_names_even_for_services(
+        self, name: str, match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
             validate_identity(name)
-        with pytest.raises(ValueError):
-            validate_identity(name, allow_service=True)
-
-    @pytest.mark.parametrize("name", ["root", "osprey"])
-    def test_validate_refuses_canonical_names_even_for_services(self, name: str) -> None:
-        with pytest.raises(ValueError, match="reserved"):
-            validate_identity(name)
-        with pytest.raises(ValueError, match="reserved"):
-            validate_identity(name, allow_service=True)
-
-    @pytest.mark.parametrize("name", ["osprey.", "osprey.x", "osprey.optimizer"])
-    def test_validate_refuses_dotted_osprey_names_even_for_services(self, name: str) -> None:
-        with pytest.raises(ValueError, match="reserved"):
-            validate_identity(name)
-        with pytest.raises(ValueError, match="reserved"):
+        with pytest.raises(ValueError, match=match):
             validate_identity(name, allow_service=True)
 
     @pytest.mark.parametrize(
@@ -154,13 +140,6 @@ class TestValidateIdentity:
     )
     def test_validate_reserved_match_is_anchored(self, name: str) -> None:
         validate_identity(name)
-
-    @pytest.mark.parametrize("name", sorted(BASE_IMAGE_ACCOUNTS))
-    def test_validate_refuses_base_image_accounts(self, name: str) -> None:
-        with pytest.raises(ValueError, match="base image"):
-            validate_identity(name)
-        with pytest.raises(ValueError, match="base image"):
-            validate_identity(name, allow_service=True)
 
     def test_validate_returns_none(self) -> None:
         assert validate_identity("alice") is None

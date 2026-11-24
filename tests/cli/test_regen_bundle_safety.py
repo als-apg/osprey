@@ -225,17 +225,6 @@ class TestRegenDoesNotTouchBundle:
 
         assert before == after
 
-    def test_bundle_outside_dot_claude(self, tmp_path):
-        """Bundle directory must not be nested inside ``.claude/``."""
-        project_dir, bundle_dir, _ = _make_project_with_bundle(tmp_path)
-        dot_claude = project_dir / ".claude"
-
-        try:
-            bundle_dir.relative_to(dot_claude)
-            raise AssertionError(f"Bundle {bundle_dir} must not be nested inside {dot_claude}")
-        except ValueError:
-            pass  # Expected: bundle_dir is outside .claude/
-
     def test_regen_output_set_contains_no_data_prefix(self, tmp_path):
         """Regen's returned output set must never include paths starting with ``data/``.
 

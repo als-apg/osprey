@@ -68,6 +68,14 @@ def _setup_failed_result() -> ExecutionResult:
     )
 
 
+def _artifact_types(artifact_ids):
+    """The stored ``artifact_type`` of each id, in order."""
+    from osprey.stores.artifact_store import get_artifact_store
+
+    store = get_artifact_store()
+    return [store.get_entry(artifact_id).artifact_type for artifact_id in artifact_ids]
+
+
 async def _build(exec_result, *, save_output, patterns=None):
     return await build_execution_response(
         code="print('hi')",
@@ -232,8 +240,8 @@ async def test_figures_are_saved_as_artifacts(tmp_path):
     fig.write_bytes(b"\x89PNG\r\n\x1a\nfakepng")
     result = await _build(_ok_result(figures=[fig]), save_output=False)
     data = extract_response_dict(result)
-    # The figure plus the always-on notebook yield at least one artifact id.
-    assert data.get("artifact_ids")
+    # The figure plus the always-on notebook: one id each.
+    assert sorted(_artifact_types(data["artifact_ids"])) == ["image", "notebook"]
 
 
 async def test_subprocess_artifacts_are_saved(tmp_path):
@@ -248,7 +256,8 @@ async def test_subprocess_artifacts_are_saved(tmp_path):
     }
     result = await _build(_ok_result(artifacts=[art]), save_output=False)
     data = extract_response_dict(result)
-    assert data.get("artifact_ids")
+    # The table plus the always-on notebook: one id each.
+    assert sorted(_artifact_types(data["artifact_ids"])) == ["data", "notebook"]
 
 
 async def test_bad_figure_path_is_non_fatal():
@@ -257,7 +266,10 @@ async def test_bad_figure_path_is_non_fatal():
         _ok_result(figures=[Path("/nonexistent/does-not-exist.png")]),
         save_output=False,
     )
-    assert isinstance(result, str)
+    data = extract_response_dict(result)
+    assert data["has_errors"] is False
+    # Only the always-on notebook: the unreadable figure was skipped.
+    assert _artifact_types(data["artifact_ids"]) == ["notebook"]
 
 
 async def test_bad_subprocess_artifact_is_non_fatal():
@@ -270,7 +282,10 @@ async def test_bad_subprocess_artifact_is_non_fatal():
         "mime_type": "text/csv",
     }
     result = await _build(_ok_result(artifacts=[art]), save_output=False)
-    assert isinstance(result, str)
+    data = extract_response_dict(result)
+    assert data["has_errors"] is False
+    # Only the always-on notebook: the missing artifact was skipped.
+    assert _artifact_types(data["artifact_ids"]) == ["notebook"]
 
 
 async def test_notebook_creation_failure_is_non_fatal():
@@ -295,7 +310,11 @@ async def test_gallery_url_failure_is_swallowed(tmp_path):
     ):
         # A saved artifact drives the gallery_url branch on the persisted path.
         result = await _build(_ok_result(figures=[fig]), save_output=True)
-    assert isinstance(result, str)
+    data = extract_response_dict(result)
+    assert data["summary"]["has_errors"] is False
+    # The saved artifacts are still surfaced; only the gallery link is missing.
+    assert sorted(_artifact_types(data["artifact_ids"])) == ["image", "notebook"]
+    assert "gallery_url" not in data
 
 
 # ---------------------------------------------------------------------------

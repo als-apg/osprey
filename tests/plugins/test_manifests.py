@@ -447,44 +447,23 @@ def check_no_machine_paths(root: Path) -> list[str]:
 # =====================================================================
 
 
-def test_skill_frontmatter_is_well_formed() -> None:
-    """Every shipped skill satisfies the frontmatter contract."""
-    assert check_skill_frontmatter(_REPO_ROOT) == []
-
-
-def test_marketplace_sources_resolve() -> None:
-    """Both marketplaces point at a directory holding both plugin manifests."""
-    assert check_marketplace_sources(_REPO_ROOT) == []
-
-
-def test_marketplaces_agree_on_plugins() -> None:
-    """The two marketplaces name the same plugins at the same paths."""
-    assert check_marketplace_agreement(_REPO_ROOT) == []
-
-
-def test_plugin_versions_match_and_are_calver() -> None:
-    """Both plugin manifests carry one identical CalVer version."""
-    assert check_plugin_versions(_REPO_ROOT) == []
-
-
-def test_codex_fields_follow_the_spec() -> None:
-    """The Codex policy, category and skills fields hold their pinned values."""
-    assert check_codex_fields(_REPO_ROOT) == []
-
-
-def test_owner_and_author_are_one_identity() -> None:
-    """The marketplace owner equals the plugin author, and neither carries an email."""
-    assert check_owner_and_author(_REPO_ROOT) == []
-
-
-def test_project_metadata_matches_pyproject() -> None:
-    """The plugin manifest's homepage, repository and licence match pyproject.toml."""
-    assert check_project_metadata(_REPO_ROOT) == []
-
-
-def test_no_machine_paths_in_manifests_or_plugins() -> None:
-    """No manifest or shipped plugin file leaks an absolute path or session URL."""
-    assert check_no_machine_paths(_REPO_ROOT) == []
+@pytest.mark.parametrize(
+    "check",
+    [
+        check_skill_frontmatter,
+        check_marketplace_sources,
+        check_marketplace_agreement,
+        check_plugin_versions,
+        check_codex_fields,
+        check_owner_and_author,
+        check_project_metadata,
+        check_no_machine_paths,
+    ],
+    ids=lambda check: check.__name__,
+)
+def test_the_real_tree_passes(check: Callable[[Path], list[str]]) -> None:
+    """The shipped tree satisfies every manifest check; each check's docstring says what."""
+    assert check(_REPO_ROOT) == []
 
 
 # =====================================================================

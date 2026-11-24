@@ -24,7 +24,7 @@ import yaml
 
 from osprey.cli.build_cmd import _profile_data_bundle
 from tests._builds import BuiltProject, init_project, run_build
-from tests.facility.served_tree import in_process_config, served_tree
+from tests.facility.served_tree import in_process_config
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -145,18 +145,21 @@ class TestHelloWorldBuildOutput:
 class TestVAInProcessConnectorTutorialChannels:
     """Verify VAInProcessConnector can read tutorial channel names."""
 
-    async def test_in_process_connector_reads_tutorial_channels(self, tmp_path: Path):
-        """Instantiate VAInProcessConnector and read tutorial channels."""
+    async def test_in_process_connector_reads_tutorial_channels(self, hello_world_project: Path):
+        """Instantiate VAInProcessConnector on the tutorial's own rendered
+        simulator and read tutorial channels from it."""
         from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
 
         channel_names = ["SR:BEAM:CURRENT", "SR:MAG:QF:01:CURRENT:RB"]
         connector = VAInProcessConnector()
-        await connector.connect(in_process_config(served_tree(tmp_path, readings=channel_names)))
-
-        for name in channel_names:
-            result = await connector.read_channel(name)
-            assert result is not None
-            assert isinstance(result.value, (int, float))
+        await connector.connect(in_process_config(hello_world_project / "data" / "simulator"))
+        try:
+            for name in channel_names:
+                result = await connector.read_channel(name)
+                assert result is not None
+                assert isinstance(result.value, (int, float))
+        finally:
+            await connector.disconnect()
 
     async def test_the_render_s_simulator_reads_a_stored_beam_current(
         self, hello_world_project: Path

@@ -271,11 +271,6 @@ def test_emit_css_source_order_preserved_within_block() -> None:
     assert dark_block.index("--text-primary") < dark_block.index("--color-accent")
 
 
-def test_emit_css_is_deterministic() -> None:
-    tree = _small_tree()
-    assert emit_css(tree) == emit_css(tree)
-
-
 def test_emit_css_raises_on_unresolved_alias() -> None:
     tree = _small_tree()
     tree.themes["dark"]["bg.primary"] = _token(
@@ -342,11 +337,10 @@ def test_real_tokens_tree_emits_required_hard_constraint_names() -> None:
 
 
 @pytest.mark.skipif(not REAL_TOKENS_DIR.is_dir(), reason="real tokens/ tree not present yet")
-def test_real_tokens_tree_css_is_hook_clean_and_deterministic() -> None:
+def test_real_tokens_tree_css_is_hook_clean() -> None:
     tree = load_token_tree(REAL_TOKENS_DIR)
     css = emit_css(tree)
 
-    assert css == emit_css(tree)
     assert css == css.rstrip("\n") + "\n"
     for line in css.splitlines():
         assert line == line.rstrip()

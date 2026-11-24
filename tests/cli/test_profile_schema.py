@@ -122,14 +122,15 @@ def test_port_overflow_raises(tmp_path: Path) -> None:
         profile.validate(tmp_path)
 
 
-def test_triggers_missing_file_raises(tmp_path: Path) -> None:
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers="does-not-exist.yml"))
-    with pytest.raises(BuildProfileError, match="triggers"):
-        profile.validate(tmp_path)
-
-
-def test_triggers_empty_string_raises(tmp_path: Path) -> None:
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers=""))
+@pytest.mark.parametrize(
+    "triggers",
+    [
+        pytest.param("does-not-exist.yml", id="missing-file"),
+        pytest.param("", id="empty-string"),
+    ],
+)
+def test_triggers_that_name_no_file_raise(tmp_path: Path, triggers: str) -> None:
+    profile = _profile(name="x", dispatch=DispatchConfig(triggers=triggers))
     with pytest.raises(BuildProfileError, match="triggers"):
         profile.validate(tmp_path)
 

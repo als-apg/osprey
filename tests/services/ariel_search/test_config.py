@@ -1074,14 +1074,6 @@ class TestKeywordPatternSettings:
             KeywordSearchSettings.from_ariel_config(_keyword_config({setting: value}))
         assert message in str(exc_info.value)
 
-    def test_patterns_enabled_error_surfaces_from_validate(self) -> None:
-        """The resolver validate() calls is the one the search path uses."""
-        errors = _keyword_config({"patterns_enabled": "yes"}).validate()
-        assert (
-            "search_modules.keyword.settings.patterns_enabled must be a boolean, got 'yes'"
-            in errors
-        )
-
     def test_pattern_timeout_seconds_rejects_a_negative_number(self) -> None:
         """Below the floor from the other side, same refusal."""
         with pytest.raises(ValueError) as exc_info:
@@ -1105,23 +1097,40 @@ class TestKeywordPatternSettings:
         )
         assert settings.pattern_timeout_seconds == resolved
 
-    def test_pattern_timeout_seconds_error_surfaces_from_validate(self) -> None:
-        """``vocab-check``, ``status`` and startup all report it, naming the key."""
-        errors = _keyword_config({"pattern_timeout_seconds": 0}).validate()
-        assert (
-            "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
-            ">= 0.001, got 0" in errors
-        )
+    @pytest.mark.parametrize(
+        ("settings", "expected_error"),
+        [
+            pytest.param(
+                {"patterns_enabled": "yes"},
+                "search_modules.keyword.settings.patterns_enabled must be a boolean, got 'yes'",
+                id="patterns-enabled",
+            ),
+            pytest.param(
+                {"pattern_timeout_seconds": 0},
+                "search_modules.keyword.settings.pattern_timeout_seconds must be a number "
+                ">= 0.001, got 0",
+                id="pattern-timeout-seconds",
+            ),
+        ],
+    )
+    def test_setting_error_surfaces_from_validate(self, settings, expected_error) -> None:
+        """The resolver validate() calls is the one the search path uses, so
+        ``vocab-check``, ``status`` and startup all report the error, naming the key."""
+        errors = _keyword_config(settings).validate()
+        assert expected_error in errors
 
-    def test_pattern_timeout_seconds_is_not_validated_when_keyword_is_disabled(self) -> None:
-        """A disabled module's settings reach no reader, so validate() stays quiet."""
-        errors = _keyword_config({"pattern_timeout_seconds": 0}, enabled=False).validate()
-        assert not [error for error in errors if "pattern_timeout_seconds" in error]
-
-    def test_patterns_enabled_is_not_validated_when_keyword_is_disabled(self) -> None:
-        """Same for the boolean knob: dead config is not refused."""
-        errors = _keyword_config({"patterns_enabled": "yes"}, enabled=False).validate()
-        assert not [error for error in errors if "patterns_enabled" in error]
+    @pytest.mark.parametrize(
+        ("settings", "key"),
+        [
+            pytest.param({"pattern_timeout_seconds": 0}, "pattern_timeout_seconds", id="timeout"),
+            pytest.param({"patterns_enabled": "yes"}, "patterns_enabled", id="boolean-knob"),
+        ],
+    )
+    def test_setting_is_not_validated_when_keyword_is_disabled(self, settings, key) -> None:
+        """A disabled module's settings reach no reader, so validate() stays quiet:
+        dead config is not refused."""
+        errors = _keyword_config(settings, enabled=False).validate()
+        assert not [error for error in errors if key in error]
 
 
 class TestKeywordFuzzyThreshold:
@@ -1239,18 +1248,26 @@ def _semantic_config(
 class TestHybridSettingsValidation:
     """Tests for ``search_modules.hybrid.settings`` reaching validate()."""
 
-    def test_rerank_error_surfaces_from_validate(self) -> None:
-        """``vocab-check``, ``status`` and startup all report it, naming the key."""
-        errors = _hybrid_config({"rerank": "junk"}).validate()
-        assert "search_modules.hybrid.settings.rerank must be a boolean, got 'junk'" in errors
-
-    def test_candidate_limit_error_surfaces_from_validate(self) -> None:
-        """The other knob in the block is validated by the same resolver call."""
-        errors = _hybrid_config({"candidate_limit": 0}).validate()
-        assert (
-            "search_modules.hybrid.settings.candidate_limit must be a positive integer, got 0"
-            in errors
-        )
+    @pytest.mark.parametrize(
+        ("settings", "expected_error"),
+        [
+            pytest.param(
+                {"rerank": "junk"},
+                "search_modules.hybrid.settings.rerank must be a boolean, got 'junk'",
+                id="rerank",
+            ),
+            pytest.param(
+                {"candidate_limit": 0},
+                "search_modules.hybrid.settings.candidate_limit must be a positive integer, got 0",
+                id="candidate-limit",
+            ),
+        ],
+    )
+    def test_setting_error_surfaces_from_validate(self, settings, expected_error) -> None:
+        """``vocab-check``, ``status`` and startup all report it, naming the key; both
+        knobs in the block are validated by the same resolver call."""
+        errors = _hybrid_config(settings).validate()
+        assert expected_error in errors
 
     def test_settings_are_not_validated_when_hybrid_is_disabled(self) -> None:
         """A disabled module's settings reach no reader, so validate() stays quiet."""

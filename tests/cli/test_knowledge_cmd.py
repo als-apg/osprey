@@ -115,20 +115,16 @@ def test_regen_index_idempotent(okf_bundle: Path) -> None:
 
 
 def test_regen_index_no_bundle_and_no_config_errors() -> None:
-    """``regen-index`` without an arg and no config setting exits nonzero."""
+    """``regen-index`` without an arg and no config setting is a usage error."""
     runner = CliRunner()
     # Patch get_config_value to return None so the fallback path is exercised.
     import unittest.mock as mock
 
-    with mock.patch(
-        "osprey.cli.knowledge_cmd.knowledge.commands",
-        wraps=knowledge.commands,
-    ):
-        with mock.patch("osprey.cli.knowledge_cmd.get_config_value", return_value=None):
-            result = runner.invoke(knowledge, ["regen-index"])
+    with mock.patch("osprey.cli.knowledge_cmd.get_config_value", return_value=None):
+        result = runner.invoke(knowledge, ["regen-index"])
 
-    # Should exit non-zero or print an error message.
-    assert result.exit_code != 0 or "Error" in (result.output or "")
+    assert result.exit_code == 2, result.output
+    assert "facility_knowledge.bundle_path is not set" in result.output
 
 
 # ---------------------------------------------------------------------------

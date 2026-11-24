@@ -80,6 +80,7 @@ class TestListArtifacts:
         for artifact_type in ARTIFACT_TYPES:
             names = list_artifacts(artifact_type)
             assert isinstance(names, list)
+            assert names, f"no {artifact_type} in the built-in library"
 
 
 # ---------------------------------------------------------------------------

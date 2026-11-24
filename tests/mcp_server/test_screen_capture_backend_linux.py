@@ -4,6 +4,7 @@ Mocks mss and python-xlib via module-level patching so tests run on macOS CI.
 """
 
 import os
+import struct
 import sys
 from types import ModuleType
 from unittest.mock import MagicMock, patch
@@ -77,6 +78,8 @@ def _make_mock_xlib_modules():
     xlib_display = ModuleType("Xlib.display")
     xlib_protocol = ModuleType("Xlib.protocol")
     xlib_protocol_rq = ModuleType("Xlib.protocol.rq")
+    configure_calls = []
+    sent_events = []
 
     # X constants
     xlib_x.AnyPropertyType = 0
@@ -117,7 +120,7 @@ def _make_mock_xlib_modules():
             return MockCoords()
 
         def configure(self, **kwargs):
-            pass
+            configure_calls.append((self._wid, kwargs))
 
     # Mock display
     class MockScreen:
@@ -129,7 +132,7 @@ def _make_mock_xlib_modules():
             return MockProperty([0x100001])
 
         def send_event(self, event, event_mask):
-            pass
+            sent_events.append((event, event_mask))
 
     class MockDisplay:
         def __init__(self, *args, **kwargs):
@@ -156,6 +159,9 @@ def _make_mock_xlib_modules():
     xlib.display = xlib_display
     xlib.protocol = xlib_protocol
     xlib_protocol.rq = xlib_protocol_rq
+    # What the backend asked of X, read back by the window-management tests.
+    xlib_display.configure_calls = configure_calls
+    xlib_display.sent_events = sent_events
 
     return {
         "Xlib": xlib,
@@ -292,8 +298,13 @@ async def test_capture_window_not_found(mock_linux_env, tmp_path):
 async def test_bring_to_front(mock_linux_env):
     """bring_to_front sends _NET_ACTIVE_WINDOW event."""
     backend = mock_linux_env
-    # Should not raise
     await backend.bring_to_front("TestApp")
+
+    xdisplay = sys.modules["Xlib.display"]
+    ((event, _mask),) = xdisplay.sent_events
+    kind, _fmt, _seq, wid, msg_type, source, *_ = struct.unpack("=BBHIiIIIII", event)
+    active_window = xdisplay.Display().intern_atom("_NET_ACTIVE_WINDOW")
+    assert (kind, wid, msg_type, source) == (33, 0x100001, active_window, 2)
 
 
 async def test_move_window(mock_linux_env):
@@ -301,11 +312,17 @@ async def test_move_window(mock_linux_env):
     backend = mock_linux_env
     await backend.move_window("TestApp", 100, 200)
 
+    assert sys.modules["Xlib.display"].configure_calls == [(0x100001, {"x": 100, "y": 200})]
+
 
 async def test_resize_window(mock_linux_env):
     """resize_window configures window size."""
     backend = mock_linux_env
     await backend.resize_window("TestApp", 1024, 768)
+
+    assert sys.modules["Xlib.display"].configure_calls == [
+        (0x100001, {"width": 1024, "height": 768})
+    ]
 
 
 async def test_window_not_found_management(mock_linux_env):

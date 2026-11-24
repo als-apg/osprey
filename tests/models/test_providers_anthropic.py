@@ -2,42 +2,31 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from osprey.models.providers.anthropic import AnthropicProviderAdapter
 
 
 class TestAnthropicProviderMetadata:
     """Test Anthropic provider metadata attributes."""
 
-    def test_provider_name(self):
-        """Test provider name is correctly set."""
-        provider = AnthropicProviderAdapter()
-        assert provider.name == "anthropic"
-
-    def test_provider_description(self):
-        """Test provider description is set."""
-        provider = AnthropicProviderAdapter()
-        assert provider.description == "Anthropic (Claude models)"
-        assert "Claude" in provider.description
-
-    def test_requires_api_key(self):
-        """Test provider requires API key."""
-        provider = AnthropicProviderAdapter()
-        assert provider.requires_api_key is True
-
-    def test_does_not_require_base_url(self):
-        """Test provider does not require base URL."""
-        provider = AnthropicProviderAdapter()
-        assert provider.requires_base_url is False
-
-    def test_supports_proxy(self):
-        """Test provider supports HTTP proxy."""
-        provider = AnthropicProviderAdapter()
-        assert provider.supports_proxy is True
-
-    def test_default_base_url_is_none(self):
-        """Test default base URL is None (Anthropic handles default)."""
-        provider = AnthropicProviderAdapter()
-        assert provider.default_base_url is None
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            pytest.param("name", "anthropic", id="provider_name"),
+            pytest.param("description", "Anthropic (Claude models)", id="provider_description"),
+            pytest.param("requires_api_key", True, id="requires_api_key"),
+            pytest.param("requires_base_url", False, id="does_not_require_base_url"),
+            # Supports an HTTP proxy.
+            pytest.param("supports_proxy", True, id="supports_proxy"),
+            # The default base URL is None: Anthropic handles the default.
+            pytest.param("default_base_url", None, id="default_base_url_is_none"),
+        ],
+    )
+    def test_declared_metadata(self, attr, expected):
+        value = getattr(AnthropicProviderAdapter(), attr)
+        assert value == expected
+        assert type(value) is type(expected)
 
     def test_has_default_model_id(self):
         """Test provider has default model ID."""

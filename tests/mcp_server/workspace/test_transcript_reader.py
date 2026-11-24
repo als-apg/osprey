@@ -334,4 +334,7 @@ class TestTranscriptIdContainment:
         )
 
         reader = TranscriptReader(project_dir)
-        assert reader.find_transcript_by_id("abc-123") is not None
+        # The path under the link, unresolved: the one the directory listing shows.
+        found = reader.find_transcript_by_id("abc-123")
+        assert found == claude_project_dir(project_dir) / "abc-123.jsonl"
+        assert str(found).startswith(str(linked_config))

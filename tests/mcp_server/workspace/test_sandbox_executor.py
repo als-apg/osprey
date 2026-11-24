@@ -37,179 +37,115 @@ async def _run_in_sandbox(code, execution_folder, workspace_root, *, timeout=30)
 class TestValidateSandboxCode:
     """Tests for the AST-level code validation."""
 
-    def test_validate_safe_matplotlib_code(self):
-        code = textwrap.dedent("""\
-            import numpy as np
-            import pandas as pd
-            import matplotlib.pyplot as plt
-            x = np.linspace(0, 10, 100)
-            plt.plot(x, np.sin(x))
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-        assert violations == []
-
-    def test_validate_blocks_subprocess(self):
-        code = "import subprocess\nsubprocess.run(['ls'])"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("subprocess" in v for v in violations)
-
-    def test_validate_blocks_eval(self):
-        code = "result = eval('1+1')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("eval" in v for v in violations)
-
-    def test_validate_blocks_exec(self):
-        code = "exec('import os')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("exec" in v for v in violations)
-
-    def test_validate_blocks_network(self):
-        for mod in ["requests", "urllib", "socket"]:
-            code = f"import {mod}"
-            is_safe, violations = validate_sandbox_code(code)
-            assert not is_safe, f"{mod} should be blocked"
-            assert any(mod in v for v in violations)
-
-    def test_validate_blocks_epics(self):
-        code = "import epics\nepics.caput('PV:NAME', 42)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("epics" in v for v in violations)
-
-    def test_validate_blocks_tango(self):
-        """Tango DeviceProxy and write_attribute are blocked."""
-        code = "import tango\nd = tango.DeviceProxy('motor/1')\nd.write_attribute('position', 100)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("tango" in v.lower() for v in violations)
-
-    def test_validate_blocks_opcua(self):
-        """OPC-UA module is blocked."""
-        code = "import opcua\nclient = opcua.Client('opc.tcp://localhost:4840')"
+    @pytest.mark.parametrize(
+        ("code", "needle"),
+        [
+            pytest.param(
+                "import subprocess\nsubprocess.run(['ls'])", "subprocess", id="subprocess"
+            ),
+            pytest.param("result = eval('1+1')", "eval", id="eval"),
+            pytest.param("exec('import os')", "exec", id="exec"),
+            pytest.param("import requests", "requests", id="network-requests"),
+            pytest.param("import urllib", "urllib", id="network-urllib"),
+            pytest.param("import socket", "socket", id="network-socket"),
+            pytest.param("import epics\nepics.caput('PV:NAME', 42)", "epics", id="epics"),
+            # Tango DeviceProxy and write_attribute are blocked.
+            pytest.param(
+                "import tango\nd = tango.DeviceProxy('motor/1')\nd.write_attribute('position', 100)",
+                "tango",
+                id="tango",
+            ),
+            # OPC-UA module is blocked.
+            pytest.param(
+                "import opcua\nclient = opcua.Client('opc.tcp://localhost:4840')",
+                "opcua",
+                id="opcua",
+            ),
+            # osprey.runtime write_channel API is blocked in sandbox.
+            pytest.param(
+                "write_channel('BEAM:CURRENT', 500.0)", "write_channel", id="write_channel"
+            ),
+            # LabVIEW patterns are blocked.
+            pytest.param(
+                "import labview\nlabview.SetControlValue('temperature', 350)",
+                "labview",
+                id="labview",
+            ),
+            pytest.param("__import__('os').system('ls')", "__import__", id="dunder_import"),
+            pytest.param("def foo(\n  # missing closing paren", "Syntax error", id="syntax_error"),
+            pytest.param("import os\nos.system('rm -rf /')", "os.system", id="os_system"),
+            pytest.param("compile('print(1)', '<string>', 'exec')", "compile", id="compile"),
+            pytest.param("import ctypes", "ctypes", id="ctypes"),
+            pytest.param(
+                "import shutil\nshutil.rmtree('/tmp/important')",
+                "shutil.rmtree",
+                id="shutil_rmtree",
+            ),
+        ],
+    )
+    def test_validate_blocks(self, code, needle):
+        """Code the sandbox must not run is refused, with a violation naming what was found."""
         is_safe, violations = validate_sandbox_code(code)
         assert not is_safe
-        assert any("opcua" in v.lower() for v in violations)
+        assert any(needle in v for v in violations), violations
 
-    def test_validate_blocks_write_channel(self):
-        """osprey.runtime write_channel API is blocked in sandbox."""
-        code = "write_channel('BEAM:CURRENT', 500.0)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("write_channel" in v for v in violations)
-
-    def test_validate_blocks_labview(self):
-        """LabVIEW patterns are blocked."""
-        code = "import labview\nlabview.SetControlValue('temperature', 350)"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("labview" in v.lower() or "LabVIEW" in v for v in violations)
-
-    def test_validate_blocks_dunder_import(self):
-        code = "__import__('os').system('ls')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("__import__" in v for v in violations)
-
-    def test_validate_syntax_error(self):
-        code = "def foo(\n  # missing closing paren"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("Syntax error" in v for v in violations)
-
-    def test_validate_allowed_stdlib(self):
-        code = textwrap.dedent("""\
-            import json
-            import datetime
-            import math
-            import re
-            import collections
-            from pathlib import Path
-            import itertools
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-        assert violations == []
-
-    def test_validate_blocks_os_system(self):
-        code = "import os\nos.system('rm -rf /')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("os.system" in v for v in violations)
-
-    def test_validate_blocks_compile(self):
-        code = "compile('print(1)', '<string>', 'exec')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("compile" in v for v in violations)
-
-    def test_validate_blocks_ctypes(self):
-        code = "import ctypes"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("ctypes" in v for v in violations)
-
-    def test_validate_blocks_shutil_rmtree(self):
-        code = "import shutil\nshutil.rmtree('/tmp/important')"
-        is_safe, violations = validate_sandbox_code(code)
-        assert not is_safe
-        assert any("shutil.rmtree" in v for v in violations)
-
-    def test_validate_mpl_toolkits_3d_import_allowed(self):
-        """mpl_toolkits.mplot3d must be whitelisted for 3D matplotlib plots."""
-        code = textwrap.dedent("""\
-            from mpl_toolkits.mplot3d import Axes3D
-            import matplotlib.pyplot as plt
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe, f"mpl_toolkits.mplot3d should be allowed but got: {violations}"
-        assert violations == []
-
-    def test_validate_mpl_toolkits_import_styles(self):
-        """All common mpl_toolkits import patterns should pass validation."""
-        patterns = [
-            "import mpl_toolkits",
-            "from mpl_toolkits.mplot3d import Axes3D",
-            "from mpl_toolkits.mplot3d import art3d",
-            "import mpl_toolkits.mplot3d",
-        ]
-        for code in patterns:
-            is_safe, violations = validate_sandbox_code(code)
-            assert is_safe, f"Pattern '{code}' should be allowed but got: {violations}"
-
-    def test_validate_plotly_import_allowed(self):
-        code = "import plotly.graph_objects as go\nfig = go.Figure()"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_plotly_3d_scatter_allowed(self):
-        """Plotly 3D scatter imports should be allowed."""
-        code = textwrap.dedent("""\
-            import plotly.graph_objects as go
-            fig = go.Figure(data=[go.Scatter3d(x=[1,2], y=[3,4], z=[5,6])])
-        """)
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_bokeh_import_allowed(self):
-        code = "from bokeh.plotting import figure\np = figure()"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_seaborn_import_allowed(self):
-        code = "import seaborn as sns"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
-
-    def test_validate_scipy_import_allowed(self):
-        code = "from scipy import stats"
-        is_safe, violations = validate_sandbox_code(code)
-        assert is_safe
+    @pytest.mark.parametrize(
+        "code",
+        [
+            pytest.param(
+                textwrap.dedent("""\
+                    import numpy as np
+                    import pandas as pd
+                    import matplotlib.pyplot as plt
+                    x = np.linspace(0, 10, 100)
+                    plt.plot(x, np.sin(x))
+                """),
+                id="safe_matplotlib",
+            ),
+            pytest.param(
+                textwrap.dedent("""\
+                    import json
+                    import datetime
+                    import math
+                    import re
+                    import collections
+                    from pathlib import Path
+                    import itertools
+                """),
+                id="allowed_stdlib",
+            ),
+            # mpl_toolkits.mplot3d must be whitelisted for 3D matplotlib plots.
+            pytest.param(
+                textwrap.dedent("""\
+                    from mpl_toolkits.mplot3d import Axes3D
+                    import matplotlib.pyplot as plt
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, projection='3d')
+                """),
+                id="mpl_toolkits_3d",
+            ),
+            # All common mpl_toolkits import patterns should pass validation.
+            pytest.param("import mpl_toolkits", id="mpl_toolkits_import"),
+            pytest.param("from mpl_toolkits.mplot3d import Axes3D", id="mpl_toolkits_from_mplot3d"),
+            pytest.param("from mpl_toolkits.mplot3d import art3d", id="mpl_toolkits_art3d"),
+            pytest.param("import mpl_toolkits.mplot3d", id="mpl_toolkits_import_mplot3d"),
+            pytest.param("import plotly.graph_objects as go\nfig = go.Figure()", id="plotly"),
+            # Plotly 3D scatter imports should be allowed.
+            pytest.param(
+                textwrap.dedent("""\
+                    import plotly.graph_objects as go
+                    fig = go.Figure(data=[go.Scatter3d(x=[1,2], y=[3,4], z=[5,6])])
+                """),
+                id="plotly_3d_scatter",
+            ),
+            pytest.param("from bokeh.plotting import figure\np = figure()", id="bokeh"),
+            pytest.param("import seaborn as sns", id="seaborn"),
+            pytest.param("from scipy import stats", id="scipy"),
+        ],
+    )
+    def test_validate_allows(self, code):
+        """Plotting, analysis and stdlib imports pass, with no violation reported."""
+        assert validate_sandbox_code(code) == (True, [])
 
     def test_validate_multiple_violations(self):
         code = textwrap.dedent("""\

@@ -107,7 +107,7 @@ class TestSubmitResponse:
     async def test_submit_response_whitespace_title(self):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="   ", content="Some content.")
-        _exc_ctx["envelope"]
+        assert "title is required" in _exc_ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
@@ -253,9 +253,9 @@ class TestSubmitResponse:
     @pytest.mark.usefixtures("workspace")
     async def test_artifact_not_created_on_validation_error(self):
         """Validation errors should NOT create an artifact."""
-        with assert_raises_error() as _exc_ctx:
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="", content="Some content.")
-        _exc_ctx["envelope"]
+        assert "title is required" in _exc_ctx["envelope"]["error_message"]
         store = get_artifact_store()
         assert len(store.list_entries()) == 0
 

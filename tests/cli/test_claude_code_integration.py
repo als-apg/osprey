@@ -549,60 +549,49 @@ class TestChannelFinderAgent:
         # channel-finder MCP server is project-level (.mcp.json), not inline
         assert "mcpServers" not in content
 
-    def test_agent_contains_pipeline_specific_tools(self, tmp_path):
-        """Hierarchical mode includes cf_hier_* tools, not cf_ml_* or cf_ic_*."""
+    @pytest.mark.parametrize(
+        ("mode", "present", "absent"),
+        [
+            # Hierarchical mode includes cf_hier_* tools, not cf_ml_* or cf_ic_*.
+            pytest.param(
+                "hierarchical",
+                ["get_options", "build_channels"],
+                ["list_systems", "get_channels"],
+                id="hierarchical",
+            ),
+            # Middle layer mode includes ml tools, not hier or ic tools.
+            pytest.param(
+                "middle_layer",
+                ["list_systems", "list_families"],
+                ["hierarchy_info", "get_channels"],
+                id="middle_layer",
+            ),
+            # In-context mode includes ic tools, not hier or ml tools.
+            pytest.param(
+                "in_context",
+                ["ask_channels"],
+                ["get_channels", "resolve_addresses", "hierarchy_info", "list_systems"],
+                id="in_context",
+            ),
+        ],
+    )
+    def test_agent_contains_pipeline_specific_tools(self, tmp_path, mode, present, absent):
+        """The agent file names the tools of its own channel-finder pipeline only."""
         manager = TemplateManager()
         project_dir = create_project_with_manifest(
             manager,
             project_name="pipeline-test",
             output_dir=tmp_path,
             data_bundle="demo",
-            context={"channel_finder_mode": "hierarchical"},
+            context={"channel_finder_mode": mode},
             data_root=bundle_data_root("demo"),
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "get_options" in content
-        assert "build_channels" in content
-        assert "list_systems" not in content
-        assert "get_channels" not in content
-
-    def test_middle_layer_pipeline_tools(self, tmp_path):
-        """Middle layer mode includes ml tools, not hier or ic tools."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name="ml-pipeline-test",
-            output_dir=tmp_path,
-            data_bundle="demo",
-            context={"channel_finder_mode": "middle_layer"},
-            data_root=bundle_data_root("demo"),
-        )
-
-        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "list_systems" in content
-        assert "list_families" in content
-        assert "hierarchy_info" not in content
-        assert "get_channels" not in content
-
-    def test_in_context_pipeline_tools(self, tmp_path):
-        """In-context mode includes ic tools, not hier or ml tools."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name="ic-pipeline-test",
-            output_dir=tmp_path,
-            data_bundle="demo",
-            context={"channel_finder_mode": "in_context"},
-            data_root=bundle_data_root("demo"),
-        )
-
-        content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "ask_channels" in content
-        assert "get_channels" not in content
-        assert "resolve_addresses" not in content
-        assert "hierarchy_info" not in content
-        assert "list_systems" not in content
+        for tool in present:
+            assert tool in content
+        for tool in absent:
+            assert tool not in content
 
     def test_agent_has_submit_response_instructions(self, tmp_path):
         """Channel-finder agent prompt includes submit_response instructions."""
@@ -1123,8 +1112,9 @@ class TestProviderEnvBlock:
     """
 
     @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
-    def test_settings_json_has_no_env_block(self, tmp_path, provider):
-        """settings.json must not have an 'env' block (runtime-injected now)."""
+    def test_settings_json_has_no_env_block_and_no_model_key(self, tmp_path, provider):
+        """settings.json must have neither an 'env' block nor a 'model' key
+        (both runtime-injected now: the model via the ANTHROPIC_MODEL env var)."""
         manager = TemplateManager()
         project_dir = create_project_with_manifest(
             manager,
@@ -1140,21 +1130,6 @@ class TestProviderEnvBlock:
             f"settings.json still has 'env' block for provider '{provider}' — "
             f"env vars should be runtime-injected, not baked into settings.json"
         )
-
-    @pytest.mark.parametrize("provider", ["cborg", "anthropic", "als-apg"])
-    def test_settings_json_has_no_model_key(self, tmp_path, provider):
-        """settings.json must not have a 'model' key (runtime-injected now)."""
-        manager = TemplateManager()
-        project_dir = create_project_with_manifest(
-            manager,
-            project_name=f"no-model-{provider}",
-            output_dir=tmp_path,
-            data_bundle="demo",
-            context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
-        )
-
-        data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "model" not in data, (
             f"settings.json still has 'model' key for provider '{provider}' — "
             f"model should be runtime-injected via ANTHROPIC_MODEL env var"

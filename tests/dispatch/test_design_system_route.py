@@ -63,7 +63,18 @@ def test_missing_file_returns_404(app):
     assert resp.status_code == 404
 
 
-def test_traversal_attempt_returns_404_not_403(app):
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param("%2e%2e/%2e%2e/server.py", id="sibling-escape"),
+        # A path segment that resolves outside the static root via a deeper escape.
+        pytest.param("%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd", id="deeper-escape"),
+        # An escape onto a file that exists (the dispatcher's own source): only the
+        # is_relative_to guard refuses this one -- the is_file() check would serve it.
+        pytest.param("%2e%2e/%2e%2e/%2e%2e/dispatch/server.py", id="escape-onto-an-existing-file"),
+    ],
+)
+def test_traversal_attempt_returns_404_not_403(app, path):
     """A path-traversal probe must 404, never 403 (don't leak existence).
 
     Percent-encodes the dot segments so httpx's client-side URL normalization
@@ -74,13 +85,6 @@ def test_traversal_attempt_returns_404_not_403(app):
     route-miss from the request landing somewhere else entirely.
     """
     with TestClient(app) as client:
-        resp = client.get("/design-system/%2e%2e/%2e%2e/server.py")
+        resp = client.get(f"/design-system/{path}")
     assert resp.status_code == 404
     assert resp.json() == {"detail": "Not found"}
-
-
-def test_deeper_traversal_escape_returns_404(app):
-    """A path segment that resolves outside the static root via a deeper escape."""
-    with TestClient(app) as client:
-        resp = client.get("/design-system/%2e%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd")
-    assert resp.status_code == 404

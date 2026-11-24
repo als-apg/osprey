@@ -923,16 +923,25 @@ def test_every_shipped_recipe_pulls_its_base_through_the_base_registry(dockerfil
     assert _base_registry_violations(dockerfile.read_text(encoding="utf-8")) == []
 
 
-def test_base_registry_guard_catches_a_bare_base():
-    """A base named without the registry ARG fails the check."""
-    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\nFROM python:3.11-slim\n")
-
-
-def test_base_registry_guard_catches_a_base_without_its_namespace():
-    """A base named under the registry ARG without ``library/`` fails the check."""
-    assert _base_registry_violations(
-        f"{BASE_REGISTRY_ARG}\nFROM ${{OSPREY_BASE_REGISTRY}}/python:3.11-slim\n"
-    )
+@pytest.mark.parametrize(
+    ("from_line", "problem"),
+    [
+        # A base named without the registry ARG.
+        pytest.param("FROM python:3.11-slim", "without the base registry", id="bare-base"),
+        # A base named under the registry ARG without ``library/``.
+        pytest.param(
+            "FROM ${OSPREY_BASE_REGISTRY}/python:3.11-slim",
+            "without its Docker Hub namespace",
+            id="base-without-namespace",
+        ),
+    ],
+)
+def test_base_registry_guard_catches_a_misnamed_base(from_line, problem):
+    """A misnamed base fails the check for its own reason, and only that line is
+    flagged: the ARG declaration ahead of it is well formed."""
+    assert _base_registry_violations(f"{BASE_REGISTRY_ARG}\n{from_line}\n") == [
+        f"{from_line!r} names its base {problem}"
+    ]
 
 
 #: Shipped recipes that install with pip, and so fetch through the build caches.

@@ -156,17 +156,15 @@ async def test_missing_container_is_warning_not_deployed(
     assert "not deployed" in result.message
 
 
-async def test_no_runtime_runtimeerror_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_runtime(monkeypatch, ps_error=RuntimeError("No container runtime found"))
-
-    result = await run({"container": "graphdb"}, _ctx())
-
-    assert result.status is Status.SKIP
-    assert result.message == "no container runtime available"
-
-
-async def test_no_runtime_filenotfound_is_skip(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_runtime(monkeypatch, ps_error=FileNotFoundError("docker"))
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(RuntimeError("No container runtime found"), id="runtimeerror"),
+        pytest.param(FileNotFoundError("docker"), id="filenotfound"),
+    ],
+)
+async def test_no_runtime_is_skip(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
+    _patch_runtime(monkeypatch, ps_error=error)
 
     result = await run({"container": "graphdb"}, _ctx())
 

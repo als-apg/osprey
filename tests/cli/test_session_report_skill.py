@@ -39,18 +39,6 @@ class TestSessionReportRegistry:
         assert art.template_path == template_path
 
 
-class TestSessionReportTemplateExists:
-    """Verify template files exist on disk."""
-
-    def test_skill_file_exists(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "session-report" / "SKILL.md"
-        assert path.exists(), f"SKILL.md not found at {path}"
-
-    def test_reference_file_exists(self):
-        path = TEMPLATE_ROOT / "claude" / "skills" / "session-report" / "reference.md"
-        assert path.exists(), f"reference.md not found at {path}"
-
-
 class TestSessionReportSkillStructure:
     """Verify the skill file contains required structural elements."""
 
@@ -109,18 +97,21 @@ class TestSessionReportSkillStructure:
 
     def test_has_observation_only_rule(self, skill_text):
         """Must contain the safety rule about observation-only reporting."""
-        assert (
-            "never generate recommendations" in skill_text.lower()
-            or "observation-only" in skill_text.lower()
-        )
+        assert "**CRITICAL — Observation-only reporting**" in skill_text
+        assert "must NEVER generate recommendations" in skill_text
 
-    def test_has_forbidden_examples(self, skill_text):
-        """Must give examples of forbidden recommendation language."""
-        assert "FORBIDDEN" in skill_text or "forbidden" in skill_text
-
-    def test_has_allowed_examples(self, skill_text):
-        """Must give examples of allowed observation language."""
-        assert "ALLOWED" in skill_text or "allowed" in skill_text
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            # Examples of forbidden recommendation language.
+            pytest.param("- FORBIDDEN:", id="forbidden"),
+            # Examples of allowed observation language.
+            pytest.param("- ALLOWED:", id="allowed"),
+        ],
+    )
+    def test_has_examples(self, skill_text, marker):
+        """Must give an example line of each kind under the observation-only rule."""
+        assert marker in skill_text
 
     def test_has_attributed_quote_exception(self, skill_text):
         """Exception for operator-stated action items as attributed quotes."""

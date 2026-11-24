@@ -1,4 +1,4 @@
-"""A ping is one one-token completion with the model the deployment uses."""
+"""A ping is one small, capped completion with the model the deployment uses."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from osprey.health.ping import model_for, ping_provider
+from osprey.health.ping import MAX_TOKENS, model_for, ping_provider
 
 
 def test_the_model_next_to_the_role_wins_over_the_catalogue_default():
@@ -29,7 +29,9 @@ def test_an_embedding_role_is_not_pinged_with_a_completion():
     assert model_for(config, "local") == "captioner"
 
 
-async def test_a_ping_sends_one_token_and_reports_latency(monkeypatch: pytest.MonkeyPatch):
+async def test_a_ping_sends_a_capped_completion_and_reports_latency(
+    monkeypatch: pytest.MonkeyPatch,
+):
     sent: dict[str, Any] = {}
 
     def fake_completion(**kwargs: Any) -> str:
@@ -46,7 +48,7 @@ async def test_a_ping_sends_one_token_and_reports_latency(monkeypatch: pytest.Mo
     assert result["status"] == "ok"
     assert result["model"] == "claude-x"
     assert result["latency_ms"] >= 0
-    assert sent["max_tokens"] >= 1
+    assert sent["max_tokens"] == MAX_TOKENS
 
 
 async def test_a_failing_completion_is_the_answer(monkeypatch: pytest.MonkeyPatch):

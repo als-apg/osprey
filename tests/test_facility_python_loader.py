@@ -83,28 +83,40 @@ def test_dataclass_in_loaded_file_resolves_its_module(tmp_path: Path) -> None:
     assert load_by_path(path, PREFIX).P(1).x == 1
 
 
-def test_failed_import_leaves_no_sys_modules_entry(tmp_path: Path) -> None:
-    path = _write(tmp_path / "boom.py", "raise RuntimeError('boom at import')\n")
+@pytest.mark.parametrize(
+    ("filename", "source", "exc", "match"),
+    [
+        pytest.param(
+            "boom.py",
+            "raise RuntimeError('boom at import')\n",
+            RuntimeError,
+            "boom at import",
+            id="failed-import",
+        ),
+        # A BaseException during exec also pops and propagates.
+        pytest.param(
+            "interrupt.py",
+            "raise KeyboardInterrupt\n",
+            KeyboardInterrupt,
+            None,
+            id="base-exception",
+        ),
+        pytest.param("bad.py", "def (:\n", SyntaxError, None, id="syntax-error"),
+        pytest.param(
+            "data.txt",
+            "X = 1\n",
+            ImportError,
+            "no Python import machinery",
+            id="non-python-suffix-is-refused",
+        ),
+    ],
+)
+def test_a_failed_load_propagates_and_leaves_no_sys_modules_entry(
+    tmp_path: Path, filename: str, source: str, exc: type[BaseException], match: str | None
+) -> None:
+    path = _write(tmp_path / filename, source)
 
-    with pytest.raises(RuntimeError, match="boom at import"):
-        load_by_path(path, PREFIX)
-
-    assert module_name_for(path, PREFIX) not in sys.modules
-
-
-def test_base_exception_during_exec_also_pops_and_propagates(tmp_path: Path) -> None:
-    path = _write(tmp_path / "interrupt.py", "raise KeyboardInterrupt\n")
-
-    with pytest.raises(KeyboardInterrupt):
-        load_by_path(path, PREFIX)
-
-    assert module_name_for(path, PREFIX) not in sys.modules
-
-
-def test_syntax_error_pops_and_propagates(tmp_path: Path) -> None:
-    path = _write(tmp_path / "bad.py", "def (:\n")
-
-    with pytest.raises(SyntaxError):
+    with pytest.raises(exc, match=match):
         load_by_path(path, PREFIX)
 
     assert module_name_for(path, PREFIX) not in sys.modules
@@ -127,15 +139,6 @@ def test_missing_file_raises_and_registers_nothing(tmp_path: Path) -> None:
     path = tmp_path / "absent.py"
 
     with pytest.raises((FileNotFoundError, ImportError)):
-        load_by_path(path, PREFIX)
-
-    assert module_name_for(path, PREFIX) not in sys.modules
-
-
-def test_non_python_suffix_is_refused_with_import_error(tmp_path: Path) -> None:
-    path = _write(tmp_path / "data.txt", "X = 1\n")
-
-    with pytest.raises(ImportError, match="no Python import machinery"):
         load_by_path(path, PREFIX)
 
     assert module_name_for(path, PREFIX) not in sys.modules

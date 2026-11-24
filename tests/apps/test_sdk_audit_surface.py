@@ -14,13 +14,15 @@ from osprey.apps.sdk import audit_surface
 from osprey.apps.sdk._approval import APP_NAME_ENV_VAR
 
 
-def test_the_surface_is_the_application_name(monkeypatch):
-    monkeypatch.setenv(APP_NAME_ENV_VAR, "knob-example")
-    assert audit_surface() == "knob-example"
-
-
-def test_surrounding_whitespace_is_not_part_of_the_name(monkeypatch):
-    monkeypatch.setenv(APP_NAME_ENV_VAR, " knob-example\n")
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("knob-example", id="the-application-name"),
+        pytest.param(" knob-example\n", id="surrounding-whitespace-is-not-part-of-the-name"),
+    ],
+)
+def test_the_surface_is_the_application_name(monkeypatch, value):
+    monkeypatch.setenv(APP_NAME_ENV_VAR, value)
     assert audit_surface() == "knob-example"
 
 

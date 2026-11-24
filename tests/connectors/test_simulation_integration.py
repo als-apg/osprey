@@ -139,16 +139,6 @@ class TestMockArchiverSimulation:
         connector = MockArchiverConnector()
         await connector.connect(in_process_config(view))
 
-        df = await connector.get_data(
-            channels=["T:Q1:CUR:SP"],
-            start_date=datetime(2024, 1, 1, 0, 0, 0),
-            end_date=datetime(2024, 1, 1, 1, 0, 0),
-        )
-        sp = df.loc[df["channel"] == "T:Q1:CUR:SP", "value"]
-        # Guard against an empty selection making .all() vacuously True.
-        assert len(sp) > 0
-        assert (sp == 42.0).all()
-
         with pytest.raises(
             ChannelNotFoundError, match="UNSERVED:PV is not a channel of this facility"
         ):

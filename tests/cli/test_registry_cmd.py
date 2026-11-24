@@ -191,15 +191,6 @@ class AppProvider(RegistryConfigProvider):
 class TestDisplayServicesTable:
     """Test _display_services_table function."""
 
-    @pytest.mark.usefixtures("printed")
-    def test_displays_services(self, mock_registry):
-        """Test displaying services table."""
-        # Should not raise exception
-        _display_services_table(mock_registry)
-
-        # Should get stats for service names
-        assert mock_registry.get_stats.called
-
     def test_table_comes_from_the_shared_factory(self, mock_registry, printed):
         """Re-pinned: the table used to spell ``dim`` for its own border."""
         _display_services_table(mock_registry)
@@ -222,16 +213,16 @@ class TestDisplayServicesTable:
 class TestDisplayProvidersTable:
     """Test _display_providers_table function."""
 
-    @pytest.mark.usefixtures("printed")
-    def test_displays_providers(self, mock_registry):
-        """Test displaying providers table."""
+    def test_displays_providers(self, mock_registry, printed):
+        """Test displaying providers table: one row per provider, sorted by name."""
         providers = ["test_provider", "another_provider"]
 
-        # Should not raise exception
         _display_providers_table(mock_registry, providers, verbose=False)
 
-        # Should get provider classes
-        assert mock_registry.get_provider.called
+        (table,) = [r for r in printed if isinstance(r, Table)]
+        assert table.row_count == 2
+        assert list(table.columns[0].cells) == ["another_provider", "test_provider"]
+        assert list(table.columns[1].cells) == ["✓", "✓"]
 
     def test_displays_providers_verbose(self, mock_registry, printed):
         """Test displaying providers table in verbose mode."""
@@ -248,14 +239,16 @@ class TestDisplayProvidersTable:
             "Description",
         ]
 
-    @pytest.mark.usefixtures("printed")
-    def test_handles_missing_provider(self, mock_registry):
-        """Test handling of provider that doesn't exist."""
+    def test_handles_missing_provider(self, mock_registry, printed):
+        """Test handling of provider that doesn't exist: its row shows it unavailable."""
         mock_registry.get_provider.return_value = None
         providers = ["nonexistent_provider"]
 
-        # Should not raise exception
         _display_providers_table(mock_registry, providers, verbose=False)
+
+        (table,) = [r for r in printed if isinstance(r, Table)]
+        assert list(table.columns[0].cells) == ["nonexistent_provider"]
+        assert list(table.columns[1].cells) == ["✗"]
 
     def test_table_comes_from_the_shared_factory(self, mock_registry, printed):
         """Re-pinned, for the providers table's own border."""

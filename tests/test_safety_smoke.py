@@ -333,21 +333,100 @@ async def test_1_read_channel_tool_returns_data(smoke_env, monkeypatch):
 
 
 # ===========================================================================
-# SCENARIO 2: Write within limits — approval hook asks
+# SCENARIOS 2-7, 9: the hook chain decides
 # ===========================================================================
 
 
-def test_2_valid_write_hooks_ask_approval(smoke_env):
-    """A valid write to a channel within limits triggers the approval hook."""
-    # Use DIAG:TEMP:SP — has limits (0-100) but no max_step constraint
-    result, blocked_by = _run_hook_chain(
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "DIAG:TEMP:SP", "value": 50.0}]},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
+@pytest.mark.parametrize(
+    ("tool", "tool_input", "config_key", "blocked_by", "decision"),
+    [
+        # A valid write to a channel within limits triggers the approval hook.
+        # DIAG:TEMP:SP has limits (0-100) but no max_step constraint.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "DIAG:TEMP:SP", "value": 50.0}]},
+            "config_path",
+            "osprey_approval.py",
+            "ask",
+            id="2-valid-write",
+        ),
+        # A write exceeding channel limits is denied by the limits hook.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}]},
+            "config_path",
+            "osprey_limits.py",
+            "deny",
+            id="3-over-limit-write",
+        ),
+        # Writing to a non-writable channel is denied by the limits hook.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "MAG:QF01:CURRENT:SP", "value": 1.0}]},
+            "config_path",
+            "osprey_limits.py",
+            "deny",
+            id="4-readonly-channel",
+        ),
+        # A channel not in the limits DB passes limits (permissive) and reaches approval.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "SR:RANDOM:CHANNEL", "value": 42.0}]},
+            "config_path",
+            "osprey_approval.py",
+            "ask",
+            id="5-unlisted-channel",
+        ),
+        # Python code containing caput() triggers the approval hook.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "caput('SR:BEAM:CURRENT', 100)", "execution_mode": "readonly"},
+            "config_path",
+            "osprey_approval.py",
+            "ask",
+            id="6-python-caput",
+        ),
+        # Python code with Tango write_attribute() triggers approval via framework detection.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
+            "config_path",
+            "osprey_approval.py",
+            "ask",
+            id="7-python-tango",
+        ),
+        # With writes: never, the writes_check hook denies all writes.
+        pytest.param(
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 5.0}]},
+            "config_writes_off_path",
+            "osprey_writes_check.py",
+            "deny",
+            id="9-writes-disabled",
+        ),
+        # With writes: never, execute tool in readwrite mode is also denied.
+        pytest.param(
+            "mcp__python__execute",
+            {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readwrite"},
+            "config_writes_off_path",
+            "osprey_writes_check.py",
+            "deny",
+            id="9-writes-disabled-python-readwrite",
+        ),
+    ],
+)
+def test_hook_chain(smoke_env, tool, tool_input, config_key, blocked_by, decision):
+    """The first hook of the write chain that answers is the expected one, with its decision."""
+    result, actual_blocked_by = _run_hook_chain(
+        tool, tool_input, smoke_env[config_key], smoke_env["tmp_path"]
     )
-    assert blocked_by == "osprey_approval.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert actual_blocked_by == blocked_by
+    assert result["hookSpecificOutput"]["permissionDecision"] == decision
+
+
+# ===========================================================================
+# SCENARIO 2: Write within limits — the channel_write tool succeeds
+# ===========================================================================
 
 
 async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
@@ -369,20 +448,8 @@ async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
 
 
 # ===========================================================================
-# SCENARIO 3: Write over limits — limits hook denies
+# SCENARIO 3: Write over limits — the tool's inline validator rejects
 # ===========================================================================
-
-
-def test_3_over_limit_write_hooks_deny(smoke_env):
-    """A write exceeding channel limits is denied by the limits hook."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}]},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_limits.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
@@ -400,37 +467,8 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
 
 
 # ===========================================================================
-# SCENARIO 4: Write to read-only channel — limits hook denies
+# SCENARIO 5: Write to unlisted channel — the tool accepts (permissive mode)
 # ===========================================================================
-
-
-def test_4_readonly_channel_hooks_deny(smoke_env):
-    """Writing to a non-writable channel is denied by the limits hook."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "MAG:QF01:CURRENT:SP", "value": 1.0}]},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_limits.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-
-# ===========================================================================
-# SCENARIO 5: Write to unlisted channel — approval fires (permissive mode)
-# ===========================================================================
-
-
-def test_5_unlisted_channel_hooks_ask_approval(smoke_env):
-    """Writing to a channel not in the limits DB passes limits (permissive) and reaches approval."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "SR:RANDOM:CHANNEL", "value": 42.0}]},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_approval.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
 async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
@@ -450,40 +488,6 @@ async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
 
 
 # ===========================================================================
-# SCENARIO 6: Python with caput pattern — approval hook asks
-# ===========================================================================
-
-
-def test_6_python_caput_hooks_ask_approval(smoke_env):
-    """Python code containing caput() triggers the approval hook."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__python__execute",
-        {"code": "caput('SR:BEAM:CURRENT', 100)", "execution_mode": "readonly"},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_approval.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
-
-
-# ===========================================================================
-# SCENARIO 7: Python with Tango pattern — approval hook asks (framework detection)
-# ===========================================================================
-
-
-def test_7_python_tango_hooks_ask_approval(smoke_env):
-    """Python code with Tango write_attribute() triggers approval via framework detection."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__python__execute",
-        {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
-        smoke_env["config_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_approval.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
-
-
-# ===========================================================================
 # SCENARIO 8: Safe Python code — passes through
 # ===========================================================================
 
@@ -497,32 +501,3 @@ def test_8_safe_python_hooks_pass_through(smoke_env):
         smoke_env["tmp_path"],
     )
     assert result is None, f"Hooks should pass through for safe code, but {blocked_by} fired"
-
-
-# ===========================================================================
-# SCENARIO 9: Writes disabled — writes_check hook denies
-# ===========================================================================
-
-
-def test_9_writes_disabled_hooks_deny(smoke_env):
-    """With writes: never, the writes_check hook denies all writes."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "MAG:HCM01:CURRENT:SP", "value": 5.0}]},
-        smoke_env["config_writes_off_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_writes_check.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
-
-
-def test_9_writes_disabled_python_readwrite_hooks_deny(smoke_env):
-    """With writes: never, execute tool in readwrite mode is also denied."""
-    result, blocked_by = _run_hook_chain(
-        "mcp__python__execute",
-        {"code": "caput('TEST:PV', 1.0)", "execution_mode": "readwrite"},
-        smoke_env["config_writes_off_path"],
-        smoke_env["tmp_path"],
-    )
-    assert blocked_by == "osprey_writes_check.py"
-    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"

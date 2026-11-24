@@ -72,17 +72,31 @@ class TestColumns:
             },
         ]
 
-    def test_the_columns_may_come_in_any_order(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "unit,address\nmA,DCCT:I\n")
-        assert _channels(facility_dir) == [{"id": "DCCT:I", "unit": "mA"}]
-
-    def test_a_file_without_a_header_is_one_address_per_line(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "LAB:TEMP:02\n\nLAB:TEMP:01\n")
-        assert _channels(facility_dir) == [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEMP:02"}]
-
-    def test_a_byte_order_mark_is_not_part_of_the_header(self, tmp_path: Path) -> None:
-        facility_dir, _written = _import(tmp_path, "﻿address,unit\nX:I,A\n")
-        assert _channels(facility_dir) == [{"id": "X:I", "unit": "A"}]
+    @pytest.mark.parametrize(
+        ("text", "channels"),
+        [
+            pytest.param(
+                "unit,address\nmA,DCCT:I\n",
+                [{"id": "DCCT:I", "unit": "mA"}],
+                id="the_columns_may_come_in_any_order",
+            ),
+            pytest.param(
+                "LAB:TEMP:02\n\nLAB:TEMP:01\n",
+                [{"id": "LAB:TEMP:01"}, {"id": "LAB:TEMP:02"}],
+                id="a_file_without_a_header_is_one_address_per_line",
+            ),
+            pytest.param(
+                "﻿address,unit\nX:I,A\n",
+                [{"id": "X:I", "unit": "A"}],
+                id="a_byte_order_mark_is_not_part_of_the_header",
+            ),
+        ],
+    )
+    def test_the_file_reads_as_channels(
+        self, tmp_path: Path, text: str, channels: list[dict[str, Any]]
+    ) -> None:
+        facility_dir, _written = _import(tmp_path, text)
+        assert _channels(facility_dir) == channels
 
     def test_the_layer_seeds_nothing(self, tmp_path: Path) -> None:
         facility_dir, _written = _import(tmp_path, "address\nX:I\n")
@@ -94,42 +108,50 @@ class TestColumns:
 
 
 class TestRefusals:
-    def test_a_row_naming_both_a_device_and_a_place_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,device,place\nQ1:SP,SR/Q1,SR\n") == [
-            "facility: source-invalid: channel Q1:SP — list.csv row 2 names both a device "
-            "and a place; fix: keep one of `device` and `place` in list.csv"
-        ]
-
-    def test_an_unknown_role_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,role\nQ1:SP,write\n") == [
-            "facility: source-invalid: channel Q1:SP — list.csv row 2 states role write; "
-            "fix: write setpoint, readback or none, or leave it empty"
-        ]
-
-    def test_an_unknown_column_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,colour\nQ1:SP,red\n") == [
-            "facility: source-invalid: path list.csv — unknown column `colour`; fix: remove "
-            "the column; the columns are address, role, pair, device, place, unit, "
-            "description, tags, s, model"
-        ]
-
-    def test_a_row_without_an_address_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,unit\n,A\n") == [
-            "facility: source-invalid: path list.csv — row 2 has no address; fix: fill "
-            "`address` or remove the row"
-        ]
-
-    def test_an_address_listed_twice_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address\nX:I\nX:I\n") == [
-            "facility: source-invalid: channel X:I — list.csv rows 2 and 3 both state it; "
-            "fix: keep one row per address"
-        ]
-
-    def test_a_headerless_line_of_several_cells_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "X:I,A\n") == [
-            "facility: source-invalid: path list.csv — row 1 holds 2 cells and the file has "
-            "no header; fix: add a header row naming `address`, or write one address per line"
-        ]
+    @pytest.mark.parametrize(
+        ("text", "line"),
+        [
+            pytest.param(
+                "address,device,place\nQ1:SP,SR/Q1,SR\n",
+                "facility: source-invalid: channel Q1:SP — list.csv row 2 names both a device "
+                "and a place; fix: keep one of `device` and `place` in list.csv",
+                id="a_row_naming_both_a_device_and_a_place",
+            ),
+            pytest.param(
+                "address,role\nQ1:SP,write\n",
+                "facility: source-invalid: channel Q1:SP — list.csv row 2 states role write; "
+                "fix: write setpoint, readback or none, or leave it empty",
+                id="an_unknown_role",
+            ),
+            pytest.param(
+                "address,colour\nQ1:SP,red\n",
+                "facility: source-invalid: path list.csv — unknown column `colour`; fix: remove "
+                "the column; the columns are address, role, pair, device, place, unit, "
+                "description, tags, s, model",
+                id="an_unknown_column",
+            ),
+            pytest.param(
+                "address,unit\n,A\n",
+                "facility: source-invalid: path list.csv — row 2 has no address; fix: fill "
+                "`address` or remove the row",
+                id="a_row_without_an_address",
+            ),
+            pytest.param(
+                "address\nX:I\nX:I\n",
+                "facility: source-invalid: channel X:I — list.csv rows 2 and 3 both state it; "
+                "fix: keep one row per address",
+                id="an_address_listed_twice",
+            ),
+            pytest.param(
+                "X:I,A\n",
+                "facility: source-invalid: path list.csv — row 1 holds 2 cells and the file has "
+                "no header; fix: add a header row naming `address`, or write one address per line",
+                id="a_headerless_line_of_several_cells",
+            ),
+        ],
+    )
+    def test_is_source_invalid(self, tmp_path: Path, text: str, line: str) -> None:
+        assert _refused(tmp_path, text) == [line]
 
     def test_a_file_that_is_not_utf8_is_source_invalid(self, tmp_path: Path) -> None:
         path = tmp_path / "list.csv"
@@ -254,18 +276,38 @@ class TestPositions:
 
         assert _devices(facility_dir) == [{"id": "L/G1"}]
 
-    def test_s_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,place,s,model\nT:RB,HALL,2,LINE\n") == [
-            "facility: source-invalid: channel T:RB — list.csv row 2 states `s`, `model` with "
-            "no device; a position belongs to a device; fix: fill `device`, or empty `s` "
-            "and `model`"
-        ]
-
-    def test_model_on_a_row_with_no_device_is_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(tmp_path, "address,model\nT:RB,LINE\n") == [
-            "facility: source-invalid: channel T:RB — list.csv row 2 states `model` with no "
-            "device; a position belongs to a device; fix: fill `device`, or empty `model`"
-        ]
+    @pytest.mark.parametrize(
+        ("text", "line"),
+        [
+            pytest.param(
+                "address,place,s,model\nT:RB,HALL,2,LINE\n",
+                "facility: source-invalid: channel T:RB — list.csv row 2 states `s`, `model` with "
+                "no device; a position belongs to a device; fix: fill `device`, or empty `s` "
+                "and `model`",
+                id="s_on_a_row_with_no_device",
+            ),
+            pytest.param(
+                "address,model\nT:RB,LINE\n",
+                "facility: source-invalid: channel T:RB — list.csv row 2 states `model` with no "
+                "device; a position belongs to a device; fix: fill `device`, or empty `model`",
+                id="model_on_a_row_with_no_device",
+            ),
+            pytest.param(
+                "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,4,LINE\n",
+                "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state s 3.5 and 4; "
+                "fix: state one `s` for the device",
+                id="rows_disagreeing_on_a_devices_s",
+            ),
+            pytest.param(
+                "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,3.5,SR\n",
+                "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state model LINE "
+                "and SR; fix: state one `model` for the device",
+                id="rows_disagreeing_on_a_devices_model",
+            ),
+        ],
+    )
+    def test_a_position_is_source_invalid(self, tmp_path: Path, text: str, line: str) -> None:
+        assert _refused(tmp_path, text) == [line]
 
     @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "3.5m"])
     def test_an_s_that_is_not_a_finite_number_is_source_invalid(
@@ -274,22 +316,6 @@ class TestPositions:
         assert _refused(tmp_path, f"address,device,s\nG1:RB,L/G1,{value}\n") == [
             f"facility: source-invalid: channel G1:RB — list.csv row 2 states s {value}, "
             "not a finite number; fix: write `s` in metres as a number"
-        ]
-
-    def test_rows_disagreeing_on_a_devices_s_are_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(
-            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,4,LINE\n"
-        ) == [
-            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state s 3.5 and 4; "
-            "fix: state one `s` for the device"
-        ]
-
-    def test_rows_disagreeing_on_a_devices_model_are_source_invalid(self, tmp_path: Path) -> None:
-        assert _refused(
-            tmp_path, "address,device,s,model\nG1:SP,L/G1,3.5,LINE\nG1:RB,L/G1,3.5,SR\n"
-        ) == [
-            "facility: source-invalid: device L/G1 — list.csv rows 2 and 3 state model LINE "
-            "and SR; fix: state one `model` for the device"
         ]
 
     def test_a_model_without_an_s_is_imported_with_a_warning(

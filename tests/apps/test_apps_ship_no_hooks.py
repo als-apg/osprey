@@ -232,6 +232,13 @@ _HIDDEN_HOOKS = "---\nname: knob\ndescription: d\n{line}\nhooks:\n  PreToolUse: 
         b"---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n",
         "---\u00a0\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n".encode(),
         _HIDDEN_HOOKS.format(line=" ---").encode("utf-8"),
+        # Lines two readers split differently.
+        b"---\nname: knob\rhooks: {PreToolUse: []}\ndescription: d\n---\nbody\n",
+        b"--- \nname: knob\ndescription: d\n---\t\nbody\n",
+        # Hooks after leading blank lines.
+        b"\n\n---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n",
+        # Hooks behind a U+2028 line separator inside the block.
+        "---\nname: knob\ndescription: d\u2028hooks:\n  PreToolUse: []\n---\nbody\n".encode(),
     ],
     ids=[
         "dashes-then-text",
@@ -242,9 +249,13 @@ _HIDDEN_HOOKS = "---\nname: knob\ndescription: d\n{line}\nhooks:\n  PreToolUse: 
         "unclosed",
         "no-break-space-opening",
         "closing-candidate",
+        "lone-carriage-return",
+        "trailing-blanks-on-the-delimiters",
+        "leading-blank-lines",
+        "line-separator",
     ],
 )
-def test_a_line_starting_with_dashes_never_hides_a_skills_hooks(
+def test_skill_frontmatter_that_could_hide_hooks_is_refused(
     lifecycle_repo: Path,  # noqa: F811
     raw: bytes,
 ) -> None:
@@ -275,56 +286,3 @@ def test_a_listed_skill_with_well_formed_frontmatter_loads(
     _write(app_dir / "skills" / "knob" / "SKILL.md", text)
 
     check_deployment(lifecycle_repo)
-
-
-@pytest.mark.parametrize(
-    "raw",
-    [
-        b"---\nname: knob\rhooks: {PreToolUse: []}\ndescription: d\n---\nbody\n",
-        b"--- \nname: knob\ndescription: d\n---\t\nbody\n",
-    ],
-    ids=["lone-carriage-return", "trailing-blanks-on-the-delimiters"],
-)
-def test_a_listed_skill_whose_lines_two_readers_split_differently_is_refused(
-    lifecycle_repo: Path,  # noqa: F811
-    raw: bytes,
-) -> None:
-    app_dir = _app(lifecycle_repo, skills=["knob"])
-    skill_file = app_dir / "skills" / "knob" / "SKILL.md"
-    skill_file.parent.mkdir(parents=True, exist_ok=True)
-    skill_file.write_bytes(raw)
-
-    with pytest.raises(AppManifestError) as exc:
-        check_deployment(lifecycle_repo)
-
-    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
-
-
-def test_hooks_after_leading_blank_lines_are_refused(
-    lifecycle_repo: Path,  # noqa: F811
-) -> None:
-    app_dir = _app(lifecycle_repo, skills=["knob"])
-    _write(
-        app_dir / "skills" / "knob" / "SKILL.md",
-        "\n\n---\nname: knob\ndescription: d\nhooks:\n  PreToolUse: []\n---\nbody\n",
-    )
-
-    with pytest.raises(AppManifestError) as exc:
-        check_deployment(lifecycle_repo)
-
-    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]
-
-
-def test_hooks_behind_a_line_separator_in_the_block_are_refused(
-    lifecycle_repo: Path,  # noqa: F811
-) -> None:
-    app_dir = _app(lifecycle_repo, skills=["knob"])
-    _write(
-        app_dir / "skills" / "knob" / "SKILL.md",
-        "---\nname: knob\ndescription: d hooks:\n  PreToolUse: []\n---\nbody\n",
-    )
-
-    with pytest.raises(AppManifestError) as exc:
-        check_deployment(lifecycle_repo)
-
-    assert _skill_frontmatter(exc) == ["skills.knob.frontmatter"]

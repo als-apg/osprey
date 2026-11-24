@@ -851,15 +851,16 @@ def test_check_promoted_primitive_prefixes_flags_forbidden_prefix(
     assert errors[0].path == path
 
 
-def test_check_promoted_primitive_prefixes_ignores_unpromoted_groups() -> None:
-    # "canopy" is not a promoted group, so it is never emitted and never checked.
-    tree = _tree(primitives={"canopy.h": _token("canopy.h", "36px", type_="dimension")})
-
-    assert check_promoted_primitive_prefixes(tree) == []
-
-
-def test_check_promoted_primitive_prefixes_allows_chrome_group() -> None:
-    tree = _tree(primitives={"chrome.bar-h": _token("chrome.bar-h", "36px", type_="dimension")})
+@pytest.mark.parametrize(
+    "path",
+    [
+        # "canopy" is not a promoted group, so it is never emitted and never checked.
+        pytest.param("canopy.h", id="ignores_unpromoted_groups"),
+        pytest.param("chrome.bar-h", id="allows_chrome_group"),
+    ],
+)
+def test_check_promoted_primitive_prefixes_passes(path: str) -> None:
+    tree = _tree(primitives={path: _token(path, "36px", type_="dimension")})
 
     assert check_promoted_primitive_prefixes(tree) == []
 
@@ -992,21 +993,31 @@ def test_check_wcag_gates_applies_aaa_minimums_for_high_contrast_family() -> Non
 
 
 def test_check_wcag_gates_applies_aa_minimums_for_main_family() -> None:
-    # Same ~4.54:1 pair clears every AA gate.
+    # Same ~4.54:1 pair clears every AA gate; ~4.48:1 (#777777) is just under
+    # the AA body-text floor (4.5), so exactly text.primary/text.secondary fail.
+    metadata = {"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}}
     tree = _tree(
         themes={"dark": _wcag_theme(text_primary="#767676", bg_primary="#ffffff")},
-        theme_metadata={"dark": {"mode": "dark", "id": "dark", "label": "Dark", "family": "main"}},
+        theme_metadata=metadata,
+    )
+    below = _tree(
+        themes={"dark": _wcag_theme(text_primary="#777777", bg_primary="#ffffff")},
+        theme_metadata=metadata,
     )
 
     assert check_wcag_gates(tree) == []
+    assert {error.path for error in check_wcag_gates(below)} == {"text.primary", "text.secondary"}
 
 
 def test_check_wcag_gates_falls_back_to_aa_for_unspecified_family() -> None:
     # No theme_metadata entry at all for 'dark' -- must not silently pick a
-    # looser bar than AA.
+    # looser bar than AA: the ~4.54:1 pair clears it, and the ~4.48:1 pair
+    # (#777777) fails exactly the AA body-text gates.
     tree = _tree(themes={"dark": _wcag_theme(text_primary="#767676", bg_primary="#ffffff")})
+    below = _tree(themes={"dark": _wcag_theme(text_primary="#777777", bg_primary="#ffffff")})
 
     assert check_wcag_gates(tree) == []
+    assert {error.path for error in check_wcag_gates(below)} == {"text.primary", "text.secondary"}
 
 
 # --- validate_token_tree / assert_valid --------------------------------------------

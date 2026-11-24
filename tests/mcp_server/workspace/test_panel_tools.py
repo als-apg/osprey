@@ -754,6 +754,8 @@ class TestRegisterPanel:
         # Assert
         assert result["status"] == "error"
         assert "disabled" in result["message"].lower()
+        # Only the 403 branch names the key to set; the server detail does not.
+        assert "web.allow_runtime_panels" in result["message"]
 
     @pytest.mark.asyncio
     async def test_register_panel_validation_error_surfaces_detail(self):
@@ -781,10 +783,11 @@ class TestRegisterPanel:
         """register_panel returns a 'not running' message when notify returns status=None."""
         # Arrange
         fn = _get_register_panel()
+        # A detail unlike the message, so the answer is the tool's own, not a pass-through.
         down_result = {
             "ok": False,
             "status": None,
-            "detail": "Web Terminal is not running.",
+            "detail": "connection refused",
         }
 
         # Act
@@ -795,7 +798,7 @@ class TestRegisterPanel:
 
         # Assert
         assert result["status"] == "error"
-        assert "not running" in result["message"].lower()
+        assert result["message"] == "Web Terminal is not running."
 
 
 # ---- the dock ops ----

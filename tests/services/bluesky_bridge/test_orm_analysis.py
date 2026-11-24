@@ -6,6 +6,8 @@ main worktree venv (unlike `test_runengine_integration.py`, which
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -322,14 +324,13 @@ def test_localize_recovers_the_seeded_corrector_with_high_contrast() -> None:
     assert abs(solution[seeded_index]) >= 100 * runner_up
 
 
-def test_localize_raises_on_empty_matrix() -> None:
+@pytest.mark.parametrize(
+    "shape",
+    [pytest.param((0, 0), id="empty-matrix"), pytest.param((4, 0), id="zero-correctors")],
+)
+def test_localize_raises_on_a_matrix_without_correctors(shape: tuple[int, int]) -> None:
     with pytest.raises(DegenerateFitError):
-        localize_kick(np.zeros((0, 0)), np.zeros(0))
-
-
-def test_localize_raises_on_zero_correctors() -> None:
-    with pytest.raises(DegenerateFitError):
-        localize_kick(np.zeros((4, 0)), np.zeros(4))
+        localize_kick(np.zeros(shape), np.zeros(shape[0]))
 
 
 def test_localize_raises_on_beam_centered_orbit() -> None:
@@ -362,10 +363,31 @@ def _clean_matrix() -> np.ndarray:
     return np.outer(bpm_shape, corrector_gains)
 
 
-def test_column_anomaly_detector_is_quiet_on_clean_data() -> None:
-    scores = column_anomaly(_clean_matrix())
+@pytest.mark.parametrize(
+    "detector",
+    [pytest.param(column_anomaly, id="column"), pytest.param(row_anomaly, id="row")],
+)
+def test_anomaly_detector_is_quiet_on_clean_data(
+    detector: Callable[[np.ndarray], np.ndarray],
+) -> None:
+    scores = detector(_clean_matrix())
 
     assert np.all(scores < 0.5)
+
+
+@pytest.mark.parametrize(
+    ("detector", "matrix"),
+    [
+        pytest.param(column_anomaly, np.ones((4, 1)), id="column-fewer-than-two-correctors"),
+        pytest.param(row_anomaly, np.ones((1, 4)), id="row-fewer-than-two-bpms"),
+    ],
+)
+def test_anomaly_detector_is_all_zero_on_a_single_line(
+    detector: Callable[[np.ndarray], np.ndarray], matrix: np.ndarray
+) -> None:
+    scores = detector(matrix)
+
+    assert np.all(scores == 0.0)
 
 
 def test_column_anomaly_detector_fires_on_an_injected_gain_fault() -> None:
@@ -390,18 +412,6 @@ def test_column_anomaly_detector_fires_on_a_stuck_corrector() -> None:
         assert scores[j] < 0.5
 
 
-def test_column_anomaly_detector_is_all_zero_with_fewer_than_two_correctors() -> None:
-    scores = column_anomaly(np.ones((4, 1)))
-
-    assert np.all(scores == 0.0)
-
-
-def test_row_anomaly_detector_is_quiet_on_clean_data() -> None:
-    scores = row_anomaly(_clean_matrix())
-
-    assert np.all(scores < 0.5)
-
-
 def test_row_anomaly_detector_fires_on_an_injected_polarity_fault() -> None:
     matrix = _clean_matrix()
     matrix[2, :] *= -1.0  # BPM polarity flip on row 2
@@ -411,12 +421,6 @@ def test_row_anomaly_detector_fires_on_an_injected_polarity_fault() -> None:
     assert scores[2] > 0.5
     for i in (0, 1, 3, 4):
         assert scores[i] < 0.5
-
-
-def test_row_anomaly_detector_is_all_zero_with_fewer_than_two_bpms() -> None:
-    scores = row_anomaly(np.ones((1, 4)))
-
-    assert np.all(scores == 0.0)
 
 
 # =========================================================================

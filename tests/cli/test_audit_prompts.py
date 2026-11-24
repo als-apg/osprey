@@ -45,8 +45,8 @@ class TestBuildAuditPrompt:
     def test_target_type_in_prompt(self):
         p1 = build_audit_prompt("profile", Path("/tmp/test"), "a.py")
         p2 = build_audit_prompt("project", Path("/tmp/test"), "a.py")
-        assert "profile" in p1
-        assert "project" in p2
+        assert "Audit this OSPREY profile at: /tmp/test" in p1
+        assert "Audit this OSPREY project at: /tmp/test" in p2
 
     def test_schema_matches_model(self):
         """The JSON schema in instructions matches the actual Pydantic model."""

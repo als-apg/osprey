@@ -41,20 +41,18 @@ def _regen_with_retention(tmp_path, days):
     return (project_dir / ".claude" / "settings.json").read_text()
 
 
-def test_no_record_retention_renders_the_thirty_day_floor(tmp_path):
-    text = _regen_with_retention(tmp_path, None)
-    assert json.loads(text)["cleanupPeriodDays"] == 30
-
-
-def test_a_record_retention_above_thirty_is_rendered(tmp_path):
-    text = _regen_with_retention(tmp_path, 3650)
-    assert '"cleanupPeriodDays": 3650' in text
-    assert json.loads(text)["cleanupPeriodDays"] == 3650
-
-
-def test_a_record_retention_below_thirty_is_floored(tmp_path):
-    text = _regen_with_retention(tmp_path, 7)
-    assert json.loads(text)["cleanupPeriodDays"] == 30
+@pytest.mark.parametrize(
+    ("retention", "expected"),
+    [
+        pytest.param(None, 30, id="no-record-retention-renders-the-thirty-day-floor"),
+        pytest.param(3650, 3650, id="a-record-retention-above-thirty-is-rendered"),
+        pytest.param(7, 30, id="a-record-retention-below-thirty-is-floored"),
+    ],
+)
+def test_the_record_retention_renders_the_cleanup_period(tmp_path, retention, expected):
+    text = _regen_with_retention(tmp_path, retention)
+    assert f'"cleanupPeriodDays": {expected}' in text
+    assert json.loads(text)["cleanupPeriodDays"] == expected
 
 
 @pytest.mark.parametrize(

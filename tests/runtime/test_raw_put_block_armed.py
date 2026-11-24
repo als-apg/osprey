@@ -623,11 +623,12 @@ def test_no_refusal_carries_the_readonly_marker(client):
         refuse_rpc=True,
         rpc_refusals={_FAKE: P4P_RPC_TEXT},
     )
-    messages = []
-    for call in (lambda: client.caput("SR:M", 1), lambda: client.Context().rpc("SR:M", 1)):
-        with pytest.raises(Exception) as info:
-            call()
-        messages.append(str(info.value))
+    with pytest.raises(ChannelWriteBlockedError) as put_info:
+        client.caput("SR:M", 1)
+    with pytest.raises(RuntimeError) as rpc_info:
+        client.Context().rpc("SR:M", 1)
+    assert P4P_RPC_TEXT in str(rpc_info.value)
+    messages = [str(put_info.value), str(rpc_info.value)]
     assert all(READONLY_REFUSAL_MARKER not in message for message in messages), messages
 
 

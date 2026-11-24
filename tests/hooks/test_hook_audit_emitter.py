@@ -473,25 +473,20 @@ class TestRouting:
 class TestPostureProvenance:
     """``posture_source`` is read from the marker, never inferred."""
 
-    def test_absent_marker_is_process(self, emitter, repo, monkeypatch):
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            pytest.param(None, id="absent"),
+            pytest.param("  ", id="blank"),
+            pytest.param("guessed", id="outside-the-closed-set"),
+        ],
+    )
+    def test_an_unrecognised_marker_is_process(self, emitter, repo, monkeypatch, marker):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.delenv("OSPREY_POSTURE_SOURCE", raising=False)
-        entry_id = emitter.emit_audit(
-            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
-        )
-        assert body_of(repo, entry_id)["posture_source"] == "process"
-
-    def test_a_blank_marker_is_process(self, emitter, repo, monkeypatch):
-        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.setenv("OSPREY_POSTURE_SOURCE", "  ")
-        entry_id = emitter.emit_audit(
-            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
-        )
-        assert body_of(repo, entry_id)["posture_source"] == "process"
-
-    def test_a_marker_outside_the_closed_set_is_process(self, emitter, repo, monkeypatch):
-        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.setenv("OSPREY_POSTURE_SOURCE", "guessed")
+        if marker is None:
+            monkeypatch.delenv("OSPREY_POSTURE_SOURCE", raising=False)
+        else:
+            monkeypatch.setenv("OSPREY_POSTURE_SOURCE", marker)
         entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
@@ -506,22 +501,25 @@ class TestPostureProvenance:
         )
         assert body_of(repo, entry_id)["posture_source"] == source
 
-    def test_the_sandbox_posture_is_read_from_the_execution_mode(self, emitter, repo, monkeypatch):
-        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
-        monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        entry_id = emitter.emit_audit(
-            "limits", {}, decision="refused", subject="tool", reason="limits_violation"
-        )
-        assert body_of(repo, entry_id)["posture"] == "sandbox"
-
-    @pytest.mark.parametrize("mode", ["readwrite", "", "READONLY"])
-    def test_only_the_exact_readonly_string_sandboxes(self, emitter, repo, monkeypatch, mode):
+    @pytest.mark.parametrize(
+        ("mode", "posture"),
+        [
+            pytest.param("readonly", "sandbox", id="readonly"),
+            pytest.param("readwrite", "writes", id="readwrite"),
+            pytest.param("", "writes", id="empty"),
+            pytest.param("READONLY", "writes", id="READONLY"),
+        ],
+    )
+    def test_only_the_exact_readonly_string_sandboxes(
+        self, emitter, repo, monkeypatch, mode, posture
+    ):
+        """The sandbox posture is read from the execution mode, and only an exact ``readonly``."""
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", mode)
         entry_id = emitter.emit_audit(
             "limits", {}, decision="refused", subject="tool", reason="limits_violation"
         )
-        assert body_of(repo, entry_id)["posture"] == "writes"
+        assert body_of(repo, entry_id)["posture"] == posture
 
     def test_the_session_is_the_exported_posture_key(self, emitter, repo, monkeypatch):
         monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(repo))

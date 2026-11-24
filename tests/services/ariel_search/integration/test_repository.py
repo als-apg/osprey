@@ -7,7 +7,6 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -82,12 +81,6 @@ class TestRepositoryCRUD:
         assert retrieved is not None
         assert retrieved["raw_text"] == "Updated content"
 
-    async def test_count_entries(self, repository):
-        """Test entry counting."""
-        count = await repository.count_entries()
-        assert isinstance(count, int)
-        assert count >= 0
-
     async def test_count_entries_honors_filters(self, repository, seed_entry_factory):
         """count_entries applies the same filters as search_by_time_range.
 
@@ -151,11 +144,6 @@ class TestRepositoryTimeRange:
 
         entry_ids = [e["entry_id"] for e in results]
         assert "integ-time-001" in entry_ids
-
-    async def test_search_by_time_range_no_filters(self, repository):
-        """Test search with no time filters returns entries."""
-        results = await repository.search_by_time_range(limit=10)
-        assert isinstance(results, list)
 
     async def test_search_by_time_range_respects_limit(self, repository, seed_entry_factory):
         """Test search respects limit parameter."""
@@ -294,8 +282,7 @@ class TestRepositoryFuzzySearch:
             max_results=10,
         )
 
-        # May or may not find depending on similarity threshold
-        assert isinstance(results, list)
+        assert f"{INTEG_PREFIX}fuzzy-001" in [entry["entry_id"] for entry, _, _ in results]
         for _entry, score, highlights in results:
             assert isinstance(score, float)
             assert isinstance(highlights, list)
@@ -310,21 +297,53 @@ class TestRepositoryFuzzySearch:
         assert results == []
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryIncompleteEntries:
     """Test ARIELRepository incomplete entries query."""
 
-    async def test_get_incomplete_entries(self, repository):
-        """get_incomplete_entries returns entries list."""
-        results = await repository.get_incomplete_entries(limit=5)
-        assert isinstance(results, list)
+    #: A module name no other row in the shared database carries a status for.
+    PROBE_MODULE = "integ_incomplete_probe"
 
-    async def test_get_incomplete_entries_with_module_filter(self, repository):
-        """get_incomplete_entries filters by module."""
-        results = await repository.get_incomplete_entries(
-            module_name="nonexistent_module",
-            limit=5,
+    async def _seed_pending_and_done(self, repository, seed_entry_factory) -> tuple[str, str]:
+        pending = f"{INTEG_PREFIX}incomplete-pending"
+        done = f"{INTEG_PREFIX}incomplete-done"
+        await repository.upsert_entry(
+            seed_entry_factory(
+                entry_id=pending,
+                enhancement_status={self.PROBE_MODULE: {"status": "pending"}},
+            )
         )
-        assert isinstance(results, list)
+        await repository.upsert_entry(
+            seed_entry_factory(
+                entry_id=done,
+                enhancement_status={self.PROBE_MODULE: {"status": "complete"}},
+            )
+        )
+        return pending, done
+
+    async def test_get_incomplete_entries(self, repository, seed_entry_factory):
+        """Without a module, a newly seeded pending entry is among the candidates."""
+        pending, done = await self._seed_pending_and_done(repository, seed_entry_factory)
+
+        # Oldest first, so read past every row to reach the ones just seeded.
+        limit = await repository.count_entries() + 10
+        ids = [e["entry_id"] for e in await repository.get_incomplete_entries(limit=limit)]
+
+        assert pending in ids
+
+    async def test_get_incomplete_entries_with_module_filter(self, repository, seed_entry_factory):
+        """get_incomplete_entries filters by module: a pending entry is listed, a complete one is not."""
+        pending, done = await self._seed_pending_and_done(repository, seed_entry_factory)
+
+        limit = await repository.count_entries() + 10
+        results = await repository.get_incomplete_entries(
+            module_name=self.PROBE_MODULE,
+            limit=limit,
+        )
+        ids = [e["entry_id"] for e in results]
+
+        assert pending in ids
+        assert done not in ids
 
 
 @pytest.mark.usefixtures("_seed_integ_prefix")
@@ -438,9 +457,11 @@ class TestRepositoryEmbeddings:
 
     async def test_get_embedding_tables(self, repository):
         """get_embedding_tables returns list of table info."""
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
+
         tables = await repository.get_embedding_tables()
-        assert isinstance(tables, list)
-        # May or may not have embedding tables depending on migrations
+        # The suite's config enables text_embedding with one model, so its table exists.
+        assert model_to_table_name("nomic-embed-text") in [t.table_name for t in tables]
 
     async def test_validate_search_model_table_nonexistent(self, repository):
         """validate_search_model_table raises for nonexistent model."""
@@ -464,13 +485,17 @@ class TestRepositoryFuzzyDateFilters:
         )
         await repository.upsert_entry(entry)
 
-        results = await repository.fuzzy_search(
-            search_text="fuzzy filter",
-            threshold=0.2,
-            max_results=10,
-            start_date=now - timedelta(hours=1),
-        )
-        assert isinstance(results, list)
+        async def ids(start_date: datetime) -> list[str]:
+            results = await repository.fuzzy_search(
+                search_text="fuzzy filter",
+                threshold=0.2,
+                max_results=10,
+                start_date=start_date,
+            )
+            return [entry["entry_id"] for entry, _, _ in results]
+
+        assert f"{INTEG_PREFIX}fuzzydate-001" in await ids(now - timedelta(hours=1))
+        assert f"{INTEG_PREFIX}fuzzydate-001" not in await ids(now + timedelta(hours=1))
 
     async def test_fuzzy_search_with_end_date(self, repository, seed_entry_factory):
         """fuzzy_search can filter by end_date."""
@@ -482,13 +507,17 @@ class TestRepositoryFuzzyDateFilters:
         )
         await repository.upsert_entry(entry)
 
-        results = await repository.fuzzy_search(
-            search_text="end date filter",
-            threshold=0.2,
-            max_results=10,
-            end_date=now + timedelta(hours=1),
-        )
-        assert isinstance(results, list)
+        async def ids(end_date: datetime) -> list[str]:
+            results = await repository.fuzzy_search(
+                search_text="end date filter",
+                threshold=0.2,
+                max_results=10,
+                end_date=end_date,
+            )
+            return [entry["entry_id"] for entry, _, _ in results]
+
+        assert f"{INTEG_PREFIX}fuzzydate-002" in await ids(now + timedelta(hours=1))
+        assert f"{INTEG_PREFIX}fuzzydate-002" not in await ids(now - timedelta(hours=1))
 
 
 @pytest.mark.usefixtures("_seed_integ_prefix")
@@ -971,17 +1000,21 @@ class TestDatabaseErrorConditions:
         error_str = str(exc_info.value).lower()
         assert "syntax" in error_str or "error" in error_str
 
-    @pytest.mark.usefixtures("seed_entry_factory")
-    async def test_repository_wraps_query_errors(self, repository):
+    async def test_repository_wraps_query_errors(self, repository, monkeypatch):
         """Repository methods wrap database errors in DatabaseQueryError."""
+        import psycopg
+
         from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
-        # Try to get entry with None ID (should cause error in query building)
-        # Note: get_entry handles None gracefully, so we test with invalid type
-        # If it raises, the wrapping works
-        with contextlib.suppress(DatabaseQueryError):
-            await repository.get_entry("valid-id")  # This should work
-        # Success either way - we're just verifying the mechanism
+        class _BrokenPool:
+            def connection(self):
+                raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+        monkeypatch.setattr(repository, "pool", _BrokenPool())
+
+        with pytest.raises(DatabaseQueryError, match="Failed to get entry valid-id") as raised:
+            await repository.get_entry("valid-id")
+        assert isinstance(raised.value.__cause__, psycopg.OperationalError)
 
 
 @pytest.mark.usefixtures("_seed_concurrent_prefix")

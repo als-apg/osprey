@@ -325,31 +325,29 @@ class TestGetFacilityTimezone:
 
         assert get_facility_timezone() == ZoneInfo("UTC")
 
-    def test_returns_utc_when_configured_zone_is_invalid(self, tmp_path, monkeypatch):
-        """A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError."""
+    @pytest.mark.parametrize(
+        ("zone_text", "expected_zone"),
+        [
+            # A typo'd system.timezone → UTC fallback, not ZoneInfoNotFoundError.
+            pytest.param("Not/ARealZone", "UTC", id="invalid-zone-falls-back-to-utc"),
+            # A valid system.timezone is honored — the fallback must not swallow it.
+            pytest.param("America/Los_Angeles", "America/Los_Angeles", id="valid-zone-is-honored"),
+        ],
+    )
+    def test_returns_the_configured_zone_or_utc(
+        self, tmp_path, monkeypatch, zone_text, expected_zone
+    ):
+        """system.timezone decides the facility zone when it names a real zone, else UTC."""
         from zoneinfo import ZoneInfo
 
         from osprey_connectors.config import get_facility_timezone
 
         config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: Not/ARealZone\n")
+        config_file.write_text(f"system:\n  timezone: {zone_text}\n")
         monkeypatch.setenv("CONFIG_FILE", str(config_file))
         self._reset_config_singleton()
 
-        assert get_facility_timezone() == ZoneInfo("UTC")
-
-    def test_returns_configured_zone_when_valid(self, tmp_path, monkeypatch):
-        """A valid system.timezone is honored — the fallback must not swallow it."""
-        from zoneinfo import ZoneInfo
-
-        from osprey_connectors.config import get_facility_timezone
-
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("system:\n  timezone: America/Los_Angeles\n")
-        monkeypatch.setenv("CONFIG_FILE", str(config_file))
-        self._reset_config_singleton()
-
-        assert get_facility_timezone() == ZoneInfo("America/Los_Angeles")
+        assert get_facility_timezone() == ZoneInfo(expected_zone)
 
     def test_an_unresolvable_config_is_reported_once_not_once_per_call(
         self, tmp_path, monkeypatch, caplog

@@ -100,9 +100,38 @@ def test_lint_clean_config_reports_no_error_findings() -> None:
         pytest.param(
             ["Bad_User", "bob"], "web_terminals.invalid_username_charset", id="bad-charset"
         ),
+        # Object-form users.
+        # Two object-form users sharing an index would collide on every port family.
+        pytest.param(
+            [{"name": "alice", "index": 0}, {"name": "bob", "index": 0}],
+            "web_terminals.duplicate_index",
+            id="duplicate-explicit-index",
+        ),
+        # Object-form users must still be caught by the pre-existing duplicate-name
+        # check (a dict is unhashable, so this exercises the name-based comparison).
+        pytest.param(
+            [{"name": "alice", "index": 0}, {"name": "alice", "index": 1}],
+            "web_terminals.duplicate_user",
+            id="duplicate-object-form-name",
+        ),
+        # A string index (e.g. from a hand-edited YAML) is not a valid port offset.
+        pytest.param(
+            [{"name": "alice", "index": "0"}], "web_terminals.invalid_index", id="non-integer-index"
+        ),
+        # `bool` is an `int` subclass in Python, but `index: true`/`false` is invalid.
+        pytest.param(
+            [{"name": "alice", "index": True}], "web_terminals.invalid_index", id="boolean-index"
+        ),
+        # Object-form entries must be held to the same charset rule as bare
+        # strings — usernames still become nginx location keys either way.
+        pytest.param(
+            [{"name": "Bad_User", "index": 0}],
+            "web_terminals.invalid_username_charset",
+            id="object-form-bad-charset",
+        ),
     ],
 )
-def test_lint_an_unusable_roster_name_is_an_error(users: list[str], code: str) -> None:
+def test_lint_an_unusable_roster_entry_is_an_error(users: list, code: str) -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = users
@@ -442,37 +471,8 @@ def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
 
 
 # --- index-related findings for object-form users ---------------------------
-
-
-@pytest.mark.parametrize(
-    ("users", "code"),
-    [
-        # Two object-form users sharing an index would collide on every port family.
-        pytest.param(
-            [{"name": "alice", "index": 0}, {"name": "bob", "index": 0}],
-            "web_terminals.duplicate_index",
-            id="explicit-index",
-        ),
-        # Object-form users must still be caught by the pre-existing duplicate-name
-        # check (a dict is unhashable, so this exercises the name-based comparison).
-        pytest.param(
-            [{"name": "alice", "index": 0}, {"name": "alice", "index": 1}],
-            "web_terminals.duplicate_user",
-            id="object-form-name",
-        ),
-    ],
-)
-def test_lint_a_duplicate_object_form_user_is_an_error(users: list[dict], code: str) -> None:
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = users
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == code for f in errors)
+# (the duplicate, non-integer and boolean index errors are rows of
+# `test_lint_an_unusable_roster_entry_is_an_error` above)
 
 
 @pytest.mark.parametrize(
@@ -512,39 +512,6 @@ def test_lint_missing_index_on_object_form_user_is_an_error() -> None:
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.invalid_index" for f in errors)
-
-
-@pytest.mark.parametrize(
-    ("users", "code"),
-    [
-        # A string index (e.g. from a hand-edited YAML) is not a valid port offset.
-        pytest.param(
-            [{"name": "alice", "index": "0"}], "web_terminals.invalid_index", id="non-integer-index"
-        ),
-        # `bool` is an `int` subclass in Python, but `index: true`/`false` is invalid.
-        pytest.param(
-            [{"name": "alice", "index": True}], "web_terminals.invalid_index", id="boolean-index"
-        ),
-        # Object-form entries must be held to the same charset rule as bare
-        # strings — usernames still become nginx location keys either way.
-        pytest.param(
-            [{"name": "Bad_User", "index": 0}],
-            "web_terminals.invalid_username_charset",
-            id="object-form-bad-charset",
-        ),
-    ],
-)
-def test_lint_an_unusable_object_form_user_is_an_error(users: list[dict], code: str) -> None:
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = users
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    errors = _errors(findings)
-    assert any(f.code == code for f in errors)
 
 
 def test_lint_negative_index_is_an_error() -> None:
@@ -834,11 +801,26 @@ def test_lint_empty_access_list_is_an_error() -> None:
         # all is the slip a reader of the shorthands makes, so the refusal says
         # which members carry a prefix rather than only that this one is wrong.
         pytest.param("everyone", "names no principal kind", id="bare-word"),
+        # `user:` members that name no usable identity.
+        # No identity claim holds a value with a space in it, and the member is
+        # compared byte-exact — so a pasted display name never matches anybody, and
+        # saying so at lint time is the only place it is caught.
+        pytest.param(
+            "user:alice smith@example.com",
+            "no usable identity after 'user:'",
+            id="user-whitespace",
+        ),
+        # The member is written into the deployment's compose file, where docker
+        # compose substitutes `$NAME` before the sidecar reads it — so a card would
+        # admit something other than what the roster says. Lint says it at author
+        # time, in the resolver's own words.
+        pytest.param("user:$ALICE@example.com", "'$'", id="user-dollar"),
     ],
 )
-def test_lint_access_member_outside_the_vocabulary_is_an_error(member: str, reason: str) -> None:
-    """A member outside the vocabulary is refused with its reason, quoting the
-    member so the operator knows which line to edit."""
+def test_lint_an_unusable_access_member_is_an_error(member: str, reason: str) -> None:
+    """A member outside the vocabulary, or a `user:` member naming no usable
+    identity, is refused with its reason, quoting the member so the operator
+    knows which line to edit."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
@@ -872,41 +854,6 @@ def test_lint_non_string_access_member_is_an_error() -> None:
     assert len(offenders) == 1
     assert "'alice'" in offenders[0].message
     assert "not a string" in offenders[0].message
-
-
-@pytest.mark.parametrize(
-    ("member", "reason"),
-    [
-        # No identity claim holds a value with a space in it, and the member is
-        # compared byte-exact — so a pasted display name never matches anybody, and
-        # saying so at lint time is the only place it is caught.
-        pytest.param(
-            "user:alice smith@example.com",
-            "no usable identity after 'user:'",
-            id="whitespace",
-        ),
-        # The member is written into the deployment's compose file, where docker
-        # compose substitutes `$NAME` before the sidecar reads it — so a card would
-        # admit something other than what the roster says. Lint says it at author
-        # time, in the resolver's own words.
-        pytest.param("user:$ALICE@example.com", "'$'", id="dollar"),
-    ],
-)
-def test_lint_an_unusable_user_access_member_is_an_error(member: str, reason: str) -> None:
-    # Arrange
-    config = copy.deepcopy(_CLEAN_CONFIG)
-    config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": [member]}
-    ]
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
-    assert len(offenders) == 1
-    assert f"'{member}'" in offenders[0].message
-    assert reason in offenders[0].message
 
 
 def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
@@ -2873,8 +2820,9 @@ def test_lint_empty_session_lifetime_reports_no_auth_findings() -> None:
     assert _errors(findings) == []
 
 
-def test_lint_session_lifetime_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
-    """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
+def test_lint_auth_keys_on_a_non_mapping_auth_stanza_are_not_reported_twice() -> None:
+    """A scalar `auth` has no keys to read (neither `session_lifetime` nor
+    `throttle`); the stanza ERROR is the whole story."""
     # Arrange
     config = _auth_config("password")
 
@@ -2964,18 +2912,6 @@ def test_lint_absent_auth_throttle_reports_no_auth_findings(auth: dict) -> None:
     # Assert
     assert not any(f.code == "web_terminals.invalid_auth_throttle" for f in findings)
     assert _errors(findings) == []
-
-
-def test_lint_auth_throttle_on_a_non_mapping_auth_stanza_is_not_reported_twice() -> None:
-    """A scalar `auth` has no keys to read; the stanza ERROR is the whole story."""
-    # Arrange
-    config = _auth_config("password")
-
-    # Act
-    findings = lint_web_terminals(config)
-
-    # Assert
-    assert [f.code for f in _auth_findings(findings)] == ["web_terminals.invalid_auth_stanza"]
 
 
 def test_lint_auth_port_joins_the_port_overlap_set() -> None:

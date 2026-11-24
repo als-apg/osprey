@@ -70,15 +70,16 @@ def test_a_missing_screen_names_key_id_path_fix_and_holdings(library: Path):
     assert "'facility/overview', 'sr/orbit-feedback'" in error
 
 
-def test_the_library_prefix_gets_a_fix_naming_the_plain_id(library: Path):
-    (error,) = _errors("library/facility/overview", library)
-    assert "`library/` prefix" in error
-    assert "Write it as 'facility/overview'." in error
-
-
-def test_the_screen_suffix_gets_a_fix_naming_the_plain_id(library: Path):
-    (error,) = _errors("facility/overview.screen.json", library)
-    assert "`.screen.json` suffix" in error
+@pytest.mark.parametrize(
+    ("spelling", "affix"),
+    [
+        pytest.param("library/facility/overview", "`library/` prefix", id="library-prefix"),
+        pytest.param("facility/overview.screen.json", "`.screen.json` suffix", id="screen-suffix"),
+    ],
+)
+def test_an_affix_gets_a_fix_naming_the_plain_id(library: Path, spelling: str, affix: str):
+    (error,) = _errors(spelling, library)
+    assert affix in error
     assert "Write it as 'facility/overview'." in error
 
 

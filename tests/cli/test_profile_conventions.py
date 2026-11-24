@@ -1276,7 +1276,9 @@ def test_the_limits_stop_names_a_data_tree_outside_the_repo_absolutely(
 
 
 def test_reserved_write_normalizes_its_input():
-    assert is_reserved_write("./.claude/rules/facility.md") is not None
+    channel = is_reserved_write("./.claude/rules/facility.md")
+    assert channel is not None
+    assert channel == is_reserved_write(".claude/rules/facility.md")
 
 
 # ── Protected set: paths spelled the way an attacker would spell them ───
@@ -1346,23 +1348,25 @@ def test_case_folding_lives_only_in_the_lookup():
 
 
 @pytest.mark.parametrize(
-    "target",
+    ("target", "channel_hint"),
     [
-        "foo/../.claude/skills/x",
-        "docs/./../.claude/rules/facility.md",
-        ".claude/agents/../skills/x",
-        ".claude//skills//x",
-        "./data/channel_limits.json",
+        ("foo/../.claude/skills/x", "`skills/`"),
+        ("docs/./../.claude/rules/facility.md", "`rules/`"),
+        (".claude/agents/../skills/x", "`skills/`"),
+        (".claude//skills//x", "`skills/`"),
+        ("./data/channel_limits.json", "limits.yaml"),
     ],
 )
-def test_traversal_spellings_still_reach_the_protected_file(target: str):
+def test_traversal_spellings_still_reach_the_protected_file(target: str, channel_hint: str):
     """``..`` is normalized away before matching, like ``./`` and ``//``.
 
     Without it a writer opens a protected file by routing through a directory
     that is not protected — the set would be a naming convention rather than a
-    rule about files.
+    rule about files. The refusal names the protected file's own channel.
     """
-    assert is_reserved_write(target) is not None
+    channel = is_reserved_write(target)
+    assert channel is not None
+    assert channel_hint in channel
 
 
 @pytest.mark.parametrize(

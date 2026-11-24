@@ -1149,20 +1149,19 @@ def test_compute_refuses_a_bump_bpm_without_golden(client, app, sdk) -> None:
     assert "B3 has no golden" in answer.json()["detail"]
 
 
-def test_compute_refuses_a_bump_bpm_whose_golden_is_unreadable(client, app, sdk, machine) -> None:
+@pytest.mark.parametrize(
+    "missing_pv",
+    [
+        pytest.param("B3:x:GOLD", id="bump-bpm-golden"),
+        pytest.param("C4:x:SP", id="corrector-setpoint"),
+    ],
+)
+def test_compute_refuses_an_unreadable_input(client, app, sdk, machine, missing_pv) -> None:
     _built(app, sdk, "RING")
-    del machine.values["B3:x:GOLD"]
+    del machine.values[missing_pv]
     answer = client.post(COMPUTE_ROUTE, json=_ask())
     assert answer.status_code == 409
-    assert "B3:x:GOLD" in answer.json()["detail"]
-
-
-def test_compute_refuses_an_unreadable_corrector_setpoint(client, app, sdk, machine) -> None:
-    _built(app, sdk, "RING")
-    del machine.values["C4:x:SP"]
-    answer = client.post(COMPUTE_ROUTE, json=_ask())
-    assert answer.status_code == 409
-    assert "C4:x:SP" in answer.json()["detail"]
+    assert missing_pv in answer.json()["detail"]
 
 
 def test_compute_records_an_unreadable_readback_as_null(client, app, sdk, machine) -> None:
