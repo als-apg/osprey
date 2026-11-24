@@ -548,6 +548,20 @@ class TestDriftWarning:
         assert DRIFT_HEADLINE not in result.output
         assert len(launches) == 1
 
+    def test_build_without_the_protected_path_list_states_the_consequence(
+        self, runner, launches, lifecycle_repo
+    ):
+        """A start verb refuses here; chat warns what the executor will do, and launches."""
+        stub_build(lifecycle_repo, protected_paths=None)
+
+        result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
+
+        # Joined first: the message carries a path, so Rich may wrap it anywhere.
+        said = " ".join(result.output.split())
+        assert result.exit_code == 0
+        assert "the python executor refuses agent code until `osprey build`" in said
+        assert len(launches) == 1
+
 
 class TestProviderEnvironment:
     """The launch environment: the repo's .env, then the provider's own block."""

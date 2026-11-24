@@ -31,6 +31,7 @@ import os
 import shutil
 import stat
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -133,6 +134,7 @@ def render_build(
     config: str = _RENDERED_CONFIG,
     bind_address: str = "127.0.0.1",
     with_compose: bool = True,
+    protected_paths: Sequence[str] | None = (),
 ) -> Path:
     """Put a build in *repo* that ``up`` can start.
 
@@ -140,8 +142,16 @@ def render_build(
     reads; this adds the compose files, in the layout the pinned invocation
     contract requires — output beside its templates under ``build/services/``,
     which is what ``build_dir: ./build`` names when read from the repo root.
+    ``protected_paths`` is passed to ``stub_build``: ``None`` renders a build
+    made before the protected-path list existed.
     """
-    build = stub_build(repo, stamped_hash=stamped_hash, version=version, config=config)
+    build = stub_build(
+        repo,
+        stamped_hash=stamped_hash,
+        version=version,
+        config=config,
+        protected_paths=protected_paths,
+    )
     if stamped_hash == "current":
         _stamp_key_digests(repo, build)
     if with_compose:
@@ -1826,3 +1836,59 @@ def test_the_web_stack_labels_every_container_and_no_volume_too(tmp_path):
         if REPO_ID_LABEL in ((definition or {}).get("labels") or {})
     ]
     assert not labelled, f"web-stack volumes carrying {REPO_ID_LABEL}: {labelled}"
+
+
+# ---------------------------------------------------------------------------
+# A build without the protected-path list
+# ---------------------------------------------------------------------------
+
+_NO_LIST_CONSEQUENCE = "the python executor refuses agent code until `osprey build`"
+
+
+def test_a_build_without_the_protected_path_list_refuses_and_names_osprey_build(
+    lifecycle_repo, started
+):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo, protected_paths=None)
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 1
+    assert "without the protected-path list" in result.stderr
+    assert _NO_LIST_CONSEQUENCE in result.stderr
+    assert "osprey up --build" in result.stderr
+    # The as-built exit is described in this class's own words, not drift's.
+    assert f"osprey up --as-built   start build/ as it was rendered; {_NO_LIST_CONSEQUENCE}" in (
+        result.stderr
+    )
+    assert "leaving the change unbuilt" not in result.stderr
+    assert "Nothing was started" in result.stderr
+    assert "without the protected-path list" not in result.stdout
+    assert not started
+
+
+def test_as_built_starts_a_build_without_the_list_and_warns(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo, protected_paths=None)
+
+    result = run_up(lifecycle_repo, "-d", "--as-built")
+
+    assert result.exit_code == 0, result.output
+    assert started
+    assert "⚠ Starting build/ as it was rendered (--as-built)" in result.stderr
+    assert _NO_LIST_CONSEQUENCE in result.stderr
+    assert _NO_LIST_CONSEQUENCE not in result.stdout
+    # Neither drift's claim nor the unverifiable one: the fingerprint matched.
+    assert "will not match profile.yml" not in result.stderr
+    assert "stays unknown" not in result.stderr
+
+
+def test_a_build_with_an_empty_protected_path_list_starts(lifecycle_repo, started):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo, protected_paths=[])
+
+    result = run_up(lifecycle_repo, "-d")
+
+    assert result.exit_code == 0, result.output
+    assert started
+    assert "protected-path list" not in result.output

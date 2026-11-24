@@ -205,6 +205,29 @@ def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo):
     assert "osprey up` and `osprey restart` refuse" in text
 
 
+@pytest.mark.usefixtures("runtime")
+def test_status_line_names_a_build_without_the_protected_path_list(lifecycle_repo):
+    """Status names the state, what it costs, and that the start verbs refuse."""
+    render_build(lifecycle_repo, protected_paths=None)
+
+    text = report(lifecycle_repo)
+
+    assert "no protected-path list" in text
+    assert "the python executor refuses agent code until `osprey build`" in text
+    assert "osprey up` and `osprey restart` refuse" in text
+    assert "in sync with profile.yml" not in text
+
+
+@pytest.mark.usefixtures("runtime")
+def test_status_line_reads_an_empty_protected_path_list_as_in_sync(lifecycle_repo):
+    render_build(lifecycle_repo, protected_paths=[])
+
+    text = report(lifecycle_repo)
+
+    assert "in sync with profile.yml" in text
+    assert "protected-path list" not in text
+
+
 def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_repo, runtime):
     """The case an operator most needs status for: build/ deleted, stack still up."""
     runtime["containers"] = [container("dispatch", repo_id=repo_identity(lifecycle_repo))]

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,7 @@ def stub_build(
     version: str | None = None,
     config: str = STUB_CONFIG,
     with_config: bool = True,
+    protected_paths: Sequence[str] | None = (),
 ) -> Path:
     """Write a ``build/`` the drift check and the launch verbs can both read.
 
@@ -83,6 +85,10 @@ def stub_build(
         config: Contents of ``build/config.yml``.
         with_config: When False, leave the manifest without a rendered config
             beside it — a build in name only.
+        protected_paths: The protected-path set every real build writes,
+            added to *config* unless it states the key itself; empty by
+            default. ``None`` writes no key, which is a build made before the
+            set existed.
 
     Returns:
         The build directory.
@@ -90,7 +96,9 @@ def stub_build(
     build = repo / "build"
     build.mkdir(parents=True, exist_ok=True)
     if with_config:
-        (build / "config.yml").write_text(config, encoding="utf-8")
+        (build / "config.yml").write_text(
+            _with_protected_paths(config, protected_paths), encoding="utf-8"
+        )
 
     creation: dict[str, object] = {"osprey_version": version or installed_version()}
     if stamped_hash is not None:
@@ -99,6 +107,29 @@ def stub_build(
         json.dumps({"creation": creation}), encoding="utf-8"
     )
     return build
+
+
+def _with_protected_paths(config: str, protected_paths: Sequence[str] | None) -> str:
+    """*config* with the protected-path key a real build writes, unless it has one.
+
+    A text that is no mapping is left alone: it is a test of a malformed render.
+    """
+    from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
+
+    if protected_paths is None:
+        return config
+    try:
+        document = yaml.safe_load(config)
+    except yaml.YAMLError:
+        return config
+    if document is None:
+        document = {}
+    if not isinstance(document, dict) or PROTECTED_PATHS_CONFIG_KEY in document:
+        return config
+    key = yaml.safe_dump({PROTECTED_PATHS_CONFIG_KEY: list(protected_paths)})
+    if config and not config.endswith("\n"):
+        config += "\n"
+    return config + key
 
 
 def invoke_build_in(cwd: Path, *args: str) -> Result:
