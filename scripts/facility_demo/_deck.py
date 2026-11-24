@@ -73,6 +73,33 @@ def quadrupole(
     return element
 
 
+def bend(
+    name: str,
+    length: float,
+    angle: float,
+    *,
+    entrance_angle: float,
+    exit_angle: float,
+    k: float = 0.0,
+    steps: int,
+) -> dict[str, Any]:
+    """A bend of ``angle`` rad with its edge angles and gradient ``k`` (1/m^2)."""
+    return {
+        "FamName": name,
+        "Length": length,
+        "PassMethod": "BndMPoleSymplectic4Pass",
+        "BendingAngle": angle,
+        "EntranceAngle": entrance_angle,
+        "ExitAngle": exit_angle,
+        "MaxOrder": 1,
+        "NumIntSteps": steps,
+        "PolynomA": [0.0, 0.0],
+        "PolynomB": [0.0, k],
+        "K": k,
+        "Class": "Bend",
+    }
+
+
 def fodo_cells(
     cells: int,
     *,
