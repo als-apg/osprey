@@ -1383,8 +1383,9 @@ holds <code class="docutils literal notranslate"><span class="pre">0</span></cod
 the counter whose rise is a shot; <code class="docutils literal notranslate"><span class="pre">charge</span></code>, the shot’s charge; and
 <code class="docutils literal notranslate"><span class="pre">stored_current</span></code>, the current already stored. Declare all three: without
 <code class="docutils literal notranslate"><span class="pre">shot</span></code> no shot is taken, without <code class="docutils literal notranslate"><span class="pre">charge</span></code> every shot carries zero charge,
-and without <code class="docutils literal notranslate"><span class="pre">stored_current</span></code> there is no stored beam. Each wiring record’s
-<code class="docutils literal notranslate"><span class="pre">signal</span></code>:</p>
+and without <code class="docutils literal notranslate"><span class="pre">stored_current</span></code> there is no stored beam. A record with a
+<code class="docutils literal notranslate"><span class="pre">signal</span></code> is served as the model holds it and states no <code class="docutils literal notranslate"><span class="pre">calibration</span></code>; one
+that does stops the build. Each wiring record’s <code class="docutils literal notranslate"><span class="pre">signal</span></code>:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">arm</span></code>: a monitor’s arm setting. Wire one per monitor, naming its
 monitor <code class="docutils literal notranslate"><span class="pre">element</span></code>.</p></li>
@@ -1672,7 +1673,8 @@ turn 1 sits at index <code class="docutils literal notranslate"><span class="pre
 element, so a monitor upstream of it reads the end of each turn. The sum is
 the shot’s charge times the share of the bunch still alive times
 <code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code>, plus, with the RF on, the stored current held before the
-shot times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>, plus noise, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>. Positions
+shot times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>, the whole times the monitor’s own sum gain,
+plus noise, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>. Positions
 are the sum-weighted mix of the stored beam, at zero, and the bunch’s
 centroid, plus <code class="docutils literal notranslate"><span class="pre">position_noise</span></code>; where the sum is at the floor they are
 <code class="docutils literal notranslate"><span class="pre">floor_noise</span></code>.</p>
@@ -1684,9 +1686,28 @@ roll turns the (x, y) pair, then the offset is subtracted, the polarity
 applied, the noise added and the gain multiplied in. A fault is stated once,
 in the unit the orbit reading publishes, and is converted to the arrays’
 metres through that reading’s calibration; a monitor with no orbit reading
-wired has no fault to state. The sum carries no fault, and a sample with no
-beam reads <code class="docutils literal notranslate"><span class="pre">floor_noise</span></code> alone. The model’s trajectory response, below, is
+wired has no fault to state. None of them reaches the sum, and a sample with
+no beam reads <code class="docutils literal notranslate"><span class="pre">floor_noise</span></code> alone. The model’s trajectory response, below, is
 the deck’s and shows no read-out fault, as its orbit response shows none.</p>
+<p>The sum has one fault of its own, the monitor’s sum gain: <code class="docutils literal notranslate"><span class="pre">gain</span></code> on the
+monitor’s <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code> record, <code class="docutils literal notranslate"><span class="pre">1</span></code> when unstated and between 0.1 and 10.
+It multiplies what that monitor’s sum reads of the beam, the injected bunch
+and the stored beam alike, before the sum’s noise and floor, so two monitors
+read one charge in the ratio of their gains while <code class="docutils literal notranslate"><span class="pre">sum_noise</span></code> keeps its
+width on both. The ring’s <code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code> and <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code> stay the
+scale of a monitor with a gain of 1. The positions never read the sum gain:
+their sum-weighted mix, and the test for where there is beam to read, use the
+sum of a monitor with a gain of 1. A scenario states it per monitor:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">faults</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">RING</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">SIM:RING:BPM01:TBT:SUM</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">0.93</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">SIM:RING:BPM02:TBT:SUM</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.08</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>As a fault of the running model its name is
+<code class="docutils literal notranslate"><span class="pre">SIM:RING:BPM01:TBT:SUM/gain</span></code>. Where two records read one monitor’s sum,
+the first carries the gain. A <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code> record takes no other fault field,
+and a <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> or <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> record none at all.</p>
 <p>With the pilot tone on, every sample whose index is a
 multiple of <code class="docutils literal notranslate"><span class="pre">tone_period</span></code> carries a spike in all three arrays. The noise is
 keyed on the record’s address, the shot and the sample, so a shot reads the

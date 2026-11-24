@@ -1227,8 +1227,9 @@ per pulsed magnet, naming its <code class="docutils literal notranslate"><span c
 <code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with <code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>. Each
 <code class="docutils literal notranslate"><span class="pre">arm</span></code> and the chain’s <code class="docutils literal notranslate"><span class="pre">request</span></code> are marked <code class="docutils literal notranslate"><span class="pre">command</span></code> by their engines. The build
 stops <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code> on a malformed block, a turn record on a ring
-without one, a record of the wrong value type or shape, and a monitor record
-whose element is not a monitor. The settings, their defaults and what a shot
+without one, a record of the wrong value type or shape, a monitor record
+whose element is not a monitor, and a turn record that states a
+<code class="docutils literal notranslate"><span class="pre">calibration</span></code>. The settings, their defaults and what a shot
 does are in <a class="reference internal" href="../how-to/control-systems/use-virtual-accelerator.html#va-turn-by-turn"><span class="std std-ref">Turn-by-turn data from an injection chain</span></a>.</p>
 <p>How the composite serves the models over Channel Access and PVAccess is in
 <a class="reference internal" href="virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a>.</p>

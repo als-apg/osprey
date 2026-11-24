@@ -875,7 +875,11 @@ ring (<a class="reference internal" href="../how-to/control-systems/use-virtual-
 act on its <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> and <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> arrays through the same chain in the
 same order, sample by sample, so an offset stated once shifts the orbit
 reading and every turn alike. The <code class="docutils literal notranslate"><span class="pre">offset</span></code> and <code class="docutils literal notranslate"><span class="pre">noise</span></code> values stay in the
-unit the orbit reading publishes; the arrays show them in metres.</p>
+unit the orbit reading publishes; the arrays show them in metres. The
+monitor’s <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code> record carries one fault of its own, <code class="docutils literal notranslate"><span class="pre">gain</span></code>: the
+factor on the beam sum that monitor reads, so monitors read one charge
+differently. It acts on the sum array alone, before the sum’s noise and
+floor, and the position faults never reach the sum.</p>
 <p>Four read-only arrays sit beside them: <code class="docutils literal notranslate"><span class="pre">tunes</span></code>, <code class="docutils literal notranslate"><span class="pre">chromaticity</span></code>,
 <code class="docutils literal notranslate"><span class="pre">beta_at_monitors</span></code> and <code class="docutils literal notranslate"><span class="pre">orbit_at_monitors</span></code>, the last two one row per
 monitor element in lattice order. A <code class="docutils literal notranslate"><span class="pre">single_pass</span></code> model has no tunes, so it
