@@ -469,6 +469,38 @@ async def test_connector_readable_describe_shape() -> None:
     assert described == {"bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}}
 
 
+async def test_a_readable_with_a_shape_describes_an_array() -> None:
+    """A readable given the facility's length describes an array of that length."""
+    fake = FakeConnector(readbacks={"W:1": [0.0] * 500})
+    device = ConnectorReadable(fake, "W:1", name="w1", unit="A", shape=(500,))
+
+    described = await device.describe()
+
+    assert described == {
+        "w1": {"source": "connector:W:1", "dtype": "array", "shape": [500], "units": "A"}
+    }
+    assert fake.read_calls == []
+
+
+async def test_build_devices_hands_each_readable_its_shape() -> None:
+    fake = FakeConnector(readbacks={"W:1": [0.0] * 500, "S:1": 0.0})
+
+    devices = await build_devices(
+        readables=[
+            ReadableSpec(name="w1", read_pv="W:1", shape=(500,)),
+            ReadableSpec(name="s1", read_pv="S:1"),
+        ],
+        connector=fake,
+    )
+
+    assert (await devices["w1"].describe())["w1"]["shape"] == [500]
+    assert (await devices["s1"].describe())["s1"] == {
+        "source": "connector:S:1",
+        "dtype": "number",
+        "shape": [],
+    }
+
+
 async def test_a_settable_with_a_distinct_readback_reports_its_demand_too() -> None:
     """``<name>`` is where the device is, ``<name>_setpoint`` where it was told to go.
 
