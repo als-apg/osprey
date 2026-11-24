@@ -337,6 +337,37 @@ repository documents the dialog in full, in
 ``docs/confirmed-and-staged-writes.md`` at the commit ``--pins`` names for
 ``canopy-screen-runtime``.
 
+Make a drawn shape clickable
+----------------------------
+
+A node with actions takes the pointer on its box. A polygon can take it on the
+shape it draws instead, so one node covers a band along an arc or a bent line
+and what lies under the corners of its box stays reachable. Set these on the
+polygon's ``props``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it does
+   * - ``hitArea``
+     - ``"shape"`` makes the drawn shape the pointer target: a closed polygon
+       over its inside and its outline, an open one along its path. Of two
+       shapes that overlap, the later node is met.
+   * - ``hitWidth``
+     - The width, in the screen's pixels, of the path an open polygon is met
+       on. Without it: the line width, and at least 12.
+   * - ``hoverLabelAt``
+     - ``[x, y]`` in the node's coordinates, where the hover label is centred.
+       Without it the viewer picks a point on the path or well inside the
+       shape.
+
+Hovering such a polygon tints and outlines the shape and shows one label. A
+click runs the node's actions as a click on a box does, with the same write
+dialog. A polygon without ``hitArea`` behaves as before, and no other node
+type reads the prop.
+
 What the agent can do in the panel
 ----------------------------------
 
