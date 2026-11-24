@@ -25,8 +25,9 @@ Document handling (bluesky's plain-dict document protocol):
   none has none.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. Each cell is
-  stored as a plain JSON value (:func:`json_cell`): an array reading is a
-  list, a numpy scalar is a Python scalar. A key seen for the first time
+  stored as a JSON reading value or a refusal (:func:`json_cell`): an array
+  reading is a list, a numpy scalar is a Python scalar, a value with no
+  reading spelling is ``{"refused": "<reason>"}``. A key seen for the first time
   extends the column list and backfills every already-stored row with
   ``None`` in that column, so all stored rows stay aligned to the current
   column list; a later event missing an already-known column simply records
@@ -70,6 +71,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import OrderedDict
+from datetime import UTC, date, datetime
 from threading import Lock
 from typing import Any
 
@@ -96,6 +98,19 @@ DEFAULT_MAX_BYTES_PER_RUN = 20_000_000
 #: What one stored value counts against the byte cap: a Python float (24
 #: bytes) plus its slot in the list that holds it (8 bytes).
 VALUE_BYTES = 32
+
+#: Why a cell of bytes that are not UTF-8 text is refused (:func:`json_cell`).
+REFUSED_NOT_TEXT = "not text"
+
+#: Why a cell with no reading spelling is refused (:func:`json_cell`).
+REFUSED_NOT_A_READING = "not a number, text or array"
+
+#: numpy kinds whose ``tolist()`` is already a reading: boolean, signed and
+#: unsigned integer, floating point, and unicode text.
+_READING_KINDS = frozenset("biufU")
+
+#: numpy datetime64 units coarser than a day: such a value is a date only.
+_DATE_UNITS = frozenset(("Y", "M", "W", "D"))
 
 
 def max_runs() -> int:
@@ -132,7 +147,7 @@ def _cell_bytes(cell: Any) -> int:
     """What one stored cell counts against the byte cap (see :data:`VALUE_BYTES`)."""
     if isinstance(cell, list):
         return sum(_cell_bytes(value) for value in cell)
-    if isinstance(cell, (str, bytes)):
+    if isinstance(cell, str):
         return VALUE_BYTES + len(cell)
     return VALUE_BYTES
 
@@ -208,20 +223,121 @@ def _is_shape(shape: Any) -> bool:
 
 
 def json_cell(value: Any) -> Any:
-    """One cell of a run's table as a plain JSON value.
+    """One cell of a run's table as a JSON reading value or a refusal.
 
-    The one rule both readers of a run apply, so a live run and a stored run
-    serve the same cell. A value with a callable ``tolist`` (a `numpy.ndarray`
-    of any dimension, a numpy scalar) becomes ``tolist()``: nested lists of
-    Python numbers, or one Python scalar. Every other value passes through
-    unchanged.
+    The one rule both sources of a run apply, the live buffer as it stores a
+    cell and the catalog snapshot as it builds its rows, so a live run and a
+    stored run serve the same cell:
 
-    ``tolist()`` rather than ``list()``: it recurses, so an image cell is a
-    nested list rather than a list of arrays, and it turns numpy scalars into
-    Python ones.
+    - ``None``, a boolean, a number or text (numpy scalars of kind ``b i u f
+      U`` included) is itself; NaN and infinity stay floats.
+    - A numpy array of kind ``b i u f U`` is ``tolist()``: nested lists of
+      Python scalars, never walked element by element.
+    - A list, a tuple, or a numpy array of kind ``S`` or ``O`` is a list, each
+      element by this rule; one refused element refuses the whole cell.
+    - Bytes (``bytes``, ``bytearray``, ``numpy.bytes_``) are their UTF-8
+      text, or refused as ``not text``.
+    - A date or a date and time (``datetime.date``, ``datetime.datetime``,
+      ``pandas.Timestamp``, ``numpy.datetime64``) is ISO 8601 text in UTC:
+      a zoned value converted to UTC, a value without a zone taken as UTC,
+      ending in ``Z``, with a fraction of a second only when it is non-zero and
+      without trailing zeros (``2026-11-24T10:00:00.5Z``); a date without a
+      time is ``2026-11-24``.
+    - Anything else (a complex number, a set, a dict, a ``Decimal``, a
+      duration, numpy kinds ``c m V``, any other object) is refused as
+      ``not a number, text or array``.
+
+    A refusal is a fresh ``{"refused": "<reason>"}``, which no reading can be
+    mistaken for, since every dict a run records is itself refused.
     """
-    to_list = getattr(value, "tolist", None)
-    return to_list() if callable(to_list) else value
+    try:
+        return _plain(value)
+    except _Refused as refused:
+        return {"refused": refused.reason}
+
+
+class _Refused(Exception):
+    """A value :func:`json_cell` has no reading spelling for."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _plain(value: Any) -> Any:
+    """*value* as a JSON reading value, or raise `_Refused`."""
+    kind = getattr(getattr(value, "dtype", None), "kind", None)
+    if isinstance(kind, str) and kind:
+        return _plain_numpy(value, kind)
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, datetime):
+        return _utc_text(value)
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        return _text(value)
+    if isinstance(value, (list, tuple)):
+        return [_plain(element) for element in value]
+    raise _Refused(REFUSED_NOT_A_READING)
+
+
+def _plain_numpy(value: Any, kind: str) -> Any:
+    """A numpy scalar or array of dtype *kind* as a JSON reading value."""
+    if kind in _READING_KINDS:
+        return value.tolist()
+    if kind not in "MSO":
+        raise _Refused(REFUSED_NOT_A_READING)
+    if getattr(value, "ndim", 0):
+        return [_plain(element) for element in value]
+    if kind == "M":
+        return _datetime64_text(value)
+    return _plain(value.item())
+
+
+def _text(raw: bytes | bytearray) -> str:
+    try:
+        return bytes(raw).decode("utf-8")
+    except UnicodeDecodeError:
+        raise _Refused(REFUSED_NOT_TEXT) from None
+
+
+def _utc_text(moment: datetime, extra_nanoseconds: int = 0) -> str:
+    """*moment* as ISO 8601 text in UTC (see :func:`json_cell`).
+
+    *extra_nanoseconds* are those below the microsecond a `datetime` cannot
+    hold; a ``pandas.Timestamp`` carries its own as ``nanosecond``.
+    """
+    if moment != moment:  # a missing timestamp (pandas.NaT) equals nothing
+        raise _Refused(REFUSED_NOT_A_READING)
+    if moment.utcoffset() is not None:
+        moment = moment.astimezone(UTC)
+    nanoseconds = moment.microsecond * 1000 + getattr(moment, "nanosecond", 0) + extra_nanoseconds
+    fraction = f".{nanoseconds:09d}".rstrip("0") if nanoseconds else ""
+    return (
+        f"{moment.date().isoformat()}T{moment.hour:02d}:{moment.minute:02d}"
+        f":{moment.second:02d}{fraction}Z"
+    )
+
+
+def _datetime64_text(value: Any) -> str:
+    """A `numpy.datetime64` scalar as ISO 8601 text in UTC (see :func:`json_cell`)."""
+    import numpy as np
+
+    if np.isnat(value):
+        raise _Refused(REFUSED_NOT_A_READING)
+    unit, _ = np.datetime_data(value.dtype)
+    if unit in _DATE_UNITS:
+        day = value.astype("datetime64[D]").item()
+        if not isinstance(day, date):
+            raise _Refused(REFUSED_NOT_A_READING)
+        return day.isoformat()
+    microseconds = value.astype("datetime64[us]")
+    moment = microseconds.item()
+    if not isinstance(moment, datetime):
+        raise _Refused(REFUSED_NOT_A_READING)
+    below = int((value - microseconds).astype("timedelta64[ns]").astype("int64"))
+    return _utc_text(moment, below)
 
 
 def _clear() -> None:

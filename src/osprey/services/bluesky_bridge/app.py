@@ -1738,15 +1738,20 @@ def _json_rows(frame: Any) -> list[list[Any]]:
     each waveform cell survives as a `numpy.ndarray`, and an ndarray reaching
     the response encoder comes out as the TEXT ``'[0. 1. 2.]'`` — not a JSON
     array, not round-trippable, and indistinguishable from a signal that really
-    did record that string. So the array cells are converted here, at the one
-    place rows are built, rather than left for whatever encoder happens to see
-    them last, by `live_rows.json_cell`: the rule the live buffer applies to
-    every cell it stores, so both sources serve the same cell.
+    did record that string. So every cell that is not a plain number goes
+    through `live_rows.json_cell` here, at the one place rows are built, rather
+    than being left for whatever encoder happens to see it last: the rule the
+    live buffer applies to every cell it stores, so both sources serve the same
+    cell — a JSON reading value or a refusal.
 
     Which cells those are is decided per COLUMN, from the frame's own dtypes,
-    not per cell: a scalar-only run is the common case and this route is polled
-    at 1 Hz over runs that reach six figures of rows, so a run with no object
-    column pays nothing beyond the ``tolist()`` it already paid.
+    not per cell: a column whose dtype is a numpy boolean, integer or floating
+    dtype holds plain numbers already, and every other column (an object
+    column of waveforms or text, a date, a complex number) is read from the
+    column itself, element by element, through `live_rows.json_cell`. A
+    scalar-only run is the common case and this route is polled at 1 Hz over
+    runs that reach six figures of rows, so a run of plain numeric columns
+    pays nothing beyond the ``tolist()`` it already paid.
 
     NaN and infinity inside a waveform end up as Python floats, exactly as they
     do in a scalar column, and the response encoder renders both as ``null``
@@ -1754,17 +1759,17 @@ def _json_rows(frame: Any) -> list[list[Any]]:
     not measure. A waveform is not a special case in the wire format; it is a
     cell whose value happens to be a list.
     """
+    import numpy as np
+
     rows: list[list[Any]] = frame.values.tolist()
-    object_columns = [
+    other_columns = [
         position
         for position, dtype in enumerate(frame.dtypes)
-        if dtype == object  # noqa: E721
+        if not (isinstance(dtype, np.dtype) and dtype.kind in "biuf")
     ]
-    if not object_columns:
-        return rows
-    for row in rows:
-        for position in object_columns:
-            row[position] = live_rows.json_cell(row[position])
+    for position in other_columns:
+        for row, cell in zip(rows, frame.iloc[:, position].tolist(), strict=True):
+            row[position] = live_rows.json_cell(cell)
     return rows
 
 
@@ -1814,9 +1819,10 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     whole run (a windowed ORM fit is silently wrong), and the data route does
     its own bounding afterwards. Rows come back sorted by ``seq_num`` — emission
     order, however the catalog chose to return them — and projected onto the
-    live-buffer column set exactly as the live path serves it. Cells are plain
-    JSON values: a scalar reading is a number, a waveform reading is a list of
-    numbers (`_json_rows`), and neither is ever text describing itself.
+    live-buffer column set exactly as the live path serves it. Each cell is a
+    JSON reading value or a refusal (`live_rows.json_cell`, through
+    `_json_rows`): a scalar reading is a number, a waveform reading is a list
+    of numbers, and neither is ever text describing itself.
 
     ``units`` and ``shapes`` are each column's unit and shape as the stream's
     stored descriptors declare them (`_stream_units`, `_stream_shapes`), the
@@ -1995,8 +2001,9 @@ def _data_response(
       ``None`` when it declared none; ``shape`` is the size per axis it
       declared (``[]`` for a scalar) and ``None`` when it declared none, never
       a guess from the cells. A row's values are read by position against it.
-    - Each cell is a plain JSON value (`live_rows.json_cell`): a scalar
-      reading is a number, an array reading is a list of numbers.
+    - Each cell is a JSON reading value or a refusal (`live_rows.json_cell`):
+      a scalar reading is a number, an array reading is a list of numbers, and
+      a value with no reading spelling is ``{"refused": "<reason>"}``.
 
     *generation* is the caller's, read BEFORE the source, as the figure route
     reads it: an eviction landing between the two reads then leaves a cache
