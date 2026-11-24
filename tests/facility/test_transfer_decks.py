@@ -1,4 +1,4 @@
-"""The example facility's injector transfer-line decks ``decks/LTB.json`` and ``decks/BTS.json``.
+"""The example facility's injector transfer-line decks, ``simulation/decks/{LTB,BTS}.json``.
 
 ``scripts/facility_demo/_transfer.py`` writes each deck from the MML lattice:
 every quadrupole ``K`` and bend angle is MML's, the deck energies are the
@@ -22,7 +22,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCES = REPO_ROOT / "scripts/facility_demo"
-DECKS = REPO_ROOT / "src/osprey/templates/facilities/example/decks"
+DECKS = REPO_ROOT / "src/osprey/templates/facilities/example/simulation/decks"
 EXCERPTS = Path(__file__).resolve().parent / "fixtures/mml"
 
 #: Each lattice file and its checked-in excerpt.

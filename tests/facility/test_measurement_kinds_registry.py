@@ -51,7 +51,7 @@ _PLAIN_BLOCK = {"trigger_sample": 12}
 def _tree(**sr: Any) -> dict[str, Any]:
     """SR with correctors, the RF and the fixture kind listed; ``sr`` edits its file."""
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"] |= {
         "kinds": [REGISTRY_KIND],
         "corrector_delta": 1.0e-5,
         "kind_blocks": {REGISTRY_KIND: dict(_PLAIN_BLOCK)},
@@ -253,7 +253,7 @@ def test_members_are_judged_by_their_requirement(tmp_path, registry_kind):
     unwired = _tree(instruments={"tune": "LQ:SP"})
     no_rf = _tree(instruments={"tune": "SR:TUNE:X"})
     no_hcor = _tree()
-    del no_hcor["measurement/SR.yaml"]["groups"]["hcor"]
+    del no_hcor["simulation/measurement/SR.yaml"]["groups"]["hcor"]
 
     built_document(tmp_path / "unwired", unwired)
     built_document(tmp_path / "no-rf", no_rf)
@@ -267,7 +267,7 @@ def test_members_are_judged_by_their_requirement(tmp_path, registry_kind):
 def test_a_single_pass_kind_runs_on_a_single_pass_model(tmp_path, registry_kind):
     assert registry_kind.single_pass
     tree = measured_tree()
-    tree["measurement/LINE.yaml"] |= {
+    tree["simulation/measurement/LINE.yaml"] |= {
         "kinds": ["orm", REGISTRY_KIND],
         "instruments": {"tune": "SR:TUNE:X"},
         "kind_blocks": {REGISTRY_KIND: dict(_PLAIN_BLOCK)},
@@ -276,7 +276,7 @@ def test_a_single_pass_kind_runs_on_a_single_pass_model(tmp_path, registry_kind)
     (line,) = [model for model in document["models"] if model["name"] == "LINE"]
     assert line["measurement"]["kinds"] == ["orm", REGISTRY_KIND]
 
-    tree["measurement/LINE.yaml"] |= {"kinds": ["trm"], "quad_delta": 0.001}
+    tree["simulation/measurement/LINE.yaml"] |= {"kinds": ["trm"], "quad_delta": 0.001}
     assert _stop(tmp_path / "stop", tree).endswith(
         "fix: remove trm from `kinds`; a single_pass model allows orm and registry_kind alone"
     )

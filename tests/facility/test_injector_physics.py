@@ -129,7 +129,9 @@ class Served:
         self.wiring: dict[str, dict[str, Any]] = {
             record["address"]: record
             for model in yaml.safe_load(
-                (build_dir / "data" / "facility" / "models.yaml").read_text(encoding="utf-8")
+                (build_dir / "data" / "facility" / "simulation" / "models.yaml").read_text(
+                    encoding="utf-8"
+                )
             )
             for record in model.get("wiring") or ()
         }

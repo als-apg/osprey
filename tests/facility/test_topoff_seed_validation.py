@@ -49,7 +49,7 @@ def _files(seeds: dict[str, Any]) -> dict[str, Any]:
     return {
         "records/devices.yaml": [DCCT],
         "records/channels.yaml": [CURRENT, LIFETIME, OTHER, STATE],
-        "seeds.yaml": seeds,
+        "simulation/seeds.yaml": seeds,
     }
 
 
@@ -126,7 +126,7 @@ def test_lifetime_and_period_are_above_zero(tmp_path: Path, slot: str, value: fl
     error = _one(tmp_path, seeds, "records")
     assert error.kind == "value-invalid"
     assert f"`topoff.{slot}` is {value}, not above 0" in error.detail
-    assert error.sources == ("seeds.yaml",)
+    assert error.sources == ("simulation/seeds.yaml",)
 
 
 def test_a_topoff_carries_no_nominal(tmp_path: Path) -> None:
@@ -202,7 +202,7 @@ def reseed_tree(tmp_path: Path) -> Path:
         {
             "records/devices.yaml": [DCCT],
             "records/channels.yaml": [current, lifetime],
-            "seeds.yaml": seeds,
+            "simulation/seeds.yaml": seeds,
         },
     )
 
@@ -231,6 +231,6 @@ def test_reseed_keeps_rule_motion_on_a_topoff_and_none_on_its_lifetime(
 def test_a_moving_topoff_lifetime_is_refused(reseed_tree: Path) -> None:
     module = reseed_module()
     seeds = {"DCCT:CURRENT": TOPOFF, "DCCT:LIFETIME": {**READS_LIFETIME, "noise": {"absolute": 1}}}
-    (reseed_tree / "seeds.yaml").write_text(yaml.safe_dump(seeds), encoding="utf-8")
+    (reseed_tree / "simulation" / "seeds.yaml").write_text(yaml.safe_dump(seeds), encoding="utf-8")
     with pytest.raises(module.ReseedError, match="DCCT:LIFETIME"):
         module.reseed(reseed_tree, rules=RULES)

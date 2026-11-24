@@ -25,7 +25,7 @@ from tests.facility._appendix_a import (
 )
 
 _KIND_FILES = {
-    "documents": "documents.yaml",
+    "documents": "provenance/documents.yaml",
     "places": "records/places.yaml",
     "devices": "records/devices.yaml",
     "groups": "records/groups.yaml",
@@ -96,11 +96,11 @@ class TestPrecedence:
         }
 
     def test_policy_file_has_the_loader_shape(self) -> None:
-        policy = appendix_a_tree("located_in_precedence")["policy.yaml"]
+        policy = appendix_a_tree("located_in_precedence")["provenance/policy.yaml"]
         assert policy["relations"] == {
             "precedence": {"located_in": ["rack-layout", "cable-schedule"]}
         }
-        assert "policy.yaml" not in appendix_a_tree("no_policy")
+        assert "provenance/policy.yaml" not in appendix_a_tree("no_policy")
 
 
 class TestProjectedPlaces:
@@ -180,7 +180,7 @@ class TestReadsTheExample:
             fixture = [r for r in tree[relpath] if r["id"] in set(ADDED_IDS[kind])]
             assert fixture == added, kind
             assert not set(ADDED_IDS[kind]) & set(STUB_IDS.get(kind, ())), kind
-        assert tree["documents.yaml"] == _load(example / "documents.yaml")
+        assert tree["provenance/documents.yaml"] == _load(example / "provenance" / "documents.yaml")
         assert tree["records/relations.yaml"] == _load(example / "records/relations.yaml")
         assert ADDED_IDS["claims"] == CLAIM_IDS
         assert "SR/MAG-Q-0301" in ADDED_IDS["devices"]
@@ -208,7 +208,7 @@ class TestReadsTheExample:
 
         facility = example_without_appendix_a(tmp_path / "facility")
         assert facility == tmp_path / "facility"
-        assert not (facility / "documents.yaml").exists()
+        assert not (facility / "provenance" / "documents.yaml").exists()
         assert not (facility / "records" / "relations.yaml").exists()
         report = run_stages(
             facility, project_name="p", later=LATER_STAGES, extra_checks=FRAMEWORK_CHECKS

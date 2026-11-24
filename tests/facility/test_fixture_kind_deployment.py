@@ -101,7 +101,7 @@ def installed(monkeypatch: pytest.MonkeyPatch) -> kinds.KindDeclaration:
 
 
 def _sr(tree: dict[str, Any]) -> dict[str, Any]:
-    (record,) = [model for model in tree["models.yaml"] if model["name"] == "SR"]
+    (record,) = [model for model in tree["simulation/models.yaml"] if model["name"] == "SR"]
     sr: dict[str, Any] = record
     return sr
 
@@ -338,8 +338,8 @@ def test_the_settings_patch_reaches_the_facility_file_and_the_simulator_view(bui
 @pytest.mark.usefixtures("installed")
 def test_the_engine_judges_the_setting_the_kind_patches(tmp_path: Path) -> None:
     tree = fixture_tree()
-    tree["measurement/SR.yaml"]["kinds"] = ["trm"]
-    del tree["measurement/SR.yaml"]["kind_blocks"]
+    tree["simulation/measurement/SR.yaml"]["kinds"] = ["trm"]
+    del tree["simulation/measurement/SR.yaml"]["kind_blocks"]
     _sr(tree)["settings"] = {ENGINE: {"turns": 0}}
 
     assert "settings key fixture_ring.turns is 0, not a positive whole number" in _stop(
@@ -384,7 +384,7 @@ def test_a_command_step_on_a_channel_the_facility_does_not_mark_stops_the_build(
 @pytest.mark.usefixtures("installed")
 def test_a_scenario_fault_on_a_record_the_engine_fires_stops_the_build(tmp_path: Path) -> None:
     tree = fixture_tree()
-    tree["scenarios/fire.yaml"] = {"faults": {"SR": {"INJ:REQ": 1.0}}}
+    tree["simulation/scenarios/fire.yaml"] = {"faults": {"SR": {"INJ:REQ": 1.0}}}
 
     assert _stop(tmp_path, tree) == (
         "facility: engine-invalid: scenario fire — `faults.SR.INJ:REQ`: INJ:REQ is a command "
@@ -516,7 +516,7 @@ def test_a_machine_tree_alone_defers_a_kind_no_package_registers(deploy: Deploy)
 
 def test_a_deferred_kind_leaves_every_other_kind_judged(deploy: Deploy) -> None:
     tree = _unregistered_tree()
-    del tree["measurement/SR.yaml"]["groups"]["quad"]
+    del tree["simulation/measurement/SR.yaml"]["groups"]["quad"]
 
     _project, result = deploy(tree, dependencies=[])
 

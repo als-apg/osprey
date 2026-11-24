@@ -80,7 +80,7 @@ INJECTION = Path(__file__).resolve().parent / "fixtures" / "injection"
 def _injection_tree() -> Tree:
     return {
         rel: yaml.safe_load((INJECTION / rel).read_text(encoding="utf-8"))
-        for rel in ("models.yaml", "limits.yaml", "records/channels.yaml")
+        for rel in ("simulation/models.yaml", "limits.yaml", "records/channels.yaml")
     }
 
 
@@ -186,7 +186,9 @@ _DOCUMENTS = [{"id": "spec-1", "title": "Magnet list"}]
 
 
 def fixes(*entries: dict[str, Any]) -> Edit:
-    return put("fixes.yaml", {"schema": "osprey.facility.fixes/1", "fixes": list(entries)})
+    return put(
+        "provenance/fixes.yaml", {"schema": "osprey.facility.fixes/1", "fixes": list(entries)}
+    )
 
 
 def limits(*records: dict[str, Any]) -> Edit:
@@ -194,11 +196,11 @@ def limits(*records: dict[str, Any]) -> Edit:
 
 
 def seeds(**by_address: dict[str, Any]) -> Edit:
-    return put("seeds.yaml", by_address)
+    return put("simulation/seeds.yaml", by_address)
 
 
 def scenario(name: str, body: dict[str, Any]) -> Edit:
-    return put(f"scenarios/{name}.yaml", body)
+    return put(f"simulation/scenarios/{name}.yaml", body)
 
 
 def logged(name: str, *attachments: dict[str, Any]) -> Edit:
@@ -294,10 +296,10 @@ MML_DECK = "imported/mml/decks/SR.json"
 def imported_sr(tree: Tree) -> None:
     """Move model SR and its deck into the mml layer."""
     record = model(tree, "SR")
-    tree["models.yaml"].remove(record)
+    tree["simulation/models.yaml"].remove(record)
     record["deck"] = MML_DECK
     tree.setdefault(MML_MODELS, []).append(record)
-    tree[MML_DECK] = tree.pop("decks/sr.json")
+    tree[MML_DECK] = tree.pop("simulation/decks/sr.json")
 
 
 def imported_wiring(index: int, **slots: Any) -> Edit:
@@ -969,7 +971,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "source_invalid__model_name": (
-        _plain(put("models.yaml", [{**NO_DECK, "name": "optics-1"}])),
+        _plain(put("simulation/models.yaml", [{**NO_DECK, "name": "optics-1"}])),
         (
             "facility: source-invalid: model optics-1 — the name does not match "
             "[A-Za-z_][A-Za-z0-9_]*; fix: rename the model"
@@ -977,7 +979,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "source_invalid__model_names_casefold": (
         _plain(
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
             put(MML_MODELS, [{"name": "Optics", "engine": "pyat"}]),
         ),
         (
@@ -995,20 +997,23 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "source_invalid__bare_noise": (
         _plain(seeds(**{"BPM1:X": {"noise": 0.1}})),
         (
-            "facility: source-invalid: path channels.0.simulation.noise — seeds.yaml: input "
-            "should be a valid dictionary or instance of Noise; fix: correct `noise` in seeds.yaml"
+            "facility: source-invalid: path channels.0.simulation.noise — simulation/seeds.yaml: input "
+            "should be a valid dictionary or instance of Noise; fix: correct `noise` in simulation/seeds.yaml"
         ),
     ),
     "source_invalid__seed_noise_abs": (
         _plain(seeds(**{"BPM1:X": {"noise": {"noise_abs": 0.1}}})),
         (
-            "facility: source-invalid: path channels.0.simulation.noise.noise_abs — seeds.yaml: "
-            "extra inputs are not permitted; fix: remove `noise_abs` from seeds.yaml"
+            "facility: source-invalid: path channels.0.simulation.noise.noise_abs — simulation/seeds.yaml: "
+            "extra inputs are not permitted; fix: remove `noise_abs` from simulation/seeds.yaml"
         ),
     ),
     "layer_conflict__map_slot": (
         _plain(
-            put("models.yaml", [{**NO_DECK, "settings": {"pyat": {"solve": "single_pass"}}}]),
+            put(
+                "simulation/models.yaml",
+                [{**NO_DECK, "settings": {"pyat": {"solve": "single_pass"}}}],
+            ),
             put(
                 MML_MODELS,
                 [{"name": "optics", "settings": {"pyat": {"twiss_in": {"beta": [1.0, 1.0]}}}}],
@@ -1017,7 +1022,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: layer-conflict: model optics — `settings` differs: authored={pyat: {solve: "
             "single_pass}}; mml={pyat: {twiss_in: {beta: [1.0, 1.0]}}}; fix: add a `set` fix for "
-            "`settings` to fixes.yaml"
+            "`settings` to provenance/fixes.yaml"
         ),
     ),
     "layer_conflict__on": (
@@ -1027,7 +1032,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: layer-conflict: channel BPM1:X — `on` differs: authored={device: SR/BPM1}; "
-            "mml={place: SR}; fix: add a `set` fix for `on` to fixes.yaml"
+            "mml={place: SR}; fix: add a `set` fix for `on` to provenance/fixes.yaml"
         ),
     ),
     "layer_duplicate__id_twice": (
@@ -1042,7 +1047,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(fixes({"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"})),
         (
             "facility: fix-missing: device SR/Q9 — no device SR/Q9 exists; fix: remove the fix "
-            "from fixes.yaml"
+            "from provenance/fixes.yaml"
         ),
     ),
     "fix_stale__was": (
@@ -1081,8 +1086,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             ),
         ),
         (
-            "facility: fix-duplicate: channel BPM1:X — fixes.yaml has `drop` and `set` for it; "
-            "fix: keep one fix per record in fixes.yaml"
+            "facility: fix-duplicate: channel BPM1:X — provenance/fixes.yaml has `drop` and `set` for it; "
+            "fix: keep one fix per record in provenance/fixes.yaml"
         ),
     ),
     "fix_computed__set": (
@@ -1148,12 +1153,15 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(
             put(MML_MODELS, [{"name": "optics", "engine": "pyat", "wiring": []}]),
             put("imported/mml/groups.yaml", [{"id": "SR/BPMS", "members": ["SR/BPM1"]}]),
-            put("measurement/optics.yaml", {"kinds": ["orm"], "groups": {"bpm": "SR/BPMS"}}),
+            put(
+                "simulation/measurement/optics.yaml",
+                {"kinds": ["orm"], "groups": {"bpm": "SR/BPMS"}},
+            ),
             fixes({"op": "drop", "kind": "group", "id": "SR/BPMS", "why": "x"}),
         ),
         (
             "facility: fix-referenced: group SR/BPMS — `drop` leaves 1 referrer(s): "
-            "measurement/optics.yaml (groups); fix: drop or re-point each referrer by a fix"
+            "simulation/measurement/optics.yaml (groups); fix: drop or re-point each referrer by a fix"
         ),
     ),
     "reference_missing__on_device": (
@@ -1191,7 +1199,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "reference_missing__linear_input": (
         _plain(seeds(**{"BPM1:X": {"linear": {"Q9:SP": 1.0}}})),
         (
-            "facility: reference-missing: channel BPM1:X — seeds.yaml `simulation.linear` names "
+            "facility: reference-missing: channel BPM1:X — simulation/seeds.yaml `simulation.linear` names "
             "channel Q9:SP, which does not exist; fix: add channel Q9:SP or correct "
             "`simulation.linear`"
         ),
@@ -1205,17 +1213,20 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "reference_missing__wiring_address": (
         _plain(
-            put("models.yaml", [{**NO_DECK, "wiring": [{"address": "Q9:SP", "element": "Q9"}]}])
+            put(
+                "simulation/models.yaml",
+                [{**NO_DECK, "wiring": [{"address": "Q9:SP", "element": "Q9"}]}],
+            )
         ),
         (
-            "facility: reference-missing: wiring optics/Q9:SP — models.yaml `address` names "
+            "facility: reference-missing: wiring optics/Q9:SP — simulation/models.yaml `address` names "
             "channel Q9:SP, which does not exist; fix: add channel Q9:SP or correct `address`"
         ),
     ),
     "reference_missing__slice_device": (
         _plain(
             put(
-                "models.yaml",
+                "simulation/models.yaml",
                 [
                     {
                         **NO_DECK,
@@ -1230,7 +1241,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             )
         ),
         (
-            "facility: reference-missing: wiring optics/Q1:SP — models.yaml `slices.device` names "
+            "facility: reference-missing: wiring optics/Q1:SP — simulation/models.yaml `slices.device` names "
             "device SR/Q9, which does not exist; fix: add device SR/Q9 or correct `slices.device`"
         ),
     ),
@@ -1270,7 +1281,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "reference_missing__seed_address": (
         _plain(seeds(**{"Q9:RB": {"nominal": 1.0}})),
         (
-            "facility: reference-missing: seed Q9:RB — seeds.yaml `address` names channel Q9:RB, "
+            "facility: reference-missing: seed Q9:RB — simulation/seeds.yaml `address` names channel Q9:RB, "
             "which does not exist; fix: add channel Q9:RB or correct `address`"
         ),
     ),
@@ -1285,14 +1296,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "reference_missing__override": (
         _plain(scenario("warm", {"overrides": {"Q9:SP": 1.0}})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `overrides` names "
+            "facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `overrides` names "
             "channel Q9:SP, which does not exist; fix: add channel Q9:SP or correct `overrides`"
         ),
     ),
     "reference_missing__archiver": (
         _plain(scenario("warm", {"archiver": [{"channel": "Q9:RB"}]})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `archiver.channel` "
+            "facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `archiver.channel` "
             "names channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct "
             "`archiver.channel`"
         ),
@@ -1300,21 +1311,21 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "reference_missing__fault_model": (
         _plain(scenario("warm", {"faults": {"optics": {"BPM1:X": 1.0}}})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `faults` names "
+            "facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `faults` names "
             "model optics, which does not exist; fix: add model optics or correct `faults`"
         ),
     ),
     "reference_missing__couple": (
         _plain(scenario("warm", {"couple": {"Q9:RB": [{"driver": "d", "gain": 1.0}]}})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `couple` names "
+            "facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `couple` names "
             "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `couple`"
         ),
     ),
     "reference_missing__noise": (
         _plain(scenario("warm", {"noise": {"Q9:RB": {"absolute": 0.1}}})),
         (
-            "facility: reference-missing: scenario warm — scenarios/warm.yaml `noise` names "
+            "facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `noise` names "
             "channel Q9:RB, which does not exist; fix: add channel Q9:RB or correct `noise`"
         ),
     ),
@@ -1322,36 +1333,42 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(logged("warm", {"path": "plots/absent.png"})),
         (
             "facility: reference-missing: scenario warm — `logbook.E-1.attachments` names "
-            "scenarios/warm/plots/absent.png, which does not exist; fix: add "
-            "scenarios/warm/plots/absent.png or correct `logbook.E-1.attachments`"
+            "simulation/scenarios/warm/plots/absent.png, which does not exist; fix: add "
+            "simulation/scenarios/warm/plots/absent.png or correct `logbook.E-1.attachments`"
         ),
     ),
     "reference_missing__measurement_model": (
-        _plain(put("measurement/optics.yaml", {"kinds": ["orm"]})),
+        _plain(put("simulation/measurement/optics.yaml", {"kinds": ["orm"]})),
         (
-            "facility: reference-missing: measurement optics — measurement/optics.yaml `file "
+            "facility: reference-missing: measurement optics — simulation/measurement/optics.yaml `file "
             "name` names model optics, which does not exist; fix: add model optics or correct "
             "`file name`"
         ),
     ),
     "reference_missing__measurement_group": (
         _plain(
-            put("models.yaml", [NO_DECK]),
-            put("measurement/optics.yaml", {"kinds": ["orm"], "groups": {"bpm": "SR/BPMS"}}),
+            put("simulation/models.yaml", [NO_DECK]),
+            put(
+                "simulation/measurement/optics.yaml",
+                {"kinds": ["orm"], "groups": {"bpm": "SR/BPMS"}},
+            ),
         ),
         (
-            "facility: reference-missing: measurement optics — measurement/optics.yaml "
+            "facility: reference-missing: measurement optics — simulation/measurement/optics.yaml "
             "`groups.bpm` names group SR/BPMS, which does not exist; fix: add group SR/BPMS or "
             "correct `groups.bpm`"
         ),
     ),
     "reference_missing__measurement_instrument": (
         _plain(
-            put("models.yaml", [NO_DECK]),
-            put("measurement/optics.yaml", {"kinds": ["orm"], "instruments": {"rf": "RF:FREQ"}}),
+            put("simulation/models.yaml", [NO_DECK]),
+            put(
+                "simulation/measurement/optics.yaml",
+                {"kinds": ["orm"], "instruments": {"rf": "RF:FREQ"}},
+            ),
         ),
         (
-            "facility: reference-missing: measurement optics — measurement/optics.yaml "
+            "facility: reference-missing: measurement optics — simulation/measurement/optics.yaml "
             "`instruments.rf` names channel RF:FREQ, which does not exist; fix: add channel "
             "RF:FREQ or correct `instruments.rf`"
         ),
@@ -1359,7 +1376,10 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "reference_missing__measurement_kind_member": (
         _deck(
             put(GROUPS_FILE, [QUAD_GROUP]),
-            put("measurement/SR.yaml", {"kinds": ["trm"], "groups": {"quad": "SR/Q"}, **TRM_STEP}),
+            put(
+                "simulation/measurement/SR.yaml",
+                {"kinds": ["trm"], "groups": {"quad": "SR/Q"}, **TRM_STEP},
+            ),
         ),
         (
             "facility: reference-missing: measurement SR — kind trm needs `instruments.tune`, "
@@ -1371,7 +1391,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _deck(
             put(GROUPS_FILE, [QUAD_GROUP]),
             put(
-                "measurement/SR.yaml",
+                "simulation/measurement/SR.yaml",
                 {
                     "kinds": ["trm"],
                     "groups": {"quad": "SR/Q"},
@@ -1387,7 +1407,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "reference_missing__measurement_single_pass": (
-        _deck(put("measurement/LINE.yaml", {"kinds": ["trm"], **TRM_STEP})),
+        _deck(put("simulation/measurement/LINE.yaml", {"kinds": ["trm"], **TRM_STEP})),
         (
             "facility: reference-missing: measurement LINE — kind trm needs a periodic solve; "
             "model LINE solves single_pass; fix: remove trm from `kinds`; a single_pass model "
@@ -1412,7 +1432,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "reference_missing__relation_source": (
         _deck(
-            put("documents.yaml", _DOCUMENTS),
+            put("provenance/documents.yaml", _DOCUMENTS),
             put("records/relations.yaml", [_powered("qf-power", source={"document": "spec-9"})]),
         ),
         (
@@ -1423,7 +1443,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "reference_missing__citation_document": (
         _deck(
-            put("documents.yaml", _DOCUMENTS),
+            put("provenance/documents.yaml", _DOCUMENTS),
             update("records/devices.yaml", 0, citations=[{"document": "spec-9"}]),
         ),
         (
@@ -1434,7 +1454,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "reference_missing__scheme_name_source": (
         _deck(
-            put("documents.yaml", _DOCUMENTS),
+            put("provenance/documents.yaml", _DOCUMENTS),
             update(
                 "records/devices.yaml",
                 0,
@@ -1511,15 +1531,15 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(update("records/devices.yaml", 0, **{"class": "Warp"})),
         (
             "facility: class-unknown: device SR/Q1 — class Warp is in neither the vocabulary nor "
-            "classes.yaml; fix: use a vocabulary class or add it to classes.yaml"
+            "vocabulary/classes.yaml; fix: use a vocabulary class or add it to vocabulary/classes.yaml"
         ),
     ),
     "class_unknown__parent": (
-        _plain(put("classes.yaml", [{"class": "Septum2", "parent": "Warp"}])),
+        _plain(put("vocabulary/classes.yaml", [{"class": "Septum2", "parent": "Warp"}])),
         (
-            "facility: class-unknown: class Septum2 — classes.yaml `parent` Warp is neither a "
+            "facility: class-unknown: class Septum2 — vocabulary/classes.yaml `parent` Warp is neither a "
             "vocabulary class nor an earlier facility-added class; fix: name a vocabulary class "
-            "or a class listed earlier in classes.yaml"
+            "or a class listed earlier in vocabulary/classes.yaml"
         ),
     ),
     "pair_invalid__pair_on_readback": (
@@ -1559,7 +1579,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "pair_invalid__element_and_slices": (
         _plain(
             put(
-                "models.yaml",
+                "simulation/models.yaml",
                 [
                     {
                         **NO_DECK,
@@ -1578,7 +1598,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "pair_invalid__weight_zero": (
         _plain(
             put(
-                "models.yaml",
+                "simulation/models.yaml",
                 [
                     {
                         **NO_DECK,
@@ -1597,7 +1617,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "pair_invalid__weight_non_finite": (
         _plain(
             put(
-                "models.yaml",
+                "simulation/models.yaml",
                 [
                     {
                         **NO_DECK,
@@ -1619,7 +1639,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "pair_invalid__endpoint_unnamed": (
         _plain(
             update("records/channels.yaml", 0, endpoint_of=["SR/BPM1"]),
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
         ),
         (
             "facility: pair-invalid: wiring optics/Q1:SP — `endpoint_of` device SR/BPM1 is named "
@@ -1769,7 +1789,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _deck(
             put(GROUPS_FILE, [QUAD_GROUP]),
             put(
-                "measurement/SR.yaml",
+                "simulation/measurement/SR.yaml",
                 {"kinds": ["trm"], "groups": {"quad": "SR/Q"}, "instruments": {"tune": "BPM1:X"}},
             ),
         ),
@@ -1842,7 +1862,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "value_invalid__fault": (
         _plain(
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
             scenario("warm", {"faults": {"optics": {"BPM1:X": "high"}}}),
         ),
         (
@@ -1872,24 +1892,24 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(logged("warm", {"path": "../trend.png"})),
         (
             "facility: value-invalid: scenario warm — `logbook.E-1.attachments` path "
-            "../trend.png leaves scenarios/warm/; fix: name a file inside scenarios/warm/"
+            "../trend.png leaves simulation/scenarios/warm/; fix: name a file inside simulation/scenarios/warm/"
         ),
     ),
     "value_invalid__attachment_picture_bytes": (
         _plain(
             logged("warm", {"path": "plots/trend.png"}),
-            put("scenarios/warm/plots/trend.png", "not a picture\n"),
+            put("simulation/scenarios/warm/plots/trend.png", "not a picture\n"),
         ),
         (
             "facility: value-invalid: scenario warm — `logbook.E-1.attachments` path "
             "plots/trend.png does not hold .png image data; fix: replace "
-            "scenarios/warm/plots/trend.png with a .png picture"
+            "simulation/scenarios/warm/plots/trend.png with a .png picture"
         ),
     ),
     "value_invalid__attachment_plot_suffix": (
         _plain(
             logged("warm", {"plot": "plots/trend.txt"}),
-            put("scenarios/warm/plots/trend.txt", "{}\n"),
+            put("simulation/scenarios/warm/plots/trend.txt", "{}\n"),
         ),
         (
             "facility: value-invalid: scenario warm — `logbook.E-1.attachments` plot "
@@ -2080,7 +2100,10 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "value_invalid__linear_wired": (
-        _plain(put("models.yaml", [NO_DECK]), seeds(**{"BPM1:X": {"linear": {"Q1:SP": 1.0}}})),
+        _plain(
+            put("simulation/models.yaml", [NO_DECK]),
+            seeds(**{"BPM1:X": {"linear": {"Q1:SP": 1.0}}}),
+        ),
         (
             "facility: value-invalid: channel BPM1:X — `linear` input Q1:SP is wired; fix: take "
             "`linear` inputs from unwired float channels and drop `nominal`"
@@ -2151,7 +2174,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "value_invalid__stuck_under_faults": (
         _plain(
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
             scenario("warm", {"faults": {"optics": {"BPM1:X": "stuck"}}}),
         ),
         (
@@ -2195,7 +2218,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             )
         ),
         (
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 of "
             "channel BPM1:X has `at_when` {'days_ago': -1, 'time': '08:00'}; days_ago must be a "
             "non-negative integer; fix: write `days_ago` as 0 or more"
         ),
@@ -2215,7 +2238,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             )
         ),
         (
-            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 of "
+            "facility: value-invalid: scenario warm — simulation/scenarios/warm.yaml `archiver` event 1 of "
             "channel BPM1:X has `at_time` '08:00+02:00'; time is local time and must not carry "
             "a timezone offset; fix: write `at_time` as HH:MM:SS without an offset"
         ),
@@ -2232,7 +2255,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "seed_invalid__nominal_wired": (
-        _plain(put("models.yaml", [NO_DECK]), seeds(**{"Q1:SP": {"nominal": 1.0}})),
+        _plain(put("simulation/models.yaml", [NO_DECK]), seeds(**{"Q1:SP": {"nominal": 1.0}})),
         (
             "facility: seed-invalid: channel Q1:SP — a `nominal` on a channel model optics wires; "
             "fix: remove `nominal`; the operating point comes from the deck"
@@ -2305,7 +2328,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "seed_invalid__fault_out_of_band": (
         _plain(
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
             limits({"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}),
             scenario("warm", {"faults": {"optics": {"Q1:SP": -2.0}}}),
         ),
@@ -2347,7 +2370,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: seed-missing: channel Q2:SP — limits band [1, 2] excludes 0 and the "
-            "channel has no seed; fix: add a nominal for it in data/facility/seeds.yaml"
+            "channel has no seed; fix: add a nominal for it in data/facility/simulation/seeds.yaml"
         ),
     ),
     "limit_invalid__writable": (
@@ -2442,7 +2465,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "span_invalid__no_deck": (
         _deck(
-            append("models.yaml", {"name": "BOOST", "engine": "pyat", "wiring": []}),
+            append("simulation/models.yaml", {"name": "BOOST", "engine": "pyat", "wiring": []}),
             append(
                 "records/places.yaml", {"id": "BR", "span": {"model": "BOOST", "from_marker": "M0"}}
             ),
@@ -2582,14 +2605,14 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "engine_invalid__frozen_cavity": (
-        _deck(put("decks/sr.json", sr_deck(_cavity))),
+        _deck(put("simulation/decks/sr.json", sr_deck(_cavity))),
         (
             "facility: engine-invalid: model SR — cavity RFC has no longitudinal motion in a "
             "periodic deck; fix: give the cavity a longitudinal pass method such as RFCavityPass"
         ),
     ),
     "engine_invalid__repeated_monitors": (
-        _deck(put("decks/sr.json", sr_deck(lambda at: at.Monitor("BPM1")))),
+        _deck(put("simulation/decks/sr.json", sr_deck(lambda at: at.Monitor("BPM1")))),
         (
             "facility: engine-invalid: model SR — monitor names repeat in the deck: BPM1; fix: "
             "give every monitor a unique name in the deck"
@@ -2717,7 +2740,9 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
     ),
     "model_conflict__texture": (
-        _plain(put("models.yaml", [{"name": "texture", "engine": "texture", "wiring": []}])),
+        _plain(
+            put("simulation/models.yaml", [{"name": "texture", "engine": "texture", "wiring": []}])
+        ),
         (
             "facility: model-conflict: model texture — a source declares model texture, which the "
             "build provides; fix: remove model texture; every channel no model wires is texture's"
@@ -2725,7 +2750,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     ),
     "model_conflict__status_address": (
         _plain(
-            put("models.yaml", [NO_DECK]),
+            put("simulation/models.yaml", [NO_DECK]),
             append("records/channels.yaml", {"id": "demo:SIM:optics:STATUS"}),
         ),
         (
@@ -3336,7 +3361,7 @@ BUILD_IDS = _build_ids()
 def _write(tmp_path: Path, case: str) -> Path:
     make, _line = CASES[case]
     tree = make()
-    if any(rel.startswith(("decks/", "imported/mml/decks/")) for rel in tree):
+    if any(rel.startswith(("simulation/decks/", "imported/mml/decks/")) for rel in tree):
         pytest.importorskip("at")
     return write_tree(tmp_path / "facility", tree)
 
@@ -3628,7 +3653,7 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_validates(
     _clear_facility_records(repo / "data" / "facility")
     make, _line = CASES["seed_missing__band_excludes_zero"]
     tree = make()
-    tree["seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
+    tree["simulation/seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
     write_tree(repo / "data" / "facility", tree)
 
     # Validate runs the build's facility stages and renders every view in memory.
@@ -3666,7 +3691,7 @@ def test_two_layers_stating_and_defaulting_a_slot_build(tmp_path: Path) -> None:
     tree = _plain(
         put(MML_CHANNELS, [{"id": "BPM1:X", "role": "readback", "value_type": "float"}]),
         put(
-            "models.yaml",
+            "simulation/models.yaml",
             [{**NO_DECK, "wiring": [{"address": "Q1:SP", "slices": [{"element": "Q1"}]}]}],
         ),
         put(

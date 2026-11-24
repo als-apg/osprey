@@ -46,7 +46,7 @@ def registry_kind(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _tree(block: dict[str, Any] | None = None) -> dict[str, Any]:
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {
+    tree["simulation/measurement/SR.yaml"] |= {
         "kinds": [REGISTRY_KIND],
         "corrector_delta": 1.0e-5,
         "kind_blocks": {REGISTRY_KIND: dict(block or BLOCK)},
@@ -95,7 +95,7 @@ def test_a_kinds_facts_writer_writes_into_the_models_kind_block(tmp_path):
 @pytest.mark.usefixtures("registry_kind")
 def test_two_models_giving_one_kind_two_blocks_each_carry_their_own_facts(tmp_path):
     tree = _tree()
-    tree["measurement/LINE.yaml"] |= {
+    tree["simulation/measurement/LINE.yaml"] |= {
         "kinds": ["orm", REGISTRY_KIND],
         "instruments": {"tune": "SR:TUNE:X"},
         "kind_blocks": {REGISTRY_KIND: {**BLOCK, "trigger_sample": 3}},

@@ -459,9 +459,9 @@ def test_a_deck_the_layer_serves_passes_the_build_deck_checks(tmp_path: Path) ->
 
     tree = deck_tree()
     record = model(tree, "SR")
-    tree["models.yaml"].remove(record)
+    tree["simulation/models.yaml"].remove(record)
     tree["imported/mml/models.yaml"] = [{**record, "deck": f"{DECKS_DIR}/SR.json"}]
-    del tree["decks/sr.json"]
+    del tree["simulation/decks/sr.json"]
     root = write_tree(tmp_path / "facility", tree)
     raw = sr_deck(frozen, lambda at: at.Monitor("G"), lambda at: at.Monitor("G")).elements(at)
     deck = at.Lattice(raw, energy=3e9, periodicity=1)

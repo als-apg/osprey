@@ -446,7 +446,7 @@ class TestCommand:
         lines = result.stderr.splitlines()
         assert lines[0] == _refused_first_line("list", "channel")
         assert lines[1] == "data/facility/records/channels.yaml"
-        assert lines[2].startswith("move corrections into fixes.yaml")
+        assert lines[2].startswith("move corrections into provenance/fixes.yaml")
         assert not (repo / "data" / "facility" / LAYER_DIR).exists()
 
     def test_import_list_prints_each_refusal_and_exits_1(self, tmp_path: Path) -> None:
