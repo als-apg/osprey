@@ -329,6 +329,19 @@
           ],
           "default": null
         },
+        "started_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On a setpoint whose move a command starts: the command's address. The command's status states `idle`, the command states `timeout_s`, and no other setpoint names it.",
+          "title": "Started By"
+        },
         "tags": {
           "anyOf": [
             {

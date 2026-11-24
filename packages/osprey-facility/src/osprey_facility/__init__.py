@@ -103,6 +103,7 @@ RECORD_FACTS: Mapping[str, str] = MappingProxyType(
         "simulation": "seed-invalid",
         "timeout_s": "command-invalid",
         "idle": "command-invalid",
+        "started_by": "command-invalid",
         "command": "command-invalid",
     }
 )

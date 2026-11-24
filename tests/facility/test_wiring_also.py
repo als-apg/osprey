@@ -324,6 +324,7 @@ _STATED: dict[str, Any] = {
     "simulation": {"nominal": 1.0},
     "timeout_s": 2.0,
     "idle": 0,
+    "started_by": "QF:SP",
 }
 
 
