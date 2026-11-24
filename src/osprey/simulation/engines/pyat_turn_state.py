@@ -445,6 +445,7 @@ class TurnByTurnModel(PyATLatticeModel):
     ) -> tuple[dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]], TurnReading]:
         """Each monitor's ``(x, y, sum)`` arrays for one tracked shot, and the shot's reading."""
         from osprey.simulation.engines import pyat_turn_readout, pyat_turns
+        from osprey.simulation.engines.pyat_faults import sum_gain
         from osprey.simulation.engines.pyat_variables import pilot_tone_on, rf_on
 
         state = self.turn_state
@@ -525,6 +526,7 @@ class TurnByTurnModel(PyATLatticeModel):
                 shot=shot,
                 readout=settings.readout,
                 faults=self._faults(name, x_address, y_address, shot),
+                sum_gain=sum_gain(self.simulator.element(name)),
             )
         return arrays, reading
 

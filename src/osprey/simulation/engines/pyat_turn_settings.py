@@ -34,7 +34,9 @@ but ``injection_element`` defaulted:
   monitor readout, in :class:`~osprey.simulation.engines.pyat_turn_readout.TurnReadout`'s
   words.
 
-A wiring record's engine block names one of :data:`SIGNALS` by ``signal``;
+A wiring record's engine block names one of :data:`SIGNALS` by ``signal``.
+Such a record is served as the engine holds it -- a turn array's positions in
+metres, its sum in the block's sum units -- so it states no ``calibration``;
 an input's engine block names one of :data:`INPUT_SIGNALS`. The
 :data:`BEAM_SIGNALS` are the injected beam's settings a client or a scenario
 moves: ``offset_<coordinate>`` is added to the launch, and ``mismatch_x`` and
@@ -612,7 +614,8 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     Raises:
         ValueError: naming the address for an unknown signal; any other key
             beside ``signal``, but a pulsed kick's :data:`KICK_WORDS`; a
-            setting not wired ``direction: write``, or another signal that
+            ``calibration``, which no turn-by-turn record is read or written
+            through; a setting not wired ``direction: write``, or another signal that
             is; a monitor signal or a pulsed kick naming no single
             ``element``; a ring signal naming an element; whatever
             :func:`kick_words` refuses.
@@ -632,6 +635,12 @@ def describe_signal(record: Any) -> Mapping[str, Any]:
     )
     if extra:
         raise ValueError(f"{address} names signal {signal} beside {', '.join(extra)}")
+    if field(record, "calibration") is not None:
+        hint = "; a monitor's own sum scale is its fault `gain`" if signal == "turn_sum" else ""
+        raise ValueError(
+            f"{address}: signal {signal} states a calibration, but a turn-by-turn record is "
+            f"served as the engine holds it, through no curve; remove the calibration{hint}"
+        )
     write = field(record, "direction") == "write"
     if signal in SETTING_SIGNALS and not write:
         raise ValueError(f"{address}: signal {signal} is a setting; wire it with direction write")
