@@ -1169,8 +1169,9 @@ async def get_plan_source(
 # ---------------------------------------------------------------------------
 # The other half of the launch-approval hook's evidence. `GET /plans/{name}/source`
 # shows a human the code they are approving; this route shows them its
-# consequences — the channels the plan declares it will move and read, and the
-# values it would drive them to, for the exact parameters about to be launched.
+# consequences — the channels the plan declares it will move and read, the
+# values it would drive them to, and every channel write the launch makes as its
+# devices state them, for the exact parameters about to be launched.
 #
 # Nothing here moves anything. The worker builds the plan and walks its
 # instruction stream without a RunEngine consuming it (`qserver_startup.py`'s
@@ -1280,6 +1281,8 @@ def _preview_unavailable(
         "total_moves": 0,
         "truncated": False,
         "move_cap": None,
+        "writes": [],
+        "total_writes": None,
         "reason": reason,
         "detail": detail[:_PREVIEW_DETAIL_CHARS],
         "retryable": REFUSAL_REASONS[reason].retryable if reason in REFUSAL_REASONS else False,
@@ -1297,7 +1300,7 @@ def _preview_unavailable(
     },
 )
 async def preview_plan(name: str, request: Request) -> dict:
-    """The moves running ``name`` with the posted parameters would make. Moves nothing.
+    """The moves and writes running ``name`` with the posted parameters would make. Moves nothing.
 
     POST, and the request body is the plan's parameters exactly as the queue
     item carries them — one nested JSON object, the same mapping
@@ -1355,9 +1358,14 @@ async def preview_plan(name: str, request: Request) -> dict:
     On success the payload carries the worker's summary — ``moves`` (each
     ``{"channel", "target"}``, in the order the run would make them),
     ``total_moves`` (the exact count, whether or not the list holds them all),
-    ``truncated``, and the ``move_cap`` the worker collected up to — plus
-    ``channels``, this process's own reading of the plan's role declaration
-    against these parameters. ``channels`` is present on every answer, success
+    ``truncated``, the ``move_cap`` the worker collected up to, ``writes`` (one
+    ``{"channel", "device", "value", "count"}`` per channel address the launch
+    writes, in first-write order; ``value`` is ``None`` when the writes to that
+    channel carry differing values) and ``total_writes`` (the exact number of
+    writes, 0 for a launch that writes nothing) — plus ``channels``, this
+    process's own reading of the plan's role declaration against these
+    parameters. ``total_writes`` is ``None`` on every answer where no walk
+    completed, so 0 always means a walked launch that writes nothing. ``channels`` is present on every answer, success
     or not, whenever the plan is known. ``retryable`` is present on every
     answer: false on success and for the pre-flight's own words.
     """
@@ -1470,6 +1478,23 @@ async def preview_plan(name: str, request: Request) -> dict:
             plan_args=resolved,
         )
 
+    writes = payload.get("writes")
+    total_writes = payload.get("total_writes")
+    if (
+        not isinstance(writes, list)
+        or not isinstance(total_writes, int)
+        or isinstance(total_writes, bool)
+    ):
+        # A write total that is not one would let the gate tell an approver a
+        # launch is read-only, or writes a count it does not.
+        return _preview_unavailable(
+            name,
+            channels,
+            PREVIEW_REASON_FAILED,
+            "The pre-flight answered without the writes it would make.",
+            plan_args=resolved,
+        )
+
     return {
         "ok": True,
         "plan": name,
@@ -1478,6 +1503,8 @@ async def preview_plan(name: str, request: Request) -> dict:
         "total_moves": total_moves,
         "truncated": bool(payload.get("truncated")),
         "move_cap": payload.get("move_cap"),
+        "writes": writes,
+        "total_writes": total_writes,
         "reason": None,
         "detail": None,
         "retryable": False,
