@@ -403,7 +403,7 @@ async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
     from osprey.mcp_server.bluesky.tools.read_tools import RUN_DATA_MAX_BYTES
 
     columns = [
-        {"name": f"SR:DIAG:BPM:{index:03d}:POSITION:X", "unit": "unit-of-column"}
+        {"name": f"SR:DIAG:BPM:{index:03d}:POSITION:X", "unit": "unit-of-column", "shape": []}
         for index in range(300)
     ]
     rows = [[0.123456789 * (row + column) for column in range(300)] for row in range(400)]
@@ -429,6 +429,93 @@ async def test_get_run_data_cuts_a_wide_window_to_the_byte_budget(monkeypatch):
         assert data["row_count"] == 400
         assert data["columns"] == columns
         assert data["note"].startswith(f"{400 - kept} of the 400 rows asked for were left out")
+
+
+def _wide_body(columns, rows):
+    return {
+        "run_uid": "uid-1",
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "truncated": False,
+        "partial": False,
+    }
+
+
+async def test_a_row_wider_than_the_budget_lists_the_array_column_as_a_summary(monkeypatch):
+    """An array column too wide to list reads per cell as its length, min and max."""
+    wave = [float(index % 977) for index in range(20_000)]
+    columns = [
+        {"name": "x", "unit": None, "shape": []},
+        {"name": "det_wave", "unit": None, "shape": [20_000]},
+    ]
+    body = _wide_body(columns, [[1.0, wave]])
+    monkeypatch.setattr(f"{_MOD}._http_get_json", lambda path, **kwargs: (200, body))
+
+    result = await _fn("get_run_data")(run_id="run-1")
+    data = extract_response_dict(result)
+
+    assert data["rows"] == [[1.0, {"length": len(wave), "min": min(wave), "max": max(wave)}]]
+    assert data["columns"] == columns
+    assert "det_wave holds an array of [20000] per row, too wide to list" in data["note"]
+    assert "Run analysis computes over the full arrays." in data["note"]
+    assert "offset" not in data["note"]
+
+
+async def test_no_row_fitting_never_says_read_the_rest_with_offset(monkeypatch):
+    """When not one row fits, no offset can read the rest, so the note never offers one."""
+    from osprey.mcp_server.bluesky.tools.read_tools import RUN_DATA_MAX_BYTES
+
+    columns = [{"name": f"c{index}", "unit": None, "shape": []} for index in range(3_000)]
+    rows = [[0.123456789 * (row + column) for column in range(3_000)] for row in range(3)]
+    monkeypatch.setattr(
+        f"{_MOD}._http_get_json", lambda path, **kwargs: (200, _wide_body(columns, rows))
+    )
+
+    data = extract_response_dict(await _fn("get_run_data")(run_id="run-1"))
+
+    assert data["rows"] == []
+    assert data["truncated"] is True
+    assert (
+        f"one row of this run is wider than one answer of {RUN_DATA_MAX_BYTES} bytes"
+        in (data["note"])
+    )
+    assert "offset" not in data["note"]
+
+
+async def test_a_summarised_window_keeps_its_scalar_columns_whole(monkeypatch):
+    """Only the array column is summarised; a scalar column and a missing cell read as served."""
+    wave = [float(index) for index in range(20_000)]
+    columns = [
+        {"name": "x", "unit": "unit-x", "shape": []},
+        {"name": "det_wave", "unit": None, "shape": None},
+        {"name": "flag", "unit": None, "shape": None},
+    ]
+    rows = [[0.5, wave, 3], [1.5, None, 4], [2.5, [float("inf"), "text"], 5]]
+    monkeypatch.setattr(
+        f"{_MOD}._http_get_json", lambda path, **kwargs: (200, _wide_body(columns, rows))
+    )
+
+    data = extract_response_dict(await _fn("get_run_data")(run_id="run-1"))
+
+    assert data["rows"] == [
+        [0.5, {"length": len(wave), "min": 0.0, "max": wave[-1]}, 3],
+        [1.5, None, 4],
+        [2.5, {"length": 2, "min": None, "max": None}, 5],
+    ]
+    assert "det_wave holds an array per row, too wide to list" in data["note"]
+    assert "flag" not in data["note"]
+
+
+async def test_a_window_that_fits_keeps_its_array_cells_whole(monkeypatch):
+    """A window within the budget is relayed as served, arrays listed in full."""
+    columns = [{"name": "x", "unit": None, "shape": []}, {"name": "w", "unit": None, "shape": [3]}]
+    body = _wide_body(columns, [[1.0, [0.0, 1.0, 2.0]]])
+    monkeypatch.setattr(f"{_MOD}._http_get_json", lambda path, **kwargs: (200, body))
+
+    data = extract_response_dict(await _fn("get_run_data")(run_id="run-1"))
+
+    assert data == body
 
 
 # ---------------------------------------------------------------------------

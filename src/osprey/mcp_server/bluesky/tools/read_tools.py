@@ -33,6 +33,7 @@ the "Figure projection" section at the bottom of this file.
 """
 
 import json
+import math
 from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -333,7 +334,10 @@ async def get_run_data(
     at most ``max_rows`` rows AND at most :data:`RUN_DATA_MAX_BYTES` of JSON;
     a wide run (a response matrix records a column per corrector and per
     monitor) comes back with fewer rows than asked for, ``truncated: true``
-    and a ``note`` naming how many rows fit. Backed by
+    and a ``note`` naming how many rows fit. An array column too wide for one
+    answer (a waveform of thousands of samples) is given per cell as
+    ``{"length", "min", "max"}`` instead of its values, and the ``note`` names
+    the column; run analysis computes over the full arrays. Backed by
     the bridge's in-process live-row buffer (``GET /runs/{id}/data``), so
     reads work with no Tiled server — ``row_count``/``truncated`` describe
     the run's *true* total vs. what this window actually returned.
@@ -355,11 +359,19 @@ async def get_run_data(
         populated when they came from durable storage — a null there says which
         path served the read, not that anything is missing.
 
-        ``columns`` lists each column once as ``{"name", "unit"}``, in the
-        order every row's values follow: a row's n-th value belongs to the
+        ``columns`` lists each column once as ``{"name", "unit", "shape"}``, in
+        the order every row's values follow: a row's n-th value belongs to the
         n-th column and is in that column's ``unit``, the one the run declared.
         A null ``unit`` means the run declared none: report the unit as not
-        stated, never assume one.
+        stated, never assume one. ``shape`` is the size per axis the run
+        declared for the column: ``[]`` for a number, ``[1024]`` for a
+        waveform of 1024 samples, null when the run declared none.
+
+        A cell of an array column is a list of its values, unless the window
+        was too wide for one answer: then each cell of every array column is
+        ``{"length", "min", "max"}`` (its element count, and the least and
+        greatest of its finite numbers, null when it holds none) and the
+        ``note`` says which columns were summarised.
 
         ``analysis`` is the run's peak statistics, computed over the WHOLE run
         rather than this window, and is always present with the same six keys
@@ -427,12 +439,17 @@ RUN_DATA_MAX_BYTES = 64_000
 
 
 def _fit_to_budget(body: dict[str, Any] | list[Any], budget: int, *, tail: bool) -> str:
-    """``body`` as JSON, its window cut to the most rows whose answer fits ``budget`` bytes.
+    """``body`` as JSON, fitted to ``budget`` bytes in up to two steps.
 
-    The cut keeps the rows nearest the window's anchor: the first rows, or the
-    last ones for a ``tail`` read. A cut answer says so in ``truncated`` and in
-    a ``note`` naming how many rows were left out; the note is part of what
-    fits the budget.
+    A body that fits is relayed unchanged. One that does not first has every
+    array column (`_array_columns`) given per cell as ``{"length", "min",
+    "max"}`` (`_cell_summary`), and the ``note`` names each such column. If
+    that is still over, the window is cut to the most rows that fit, keeping
+    the rows nearest its anchor: the first rows, or the last ones for a
+    ``tail`` read. A cut answer says so in ``truncated`` and in the ``note``;
+    the note is part of what fits the budget. When not one row fits, the note
+    says a row is wider than one answer, and offers no offset, since none
+    could read it.
     """
     text = json.dumps(body)
     if not isinstance(body, dict):
@@ -440,16 +457,43 @@ def _fit_to_budget(body: dict[str, Any] | list[Any], budget: int, *, tail: bool)
     rows = body.get("rows")
     if len(text) <= budget or not isinstance(rows, list) or not rows:
         return text
-    columns = len(body.get("columns") or [])
+    columns = body.get("columns") or []
+
+    notes: list[str] = []
+    arrays = _array_columns(columns, rows)
+    if arrays:
+        rows = [
+            [
+                _cell_summary(cell) if index in arrays and isinstance(cell, list) else cell
+                for index, cell in enumerate(row)
+            ]
+            if isinstance(row, list)
+            else row
+            for row in rows
+        ]
+        notes.extend(_array_note(columns[index]) for index in sorted(arrays))
+        notes.append("Run analysis computes over the full arrays.")
+        summarised = {**body, "rows": rows, "note": " ".join(notes)}
+        text = json.dumps(summarised)
+        if len(text) <= budget:
+            return text
 
     def fitted(count: int) -> str:
         kept = (rows[-count:] if count else []) if tail else rows[:count]
-        note = (
-            f"{len(rows) - count} of the {len(rows)} rows asked for were left out: this run "
-            f"records {columns} columns, so {count} rows are what fit one answer of {budget} "
-            "bytes. Read the rest with offset, or compute over the run in python rather than "
-            "reading it row by row."
-        )
+        if count:
+            cut = (
+                f"{len(rows) - count} of the {len(rows)} rows asked for were left out: this "
+                f"run records {len(columns)} columns, so {count} rows are what fit one answer "
+                f"of {budget} bytes. Read the rest with offset, or compute over the run in "
+                "python rather than reading it row by row."
+            )
+        else:
+            cut = (
+                f"None of the {len(rows)} rows asked for were given: one row of this run is "
+                f"wider than one answer of {budget} bytes. Compute over the run in python "
+                "rather than reading it row by row."
+            )
+        note = " ".join([cut, *notes])
         return json.dumps({**body, "rows": kept, "truncated": True, "note": note})
 
     lo, hi = 0, len(rows)
@@ -460,6 +504,59 @@ def _fit_to_budget(body: dict[str, Any] | list[Any], budget: int, *, tail: bool)
         else:
             hi = mid - 1
     return fitted(lo)
+
+
+def _array_columns(columns: Sequence[Any], rows: Sequence[Any]) -> set[int]:
+    """The positions of the columns whose cells are arrays.
+
+    A column that states a ``shape`` of one or more axes is an array column;
+    one that states none is when any of the window's cells in it is a list.
+    """
+    found: set[int] = set()
+    for index, column in enumerate(columns):
+        shape = column.get("shape") if isinstance(column, dict) else None
+        if isinstance(shape, list):
+            if shape:
+                found.add(index)
+        elif any(
+            isinstance(row, list) and index < len(row) and isinstance(row[index], list)
+            for row in rows
+        ):
+            found.add(index)
+    return found
+
+
+def _array_note(column: Any) -> str:
+    name = column.get("name") if isinstance(column, dict) else None
+    shape = column.get("shape") if isinstance(column, dict) else None
+    of = f" of {json.dumps(shape)}" if shape else ""
+    return (
+        f"{name} holds an array{of} per row, too wide to list; each of its cells is given as "
+        "its length, min and max."
+    )
+
+
+def _cell_summary(cell: list[Any]) -> dict[str, Any]:
+    """One array cell as its element count and the range of its finite numbers."""
+    values = list(_leaves(cell))
+    numbers = [
+        value
+        for value in values
+        if isinstance(value, int | float) and not isinstance(value, bool) and math.isfinite(value)
+    ]
+    return {
+        "length": len(values),
+        "min": min(numbers) if numbers else None,
+        "max": max(numbers) if numbers else None,
+    }
+
+
+def _leaves(cell: list[Any]) -> Any:
+    for value in cell:
+        if isinstance(value, list):
+            yield from _leaves(value)
+        else:
+            yield value
 
 
 # ---------------------------------------------------------------------------
