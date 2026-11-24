@@ -38,12 +38,16 @@ from osprey.services.bluesky_bridge.plan_fields import (
     CHANNEL_ROLE_KEY,
     MOVABLE_ROLE,
     READABLE_ROLE,
+    TRIGGERED_ROLE,
     MovableChannel,
     MovableChannels,
     OptionalMovableChannel,
     OptionalReadableChannel,
+    OptionalTriggeredChannel,
     ReadableChannel,
     ReadableChannels,
+    TriggeredChannel,
+    TriggeredChannels,
     channel_roles,
     collect_channels,
     declared_channels,
@@ -100,6 +104,21 @@ class _PlainParams(BaseModel):
     axes: list[_PlainAxis] = Field(..., min_length=1)
 
 
+class _Shot(BaseModel):
+    """A nested model holding one triggered channel."""
+
+    command: TriggeredChannel
+
+
+class _Triggering(BaseModel):
+    """A plan-shaped model declaring every role, triggered between the other two."""
+
+    correctors: MovableChannels = Field(default_factory=list)
+    shutters: TriggeredChannels = Field(default_factory=list, title="Shutters")
+    monitors: ReadableChannels = Field(default_factory=list)
+    shots: list[_Shot] = Field(default_factory=list)
+
+
 def _strip_roles(node: Any) -> Any:
     """Recursively drop every ``x-channel-role`` key from a JSON schema."""
     if isinstance(node, dict):
@@ -120,16 +139,19 @@ def _rename_defs(schema: dict[str, Any], old: str, new: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    ("field_name", "role"),
+    ("model", "field_name", "role"),
     [
-        ("correctors", MOVABLE_ROLE),
-        ("monitors", READABLE_ROLE),
-        ("reference", READABLE_ROLE),
+        (_Params, "correctors", MOVABLE_ROLE),
+        (_Params, "monitors", READABLE_ROLE),
+        (_Params, "reference", READABLE_ROLE),
+        (_Triggering, "shutters", TRIGGERED_ROLE),
     ],
 )
-def test_top_level_field_serializes_its_role(field_name: str, role: str) -> None:
+def test_top_level_field_serializes_its_role(
+    model: type[BaseModel], field_name: str, role: str
+) -> None:
     """A role-typed field on the model itself carries its role in the schema."""
-    prop = _Params.model_json_schema()["properties"][field_name]
+    prop = model.model_json_schema()["properties"][field_name]
     assert prop[CHANNEL_ROLE_KEY] == role
 
 
@@ -325,6 +347,38 @@ def test_optional_singles_declare_their_role_and_skip_an_unset_value() -> None:
     assert collect_channels(_Guarded, {}, READABLE_ROLE) == []
 
 
+def test_the_triggered_role_is_declared_and_collected() -> None:
+    """A triggered field reads back as its own role, top-level and nested, and
+    its channels answer a triggered collect and no other.
+    """
+    assert channel_roles(_Triggering) == [
+        ("correctors", MOVABLE_ROLE),
+        ("shutters", TRIGGERED_ROLE),
+        ("monitors", READABLE_ROLE),
+        ("shots[].command", TRIGGERED_ROLE),
+    ]
+    args = {"shutters": ["SH1"], "shots": [{"command": "ACQ1"}], "monitors": ["BPM1"]}
+    assert collect_channels(_Triggering, args, TRIGGERED_ROLE) == ["SH1", "ACQ1"]
+    assert collect_channels(_Triggering, args, MOVABLE_ROLE) == []
+    assert collect_channels(_Triggering, args, READABLE_ROLE) == ["BPM1"]
+
+
+def test_an_optional_triggered_channel_keeps_its_role() -> None:
+    """The optional triggered single declares its role at the field level and an
+    unset value contributes no channel.
+    """
+
+    class _MaybeShot(BaseModel):
+        shot: OptionalTriggeredChannel = Field(default=None, title="Shot")
+
+    assert channel_roles(_MaybeShot) == [("shot", TRIGGERED_ROLE)]
+    assert _MaybeShot.model_json_schema()["properties"]["shot"][CHANNEL_ROLE_KEY] == (
+        TRIGGERED_ROLE
+    )
+    assert collect_channels(_MaybeShot, {"shot": "ACQ1"}, TRIGGERED_ROLE) == ["ACQ1"]
+    assert collect_channels(_MaybeShot, {"shot": None}, TRIGGERED_ROLE) == []
+
+
 def test_a_union_spelled_at_the_field_site_is_no_declaration() -> None:
     """Why the optional singles exist as their own types.
 
@@ -464,6 +518,20 @@ def test_declared_channels_is_every_role_movable_first() -> None:
     ]
 
 
+def test_declared_channels_is_movable_then_triggered_then_readable() -> None:
+    """The bound walks the roles in their declared order, whatever order the
+    fields come in.
+    """
+
+    class _Reversed(BaseModel):
+        monitors: ReadableChannels
+        shutters: TriggeredChannels
+        correctors: MovableChannels
+
+    args = {"monitors": ["BPM1"], "shutters": ["SH1"], "correctors": ["COR1"]}
+    assert declared_channels(_Reversed, args) == ["COR1", "SH1", "BPM1"]
+
+
 def test_declared_channels_reports_a_dual_role_channel_once() -> None:
     """A channel the plan both drives and records is one device, not two.
 
@@ -518,11 +586,33 @@ def test_scan_metadata_omits_interval_and_dimensionality_hints() -> None:
     assert set(md) == {"motors", "detectors", "num_points"}
 
 
+def test_scan_metadata_describes_a_plan_that_only_triggers() -> None:
+    """A plan that triggers and moves nothing still opens a described run: its
+    triggered channels are recorded, so they are among the run's detectors.
+    """
+    assert scan_metadata(movable=[], readable=["BPM1"], points=5, triggered=["ACQ1"]) == {
+        "motors": [],
+        "detectors": ["ACQ1", "BPM1"],
+        "num_points": 5,
+    }
+    assert scan_metadata(movable=[], readable=[], points=1, triggered=["ACQ1"])["detectors"] == [
+        "ACQ1"
+    ]
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
         ({"movable": [], "readable": ["BPM1"], "points": 3}, "movable"),
         ({"movable": ["COR1"], "readable": [], "points": 3}, "readable"),
+        (
+            {"movable": [], "readable": ["BPM1"], "points": 3, "triggered": []},
+            "movable or triggered",
+        ),
+        (
+            {"movable": ["COR1"], "readable": [], "points": 3, "triggered": []},
+            "records none",
+        ),
         ({"movable": ["COR1"], "readable": ["BPM1"], "points": 0}, "point"),
     ],
 )
