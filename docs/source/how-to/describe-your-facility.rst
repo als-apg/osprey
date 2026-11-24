@@ -171,7 +171,8 @@ wait until the act is over. What a channel is comes from its fields:
        integer on an int, a number on a float, text on a string; a waveform
        channel is never a status. Several commands may share one status. A status that states ``idle``
        is never followed: ``follows`` naming a setpoint on it stops the build
-       with ``command-invalid``.
+       with ``command-invalid``. In the simulator, the status's seed
+       ``responds`` plays the act (see Seeds).
    * - ``timeout_s``
      - On a command whose status states ``idle``: the longest one act may
        take, in seconds. A command and its status state the two together.
@@ -713,6 +714,42 @@ pair with whether the simulation follows it (``default``, ``seed`` or
 
    SR:VAC:VALVE:01:POSITION:OPEN:
      follows: none
+
+``responds`` makes a status read the act of its command. After each write to
+the command ``to``, the status reads ``value`` for ``for_s`` seconds, then its
+``idle`` again; a second write while the act runs starts its time again.
+``value`` may be left out on a status of two labels, where it is the label
+that is not ``idle``. The return to ``idle`` arrives on the simulator's next
+tick after ``for_s``, up to one tick late. A ``gate`` still wins: a gated
+status reads its gated value while an act runs.
+
+.. code-block:: yaml
+
+   - id: SR:MAG:PS:01:ON:COMMAND
+     role: setpoint
+     signal: power_on_command
+     value_type: bool
+     options: ['OFF', 'ON']
+     pair: SR:MAG:PS:01:ON:STATUS
+     timeout_s: 5.0
+   - id: SR:MAG:PS:01:ON:STATUS
+     signal: power_on_status
+     value_type: bool
+     options: ['OFF', 'ON']
+     idle: 'OFF'
+     simulation:
+       responds:
+         to: SR:MAG:PS:01:ON:COMMAND
+         for_s: 2.0
+
+The build stops with ``seed-invalid`` when a model wires the status, the
+status states no ``idle``, the seed states ``nominal`` or a value of its own
+beside ``responds``, ``to`` names a further address or no command paired with
+the status, or ``value`` is left out on a status without exactly two labels
+or equals ``idle``. It stops with ``value-invalid`` when the status is a float
+or waveform channel, ``for_s`` is not a finite number above zero, or ``value``
+does not fit the channel's type. A ``to`` that names no channel stops the
+build with ``reference-missing``.
 
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated
