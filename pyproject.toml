@@ -235,7 +235,7 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.11.15",
+    "osprey-connectors>=2026.11.16",
     # The facility description (facility.json, its schema, the layers that build
     # it). No floor until the package releases on its own tags: until then a
     # build is 0.0.postN, which a floor would make the image build refuse
