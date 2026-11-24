@@ -517,8 +517,9 @@ dependencies. Subsequent builds are near-instant.</p>
 agent reads and writes — a containerized simulator with LUME-backed physics, laid
 out in <a class="reference internal" href="../architecture/virtual-accelerator.html"><span class="doc">Virtual Accelerator</span></a> — and the <strong>archive</strong>, a
 MongoDB store and a recorder service that holds what those channels did.</p>
-<p>The simulator serves three physics models: <code class="docutils literal notranslate"><span class="pre">SR</span></code>, solved as a periodic machine,
-and the transfer lines <code class="docutils literal notranslate"><span class="pre">LTB</span></code> and <code class="docutils literal notranslate"><span class="pre">BTS</span></code>, solved single-pass.</p>
+<p>The simulator serves four physics models: <code class="docutils literal notranslate"><span class="pre">SR</span></code> and the booster <code class="docutils literal notranslate"><span class="pre">BR</span></code>, solved
+as periodic machines, and the transfer lines <code class="docutils literal notranslate"><span class="pre">LTB</span></code> and <code class="docutils literal notranslate"><span class="pre">BTS</span></code>, solved
+single-pass.</p>
 <p><strong>The first deploy seeds the archive</strong>, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
 serves, reporting a step under the start phase every 15 seconds or so while it
@@ -613,17 +614,17 @@ tools.</p>
 </div>
 <p>With the demo, you describe the channel in plain language and the
 agent figures out the PV for you:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read the current in the booster&#39;s defocusing quadrupole
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read the current of the booster&#39;s defocusing quadrupole supply
 </pre></div>
 </div>
 <p>The main agent delegates to the <strong>channel-finder</strong> sub-agent, which searches the
 facility knowledge graph and resolves your description to a real PV before reading it.
 The exact wording depends on your <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> and output style, but you’ll see
 something like:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Resolved &quot;booster defocusing quadrupole current&quot; → BR:MAG:QD:01:CURRENT:RB
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Resolved &quot;booster defocusing quadrupole supply current&quot; → BR:MAG:QD-RAMP:01:CURRENT:RB
 
-Channel: BR:MAG:QD:01:CURRENT:RB
-Value:   142.7 A
+Channel: BR:MAG:QD-RAMP:01:CURRENT:RB
+Value:   105.0 A
 Status:  OK
 </pre></div>
 </div>
@@ -840,8 +841,8 @@ relaunch:</p>
 osprey<span class="w"> </span>chat
 </pre></div>
 </div>
-<p>Your queries don’t change — “Read the current in the booster’s defocusing
-quadrupole” and “Plot the storage-ring beam current over the last 24 hours” now
+<p>Your queries don’t change — “Read the current of the booster’s defocusing
+quadrupole supply” and “Plot the storage-ring beam current over the last 24 hours” now
 run against your control system and its archiver. The connectors handle the
 difference; the agent, the channel finder, and your prompts stay the same.</p>
 <section id="next-steps">
