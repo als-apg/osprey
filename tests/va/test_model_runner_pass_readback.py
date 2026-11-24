@@ -11,10 +11,15 @@ corrector, a quadrupole or a texture setpoint write changes is one of the
 setpoint's records. The last checks that the runner reads back exactly that for
 a pass of setpoints, and the usual roster for a pass that writes nothing; it
 needs the serving package but no transport.
+
+A command's write pass reads back the status its write starts an act on, and
+a tick on the composite's clock once the act's stated time has passed reads
+that status idle again.
 """
 
 from __future__ import annotations
 
+import math
 import queue
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,7 +34,7 @@ from osprey.services.virtual_accelerator.serving.runner_config import (
     write_records,
 )
 from osprey_connectors.simulation.composite import Composite
-from osprey_connectors.simulation.view import SimulatorView
+from osprey_connectors.simulation.view import SEEDS_FILE, SimulatorView
 
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
@@ -139,6 +144,40 @@ def test_every_value_a_texture_write_changes_is_one_of_its_write_records(
 
         assert setpoint in changed
         assert changed <= pass_readback(records, [setpoint]), setpoint
+
+
+#: The example's ES1 commands, each with the status that reads its act.
+COMMANDS = {
+    "ES1:MOT:STAGE:01:MOVE:SP": "ES1:MOT:STAGE:01:STATUS:MOVE",
+    "ES1:DET:MCA:01:ACQUIRE:SP": "ES1:DET:MCA:01:STATUS:ACQUIRE",
+}
+
+
+@pytest.mark.parametrize(("command", "status"), sorted(COMMANDS.items()))
+def test_a_command_write_pass_reads_back_its_status(
+    composite: Composite, view: SimulatorView, command: str, status: str
+) -> None:
+    records = write_records(view, composite.texture_reach())
+
+    assert status in records[command]
+    assert status in pass_readback(records, [command])
+
+
+@pytest.mark.parametrize(("command", "status"), sorted(COMMANDS.items()))
+def test_a_tick_after_the_stated_time_reads_the_status_idle(
+    view: SimulatorView, tmp_path: Path, command: str, status: str
+) -> None:
+    now = [T0]
+    composite = Composite(view, state_dir=tmp_path / "state", clock=lambda: now[0], model_log=False)
+    seed = view.document(SEEDS_FILE)["seeds"][status]
+    idle, act = seed["nominal"], seed["responds"]["value"]
+
+    composite.write({command: "TRUE"})
+    acting = composite.get(status)
+    now[0] = math.nextafter(T0 + seed["responds"]["for_s"], math.inf)
+    composite.advance()
+
+    assert (acting, composite.get(status)) == (act, idle)
 
 
 def test_each_write_pass_reads_back_what_its_write_can_change(
