@@ -981,6 +981,16 @@ class _References:
                     yield from self._missing(
                         "channel", address, files, "simulation.linear", "channel", source
                     )
+            responds = simulation.get("responds") if isinstance(simulation, dict) else None
+            if isinstance(responds, dict) and "to" in responds:
+                yield from self._missing(
+                    "channel",
+                    address,
+                    self._seed_files(channel),
+                    "simulation.responds.to",
+                    "channel",
+                    responds["to"],
+                )
             yield from self._seed_inputs(address, channel)
             signal = channel.get("signal")
             if signal is not None and signal not in roles:
@@ -1241,8 +1251,16 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     states ``idle`` states no ``follows`` naming a setpoint; the simulation never
     follows it. A further address of a wiring record (under ``also``) states
     neither ``timeout_s`` nor ``idle``: the record's own hold under each of
-    its addresses. Runs once commands are marked, so the stop is
-    ``command-invalid`` alone.
+    its addresses. These stop with ``command-invalid``.
+
+    A status whose seed states ``responds`` is an unwired bool, enum, int or
+    string channel that states ``idle`` and no value of its own;
+    ``responds.to`` names, by its record's address, a command paired with that
+    status; ``for_s`` is a finite number > 0; ``value`` is typed by the
+    channel, differs from ``idle``, and is left out only on a status of two
+    labels. These stop with ``seed-invalid`` for what the seed sits beside or
+    names and ``value-invalid`` for a type or a number. Runs once commands are
+    marked.
 
     Args:
         document: The combined document, its commands marked ``command: true``.
@@ -1306,8 +1324,14 @@ class _Records:
                 )
                 continue
             yield from self._bound(address, channel, status_of.get(address))
+            idle_refused = False
             if "idle" in channel:
-                yield from self._idle(address, channel, awaited)
+                idle_errors = list(self._idle(address, channel, awaited))
+                idle_refused = bool(idle_errors)
+                yield from idle_errors
+            seed = channel.get("simulation")
+            if isinstance(seed, dict) and isinstance(seed.get("responds"), dict):
+                yield from self._responds(address, channel, status_of, idle_refused=idle_refused)
         for record in self.index.limits:
             address = str(record.get("address"))
             own = further[address][1] if address in further else address
@@ -1473,12 +1497,119 @@ class _Records:
                     f"type `idle` by the channel: {_IDLE_TYPING}",
                 )
 
-    def _idle_problem(self, address: str, idle: Any) -> str | None:
-        """Why ``idle`` does not fit its channel's type, or ``None``."""
+    def _responds(
+        self,
+        address: str,
+        channel: Mapping[str, Any],
+        status_of: Mapping[str, str],
+        *,
+        idle_refused: bool,
+    ) -> Iterator[FacilityBuildError]:
+        """A status's ``responds`` names its command and plays a value other than its ``idle``.
+
+        The first rule that fails ends the checks: what serves the status, its
+        type, its ``idle``, what the seed sits beside, ``for_s``, the command
+        ``to`` names, then ``value``.
+        """
+        seed = channel["simulation"]
+        responds = seed["responds"]
+        files = self._seed_files(channel)
+
+        def stop(code: str, detail: str, remedy: str) -> FacilityBuildError:
+            return self._error(code, "channel", address, files, detail, remedy)
+
+        wired = self.index.wired.get(address)
+        value_type = self._type(address)
+        beside = [key for key in ("nominal", *_OWN_VALUE_KEYS) if key in seed]
+        for_s = responds.get("for_s")
+        to = str(responds.get("to"))
+        if wired:
+            models = ", ".join(sorted(wired))
+            yield stop(
+                "seed-invalid",
+                f"`responds` on a channel model {models} wires",
+                f"remove `responds`; model `{models}` serves {address}",
+            )
+        elif value_type == "float" or is_waveform(value_type):
+            yield stop(
+                "value-invalid",
+                f"a {value_type} channel carries `responds`",
+                "state `responds` on a bool, enum, int or string status",
+            )
+        elif "idle" not in channel:
+            yield stop(
+                "seed-invalid",
+                "`responds` on a status that states no `idle`",
+                f"state `idle` on {address}",
+            )
+        elif beside:
+            yield stop(
+                "seed-invalid",
+                f"`responds` beside {quoted_slots(beside)}",
+                f"remove {quoted_slots(beside)}; a responding status reads its `idle` when no "
+                "act runs",
+            )
+        elif not (_finite(for_s) and for_s > 0):
+            yield stop(
+                "value-invalid",
+                f"`responds.for_s` {for_s!r} is not a finite number > 0",
+                "state `responds.for_s` as the seconds the status reads its act",
+            )
+        elif to in self._further:
+            wid, own = self._further[to]
+            yield stop(
+                "seed-invalid",
+                f"`responds.to` names {to}, which wiring record {wid} states under `also`",
+                f"name {own}; a command is named by its record's address",
+            )
+        elif to not in status_of:
+            yield stop(
+                "seed-invalid",
+                f"`responds.to` names {to}, which is no command",
+                f"name in `responds.to` a command whose `pair` is {address}",
+            )
+        elif status_of[to] != address:
+            yield stop(
+                "seed-invalid",
+                f"`responds.to` names command {to}, whose `pair` is {status_of[to]}",
+                f"name in `responds.to` a command whose `pair` is {address}",
+            )
+        elif "value" in responds:
+            yield from self._responds_value(address, channel, responds["value"], stop, idle_refused)
+        elif len(labels_of(channel) or ()) != 2:
+            yield stop(
+                "seed-invalid",
+                "`responds` states no `value` on a status without exactly two labels",
+                "state `responds.value`",
+            )
+
+    def _responds_value(
+        self,
+        address: str,
+        channel: Mapping[str, Any],
+        value: Any,
+        stop: Callable[[str, str, str], FacilityBuildError],
+        idle_refused: bool,
+    ) -> Iterator[FacilityBuildError]:
+        """A stated ``responds.value`` is typed like ``idle`` and differs from it."""
+        problem = self._idle_problem(address, value, "responds.value")
+        if problem is not None:
+            yield stop("value-invalid", problem, "type `responds.value` by the channel, as `idle`")
+        elif not idle_refused and (
+            self._coerce(address, value)[0] == self._coerce(address, channel["idle"])[0]
+        ):
+            yield stop(
+                "seed-invalid",
+                f"`responds.value` {value!r} is the status's `idle`",
+                "state as `responds.value` a value other than `idle`",
+            )
+
+    def _idle_problem(self, address: str, idle: Any, slot: str = "idle") -> str | None:
+        """Why ``idle``, or a value ``slot`` types like it, does not fit its channel, or ``None``."""
         value_type = self._type(address)
         if is_waveform(value_type):
-            return f"`idle` on waveform channel {address}; a waveform channel is never a status"
-        prefix = f"`idle` of {value_type} channel {address} is {idle!r}"
+            return f"`{slot}` on waveform channel {address}; a waveform channel is never a status"
+        prefix = f"`{slot}` of {value_type} channel {address} is {idle!r}"
         if value_type == "string":
             if not isinstance(idle, str):
                 return f"{prefix}, not text"
