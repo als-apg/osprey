@@ -1,10 +1,11 @@
 """Control-room-neutral device specs: plain dataclasses, no CA/ophyd imports.
 
-These describe *what* a device is (a settable setpoint/readback pair, or a
-read-only value) without naming the control system that backs it. Kept in
-their own module, free of ``ophyd_async`` imports and any raw Channel Access
-client library, so consumers that only need the shape (e.g. env parsing) can
-import it without pulling in ``ophyd_async`` or the rest of the device stack.
+These describe *what* a device is (a settable setpoint/readback pair, a
+command a plan triggers, or a read-only value) without naming the control
+system that backs it. Kept in their own module, free of ``ophyd_async``
+imports and any raw Channel Access client library, so consumers that only need
+the shape (e.g. env parsing) can import it without pulling in ``ophyd_async``
+or the rest of the device stack.
 """
 
 from __future__ import annotations
@@ -55,3 +56,28 @@ class ReadableSpec:
     read_pv: str
     unit: str | None = None
     shape: tuple[int] | None = None
+
+
+@dataclass(frozen=True)
+class TriggerableSpec:
+    """One command a plan triggers: its device-mapping name, command and status.
+
+    ``idle`` is what ``status`` reads while no act runs; ``timeout_s`` is the
+    longest one act may take, in seconds. The device records ``status`` under
+    ``name``.
+    """
+
+    name: str
+    command: str
+    status: str
+    idle: str | int | float | bool
+    timeout_s: float
+
+
+@dataclass(frozen=True)
+class DeviceSpecs:
+    """Every device a device file names, one list per kind."""
+
+    settables: list[SettableSpec]
+    readables: list[ReadableSpec]
+    triggerables: list[TriggerableSpec]

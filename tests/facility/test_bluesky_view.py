@@ -246,7 +246,7 @@ def test_a_readable_of_more_than_one_dimension_is_left_out_and_named_once(
     assert err.count(summary) == 1
     assert "CAM1:IMAGE" in err and "CAM2:IMAGE" in err
     assert "W:TRACE" not in err
-    _, readables = specs_from_file(tmp_path / "one" / BLUESKY_DEVICES_FILE)
+    readables = specs_from_file(tmp_path / "one" / BLUESKY_DEVICES_FILE).readables
     assert [(spec.name, spec.shape) for spec in readables] == [("W:TRACE", (500,))]
 
 
@@ -399,7 +399,8 @@ def test_the_file_opens_with_its_schema_and_loads_in_full(tmp_path: Path) -> Non
     assert "osprey build" in text
     loaded = yaml.safe_load(text)
     assert validate_device_document(loaded) == []
-    settables, readables = specs_from_file(target)
+    found = specs_from_file(target)
+    settables, readables = found.settables, found.readables
     assert [(s.name, s.setpoint_pv, s.readback_pv) for s in settables] == [("A:SP", "A:SP", "A:RB")]
     assert [(r.name, r.read_pv) for r in readables] == [("A:RB", "A:RB")]
 
@@ -498,7 +499,8 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
     assert len(setpoints) == 681
 
-    settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
+    found = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
+    settables, readables = found.settables, found.readables
 
     assert sorted(spec.name for spec in settables) == setpoints
     assert sorted(spec.name for spec in readables) == readbacks
@@ -510,7 +512,7 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
 def test_the_demo_view_states_each_waveform_as_an_array_of_its_length(
     built_demo: BuiltProject,
 ) -> None:
-    _, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
+    readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE).readables
 
     shaped = {spec.name: spec.shape for spec in readables if spec.shape is not None}
     assert shaped == {

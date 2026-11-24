@@ -502,7 +502,8 @@ class TestDeviceFileRoundTrip:
         path = tmp_path / "bluesky_devices.yml"
         write_devices_file(path, self._AWKWARD, source=_SOURCE, schema=_SCHEMA)
 
-        settables, readables = specs_from_file(path)
+        found = specs_from_file(path)
+        settables, readables = found.settables, found.readables
 
         assert [(spec.name, spec.setpoint_pv, spec.readback_pv) for spec in settables] == [
             (
@@ -524,7 +525,8 @@ class TestDeviceFileRoundTrip:
         path = tmp_path / "bluesky_devices.yml"
         document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
 
-        settables, readables = specs_from_file(path)
+        found = specs_from_file(path)
+        settables, readables = found.settables, found.readables
 
         assert [spec.name for spec in settables] == [
             entry["name"] for entry in document["settables"]

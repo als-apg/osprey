@@ -462,7 +462,8 @@ def _staged_devices(repo: Path) -> tuple[dict[str, tuple[str, str]], dict[str, s
     back) and ``{name: pv}`` for the readables.
     """
     staged = repo / "build" / "services" / LANE_ONE / BLUESKY_DEVICES_FILENAME
-    settables, readables = specs_from_file(staged)
+    found = specs_from_file(staged)
+    settables, readables = found.settables, found.readables
     return (
         {s.name: (s.setpoint_pv, s.readback_pv or s.setpoint_pv) for s in settables},
         {r.name: r.read_pv for r in readables},

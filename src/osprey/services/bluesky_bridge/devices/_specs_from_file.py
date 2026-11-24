@@ -5,10 +5,10 @@ virtual-accelerator manifest, the channel-finder database, or anything else
 host-side to discover which channels are scan devices. So the device set
 arrives as a file, mounted into the container and named by
 ``BLUESKY_DEVICES_FILE``, and is parsed here into the control-room-neutral
-``SettableSpec``/``ReadableSpec`` shapes that ``devices/connector.py`` builds
-from.
+``SettableSpec``/``TriggerableSpec``/``ReadableSpec`` shapes that
+``devices/connector.py`` builds from.
 
-The document has two device keys, both optional, and an optional ``schema``
+The document has three device keys, all optional, and an optional ``schema``
 line naming the document and its version::
 
     schema: osprey.facility.bluesky_devices/1
@@ -22,6 +22,12 @@ line naming the document and its version::
       - name: SR:C01:QD:1
         setpoint: SR:C01:QD:1:SP
         motion_band: 0.011         # optional; the readback's simulated motion
+    triggerables:
+      - name: ES1:MCA01:ACQ        # device name; its status is recorded under it
+        command: ES1:MCA01:ACQ     # the channel a trigger writes 1 to
+        status: ES1:MCA01:STATUS   # the channel that reports the act
+        idle: Idle                 # what the status reads while no act runs
+        timeout_s: 5.0             # the longest one act may take
     readables:
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
@@ -52,12 +58,13 @@ kept in step, and unifying them is a later piece of work.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from .specs import ReadableSpec, SettableSpec
+from .specs import DeviceSpecs, ReadableSpec, SettableSpec, TriggerableSpec
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.devices._specs_from_file")
 
@@ -67,11 +74,14 @@ SETTABLES_KEY = "settables"
 READABLES_KEY = "readables"
 """Top-level key holding the read-only device entries."""
 
+TRIGGERABLES_KEY = "triggerables"
+"""Top-level key holding the entries of commands a plan triggers."""
+
 SCHEMA_KEY = "schema"
 """Top-level key naming the document and its version; the parser does not read it."""
 
-TOP_LEVEL_KEYS = (SETTABLES_KEY, READABLES_KEY)
-"""The device keys the document may carry."""
+TOP_LEVEL_KEYS = (SETTABLES_KEY, TRIGGERABLES_KEY, READABLES_KEY)
+"""The device keys the document may carry, in the order names are claimed."""
 
 ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 """The only keys the document may carry; anything else rejects the document."""
@@ -106,6 +116,15 @@ _SETTABLE_TOLERANCE_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
 _READABLE_OPTIONAL = (UNIT_KEY,)
 _READABLE_SHAPE_OPTIONAL = (SHAPE_KEY,)
+IDLE_KEY = "idle"
+"""Required triggerable key: what the status reads while no act runs, a
+non-null scalar (text, a number or a bool)."""
+TIMEOUT_KEY = "timeout_s"
+"""Required triggerable key: the longest one act may take, a finite number of
+seconds > 0."""
+_TRIGGERABLE_REQUIRED = ("name", "command", "status")
+_TRIGGERABLE_SCALARS = (IDLE_KEY,)
+_TRIGGERABLE_POSITIVES = (TIMEOUT_KEY,)
 
 
 def _clean(value: Any) -> str | None:
@@ -168,6 +187,22 @@ def _shape(value: Any) -> tuple[int] | None:
     if isinstance(length, bool) or not isinstance(length, int) or length < 1:
         return None
     return (length,)
+
+
+def _scalar(value: Any) -> str | int | float | bool | None:
+    """Return ``value`` when it is a non-null scalar, else ``None``."""
+    return value if isinstance(value, str | int | float | bool) else None
+
+
+def _positive_seconds(value: Any) -> float | None:
+    """Return ``value`` as a finite float > 0, or ``None`` if it is not one.
+
+    A bool is refused as in ``_tolerance``.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) and number > 0 else None
 
 
 def _settle(value: Any) -> tuple[float | None, float | None] | None:
@@ -348,11 +383,58 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
     return specs
 
 
+def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
+    """Parse the ``triggerables`` section, skipping malformed entries with a warning.
+
+    An entry needs a non-empty ``name``, ``command`` and ``status``, an
+    ``idle`` that is a non-null scalar and a ``timeout_s`` that is a finite
+    number > 0. See ``_parse_settables``.
+    """
+    specs: list[TriggerableSpec] = []
+    for index, entry in enumerate(_entries(section, TRIGGERABLES_KEY)):
+        where = f"{TRIGGERABLES_KEY}[{index}]"
+        if not isinstance(entry, dict):
+            logger.warning("skipping %s: entry is not a mapping (%r)", where, entry)
+            continue
+
+        name = _clean(entry.get("name"))
+        command = _clean(entry.get("command"))
+        status = _clean(entry.get("status"))
+        if name is None or command is None or status is None:
+            logger.warning(
+                "skipping malformed %s (%r): needs a non-empty 'name', 'command' and 'status'",
+                where,
+                entry.get("name"),
+            )
+            continue
+
+        idle = _scalar(entry.get(IDLE_KEY))
+        if idle is None:
+            logger.warning("skipping %s (%r): %r must be a non-null scalar", where, name, IDLE_KEY)
+            continue
+
+        timeout_s = _positive_seconds(entry.get(TIMEOUT_KEY))
+        if timeout_s is None:
+            logger.warning(
+                "skipping %s (%r): %r must be a finite number > 0", where, name, TIMEOUT_KEY
+            )
+            continue
+
+        specs.append(
+            TriggerableSpec(
+                name=name, command=command, status=status, idle=idle, timeout_s=timeout_s
+            )
+        )
+    return specs
+
+
 def _drop_duplicate_names(
-    setpoints: list[SettableSpec], readbacks: list[ReadableSpec]
-) -> tuple[list[SettableSpec], list[ReadableSpec]]:
+    setpoints: list[SettableSpec],
+    triggerables: list[TriggerableSpec],
+    readbacks: list[ReadableSpec],
+) -> DeviceSpecs:
     """Drop any spec whose device name was already seen (setpoints first, then
-    readbacks), warning on each collision.
+    triggerables, then readbacks), warning on each collision.
 
     Device names become ophyd-async device names *and* event-data column keys;
     two devices sharing a name would make the scanned column ambiguous (see the
@@ -366,8 +448,7 @@ def _drop_duplicate_names(
         for spec in specs:
             if spec.name in seen:
                 logger.warning(
-                    "skipping device %r: name already claimed by an earlier "
-                    "setpoint/readback entry",
+                    "skipping device %r: name already claimed by an earlier device entry",
                     spec.name,
                 )
                 continue
@@ -375,24 +456,27 @@ def _drop_duplicate_names(
             kept.append(spec)
         return kept
 
-    return _keep(setpoints), _keep(readbacks)
+    settables = _keep(setpoints)
+    kept_triggerables = _keep(triggerables)
+    return DeviceSpecs(settables, _keep(readbacks), kept_triggerables)
 
 
-def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[ReadableSpec]]:
-    """Read the device file at ``path`` into settable and readable specs.
+def specs_from_file(path: str | Path) -> DeviceSpecs:
+    """Read the device file at ``path`` into settable, readable and triggerable specs.
 
-    Returns ``([], [])`` — never raises — when the file is unreadable, empty,
+    Returns no devices — never raises — when the file is unreadable, empty,
     unparseable, not a mapping, or carries an unknown top-level key. The last
     two reject the *whole* document with a single warning rather than loading
     the half of it that parsed: a typo'd ``readable:`` key would otherwise ship
     a deployment that looks healthy while quietly exposing no readbacks.
     Individual malformed entries are skipped with their own warning, and any
     device name that collides with an earlier one is dropped
-    (``_drop_duplicate_names``, settables resolving first).
+    (``_drop_duplicate_names``, settables resolving first, then triggerables).
     """
+    nothing = DeviceSpecs([], [], [])
     doc = _load_document(Path(path))
     if doc is None:
-        return [], []
+        return nothing
 
     if not isinstance(doc, dict):
         logger.warning(
@@ -401,7 +485,7 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
             list(TOP_LEVEL_KEYS),
             type(doc).__name__,
         )
-        return [], []
+        return nothing
 
     unknown = [key for key in doc if key not in ACCEPTED_KEYS]
     if unknown:
@@ -411,11 +495,13 @@ def specs_from_file(path: str | Path) -> tuple[list[SettableSpec], list[Readable
             unknown,
             list(ACCEPTED_KEYS),
         )
-        return [], []
+        return nothing
 
-    settables = _parse_settables(doc.get(SETTABLES_KEY))
-    readables = _parse_readables(doc.get(READABLES_KEY))
-    return _drop_duplicate_names(settables, readables)
+    return _drop_duplicate_names(
+        _parse_settables(doc.get(SETTABLES_KEY)),
+        _parse_triggerables(doc.get(TRIGGERABLES_KEY)),
+        _parse_readables(doc.get(READABLES_KEY)),
+    )
 
 
 def _validate_section(
@@ -426,20 +512,31 @@ def _validate_section(
     numeric: tuple[str, ...] = (),
     tolerances: tuple[str, ...] = (),
     shapes: tuple[str, ...] = (),
+    scalars: tuple[str, ...] = (),
+    positives: tuple[str, ...] = (),
 ) -> list[str]:
     """Return the problems in one device section (empty list ⇒ none).
 
     ``optional`` keys are strings when present; ``numeric`` keys are numbers
     >= 0 when present; ``tolerances`` keys are numbers >= 0 or ``{relative:
     <number >= 0>}`` when present; ``shapes`` keys are lists of one int >= 1
-    when present.
+    when present. ``scalars`` keys are required non-null scalars, and
+    ``positives`` keys required finite numbers > 0.
     """
     if section is None:
         return []
     if not isinstance(section, list):
         return [f"{key!r} must be a list of device entries, got {type(section).__name__}"]
 
-    known = set(required) | set(optional) | set(numeric) | set(tolerances) | set(shapes)
+    known = (
+        set(required)
+        | set(optional)
+        | set(numeric)
+        | set(tolerances)
+        | set(shapes)
+        | set(scalars)
+        | set(positives)
+    )
     problems: list[str] = []
     for index, entry in enumerate(section):
         where = f"{key}[{index}]"
@@ -470,6 +567,16 @@ def _validate_section(
             f"{where}: {field!r} must be a list of one int >= 1 when present"
             for field in shapes
             if entry.get(field) is not None and _shape(entry[field]) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a non-null scalar"
+            for field in scalars
+            if _scalar(entry.get(field)) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a finite number > 0"
+            for field in positives
+            if _positive_seconds(entry.get(field)) is None
         )
         unknown = [name for name in entry if name not in known]
         if unknown:
@@ -540,6 +647,14 @@ def validate_device_document(doc: Any) -> list[str]:
         _SETTABLE_OPTIONAL,
         _SETTABLE_NUMERIC_OPTIONAL,
         _SETTABLE_TOLERANCE_OPTIONAL,
+    )
+    problems += _validate_section(
+        doc.get(TRIGGERABLES_KEY),
+        TRIGGERABLES_KEY,
+        _TRIGGERABLE_REQUIRED,
+        (),
+        scalars=_TRIGGERABLE_SCALARS,
+        positives=_TRIGGERABLE_POSITIVES,
     )
     problems += _validate_section(
         doc.get(READABLES_KEY),

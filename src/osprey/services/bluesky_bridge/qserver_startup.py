@@ -325,7 +325,8 @@ async def build_devices(
     connector_devices.settle_timeout_s()
     connector_devices.settle_tolerance()
 
-    setpoints, readbacks = specs_from_file(path)
+    specs = specs_from_file(path)
+    setpoints, readbacks = specs.settables, specs.readables
     if not setpoints and not readbacks:
         logger.warning(
             "qserver_startup: device file %r names no devices; this worker will expose no plans",
