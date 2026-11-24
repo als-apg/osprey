@@ -119,9 +119,13 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
     return value
 
 
-def _data_key(address: str, unit: str | None) -> DataKey:
-    """A scalar numeric data key for ``address``, carrying ``units`` when ``unit`` is known."""
+def _data_key(address: str, unit: str | None, shape: tuple[int] | None = None) -> DataKey:
+    """The data key for ``address``: a scalar number, or with ``shape`` an array of
+    that length, carrying ``units`` when ``unit`` is known."""
     key: DataKey = {"source": f"connector:{address}", "dtype": "number", "shape": []}
+    if shape is not None:
+        key["dtype"] = "array"
+        key["shape"] = list(shape)
     if unit is not None:
         key["units"] = unit
     return key
@@ -379,11 +383,17 @@ class ConnectorReadable(StandardReadable):
     """
 
     def __init__(
-        self, connector: Any, read_pv: str, name: str = "", unit: str | None = None
+        self,
+        connector: Any,
+        read_pv: str,
+        name: str = "",
+        unit: str | None = None,
+        shape: tuple[int] | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._read_pv = read_pv
         self._unit = unit
+        self._shape = shape
         super().__init__(name=name)
 
     async def read(self) -> dict[str, Reading[Any]]:
@@ -392,9 +402,9 @@ class ConnectorReadable(StandardReadable):
         return {self.name: {"value": reading.value, "timestamp": time.time()}}
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe the live channel as a scalar numeric data key, with its
-        ``units`` when the device was given one."""
-        return {self.name: _data_key(self._read_pv, self._unit)}
+        """Describe the live channel as a scalar number, or an array of the length
+        the facility states, with its ``units`` when the device was given one."""
+        return {self.name: _data_key(self._read_pv, self._unit, self._shape)}
 
     @property
     def hints(self) -> Hints:
@@ -467,6 +477,10 @@ async def build_devices(
         )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(
-            connector, readable_spec.read_pv, name=readable_spec.name, unit=readable_spec.unit
+            connector,
+            readable_spec.read_pv,
+            name=readable_spec.name,
+            unit=readable_spec.unit,
+            shape=readable_spec.shape,
         )
     return await connect_all(devices)
