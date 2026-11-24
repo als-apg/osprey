@@ -27,8 +27,8 @@ copy's path under ``data/simulator/`` or null, ``wiring`` is
 when the model declares one, so a model without inputs is written as under
 ``/3``. Its
 ``channels`` are every channel, sorted by address, as ``{address, role, pair,
-value_type, options?, shape?, unit, description, writable, value_range,
-owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
+value_type, options?, shape?, started_by?, unit, description, writable,
+value_range, owner, on}``: ``role`` defaults to ``readback`` and ``value_type`` to ``float``
 as in the facility file; ``pair`` is a setpoint's readback (itself when it names none) and
 null on any other role; ``owner`` is the model wiring the address, as a record's
 ``address`` or under its ``also``, else ``texture``; ``on`` is the node the facility record puts the channel on,
@@ -36,7 +36,10 @@ null on any other role; ``owner`` is the model wiring the address, as a record's
 record (``value_range`` = ``[min_value, max_value]`` when it states both, else
 null); a setpoint without a record is writable only when the simulated
 target's limits mode is ``optional``, and every other channel without a record
-is not writable.
+is not writable. ``started_by`` is the command whose write moves a setpoint's
+readback, under each address of its record; on a setpoint a served physics
+model wires the render stops (``command-invalid``), as the runtime's reader
+refuses it.
 
 ``seeds.json`` maps each channel carrying a seed record to that record, less
 ``follows``, which a setpoint's ``pair`` in ``variables.json`` already carries;
@@ -109,7 +112,12 @@ from osprey_facility import DEFAULT_ROLE, STILL_ALL, TEXTURE, wiring_addresses
 from osprey_facility.records import FacilityRecords
 from osprey_facility.scenarios import scenario_logbook
 from osprey_facility.simulated import resolved_still, server_health_addresses, status_address
-from osprey_facility.validate import limit_records, record_range, record_writable
+from osprey_facility.validate import (
+    limit_records,
+    record_range,
+    record_writable,
+    stating_files,
+)
 
 __all__ = [
     "ADDRESSES_FILE",
@@ -143,7 +151,7 @@ FOLLOWS_SCHEMA = "osprey.facility.follows/1"
 INACTIVE_UNSERVED = "model not served"
 
 #: The channel keys ``variables.json`` carries only when the record states them.
-_CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision")
+_CHANNEL_OPTIONAL_KEYS = ("options", "shape", "precision", "started_by")
 
 #: The scenario blocks ``scenarios.json`` carries verbatim when stated.
 _SCENARIO_BLOCKS = (
@@ -295,10 +303,23 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
             {str(c["id"]): c for c in doc.get("channels", [])}
         ).items()
     }
+    serving = {
+        str(model["name"])
+        for model in models
+        if model["name"] in inputs.served
+        and model["name"] != TEXTURE
+        and model.get("engine") != TEXTURE
+    }
     channels: list[dict[str, Any]] = []
     for row in sorted(doc.get("channels", []), key=lambda channel: str(channel["id"])):
         address = str(row["id"])
         record = inputs.records.channel(address) or row
+        if (
+            "started_by" in row
+            and owners.get(address) in serving
+            and inputs.records.record_address(address) == address
+        ):
+            raise _started_on_a_model(address, row, owners[address])
         role = record.get("role", DEFAULT_ROLE)
         value_type = record.get("value_type", DEFAULT_VALUE_TYPE)
         entry = limits.get(address)
@@ -331,6 +352,25 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
         "models": [_model_entry(inputs, model) for model in models],
         "channels": channels,
     }
+
+
+def _started_on_a_model(address: str, row: Mapping[str, Any], model: str) -> Exception:
+    """The stop for ``started_by`` on a setpoint the served physics ``model`` wires.
+
+    The runtime's view reader refuses such a channel; only the render knows
+    which models it serves, so the render stops before it writes one.
+    """
+    from osprey_facility.errors import FacilityBuildError
+
+    return FacilityBuildError(
+        "command-invalid",
+        address,
+        stating_files(row, "started_by"),
+        f"serve {address} from the texture in this render, or remove `started_by`; "
+        "a model's setpoint is not started by a command in the simulation",
+        record_kind="channel",
+        detail=f"`started_by` on {address}, which served model {model} wires",
+    )
 
 
 def _model_entry(inputs: ViewInputs, model: Mapping[str, Any]) -> dict[str, Any]:

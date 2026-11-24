@@ -34,6 +34,7 @@ from osprey_connectors.simulation.view import (
     SCENARIOS_SCHEMA,
     SEEDS_SCHEMA,
     SERVER_HEALTH_SIGNALS,
+    VARIABLES_FILE,
     SimulatorView,
 )
 from osprey_facility import TEXTURE
@@ -335,7 +336,7 @@ CHANNEL_KEYS = {
     "owner",
     "on",
 }
-CHANNEL_OPTIONAL = {"options", "shape", "precision"}
+CHANNEL_OPTIONAL = {"options", "shape", "precision", "started_by"}
 SCENARIO_SLOTS = ("description", "drivers", "couple", "noise", "still", "channel_faults")
 BUILT_IN_DESCRIPTION = "Every reading serves without drift, couplings or noise."
 UNLISTED_SETPOINT = "SR:MAG:QF:01:CURRENT:SP"
@@ -532,6 +533,69 @@ def test_channel_owner_is_the_wiring_model_else_texture(
         "SR",
         TEXTURE,
     }
+
+
+#: The example's stage setpoint and its start command, which the texture serves.
+STAGE_SETPOINT, STAGE_MOVE = "ES1:MOT:STAGE:01:POSITION:SP", "ES1:MOT:STAGE:01:MOVE:SP"
+
+
+def _started(built: BuiltProject, setpoint: str) -> dict[str, Any]:
+    """The demo's facility file with ``setpoint`` started by the stage's move command."""
+    facility = copy.deepcopy(built.facility)
+    (channel,) = [c for c in facility["channels"] if c["id"] == setpoint]
+    channel["started_by"] = STAGE_MOVE
+    return facility
+
+
+def test_a_setpoint_stating_started_by_carries_it_to_the_view(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    _render_simulator(render_dir, _started(built_demo, STAGE_SETPOINT), {}, built_demo.facility_dir)
+
+    variables = SimulatorView.open(render_dir / "data" / "simulator").document(VARIABLES_FILE)
+    started = {c["address"]: c["started_by"] for c in variables["channels"] if "started_by" in c}
+    assert started == {STAGE_SETPOINT: STAGE_MOVE}
+
+
+def test_started_by_on_a_setpoint_a_served_model_wires_stops_the_build(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        _render_simulator(
+            render_dir, _started(built_demo, UNLISTED_SETPOINT), {}, built_demo.facility_dir
+        )
+
+    assert stopped.value.kind == "command-invalid"
+    assert stopped.value.record_id == UNLISTED_SETPOINT
+    assert stopped.value.sources == ("records/channels.yaml",)
+    assert stopped.value.detail == (
+        f"`started_by` on {UNLISTED_SETPOINT}, which served model SR wires"
+    )
+    assert stopped.value.remedy == (
+        f"serve {UNLISTED_SETPOINT} from the texture in this render, or remove `started_by`; "
+        "a model's setpoint is not started by a command in the simulation"
+    )
+
+
+def test_started_by_on_a_setpoint_of_an_unserved_model_is_written(
+    tmp_path: Path, built_demo: BuiltProject
+) -> None:
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    _render_simulator(
+        render_dir,
+        _started(built_demo, UNLISTED_SETPOINT),
+        {"simulation": {"models": [TEXTURE]}},
+        built_demo.facility_dir,
+    )
+
+    view = SimulatorView.open(render_dir / "data" / "simulator")
+    assert _channel(view.document(VARIABLES_FILE), UNLISTED_SETPOINT)["started_by"] == STAGE_MOVE
 
 
 def test_channel_on_is_the_facility_records_on(built_demo: BuiltProject) -> None:
