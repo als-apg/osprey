@@ -8,8 +8,10 @@ device set, in the two-list device-file format the queueserver worker reads
 and the parser).
 
 Every channel the roster enumerated becomes a device: each write-direction
-record a settable, each read-direction record a readable. Nothing here filters
-by machine, family, field or address grammar. Which channels exist and which way
+record a settable, each read-direction record a readable -- except a read
+channel of more than one dimension, which a run cannot record in its table and
+so is no device. Nothing here filters by machine, family, field or address
+grammar. Which channels exist and which way
 they point is the roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
 precisely the divergence that had a build report 144 devices for the bundled
@@ -103,6 +105,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     SETPOINT_UNIT_KEY,
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
+    SHAPE_KEY,
     UNIT_KEY,
 )
 from osprey_connectors import yaml_loader
@@ -147,6 +150,11 @@ def devices_document(
     ``setpoint_unit``, its setpoint's unit. Each key is written only for a
     channel the mapping names, after every other key.
 
+    A readable on a waveform channel of one dimension carries ``shape: [n]``,
+    the length the facility states, after its ``unit``. A read record of more
+    than one dimension becomes no device: a run records each reading as one
+    cell of its table, which holds a 1-D array but not an image.
+
     A record whose direction the source could not say (``direction is None``)
     becomes no device. It is not silently demoted to a readable: the honest
     handling of an unknown direction is the build's, which refuses to stage a
@@ -189,9 +197,13 @@ def devices_document(
                 entry[SETPOINT_UNIT_KEY] = stated[record.address]
             settables.append(entry)
         elif record.direction == "read":
+            if record.shape is not None and len(record.shape) > 1:
+                continue
             readable: dict[str, Any] = {"name": record.address, "pv": record.address}
             if record.address in stated:
                 readable[UNIT_KEY] = stated[record.address]
+            if record.shape is not None:
+                readable[SHAPE_KEY] = list(record.shape)
             readables.append(readable)
 
     return {SETTABLES_KEY: settables, READABLES_KEY: readables}
@@ -208,6 +220,7 @@ _GENERATED_HEADER = """\
 #
 # Every setpoint channel is a settable device, every readback channel a readable
 # one, and a settable names a readback only where the facility pairs one.
+# A readback of more than one dimension is no device.
 """
 """Header the written file carries, filled with the roster source's
 ``describe()`` so the file names the artifact it was derived from."""
