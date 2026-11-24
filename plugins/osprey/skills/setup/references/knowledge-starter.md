@@ -131,7 +131,7 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | The build's graph view, for the graph | `osprey build && osprey up`: the build writes `data/graph/facility.ttl` and the search index from the facility file, and `osprey up` seeds the store from that view | `built` |
 | The build's graph view, for the OKF bundle | `osprey knowledge seed-from-ttl data/facility/knowledge` reads `build/data/graph/facility.ttl` and writes one device stub per device, its `device_id` the facility file's device id (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
 | A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey facility import mml` drafts the mapping, review, import again, `osprey facility validate`, `osprey build`. The import writes the facility's records, models and decks under `data/facility/imported/mml/`, and the build writes every view from them | `stated` (the mapping), `built` (everything the import writes) |
-| A pyAT lattice | Stage it as `data/facility/decks/<model>.json` and name it in the model's record in `data/facility/models.yaml`, with the `wiring` that ties each channel to an element of the deck. The wiring is the facility's to state: ask for it, never guess it | `ported` (the deck), `stated` (the wiring) |
+| A pyAT lattice | Stage it as `data/facility/simulation/decks/<model>.json` and name it in the model's record in `data/facility/simulation/models.yaml`, with the `wiring` that ties each channel to an element of the deck. The wiring is the facility's to state: ask for it, never guess it | `ported` (the deck), `stated` (the wiring) |
 | A logbook export | The LOGBOOK feature port for the keys, then `osprey ariel ingest -s <file or URL> -a <adapter>` once the service is up; `-a` takes the adapter names `--help` lists | `ported` |
 
 Read each verb's `--help` before running it; the option names above are the
@@ -205,9 +205,9 @@ types none of them.
    and run it again. A clean run prints one `wrote <path>` line per file: the records,
    models and decks under `data/facility/imported/mml/`, which every import rewrites,
    and — only where the file does not exist yet — `data/facility/limits.yaml` (the
-   export's write bands), `seeds.yaml`, `identity.yaml`, `classes.yaml`,
-   `measurement/<model>.yaml` and `scenarios/readout.yaml`. The kinds a
-   `measurement/<model>.yaml` lists come from a registry, and a deployment adds its own
+   export's write bands), `simulation/seeds.yaml`, `identity.yaml`, `vocabulary/classes.yaml`,
+   `simulation/measurement/<model>.yaml` and `simulation/scenarios/readout.yaml`. The kinds a
+   `simulation/measurement/<model>.yaml` lists come from a registry, and a deployment adds its own
    ([Register a measurement kind](https://als-apg.github.io/osprey/how-to/register-a-measurement-kind.html)).
    Afterwards it lists, as
    `rm` lines, each scenario file that names a channel the facility no longer has;
@@ -366,10 +366,10 @@ the devil's advocate walks the same list against the ledger afterwards.
 | Path | Why it is the reference facility's |
 | --- | --- |
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
-| `data/facility/records/`, `seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
+| `data/facility/records/`, `simulation/seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
 | `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
 | `data/facility/benchmarks/` | demo query sets |
-| `data/facility/models.yaml`, `decks/`, `measurement/`, `scenarios/` nobody replaced | demo machine model |
+| `data/facility/simulation/models.yaml`, `simulation/decks/`, `simulation/measurement/`, `simulation/scenarios/` nobody replaced | demo machine model |
 | `data/facility/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |
 | `web-terminal-context/base.md` | opens by naming the demo product |

@@ -67,8 +67,8 @@ is right: leave it.
 ### layer-duplicate
 
 One layer states the same record twice. The detail names both files. For the authored
-layer this also covers a seed stated in both a channel record and `seeds.yaml`, or a
-measurement stated in both a model record and `measurement/<model>.yaml`.
+layer this also covers a seed stated in both a channel record and `simulation/seeds.yaml`, or a
+measurement stated in both a model record and `simulation/measurement/<model>.yaml`.
 
 Look at: both statements. Identical duplicates are noise; differing ones are a real
 question about which is meant.
@@ -90,14 +90,14 @@ and the detail lists the claim ids. One line per key.
 
 Look at: each listed claim with `osprey facility show --json <claim id>`: its ends,
 `basis` (stated or inferred), and `source` (document, version, locator). Then each cited
-document in `documents.yaml`: is it declared, and does it have a `kind`. Then the same
+document in `provenance/documents.yaml`: is it declared, and does it have a `kind`. Then the same
 key type across the facility: how many keys are contested between the same two
 documents, and does the difference follow a pattern.
 
 Usual causes, each with a different ruling:
 
 - Two documents disagree and one kind of document is the authority for this relation
-  type. A rule: `policy.yaml` precedence. Check that each document is declared with a
+  type. A rule: `provenance/policy.yaml` precedence. Check that each document is declared with a
   kind, since undeclared or unlisted documents rank last.
 - One claim is simply wrong (typo, stale row). An exception: `drop` or `set` fix on that
   claim, or a correction in the source table.
@@ -253,7 +253,7 @@ Knowledge pages are authored: propose a diff to the page, or restore the record.
 
 ## Decision files
 
-These stops mean a decision in `fixes.yaml` no longer fits the sources. They usually
+These stops mean a decision in `provenance/fixes.yaml` no longer fits the sources. They usually
 appear right after an import, and each is a small question in its own right.
 
 ### fix-stale
@@ -301,8 +301,8 @@ A file does not match its schema, or an import table was refused. Record kind `p
 with a dotted path means a schema failure at that location; other record kinds name the
 record. Imports print one line per refused row and write nothing.
 
-Look at: the path in the file. For `policy.yaml`, the usual cause is a precedence entry
-naming a kind no document in `documents.yaml` declares.
+Look at: the path in the file. For `provenance/policy.yaml`, the usual cause is a precedence entry
+naming a kind no document in `provenance/documents.yaml` declares.
 
 Mostly mechanical, but the correction is still a diff to an authored file or a change
 to a source table, so show it. Malformed files under `imported/<layer>/` mean the layer
@@ -314,7 +314,7 @@ was edited by hand or written by an older importer: re-import.
 
 A device class or signal role is not in the vocabulary and not added by the facility.
 The remedy names the two ways out: use a vocabulary name, or add the name to
-`classes.yaml` or `signals.yaml`.
+`vocabulary/classes.yaml` or `vocabulary/signals.yaml`.
 
 Ask which, grouped by name: is `Quad` the vocabulary's quadrupole under a local
 spelling, or a facility-specific class worth declaring. Looks-like is not is.
@@ -326,7 +326,7 @@ inconsistent or absent. The detail is specific and the remedy names the file.
 
 Look at: the record, and the sibling records of the same family for the same slip.
 
-These are usually authoring slips with one right answer, in `limits.yaml`, `seeds.yaml`,
+These are usually authoring slips with one right answer, in `limits.yaml`, `simulation/seeds.yaml`,
 a channel record or a scenario. Group by family and confirm the diff. Where the value is
 a physical quantity (a limit, a tolerance), the number comes from the person, never from
 a neighbour's value.
@@ -336,7 +336,7 @@ a neighbour's value.
 ### wiring-conflict, model-conflict
 
 Two models, or a model and the records, disagree about what an address or device is
-wired to. Look at both statements in `models.yaml` and the wiring records; ask which
+wired to. Look at both statements in `simulation/models.yaml` and the wiring records; ask which
 model is right.
 
 ### engine-missing, engine-invalid
