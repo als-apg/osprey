@@ -6,7 +6,7 @@ Its channels, joined as the fingerprint joins them less the ``names`` column
 address, role and value type unchanged and its description as the prefix of
 the served one, and what they hold beyond the frozen rows is exactly the
 additions file; no demo channel carries
-a name. The build holds 1007 devices in 75 groups,
+a name. The build holds 1009 devices in 77 groups,
 and twelve sectors under ``SR``. The file validates as the
 generated ``Facility`` model, and the committed sources validate with exactly
 the two relation warnings the shipped Appendix A claims raise. The
@@ -96,9 +96,9 @@ def test_the_rows_beyond_the_frozen_ones_are_exactly_the_additions(
     ]
 
 
-def test_the_demo_holds_1007_devices_in_75_groups(built_demo: BuiltProject) -> None:
-    assert len(built_demo.facility["devices"]) == 1007
-    assert len(built_demo.facility["groups"]) == 75
+def test_the_demo_holds_1009_devices_in_77_groups(built_demo: BuiltProject) -> None:
+    assert len(built_demo.facility["devices"]) == 1009
+    assert len(built_demo.facility["groups"]) == 77
 
 
 def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> None:

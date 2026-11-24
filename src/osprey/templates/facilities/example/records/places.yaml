@@ -103,6 +103,11 @@
   level: rack
 - id: HALL/ROW3/RK08
   level: rack
+- id: ES1
+  level: machine
+  description: 'End Station 1 (ES1): the experimental station where a sample stage moves the sample through the photon beam and a detector records its spectrum.'
+  names:
+  - end station 1
 - id: GTL
   level: machine
   description: 'Gun-to-Linac Line (GTL): the start of the injector. A thermionic electron gun produces the beam; bucking coils cancel the solenoid field on its cathode, two sub-harmonic bunchers compress the long gun pulse into bunches the linac can capture, and solenoids hold the low-energy beam together on its way to the linac. Correctors steer it, beam position monitors and screens show where it is, and an integrating current transformer measures the charge the gun delivers.'

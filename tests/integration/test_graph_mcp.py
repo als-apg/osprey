@@ -89,15 +89,15 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # Stated here rather than derived, so a change to the demo facility has to be
 # acknowledged in this module.
 
-EXPECTED_DEVICES = 996
+EXPECTED_DEVICES = 998
 #: Places carrying channels of their own: the top place ``SR``, whose tune,
 #: chromaticity, user beam mode and operation-mode channels sit on the place rather than on a
 #: device. The store matches a place on ``(:Resource)-[:HASBINDING]->`` as it
 #: matches a device.
 EXPECTED_BOUND_PLACES = 1
-EXPECTED_BINDINGS = 4691
-EXPECTED_WRITE_ONLY = 658
-EXPECTED_READ_ONLY = 4028
+EXPECTED_BINDINGS = 4701
+EXPECTED_WRITE_ONLY = 662
+EXPECTED_READ_ONLY = 4034
 #: The place's tune, chromaticity and user beam mode channels name no signal; its
 #: operation mode reads one.
 EXPECTED_UNSIGNALLED = 5
@@ -615,7 +615,7 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1a_counts_the_verified_devices() -> None:
-    """The device census sums to the 996 verified devices, and no place."""
+    """The device census sums to the 998 verified devices, and no place."""
     payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
@@ -623,7 +623,7 @@ def test_example_q1a_counts_the_verified_devices() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q5_reproduces_the_verified_direction_split() -> None:
-    """The binding rollup reproduces 658 write-only / 4028 read-only / 4691 total."""
+    """The binding rollup reproduces 662 write-only / 4034 read-only / 4701 total."""
     payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row

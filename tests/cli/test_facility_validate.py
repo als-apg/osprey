@@ -97,7 +97,7 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
 #: What ``facility validate`` reports of the example's limits: its setpoints with
 #: no limits record, the first ten named. A report: the exit code stays 0.
 LIMITS_STDERR = [
-    "limits: 473 setpoints have no limits record; the target serves them writable with no range",
+    "limits: 477 setpoints have no limits record; the target serves them writable with no range",
     "  BR:DIAG:TV:01:PADDLE:SP",
     "  BR:DIAG:TV:02:PADDLE:SP",
     "  BR:DIAG:TV:03:PADDLE:SP",
@@ -108,7 +108,7 @@ LIMITS_STDERR = [
     "  BR:MAG:DIPOLE:01:CURRENT:SP",
     "  BR:MAG:DIPOLE:02:CURRENT:SP",
     "  BR:MAG:DIPOLE:03:CURRENT:SP",
-    "  and 463 more; --all-limits lists every one",
+    "  and 467 more; --all-limits lists every one",
 ]
 
 
@@ -143,7 +143,7 @@ def test_all_limits_lists_every_open_setpoint(repo: Path) -> None:
     result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo), "--all-limits"])
     assert result.exit_code == 0, result.output
     listed = [line for line in result.stderr.splitlines() if line.startswith("  ")]
-    assert len(listed) == 473
+    assert len(listed) == 477
     assert "more; --all-limits" not in result.stderr
 
 

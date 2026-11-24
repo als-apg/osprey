@@ -2,7 +2,7 @@
   "_reproduce": "Frozen: no command rewrites this golden; it was captured from the demo build at 8f22637c06, the last /3 build, whose views unioned the vocabulary's signal roles with the document's.",
   "_description": "What the facts view and the channel-finder role descriptions give for the demo build. A build that writes the effective signal-role table into the document must give the same.",
   "facts": {
-    "channel_count": 4691,
+    "channel_count": 4701,
     "device_classes": {
       "AcceleratingCavity": {
         "aliases": [
@@ -111,6 +111,17 @@
         "aliases": [],
         "count": 1,
         "groups": []
+      },
+      "Detector": {
+        "aliases": [
+          "MCA",
+          "detector",
+          "multichannel analyzer"
+        ],
+        "count": 1,
+        "groups": [
+          "ES1/MCA"
+        ]
       },
       "Dipole": {
         "aliases": [
@@ -349,6 +360,17 @@
         "groups": [
           "GTL/SOL",
           "LN/SOL"
+        ]
+      },
+      "Stage": {
+        "aliases": [
+          "motor stage",
+          "sample stage",
+          "stage"
+        ],
+        "count": 1,
+        "groups": [
+          "ES1/STAGE"
         ]
       },
       "SubHarmonicBuncher": {
@@ -1870,6 +1892,17 @@
       },
       {
         "devices": {
+          "Detector": 1,
+          "Stage": 1
+        },
+        "id": "ES1",
+        "level": "machine",
+        "names": [
+          "end station 1"
+        ]
+      },
+      {
+        "devices": {
           "BeamCurrentMonitor": 1,
           "BeamPositionMonitor": 2,
           "BuckingCoil": 2,
@@ -2254,12 +2287,26 @@
       "UtilityLoop": 1
     },
     "vocabulary": {
-      "paired_setpoints": 629,
+      "paired_setpoints": 632,
       "roles": {
-        "readback": 4033,
-        "setpoint": 658
+        "readback": 4039,
+        "setpoint": 662
       },
       "signals": {
+        "acquire_command": {
+          "count": 1,
+          "description": "Command that starts one acquisition of a detector.",
+          "roles": {
+            "setpoint": 1
+          }
+        },
+        "acquire_status": {
+          "count": 1,
+          "description": "Whether an acquisition runs.",
+          "roles": {
+            "readback": 1
+          }
+        },
         "beam_intensity_readback": {
           "count": 6,
           "description": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
@@ -2300,6 +2347,13 @@
           "description": "Measured cooling-water flow through a device.",
           "roles": {
             "readback": 3
+          }
+        },
+        "counts_readback": {
+          "count": 1,
+          "description": "Total counts a detector recorded in its last acquisition.",
+          "roles": {
+            "readback": 1
           }
         },
         "current_golden_readback": {
@@ -2400,6 +2454,20 @@
             "readback": 14
           }
         },
+        "move_command": {
+          "count": 1,
+          "description": "Command that starts a move to the position setpoint.",
+          "roles": {
+            "setpoint": 1
+          }
+        },
+        "move_status": {
+          "count": 1,
+          "description": "Whether a move runs, has ended or failed.",
+          "roles": {
+            "readback": 1
+          }
+        },
         "offset_readback": {
           "count": 7,
           "description": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
@@ -2447,6 +2515,20 @@
           "description": "Stored offset subtracted from a measured position.",
           "roles": {
             "readback": 144
+          }
+        },
+        "position_readback": {
+          "count": 1,
+          "description": "Measured position of a stage.",
+          "roles": {
+            "readback": 1
+          }
+        },
+        "position_setpoint": {
+          "count": 1,
+          "description": "Commanded position of a stage.",
+          "roles": {
+            "setpoint": 1
           }
         },
         "position_x_golden_readback": {
@@ -2596,11 +2678,25 @@
             "readback": 21
           }
         },
+        "spectrum_readback": {
+          "count": 1,
+          "description": "Counts per energy channel a detector recorded in its last acquisition.",
+          "roles": {
+            "readback": 1
+          }
+        },
         "status": {
           "count": 298,
           "description": "Generic device status (on/off/fault/enabled/disabled).",
           "roles": {
             "readback": 298
+          }
+        },
+        "stop_command": {
+          "count": 1,
+          "description": "Command that ends a running move.",
+          "roles": {
+            "setpoint": 1
           }
         },
         "temperature_limit_readback": {
@@ -2611,10 +2707,10 @@
           }
         },
         "temperature_readback": {
-          "count": 199,
+          "count": 200,
           "description": "Measured temperature.",
           "roles": {
-            "readback": 199
+            "readback": 200
           }
         },
         "temperature_setpoint": {
@@ -2701,6 +2797,8 @@
   },
   "channel_finder_signal_descriptions": {
     "ac_supply_ok_status": "AC-supply OK readback (120 V auxiliary supply healthy).",
+    "acquire_command": "Command that starts one acquisition of a detector.",
+    "acquire_status": "Whether an acquisition runs.",
     "air_pressure_status": "Compressed-air-pressure (pneumatic actuator supply) readback.",
     "beam_intensity_readback": "Scalar beam intensity or charge readback (e.g. BPM .VAL).",
     "beam_lifetime_readback": "Measured lifetime readback of the stored beam.",
@@ -2715,6 +2813,7 @@
     "computer_status": "Control-computer heartbeat / health readback.",
     "controlled_power_mode_status": "Controlled-power-mode readback for a main dipole supply.",
     "coolant_flow_readback": "Measured cooling-water flow through a device.",
+    "counts_readback": "Total counts a detector recorded in its last acquisition.",
     "current_golden_readback": "Stored \"golden\" current setpoint reference for a powered device.",
     "current_readback": "Measured current value read back from a powered device.",
     "current_setpoint": "Commanded current value sent to a powered device.",
@@ -2756,6 +2855,8 @@
     "magnet_voltage_readback": "Voltage readback across a magnet or its driver supply (e.g. a D.H suffix on dipoles and correctors).",
     "model_readback": "Model name a device reports of itself.",
     "modulator_state_command": "Modulator state-machine command (StateCmd; MemberOf=Boolean Control).",
+    "move_command": "Command that starts a move to the position setpoint.",
+    "move_status": "Whether a move runs, has ended or failed.",
     "normalized_strength_readback": "Normalized strength of a multipole magnet, as read back.",
     "normalized_strength_setpoint": "Commanded normalized strength of a multipole magnet (K1 in 1/m^2 for a quadrupole, K2 in 1/m^3 for a sextupole), the field over the beam rigidity.",
     "offset_readback": "Measured longitudinal offset (phase) of an insertion device's magnet rows.",
@@ -2767,6 +2868,8 @@
     "phase_setpoint": "Commanded RF phase setpoint for an RF cavity.",
     "plug_interlock_status": "Plug-interlock readback (mating-connector presence).",
     "position_offset": "Stored offset subtracted from a measured position.",
+    "position_readback": "Measured position of a stage.",
+    "position_setpoint": "Commanded position of a stage.",
     "position_x_error_readback": "Horizontal-position error readback (delta from golden reference).",
     "position_x_golden_readback": "Golden-orbit horizontal-position reference readback.",
     "position_x_readback": "Horizontal beam position readback from a beam position monitor.",
@@ -2811,7 +2914,9 @@
     "serial_number_readback": "Serial number a device reports of itself.",
     "sf6_pressure_readback": "SF6 insulating-gas pressure readback in an electron gun pressure vessel (PSI).",
     "shunt_status": "Dipole shunt-circuit state readback.",
+    "spectrum_readback": "Counts per energy channel a detector recorded in its last acquisition.",
     "status": "Generic device status (on/off/fault/enabled/disabled).",
+    "stop_command": "Command that ends a running move.",
     "temperature_hi_limit_readback": "Temperature of the high (minor) alarm limit, as read back.",
     "temperature_hi_limit_setpoint": "Temperature of the high (minor) alarm limit, as commanded.",
     "temperature_hihi_limit_readback": "Temperature of the high-high (major) alarm limit, as read back.",

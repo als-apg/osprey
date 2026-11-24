@@ -256,6 +256,20 @@
   - BTS/VCM07
   - BTS/VCM08
   - BTS/VCM09
+- id: ES1/MCA
+  description: 'End Station 1 Multichannel Analyzer (MCA): the energy-resolving detector that records a spectrum of the photons from the sample.'
+  names:
+  - multichannel analyzer
+  - detector
+  members:
+  - ES1-MCA01
+- id: ES1/STAGE
+  description: 'End Station 1 Sample Stage (STAGE): the motorized stage that moves the sample through the beam.'
+  names:
+  - sample stage
+  - stage
+  members:
+  - ES1/STAGE01
 - id: GTL/BC
   description: 'Gun-to-Linac Bucking Coils (BC): coils around the gun that cancel the solenoid field on the cathode, so the beam leaves the gun without a net rotation.'
   names:

@@ -38,6 +38,7 @@ from osprey_connectors.simulation.view import (
 )
 from osprey_facility import TEXTURE
 from osprey_facility.errors import FacilityBuildError
+from osprey_facility.pairing import simulated_pairs
 from osprey_facility.records import FacilityRecords
 from osprey_facility.render import FACILITY_FILE
 from tests._builds import init_project
@@ -539,6 +540,7 @@ def test_channel_facts_come_from_the_facility_record(
 ) -> None:
     variables = _view(built_demo.build_dir, VARIABLES)
     records = {str(channel["id"]): channel for channel in built_demo.facility["channels"]}
+    followed = {setpoint: readback for readback, setpoint in simulated_pairs(records).items()}
 
     for channel in variables["channels"]:
         record = records[channel["address"]]
@@ -549,7 +551,7 @@ def test_channel_facts_come_from_the_facility_record(
         assert channel.get("options") == record.get("options")
         assert channel.get("shape") == record.get("shape")
         if record["role"] == "setpoint":
-            assert channel["pair"] == record.get("pair", channel["address"])
+            assert channel["pair"] == followed.get(channel["address"], channel["address"])
         else:
             assert channel["pair"] is None
 
@@ -629,17 +631,28 @@ def test_a_per_type_limits_block_decides_for_the_simulated_target(
 
 
 def test_seeds_are_each_channel_seed_record(built_demo: BuiltProject) -> None:
+    """Each seed is its record's; a responding status's also reads its ``idle`` and states its act."""
     seeds = _view(built_demo.build_dir, SEEDS)
+    records = {str(channel["id"]): channel for channel in built_demo.facility["channels"]}
     expected = {
-        str(channel["id"]): channel["simulation"]
-        for channel in built_demo.facility["channels"]
+        address: channel["simulation"]
+        for address, channel in records.items()
         if channel.get("simulation") is not None
     }
+    responding = {address for address, seed in expected.items() if "responds" in seed}
 
     assert set(seeds) == {"schema", "seeds"}
     assert seeds["schema"] == SEEDS_SCHEMA
-    assert seeds["seeds"] == expected
     assert list(seeds["seeds"]) == sorted(expected)
+    assert {a: s for a, s in seeds["seeds"].items() if a not in responding} == {
+        a: s for a, s in expected.items() if a not in responding
+    }
+    assert responding
+    for address in responding:
+        served, record = seeds["seeds"][address], records[address]
+        assert served["nominal"] == record["idle"]
+        assert served["responds"].items() >= record["simulation"]["responds"].items()
+        assert served["responds"]["value"] != record["idle"]
 
 
 def test_scenarios_carry_every_scenario_and_its_blocks(

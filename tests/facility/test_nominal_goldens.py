@@ -64,6 +64,22 @@ LIFETIME = "SR:DIAG:DCCT:01:LIFETIME:RB"
 MODE = "SR:OPS:MODE:RB"
 RECORD_ADDITIONS = frozenset({LIFETIME, MODE})
 
+#: The scalar records of end station ES1, a sample stage and a detector, which
+#: the golden's capture predates.
+STATION_ADDITIONS = frozenset(
+    {
+        "ES1:DET:MCA:01:ACQUIRE:SP",
+        "ES1:DET:MCA:01:COUNTS:RB",
+        "ES1:DET:MCA:01:STATUS:ACQUIRE",
+        "ES1:DET:MCA:01:TEMPERATURE:RB",
+        "ES1:MOT:STAGE:01:MOVE:SP",
+        "ES1:MOT:STAGE:01:POSITION:RB",
+        "ES1:MOT:STAGE:01:POSITION:SP",
+        "ES1:MOT:STAGE:01:STATUS:MOVE",
+        "ES1:MOT:STAGE:01:STOP:SP",
+    }
+)
+
 #: The operation mode's first option and the label it serves at nominal.
 MODE_FIRST = "User operation"
 MODE_LABEL = "Machine studies"
@@ -72,7 +88,7 @@ MODE_LABEL = "Machine studies"
 SR_DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 #: The served waveforms: a trace has no scalar nominal, so the golden holds none.
-WAVEFORMS = frozenset({"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"})
+WAVEFORMS = frozenset({"ES1:DET:MCA:01:SPECTRUM:WAVEFORM", "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"})
 
 #: An ``SR`` beam position monitor's horizontal position.
 SR_BPM_X = re.compile(r"SR:DIAG:BPM:\d+:POSITION:X")
@@ -159,7 +175,7 @@ def bts_monitors() -> set[str]:
 
 def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
     unheld = set(served.channels) - set(golden())
-    assert unheld == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
+    assert unheld == ADDITIONS | RECORD_ADDITIONS | STATION_ADDITIONS | WAVEFORMS
     assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
     assert set(golden()) <= set(served.channels)
 

@@ -403,6 +403,16 @@
   noise: {value: 0.19, unit: C}
   source: water-temperature RTD readout, as the storage-ring cavities
 
+- class: Stage
+  signal: position_readback
+  noise: {value: 1, unit: µm}
+  source: stage encoder readout
+
+- class: Detector
+  signal: temperature_readback
+  noise: {value: 0.05, unit: degC}
+  source: detector head temperature sensor readout
+
 - class: Dipole
   signal: current_setpoint
   tolerance: {value: 0.05, unit: A}
@@ -547,3 +557,8 @@
   signal: phase_setpoint
   tolerance: {value: 0.1, unit: deg}
   source: RF phase loop settle band
+
+- class: Stage
+  signal: position_setpoint
+  tolerance: {value: 0.01, unit: mm}
+  source: stage in-position band, ten encoder steps

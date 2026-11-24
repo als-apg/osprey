@@ -496,7 +496,7 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
     readbacks = sorted(row["address"] for row in rows if row["role"] == "readback")
-    assert len(setpoints) == 658
+    assert len(setpoints) == 662
 
     settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 
@@ -507,13 +507,16 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
 
 
 @pytest.mark.slow
-def test_the_demo_view_states_the_septum_waveform_as_an_array_of_500(
+def test_the_demo_view_states_each_waveform_as_an_array_of_its_length(
     built_demo: BuiltProject,
 ) -> None:
     _, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 
     shaped = {spec.name: spec.shape for spec in readables if spec.shape is not None}
-    assert shaped == {"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM": (500,)}
+    assert shaped == {
+        "ES1:DET:MCA:01:SPECTRUM:WAVEFORM": (1024,),
+        "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM": (500,),
+    }
 
 
 _WRITE_PLANS_DOC = (

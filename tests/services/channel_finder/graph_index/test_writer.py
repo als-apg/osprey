@@ -517,10 +517,10 @@ class TestDemoCorpus:
         path = tmp_path / "graph.duckdb"
         report = _build(demo, path, corpus_filename="facility.ttl")
 
-        assert report.binding_count == 4691
-        assert report.class_count == 36
-        assert read_rows(path, "SELECT count(*) FROM bindings") == [(4691,)]
-        assert read_rows(path, "SELECT count(*) FROM classes") == [(36,)]
+        assert report.binding_count == 4701
+        assert report.class_count == 38
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(4701,)]
+        assert read_rows(path, "SELECT count(*) FROM classes") == [(38,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"

@@ -1995,6 +1995,84 @@
   signal: power_on_status
   value_type: bool
   description: 'Booster-to-storage transfer line vertical corrector 09 on status (read-only): the corrector supply is on.'
+- id: ES1:DET:MCA:01:ACQUIRE:SP
+  role: setpoint
+  pair: ES1:DET:MCA:01:STATUS:ACQUIRE
+  timeout_s: 5.0
+  'on':
+    device: ES1-MCA01
+  signal: acquire_command
+  value_type: bool
+  description: 'End station 1 multichannel analyzer 01 acquire command (read-write): writing TRUE starts one acquisition.'
+- id: ES1:DET:MCA:01:COUNTS:RB
+  'on':
+    device: ES1-MCA01
+  signal: counts_readback
+  description: 'End station 1 multichannel analyzer 01 counts (read-only): the total counts of the last acquisition.'
+- id: ES1:DET:MCA:01:SPECTRUM:WAVEFORM
+  'on':
+    device: ES1-MCA01
+  signal: spectrum_readback
+  value_type: waveform
+  shape:
+  - 1024
+  description: 'End station 1 multichannel analyzer 01 spectrum (read-only): the counts in each of 1024 energy channels of the last acquisition.'
+- id: ES1:DET:MCA:01:STATUS:ACQUIRE
+  'on':
+    device: ES1-MCA01
+  signal: acquire_status
+  value_type: bool
+  idle: 'FALSE'
+  description: 'End station 1 multichannel analyzer 01 acquire status (read-only): TRUE while an acquisition runs.'
+- id: ES1:DET:MCA:01:TEMPERATURE:RB
+  'on':
+    device: ES1-MCA01
+  signal: temperature_readback
+  unit: degC
+  description: 'End station 1 multichannel analyzer 01 temperature (read-only): the detector head temperature.'
+- id: ES1:MOT:STAGE:01:MOVE:SP
+  role: setpoint
+  pair: ES1:MOT:STAGE:01:STATUS:MOVE
+  timeout_s: 10.0
+  'on':
+    device: ES1/STAGE01
+  signal: move_command
+  value_type: bool
+  description: 'End station 1 sample stage 01 move command (read-write): writing TRUE starts a move to the position setpoint.'
+- id: ES1:MOT:STAGE:01:POSITION:RB
+  'on':
+    device: ES1/STAGE01
+  signal: position_readback
+  unit: mm
+  description: 'End station 1 sample stage 01 position readback (read-only): the measured stage position.'
+- id: ES1:MOT:STAGE:01:POSITION:SP
+  role: setpoint
+  pair: ES1:MOT:STAGE:01:POSITION:RB
+  tolerance:
+    absolute: 0.01
+  'on':
+    device: ES1/STAGE01
+  signal: position_setpoint
+  unit: mm
+  description: 'End station 1 sample stage 01 position setpoint (read-write): the target stage position.'
+- id: ES1:MOT:STAGE:01:STATUS:MOVE
+  'on':
+    device: ES1/STAGE01
+  signal: move_status
+  value_type: enum
+  options:
+  - MOVING
+  - DONE
+  - FAULT
+  idle: DONE
+  description: 'End station 1 sample stage 01 move status (read-only): MOVING while a move runs, DONE when it has ended, FAULT when it failed.'
+- id: ES1:MOT:STAGE:01:STOP:SP
+  role: setpoint
+  'on':
+    device: ES1/STAGE01
+  signal: stop_command
+  value_type: bool
+  description: 'End station 1 sample stage 01 stop command (read-write): writing TRUE ends a running move where the stage stands.'
 - id: GTL:DIAG:BPM:01:POSITION:X
   'on':
     device: GTL/BPM01

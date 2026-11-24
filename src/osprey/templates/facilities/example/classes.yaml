@@ -36,3 +36,17 @@
   - third harmonic cavity
   - bunch lengthening cavity
   description: Passive higher-harmonic RF cavity that lengthens the bunches.
+- class: Stage
+  parent: Actuated
+  aliases:
+  - stage
+  - sample stage
+  - motor stage
+  description: Motorized stage that moves a sample to a commanded position.
+- class: Detector
+  parent: Instrumentation
+  aliases:
+  - detector
+  - multichannel analyzer
+  - MCA
+  description: Detector that counts the photons from a sample and records their spectrum.

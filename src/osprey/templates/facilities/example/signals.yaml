@@ -1,0 +1,19 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+- name: position_setpoint
+  description: Commanded position of a stage.
+- name: position_readback
+  description: Measured position of a stage.
+- name: move_command
+  description: Command that starts a move to the position setpoint.
+- name: move_status
+  description: Whether a move runs, has ended or failed.
+- name: stop_command
+  description: Command that ends a running move.
+- name: acquire_command
+  description: Command that starts one acquisition of a detector.
+- name: acquire_status
+  description: Whether an acquisition runs.
+- name: counts_readback
+  description: Total counts a detector recorded in its last acquisition.
+- name: spectrum_readback
+  description: Counts per energy channel a detector recorded in its last acquisition.
