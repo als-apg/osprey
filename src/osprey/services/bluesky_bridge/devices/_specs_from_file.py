@@ -26,6 +26,9 @@ line naming the document and its version::
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
         unit: mm                   # optional
+      - name: SR:INJ:SEPTUM:WAVEFORM
+        pv: SR:INJ:SEPTUM:WAVEFORM
+        shape: [500]               # optional; the length of a 1-D array reading
 
 ``yaml.safe_load`` parses it, so a ``.json`` file is read by the same code
 path. Nothing here splits a value on any character, which is the point of the
@@ -76,6 +79,9 @@ ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
 UNIT_KEY = "unit"
 """Optional settable and readable key: the unit of the value a device reports
 under its own name, a non-empty string. A device without one declares no unit."""
+SHAPE_KEY = "shape"
+"""Optional readable key: the length of a 1-D array reading, a list of one int
+>= 1. A readable without one reads a scalar."""
 SETPOINT_UNIT_KEY = "setpoint_unit"
 """Optional settable key: the unit of the setpoint channel of a device with a
 separate readback, a non-empty string."""
@@ -99,6 +105,7 @@ _SETTABLE_NUMERIC_OPTIONAL = (MOTION_BAND_KEY,)
 _SETTABLE_TOLERANCE_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
 _READABLE_OPTIONAL = (UNIT_KEY,)
+_READABLE_SHAPE_OPTIONAL = (SHAPE_KEY,)
 
 
 def _clean(value: Any) -> str | None:
@@ -146,6 +153,21 @@ def _tolerance(value: Any) -> float | None:
         return None
     number = float(value)
     return number if number >= 0 else None
+
+
+def _shape(value: Any) -> tuple[int] | None:
+    """Return a ``shape`` as a one-element tuple, or ``None`` if it is not a list
+    of one int >= 1.
+
+    A bool is refused as in ``_tolerance``; a shape of more than one dimension
+    is no plan device, so it is malformed here.
+    """
+    if not isinstance(value, list) or len(value) != 1:
+        return None
+    (length,) = value
+    if isinstance(length, bool) or not isinstance(length, int) or length < 1:
+        return None
+    return (length,)
 
 
 def _settle(value: Any) -> tuple[float | None, float | None] | None:
@@ -285,7 +307,9 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
     """Parse the ``readables`` section, skipping malformed entries with a warning.
 
     An entry needs a non-empty ``name`` and ``pv``; ``unit`` is optional, as
-    on a settable. See ``_parse_settables``.
+    on a settable. ``shape`` is optional: absent or null reads a scalar;
+    present but not a list of one int >= 1 is a malformed entry. See
+    ``_parse_settables``.
     """
     specs: list[ReadableSpec] = []
     for index, entry in enumerate(_entries(section, READABLES_KEY)):
@@ -308,7 +332,19 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
         if units is None:
             continue
 
-        specs.append(ReadableSpec(name=name, read_pv=read_pv, unit=units[UNIT_KEY]))
+        shape: tuple[int] | None = None
+        if entry.get(SHAPE_KEY) is not None:
+            shape = _shape(entry[SHAPE_KEY])
+            if shape is None:
+                logger.warning(
+                    "skipping %s (%r): %r is present but not a list of one int >= 1",
+                    where,
+                    name,
+                    SHAPE_KEY,
+                )
+                continue
+
+        specs.append(ReadableSpec(name=name, read_pv=read_pv, unit=units[UNIT_KEY], shape=shape))
     return specs
 
 
@@ -389,19 +425,21 @@ def _validate_section(
     optional: tuple[str, ...],
     numeric: tuple[str, ...] = (),
     tolerances: tuple[str, ...] = (),
+    shapes: tuple[str, ...] = (),
 ) -> list[str]:
     """Return the problems in one device section (empty list ⇒ none).
 
     ``optional`` keys are strings when present; ``numeric`` keys are numbers
     >= 0 when present; ``tolerances`` keys are numbers >= 0 or ``{relative:
-    <number >= 0>}`` when present.
+    <number >= 0>}`` when present; ``shapes`` keys are lists of one int >= 1
+    when present.
     """
     if section is None:
         return []
     if not isinstance(section, list):
         return [f"{key!r} must be a list of device entries, got {type(section).__name__}"]
 
-    known = set(required) | set(optional) | set(numeric) | set(tolerances)
+    known = set(required) | set(optional) | set(numeric) | set(tolerances) | set(shapes)
     problems: list[str] = []
     for index, entry in enumerate(section):
         where = f"{key}[{index}]"
@@ -427,6 +465,11 @@ def _validate_section(
             f"{where}: {field!r} must be a number >= 0 or {{relative: <number >= 0>}} when present"
             for field in tolerances
             if entry.get(field) is not None and _settle(entry[field]) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a list of one int >= 1 when present"
+            for field in shapes
+            if entry.get(field) is not None and _shape(entry[field]) is None
         )
         unknown = [name for name in entry if name not in known]
         if unknown:
@@ -499,7 +542,11 @@ def validate_device_document(doc: Any) -> list[str]:
         _SETTABLE_TOLERANCE_OPTIONAL,
     )
     problems += _validate_section(
-        doc.get(READABLES_KEY), READABLES_KEY, _READABLE_REQUIRED, _READABLE_OPTIONAL
+        doc.get(READABLES_KEY),
+        READABLES_KEY,
+        _READABLE_REQUIRED,
+        _READABLE_OPTIONAL,
+        shapes=_READABLE_SHAPE_OPTIONAL,
     )
     problems += _duplicate_name_problems(doc)
     return problems
