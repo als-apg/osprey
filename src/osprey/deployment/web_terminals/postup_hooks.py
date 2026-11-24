@@ -27,6 +27,7 @@ from osprey.deployment.docker_desktop import (
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
+from osprey.repo_layout import child_path, entry
 from osprey_connectors.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
@@ -144,7 +145,8 @@ def run_verify_script(project_root: str, run_env: dict[str, str]) -> None:
         it reads the runtime and compose project from the record ``osprey up``
         wrote.
     """
-    verify_path = Path(project_root) / "scripts" / "verify.sh"
+    scripts_dir = Path(project_root) / entry("scripts").path
+    verify_path = child_path(scripts_dir, "scripts", "verify-script")
     if not verify_path.is_file():
         return
 

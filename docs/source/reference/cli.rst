@@ -132,8 +132,8 @@ handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
 repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
-``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``watchdogs/``, and
-``.env.example``. In ``providers.yml`` the entries OSPREY ships are reset to the
+``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``.env.example``, and
+``watchdogs/``, and rewriting ``.osprey/``. In ``providers.yml`` the entries OSPREY ships are reset to the
 packaged values and the ones you added are kept. Never touches ``.env``,
 ``.git``, ``var/``, ``build/``, ``.gitignore``, ``.env.shared``, ``README.md``,
 ``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or

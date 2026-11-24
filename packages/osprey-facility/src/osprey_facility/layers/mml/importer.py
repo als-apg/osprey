@@ -92,6 +92,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityUsageError, ImportStop, MappingProblems
 from osprey_facility.layers.mml.decks import DECKS_DIR, write_deck
 from osprey_facility.layers.mml.identity import (
@@ -541,14 +542,14 @@ def _write_records(
     layer.mkdir(parents=True, exist_ok=True)
     written = []
     if places.places:
-        written.append(_dump(layer / "places.yaml", places.places))
+        written.append(_dump(_entry(facility_dir, "places"), places.places))
     else:
-        (layer / "places.yaml").unlink(missing_ok=True)
+        _entry(facility_dir, "places").unlink(missing_ok=True)
     written += [
-        _dump(layer / "devices.yaml", _sorted(devices.values(), "id")),
-        _dump(layer / "channels.yaml", _sorted(channels.values(), "id")),
-        _dump(layer / "groups.yaml", _sorted(groups.values(), "id")),
-        _dump(layer / "models.yaml", _sorted(models, "name")),
+        _dump(_entry(facility_dir, "devices"), _sorted(devices.values(), "id")),
+        _dump(_entry(facility_dir, "channels"), _sorted(channels.values(), "id")),
+        _dump(_entry(facility_dir, "groups"), _sorted(groups.values(), "id")),
+        _dump(_entry(facility_dir, "models"), _sorted(models, "name")),
         write_rows(layer, export_rows),
     ]
     decks = [write_deck(deck, facility_dir, name) for name, deck in served]
@@ -1018,6 +1019,11 @@ def _copy_responses(exports: Exports, mapping: Mapping, layer: Path) -> list[Pat
 
 def _sorted(rows: Iterable[dict[str, Any]], key: str) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda row: str(row[key]))
+
+
+def _entry(facility_dir: Path, name: str) -> Path:
+    """Slot *name*'s file inside the mml layer."""
+    return facility_dir / source_tree.layer_entry("mml", name)
 
 
 def _dump(path: Path, rows: list[dict[str, Any]]) -> Path:

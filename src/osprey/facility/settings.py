@@ -19,13 +19,14 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
+from osprey.repo_layout import child_display_path, entry
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
 from osprey_connectors.simulation.servers import server_addresses
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_connectors.types import LIVE_STANDIN, VIRTUAL_ACCELERATOR
 from osprey_connectors.workspace import BUILD_DIR_NAME
-from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility import DEFAULT_ROLE, TEXTURE, source_tree
 from osprey_facility.errors import FacilityBuildError, quoted_slots
 from osprey_facility.records import FacilityRecords
 from osprey_facility.served import SIMULATION_MODELS_KEY, resolve_served, served_scope
@@ -53,7 +54,7 @@ __all__ = [
 ]
 
 #: The file a profile key is stated in.
-PROFILE_SOURCE = "profile.yml"
+PROFILE_SOURCE = entry("profile.yml").path
 
 #: The profile key that states the archive's freshness channel.
 FRESHNESS_CHANNEL_KEY = "va_archiver.freshness_channel"
@@ -69,8 +70,12 @@ VOCABULARY_ENABLED_KEY = "ariel.vocabulary.enabled"
 #: The profile key that names ARIEL's vocabulary file.
 VOCABULARY_PATH_KEY = "ariel.vocabulary.path"
 
+#: The render's facility tree, relative to the render root. A render path: the
+#: runtime reads the facility there whatever the source tree's layout.
+_RENDER_FACILITY_DIR = "data/facility"
+
 #: The vocabulary a facility tree ships, relative to the render root.
-VOCABULARY_SOURCE = "data/facility/ariel/vocabulary.yml"
+VOCABULARY_SOURCE = f"{_RENDER_FACILITY_DIR}/{source_tree.path('ariel_vocabulary')}"
 
 #: The profile section whose null turns ARIEL, and with it the vocabulary, off.
 ARIEL_SECTION = "ariel"
@@ -160,7 +165,7 @@ class _Inputs:
     @cached_property
     def vocabulary_shipped(self) -> bool:
         """Whether the content root ships ARIEL's vocabulary."""
-        return (self.content_dir / "ariel" / "vocabulary.yml").is_file()
+        return (self.content_dir / source_tree.path("ariel_vocabulary")).is_file()
 
     @cached_property
     def query_sources_shipped(self) -> bool:
@@ -387,6 +392,11 @@ def _check_start_set(inputs: _Inputs) -> None:
         )
 
 
+def _vocabulary_source_display() -> str:
+    """How a message names the vocabulary file the facility tree is authored with."""
+    return child_display_path("data", "facility", source_tree.path("ariel_vocabulary"))
+
+
 def _check_vocabulary_enabled(inputs: _Inputs) -> None:
     if (
         inputs.stated(VOCABULARY_ENABLED_KEY) is True
@@ -395,8 +405,8 @@ def _check_vocabulary_enabled(inputs: _Inputs) -> None:
     ):
         raise _refusal(
             VOCABULARY_ENABLED_KEY,
-            f"is true and the facility ships no {VOCABULARY_SOURCE}",
-            f"add {VOCABULARY_SOURCE}, or remove `{VOCABULARY_ENABLED_KEY}`",
+            f"is true and the facility ships no {_vocabulary_source_display()}",
+            f"add {_vocabulary_source_display()}, or remove `{VOCABULARY_ENABLED_KEY}`",
         )
 
 
@@ -443,8 +453,9 @@ def _check_dataset(inputs: _Inputs) -> None:
     if inputs.stated(BENCHMARK_DATASET_KEY) is not None and not inputs.query_sources_shipped:
         raise _refusal(
             BENCHMARK_DATASET_KEY,
-            f"names a benchmark query file and the facility ships no data/facility/{QUERY_SOURCES}/",
-            f"add the query sources to data/facility/{QUERY_SOURCES}/, "
+            "names a benchmark query file and the facility ships no "
+            f"{child_display_path('data', 'facility', QUERY_SOURCES)}/",
+            f"add the query sources to {child_display_path('data', 'facility', QUERY_SOURCES)}/, "
             f"or remove `{BENCHMARK_DATASET_KEY}`",
         )
 

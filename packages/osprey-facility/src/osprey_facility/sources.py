@@ -43,7 +43,7 @@ from typing import Any
 import yaml
 
 from osprey_connectors import yaml_loader
-from osprey_facility import PN_LOCAL
+from osprey_facility import PN_LOCAL, source_tree
 from osprey_facility.errors import FacilityBuildError
 
 __all__ = [
@@ -72,14 +72,23 @@ __all__ = [
 #: The layer the hand-edited records merge as.
 AUTHORED = "authored"
 
+
+def _record_slots() -> tuple[Any, ...]:
+    """The slots that each hold one kind of record, in declaration order."""
+    return tuple(row for row in source_tree.slots() if row.record_kind is not None)
+
+
+def _top_files() -> frozenset[str]:
+    """The single-file slots authored directly at the facility root."""
+    return frozenset(
+        source_tree.path(row.name)
+        for row in source_tree.slots()
+        if row.kind == source_tree.FILE and "/" not in source_tree.path(row.name)
+    )
+
+
 #: The record files a layer may write, and the kind each one holds.
-RECORD_FILES: dict[str, str] = {
-    "places.yaml": "place",
-    "devices.yaml": "device",
-    "channels.yaml": "channel",
-    "groups.yaml": "group",
-    "relations.yaml": "relation",
-}
+RECORD_FILES: dict[str, str] = {row.layer_name: row.record_kind for row in _record_slots()}
 
 #: The files a layer keeps for itself under its directory: a layer's own
 #: decisions file is read by that layer's importer, never by the build.
@@ -275,19 +284,8 @@ KIND_CLASS: dict[str, str] = {
     "relation": "Relation",
 }
 
-_TOP_FILES = frozenset(
-    {
-        "identity.yaml",
-        "classes.yaml",
-        "signals.yaml",
-        "models.yaml",
-        "limits.yaml",
-        "seeds.yaml",
-        "fixes.yaml",
-        "documents.yaml",
-        "policy.yaml",
-    }
-)
+#: The files authored at the facility root; any other root ``*.yaml`` is a stray.
+_TOP_FILES = _top_files()
 
 _HEADER = re.compile(r"^osprey\.facility\.[a-z_]+/[0-9]+$")
 
@@ -581,22 +579,23 @@ class _Reader:
         root = self.root
         if not root.is_dir():
             return LoadResult(self.sources, self.errors)
+        top_files = _top_files()
         for path in sorted(root.glob("*.yaml")):
-            if path.name not in _TOP_FILES:
+            if path.name not in top_files:
                 self._path_error(path.name, "is not a facility source file", "remove or rename it")
         self._read_identity()
         self._read_classes()
         self._read_signals()
-        self._read_layer(AUTHORED, root / "records", root / "models.yaml")
-        imported = root / "imported"
+        self._read_authored()
+        imported = root / source_tree.layer_root()
         if imported.is_dir():
             for layer_dir in sorted(p for p in imported.iterdir() if p.is_dir()):
-                self._read_imported(layer_dir)
+                self._read_imported(layer_dir.name)
         self._read_seeds()
         self._read_limits()
         self._read_scenarios()
         self._read_measurement()
-        fixes = self._parse(root / "fixes.yaml")
+        fixes = self._parse(self._slot_file("fixes"))
         if fixes is not _ABSENT:
             self.sources.fixes = fixes
         self._read_documents()
@@ -609,6 +608,9 @@ class _Reader:
 
     def _rel(self, path: Path) -> str:
         return path.relative_to(self.root).as_posix()
+
+    def _slot_file(self, name: str) -> Path:
+        return self.root / source_tree.path(name)
 
     def _parse(self, path: Path) -> Any:
         if not path.is_file():
@@ -655,21 +657,22 @@ class _Reader:
         return {k: v for k, v in data.items() if k != "schema"}
 
     def _read_identity(self) -> None:
-        data = self._mapping(self.root / "identity.yaml")
+        rel = source_tree.path("identity")
+        data = self._mapping(self.root / rel)
         if data is None:
             return
-        self._check_keys(data, "Identity", (), "path", "identity.yaml", "identity.yaml")
+        self._check_keys(data, "Identity", (), "path", rel, rel)
         code = data.get("code")
         if code is not None and not (isinstance(code, str) and PN_LOCAL.fullmatch(code)):
             self._path_error(
-                "identity.yaml.code",
+                f"{rel}.code",
                 f"code {code!r} does not match [A-Za-z_][A-Za-z0-9_]*",
                 "rename the code",
             )
         self.sources.identity = data
 
     def _read_classes(self) -> None:
-        rel = "classes.yaml"
+        rel = source_tree.path("classes")
         rows = self._list(self.root / rel)
         for index, row in enumerate(rows or []):
             if not isinstance(row, dict):
@@ -681,7 +684,7 @@ class _Reader:
     def _read_signals(self) -> None:
         from osprey_facility.validate import signal_roles
 
-        rel = "signals.yaml"
+        rel = source_tree.path("signals")
         built_in = signal_roles()
         declared: dict[str, str] = {}
         for index, row in enumerate(self._list(self.root / rel) or []):
@@ -708,8 +711,8 @@ class _Reader:
             declared[name] = where
             self.sources.signals.append(row)
 
-    def _read_imported(self, layer_dir: Path) -> None:
-        layer = layer_dir.name
+    def _read_imported(self, layer: str) -> None:
+        layer_dir = self.root / source_tree.layer_dir(layer)
         if layer == AUTHORED:
             self._path_error(
                 self._rel(layer_dir),
@@ -717,24 +720,35 @@ class _Reader:
                 "move the authored records to records/",
             )
             return
+        record_files = {
+            row.record_kind: self.root / source_tree.layer_entry(layer, row.name)
+            for row in _record_slots()
+        }
+        models_file = self.root / source_tree.layer_entry(layer, "models")
+        layer_files = {*record_files.values(), models_file}
         for path in sorted(layer_dir.glob("*.yaml")):
             if path.name in LAYER_OWN_FILES:
                 continue
-            if path.name not in RECORD_FILES and path.name != "models.yaml":
+            if path not in layer_files:
                 self._path_error(self._rel(path), "is not a layer file", "remove or rename it")
-        if (layer_dir / RELATIONS_MARK).is_file():
+        if (self.root / source_tree.layer_dir(layer, RELATIONS_MARK)).is_file():
             self.sources.relations_layers |= {layer}
-        self._read_layer(layer, layer_dir, layer_dir / "models.yaml")
+        self._read_layer(layer, record_files, models_file)
 
-    def _read_layer(self, layer: str, records_dir: Path, models_file: Path) -> None:
-        if layer == AUTHORED and records_dir.is_dir():
+    def _read_authored(self) -> None:
+        record_files = {row.record_kind: self._slot_file(row.name) for row in _record_slots()}
+        records_dir = self._slot_file("records")
+        if records_dir.is_dir():
+            authored = set(record_files.values())
             for path in sorted(records_dir.glob("*.yaml")):
-                if path.name not in RECORD_FILES:
+                if path not in authored:
                     self._path_error(
                         self._rel(path), "is not a records file", "remove or rename it"
                     )
-        for name, kind in sorted(RECORD_FILES.items()):
-            path = records_dir / name
+        self._read_layer(AUTHORED, record_files, self._slot_file("models"))
+
+    def _read_layer(self, layer: str, record_files: Mapping[str, Path], models_file: Path) -> None:
+        for kind, path in sorted(record_files.items(), key=lambda item: item[1].name):
             rows = self._list(path)
             for index, row in enumerate(rows or []):
                 self._read_record(layer, kind, self._rel(path), index, row)
@@ -869,7 +883,7 @@ class _Reader:
             self.sources.records.append(SourceRecord("wiring", wid, layer, rel, fields))
 
     def _read_seeds(self) -> None:
-        rel = "seeds.yaml"
+        rel = source_tree.path("seeds")
         data = self._mapping(self.root / rel)
         for address, seed in sorted((data or {}).items(), key=lambda item: str(item[0])):
             if not isinstance(seed, dict):
@@ -879,7 +893,7 @@ class _Reader:
             self.sources.seeds[str(address)] = seed
 
     def _read_limits(self) -> None:
-        rel = "limits.yaml"
+        rel = source_tree.path("limits")
         data = self._mapping(self.root / rel)
         if not data:
             return
@@ -891,7 +905,7 @@ class _Reader:
         self.sources.limits = data
 
     def _read_documents(self) -> None:
-        rel = "documents.yaml"
+        rel = source_tree.path("documents")
         rows = self._list(self.root / rel)
         first: dict[str, int] = {}
         for index, row in enumerate(rows or []):
@@ -915,7 +929,7 @@ class _Reader:
     def _read_policy(self) -> None:
         from osprey_facility.validate import relation_types
 
-        rel = "policy.yaml"
+        rel = source_tree.path("policy")
         data = self._mapping(self.root / rel)
         if not data:
             return
@@ -959,6 +973,7 @@ class _Reader:
         declared = {
             row["kind"] for row in self.sources.documents if isinstance(row.get("kind"), str)
         }
+        documents = source_tree.path("documents")
         seen: set[str] = set()
         for index, kind in enumerate(kinds):
             if not isinstance(kind, str) or not kind.strip():
@@ -972,14 +987,14 @@ class _Reader:
             elif not self.sources.documents:
                 self._path_error(
                     where,
-                    f"lists `{kind}`, but no documents.yaml declares documents",
-                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                    f"lists `{kind}`, but no {documents} declares documents",
+                    f"declare a document of kind `{kind}` in {documents} or remove `{kind}`",
                 )
             elif kind not in declared:
                 self._path_error(
                     where,
-                    f"lists `{kind}`, which no document in documents.yaml has as its kind",
-                    f"declare a document of kind `{kind}` in documents.yaml or remove `{kind}`",
+                    f"lists `{kind}`, which no document in {documents} has as its kind",
+                    f"declare a document of kind `{kind}` in {documents} or remove `{kind}`",
                 )
             if isinstance(kind, str):
                 seen.add(kind)
@@ -998,10 +1013,9 @@ class _Reader:
                 self._path_error(where, f"unknown key `{key}`", f"remove `{key}` from {where}")
 
     def _read_scenarios(self) -> None:
-        folder = self.root / "scenarios"
-        if not folder.is_dir():
+        if not self._slot_file("scenarios").is_dir():
             return
-        for path in sorted(folder.glob("*.yaml")):
+        for path in sorted(self.root.glob(source_tree.keyed_file("scenarios", "*"))):
             data = self._mapping(path)
             if data is None:
                 continue
@@ -1015,10 +1029,9 @@ class _Reader:
             self.sources.scenarios.append({**data, "name": path.stem})
 
     def _read_measurement(self) -> None:
-        folder = self.root / "measurement"
-        if not folder.is_dir():
+        if not self._slot_file("measurement").is_dir():
             return
-        for path in sorted(folder.glob("*.yaml")):
+        for path in sorted(self.root.glob(source_tree.keyed_file("measurement", "*"))):
             data = self._mapping(path)
             if data is None:
                 continue
@@ -1076,6 +1089,7 @@ class _Reader:
                 f"layer {record.layer} states it twice ({first[key].file}, {record.file})",
                 f"keep one record per id in layer {record.layer}",
             )
+        seeds = source_tree.path("seeds")
         for address, _seed in sorted(self.sources.seeds.items()):
             key = (AUTHORED, "channel", address)
             if key in first and "simulation" in first[key].fields:
@@ -1083,13 +1097,13 @@ class _Reader:
                     "layer-duplicate",
                     "channel",
                     address,
-                    (first[key].file, "seeds.yaml"),
-                    f"layer {AUTHORED} states `simulation` twice ({first[key].file}, seeds.yaml)",
-                    "keep the seed in seeds.yaml only",
+                    (first[key].file, seeds),
+                    f"layer {AUTHORED} states `simulation` twice ({first[key].file}, {seeds})",
+                    f"keep the seed in {seeds} only",
                 )
         for model in sorted(self.sources.measurement):
             key = (AUTHORED, "model", model)
-            rel = f"measurement/{model}.yaml"
+            rel = source_tree.keyed_file("measurement", model)
             if key in first and "measurement" in first[key].fields:
                 self._error(
                     "layer-duplicate",

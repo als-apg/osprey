@@ -478,10 +478,10 @@ Four locations are protected:
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
 
-  - ``profile.yml``, with ``triggers.yml``, ``ci-extra.yml`` and
-    ``osprey.service`` beside it
-  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/`` and ``scripts/``
-    directories
+  - ``profile.yml``, with ``providers.yml``, ``triggers.yml``, ``ci-extra.yml``,
+    ``osprey.service`` and ``.dockerignore`` beside it
+  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/``, ``scripts/``,
+    ``watchdogs/`` and ``.osprey/`` directories
   - the convention directories (``rules/``, ``skills/``, ``agents/``,
     ``commands/``, ``output-styles/``, ``hooks/``, ``web-terminal-context/``,
     ``mcp_servers/``, ``services/``)

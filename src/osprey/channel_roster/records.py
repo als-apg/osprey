@@ -31,6 +31,8 @@ from pathlib import Path
 from string import Formatter
 from typing import Literal
 
+from osprey.repo_layout import child_display_path
+
 #: Which way a channel points. ``None`` means the source could not say -- an
 #: honest unknown, never a stand-in for "read".
 ChannelDirection = Literal["read", "write"]
@@ -92,7 +94,7 @@ ABSENCE_TEMPLATES: Mapping[RosterAbsenceReason, str] = {
     ),
     RosterAbsenceReason.FACILITY_EMPTY: (
         "The facility file {path} declares no channels: the project's "
-        "data/facility tree holds no channel records."
+        f"{child_display_path('data', 'facility')} tree holds no channel records."
     ),
     RosterAbsenceReason.CORRUPT_SOURCE: (
         "The channel roster source at {path} could not be read: {detail}."

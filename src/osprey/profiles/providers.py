@@ -24,10 +24,15 @@ from typing import Any, Literal, TypeGuard
 
 import yaml
 
+from osprey.repo_layout import entry as root_entry
 from osprey_connectors.errors import BuildProfileError
 
-#: Filename of the catalog, both packaged and in a deployment repo.
-PROVIDERS_FILENAME = "providers.yml"
+#: Where a deployment repo's catalog sits, relative to the deployment root.
+PROVIDERS_FILENAME = root_entry("providers.yml").path
+
+#: Filename of the catalog shipped inside the ``osprey.profiles`` package. A
+#: framework file, not a deployment entry: it does not follow the root row.
+PACKAGED_CATALOG_FILENAME = "providers.yml"
 
 #: Top-level key holding the entries. The file is a mapping so it has room for
 #: future file-level keys without a provider named after one of them.
@@ -84,7 +89,7 @@ class ProviderCatalog:
 
 def packaged_catalog_path() -> Path:
     """Path of the catalog shipped inside the ``osprey.profiles`` package."""
-    return Path(str(importlib.resources.files("osprey.profiles"))) / PROVIDERS_FILENAME
+    return Path(str(importlib.resources.files("osprey.profiles"))) / PACKAGED_CATALOG_FILENAME
 
 
 def load_provider_catalog(profile_dir: Path | None) -> ProviderCatalog:

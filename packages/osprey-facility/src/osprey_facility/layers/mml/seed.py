@@ -52,11 +52,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 from osprey_facility.layers import HEADER
 from osprey_facility.layers.mml.decks import FREQUENCY, KICK
 from osprey_facility.layers.mml.mapping import (
-    LAYER_DIR,
     MAPPING_FILE,
     MONITOR_FIELD,
     PHYSICS_UNITS,
@@ -86,14 +86,15 @@ __all__ = [
     "seed_once",
 ]
 
-LIMITS_FILE = "limits.yaml"
-READOUT_FILE = "scenarios/readout.yaml"
-SEEDS_FILE = "seeds.yaml"
-CLASSES_FILE = "classes.yaml"
-IDENTITY_FILE = "identity.yaml"
+#: The files the import seeds once, each where its slot is authored.
+LIMITS_FILE = source_tree.path("limits")
+READOUT_FILE = source_tree.keyed_file("scenarios", "readout")
+SEEDS_FILE = source_tree.path("seeds")
+CLASSES_FILE = source_tree.path("classes")
+IDENTITY_FILE = source_tree.path("identity")
 
 #: The directory of the per-model measurement files.
-MEASUREMENT_DIR = "measurement"
+MEASUREMENT_DIR = source_tree.path("measurement")
 
 #: pyAML's step and settle keys: counts, the fit order, sleeps in s, and the
 #: corrector (rad), quadrupole (1/m), sextupole (1/m**2) and RF (Hz) steps.
@@ -195,8 +196,8 @@ def seed_once(
     Returns:
         The files written and the lines to print.
     """
-    models = _load(facility_dir / LAYER_DIR / "models.yaml") or []
-    group_of = _group_of(_load(facility_dir / LAYER_DIR / "groups.yaml") or [])
+    models = _load(facility_dir / source_tree.layer_entry("mml", "models")) or []
+    group_of = _group_of(_load(facility_dir / source_tree.layer_entry("mml", "groups")) or [])
     wired = {str(record["address"]) for model in models for record in model.get("wiring") or ()}
     claims = _claims(views, mapping)
     seeded = Seeded()
@@ -228,7 +229,7 @@ def seed_once(
         carried.setdefault(view.system, set()).add(view.raw_name)
     for entry in models:
         model = by_name.get(str(entry.get("name")))
-        path = facility_dir / MEASUREMENT_DIR / f"{entry.get('name')}.yaml"
+        path = facility_dir / source_tree.keyed_file("measurement", str(entry.get("name")))
         if model is None or not entry.get("wiring") or path.exists():
             continue
         document, lines = _measurement(

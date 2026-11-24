@@ -29,6 +29,7 @@ from typing import Any
 
 import yaml
 
+from osprey import repo_layout
 from osprey.apps.sdk.testing._build import init_repo, invoke_build
 from osprey.apps.sdk.testing._facility import plain_tree, write_tree
 from osprey.utils.workspace import APPS_DIRNAME, BUILD_DIR_NAME, PROFILE_FILENAME, TIERS_DIRNAME
@@ -85,7 +86,7 @@ def synthetic_deployment(
     if made.exit_code != 0:
         raise AssertionError(f"osprey init failed:\n{made.output}")
 
-    tree = root / "data" / "facility"
+    tree = repo_layout.child_path(root / repo_layout.entry("data").path, "data", "facility")
     shutil.rmtree(tree)
     write_tree(tree, copy.deepcopy(dict(plain_tree() if facility is None else facility)))
 

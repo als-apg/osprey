@@ -50,6 +50,7 @@ from osprey.mcp_server.sandbox_env import (
     configured_child_env_passthrough,
     scrub_sandbox_child_env,
 )
+from osprey.repo_layout import Zone, paths, retired_paths, rows_in_zone
 from osprey.stores.artifact_manifest import (
     MAX_COLLECTED_ENTRIES,
     MAX_COLLECTED_TOTAL_BYTES,
@@ -57,7 +58,6 @@ from osprey.stores.artifact_manifest import (
     is_collectable_file,
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.posture_env import POSTURE_ENV_VAR
@@ -81,60 +81,27 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 #: and the parse has exactly one call site.
 _PERIMETER_OPEN_VALUE = "open"
 
-#: The profile SOURCE zone, as repo-root-relative entries: ``profile.yml`` and
+#: The profile SOURCE zone, as repo-root-relative paths: ``profile.yml`` and
 #: everything a build reads to produce a project — the convention directories
-#: (``rules/``, ``skills/``, ``tiers/``, the ``project/`` verbatim mirror,
-#: ...) plus the source files that sit beside them. Executed code may not write
-#: into any of it, in any execution mode: rewriting the profile is how a run
-#: changes what the *next* run is allowed to do, which is a different boundary
-#: from the control-system one and is not something readwrite approval buys.
+#: (``rules/``, ``skills/``, the ``project/`` verbatim mirror, ...), the layer
+#: and application directories, the saved preset copy under ``.osprey/``, and
+#: the source files beside them. Executed code may not write into any of it, in
+#: any execution mode: rewriting the profile is how a run changes what the
+#: *next* run is allowed to do, which is a different boundary from the
+#: control-system one and is not something readwrite approval buys.
 #:
-#: Restated here rather than imported from
-#: :mod:`osprey.cli.profile_conventions`, which owns the canonical table
-#: (``_SOURCE_ZONE_ENTRIES`` and ``CONVENTION_SOURCES``). That module lives
-#: under ``osprey.cli``, and importing it would execute ``osprey/cli/__init__``
-#: — the whole Click command group — inside the MCP server on every execution.
-#: The runtime layers deliberately do not import ``cli``: the zone and layout
-#: names live in :mod:`osprey_connectors.workspace` for exactly this reason,
-#: and the layer directories below are read from there. The copy is pinned to
-#: the original by ``tests/services/python_executor/test_runtime_guard.py``, so
-#: a convention directory added there and not here fails a test rather than
-#: quietly leaving a writable hole.
+#: The path, and every retired path, of each source-zone row of
+#: :mod:`osprey.repo_layout`, in declaration order. The build's convention table
+#: and its source-zone table are views of the same rows, so an entry added to
+#: the source zone there is protected here without an edit. The declaration is
+#: a leaf below ``osprey.cli`` and is read directly: importing the CLI would run
+#: the whole Click command group inside the MCP server on every execution. The
+#: guard refuses a write under any of these paths, so their order never changes
+#: a decision; it only picks which root a static refusal names when a relative
+#: path matches two of them.
 PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
-    # Source files at the repo root.
-    "profile.yml",
-    # The provider catalog beside the profile. Source zone like the profile
-    # itself: tracked, and the file an operator adds a gateway to.
-    "providers.yml",
-    "triggers.yml",
-    "ci-extra.yml",
-    "osprey.service",
-    # The deployment's own list of repo files kept out of its image.
-    ".dockerignore",
-    # Source directories at the repo root.
-    "data",
-    # The login files laid over the profile, by location.
-    *LAYER_DIRNAMES,
-    # The applications: `apps/<name>/` source, not a layer directory.
-    APPS_DIRNAME,
-    "profiles",
-    "scripts",
-    "watchdogs",
-    # The saved copy of what the presets produced (`.osprey/preset-base/`):
-    # `osprey init --revalidate` rewrites a source file that still holds its
-    # saved value, so a run that could edit the copy could aim that rewrite.
-    PRESET_TRACKING_DIRNAME,
-    # Convention directories, in CONVENTION_DIRS order.
-    "rules",
-    "skills",
-    "agents",
-    "commands",
-    "output-styles",
-    "hooks",
-    "web-terminal-context",
-    "mcp_servers",
-    "services",
-    "project",
+    *paths(rows_in_zone(Zone.SOURCE)),
+    *retired_paths(rows_in_zone(Zone.SOURCE)),
 )
 
 #: The target stamp carried into the sandbox. These two names are the routing

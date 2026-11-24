@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.repo_layout import entry
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.safety_file import atomic_replace
 
@@ -79,7 +80,7 @@ from .repo_resolver import PROFILE_FILENAME
 #: else. Adding a platform therefore means three deliberate edits — a template,
 #: an entry here, and a marker of its own (:data:`CI_MARKER` is a single
 #: constant only because there is a single platform).
-CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": ".gitlab-ci.yml"}
+CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": entry(".gitlab-ci.yml").path}
 
 #: Where the health check is emitted, as path segments relative to the repo
 #: root. It lands in the source zone, beside the profile that renders it, and
@@ -109,14 +110,13 @@ SYSTEMD_OUTPUT_NAME: str = SYSTEMD_UNIT_NAME
 #: root, so a second literal here could move the file out from under the line
 #: that installs it.
 #:
-#: Under ``scripts/`` rather than at the repo root, and deliberately so.
-#: :mod:`osprey.cli.profile_conventions` keeps ``_SOURCE_ZONE_ENTRIES``, the set
-#: of repo-root entries ``osprey build``'s unknown-root-entry warning knows
-#: about. A new root file would not be in it, so a build would warn about a file
-#: OSPREY itself told the operator to create — the exact thing that module's
-#: docstring says must not happen. ``scripts`` is already covered (it is where
-#: ``verify.sh`` lands), so emitting the hook there needs no edit to that table,
-#: nor to the python-executor write-guard that mirrors it.
+#: Under ``scripts/`` rather than at the repo root, and deliberately so. A file
+#: at the root would be an entry no row of :mod:`osprey.repo_layout` declares,
+#: so ``osprey build``'s unknown-root-entry warning would report a file OSPREY
+#: itself told the operator to create. Inside the ``scripts`` row it is that
+#: row's ``boot-hook`` child, beside the ``verify-script`` child: the known-root
+#: set and the python-executor write guard are both views of the declared rows,
+#: so a child needs no row of its own.
 BOOT_HOOK_OUTPUT_PATH: tuple[str, ...] = tuple(BOOT_HOOK_PATH.split("/"))
 
 #: The health check is meant to be runnable by hand (``./scripts/verify.sh``),

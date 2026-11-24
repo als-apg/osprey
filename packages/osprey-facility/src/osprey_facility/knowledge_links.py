@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey_facility.frontmatter import FrontmatterError, split_frontmatter
 from osprey_facility.records import PLACE_LINK_PREFIX, FacilityRecords
@@ -26,7 +27,7 @@ from osprey_facility.validate import Validated, need
 __all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "check_knowledge_links", "dangling_links"]
 
 #: Where the knowledge pages live, relative to ``data/facility/``.
-KNOWLEDGE_DIR = "knowledge"
+KNOWLEDGE_DIR = source_tree.path("knowledge")
 
 #: The frontmatter key that links a page to a device.
 LINK_KEY = "device_id"
@@ -77,7 +78,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
         One entry per dangling link, sorted by page path; within a page the
         frontmatter link comes first, then the body links in page order.
     """
-    knowledge = facility_dir / KNOWLEDGE_DIR
+    knowledge = facility_dir / source_tree.path("knowledge")
     if not knowledge.is_dir():
         return []
     records = FacilityRecords(doc)

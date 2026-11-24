@@ -17,9 +17,9 @@ What goes where
    example-machine/              the machine repository
      profile.yml                 its VA-only setup
      data/facility/              the machine facts
-       identity.yaml  records/  classes.yaml  models.yaml  decks/
+       identity.yaml  records/  classes.yaml  signals.yaml  models.yaml  decks/
        limits.yaml  seeds.yaml  measurement/  scenarios/  fixes.yaml
-       imported/<layer>/
+       documents.yaml  policy.yaml  imported/<layer>/
 
    my-deployment/                a deployment
      profile.yml                 states machine: vendor/example-machine/data/facility

@@ -1,0 +1,84 @@
+{
+  "hello-world": {
+    "inputs": [
+      {
+        "key": "profile.yml",
+        "label": null,
+        "digest": null
+      },
+      {
+        "key": "data/",
+        "label": "data",
+        "digest": "7325704b4420dd566a052a3f0a792790c65d801e5f022dd690ed8d022bdbdd75"
+      },
+      {
+        "key": "mcp_servers/",
+        "label": "convention:mcp_servers",
+        "digest": "93aad50a01ce25a0d8308cbea0d55d5615d998bd434f4b39a3f99c9558645371"
+      }
+    ],
+    "profile_hash": "sha256:076a6bc44e57ae294fe04e4497a619b79c90ed798d25eb0c3e0e53d3d4ab622a",
+    "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
+  },
+  "demo": {
+    "inputs": [
+      {
+        "key": "profile.yml",
+        "label": null,
+        "digest": null
+      },
+      {
+        "key": "data/",
+        "label": "data",
+        "digest": "e88bdc4f9b453e5eeaa1ffe14c78c69863b49ce034cb1363d13c674cf00075cf"
+      },
+      {
+        "key": "rules/",
+        "label": "convention:rules",
+        "digest": "ad8a9ee443ed55a2b94efb2fdbec2c11cb7a47b46fa32cd861bd52713dddffe1"
+      },
+      {
+        "key": "web-terminal-context/",
+        "label": "convention:web-terminal-context",
+        "digest": "021fe1ae4c346b8860cd5dafec6501887f162a4bc268d4b03ef4c2b16f1fab89"
+      },
+      {
+        "key": "triggers.yml",
+        "label": "triggers",
+        "digest": "0270610de58a1b1a7b26e4da12b9686ecd8fbe0f81a71ed07a755a082174c8d4"
+      },
+      {
+        "key": "tiers/admin.yml",
+        "label": "tier",
+        "digest": "add354509b6ddbf54a742f654f8cda3dc26d08ca2f872a826db53a7776061222"
+      },
+      {
+        "key": "tiers/channel-finder.yml",
+        "label": "tier",
+        "digest": "02c8ee58ad56dc1452df8d6669bbbab12632fd7f5d3e4c8e04c7cfa0c6c511fd"
+      },
+      {
+        "key": "tiers/knowledge.yml",
+        "label": "tier",
+        "digest": "fb19f0ec6ce05693cbf23cfa5410f6e0299db87d7ecc85442d91987887cc7fe1"
+      },
+      {
+        "key": "tiers/logbook.yml",
+        "label": "tier",
+        "digest": "e49e7d706d3cf90fb8b2d44fa0bc3072294d4b8e887f2201c38094a1815e445e"
+      },
+      {
+        "key": "tiers/readonly.yml",
+        "label": "tier",
+        "digest": "4a3fc33447686419e1028453b4122bc1cf119b513e85816c5bde501e94157401"
+      },
+      {
+        "key": "tiers/readwrite.yml",
+        "label": "tier",
+        "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
+      }
+    ],
+    "profile_hash": "sha256:9b24e19715e58909e4b6248c7ec0f4654f70d849b980a3eef549a829f3a70fd7",
+    "preset_hash": "sha256:922c1ef4698306f142b53635e4558198534879249174b8597ba1ff1b40667a4e"
+  }
+}

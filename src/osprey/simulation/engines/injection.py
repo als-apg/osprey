@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 from osprey_connectors.simulation.engines import field
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ _EVENT = "event"
 
 _SETTINGS_KEYS = frozenset({"cycle", "stages", "current_per_charge"})
 _CYCLE_KEYS = frozenset({"period_s", "width_s"})
-_SOURCES = ("models.yaml",)
+_SOURCES = (source_tree.path("models"),)
 _ZERO = 0.0
 _NOTHING_ACTIVE: Mapping[str, Any] = {}
 

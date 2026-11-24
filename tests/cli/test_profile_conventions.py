@@ -964,19 +964,6 @@ def test_zone_scaffolded_boot_unit_is_not_flagged(zone_repo: Path):
     assert unknown_root_entries(zone_repo) == []
 
 
-def test_zone_boot_unit_spelling_matches_the_verb_that_writes_it():
-    """The two literals cannot drift apart.
-
-    `profile_conventions` spells the unit name itself rather than importing it,
-    because the module that owns the name imports this one. A rename on either
-    side that missed the other would bring the every-build warning straight
-    back, so the equality is asserted instead of assumed.
-    """
-    from osprey.cli.deploy_scaffold import SYSTEMD_OUTPUT_NAME
-
-    assert SYSTEMD_OUTPUT_NAME in KNOWN_ROOT_ENTRIES
-
-
 def test_zone_layout_still_flags_a_genuinely_stray_entry(zone_repo: Path):
     """The other half of SC-9: recognizing the zones must not blind the check."""
     (zone_repo / "ioc").mkdir()

@@ -56,6 +56,7 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
@@ -152,7 +153,8 @@ _CLAIMABLE_CONVENTIONS: tuple[ConventionDir, ...] = tuple(
     and (convention.destination.startswith(".claude/") or convention.destination == "services")
 )
 
-_CLAIMABLE_PREFIXES: str = ", ".join(f"{c.source}/" for c in _CLAIMABLE_CONVENTIONS)
+#: The name prefixes a claimable artifact is named under: each convention's key.
+_CLAIMABLE_PREFIXES: str = ", ".join(f"{c.key}/" for c in _CLAIMABLE_CONVENTIONS)
 
 
 @dataclass(frozen=True)
@@ -165,7 +167,8 @@ class ClaimTarget:
             vocabulary the build registers ownership under and a layer
             excludes by.
         project_rel: Project-relative posix path of the artifact.
-        profile_rel: Profile-relative posix path of its convention slot.
+        profile_rel: Profile-relative posix path of its convention slot, under
+            the convention's location; the name is under its key.
         is_directory: Whether the artifact is a whole directory (a skill, a
             service) rather than a single file.
         entry_noun: What one entry is, for messages ("rule", "skill").
@@ -197,10 +200,10 @@ class ClaimOutcome:
     is_layer: bool
 
 
-def _claimable_convention(category: str) -> ConventionDir | None:
-    """Return the claimable convention a name's first segment selects, if any."""
+def _claimable_convention(key: str) -> ConventionDir | None:
+    """Return the claimable convention a name's first segment, its key, selects, if any."""
     for convention in _CLAIMABLE_CONVENTIONS:
-        if convention.source == category:
+        if convention.key == key:
             return convention
     return None
 
@@ -234,7 +237,7 @@ def _generated_path_message(name: str, target: ClaimTarget) -> str:
     from osprey.cli.profile_conventions import reserved_path_channel
 
     channel = reserved_path_channel(target.project_rel) or "the build itself"
-    convention = target.profile_rel.split("/", 1)[0]
+    convention = target.name.split("/", 1)[0]
     return (
         f"'{name}' ({target.project_rel}) is generated, not authored: "
         f"it is written by {channel}.\n"
@@ -286,7 +289,7 @@ def _target_below(convention: ConventionDir, tail: tuple[str, ...]) -> ClaimTarg
     if convention.shape is EntryShape.DIRECTORY:
         rel = tail[0]
         return ClaimTarget(
-            name=f"{convention.source}/{rel}",
+            name=f"{convention.key}/{rel}",
             project_rel=f"{convention.destination}/{rel}",
             profile_rel=f"{convention.source}/{rel}",
             is_directory=True,
@@ -299,7 +302,7 @@ def _target_below(convention: ConventionDir, tail: tuple[str, ...]) -> ClaimTarg
         # spelling rather than resolving to a `.md.md` path.
         stem = rel.removesuffix(".md")
         return ClaimTarget(
-            name=f"{convention.source}/{stem}",
+            name=f"{convention.key}/{stem}",
             project_rel=f"{convention.destination}/{stem}.md",
             profile_rel=f"{convention.source}/{stem}.md",
             is_directory=False,
@@ -308,7 +311,7 @@ def _target_below(convention: ConventionDir, tail: tuple[str, ...]) -> ClaimTarg
 
     if convention.shape is EntryShape.FILE:
         return ClaimTarget(
-            name=f"{convention.source}/{rel}",
+            name=f"{convention.key}/{rel}",
             project_rel=f"{convention.destination}/{rel}",
             profile_rel=f"{convention.source}/{rel}",
             is_directory=False,
@@ -316,9 +319,9 @@ def _target_below(convention: ConventionDir, tail: tuple[str, ...]) -> ClaimTarg
         )
 
     raise ScaffoldClaimError(
-        f"This OSPREY does not know how to claim {convention.source}/ entries one "
+        f"This OSPREY does not know how to claim {convention.key}/ entries one "
         f"at a time. Move the {convention.entry_noun} into the profile's "
-        f"{convention.source}/ directory yourself."
+        f"{display_path(convention.key)}/ directory yourself."
     )
 
 
@@ -389,17 +392,17 @@ def resolve_claim_target(name: str) -> ClaimTarget:
     rest = parts[1:]
     if not rest:
         raise ScaffoldClaimError(
-            f"'{name}' names the whole {convention.source}/ convention directory. "
-            f"Claim one {convention.entry_noun} at a time, e.g. {convention.source}/<name>."
+            f"'{name}' names the whole {convention.key}/ convention directory. "
+            f"Claim one {convention.entry_noun} at a time, e.g. {convention.key}/<name>."
         )
     if convention.shape is EntryShape.DIRECTORY and len(rest) > 1:
         # Truncating here would silently claim the enclosing directory. A
         # catalog artifact's path may legitimately point inside one (a skill's
         # SKILL.md), but a name the operator typed is a name, not a path.
         raise ScaffoldClaimError(
-            f"'{name}' is nested: {convention.source}/ holds one directory per "
+            f"'{name}' is nested: {convention.key}/ holds one directory per "
             f"{convention.entry_noun}, so a name has exactly one segment below it "
-            f"({convention.source}/{rest[0]})."
+            f"({convention.key}/{rest[0]})."
         )
 
     return _refuse_generated(trimmed, _target_below(convention, rest))

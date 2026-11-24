@@ -600,21 +600,21 @@ def test_permitted_roots_follow_a_relocated_data_root(project: _Project):
     assert resolve_permitted_roots(project.root, config) == ((project.root / "state/agent"),)
 
 
-def test_profile_source_entries_match_the_convention_table():
-    """Pins the executor's local copy against the module that owns the table.
+def test_every_convention_source_is_a_path_executed_code_may_not_write(tmp_path: Path):
+    """Each convention the build renders sits where the executor refuses writes.
 
-    The copy exists because ``osprey.cli.profile_conventions`` cannot be
-    imported from the runtime path (it drags in the whole Click command group).
-    A convention directory added there and forgotten here would be a silently
-    writable hole, so the drift is a test failure instead.
+    The build's convention table and the executor's protected set are computed
+    in two modules from the same declaration; a convention directory the build
+    reads and the guard leaves writable would let a run rewrite what the next
+    run renders. Compared by location (each convention's ``source``), the thing
+    the guard joins to the deployment root.
     """
-    from osprey.cli.profile_conventions import (  # test-only import
-        _SOURCE_ZONE_ENTRIES,
-        CONVENTION_SOURCES,
-    )
+    from osprey.cli.profile_conventions import CONVENTION_DIRS  # test-only import
 
-    canonical = set(CONVENTION_SOURCES) | set(_SOURCE_ZONE_ENTRIES)
-    assert set(PROFILE_SOURCE_ENTRIES) == canonical
+    protected = set(resolve_protected_roots(tmp_path))
+    for convention in CONVENTION_DIRS:
+        assert convention.source in PROFILE_SOURCE_ENTRIES, convention.key
+        assert (tmp_path.resolve() / convention.source) in protected, convention.key
     assert len(PROFILE_SOURCE_ENTRIES) == len(set(PROFILE_SOURCE_ENTRIES))
 
 

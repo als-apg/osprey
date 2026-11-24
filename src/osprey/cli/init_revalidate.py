@@ -90,6 +90,7 @@ from osprey.profiles.providers import (
     compute_providers_hash,
     packaged_catalog_path,
 )
+from osprey.repo_layout import display_path
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -126,15 +127,13 @@ from .build_profile_emit import _drop_key_and_pre_comment
 from .build_profile_load import _PROFILE_SCHEMA_MIN_OSPREY
 from .build_profile_merge import compute_preset_hash
 from .build_profile_presets import PRESET_DATA_BUNDLE_KEY
-from .variant_selection import known_variants, variant_profile_path
+from .variant_selection import VARIANT_DIRNAME, known_variants, variant_profile_path
 
 #: The directories whose files are read as tiers, retired ones first, so a file
 #: in ``tiers/`` wins over a same-named one still in a retired directory.
 _TIER_DIRS_RETIRED_FIRST: tuple[str, ...] = tuple(
     reversed([d for d in LAYER_DIRNAMES if layer_dir_kind(d) == "tier"])
 )
-
-CONTEXT_DIRNAME = "web-terminal-context"
 
 
 #: :attr:`RetiredPreset.kind` of a card that is now a shared login.
@@ -1308,10 +1307,21 @@ def _move_retired_layer_dir(root: Path) -> list[str]:
 
 def _snapshot(root: Path) -> dict[str, str]:
     """The text of every file this rewrite may touch, by repo-relative path."""
+    from .profile_conventions import (
+        PER_USER_CONTEXT_DIRNAME,
+        PROFILE_TRIGGERS_FILENAME,
+        convention_source,
+    )
+
     texts: dict[str, str] = {}
-    candidates = [root / PROFILE_FILENAME, root / PROVIDERS_FILENAME, root / "triggers.yml"]
+    candidates = [
+        root / PROFILE_FILENAME,
+        root / PROVIDERS_FILENAME,
+        root / PROFILE_TRIGGERS_FILENAME,
+    ]
     # `apps/` is not a layer directory, but its login files are moved from it.
-    for dirname in (*LAYER_DIRNAMES, APPS_DIRNAME, "profiles", CONTEXT_DIRNAME):
+    context_dir = convention_source(PER_USER_CONTEXT_DIRNAME)
+    for dirname in (*LAYER_DIRNAMES, APPS_DIRNAME, VARIANT_DIRNAME, context_dir):
         base = root / dirname
         if base.is_dir():
             candidates.extend(p for p in base.rglob("*") if p.is_file())
@@ -2688,7 +2698,7 @@ def _name_convention_artifacts_text(text: str, rel: str, artifacts: list[str]) -
     selected = convention_selections(
         {field: document.get(field) or [] for field in SELECTED_CONVENTION_SOURCES}
     )
-    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    field_for = {key: field for field, key in SELECTED_CONVENTION_SOURCES.items()}
     missing: dict[str, list[str]] = {}
     for artifact in artifacts:
         if artifact not in selected:
@@ -2821,7 +2831,7 @@ def _name_convention_artifacts(document: Any, artifacts: list[str]) -> list[str]
         for value in (document.get(field),)
     }
     selected = convention_selections(lists)
-    field_for = {source: field for field, source in SELECTED_CONVENTION_SOURCES.items()}
+    field_for = {key: field for field, key in SELECTED_CONVENTION_SOURCES.items()}
     for artifact in artifacts:
         if artifact in selected:
             continue
@@ -3071,6 +3081,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             does not parse).
     """
     from .build_profile_emit import emit_layer_delta_yaml
+    from .profile_conventions import PER_USER_CONTEXT_DIRNAME, convention_source
 
     root = Path(root)
     before = _snapshot(root)
@@ -3276,12 +3287,13 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         if removed:
             _ensure_shared_group(config, roster)
         for user in removed:
-            slot = f"{CONTEXT_DIRNAME}/{user}"
+            slot = f"{convention_source(PER_USER_CONTEXT_DIRNAME)}/{user}"
             if _context_slot_empty(root / slot):
                 sweeps.append(slot)
             elif (root / slot).exists():
                 steps.append(
-                    f"{slot}/ held context for the {user!r} card, which is now a shared login "
+                    f"{display_path(PER_USER_CONTEXT_DIRNAME, user)}/ held context for the "
+                    f"{user!r} card, which is now a shared login "
                     f"with no per-user context; move what you need and delete the folder"
                 )
 
@@ -3422,6 +3434,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         FACILITY_RULE_NAME,
         FACILITY_RULE_PATH_ENTRY,
         FACILITY_RULE_RELPATH,
+        FACILITY_RULE_RENDER_RELPATH,
     )
     from .profile_conventions import BUILD_OUTPUT_DIR, unselected_convention_artifacts
 
@@ -3432,11 +3445,11 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # OSPREY's rule, so that copy is moved into the profile (below, with the
     # other writes) and named by its path like every shipped shadow.
     rescued_facility_rule = (
-        root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH
+        root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RENDER_RELPATH
         if not by_name
         and not (root / FACILITY_RULE_RELPATH).exists()
         and FACILITY_RULE_NAME in (document.get("rules") or [])
-        and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH).is_file()
+        and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RENDER_RELPATH).is_file()
         else None
     )
     if rescued_facility_rule is not None:

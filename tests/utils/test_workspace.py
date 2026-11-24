@@ -373,3 +373,61 @@ class TestFrameworkCopiesOfConnectorPrivates:
         from osprey_connectors import config as connector_config
 
         assert connector_config._RUNTIME_WRITE_PATH_KEYS == RUNTIME_WRITE_PATH_KEYS
+
+
+#: The framework's source tree, scanned by :class:`TestProfileFileNamedOnce`.
+_FRAMEWORK_SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
+
+
+def _module_level_profile_names() -> set[tuple[str, str]]:
+    """Each ``(module path, name)`` a module assigns the literal ``profile.yml`` to.
+
+    A name whose whole value is the file name: a table listing several root
+    entries is not a name for the file, and a row key passed to a lookup is an
+    identity, not an assignment.
+    """
+    import ast
+
+    found: set[tuple[str, str]] = set()
+    for path in sorted(_FRAMEWORK_SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for statement in tree.body:
+            if isinstance(statement, ast.Assign):
+                targets, value = statement.targets, statement.value
+            elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+                targets, value = [statement.target], statement.value
+            else:
+                continue
+            if isinstance(value, ast.Constant) and value.value == "profile.yml":
+                relative = path.relative_to(_FRAMEWORK_SRC.parent).as_posix()
+                found.update(
+                    (relative, target.id) for target in targets if isinstance(target, ast.Name)
+                )
+    return found
+
+
+class TestProfileFileNamedOnce:
+    """``profile.yml`` is spelled once in the framework, in its root-declaration row.
+
+    Every module-level name for the file is an alias of that row. The hook
+    script is the one exception: it ships into deployments and runs without the
+    framework importable, so it keeps a private copy.
+    """
+
+    def test_only_the_hook_script_assigns_the_literal(self):
+        assert _module_level_profile_names() == {
+            ("osprey/templates/claude_code/claude/hooks/osprey_hook_log.py", "PROFILE_MARKER"),
+        }
+
+    def test_the_aliases_are_the_row(self):
+        from osprey.cli import build_posture_check, build_profile_resolve, repo_resolver
+        from osprey.facility import settings
+        from osprey.repo_layout import entry
+        from osprey.utils import workspace
+
+        row_path = entry("profile.yml").path
+        assert workspace.PROFILE_FILENAME == row_path
+        assert repo_resolver.PROFILE_FILENAME == row_path
+        assert build_profile_resolve.PROFILE_FILENAME == row_path
+        assert build_posture_check.PROFILE_FILENAME == row_path
+        assert settings.PROFILE_SOURCE == row_path

@@ -35,14 +35,14 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey_facility import DEFAULT_ROLE, TEXTURE, wiring_addresses
+from osprey_facility import DEFAULT_ROLE, TEXTURE, source_tree, wiring_addresses
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.provenance import add_defaults
 from osprey_facility.validate import Validated, need, stating_files
 
 __all__ = ["element_stop", "fill_wiring_slots"]
 
-_MODELS_FILE = "models.yaml"
+_MODELS_FILE = source_tree.path("models")
 
 #: The keys of an engine's description every described wiring record carries.
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")

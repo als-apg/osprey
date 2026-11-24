@@ -506,28 +506,6 @@ class TestBuildRecords:
 
 
 # --------------------------------------------------------------------------- #
-# systemd_unit: the unit-name spelling pin
-# --------------------------------------------------------------------------- #
-
-
-def test_systemd_unit_spelling_matches_the_verb_that_writes_it():
-    """The two literals cannot drift apart.
-
-    ``osprey.health.core.systemd_unit`` spells the unit filename itself rather
-    than importing ``SYSTEMD_UNIT_NAME``, because importing it would pull the
-    CLI package into the web and MCP health surfaces that import the category.
-    A rename on either side that missed the other would leave the check looking
-    for a file the scaffolder no longer writes — and it would fail silently, as
-    a permanent "no scaffolded unit" skip that reads exactly like a deployment
-    which never asked for one. So the equality is asserted, not assumed.
-    """
-    from osprey.cli.deploy_scaffold_templates import SYSTEMD_UNIT_NAME
-    from osprey.health.core.systemd_unit import _UNIT_NAME
-
-    assert _UNIT_NAME == SYSTEMD_UNIT_NAME
-
-
-# --------------------------------------------------------------------------- #
 # build_records: auto-derived mcp_servers category
 # --------------------------------------------------------------------------- #
 

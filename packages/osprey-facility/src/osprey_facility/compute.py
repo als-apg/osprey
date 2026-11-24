@@ -63,7 +63,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from osprey_facility import TEXTURE, wiring_addresses
+from osprey_facility import TEXTURE, source_tree, wiring_addresses
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, exact_number
 from osprey_facility.pairing import simulated_pairs
 from osprey_facility.provenance import add_defaults, set_place_from
@@ -99,8 +99,8 @@ __all__ = [
     "resolve_groups",
 ]
 
-_MODELS_FILE = "models.yaml"
-_LIMITS_FILE = "limits.yaml"
+_MODELS_FILE = source_tree.path("models")
+_LIMITS_FILE = source_tree.path("limits")
 _PERIODIC = "periodic"
 
 
@@ -1100,7 +1100,7 @@ def _nominal_band(run: _Run) -> None:
                 address,
                 sorted({*files, _LIMITS_FILE}),
                 f"limits band [{low:g}, {high:g}] excludes 0 and the channel has no seed",
-                "add a nominal for it in data/facility/seeds.yaml",
+                f"add a nominal for it in {source_tree.display_path(source_tree.path('seeds'))}",
             )
             continue
         if value < low:

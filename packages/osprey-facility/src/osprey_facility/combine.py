@@ -62,7 +62,7 @@ from typing import Any
 import yaml
 
 from osprey_connectors.simulation.values import DEFAULT_BOOL_OPTIONS, DEFAULT_VALUE_TYPE
-from osprey_facility import DEFAULT_ROLE, TEXTURE
+from osprey_facility import DEFAULT_ROLE, TEXTURE, source_tree
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning, quoted_slots
 from osprey_facility.pairing import PAIR_RULE, derive_pairs
 from osprey_facility.provenance import Stating, add_defaults, build_provenance
@@ -91,7 +91,7 @@ __all__ = [
     "combine",
 ]
 
-FIXES_FILE = "fixes.yaml"
+FIXES_FILE = source_tree.path("fixes")
 
 #: The header fixes.yaml carries.
 FIXES_HEADER = "osprey.facility.fixes/1"
@@ -471,11 +471,11 @@ class _Combiner:
         for address, seed in sorted(self.sources.seeds.items()):
             target = self.records.get(("channel", address))
             if target is not None:
-                self._state(target, AUTHORED, "seeds.yaml", {"simulation": seed})
+                self._state(target, AUTHORED, source_tree.path("seeds"), {"simulation": seed})
         for model, measurement in sorted(self.sources.measurement.items()):
             target = self.records.get(("model", model))
             if target is not None:
-                rel = f"measurement/{model}.yaml"
+                rel = source_tree.keyed_file("measurement", model)
                 self._state(target, AUTHORED, rel, {"measurement": measurement})
 
     # --- fixes ------------------------------------------------------------------
@@ -495,8 +495,8 @@ class _Combiner:
                     "fix-duplicate",
                     fix,
                     [FIXES_FILE],
-                    f"fixes.yaml has {ops} for it",
-                    "keep one fix per record in fixes.yaml",
+                    f"{FIXES_FILE} has {ops} for it",
+                    f"keep one fix per record in {FIXES_FILE}",
                 )
         return kept
 
@@ -539,7 +539,7 @@ class _Combiner:
                     fix,
                     [FIXES_FILE],
                     f"model {model} does not exist",
-                    "add the model or remove the fix from fixes.yaml",
+                    f"add the model or remove the fix from {FIXES_FILE}",
                 )
                 return
         for entry in wiring if isinstance(wiring, list) else []:
@@ -592,7 +592,7 @@ class _Combiner:
                 fix,
                 [FIXES_FILE, *files],
                 f"`{fix.op}` targets a record only {AUTHORED} sources state",
-                f"edit data/facility/{files[0]}",
+                f"edit {source_tree.display_path(files[0])}",
             )
             return None
         return target
@@ -617,7 +617,7 @@ class _Combiner:
                 fix,
                 [FIXES_FILE],
                 f"no {fix.kind} {fix.id} exists",
-                "remove the fix from fixes.yaml",
+                f"remove the fix from {FIXES_FILE}",
             )
             return
         self._error(
@@ -765,9 +765,9 @@ class _Combiner:
             for scenario in self.sources.scenarios:
                 faults = scenario.get("faults")
                 if isinstance(faults, dict) and rid in faults:
-                    yield f"scenarios/{scenario['name']}.yaml (faults)"
+                    yield f"{source_tree.keyed_file('scenarios', scenario['name'])} (faults)"
             if rid in self.sources.measurement:
-                yield f"measurement/{rid}.yaml"
+                yield source_tree.keyed_file("measurement", rid)
         elif kind == "group":
             for model, measurement in sorted(self.sources.measurement.items()):
                 groups = measurement.get("groups")
@@ -776,7 +776,7 @@ class _Combiner:
                     and isinstance(groups, dict)
                     and any(rid in group_families(value) for value in groups.values())
                 ):
-                    yield f"measurement/{model}.yaml (groups)"
+                    yield f"{source_tree.keyed_file('measurement', model)} (groups)"
             yield from self._relation_referrers("group", rid)
 
     def _relation_referrers(self, kind: str, rid: str) -> Iterator[str]:
@@ -815,7 +815,7 @@ class _Combiner:
                         "layer-conflict",
                         record.id,
                         record.files(),
-                        f"add a `set` fix for `{name}` to fixes.yaml",
+                        f"add a `set` fix for `{name}` to {FIXES_FILE}",
                         record_kind=record.kind,
                         detail=f"`{name}` differs: {shown}",
                     )
@@ -837,7 +837,7 @@ class _Combiner:
                     record.id,
                     record.files(),
                     f"state `{name}.{key}` alike in each source, or add a `set` fix for "
-                    f"`{name}` to fixes.yaml",
+                    f"`{name}` to {FIXES_FILE}",
                     record_kind=record.kind,
                     detail=f"`{name}.{key}` differs: {shown}",
                 )
@@ -854,7 +854,7 @@ class _Combiner:
                     record.id,
                     record.files(),
                     f"state the entry alike in each source, or add a `set` fix for `{name}` "
-                    "to fixes.yaml",
+                    f"to {FIXES_FILE}",
                     record_kind=record.kind,
                     detail=f"`{name}` states two contents for key {key}: {layers}",
                 )
@@ -882,7 +882,7 @@ class _Combiner:
                 ),
                 remedy=(
                     "state the same members in each source, or add a `set` fix for "
-                    "`members` to fixes.yaml"
+                    f"`members` to {FIXES_FILE}"
                 ),
             )
         )
@@ -1023,7 +1023,7 @@ class _Combiner:
         if hand is not None and not isinstance(hand, dict):
             return
         hand = hand or {}
-        files = [f"measurement/{name}.yaml"]
+        files = [source_tree.keyed_file("measurement", name)]
         listed = {str(kind) for kind in model["measurement"]["kinds"]}
         patched: dict[str, tuple[str, Any]] = {}
         stopped = False

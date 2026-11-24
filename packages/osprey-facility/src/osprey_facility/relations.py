@@ -26,6 +26,7 @@ from collections import Counter
 from collections.abc import Callable, Hashable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey_facility.provenance import add_defaults
 from osprey_facility.sources import AUTHORED
@@ -454,7 +455,10 @@ def _contested_warnings(
                 record_kind=str(key[0]),
                 record_id=spell_key(key),
                 detail=f"claims {', '.join(tied)} state different ends and none ranks first",
-                remedy="rank the kinds of their documents in policy.yaml, or correct the wrong claim",
+                remedy=(
+                    f"rank the kinds of their documents in {source_tree.path('policy')}, "
+                    "or correct the wrong claim"
+                ),
             )
         )
     return found

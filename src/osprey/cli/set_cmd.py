@@ -33,6 +33,7 @@ from typing import cast
 
 import click
 
+from osprey.repo_layout import entry as root_entry
 from osprey_connectors.types import TIER_WORDS
 
 from .output import note, report, warn
@@ -607,7 +608,7 @@ def _model_check(repo_root: Path, pairs: tuple[str, ...]) -> list[tuple[str, str
         _refuse_alias_word(f"{AGENT_MODELS_KEY}.{agent}", pins[agent], provider, served)
 
     errors = agent_model_pin_errors(
-        repo_root / "agents",
+        repo_root / root_entry("agents").path,
         pins,
         {*FRAMEWORK_AGENTS, *_configured_agents(profile), *_application_agents(repo_root, profile)},
     )

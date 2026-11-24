@@ -33,14 +33,14 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
+from osprey import repo_layout
 from osprey.profiles.providers import PROVIDERS_FILENAME
-from osprey.services.watchdog.config import WATCHDOGS_BLOCK, parse_watchdogs_block
+from osprey.services.watchdog.config import parse_watchdogs_block
 from osprey.utils.workspace import (
     APPS_DIRNAME,
-    LAYER_DIR_KINDS,
-    PRESET_TRACKING_DIRNAME,
     TIERS_DIRNAME,
 )
+from osprey_connectors.dotenv import ENV_LOCAL_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 
@@ -50,13 +50,14 @@ from .profile_conventions import (
     PER_USER_CONTEXT_DIRNAME,
     PROFILE_TRIGGERS_FILENAME,
     context_baseline_slot,
+    convention_source,
 )
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
-    # bodies to keep `osprey --help` off the build-profile import chain (the
-    # lazy-import budget test in tests/cli/test_main.py pins this).
+    # bodies to keep `osprey --help` off the build-profile import chain
+    # (`test_module_import_stays_lazy` in tests/cli/test_profile_cmd.py pins this).
     from .build_profile_model import BuildProfile
     from .templates.manager import TemplateManager
     from .templates.preset_data import PresetData
@@ -277,15 +278,15 @@ def panels(as_json: bool, html_path: Path | None, repo: Path | None) -> None:
             reporter.echo(f"wrote {html_path}")
 
 
-# Directory name the materialized data tree gets, and the value written to the
-# profile's ``data:`` key. One constant so the copy target and the emitted key
-# cannot drift apart.
-_PROFILE_DATA_DIRNAME = "data"
+# Directory the materialized data tree gets, and the value written to the
+# profile's ``data:`` key: the data row's path. One constant so the copy target
+# and the emitted key cannot drift apart.
+_PROFILE_DATA_DIRNAME = repo_layout.entry("data").path
 
-# Convention directory holding one subdirectory of per-user web-terminal context
-# per roster user. Named from the convention table rather than spelled again, so
-# the slots seeded here are the ones the build copies from.
-_CONTEXT_CONVENTION_DIRNAME = PER_USER_CONTEXT_DIRNAME
+# The framework template tree's own directory of the generic context baseline.
+# The template tree is not laid out as a deployment, so this does not follow the
+# per-user context row.
+_CONTEXT_TEMPLATE_DIRNAME = "web-terminal-context"
 
 # The deployment's secret channel (FR-1). `.env.example` is the documented
 # variable list, rendered from the SAME template every other render uses, so the
@@ -294,8 +295,8 @@ _CONTEXT_CONVENTION_DIRNAME = PER_USER_CONTEXT_DIRNAME
 # `--env-file` and every `${VAR}` expansion reads. Nothing derives a second copy
 # of it, and a build only ever appends, which is what makes a secret survive a
 # rebuild.
-_PROFILE_ENV_FILENAME = ".env"
-_PROFILE_ENV_EXAMPLE_FILENAME = ".env.example"
+_PROFILE_ENV_FILENAME = repo_layout.entry(ENV_LOCAL_FILENAME).path
+_PROFILE_ENV_EXAMPLE_FILENAME = repo_layout.entry(".env.example").path
 _ENV_EXAMPLE_TEMPLATE = "project/env.example.j2"
 
 # Section header the shell-harvested keys are written under, distinct from the
@@ -319,22 +320,10 @@ PROFILE_DEFAULTS_ENV_BANNER = "# ── Declared by this profile (env.defaults) 
 #: deployment repo — ``.git``, ``.env``, ``var/``, ``build/``, ``ci-extra.yml``,
 #: the CI files — belongs to the operator or to another command, so re-running
 #: ``osprey init`` over an existing repo can never cost a secret, an agent's
-#: memory, or a hand-written CI job.
-MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
-    "profile.yml",
-    PROVIDERS_FILENAME,
-    _PROFILE_DATA_DIRNAME,
-    *LAYER_DIR_KINDS,
-    # The applications: not a layer directory, but source the repo owns.
-    APPS_DIRNAME,
-    # The saved copy of what the presets produced (`.osprey/preset-base/`).
-    # Top-level, because the hold-aside swap renames entries without making
-    # their parent directories.
-    PRESET_TRACKING_DIRNAME,
-    PROFILE_TRIGGERS_FILENAME,
-    _CONTEXT_CONVENTION_DIRNAME,
-    _PROFILE_ENV_EXAMPLE_FILENAME,
-    WATCHDOGS_BLOCK,
+#: memory, or a hand-written CI job. The paths of the rows init replaces, in
+#: declaration order.
+MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = repo_layout.paths(
+    repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
 )
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
@@ -1595,11 +1584,11 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
     edit to it from then on is visible in the operator's own repo.
     """
     bundle = context_baseline_slot(
-        manager.template_root / "apps" / data_bundle / PER_USER_CONTEXT_DIRNAME
+        manager.template_root / "apps" / data_bundle / convention_source(PER_USER_CONTEXT_DIRNAME)
     )
     if bundle.is_file():
         return bundle
-    return context_baseline_slot(manager.template_root / "claude_code" / PER_USER_CONTEXT_DIRNAME)
+    return context_baseline_slot(manager.template_root / "claude_code" / _CONTEXT_TEMPLATE_DIRNAME)
 
 
 def _app_template_root(manager: TemplateManager, data_bundle: str) -> Path:
@@ -1968,11 +1957,13 @@ def _materialize_profile_directory(
         # Every watchdog the block names, enabled or not, so the files travel with
         # the block. The strict parser holds a preset's disabled entries to their
         # files too, where validating the resolved preset does not.
-        parse_watchdogs_block(resolved.watchdogs, base_dir=preset_dir)
+        parse_watchdogs_block(
+            resolved.watchdogs, watchdogs_dir=repo_layout.watchdogs_source_dir(preset_dir)
+        )
         for watchdog in resolved.watchdogs:
             shutil.copytree(
-                preset_dir / WATCHDOGS_BLOCK / watchdog,
-                target / WATCHDOGS_BLOCK / watchdog,
+                repo_layout.watchdogs_source_dir(preset_dir) / watchdog,
+                repo_layout.watchdogs_source_dir(target) / watchdog,
                 ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
             )
         if catalog.carried:
@@ -2015,7 +2006,7 @@ def _materialize_profile_directory(
         # build derives the copy from the roster it resolves at the time, so
         # nothing about the roster is frozen here.
         for user in roster:
-            user_dir = target / _CONTEXT_CONVENTION_DIRNAME / user
+            user_dir = target / convention_source(PER_USER_CONTEXT_DIRNAME) / user
             user_dir.mkdir(parents=True, exist_ok=True)
             (user_dir / ".gitkeep").touch()
         if _stands_up_a_web_tier(resolved.config):
@@ -2027,7 +2018,7 @@ def _materialize_profile_directory(
             # roster, because the copy side is roster-independent too
             # (plan_convention_copies): a profile that names no users yet still
             # starts from text it can see.
-            context_dir = target / _CONTEXT_CONVENTION_DIRNAME
+            context_dir = target / convention_source(PER_USER_CONTEXT_DIRNAME)
             context_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(
                 _context_baseline_source(manager, data_bundle),
@@ -2035,7 +2026,10 @@ def _materialize_profile_directory(
             )
             logger.debug(
                 "  Per-user context: %s (+ shared %s)",
-                ", ".join(f"{_CONTEXT_CONVENTION_DIRNAME}/{user}/" for user in roster)
+                ", ".join(
+                    f"{repo_layout.display_path(PER_USER_CONTEXT_DIRNAME, user)}/"
+                    for user in roster
+                )
                 or "no roster yet",
                 CONTEXT_BASELINE_FILENAME,
             )
@@ -2051,7 +2045,7 @@ def _materialize_profile_directory(
         from .init_cmd import FACILITY_RULE_DIR
 
         if FACILITY_RULE_NAME in resolved.rules:
-            rules_dir = target / FACILITY_RULE_DIR
+            rules_dir = target / convention_source(FACILITY_RULE_DIR)
             fresh = not rules_dir.exists()
             moved = ensure_profile_facility_rule(target, enabled_agents=resolved.agents)
             if moved:
@@ -2061,7 +2055,7 @@ def _materialize_profile_directory(
                     # failure below removes it again rather than leaving half a
                     # profile behind. A directory that was already there is the
                     # operator's, whatever else is in it.
-                    run_written.append(FACILITY_RULE_DIR)
+                    run_written.append(convention_source(FACILITY_RULE_DIR))
 
         # The login files. Validity was settled by `_parsed_layer_deltas`
         # above, before the first mkdir — nothing reaching here is unparsed, so

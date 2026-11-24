@@ -1234,10 +1234,10 @@ are (see the table above), or into ``project/`` for anything without one.
 source zone over one that is already there. To re-render the project, run
 ``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
-preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
+preset, re-run ``osprey init --force`` — which replaces ``profile.yml``,
 ``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,
-``watchdogs/`` and ``.env.example``, losing any edit to them. In
-``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
+``.env.example`` and ``watchdogs/``, losing any edit to them, and rewrites
+``.osprey/``. In ``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
 deployment repo is one directory that holds nothing else, so ``osprey init``

@@ -251,8 +251,10 @@ def _refuse_lacking(
             f"{kind} needs {' and '.join(lacking)}, which {model} does not have",
             f"Measure a kind {model} allows: {', '.join(allowed) or 'none'}.",
         )
+    from osprey_facility import source_tree
+
     _refuse(
-        f"{kind} is not a kind measurement/{model}.yaml allows; it allows: "
+        f"{kind} is not a kind {source_tree.keyed_file('measurement', model)} allows; it allows: "
         f"{', '.join(allowed) or 'none'}",
         f"Measure a kind {model} allows, or add {kind} to `kinds` and rebuild.",
     )

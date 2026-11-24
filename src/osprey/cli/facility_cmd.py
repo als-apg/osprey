@@ -250,6 +250,7 @@ def _build_in_memory(
     from .facility_report import report_errors, report_warnings
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
+        convention_source,
         facility_mirror_violation,
         handwritten_limits_violation,
         machine_restated_violation,
@@ -262,7 +263,8 @@ def _build_in_memory(
     # The mirror guard checks the deployment's project/ before anything is
     # resolved; a stated machine root only changes where its remedy points.
     mirror_stop = facility_mirror_violation(
-        repo_root / PROJECT_MIRROR_DIR, authoring_route=_stated_machine_route(profile_path)
+        repo_root / convention_source(PROJECT_MIRROR_DIR),
+        authoring_route=_stated_machine_route(profile_path),
     )
     if mirror_stop is not None:
         raise mirror_stop
@@ -710,6 +712,7 @@ KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page p
 
 def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
     """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
+    from osprey_facility import source_tree
     from osprey_facility.layers.mml.seed import (
         IDENTITY_FILE,
         LIMITS_FILE,
@@ -717,15 +720,15 @@ def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
         SEEDS_FILE,
     )
 
-    channels = ("records/channels.yaml", "channel")
-    devices = ("records/devices.yaml", "device")
+    channels = (source_tree.path("channels"), "channel")
+    devices = (source_tree.path("devices"), "device")
     return {
         "mml": (
             channels,
             devices,
-            ("records/groups.yaml", "group"),
-            ("models.yaml", "model"),
-            ("decks", "deck"),
+            (source_tree.path("groups"), "group"),
+            (source_tree.path("models"), "model"),
+            (source_tree.path("decks"), "deck"),
             (SEEDS_FILE, "seed"),
             (LIMITS_FILE, "limit"),
             (IDENTITY_FILE, "identity"),
@@ -769,6 +772,7 @@ def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
     import tempfile
 
     from osprey.facility.bundled import classify
+    from osprey_facility.layers import LAYER_ROOT
     from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
 
     if not roots.mounted:
@@ -786,7 +790,7 @@ def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
             for path in (roots.content / name).rglob("*")
         ]
         for path, relative in sources:
-            if path.is_file() and relative.parts[0] != "imported":
+            if path.is_file() and not relative.is_relative_to(LAYER_ROOT):
                 (view / relative).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, view / relative)
         return classify(view, template_root)
@@ -825,9 +829,9 @@ def _holds_a_layer(facility_dir: Path) -> bool:
     Every format's layer holds a ``channels.yaml``. A mapping or a source file
     waiting in the layer directory for a first import is no layer.
     """
-    from osprey_facility.layers import LAYER_ROOT
+    from osprey_facility import source_tree
 
-    return any((facility_dir / LAYER_ROOT).glob("*/channels.yaml"))
+    return any(facility_dir.glob(source_tree.layer_entry("*", "channels")))
 
 
 def _replace_or_refuse(
@@ -850,6 +854,7 @@ def _replace_or_refuse(
     and the knowledge indexes settled are the content root's.
     """
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
+    from osprey_facility import source_tree
     from osprey_facility.layers import HEADER
 
     from .templates.manager import TemplateManager
@@ -879,7 +884,7 @@ def _replace_or_refuse(
             f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
             "records, which this import writes:",
             *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
-            "move corrections into fixes.yaml and remove the record sources, "
+            f"move corrections into {source_tree.path('fixes')} and remove the record sources, "
             "or start a new repo: osprey init <name> --preset demo",
         ]
     if lines:
@@ -893,7 +898,7 @@ def _replace_or_refuse(
             f"({len(kinds.bundled)} files)",
             err=True,
         )
-    seeded = _settle_bundle(roots.content / "knowledge")
+    seeded = _settle_bundle(roots.content / source_tree.path("knowledge"))
     if kinds.bundled:
         _prune_empty(roots.machine)
         if roots.mounted:

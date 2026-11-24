@@ -65,6 +65,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from osprey.repo_layout import entry
+
 __all__ = [
     "APPROVAL_HOOK",
     "CODE_REVIEW_HOOKS",
@@ -85,7 +87,7 @@ __all__ = [
 
 #: The file the refusal tells an operator to edit. The profile is the whole
 #: declarative input; the render is generated and editing it is not a fix.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 #: Registry name of the MCP server whose presence makes a control system and an
 #: archiver something this deployment has.
