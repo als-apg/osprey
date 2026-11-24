@@ -50,6 +50,7 @@ RECORD_FACTS: frozenset[str] = frozenset(
         "shape",
         "signal",
         "simulation",
+        "started_by",
         "tags",
         "timeout_s",
         "tolerance",

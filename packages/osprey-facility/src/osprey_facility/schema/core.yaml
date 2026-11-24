@@ -551,6 +551,11 @@ classes:
       timeout_s:
         range: float
         description: "On a command whose status states `idle`: the longest one act may take, in seconds."
+      started_by:
+        description: >-
+          On a setpoint whose move a command starts: the command's address. The
+          command's status states `idle`, the command states `timeout_s`, and no
+          other setpoint names it.
       provenance:
         range: Provenance
         inlined: true
