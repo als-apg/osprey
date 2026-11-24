@@ -1,8 +1,8 @@
 """A wiring record states the further addresses of its variable under ``also``.
 
-The build holds each further address to the record's own: it is a channel, of
-the same role, value type, options, shape and unit, with no seed of its own,
-and no other wiring record names it. The simulator view then lists it as the
+Each further address is a channel no other wiring record names, and states
+only its id, place, names, label and description: the build writes the
+record's kind on it, and stating any other slot stops the build. The simulator view then lists it as the
 model's channel and carries ``also`` on the record's wiring entry. A scenario
 block keyed by a further address is written under the record's address, and a
 facility that states no ``also`` is built and written as it was before.
@@ -21,6 +21,7 @@ import yaml
 from osprey.apps.sdk.testing import model
 from osprey.facility.views.simulator import write_simulator_view
 from osprey_connectors.simulation.view import SimulatorView
+from osprey_facility import RECORD_FACTS
 from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import FacilityRecords
 from tests.facility._injection_fixture import FIXTURE as INJECTION
@@ -157,7 +158,10 @@ def test_a_further_address_of_a_bool_record_is_built_with_its_records_labels(
 
 
 def test_a_facility_stating_no_also_is_written_as_before(tmp_path: Path) -> None:
-    """Dropping ``also``, the former further addresses stating their kind, changes their owner only."""
+    """Dropping ``also`` changes the further addresses' owner and nothing else.
+
+    The former further addresses state their kind, which the build wrote on them from their record.
+    """
     plain = _tree()
     for address in (READING, SETPOINT):
         del _record(plain, address)["also"]
@@ -191,47 +195,45 @@ def test_a_further_address_that_is_no_channel_stops_the_build(tmp_path: Path) ->
     )
 
 
+def _further_stop(slot: str, further: str, wid: str, own: str, code: str) -> str:
+    """The stop of a record fact stated on a further address."""
+    return (
+        f"facility: {code}: channel {further} — `{slot}` on {further}, which wiring record "
+        f"{wid} states under `also`; fix: state `{slot}` on {own} only; it holds under each "
+        "of its addresses"
+    )
+
+
 @pytest.mark.parametrize(
-    ("change", "slots"),
+    ("slot", "value"),
     [
-        ({"role": "setpoint"}, "`role`"),
-        ({"value_type": "int"}, "`value_type`"),
-        ({"value_type": "waveform", "shape": [4]}, "`value_type`, `shape`"),
-        ({"value_type": "enum", "options": ["a", "b"]}, "`value_type`, `options`"),
+        ("role", "readback"),
+        ("value_type", "float"),
+        ("options", ["Low", "High"]),
+        ("shape", [4]),
     ],
 )
-def test_a_further_address_of_another_shape_stops_the_build(
-    tmp_path: Path, change: dict[str, Any], slots: str
+def test_a_kind_slot_stated_on_a_further_address_stops_the_build(
+    tmp_path: Path, slot: str, value: Any
 ) -> None:
+    """Also when it is the record's own: the build writes the kind from the record."""
     tree = _tree()
-    _channel(tree, READING_ALSO).update(change)
+    _channel(tree, READING_ALSO)[slot] = value
 
-    assert _stop(tmp_path, tree) == (
-        f"facility: pair-invalid: wiring SR/BPM1:X — `also` names RACK3:UNIT1:X, which differs "
-        f"from BPM1:X in {slots}; fix: give BPM1:X and RACK3:UNIT1:X the same {slots}, or "
-        "remove RACK3:UNIT1:X from `also`"
+    assert _stop(tmp_path, tree) == _further_stop(
+        slot, READING_ALSO, "SR/BPM1:X", READING, "pair-invalid"
     )
 
 
-def test_a_further_address_in_another_unit_stops_the_build(tmp_path: Path) -> None:
+@pytest.mark.parametrize("unit", ["mm", "um"])
+def test_a_unit_on_a_further_address_stops_the_build(tmp_path: Path, unit: str) -> None:
+    """Also when it is the record's own: the record states its unit once."""
     tree = _tree()
-    _channel(tree, READING)["unit"] = "mm"
-    _channel(tree, READING_ALSO)["unit"] = "um"
+    _channel(tree, READING_ALSO)["unit"] = unit
 
-    assert _stop(tmp_path, tree) == (
-        "facility: pair-invalid: wiring SR/BPM1:X — `also` names RACK3:UNIT1:X, which differs "
-        "from BPM1:X in `unit`; fix: give BPM1:X and RACK3:UNIT1:X the same `unit`, or remove "
-        "RACK3:UNIT1:X from `also`"
+    assert _stop(tmp_path, tree) == _further_stop(
+        "unit", READING_ALSO, "SR/BPM1:X", READING, "value-invalid"
     )
-
-
-def test_a_further_address_stating_no_unit_takes_no_part_in_the_unit_check(
-    tmp_path: Path,
-) -> None:
-    tree = _tree()
-    _channel(tree, READING)["unit"] = "mm"
-
-    built_document(tmp_path, tree)
 
 
 def test_a_seed_on_a_further_address_stops_the_build(tmp_path: Path) -> None:
@@ -239,20 +241,15 @@ def test_a_seed_on_a_further_address_stops_the_build(tmp_path: Path) -> None:
     tree["seeds.yaml"] = {READING_ALSO: {"noise": {"absolute": 0.1}}}
 
     assert _stop(tmp_path, tree) == (
-        "facility: seed-invalid: wiring SR/BPM1:X — `also` names RACK3:UNIT1:X, which carries "
-        "a seed; fix: remove the seed of RACK3:UNIT1:X; it serves the value of BPM1:X, motion "
-        "included"
+        "facility: seed-invalid: channel RACK3:UNIT1:X — `simulation` on RACK3:UNIT1:X, which "
+        "wiring record SR/BPM1:X states under `also`; fix: state `simulation` on BPM1:X only; "
+        "it holds under each of its addresses"
     )
 
 
-@pytest.mark.parametrize(
-    "unit", [pytest.param("A", id="with-unit"), pytest.param(None, id="no-unit")]
-)
-def test_a_tolerance_on_a_further_address_stops_the_build(tmp_path: Path, unit: str | None) -> None:
+def test_a_tolerance_on_a_further_address_stops_the_build(tmp_path: Path) -> None:
     tree = _tree()
-    if unit is not None:
-        _channel(tree, SETPOINT)["unit"] = unit
-        _channel(tree, SETPOINT_ALSO)["unit"] = unit
+    _channel(tree, SETPOINT)["unit"] = "A"
     _channel(tree, SETPOINT_ALSO)["tolerance"] = {"absolute": 0.5}
 
     assert _stop(tmp_path, tree) == (
@@ -268,11 +265,8 @@ def test_a_further_address_naming_the_records_own_pair_stops_the_build(tmp_path:
     _record(tree, "QF:SP")["also"] = _record(tree, SETPOINT).pop("also")
     _channel(tree, SETPOINT_ALSO).update(on={"device": "SR/QF"}, pair="QF:RB")
 
-    assert _stop(tmp_path, tree) == (
-        "facility: pair-invalid: wiring SR/QF:SP — `also` names RACK3:UNIT2:SP, whose `pair` "
-        "is QF:RB as QF:SP's is, so QF:RB would count as shared by two setpoints and follow "
-        "neither; fix: remove `pair` from RACK3:UNIT2:SP; QF:RB follows the record under "
-        "each of its addresses"
+    assert _stop(tmp_path, tree) == _further_stop(
+        "pair", SETPOINT_ALSO, "SR/QF:SP", "QF:SP", "pair-invalid"
     )
 
 
@@ -282,10 +276,42 @@ def test_a_pair_stated_on_a_further_address_alone_stops_the_build(tmp_path: Path
     del _channel(tree, "QF:SP")["pair"]
     _channel(tree, SETPOINT_ALSO).update(on={"device": "SR/QF"}, pair="QF:RB")
 
-    assert _stop(tmp_path, tree) == (
-        "facility: pair-invalid: wiring SR/QF:SP — `also` names RACK3:UNIT2:SP, whose `pair` "
-        "is QF:RB, while QF:SP states none; fix: state `pair: QF:RB` on QF:SP and remove "
-        "`pair` from RACK3:UNIT2:SP"
+    assert _stop(tmp_path, tree) == _further_stop(
+        "pair", SETPOINT_ALSO, "SR/QF:SP", "QF:SP", "pair-invalid"
+    )
+
+
+#: A value of each record fact a source may state, for a setpoint's further address.
+_STATED: dict[str, Any] = {
+    "role": "setpoint",
+    "value_type": "float",
+    "options": ["Low", "High"],
+    "shape": [4],
+    "signal": "current_setpoint",
+    "pair": "QF:RB",
+    "unit": "A",
+    "precision": 3,
+    "tolerance": {"absolute": 0.5},
+    "tags": ["rack"],
+    "attributes": {"slot": 2},
+    "simulation": {"nominal": 1.0},
+    "timeout_s": 2.0,
+    "idle": 0,
+}
+
+
+def test_the_stated_values_cover_every_record_fact_a_source_states() -> None:
+    """``command`` is computed by the build and never stated."""
+    assert set(_STATED) == set(RECORD_FACTS) - {"command"}
+
+
+@pytest.mark.parametrize("slot", sorted(_STATED))
+def test_every_record_fact_on_a_further_address_stops_the_build(tmp_path: Path, slot: str) -> None:
+    tree = _tree()
+    _channel(tree, SETPOINT_ALSO)[slot] = _STATED[slot]
+
+    assert _stop(tmp_path, tree) == _further_stop(
+        slot, SETPOINT_ALSO, "SR/QD:SP", SETPOINT, RECORD_FACTS[slot]
     )
 
 

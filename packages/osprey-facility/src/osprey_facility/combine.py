@@ -1144,18 +1144,19 @@ def _further_addresses(
 ) -> dict[str, str]:
     """Each further address of a wiring record (under ``also``), mapped to the record's ``address``.
 
-    Only a name that is a channel, of a record whose ``address`` is a channel,
-    is mapped; the first record naming it wins.
+    Only a name that is a channel and no record's own ``address``, of a record
+    whose ``address`` is a channel, is mapped; the first record naming it wins.
     """
+    wiring = [fields for (kind, _rid), (fields, _) in merged.items() if kind == "wiring"]
+    owned = {fields.get("address") for fields in wiring}
     further: dict[str, str] = {}
-    for (kind, _rid), (fields, _) in merged.items():
-        if kind != "wiring":
+    for fields in wiring:
+        addresses = wiring_addresses(fields)
+        if not addresses or ("channel", addresses[0]) not in merged:
             continue
-        own, *names = wiring_addresses(fields) or [None]
-        if ("channel", own) not in merged:
-            continue
+        own, *names = addresses
         for name in names:
-            if name != own and ("channel", name) in merged:
+            if name not in owned and ("channel", name) in merged:
                 further.setdefault(name, str(own))
     return further
 

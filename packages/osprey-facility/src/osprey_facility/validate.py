@@ -43,7 +43,7 @@ from osprey_connectors.settle import declared_tolerance
 from osprey_connectors.simulation import GATED_TYPES, LABELLED_TYPES
 from osprey_connectors.simulation.servers import TEXTURE_SERVER, served_servers
 from osprey_connectors.simulation.values import is_waveform
-from osprey_facility import DEFAULT_ROLE, STILL_ALL, fold_code, wiring_addresses
+from osprey_facility import DEFAULT_ROLE, RECORD_FACTS, STILL_ALL, fold_code, wiring_addresses
 from osprey_facility.combine import FIXES_FILE, CombineResult, combine
 from osprey_facility.errors import (
     FacilityBuildError,
@@ -152,14 +152,6 @@ _MAX_LABEL = 25
 #: than 17 significant digits.
 _MAX_PRECISION = 17
 
-#: The channel slots every address of one wiring record states alike, each with
-#: the value a channel stating none has.
-_SAME_VARIABLE_SLOTS: dict[str, Any] = {
-    "role": DEFAULT_ROLE,
-    "value_type": "float",
-    "options": None,
-    "shape": None,
-}
 #: How ``idle`` is typed by its status; the schema description and the docs row say the same.
 _IDLE_TYPING = (
     "a label on a bool or enum channel, an integer on an int, a number on a float, "
@@ -1230,8 +1222,9 @@ def check_records(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     ``pair-invalid``, ``value-invalid``, ``limit-invalid`` and ``seed-invalid``
     (all but the nominal band, which needs the computed operating point), and
     ``relation-invalid`` for a relation claim whose shape breaks a rule.
-    A further address of a wiring record (under ``also``) states no
-    ``tolerance``: the record's holds under each of its addresses.
+    A further address of a wiring record (under ``also``) states no record
+    fact (:data:`osprey_facility.RECORD_FACTS`): the record's holds under each
+    of its addresses, and stating one stops with the code that list names.
 
     Args:
         document: The document S3 validated.
@@ -1252,9 +1245,9 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     number > 0. A limits record states no ``confirm: true`` on a command with
     ``timeout_s``: the wait for its status confirms the write. A status that
     states ``idle`` states no ``follows`` naming a setpoint; the simulation never
-    follows it. A further address of a wiring record (under ``also``) states
-    neither ``timeout_s`` nor ``idle``: the record's own hold under each of
-    its addresses. These stop with ``command-invalid``.
+    follows it. These stop with ``command-invalid``. A further address of a
+    wiring record (under ``also``) takes its record's ``timeout_s`` and
+    ``idle``; :func:`check_records` stops one that states either.
 
     A status whose seed states ``responds`` is an unwired bool, enum, int or
     string channel that states ``idle`` and no value of its own;
@@ -1290,18 +1283,16 @@ class _Records:
         for address, channel in sorted(self.index.channels.items()):
             yield from self._value_shape(address, channel)
         for address, channel in sorted(self.index.channels.items()):
-            yield from self._seed(address, channel)
+            if address not in self._borrowing:
+                yield from self._seed(address, channel)
         yield from self._linear_cycles()
         yield from self._gate_cycles()
         yield from self._pairs()
+        yield from self._further_facts()
         for address, channel in sorted(self.index.channels.items()):
             if "tolerance" not in channel:
                 continue
-            if address in self._further:
-                yield from self._on_further(
-                    "value-invalid", ("tolerance",), address, channel, *self._further[address]
-                )
-            elif address not in self.broken:
+            if address not in self._further and address not in self.broken:
                 yield from self._tolerance(address, channel)
         yield from self._wiring()
         yield from self._limits()
@@ -1322,9 +1313,6 @@ class _Records:
         further = self._further
         for address, channel in sorted(channels.items()):
             if address in further:
-                yield from self._on_further(
-                    "command-invalid", ("timeout_s", "idle"), address, channel, *further[address]
-                )
                 continue
             yield from self._bound(address, channel, status_of.get(address))
             idle_refused = False
@@ -1366,26 +1354,40 @@ class _Records:
                     further.setdefault(name, (str(entry.get("id")), own))
         return further
 
-    def _on_further(
-        self,
-        code: str,
-        keys: tuple[str, ...],
-        address: str,
-        channel: Mapping[str, Any],
-        wid: str,
-        own: str,
-    ) -> Iterator[FacilityBuildError]:
-        """A record fact is stated on a wiring record's ``address`` only."""
-        for key in keys:
-            if key in channel:
-                yield self._error(
-                    code,
-                    "channel",
-                    address,
-                    stating_files(channel, key),
-                    f"`{key}` on {address}, which wiring record {wid} states under `also`",
-                    f"state `{key}` on {own} only; it holds under each of its addresses",
-                )
+    @cached_property
+    def _borrowing(self) -> dict[str, tuple[str, str]]:
+        """The further addresses that read their record's facts, as :attr:`_further` names them.
+
+        An address that is also a record's own ``address`` is left out: the
+        compute stage stops it (``wiring-conflict``).
+        """
+        owned = {str(entry.get("address")) for _, entry in self.index.wiring}
+        return {
+            address: named
+            for address, named in self._further.items()
+            if address in self.index.channels and address not in owned
+        }
+
+    def _further_facts(self) -> Iterator[FacilityBuildError]:
+        """A record fact is stated on a wiring record's ``address`` only.
+
+        A further address states none of :data:`osprey_facility.RECORD_FACTS`;
+        the kind the build wrote on it from its record is no statement.
+        """
+        for address, (wid, own) in sorted(self._borrowing.items()):
+            channel = self.index.channels[address]
+            provenance = channel.get("provenance")
+            filled = provenance.get("defaults", ()) if isinstance(provenance, dict) else ()
+            for key in RECORD_FACTS:
+                if key in channel and key not in filled:
+                    yield self._error(
+                        RECORD_FACTS[key],
+                        "channel",
+                        address,
+                        stating_files(channel, key),
+                        f"`{key}` on {address}, which wiring record {wid} states under `also`",
+                        f"state `{key}` on {own} only; it holds under each of its addresses",
+                    )
 
     def _bound(
         self, address: str, channel: Mapping[str, Any], status: str | None
@@ -2504,50 +2506,28 @@ class _Records:
                     )
 
     def _also(self, wid: str, entry: Mapping[str, Any]) -> Iterator[FacilityBuildError]:
-        """Each `also` name is a channel like the record's own, with no motion of its own."""
+        """No channel names an `also` name as its ``pair``; the record's ``address`` is the pair."""
         address, *further = wiring_addresses(entry)
-        channel = self.index.channels[address]
         files = stating_files(entry, "also")
         for name in further:
             if name == address:
                 # Named twice by one record: the compute stage's wiring-conflict.
                 continue
-            other = self.index.channels[name]
-            differing = [
-                slot
-                for slot, default in _SAME_VARIABLE_SLOTS.items()
-                if channel.get(slot, default) != other.get(slot, default)
-            ]
-            unit, theirs = channel.get("unit"), other.get("unit")
-            if unit and theirs and unit != theirs:
-                differing.append("unit")
-            if differing:
+            for setpoint in self._named_as_pair.get(name, ()):
+                fields = self.index.channels[setpoint]
                 yield self._error(
                     "pair-invalid",
-                    "wiring",
-                    wid,
-                    files,
-                    f"`also` names {name}, which differs from {address} in "
-                    f"{quoted_slots(differing)}",
-                    f"give {address} and {name} the same {quoted_slots(differing)}, or remove "
-                    f"{name} from `also`",
+                    "channel",
+                    setpoint,
+                    sorted({*stating_files(fields, "pair"), *files}),
+                    f"`pair` names {name}, which wiring record {wid} states under `also`",
+                    _pair_remedy(setpoint, fields, f"name {address} as the pair"),
                 )
-            elif other.get("simulation") is not None:
-                yield self._error(
-                    "seed-invalid",
-                    "wiring",
-                    wid,
-                    sorted({*files, *self._seed_files(other)}),
-                    f"`also` names {name}, which carries a seed",
-                    f"remove the seed of {name}; it serves the value of {address}, motion included",
-                )
-            else:
-                yield from self._also_pair(wid, files, address, channel, name, other)
 
     @cached_property
     def _named_as_pair(self) -> dict[str, list[str]]:
         """The channels naming each address as their ``pair``, sorted, less the
-        further addresses of wiring records, whose own stop names their ``pair``."""
+        further addresses of wiring records, which state no ``pair``."""
         further = {name for _, entry in self.index.wiring for name in wiring_addresses(entry)[1:]}
         named: dict[str, list[str]] = {}
         for address, fields in sorted(self.index.channels.items()):
@@ -2555,61 +2535,6 @@ class _Records:
             if isinstance(pair, str) and pair != address and address not in further:
                 named.setdefault(pair, []).append(address)
         return named
-
-    def _also_pair(
-        self,
-        wid: str,
-        files: list[str],
-        address: str,
-        channel: Mapping[str, Any],
-        name: str,
-        other: Mapping[str, Any],
-    ) -> Iterator[FacilityBuildError]:
-        """A record's pair is stated on its ``address`` and names a record's ``address``.
-
-        The build pairs channels by the names they state, so a pair stated on a
-        further address, or naming one, would leave the record unpaired.
-        """
-        pair = channel.get("pair", address)
-        theirs = other.get("pair", name)
-        if theirs != name:
-            pair_files = sorted({*files, *stating_files(other, "pair")})
-            if theirs == pair:
-                # Several setpoints may name one readback, which the simulation
-                # then follows from none; two addresses of one record are one setpoint.
-                detail = (
-                    f"`also` names {name}, whose `pair` is {pair} as {address}'s is, so {pair} "
-                    "would count as shared by two setpoints and follow neither"
-                )
-                remedy = (
-                    f"remove `pair` from {name}; {pair} follows the record under each of its "
-                    "addresses"
-                )
-            elif pair == address:
-                detail = (
-                    f"`also` names {name}, whose `pair` is {theirs}, while {address} states none"
-                )
-                remedy = f"state `pair: {theirs}` on {address} and remove `pair` from {name}"
-            else:
-                detail = (
-                    f"`also` names {name}, whose `pair` is {theirs}, while {address}'s is {pair}"
-                )
-                remedy = f"remove `pair` from {name}; the record's pair is the one {address} states"
-            if _derived_pair(other):
-                remedy = (
-                    f"state `pair: {name}` on {name}; the record's pair is the one {address} states"
-                )
-            yield self._error("pair-invalid", "wiring", wid, pair_files, detail, remedy)
-        for setpoint in self._named_as_pair.get(name, ()):
-            fields = self.index.channels[setpoint]
-            yield self._error(
-                "pair-invalid",
-                "channel",
-                setpoint,
-                sorted({*stating_files(fields, "pair"), *files}),
-                f"`pair` names {name}, which wiring record {wid} states under `also`",
-                _pair_remedy(setpoint, fields, f"name {address} as the pair"),
-            )
 
     # --- limits --------------------------------------------------------------------
 

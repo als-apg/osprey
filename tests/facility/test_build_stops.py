@@ -1804,7 +1804,6 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
                 "records/channels.yaml",
                 {
                     "id": "RACK:QD:SP",
-                    "role": "setpoint",
                     "timeout_s": 2.0,
                     "on": {"device": "SR/QD"},
                 },
@@ -1820,7 +1819,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _injection(
             update("records/channels.yaml", 0, pair="INJ:SHOT:BUSY", timeout_s=2.0),
             update("records/channels.yaml", 13, idle=0.0),
-            append("records/channels.yaml", {"id": "INJ:RACK:REQ", "role": "setpoint"}),
+            append("records/channels.yaml", {"id": "INJ:RACK:REQ"}),
             wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
             limits(
                 {
@@ -2131,7 +2130,6 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
                 "records/channels.yaml",
                 {
                     "id": "RACK:QD:SP",
-                    "role": "setpoint",
                     "tolerance": {"absolute": 0.1},
                     "on": {"device": "SR/QD"},
                 },
@@ -2483,7 +2481,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
                     "idle": 0,
                     "simulation": {"responds": {"to": "INJ:RACK:REQ", "for_s": 0.5, "value": 1}},
                 },
-                {"id": "INJ:RACK:REQ", "role": "setpoint"},
+                {"id": "INJ:RACK:REQ"},
             ),
             wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
         ),
