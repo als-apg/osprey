@@ -4,8 +4,9 @@ Both wrappers in this package — ``qserver_startup._make_plan_function`` for a
 catalog plan and ``session_upload.install_session_plan`` for a session one —
 build the same connector-mediated devices in the same worker process, and have
 the same things to say about a run: whether the channels it declares are alive,
-what this worker actually holds when a declared name does not resolve, and
-whose switch refused a write the run tried to make. One copy of each lives
+whether a device it triggers is declared as one, what this worker actually
+holds when a declared name does not resolve, whose switch refused a write the
+run tried to make, and which unfinished triggers an abort cancels. One copy of each lives
 here so the two wrappers cannot answer an operator differently.
 
 The reachability half: ask the connector, before anything moves.
@@ -76,6 +77,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from osprey_connectors.errors import ChannelWriteBlockedError
+
+from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, TRIGGERED_ROLE, collect_channels
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.preflight")
 
@@ -471,6 +474,77 @@ def _file_verdict(
         )
     except Exception:
         logger.debug("preflight: could not record the verdict for %r", plan_name, exc_info=True)
+
+
+_NOT_TRIGGERED_AS = ((MOVABLE_ROLE, "set"), (READABLE_ROLE, "read"))
+"""The roles a device a plan triggers may not be declared under, with the verb
+the refusal says the device is not used with."""
+
+
+def _states_a_trigger_write(device: Any) -> bool:
+    """Whether *device* states that its ``trigger()`` writes a channel.
+
+    Only an empty tuple states no write; any other statement counts as one, so
+    a malformed statement is held to the triggered marking.
+    """
+    statement = getattr(device, "trigger_writes", None)
+    if not callable(statement):
+        return False
+    writes: object = statement()
+    return writes != ()
+
+
+def refuse_misdeclared_triggers(
+    plan_name: str, schema: Any, params: Any, declared: Mapping[str, Any]
+) -> None:
+    """Refuse a plan that names a device it triggers under any other marking.
+
+    A device a plan triggers is one whose ``trigger_writes()`` states a write:
+    what marks it is its own statement of what its trigger sends, never its
+    class. Such a device is declared under a triggered field and under no
+    other; a plan that names it as movable or readable has declared a write it
+    does not make, or hidden one it does. A triggered field naming a device that
+    states no trigger write is allowed: it is triggered and recorded, and
+    nothing is written.
+
+    Duck-typed and ophyd-free, so both worker wrappers call it before anything
+    is built or sent.
+
+    Raises:
+        ValueError: A declared device that states a trigger write is named
+            under a movable or a readable field.
+    """
+    named_as = [
+        (role, verb, collect_channels(schema, params, role)) for role, verb in _NOT_TRIGGERED_AS
+    ]
+    for name, device in declared.items():
+        if not _states_a_trigger_write(device):
+            continue
+        for role, verb, names in named_as:
+            if name in names:
+                raise ValueError(
+                    f"plan {plan_name!r} names {name!r} as a {role} channel; {name!r} is "
+                    f"triggered, not {verb} — declare it under a {TRIGGERED_ROLE} field"
+                )
+
+
+def cancel_unfinished_triggers(declared: Mapping[str, Any]) -> None:
+    """Cancel the unfinished trigger of every declared device that can cancel one.
+
+    Called by both worker wrappers on every end of a plan other than its own
+    return, so no command write leaves a device after a pause or an abort. A
+    device without ``cancel_trigger()`` has no trigger to cancel. A cancel that
+    raises is logged and the next device is still reached: the caller is
+    already on its way out with the error that ended the run.
+    """
+    for name, device in declared.items():
+        cancel = getattr(device, "cancel_trigger", None)
+        if not callable(cancel):
+            continue
+        try:
+            cancel()
+        except Exception:
+            logger.warning("could not cancel the trigger of %r", name, exc_info=True)
 
 
 def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator[Any]:

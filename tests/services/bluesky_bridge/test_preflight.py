@@ -15,14 +15,23 @@ import asyncio
 import time
 
 import pytest
+from pydantic import BaseModel
 
+from osprey.services.bluesky_bridge.plan_fields import (
+    MovableChannels,
+    ReadableChannels,
+    TriggeredChannels,
+)
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
 from osprey.services.bluesky_bridge.preflight import (
     PROBE_BUDGET_MAX_S,
     PROBE_BUDGET_S,
     PROBE_CONCURRENCY,
     PROBE_TIMEOUT_S,
     ProbeOutcome,
+    cancel_unfinished_triggers,
     probe_addresses,
+    refuse_misdeclared_triggers,
     sweep_budget,
 )
 
@@ -347,3 +356,103 @@ async def test_a_large_healthy_but_slow_sweep_is_not_refused():
     assert outcome.all_responded is True
     assert outcome.budget_exhausted is False
     assert elapsed < sweep_budget(len(addresses), concurrency=8)
+
+
+# ---------------------------------------------------------------------------
+# A device a plan triggers is declared under a triggered field and no other
+# ---------------------------------------------------------------------------
+
+
+class _Fires:
+    """A device whose trigger states one write, and which can cancel it."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.cancelled = 0
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        return (ChannelWrite(f"{self.name}:CMD", 1),)
+
+    def cancel_trigger(self) -> None:
+        self.cancelled += 1
+
+
+class _ReadsOnTrigger:
+    """A device whose trigger states no write: a plain readable."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+        return ()
+
+
+class _AllRoles(BaseModel):
+    correctors: MovableChannels = []
+    detectors: TriggeredChannels = []
+    monitors: ReadableChannels = []
+
+
+@pytest.mark.parametrize(
+    ("field", "role", "verb"),
+    [("correctors", "movable", "set"), ("monitors", "readable", "read")],
+)
+def test_a_triggerable_named_as_movable_or_readable_is_refused(
+    field: str, role: str, verb: str
+) -> None:
+    params = {field: ["MCA1"]}
+    declared = {"MCA1": _Fires("MCA1")}
+
+    with pytest.raises(ValueError) as raised:
+        refuse_misdeclared_triggers("shots", _AllRoles, params, declared)
+
+    assert str(raised.value) == (
+        f"plan 'shots' names 'MCA1' as a {role} channel; 'MCA1' is triggered, not {verb} "
+        "— declare it under a triggered field"
+    )
+
+
+def test_a_triggerable_named_under_a_triggered_field_and_another_is_refused() -> None:
+    params = {"detectors": ["MCA1"], "monitors": ["MCA1"]}
+
+    with pytest.raises(ValueError, match="as a readable channel"):
+        refuse_misdeclared_triggers("shots", _AllRoles, params, {"MCA1": _Fires("MCA1")})
+
+
+class _StatesAListOfWrites:
+    """A device whose trigger statement is not the tuple the protocol asks for."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def trigger_writes(self) -> list[ChannelWrite]:
+        return [ChannelWrite(f"{self.name}:CMD", 1)]
+
+
+def test_a_malformed_trigger_statement_counts_as_a_write() -> None:
+    params = {"monitors": ["MCA1"]}
+
+    with pytest.raises(ValueError, match="as a readable channel"):
+        refuse_misdeclared_triggers(
+            "shots", _AllRoles, params, {"MCA1": _StatesAListOfWrites("MCA1")}
+        )
+
+
+def test_a_device_stating_no_trigger_write_may_be_triggered() -> None:
+    params = {"detectors": ["BPM1", "MCA1"], "monitors": ["BPM2"], "correctors": ["COR1"]}
+    declared = {
+        "BPM1": _ReadsOnTrigger("BPM1"),
+        "BPM2": _ReadsOnTrigger("BPM2"),
+        "MCA1": _Fires("MCA1"),
+        "COR1": object(),
+    }
+
+    assert refuse_misdeclared_triggers("shots", _AllRoles, params, declared) is None
+
+
+def test_cancel_reaches_every_declared_device_that_can_cancel() -> None:
+    first, second = _Fires("MCA1"), _Fires("MCA2")
+
+    cancel_unfinished_triggers({"MCA1": first, "BPM1": _ReadsOnTrigger("BPM1"), "MCA2": second})
+
+    assert (first.cancelled, second.cancelled) == (1, 1)
