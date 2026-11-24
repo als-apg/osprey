@@ -1015,7 +1015,8 @@ classes:
         range: boolean
         description: >-
           Absent means true on a float or int setpoint carrying both
-          `min_value` and `max_value`, false otherwise. A setpoint of any other
+          `min_value` and `max_value`, false otherwise. Stating true on a float
+          or int setpoint without both stops the build. A setpoint of any other
           value_type carries no bounds and is writable only when this is true;
           its value is not checked against this record.
       confirm:
