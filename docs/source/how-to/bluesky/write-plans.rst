@@ -191,7 +191,9 @@ The file has two lists:
   back from the channel it is paired with. A setpoint the facility pairs with
   no readback reads its own setpoint.
 - **Readables** are recorded and never written. There is one per readback
-  channel.
+  channel. A readback on a waveform channel carries the ``shape`` the facility
+  file states, and each run records it as an array of that length. A waveform
+  of more than one dimension is no plan device; the build names each one.
 
 A device's name is its address, which is also the column heading in the run's
 data.
