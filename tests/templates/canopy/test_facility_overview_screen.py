@@ -55,19 +55,19 @@ _SPEC.loader.exec_module(gen)
 SIZE_BUDGET = 512_000
 NAME_BUDGET = 700
 FORMULA_BUDGET = 2048
-EXPECTED_PV_COUNT = 618
+EXPECTED_PV_COUNT = 630
 EXPECTED_WIDGETS = {
     "absolute-canvas": 1,
     "ellipse": 2,
     "group-box": 4,
     "line": 9,
     "pv-label": 14,
-    "pv-led": 319,
-    "rectangle": 278,
+    "pv-led": 331,
+    "rectangle": 318,
     "text-label": 84,
 }
 
-BPMS_PER_LINE = {"SR": 72, "BR": 8, "GTL": 2, "LN": 2, "LTB": 6, "BTS": 6}
+BPMS_PER_LINE = {"SR": 72, "BR": 20, "GTL": 2, "LN": 2, "LTB": 6, "BTS": 6}
 MATRIX = {"DIPOLE": 36, "QF": 24, "QD": 24, "QFA": 24, "SF": 24, "SD": 24, "SHF": 24, "SHD": 24}
 INJECTOR_LEDS = [
     "GTL:GUN:EGUN:01:HV_ON:RB",
@@ -455,12 +455,23 @@ def test_the_orbit_rms_reads_to_a_tenth_of_a_micron(formulas: dict) -> None:
 
 
 def test_plan_symbol_counts_follow_the_records(nodes: list[dict], channels: dict) -> None:
-    """One lattice symbol per magnet device on SR, BR, LN, LTB and BTS."""
+    """One lattice symbol per magnet device on SR, BR, LN, LTB and BTS.
+
+    A family is counted by the channels named after its magnets, or, where its
+    magnets share a supply and no channel is named after one, by its device records.
+    """
+    device_records = yaml.safe_load(
+        EXAMPLE_CHANNELS.with_name("devices.yaml").read_text(encoding="utf-8")
+    )
     expected = 0
     for line in ("SR", "BR", "LN", "LTB", "BTS"):
         for family in gen.SYMBOL_KIND:
             devices = {
                 n.split(":")[3] for n in channels if re.match(rf"{line}:MAG:{family}:\d+:", n)
+            } or {
+                record["id"]
+                for record in device_records
+                if re.fullmatch(rf"{line}/{family}\d+", record["id"])
             }
             expected += len(devices)
     roles = {"Dipole", "Quadrupole", "Sextupole"}
