@@ -305,6 +305,10 @@ class ConnectorSettable(StandardReadable):
             return {"relative": self._settle_relative}
         return None
 
+    def channel_addresses(self) -> tuple[str, ...]:
+        """The addresses a run of this device touches: the setpoint and the readback."""
+        return (self._setpoint_pv, self._readback_pv)
+
     @property
     def has_distinct_readback(self) -> bool:
         """Whether this device reads back a channel other than the one it writes."""
@@ -411,6 +415,10 @@ class ConnectorReadable(StandardReadable):
         self._unit = unit
         self._shape = shape
         super().__init__(name=name)
+
+    def channel_addresses(self) -> tuple[str, ...]:
+        """The address a run of this device touches: its one channel."""
+        return (self._read_pv,)
 
     async def read(self) -> dict[str, Reading[Any]]:
         """Return the live value, read fresh through the connector."""

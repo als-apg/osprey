@@ -333,34 +333,27 @@ async def probe_addresses(
     )
 
 
-_ADDRESS_ATTRIBUTES = ("_setpoint_pv", "_readback_pv", "_read_pv")
-"""Where a connector-mediated device keeps the addresses it touches.
-
-``ConnectorSettable`` holds a setpoint and a readback, ``ConnectorReadable``
-one read channel, and neither exposes them publicly. Read by name rather than
-by importing the device classes: that would pull ophyd-async into the import
-path of every module that wants a pre-flight, for a string lookup.
-"""
-
-
 def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
     """Every control-system address the declared devices would touch.
 
-    A settable contributes both halves: a plan that drives a setpoint also
-    reads the readback to settle each move, so an unreachable readback fails a
-    run exactly as an unreachable setpoint does. A readable contributes its one
-    channel. Duplicates and blanks are left for the probe to drop.
+    Each connector-mediated device states its own through
+    ``channel_addresses()``: a settable both halves (a plan that drives a
+    setpoint also reads the readback to settle each move, so an unreachable
+    readback fails a run exactly as an unreachable setpoint does), a readable
+    its one channel, a triggerable its command and its status. Asked by method
+    name rather than by importing the device classes, which would pull
+    ophyd-async into the import path of every module that wants a pre-flight.
+    Duplicates and blanks are left for the probe to drop.
 
-    A device carrying none of these attributes contributes nothing rather than
-    raising — in the worker every device is connector-mediated, so that case is
-    a caller holding something else, and there is no address in it to probe.
+    A device without the method contributes nothing rather than raising — in
+    the worker every device is connector-mediated, so that case is a caller
+    holding something else, and there is no address in it to probe.
     """
     addresses: list[str] = []
     for device in declared.values():
-        for attribute in _ADDRESS_ATTRIBUTES:
-            address = getattr(device, attribute, None)
-            if isinstance(address, str):
-                addresses.append(address)
+        stated = getattr(device, "channel_addresses", None)
+        if callable(stated):
+            addresses.extend(address for address in stated() if isinstance(address, str))
     return addresses
 
 

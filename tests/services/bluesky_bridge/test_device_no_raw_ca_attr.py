@@ -49,6 +49,7 @@ from typing import Any
 from osprey.services.bluesky_bridge.devices.connector import (
     ConnectorReadable,
     ConnectorSettable,
+    ConnectorTriggerable,
 )
 
 
@@ -108,6 +109,7 @@ def _public_attrs(obj: Any) -> list[str]:
 _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "add_children_as_readables",
     "add_readables",
+    "channel_addresses",
     "children",
     "connect",
     "describe",
@@ -131,6 +133,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
 _EXPECTED_READABLE_PUBLIC_ATTRS = [
     "add_children_as_readables",
     "add_readables",
+    "channel_addresses",
     "children",
     "connect",
     "describe",
@@ -143,6 +146,31 @@ _EXPECTED_READABLE_PUBLIC_ATTRS = [
     "read_configuration",
     "set_name",
     "stage",
+    "unstage",
+]
+
+
+_EXPECTED_TRIGGERABLE_PUBLIC_ATTRS = [
+    "add_children_as_readables",
+    "add_readables",
+    "cancel_trigger",
+    "channel_addresses",
+    "children",
+    "connect",
+    "describe",
+    "describe_configuration",
+    "hints",
+    "log",
+    "name",
+    "parent",
+    "pause",
+    "read",
+    "read_configuration",
+    "resume",
+    "set_name",
+    "stage",
+    "trigger",
+    "trigger_writes",
     "unstage",
 ]
 
@@ -188,6 +216,15 @@ def test_connector_readable_public_surface_has_no_raw_ca_or_unchecked_write() ->
     device = ConnectorReadable(fake, "PV", name="detector")
 
     assert _public_attrs(device) == _EXPECTED_READABLE_PUBLIC_ATTRS
+    _assert_no_raw_ca_or_unchecked_write(device, fake)
+
+
+def test_connector_triggerable_public_surface_has_no_raw_ca_or_unchecked_write() -> None:
+    """`ConnectorTriggerable`'s public API never leaks the connector or `write_channel`."""
+    fake = FakeConnector()
+    device = ConnectorTriggerable(fake, "CMD", "STATUS", idle=0, timeout_s=5.0, name="det")
+
+    assert _public_attrs(device) == _EXPECTED_TRIGGERABLE_PUBLIC_ATTRS
     _assert_no_raw_ca_or_unchecked_write(device, fake)
 
 
