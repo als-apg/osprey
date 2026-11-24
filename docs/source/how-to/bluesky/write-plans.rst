@@ -95,7 +95,8 @@ Two ways to add a plan
    A plan file is a small Python module with three parts:
 
    - **Metadata**: the plan's name, a human description, and whether it
-     moves anything on the machine. Two optional keys shape the form
+     writes to the machine; a launch that would write while its plan says
+     otherwise is refused before the write. Two optional keys shape the form
      BLUESKY's Plans view builds from the parameters. ``layout`` lists rows
      of parameter names: the parameters of one row share a row of the form,
      and the rest follow. ``summary`` is the one-line readout above the
@@ -386,6 +387,12 @@ The rest of OSPREY works from that one marking. It decides:
 
 Each of those used to guess from how a parameter was spelled. Now the plan
 says it once, and everything reads the same answer.
+
+**What the approval prompt states.** The hazard line is this launch's own
+walk, with the parameters about to be queued: how many values it writes to how
+many channels, or that it writes nothing. Every write is listed per channel
+with its value and its count, and the trajectory lists the moves. A plan that
+branches on its readings is walked with no readings.
 
 .. raw:: html
    :file: ../../_diagrams/plan-parameter-marking.html

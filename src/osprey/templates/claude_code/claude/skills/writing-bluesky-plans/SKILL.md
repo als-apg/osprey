@@ -30,10 +30,12 @@ optional fourth, `render` — see *The plan's own view* below):
    missing one is rejected at load time, not defaulted):
    - `name` (str) — the plan's name.
    - `description` (str) — human-readable summary.
-   - `writes` (bool) — whether the plan moves a channel (vs. read-only).
-     Authoring metadata only; it has no effect on whether writes actually
-     happen — that is governed entirely by the `control_system.writes` tier
-     and the owner's switch for the machine.
+   - `writes` (bool) — whether the plan writes to the machine. A plan that
+     does not state `writes: True` is refused at its first write, before
+     that write is sent, and the approval prompt states what the launch
+     writes, per channel. Whether an allowed write then reaches the machine
+     is still governed by the `control_system.writes` tier and the owner's
+     switch for the machine.
 
    A plan file on disk may add two optional keys that shape the operator's
    form, each naming only `PARAMS` fields (a name the plan lacks quarantines
