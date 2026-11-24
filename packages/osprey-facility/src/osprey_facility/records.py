@@ -57,7 +57,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal, get_args
 
-from osprey_facility import wiring_addresses
+from osprey_facility import RECORD_FACTS, wiring_addresses
 from osprey_facility.places import resolve_place_name
 from osprey_facility.reading import load_facility
 
@@ -387,6 +387,45 @@ class FacilityRecords:
         """
         wiring = self.wired(address)
         return address if wiring is None else str(wiring["address"])
+
+    def channel(self, address: str) -> Mapping[str, Any] | None:
+        """The channel at ``address``, read as its wiring record states it.
+
+        A further address of a wiring record (under ``also``) keeps its own
+        address slots (:data:`osprey_facility.ADDRESS_SLOTS`) and reads every
+        record fact (:data:`osprey_facility.RECORD_FACTS`) from the channel of
+        the record's ``address``; a slot in neither list stays its own.
+
+        Args:
+            address: A channel's address.
+
+        Returns:
+            The channel as read, read-only; the channel's own row for any
+            address no record names under ``also``; ``None`` when no channel
+            has that address.
+        """
+        row = self.record("channel", address)
+        own = self.record_address(address)
+        if row is None or own == address:
+            return row
+        held = self.record("channel", own)
+        if held is None:
+            return row
+        read = {key: value for key, value in row.items() if key not in RECORD_FACTS}
+        read.update((key, value) for key, value in held.items() if key in RECORD_FACTS)
+        return MappingProxyType(read)
+
+    def wiring_model(self, address: str) -> str | None:
+        """The model whose wiring names ``address``, as a record's ``address`` or under ``also``.
+
+        Args:
+            address: A channel's address.
+
+        Returns:
+            The model's name; ``None`` for an address no model wires.
+        """
+        held = self._wiring.get(address)
+        return None if held is None else held[0]
 
     def select_channels(self, selection: ChannelSelection) -> tuple[Mapping[str, Any], ...]:
         """The channel records a selection matches, in document order.
