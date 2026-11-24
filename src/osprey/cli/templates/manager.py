@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
+from osprey import repo_layout
 from osprey.agent_runner.tool_names import DENY_DEFAULTS
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest, scaffolding
@@ -257,7 +258,7 @@ class TemplateManager:
         #    own — it connects to a stack another OSPREY project deployed on
         #    the same host.
         if ctx.get("deploy_services", True):
-            bundle_services_dir = bundle_dir / "services"
+            bundle_services_dir = bundle_dir / repo_layout.entry("services").path
             if bundle_services_dir.is_dir():
                 service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
                 if service_names:

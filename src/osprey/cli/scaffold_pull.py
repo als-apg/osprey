@@ -21,6 +21,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from osprey import repo_layout
+from osprey_facility import source_tree
+
 from .templates.preset_data import PresetData
 
 # ---------------------------------------------------------------------------
@@ -107,13 +110,14 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
     visit(app_root)
     # The facility and the files the template takes from another one, listed
     # where they land.
+    data = repo_layout.entry("data").path
     for relative in source.placed_files():
-        files.append(f"data/{relative}")
+        files.append(f"{data}/{relative}")
         for parent in PurePosixPath(relative).parents:
-            if parent.name and f"data/{parent.as_posix()}/" not in directories:
-                directories.append(f"data/{parent.as_posix()}/")
-    if any(entry.startswith("data/") for entry in files) and "data/" not in directories:
-        directories.append("data/")
+            if parent.name and f"{data}/{parent.as_posix()}/" not in directories:
+                directories.append(f"{data}/{parent.as_posix()}/")
+    if any(entry.startswith(f"{data}/") for entry in files) and f"{data}/" not in directories:
+        directories.append(f"{data}/")
     directories.sort()
     files.sort()
 
@@ -154,7 +158,7 @@ PullActionKind = Literal["written", "updated", "unchanged", "refused", "skipped"
 #: documents are demo content a facility replaces, while the ``index.md`` files
 #: are the structure it keeps, so a plain pull produces a skeleton and
 #: ``--with-content`` produces the worked example.
-_KNOWLEDGE_ROOT = "data/facility/knowledge"
+_KNOWLEDGE_ROOT = repo_layout.child_display_path("data", "facility", source_tree.path("knowledge"))
 _KNOWLEDGE_INDEX_NAME = "index.md"
 
 
@@ -237,7 +241,8 @@ def plan_pull(
     # no-op for the entire command, so it is reported as a refusal instead.
     only_one = len(candidates) == 1
 
-    placed = {f"data/{relative}": path for relative, path in source.placed_files().items()}
+    data = repo_layout.entry("data").path
+    placed = {f"{data}/{relative}": path for relative, path in source.placed_files().items()}
     actions: list[PullAction] = []
     for relative in candidates:
         origin = placed.get(relative, source.app_root / relative)

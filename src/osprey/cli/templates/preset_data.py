@@ -22,19 +22,32 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+from osprey import repo_layout
 from osprey_connectors.errors import BuildProfileError
 
 #: The directory under the template root holding the bundled facilities.
 FACILITIES_DIRNAME = "facilities"
 
 #: Where a facility lands inside a profile's ``data/`` tree.
-FACILITY_DATA_DIRNAME = "facility"
+FACILITY_DATA_DIRNAME = repo_layout.child("data", "facility").path
 
-#: The starter reviewer prompt, both under the template root and inside ``data/``.
-#: ``osprey.services.code_review.settings.DEFAULT_PROMPT`` points at where it lands.
-STARTER_PROMPT_PATH = "code_review/reviewer.md"
+#: The starter reviewer prompt under the template root.
+_STARTER_PROMPT_TEMPLATE = "code_review/reviewer.md"
+
+#: Where the starter reviewer prompt lands inside ``data/``: the code reviewer's
+#: directory there. ``osprey.services.code_review.settings.DEFAULT_PROMPT``
+#: points at the same file from the repo root.
+STARTER_PROMPT_PATH = (
+    f"{repo_layout.child('data', 'code-review').path}/"
+    f"{PurePosixPath(_STARTER_PROMPT_TEMPLATE).name}"
+)
+
+
+def _data_dir(root: Path) -> Path:
+    """The data tree of *root*, a tree laid out as a deployment root (an app template)."""
+    return root / repo_layout.entry("data").path
 
 
 @dataclass(frozen=True)
@@ -59,7 +72,7 @@ class PresetData:
     @property
     def app_data(self) -> Path:
         """The app template's own ``data/`` tree; it may not exist."""
-        return self.app_root / "data"
+        return _data_dir(self.app_root)
 
     def placed_files(self) -> dict[str, Path]:
         """The files that land in ``data/`` from outside the app template's ``data/``.
@@ -142,7 +155,7 @@ def starter_prompt_path(template_root: Path) -> Path:
     Raises:
         BuildProfileError: If the prompt is absent from the installation.
     """
-    path = Path(template_root) / STARTER_PROMPT_PATH
+    path = Path(template_root) / _STARTER_PROMPT_TEMPLATE
     if not path.is_file():
         raise BuildProfileError(
             f"The starter reviewer prompt is absent from this installation at "
@@ -171,16 +184,18 @@ def compose_preset_data(template_root: Path, app_template: str, facility: str | 
     """
     app_root = app_template_root(template_root, app_template)
     starter = starter_prompt_path(template_root)
-    if (app_root / "data" / STARTER_PROMPT_PATH).exists():
+    if (_data_dir(app_root) / STARTER_PROMPT_PATH).exists():
         raise BuildProfileError(
-            f"App template {app_template!r} ships data/{STARTER_PROMPT_PATH}, where every "
+            f"App template {app_template!r} ships "
+            f"{repo_layout.display_path('data', STARTER_PROMPT_PATH)}, where every "
             f"preset lands the starter reviewer prompt: remove the app template's copy."
         )
     if facility is None:
         return PresetData(app_root, starter_prompt=starter)
-    if (app_root / "data" / FACILITY_DATA_DIRNAME).exists():
+    if repo_layout.child_path(_data_dir(app_root), "data", "facility").exists():
         raise BuildProfileError(
-            f"App template {app_template!r} ships data/{FACILITY_DATA_DIRNAME}/ and its "
+            f"App template {app_template!r} ships "
+            f"{repo_layout.child_display_path('data', 'facility')}/ and its "
             f"preset names facility {facility!r}: remove the app template's copy."
         )
     return PresetData(app_root, facility_root(template_root, facility), starter)

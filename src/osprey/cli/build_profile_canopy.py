@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.integrations.canopy.library import HOME_SCREEN_KEY, find_home_screen
+from osprey.repo_layout import child_path
 
 CANOPY_PANEL = "canopy"
 #: The skills that go with the panel and leave the deployment with it.
@@ -126,7 +127,7 @@ def profile_home_screen_errors(profile: Any, root: Path) -> list[str]:
     if data_root is None:
         return []
     return canopy_home_screen_errors(
-        profile.config, profile.web_panels, data_root / "canopy" / "library"
+        profile.config, profile.web_panels, child_path(data_root, "data", "canopy-library")
     )
 
 

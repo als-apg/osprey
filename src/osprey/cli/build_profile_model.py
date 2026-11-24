@@ -750,7 +750,7 @@ class BuildProfile:
         data_root = self.resolved_data_root(profile_dir)
         if data_root is None:
             return None
-        content = data_root / "facility"
+        content = repo_layout.child_path(data_root, "data", "facility")
         if not isinstance(self.machine, str) or not self.machine.strip():
             return FacilityRoots.single(content)
         machine = (profile_dir / self.machine).resolve()
@@ -771,11 +771,14 @@ class BuildProfile:
         identity = machine / "identity.yaml"
         if not identity.is_file():
             hint = ""
-            if (machine / "data" / "facility").is_dir():
+            # A machine repository is a deployment root, laid out as declared.
+            facility_in_repo = repo_layout.child_display_path("data", "facility")
+            machine_data = machine / repo_layout.entry("data").path
+            if repo_layout.child_path(machine_data, "data", "facility").is_dir():
                 hint = (
-                    f"; {self.machine}/data/facility exists, so `machine:` likely names "
+                    f"; {self.machine}/{facility_in_repo} exists, so `machine:` likely names "
                     f"the repository top instead of its facility directory: state "
-                    f"`machine: {self.machine.rstrip('/')}/data/facility`"
+                    f"`machine: {self.machine.rstrip('/')}/{facility_in_repo}`"
                 )
             raise FacilityBuildError(
                 "machine-missing",
@@ -1883,7 +1886,7 @@ class BuildProfile:
         """
         from osprey.stores.type_registry import load_extension_types
 
-        from .profile_conventions import PROJECT_MIRROR_DIR
+        from .profile_conventions import PROJECT_MIRROR_DIR, convention_source
 
         block = self.artifact_server
         if not isinstance(block, dict):
@@ -1904,7 +1907,7 @@ class BuildProfile:
                 load_extension_types(
                     validate=True,
                     config={"artifact_server": block},
-                    project_root=profile_dir / PROJECT_MIRROR_DIR,
+                    project_root=profile_dir / convention_source(PROJECT_MIRROR_DIR),
                 )
             except ValueError as exc:
                 _header, _, body = str(exc).partition("\n  - ")

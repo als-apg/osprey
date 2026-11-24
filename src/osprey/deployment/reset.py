@@ -122,6 +122,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from osprey import repo_layout
 from osprey.deployment.compose_generator import (
     AGENT_RECORD_CLICKHOUSE_VOLUME,
     COMPOSE_ENV_FILENAME,
@@ -753,10 +754,11 @@ class ResetPlan:
             f"    {COMPOSE_ENV_FILENAME}  everything that was not minted by a deploy, "
             f"including your provider keys ({env_note})."
         )
-        kept.append(
-            "    profile.yml, data/, tiers/, triggers.yml, scripts/ — the tracked source "
-            "zone, and .git/ with it."
+        tracked = ", ".join(
+            repo_layout.listing_name(repo_layout.entry(key))
+            for key in ("profile.yml", "data", "tiers", "triggers.yml", "scripts")
         )
+        kept.append(f"    {tracked} — the tracked source zone, and .git/ with it.")
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
             if (self.repo_root / filename).is_file():
                 kept.append(
@@ -821,9 +823,13 @@ class ResetPlan:
         # Both spellings: data/.runtime/ is where `osprey up` mints today, and
         # data/bluesky_curve/ is where a deployment that has not started since
         # the #716 relocation still holds its keys.
+        data_dir = self.repo_root / repo_layout.entry("data").path
         for curve_dir, shown in (
-            (self.repo_root / "data" / ".runtime", "data/.runtime/"),
-            (self.repo_root / "data" / "bluesky_curve", "data/bluesky_curve/"),
+            (
+                repo_layout.child_path(data_dir, "data", "runtime"),
+                f"{repo_layout.child_display_path('data', 'runtime')}/",
+            ),
+            (data_dir / "bluesky_curve", f"{repo_layout.display_path('data', 'bluesky_curve')}/"),
         ):
             if curve_dir.is_dir():
                 kept.append(

@@ -29,6 +29,7 @@ from osprey.port_layout import (
     layout_port_field,
     layout_ports,
 )
+from osprey.repo_layout import entry as root_entry
 from osprey.utils.workspace import LAYER_DIRNAMES, TIERS_DIRNAME, layer_dir_kind
 from osprey_connectors.connection import ENV_NAME_RE
 
@@ -557,7 +558,7 @@ def osprey_declares_binding(
     return osprey_owns_binding(
         name,
         template=entry.template if entry is not None else None,
-        claimed=(profile_dir / "services" / name).is_dir(),
+        claimed=(profile_dir / root_entry("services").path / name).is_dir(),
     )
 
 

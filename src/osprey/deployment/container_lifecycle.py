@@ -25,6 +25,7 @@ from typing import Any, NamedTuple
 
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS, lane_env_prefix
 from osprey.cli import output
@@ -143,7 +144,7 @@ from osprey.deployment.web_terminals.roster import (
     single_user_operator_services,
 )
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
-from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME, container_image_context
+from osprey.utils.workspace import container_image_context
 from osprey_connectors.config import config_anchored_at, load_project_config
 from osprey_connectors.dotenv import (
     ENV_CHAIN_FILENAMES,
@@ -539,7 +540,8 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     Returns:
         The lane's certificate directory, relative to the project directory.
     """
-    return Path("data") / RUNTIME_DATA_DIR_NAME / f"{lane_key}_curve"
+    data_dir = Path(repo_layout.entry("data").path)
+    return repo_layout.child_path(data_dir, "data", "runtime") / f"{lane_key}_curve"
 
 
 def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
@@ -554,7 +556,7 @@ def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     Returns:
         The pre-#716 certificate directory, relative to the project directory.
     """
-    return Path("data") / f"{lane_key}_curve"
+    return Path(repo_layout.entry("data").path) / f"{lane_key}_curve"
 
 
 # Control-plane (RE Manager 0MQ control socket) CURVE keypair. Unlike the
@@ -1390,7 +1392,9 @@ def _ensure_runtime_output_dir(project_dir: Path) -> None:
     Args:
         project_dir: Project directory (the parent of the project ``.env``).
     """
-    runtime_dir = project_dir / "data" / RUNTIME_DATA_DIR_NAME
+    runtime_dir = repo_layout.child_path(
+        project_dir / repo_layout.entry("data").path, "data", "runtime"
+    )
     runtime_dir.mkdir(parents=True, exist_ok=True)
     gitignore = runtime_dir / ".gitignore"
     if not gitignore.is_file():
@@ -1425,7 +1429,8 @@ def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
     os.replace(legacy, target)
     logger.key_info(
         f"Relocated the bluesky document-plane CURVE certificates from {legacy} to "
-        f"{target}: runtime-minted material lives under data/{RUNTIME_DATA_DIR_NAME}/, "
+        f"{target}: runtime-minted material lives under "
+        f"{repo_layout.child_display_path('data', 'runtime')}/, "
         "which the build-drift check does not treat as build input. The keys "
         "themselves are unchanged."
     )

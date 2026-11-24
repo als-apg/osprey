@@ -7,14 +7,24 @@ import shutil
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
+from osprey import repo_layout
 from osprey.cli.templates._rendering import render_template
-from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
+from osprey_facility import source_tree
 from osprey_facility.roots import is_vcs_metadata
 
 if TYPE_CHECKING:
     from osprey_facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
+
+#: The render's data directory, relative to the rendered project, and the
+#: facility tree inside it. Render paths: the runtime reads them there whatever
+#: the source tree's layout, so they do not follow the deployment-root
+#: declaration. The source facility tree arrives with the copy of the data
+#: tree, so it lands here only while the declared facility child of ``data``
+#: has this name; a mounted machine tree is copied here either way.
+_RENDER_DATA_DIRNAME = "data"
+_RENDER_FACILITY_DIRNAME = "facility"
 
 # Fallback default for the Dockerfile.j2 CLAUDE_CLI_VERSION build ARG when
 # the project's config.yml doesn't set claude_code.cli_version (the common
@@ -444,10 +454,15 @@ def copy_template_data(
 
     from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
-    dst_data = project_dir / "data"
+    dst_data = project_dir / _RENDER_DATA_DIRNAME
 
     root = Path(data_root)
-    benchmarks = root / FACILITY_DATA_DIRNAME / "benchmarks"
+    # The facility's top-level directory the query sources live under, and the
+    # entry inside it that leads to them.
+    facility_dir = repo_layout.child_path(root, "data", "facility")
+    query_parts = PurePosixPath(source_tree.path("benchmark_queries")).parts
+    benchmarks = facility_dir / query_parts[0]
+    queries_holder = facility_dir.joinpath(*query_parts[:2])
 
     def _skip_unrendered(directory: str, names: list[str]) -> set[str]:
         # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
@@ -456,8 +471,8 @@ def copy_template_data(
         # staging inputs no render reads. Both top level only, the
         # same anchoring the fingerprint fold applies to the runtime name.
         # The benchmark query sources reach a render only through the
-        # benchmarks view, so their subtree is not copied, nor a
-        # facility/benchmarks/ that holds nothing else.
+        # benchmarks view, so the entry leading to them is not copied, nor
+        # the top-level directory above it when it holds nothing else.
         # A `.git` entry (a clone's directory, a submodule's pointer file) is
         # version control at any depth, never data.
         vcs = {name for name in names if is_vcs_metadata(PurePosixPath(name))}
@@ -466,12 +481,15 @@ def copy_template_data(
             return vcs | ({RUNTIME_DATA_DIR_NAME, "raw"} & set(names))
         if (
             here == benchmarks.parent
-            and "benchmarks" in names
-            and {entry.name for entry in benchmarks.iterdir()} <= {"cross_paradigm"}
+            and benchmarks.name in names
+            and {entry.name for entry in benchmarks.iterdir()} <= {queries_holder.name}
         ):
-            return vcs | {"benchmarks"}
-        if here == benchmarks and "cross_paradigm" in names:
-            return vcs | {"cross_paradigm"}
+            return vcs | {benchmarks.name}
+        if queries_holder == benchmarks:
+            if here == facility_dir and benchmarks.name in names:
+                return vcs | {benchmarks.name}
+        elif here == benchmarks and queries_holder.name in names:
+            return vcs | {queries_holder.name}
         return vcs
 
     # dirs_exist_ok is defensive — no build path reaches here with data/ present.
@@ -479,7 +497,7 @@ def copy_template_data(
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
 
     if facility_roots is not None and facility_roots.mounted:
-        copy_machine_tree(facility_roots, dst_data / FACILITY_DATA_DIRNAME)
+        copy_machine_tree(facility_roots, dst_data / _RENDER_FACILITY_DIRNAME)
 
 
 def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
