@@ -1105,7 +1105,8 @@ turn 1 sits at index ``trigger_sample``. The tracking starts at the injection
 element, so a monitor upstream of it reads the end of each turn. The sum is
 the shot's charge times the share of the bunch still alive times
 ``sum_per_charge``, plus, with the RF on, the stored current held before the
-shot times ``sum_per_stored``, plus noise, floored at ``sum_floor``. Positions
+shot times ``sum_per_stored``, the whole times the monitor's own sum gain,
+plus noise, floored at ``sum_floor``. Positions
 are the sum-weighted mix of the stored beam, at zero, and the bunch's
 centroid, plus ``position_noise``; where the sum is at the floor they are
 ``floor_noise``.
@@ -1118,9 +1119,31 @@ roll turns the (x, y) pair, then the offset is subtracted, the polarity
 applied, the noise added and the gain multiplied in. A fault is stated once,
 in the unit the orbit reading publishes, and is converted to the arrays'
 metres through that reading's calibration; a monitor with no orbit reading
-wired has no fault to state. The sum carries no fault, and a sample with no
-beam reads ``floor_noise`` alone. The model's trajectory response, below, is
+wired has no fault to state. None of them reaches the sum, and a sample with
+no beam reads ``floor_noise`` alone. The model's trajectory response, below, is
 the deck's and shows no read-out fault, as its orbit response shows none.
+
+The sum has one fault of its own, the monitor's sum gain: ``gain`` on the
+monitor's ``turn_sum`` record, ``1`` when unstated and between 0.1 and 10.
+It multiplies what that monitor's sum reads of the beam, the injected bunch
+and the stored beam alike, before the sum's noise and floor, so two monitors
+read one charge in the ratio of their gains while ``sum_noise`` keeps its
+width on both. The ring's ``sum_per_charge`` and ``sum_per_stored`` stay the
+scale of a monitor with a gain of 1. The positions never read the sum gain:
+their sum-weighted mix, and the test for where there is beam to read, use the
+sum of a monitor with a gain of 1. A scenario states it per monitor:
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       SIM:RING:BPM01:TBT:SUM: {gain: 0.93}
+       SIM:RING:BPM02:TBT:SUM: {gain: 1.08}
+
+As a fault of the running model its name is
+``SIM:RING:BPM01:TBT:SUM/gain``. Where two records read one monitor's sum,
+the first carries the gain. A ``turn_sum`` record takes no other fault field,
+and a ``turn_x`` or ``turn_y`` record none at all.
 
 With the pilot tone on, every sample whose index is a
 multiple of ``tone_period`` carries a spike in all three arrays. The noise is
