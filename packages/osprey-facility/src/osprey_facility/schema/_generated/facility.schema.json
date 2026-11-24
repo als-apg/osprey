@@ -2269,6 +2269,38 @@
       "title": "RelationTypeEnum",
       "type": "string"
     },
+    "Responds": {
+      "description": "The act a status reads after each write to its command: `value` for `for_s` seconds, then the status's `idle`.",
+      "properties": {
+        "for_s": {
+          "description": "The seconds the status reads `value`; above 0.",
+          "title": "For S",
+          "type": "number"
+        },
+        "to": {
+          "description": "The address of the command whose write starts the act.",
+          "title": "To",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value while the act runs, typed by the channel like `idle`; absent on a status of two labels, it is the label that is not `idle`.",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "to",
+        "for_s"
+      ],
+      "title": "Responds",
+      "type": "object"
+    },
     "RoleEnum": {
       "description": "What a program does with a channel.",
       "enum": [
@@ -2565,6 +2597,18 @@
           ],
           "default": null,
           "description": "The trace of a waveform channel, shaped in code and scaled by a driving channel."
+        },
+        "responds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Responds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "On a status: after each write to the command `to` the simulated channel reads `value` for `for_s` seconds, then its `idle`."
         },
         "topoff": {
           "anyOf": [

@@ -1850,6 +1850,7 @@ class Seed(ConfiguredBaseModel):
     topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     follows: Optional[str] = Field(default=None, description="""On a readback a setpoint names as its `pair`: the setpoint the simulation copies a write from into this readback, or `none` for no setpoint. Without it the simulation follows the readback when exactly one setpoint names it and the two hold values of one type.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    responds: Optional[Responds] = Field(default=None, description="""On a status: after each write to the command `to` the simulated channel reads `value` for `for_s` seconds, then its `idle`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
 
 
 class Topoff(ConfiguredBaseModel):
@@ -1890,6 +1891,17 @@ class Gate(ConfiguredBaseModel):
 
     inputs: dict[str, Union[str, GateInput]] = Field(default=..., description="""`{<address>: <blocking_label>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate', 'Model'], 'list_elements_ordered': True} })
     gated: Any = Field(default=..., description="""The value while gated, typed by the gated channel: a factor > 0 on a float channel, a label on a bool or enum channel, an integer on an int channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Gate']} })
+
+
+class Responds(ConfiguredBaseModel):
+    """
+    The act a status reads after each write to its command: `value` for `for_s` seconds, then the status's `idle`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    to: str = Field(default=..., description="""The address of the command whose write starts the act.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Responds']} })
+    for_s: float = Field(default=..., description="""The seconds the status reads `value`; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Responds']} })
+    value: Optional[Any] = Field(default=None, description="""The value while the act runs, typed by the channel like `idle`; absent on a status of two labels, it is the label that is not `idle`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Responds']} })
 
 
 class GateInput(ConfiguredBaseModel):
@@ -2377,6 +2389,7 @@ Topoff.model_rebuild()
 TopoffLifetime.model_rebuild()
 Pulse.model_rebuild()
 Gate.model_rebuild()
+Responds.model_rebuild()
 GateInput.model_rebuild()
 Noise.model_rebuild()
 Tolerance.model_rebuild()

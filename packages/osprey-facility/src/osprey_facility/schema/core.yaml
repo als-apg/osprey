@@ -605,6 +605,12 @@ classes:
           simulation copies a write from into this readback, or `none` for
           no setpoint. Without it the simulation follows the readback when
           exactly one setpoint names it and the two hold values of one type.
+      responds:
+        range: Responds
+        inlined: true
+        description: >-
+          On a status: after each write to the command `to` the simulated
+          channel reads `value` for `for_s` seconds, then its `idle`.
 
   Topoff:
     description: >-
@@ -662,6 +668,25 @@ classes:
           The value while gated, typed by the gated channel: a factor > 0 on a
           float channel, a label on a bool or enum channel, an integer on an
           int channel.
+
+  Responds:
+    description: >-
+      The act a status reads after each write to its command: `value` for
+      `for_s` seconds, then the status's `idle`.
+    attributes:
+      to:
+        required: true
+        description: The address of the command whose write starts the act.
+      for_s:
+        range: float
+        required: true
+        description: The seconds the status reads `value`; above 0.
+      value:
+        range: Any
+        description: >-
+          The value while the act runs, typed by the channel like `idle`;
+          absent on a status of two labels, it is the label that is not
+          `idle`.
 
   GateInput:
     attributes:
