@@ -12,9 +12,10 @@ This procedure performs an automated position scan of a sample at an
 [Experimental Station](/subsystems/experimental-stations.md), stepping a motor
 axis and recording detector counts at each position.
 
-The example facility file holds no records for the experimental stations:
-their status, motors, detectors and shutters are run from the station's own
-controls, not through the control tools.
+The example facility file holds one sample stage and one detector at ES1
+(see [Experimental Stations](/subsystems/experimental-stations.md)); every
+other station's status, motors, detectors and shutters are run from the
+station's own controls, not through the control tools.
 
 ## Prerequisites
 

@@ -12,10 +12,26 @@ The Example Research Facility has six experimental stations (ES1–ES6).  Each
 station operates independently and may be in beam, setup, or maintenance mode
 while other stations continue running.
 
-The example facility file holds no records for the experimental stations:
-their status, motors, detectors and shutters are run from each station's own
-controls, not through the control tools.  What the stations need from the
-machine is stored beam, for example the current
+The example facility file holds one sample stage and one detector at ES1.
+The stage sets its target on
+[ES1:MOT:STAGE:01:POSITION:SP](facility:ES1:MOT:STAGE:01:POSITION:SP), reads
+its position on
+[ES1:MOT:STAGE:01:POSITION:RB](facility:ES1:MOT:STAGE:01:POSITION:RB), starts
+a move with [ES1:MOT:STAGE:01:MOVE:SP](facility:ES1:MOT:STAGE:01:MOVE:SP),
+reports it on [ES1:MOT:STAGE:01:STATUS:MOVE](facility:ES1:MOT:STAGE:01:STATUS:MOVE)
+and stops with [ES1:MOT:STAGE:01:STOP:SP](facility:ES1:MOT:STAGE:01:STOP:SP).
+The detector starts an acquisition with
+[ES1:DET:MCA:01:ACQUIRE:SP](facility:ES1:DET:MCA:01:ACQUIRE:SP), reports it on
+[ES1:DET:MCA:01:STATUS:ACQUIRE](facility:ES1:DET:MCA:01:STATUS:ACQUIRE), and
+reads its counts on [ES1:DET:MCA:01:COUNTS:RB](facility:ES1:DET:MCA:01:COUNTS:RB),
+its spectrum on
+[ES1:DET:MCA:01:SPECTRUM:WAVEFORM](facility:ES1:DET:MCA:01:SPECTRUM:WAVEFORM)
+and its temperature on
+[ES1:DET:MCA:01:TEMPERATURE:RB](facility:ES1:DET:MCA:01:TEMPERATURE:RB). In
+the simulation the spectrum is a fixed array and an acquisition changes no
+reading.  Every other station's status, motors, detectors and shutters are run
+from the station's own controls, not through the control tools.  What the
+stations need from the machine is stored beam, for example the current
 [SR:DIAG:DCCT:01:CURRENT:RB](facility:SR:DIAG:DCCT:01:CURRENT:RB).
 
 ## Per-Station Controls
