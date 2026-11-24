@@ -333,7 +333,8 @@ for it, or its slices mix zero-length and thick elements.
 **Simulator.** The view lists every channel address of the facility and each
 served model's status address (``addresses.json``), every model with its wiring (``variables.json``), the
 models this render serves (``served_models.json``), the seeds, the scenarios
-and a byte copy of each deck. A simulator serves exactly the channels of
+and a byte copy of each deck and of each file a model's settings name
+beside it, such as a pickup's table. A simulator serves exactly the channels of
 ``addresses.json``; an address outside it does not exist.
 
 **Limits.** One entry per record of ``limits.yaml`` and nothing else. A

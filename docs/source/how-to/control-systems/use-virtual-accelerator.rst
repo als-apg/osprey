@@ -1214,6 +1214,8 @@ states one in the same words and names its monitors' deck elements under
        chamber that is not round.
    * - ``table``
      - The table's JSON file, relative to the directory of the model's deck.
+       It may sit anywhere in the facility tree: a render copies it beside
+       its copy of the deck, as ``decks/<model>.<file name>``.
    * - ``buttons``
      - How many buttons the table holds, two or more.
    * - ``interpolation``

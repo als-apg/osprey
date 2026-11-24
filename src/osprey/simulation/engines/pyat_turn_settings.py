@@ -38,7 +38,8 @@ but ``injection_element`` defaulted:
   item states a pickup as ``pickup`` does and names its monitors' deck
   elements under ``elements``. A monitor takes the last item that names it,
   and the ring's pickup where none does. A table's path is relative to the
-  directory of the model's deck;
+  directory of the model's deck, and a served view carries the table beside
+  its copy of the deck (:func:`served_settings`);
 * ``sum_per_charge``, ``sum_per_stored``, ``sum_floor``, ``position_noise``,
   ``sum_noise``, ``floor_noise``, ``tone_period``, ``tone_amplitude`` -- the
   monitor readout, in :class:`~osprey.simulation.engines.pyat_turn_readout.TurnReadout`'s
@@ -106,6 +107,7 @@ __all__ = [
     "is_turn_by_turn",
     "kick_words",
     "normalise",
+    "served_settings",
     "signal_of",
     "start_value",
     "stated_buttons",
@@ -353,6 +355,50 @@ def is_turn_by_turn(settings: Any) -> bool:
         ``True`` when the ``pyat`` block states the :data:`BLOCK_KEY` block.
     """
     return _block(settings) is not None
+
+
+def served_settings(settings: Any, carry: Callable[[str], str]) -> Any:
+    """A model's settings as a served view holds them: each table under the name it is carried by.
+
+    A served view holds a copy of the deck and not the directory the deck
+    came from, so a file the settings name beside the deck has to travel with
+    it. Every ``table`` a pickup statement names is handed to ``carry``, and
+    the statement in the answer names what ``carry`` returns.
+
+    Args:
+        settings: The model's settings, as authored. They are not changed.
+        carry: Takes a table's path as stated, relative to the directory of
+            the model's deck, and returns the path the view serves the table
+            under, relative to the directory of the view's copy of the deck.
+
+    Returns:
+        ``settings`` itself when no pickup names a table, else a copy naming
+        the carried tables. A statement that is not a ``table`` with a path
+        is left as it is; :func:`normalise` is what refuses a malformed one.
+    """
+    block = _block(settings)
+    if not isinstance(block, Mapping):
+        return settings
+
+    def carried(stated: Any) -> Any:
+        if (
+            isinstance(stated, Mapping)
+            and stated.get("shape") == "table"
+            and isinstance(stated.get("table"), str)
+            and stated["table"]
+        ):
+            return {**stated, "table": carry(stated["table"])}
+        return stated
+
+    changed: dict[str, Any] = {}
+    if PICKUP_KEY in block:
+        changed[PICKUP_KEY] = carried(block[PICKUP_KEY])
+    listed = block.get(PICKUPS_KEY)
+    if isinstance(listed, list | tuple):
+        changed[PICKUPS_KEY] = [carried(item) for item in listed]
+    if all(changed[key] == block[key] for key in changed):
+        return settings
+    return {**settings, "pyat": {**settings["pyat"], BLOCK_KEY: {**block, **changed}}}
 
 
 def stated_buttons(stated: Any) -> int | None:
