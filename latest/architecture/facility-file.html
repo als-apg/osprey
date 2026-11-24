@@ -1226,7 +1226,9 @@ per pulsed magnet, naming its <code class="docutils literal notranslate"><span c
 <code class="docutils literal notranslate"><span class="pre">scale</span></code> and <code class="docutils literal notranslate"><span class="pre">pulse</span></code>. Each array channel is declared
 <code class="docutils literal notranslate"><span class="pre">value_type:</span> <span class="pre">waveform</span></code> with <code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">[&lt;trigger_sample</span> <span class="pre">+</span> <span class="pre">turns&gt;]</span></code>. Each
 <code class="docutils literal notranslate"><span class="pre">arm</span></code> and the chain’s <code class="docutils literal notranslate"><span class="pre">request</span></code> are marked <code class="docutils literal notranslate"><span class="pre">command</span></code> by their engines. The build
-stops <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code> on a malformed block, a turn record on a ring
+stops <code class="docutils literal notranslate"><span class="pre">engine-invalid</span></code> on a malformed block, a malformed pickup statement
+or a pickup table that is missing or malformed (named with its resolved
+path), a turn record on a ring
 without one, a record of the wrong value type or shape, a monitor record
 whose element is not a monitor, and a turn record that states a
 <code class="docutils literal notranslate"><span class="pre">calibration</span></code>. The settings, their defaults and what a shot

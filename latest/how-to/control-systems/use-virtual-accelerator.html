@@ -49,6 +49,8 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=30646c52"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>window.MathJax = {"options": {"processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
     <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/control-systems/use-virtual-accelerator';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
@@ -1487,6 +1489,16 @@ pair of limits instead. Set on every element with a length.</p></td>
 <td><p>The apertures of single elements, a list of items read in order; see
 <em>Apertures per element</em> below.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">pickup</span></code></p></td>
+<td><p>none</p></td>
+<td><p>The button pickup of every monitor of the ring; see <em>Button pickups</em>
+below. Unstated, a monitor reads the beam position as it is.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">pickups</span></code></p></td>
+<td><p>none</p></td>
+<td><p>The pickups of single monitors, a list of items read in order; see
+<em>Button pickups</em> below.</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">1.0</span></code></p></td>
 <td><p>Sum per unit of the shot’s charge.</p></td>
@@ -1524,8 +1536,8 @@ pair of limits instead. Set on every element with a length.</p></td>
 </div>
 <p>Every number but <code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">alpha</span></code> and <code class="docutils literal notranslate"><span class="pre">dispersion</span></code> in <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, and a
 rectangle’s limits is finite and not negative; an unknown key, also inside
-<code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code>, <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code>, <code class="docutils literal notranslate"><span class="pre">aperture</span></code> or an
-<code class="docutils literal notranslate"><span class="pre">apertures</span></code> item, stops the build. The apertures decide when an RF-off bunch
+<code class="docutils literal notranslate"><span class="pre">launch</span></code>, <code class="docutils literal notranslate"><span class="pre">jitter</span></code>, <code class="docutils literal notranslate"><span class="pre">twiss</span></code>, <code class="docutils literal notranslate"><span class="pre">mismatch</span></code>, <code class="docutils literal notranslate"><span class="pre">aperture</span></code>, an
+<code class="docutils literal notranslate"><span class="pre">apertures</span></code> item, <code class="docutils literal notranslate"><span class="pre">pickup</span></code> or a <code class="docutils literal notranslate"><span class="pre">pickups</span></code> item, stops the build. The apertures decide when an RF-off bunch
 is lost; they are the facility’s to calibrate.</p>
 <p><strong>Apertures per element.</strong> A vacuum chamber is not one pipe: it narrows in the
 bends and opens to one side at a septum. <code class="docutils literal notranslate"><span class="pre">aperture</span></code> states the ring’s
@@ -1708,6 +1720,197 @@ sum of a monitor with a gain of 1. A scenario states it per monitor:</p>
 <code class="docutils literal notranslate"><span class="pre">SIM:RING:BPM01:TBT:SUM/gain</span></code>. Where two records read one monitor’s sum,
 the first carries the gain. A <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code> record takes no other fault field,
 and a <code class="docutils literal notranslate"><span class="pre">turn_x</span></code> or <code class="docutils literal notranslate"><span class="pre">turn_y</span></code> record none at all.</p>
+<p><strong>Button pickups.</strong> A real monitor does not measure a position. It has
+buttons on the chamber wall, each reads more of a beam that is closer to it,
+and the electronics form the sum and the two positions from the button
+signals. Both therefore depend on where the beam is: the sum is not the same
+for one charge everywhere in the chamber, and a position far from the centre
+reads short of the true one. A monitor that states a pickup is read that way.
+A monitor that states none reads as described above, to the last bit.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">RING</span>
+<span class="w">  </span><span class="nt">settings</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">pyat</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">turn_by_turn</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">injection_element</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">INJ_POINT</span>
+<span class="w">        </span><span class="nt">pickup</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">shape</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">round</span>
+<span class="w">          </span><span class="nt">radius</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.016</span>
+<span class="w">          </span><span class="nt">buttons</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">45</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">135</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">225</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">315</span><span class="p p-Indicator">]</span>
+<span class="w">          </span><span class="nt">half_width</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">14</span>
+<span class="w">          </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">plus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">],</span><span class="nt"> minus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">]}</span>
+<span class="w">          </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">plus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">],</span><span class="nt"> minus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">3</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">]}</span>
+<span class="w">        </span><span class="nt">pickups</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">elements</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">BPM07</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">BPM08</span><span class="p p-Indicator">]</span>
+<span class="w">            </span><span class="nt">shape</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">table</span>
+<span class="w">            </span><span class="nt">table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pickups/flat-chamber.json</span>
+<span class="w">            </span><span class="nt">buttons</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+<span class="w">            </span><span class="nt">interpolation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bicubic</span>
+<span class="w">            </span><span class="nt">x</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">plus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">],</span><span class="nt"> minus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">2</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">3</span><span class="p p-Indicator">],</span><span class="nt"> scale</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0125</span><span class="p p-Indicator">}</span>
+<span class="w">            </span><span class="nt">y</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">plus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">1</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">2</span><span class="p p-Indicator">],</span><span class="nt"> minus</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">3</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">4</span><span class="p p-Indicator">]}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">pickup</span></code> is the pickup of every monitor of the ring. Each <code class="docutils literal notranslate"><span class="pre">pickups</span></code> item
+states one in the same words and names its monitors’ deck elements under
+<code class="docutils literal notranslate"><span class="pre">elements</span></code>; a monitor takes the last item that names it, and the ring’s
+<code class="docutils literal notranslate"><span class="pre">pickup</span></code> where none does. A pickup has one of two shapes:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">round</span></code></p></td>
+<td><p>Buttons on a round pipe.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">radius</span></code></p></td>
+<td><p>The pipe’s radius in metres, above 0.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">buttons</span></code></p></td>
+<td><p>The centre angle of each button in degrees, counterclockwise from the
+positive x axis, looking along the beam; two buttons or more. Their
+order numbers them from 1.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">half_width</span></code> or <code class="docutils literal notranslate"><span class="pre">diameter</span></code></p></td>
+<td><p>The buttons’ size, exactly one of the two: the angular half-width in
+degrees, above 0 and at most 90, or the diameter in metres. A diameter
+is read as an arc of that width along the wall, a half-width of
+<code class="docutils literal notranslate"><span class="pre">diameter</span> <span class="pre">/</span> <span class="pre">(2</span> <span class="pre">*</span> <span class="pre">radius)</span></code> radians.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">shape:</span> <span class="pre">table</span></code></p></td>
+<td><p>Each button’s response on a grid, computed outside OSPREY, for a
+chamber that is not round.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">table</span></code></p></td>
+<td><p>The table’s JSON file, relative to the directory of the model’s deck.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">buttons</span></code></p></td>
+<td><p>How many buttons the table holds, two or more.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">interpolation</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bilinear</span></code> (the default) or <code class="docutils literal notranslate"><span class="pre">bicubic</span></code>, how the table is read
+between its grid points.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Both shapes state the electronics’ difference over sum, one map per plane:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">x.plus</span></code>, <code class="docutils literal notranslate"><span class="pre">x.minus</span></code></p></td>
+<td><p>The numbers of the buttons that add to and subtract from the
+horizontal difference. Both lists are required; a button is in at most
+one of them.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">x.scale</span></code></p></td>
+<td><p>The horizontal reading per unit of difference over sum, in metres.
+Unstated, it is the scale that makes the reading exact to first order
+at the centre, computed from the geometry or, for a table, from the
+table’s slope at the centre.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">y.plus</span></code>, <code class="docutils literal notranslate"><span class="pre">y.minus</span></code>, <code class="docutils literal notranslate"><span class="pre">y.scale</span></code></p></td>
+<td><p>The same for the vertical reading.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A round pickup’s button reads the wall image charge of the beam averaged over
+its arc. For a button at angle <span class="math notranslate nohighlight">\(\varphi\)</span> of half-width <span class="math notranslate nohighlight">\(\delta\)</span>
+on a pipe of radius <span class="math notranslate nohighlight">\(a\)</span>, and a beam at <span class="math notranslate nohighlight">\((r, \theta)\)</span>, that is</p>
+<div class="math notranslate nohighlight">
+\[1 + 2 \sum_{n \ge 1} \left(\frac{r}{a}\right)^{n}
+\cos\bigl(n(\theta - \varphi)\bigr)\,
+\frac{\sin n\delta}{n\delta} ,\]</div>
+<p>which OSPREY evaluates in closed form, with no truncation. Four buttons at
+45 degrees to the axes so read a sum that is larger for a beam displaced
+towards a button and smaller for one displaced along an axis, by an amount
+that grows with the fourth power of the displacement. A beam at or beyond
+99.9 % of the radius is read at that share of it, in its own direction.</p>
+<p>A table is a JSON map of three keys. <code class="docutils literal notranslate"><span class="pre">x</span></code> and <code class="docutils literal notranslate"><span class="pre">y</span></code> are the grid, in metres:
+each two or more values, increasing in equal steps, with 0 inside their
+range. <code class="docutils literal notranslate"><span class="pre">buttons</span></code> holds one array per button, each <code class="docutils literal notranslate"><span class="pre">len(y)</span></code> rows of
+<code class="docutils literal notranslate"><span class="pre">len(x)</span></code> responses, none negative; row <code class="docutils literal notranslate"><span class="pre">j</span></code>, column <code class="docutils literal notranslate"><span class="pre">i</span></code> is the response
+to a beam at <code class="docutils literal notranslate"><span class="pre">(x[i],</span> <span class="pre">y[j])</span></code>. Only the ratios matter: the table is divided
+by the sum of its responses at the centre, which must be above 0. A beam
+outside the grid is read at the grid’s edge, plane by plane, so make the grid
+as wide as the chamber.</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;x&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">-0.002</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.002</span><span class="p">],</span>
+<span class="w"> </span><span class="nt">&quot;y&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mf">-0.001</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.001</span><span class="p">],</span>
+<span class="w"> </span><span class="nt">&quot;buttons&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[[[</span><span class="mf">0.91</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="mf">1.05</span><span class="p">,</span><span class="w"> </span><span class="mf">1.16</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.22</span><span class="p">]],</span>
+<span class="w">             </span><span class="p">[[</span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.91</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">1.16</span><span class="p">,</span><span class="w"> </span><span class="mf">1.05</span><span class="p">,</span><span class="w"> </span><span class="mf">0.95</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">1.22</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">]],</span>
+<span class="w">             </span><span class="p">[[</span><span class="mf">1.22</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">1.16</span><span class="p">,</span><span class="w"> </span><span class="mf">1.05</span><span class="p">,</span><span class="w"> </span><span class="mf">0.95</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.91</span><span class="p">]],</span>
+<span class="w">             </span><span class="p">[[</span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">,</span><span class="w"> </span><span class="mf">1.22</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.95</span><span class="p">,</span><span class="w"> </span><span class="mf">1.05</span><span class="p">,</span><span class="w"> </span><span class="mf">1.16</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="mf">0.91</span><span class="p">,</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">1.10</span><span class="p">]]]}</span>
+</pre></div>
+</div>
+<p>With a pickup stated, a monitor’s three arrays are formed in this order:</p>
+<ol class="arabic simple">
+<li><p>The injected weight of a sample is the shot’s charge times the share of
+the bunch alive times <code class="docutils literal notranslate"><span class="pre">sum_per_charge</span></code>; the stored weight is, with the
+RF on, the stored current times <code class="docutils literal notranslate"><span class="pre">sum_per_stored</span></code>.</p></li>
+<li><p>Each button’s signal is its gain times the sum of the injected weight
+times its response at the bunch’s centroid and the stored weight times its
+response at zero. The injected bunch and the stored beam so add at the
+buttons, not as two positions.</p></li>
+<li><p>The beam sum is the sum of the button signals. A position is the plane’s
+<code class="docutils literal notranslate"><span class="pre">scale</span></code> times its <code class="docutils literal notranslate"><span class="pre">plus</span></code> buttons minus its <code class="docutils literal notranslate"><span class="pre">minus</span></code> buttons, over the
+beam sum.</p></li>
+<li><p>There is beam to read where that beam sum, button gains included and the
+monitor’s sum gain not, exceeds <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>.</p></li>
+<li><p>The positions take <code class="docutils literal notranslate"><span class="pre">position_noise</span></code>, then the monitor’s read-out
+faults, <code class="docutils literal notranslate"><span class="pre">floor_noise</span></code> where there is no beam, and the pilot tone, as
+without a pickup.</p></li>
+<li><p>The sum array is the beam sum times the monitor’s sum gain, plus
+<code class="docutils literal notranslate"><span class="pre">sum_noise</span></code>, floored at <code class="docutils literal notranslate"><span class="pre">sum_floor</span></code>, plus the pilot tone, as without
+a pickup.</p></li>
+</ol>
+<p>The responses to a centred beam sum to 1, so a centred beam on buttons of
+gain 1 reads the sum it reads without a pickup; the two agree to floating-
+point rounding, not bit for bit.</p>
+<p>Each button has a gain of its own, a fault on the monitor’s <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code>
+record beside the sum gain: <code class="docutils literal notranslate"><span class="pre">button_1</span></code> to <code class="docutils literal notranslate"><span class="pre">button_&lt;N&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">1</span></code> when
+unstated and between 0 and 10. A facility states measured button gains there
+and a scenario weakens or kills a button:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">faults</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">RING</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">SIM:RING:BPM01:TBT:SUM</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">button_1</span><span class="p">:</span><span class="w"> </span><span class="nv">0.95</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="nt">SIM:RING:BPM02:TBT:SUM</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">button_3</span><span class="p">:</span><span class="w"> </span><span class="nv">0.0</span><span class="p p-Indicator">,</span><span class="nt"> gain</span><span class="p">:</span><span class="w"> </span><span class="nv">1.08</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Uneven buttons show as an offset in both positions with no offset stated: a
+button that is weaker by a small share <span class="math notranslate nohighlight">\(d\)</span> moves each plane it adds to
+by about <code class="docutils literal notranslate"><span class="pre">-scale</span> <span class="pre">*</span> <span class="pre">d</span> <span class="pre">/</span> <span class="pre">N</span></code> for <code class="docutils literal notranslate"><span class="pre">N</span></code> buttons, and each plane it subtracts
+from by as much the other way. With every button at 0 the monitor reads no
+beam. As a fault of the running model the name is
+<code class="docutils literal notranslate"><span class="pre">SIM:RING:BPM01:TBT:SUM/button_1</span></code>. A monitor with no pickup carries no
+button gain, and one with a pickup but no <code class="docutils literal notranslate"><span class="pre">turn_sum</span></code> record wired has none
+to state.</p>
+<p>The limits of the model:</p>
+<ul class="simple">
+<li><p>OSPREY serves the raw difference over sum times the scale, as the
+electronics do. It applies no linearisation; a correction polynomial is the
+reading application’s.</p></li>
+<li><p>The buttons read the bunch at its centroid, not particle by particle, so a
+bunch as wide as the chamber reads as a point.</p></li>
+<li><p>The stored beam is read at zero, not at its closed orbit.</p></li>
+<li><p>A monitor’s <code class="docutils literal notranslate"><span class="pre">roll</span></code> fault turns the pair of readings, as before; it does
+not turn the buttons.</p></li>
+<li><p>The orbit readings of the same monitor do not use the pickup: they read the
+closed orbit as it is, through the monitor’s read-out faults alone.</p></li>
+<li><p>The trajectory response, below, is the deck’s and shows no pickup.</p></li>
+</ul>
 <p>With the pilot tone on, every sample whose index is a
 multiple of <code class="docutils literal notranslate"><span class="pre">tone_period</span></code> carries a spike in all three arrays. The noise is
 keyed on the record’s address, the shot and the sample, so a shot reads the
