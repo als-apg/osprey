@@ -88,10 +88,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 from osprey_facility.layers.mml.mapping import (
     KICK,
-    LAYER_DIR,
     EngineBlock,
     MappingError,
     Model,
@@ -148,7 +148,7 @@ HARMONIC_KEY = "HarmonicNumber"
 CAVITY_PASS = "RFCavityPass"  # noqa: S105 -- names a tracking pass method, holds no secret
 
 #: Where the layer's decks live, relative to ``data/facility/``.
-DECKS_DIR = f"{LAYER_DIR}/decks"
+DECKS_DIR = source_tree.layer_entry("mml", "decks")
 
 #: The key pyAT stamps its own version into, dropped from every written deck.
 AT_VERSION_KEY = "at_version"

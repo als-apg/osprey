@@ -122,6 +122,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, TypeGuard, overload
 
+from osprey_facility import source_tree
 from osprey_facility.errors import ImportStop
 
 __all__ = [
@@ -190,10 +191,10 @@ CALIBRATION_KINDS: frozenset[str] = frozenset({"linear", "table"})
 ENGINE_AXES: frozenset[str] = frozenset({"x", "y"})
 
 #: Where the layer's sources live, relative to ``data/facility/``.
-LAYER_DIR = "imported/mml"
+LAYER_DIR = source_tree.layer_dir("mml")
 
 #: Where the mapping lives, relative to ``data/facility/``.
-MAPPING_FILE = f"{LAYER_DIR}/mapping.yaml"
+MAPPING_FILE = source_tree.layer_dir("mml", "mapping.yaml")
 
 #: A device's local name, the part of its id after ``<model>/``.
 _LOCAL_NAME = re.compile(r"[0-9A-Za-z_]+")

@@ -52,13 +52,17 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import yaml_loader
+from osprey_facility import source_tree
 from osprey_facility.errors import FacilityBuildError, LayerSourceInvalid, quoted_slots
 from osprey_facility.sources import load_sources
 
 __all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
 
+#: The layer's name, its directory's name under the layer root.
+_LAYER = "list"
+
 #: The layer's directory, relative to ``data/facility/``.
-LAYER_DIR = "imported/list"
+LAYER_DIR = source_tree.layer_dir(_LAYER)
 
 #: Every column a header may name, in the order the docs list them.
 COLUMNS: tuple[str, ...] = (
@@ -127,12 +131,10 @@ def import_list(path: Path, facility_dir: Path) -> tuple[list[Path], list[str]]:
     alone = _declared_alone(facility_dir, reading.devices)
     if alone:
         lines.append(f"import list: declared by this list only: {', '.join(alone)}")
-    layer = facility_dir / LAYER_DIR
-    layer.mkdir(parents=True, exist_ok=True)
-    written = [
-        _dump(layer / "channels.yaml", [reading.channels[a] for a in sorted(reading.channels)])
-    ]
-    devices = layer / "devices.yaml"
+    (facility_dir / LAYER_DIR).mkdir(parents=True, exist_ok=True)
+    channels = facility_dir / source_tree.layer_entry(_LAYER, "channels")
+    written = [_dump(channels, [reading.channels[a] for a in sorted(reading.channels)])]
+    devices = facility_dir / source_tree.layer_entry(_LAYER, "devices")
     if reading.devices:
         written.append(_dump(devices, _devices(reading)))
     elif devices.exists():
@@ -160,7 +162,7 @@ def _declared_alone(facility_dir: Path, devices: set[str]) -> list[str]:
     elsewhere = {
         record.id
         for record in load_sources(facility_dir).sources.records
-        if record.kind == "device" and record.file != f"{LAYER_DIR}/devices.yaml"
+        if record.kind == "device" and record.file != source_tree.layer_entry(_LAYER, "devices")
     }
     return sorted(devices - elsewhere) if elsewhere else []
 
