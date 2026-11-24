@@ -510,6 +510,27 @@ async def test_a_summarised_window_keeps_its_scalar_columns_whole(monkeypatch):
     assert "flag" not in data["note"]
 
 
+async def test_a_refused_cell_passes_through_the_array_summary_unchanged(monkeypatch):
+    """A cell the bridge refused is relayed as it came, beside the summarised cells."""
+    wave = [float(index) for index in range(20_000)]
+    columns = [
+        {"name": "x", "unit": None, "shape": []},
+        {"name": "det_wave", "unit": None, "shape": [20_000]},
+    ]
+    refused = {"refused": "not text"}
+    rows = [[0.5, wave], [1.5, refused]]
+    monkeypatch.setattr(
+        f"{_MOD}._http_get_json", lambda path, **kwargs: (200, _wide_body(columns, rows))
+    )
+
+    data = extract_response_dict(await _fn("get_run_data")(run_id="run-1"))
+
+    assert data["rows"] == [
+        [0.5, {"length": len(wave), "min": 0.0, "max": wave[-1]}],
+        [1.5, refused],
+    ]
+
+
 async def test_a_window_that_fits_keeps_its_array_cells_whole(monkeypatch):
     """A window within the budget is relayed as served, arrays listed in full."""
     columns = [{"name": "x", "unit": None, "shape": []}, {"name": "w", "unit": None, "shape": [3]}]
