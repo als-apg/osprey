@@ -1,7 +1,8 @@
 # Project Data Directory
 
-Everything the agent reads from disk lives here: benchmark query sets and the
-facility's sources and scenarios. These are your files — edit them freely.
+The deployment's source data: the facility's authored sources, the CANOPY
+screens, collections and theme, the code reviewer's rules and the landing-page
+notice. These are your files — edit them freely.
 
 ## Directory Structure
 
@@ -10,12 +11,19 @@ As shipped by the preset:
 ```
 data/
 ├── canopy/
-│   └── library/screens/                  # CANOPY screens (facility overview and sections)
+│   ├── library/screens/                  # CANOPY screens (facility overview and sections)
+│   ├── collections/                      # CANOPY collections: screens and views opened together
+│   └── theme/                            # CANOPY colour theme
+├── code_review/
+│   └── reviewer.md                       # The rules agent-written code is reviewed against
 ├── landing/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources
     ├── identity.yaml                     # The facility's code and display name
-    ├── records/                          # places, devices, channels, groups
+    ├── classes.yaml                      # Device classes, their parents and aliases
+    ├── records/                          # places, devices, channels, groups, relations
+    ├── documents.yaml                    # The facility's documents and the system holding each
+    ├── policy.yaml                       # Which document kind wins for each relation
     ├── models.yaml                       # Each simulated model, its engine and wiring
     ├── decks/                            # The deck each model runs
     ├── measurement/                      # The measurement kinds each model offers
@@ -30,7 +38,8 @@ data/
         └── README.md                     # Vocabulary format walkthrough
 ```
 
-A bundled facility carries data only: records, decks, models, limits, seeds,
+A bundled facility carries data only: its identity, classes, records and
+relations, documents, policy, decks, models, measurement kinds, limits, seeds,
 scenarios, knowledge pages, benchmark query sources and the ARIEL vocabulary.
 
 An importer writes its own layer under `facility/imported/<layer>/`:

@@ -1236,7 +1236,7 @@ source zone over one that is already there. To re-render the project, run
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
 ``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,
-``watchdogs/`` and ``.env.example``, losing any edit to them. In
+``.env.example``, ``watchdogs/`` and ``.osprey/``, losing any edit to them. In
 ``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
