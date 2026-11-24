@@ -1715,6 +1715,9 @@ class ControlSystemConnector(ABC):
         """
         Subscribe to channel changes.
 
+        The first callback of each connection carries the channel's current
+        value, with no change needed to send it.
+
         Args:
             channel_address: Address/name of the channel
             callback: Function called when value changes (receives ChannelValue)

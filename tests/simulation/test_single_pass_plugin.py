@@ -3,7 +3,7 @@
 A ``single_pass`` model tracks one particle once through its line from the
 ``twiss_in`` its settings state: its monitors read that pass, its beta
 functions are propagated from ``twiss_in``, and it serves no tunes or
-chromaticity. The example facility's ``LINE`` model, as the demo
+chromaticity. The example facility's ``BTS`` model, as the demo
 build renders it, serves the pass a direct track of its deck reads. The
 imported NSLS-II transport line's case lives beside the other readers of
 ``mml_built``, in ``tests/facility/test_single_pass_imported_line.py``.
@@ -304,20 +304,21 @@ class TestFailedSolve:
 # The demo transfer line
 # ---------------------------------------------------------------------------
 
-DEMO_LINE = "LINE"
+DEMO_LINE = "BTS"
 
 #: The corrector setpoints the demo line's served pass is compared at, in the
-#: hardware units its wiring writes.
+#: hardware units its wiring writes: a few tenths of a milliradian each, well
+#: inside the quadrupole apertures.
 DEMO_LINE_SETPOINTS = {
-    "LINE:MAG:HCM:01:CURRENT:SP": 0.04,
-    "LINE:MAG:VCM:02:CURRENT:SP": -0.03,
-    "LINE:MAG:HCM:03:CURRENT:SP": -0.02,
+    "BTS:MAG:HCM:01:CURRENT:SP": 2.0,
+    "BTS:MAG:VCM:02:CURRENT:SP": -1.5,
+    "BTS:MAG:HCM:03:CURRENT:SP": -1.0,
 }
 
 
 @pytest.fixture(scope="module")
 def demo_line(built_demo: Any) -> dict[str, Any]:
-    """The demo ``LINE`` model as the build renders it: wiring, deck and settings."""
+    """The demo ``BTS`` model as the build renders it: wiring, deck and settings."""
     from osprey.facility.views.simulator import simulator_wiring
 
     facility = built_demo.facility
@@ -388,7 +389,7 @@ def _demo_line_readings(model: Any, demo_line: dict[str, Any]) -> np.ndarray:
 
 
 class TestDemoLine:
-    """The example facility's ``LINE`` model, built from the demo build."""
+    """The example facility's ``BTS`` model, built from the demo build."""
 
     def test_the_demo_line_builds_on_the_single_pass_simulator(self, demo_line: dict[str, Any]):
         model = _demo_line_build(demo_line)

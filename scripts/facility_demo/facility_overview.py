@@ -208,19 +208,36 @@ class Records:
         found = [(int(m.group(1)), name) for name in self.by_id if (m := pattern.match(name))]
         return [name for _, name in sorted(found)]
 
+    def _channelless(self, prefix: str) -> dict[int, str]:
+        """The devices ``<SEC>/<FAMILY><NN>`` of ``<SEC>:<SYS>:<FAMILY>``, by number.
+
+        A magnet fed by a supply it shares has no channel named after it; its
+        device record is all that counts it.
+        """
+        section, _, family = prefix.split(":")
+        pattern = re.compile(rf"^{re.escape(section)}/{re.escape(family)}(\d+)$")
+        return {int(m.group(1)): name for name in self.device_records if (m := pattern.match(name))}
+
     def device_numbers(self, prefix: str) -> list[int]:
-        """The distinct device numbers of every ``<prefix>:<NN>:...`` record."""
+        """The distinct device numbers of ``<prefix>``: of every ``<prefix>:<NN>:...``
+        record, or of the family's device records where no record is named after it."""
         pattern = re.compile(rf"^{re.escape(prefix)}:(\d+):")
-        return sorted({int(m.group(1)) for name in self.by_id if (m := pattern.match(name))})
+        named = {int(m.group(1)) for name in self.by_id if (m := pattern.match(name))}
+        return sorted(named or self._channelless(prefix))
 
     def device_name(self, prefix: str, number: int) -> str:
-        """The records' device name (``on.device``) of ``<prefix>:<NN>:...``."""
+        """The records' device name of ``<prefix>:<NN>``: the ``on.device`` of its
+        channels, else its device record."""
         head = f"{prefix}:{number:02d}:"
         for name in sorted(self.by_id):
             if name.startswith(head):
                 device = (self.by_id[name].get("on") or {}).get("device")
                 if device:
                     return device
+        if not any(name.startswith(f"{prefix}:") for name in self.by_id):
+            devices = self._channelless(prefix)
+            if number in devices:
+                return devices[number]
         raise MissingRecordError(f"no device name for {prefix}:{number:02d}")
 
     def option_index(self, name: str, option: str) -> int:
@@ -969,7 +986,7 @@ def facility_overview(records: Records) -> Screen:
         records,
         "BR",
         booster,
-        {"dipole": (16, 10), "quadrupole": (5, 15)},
+        {"dipole": (7, 8), "quadrupole": (2.5, 12)},
         8,
         12,
     )
@@ -1503,7 +1520,7 @@ def booster_overview(records: Records) -> Screen:
         records,
         "BR",
         ring,
-        {"dipole": (18, 10), "quadrupole": (5, 15)},
+        {"dipole": (9, 10), "quadrupole": (3, 15)},
         10,
         16,
         tooltips=True,

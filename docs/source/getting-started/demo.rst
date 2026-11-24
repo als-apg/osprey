@@ -80,9 +80,9 @@ agent reads and writes — a containerized simulator with LUME-backed physics, l
 out in :doc:`../architecture/virtual-accelerator` — and the **archive**, a
 MongoDB store and a recorder service that holds what those channels did.
 
-The simulator serves two physics models: ``SR``, solved as a periodic machine,
-and ``LINE``, a short synthetic transfer line solved single-pass, whose
-channels start with ``LINE:``.
+The simulator serves four physics models: ``SR`` and the booster ``BR``, solved
+as periodic machines, and the transfer lines ``LTB`` and ``BTS``, solved
+single-pass.
 
 **The first deploy seeds the archive**, and it is the step that takes the
 longest. It writes about a month of history for every channel the machine
@@ -188,7 +188,7 @@ agent figures out the PV for you:
 
 .. code-block:: text
 
-   You: Read the current in the booster's defocusing quadrupole
+   You: Read the current of the booster's defocusing quadrupole supply
 
 The main agent delegates to the **channel-finder** sub-agent, which searches the
 facility knowledge graph and resolves your description to a real PV before reading it.
@@ -197,10 +197,10 @@ something like:
 
 .. code-block:: text
 
-   Resolved "booster defocusing quadrupole current" → BR:MAG:QD:01:CURRENT:RB
+   Resolved "booster defocusing quadrupole supply current" → BR:MAG:QD-RAMP:01:CURRENT:RB
 
-   Channel: BR:MAG:QD:01:CURRENT:RB
-   Value:   142.7 A
+   Channel: BR:MAG:QD-RAMP:01:CURRENT:RB
+   Value:   105.0 A
    Status:  OK
 
 Try a few more descriptions — none of them require you to know the PV naming
@@ -246,20 +246,23 @@ graph or the directory holds. For the other search strategies, see
 server went down. The preset's server fleet service reads the heartbeat of
 every simulated server every 10 s. The simulator uses the EPICS words, so its
 servers are IOCs, and the panel lists them in the **IOCs** view, each as
-``alive``. The ``line-server-stopped`` scenario stops the transfer-line IOC
-``sim-LINE``. Add it to the active set:
+``alive``. The ``bts-server-stopped`` scenario stops ``sim-BTS``, the IOC of the
+booster-to-storage transfer line. Add it to the active set:
 
 .. code-block:: bash
 
-   osprey sim apply rf-thermal demo-history line-server-stopped
+   osprey sim apply rf-thermal demo-history bts-server-stopped
 
-Within two refresh periods ``sim-LINE`` turns ``silent`` and moves to the top
+Within two refresh periods ``sim-BTS`` turns ``silent`` and moves to the top
 of the IOCs view. Ask the agent *"which IOCs are down?"* and its
 ``server_fleet`` tool names it. Everything the IOC serves goes quiet with it:
-every channel starting ``LINE:`` (BPMs, correctors, quadrupoles) and the
-status and health channels of the IOC itself give no answer, so a LINE scan
-or orbit read fails. The storage ring and the BTS and LTB lines keep
-answering. To start the IOC again, run ``osprey sim apply rf-thermal
+the current setpoints and readbacks of the BTS correctors, quadrupoles and
+bends, the BTS BPM positions and the status and health channels of the IOC
+itself give no answer, so a BTS trajectory read or steering write fails. Only
+the IOC's answers stop: the other ``BTS:`` channels (magnet statuses, screens,
+BPM sum signals, the charge monitor) are served by ``sim-texture`` and keep
+answering, as do the storage ring, the booster and the LTB line, and injection
+and the stored beam are unchanged. To start the IOC again, run ``osprey sim apply rf-thermal
 demo-history``, and it returns to ``alive`` within two refresh periods. Both
 commands reseed the logbook and the archive windows of the active set
 (:doc:`/how-to/control-systems/use-virtual-accelerator`).
@@ -456,8 +459,8 @@ relaunch:
    osprey build
    osprey chat
 
-Your queries don't change --- "Read the current in the booster's defocusing
-quadrupole" and "Plot the storage-ring beam current over the last 24 hours" now
+Your queries don't change --- "Read the current of the booster's defocusing
+quadrupole supply" and "Plot the storage-ring beam current over the last 24 hours" now
 run against your control system and its archiver. The connectors handle the
 difference; the agent, the channel finder, and your prompts stay the same.
 

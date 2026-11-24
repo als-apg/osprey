@@ -1,8 +1,7 @@
 """The in-process simulator's served nominals against the per-address nominal golden, and its served noise against the seeds.
 
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
-address but the deck's tune and chromaticity instruments, the transfer
-line's channels and the waveforms, the nominal the simulator served in process serves with no
+address but the deck's tune and chromaticity instruments and the waveforms, the nominal the simulator served in process serves with no
 scenario active. It serves the demo build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
@@ -12,13 +11,17 @@ on every address, except the declared re-baselines:
   which reads the deck's closed orbit, the wired RF cavity's frequency
   setpoint and readback, which read the deck's RF frequency, and each ``BTS``
   beam position monitor's position, which reads the single-pass trajectory
-  of the ``BTS`` deck. The golden holds another value for each ``SR`` one;
-  the ideal ``BTS`` trajectory reads the golden's own zero;
+  of the ``BTS`` deck, and each ``BR`` beam position monitor's position,
+  which reads the closed orbit of the ``BR`` deck. The golden holds another
+  value for each ``SR`` one; the ideal ``BTS`` trajectory reads the golden's
+  own zero, and the ideal ``BR`` orbit reads zero to the solver's precision;
 * every bool channel, which the golden holds as a number: a bool reads its
   label, ``TRUE`` where the golden's nominal is non-zero, with no noise.
 
 Two records the capture predates join the deck's instruments as additions: the
 storage ring's beam lifetime and its operation mode, whose enum reads its label.
+The golden keeps the rows of the addresses the demo has retired
+(``demo_fingerprint_retired.json``); no test reads them.
 
 The served noise is the seed's: a float readback's read at an instant adds its
 seed's ``noise`` times the channel's keyed normal draw for the instant, on top
@@ -38,6 +41,7 @@ import numpy as np
 import pytest
 
 from tests.facility.conftest import BuiltProject
+from tests.facility.test_cf_view_parity import retired_addresses
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GOLDEN = REPO_ROOT / "tests/facility/golden/nominal_in_process.json"
@@ -53,6 +57,9 @@ PHYSICS_MODEL = "SR"
 
 #: The single-pass physics model that serves the ``BTS`` beam position monitors.
 BTS_MODEL = "BTS"
+
+#: The periodic physics model that serves the ``BR`` beam position monitors.
+BR_MODEL = "BR"
 
 #: The deck machine's instruments the golden's capture predates.
 ADDITIONS = frozenset(
@@ -72,9 +79,6 @@ MODE_LABEL = "Machine studies"
 #: The storage ring's stored current, a top-off sawtooth.
 SR_DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 
-#: How many transfer line channels the golden's capture predates.
-LINE_CHANNELS = 40
-
 #: The served waveforms: a trace has no scalar nominal, so the golden holds none.
 WAVEFORMS = frozenset({"SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"})
 
@@ -83,6 +87,9 @@ SR_BPM_X = re.compile(r"SR:DIAG:BPM:\d+:POSITION:X")
 
 #: A ``BTS`` beam position monitor's position, in either plane.
 BTS_BPM = re.compile(r"BTS:DIAG:BPM:\d+:POSITION:[XY]")
+
+#: A ``BR`` beam position monitor's position, in either plane.
+BR_BPM = re.compile(r"BR:DIAG:BPM:\d+:POSITION:[XY]")
 
 #: The wired RF cavity's frequency pair, served from the deck's RF frequency.
 WIRED_CAVITY = ("SR:RF:CAVITY:01:FREQUENCY:RB", "SR:RF:CAVITY:01:FREQUENCY:SP")
@@ -102,12 +109,19 @@ INSTANTS = 1.7e9 + 0.137 * np.arange(16)
 
 
 @cache
-def golden() -> dict[str, dict[str, float]]:
-    """The golden's channels: ``{address: {nominal}}``."""
+def frozen() -> dict[str, dict[str, float]]:
+    """Every row of the golden file: ``{address: {nominal}}``."""
     channels: dict[str, dict[str, float]] = json.loads(GOLDEN.read_text(encoding="utf-8"))[
         "channels"
     ]
     return channels
+
+
+@cache
+def golden() -> dict[str, dict[str, float]]:
+    """The golden's channels the demo still serves: every row but the retired."""
+    retired = retired_addresses()
+    return {address: row for address, row in frozen().items() if address not in retired}
 
 
 def close(actual: float, expected: float) -> bool:
@@ -153,6 +167,7 @@ def rebaselined() -> set[str]:
         {address for address in golden() if SR_BPM_X.fullmatch(address)}
         | set(WIRED_CAVITY)
         | bts_monitors()
+        | br_monitors()
     )
 
 
@@ -161,11 +176,20 @@ def bts_monitors() -> set[str]:
     return {address for address in golden() if BTS_BPM.fullmatch(address)}
 
 
+def br_monitors() -> set[str]:
+    """The ``BR`` beam position monitor positions, served from the ``BR`` deck."""
+    return {address for address in golden() if BR_BPM.fullmatch(address)}
+
+
+def test_the_golden_keeps_the_retired_rows_and_serves_none_of_them(served: Served) -> None:
+    assert retired_addresses() <= set(frozen())
+    assert not retired_addresses() & set(served.channels)
+    assert set(frozen()) - set(golden()) == retired_addresses()
+
+
 def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served) -> None:
     unheld = set(served.channels) - set(golden())
-    line = {address for address in unheld if address.startswith("LINE:")}
-    assert len(line) == LINE_CHANNELS
-    assert unheld - line == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
+    assert unheld == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
     assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
     assert set(golden()) <= set(served.channels)
 
@@ -187,15 +211,24 @@ def test_the_added_records_serve_the_lifetime_and_the_mode_label(served: Served)
 
 def test_float_nominals_equal_the_golden_but_the_declared_rebaselines(served: Served) -> None:
     floats = [a for a in golden() if served.value_type(a) == "float"]
-    moved = {a for a in floats if not close(float(served.held[a]), golden()[a]["nominal"])}
-    assert len(floats) == 2601
-    assert sorted(moved) == sorted(rebaselined() - bts_monitors())
+    moved = {
+        a
+        for a in floats
+        if a not in br_monitors() and not close(float(served.held[a]), golden()[a]["nominal"])
+    }
+    assert len(floats) == 2663
+    assert sorted(moved) == sorted(rebaselined() - bts_monitors() - br_monitors())
 
 
 def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None:
-    owners = {served.channels[a]["owner"] for a in rebaselined() - bts_monitors()}
+    owners = {served.channels[a]["owner"] for a in rebaselined() - bts_monitors() - br_monitors()}
     assert owners == {PHYSICS_MODEL}
     assert {served.channels[a]["owner"] for a in bts_monitors()} == {BTS_MODEL}
+    assert {served.channels[a]["owner"] for a in br_monitors()} == {BR_MODEL}
+    assert len(br_monitors()) == 40
+    for address in sorted(br_monitors()):
+        assert golden()[address]["nominal"] == 0.0, address
+        assert abs(float(served.held[address])) < TRAJECTORY_BOUND_MM, address
     monitors = sorted(a for a in rebaselined() if SR_BPM_X.fullmatch(a))
     assert len(monitors) == 72
     for address in monitors:
@@ -209,7 +242,7 @@ def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None
 
 def test_bool_labels_follow_the_golden(served: Served) -> None:
     bools = [a for a in golden() if served.value_type(a) == "bool"]
-    assert len(bools) == 2079
+    assert len(bools) == 2091
     read = served.composite.get(bools)
     for address in bools:
         label = served.held[address]
@@ -242,4 +275,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 725
+    assert checked == 784

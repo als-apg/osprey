@@ -4,9 +4,10 @@
 Its channels, joined as the fingerprint joins them less the ``names`` column
 (address, role, value type, description), hold every frozen row with its
 address, role and value type unchanged and its description as the prefix of
-the served one, and what they hold beyond the frozen rows is exactly the
-additions file, the transfer line's rows among them; no demo channel carries
-a name. The build holds 1027 devices in 80 groups, five of them the line's,
+the served one, but the rows the demo declares retired, none of which it
+serves; what they hold beyond the frozen rows is exactly the
+additions file; no demo channel carries
+a name. The build holds 1091 devices in 77 groups,
 and twelve sectors under ``SR``. The file validates as the
 generated ``Facility`` model, and the committed sources validate with exactly
 the two relation warnings the shipped Appendix A claims raise. The
@@ -30,6 +31,7 @@ from tests.facility.test_cf_view_parity import (
     FINGERPRINT_SHA256,
     fingerprint_rows,
     load_golden,
+    retired_addresses,
 )
 
 if TYPE_CHECKING:
@@ -70,7 +72,11 @@ def test_every_frozen_row_is_served_with_its_description_as_a_prefix(
     built_demo: BuiltProject,
 ) -> None:
     served = {row["address"]: row for row in _rows(built_demo.facility)}
-    missing = [row["address"] for row in fingerprint_rows() if row["address"] not in served]
+    missing = [
+        row["address"]
+        for row in fingerprint_rows()
+        if row["address"] not in served and row["address"] not in retired_addresses()
+    ]
     frozen = [row for row in map(_project, fingerprint_rows()) if row["address"] in served]
     changed = [
         row["address"]
@@ -80,6 +86,11 @@ def test_every_frozen_row_is_served_with_its_description_as_a_prefix(
     ]
     assert missing == []
     assert changed == []
+
+
+def test_no_retired_row_is_served(built_demo: BuiltProject) -> None:
+    served = {channel["id"] for channel in built_demo.facility["channels"]}
+    assert sorted(retired_addresses() & served) == []
 
 
 def test_no_demo_channel_carries_a_name(built_demo: BuiltProject) -> None:
@@ -96,29 +107,9 @@ def test_the_rows_beyond_the_frozen_ones_are_exactly_the_additions(
     ]
 
 
-def test_the_line_rows_are_exactly_the_additions_line_rows(
-    built_demo: BuiltProject,
-) -> None:
-    def line(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [row for row in rows if row["address"].startswith("LINE:")]
-
-    served = line(_rows(built_demo.facility))
-    added = line([_project(row) for row in load_golden("demo_fingerprint_additions.json")["rows"]])
-    assert len(served) == 40
-    assert served == added
-
-
-def test_the_demo_holds_1027_devices_in_80_groups(built_demo: BuiltProject) -> None:
-    groups = sorted(group["id"] for group in built_demo.facility["groups"])
-    assert len(built_demo.facility["devices"]) == 1027
-    assert len(groups) == 80
-    assert [group for group in groups if group.startswith("LINE/")] == [
-        "LINE/BPM",
-        "LINE/HCM",
-        "LINE/QD",
-        "LINE/QF",
-        "LINE/VCM",
-    ]
+def test_the_demo_holds_1091_devices_in_77_groups(built_demo: BuiltProject) -> None:
+    assert len(built_demo.facility["devices"]) == 1091
+    assert len(built_demo.facility["groups"]) == 77
 
 
 def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> None:
@@ -172,7 +163,11 @@ def test_the_roster_enumerates_every_frozen_address_with_its_direction(
     assert roster.absence is None
     directions = {record.address: record.direction for record in roster.records}
     stated = {"setpoint": "write", "readback": "read", "none": None}
-    missing = [row["address"] for row in fingerprint_rows() if row["address"] not in directions]
+    missing = [
+        row["address"]
+        for row in fingerprint_rows()
+        if row["address"] not in directions and row["address"] not in retired_addresses()
+    ]
     changed = [
         row["address"]
         for row in fingerprint_rows()

@@ -8,23 +8,22 @@ on:
 # PAIRED PUBLISHING: the framework and the workspace members that version with
 # it (today osprey-optimizer and pyaml-cs-osprey: same v-tags, same describe —
 # see their pyproject.toml) build and publish from one v-tag, always carrying the same
-# number. osprey-connectors is NOT one of them: it has its own calendar stream
-# on its own osprey-connectors-v* tags and publishes from
-# release-connectors.yml, so nothing here builds or uploads it. The framework
-# declares only a floor on it (`osprey-connectors>=` in the root
-# pyproject.toml), and verify-pypi-resolvable is the gate that the floor is
-# already on PyPI: it resolves the framework wheel's dependencies from PyPI
-# plus ONLY the lockstep member wheels this same run publishes — the one honest
-# offline stand-in for the state PyPI reaches the moment the publish job lands —
-# so osprey-connectors can only come from PyPI. (validate-install-docs cannot
-# be that gate: it installs with `--find-links dist`, so any unpublished sibling
-# resolves locally there.) A framework that needs a newer connectors release
-# raises the floor only after release-connectors.yml has published it.
-# osprey-facility is not built here either: it will have its own
-# osprey-facility-v* stream and has no release yet, so the framework declares
-# it without a floor and verify-pypi-resolvable must find it on PyPI, never in
-# this run's dist/. Until it is published, that gate holds every framework
-# publish.
+# number. The component packages are NOT among them: osprey-connectors,
+# osprey-facility and osprey-panels each have their own calendar stream on
+# their own osprey-<package>-v* tags (the STREAMS table in
+# scripts/ci/release_streams.py) and publish from release-package.yml, so
+# nothing here builds or uploads them. The framework declares at most a floor
+# on each (`osprey-connectors>=` in the root pyproject.toml; osprey-facility
+# bare until it declares one), and verify-pypi-resolvable is the gate that
+# every component the framework needs is already on PyPI: it resolves the
+# framework wheel's dependencies from PyPI plus ONLY the lockstep member
+# wheels this same run publishes — the one honest offline stand-in for the
+# state PyPI reaches the moment the publish job lands — so a component can
+# only come from PyPI. (validate-install-docs cannot be that gate: it installs
+# with `--find-links dist`, so any unpublished sibling resolves locally
+# there.) verify-component-floors then proves each declared floor is enough.
+# A framework that needs a newer component release raises its floor only after
+# release-package.yml has published it.
 
 # Nothing at workflow level writes. The two jobs that do — the PyPI upload
 # (`id-token`) and the GitHub release (`contents`) — say so in their own block,
@@ -62,9 +61,9 @@ jobs:
     - name: Require the tagged commit on main
       # Releases are cut from main (the release skill). The lane gate
       # below cannot tell: a commit off main whose tree had a green run passes
-      # it. And a connectors tag main cannot reach leaves main's dev builds
-      # describing from an older connectors tag, below the framework's floor.
-      # Shared with release-connectors.yml; tests/deployment/test_ci_workflow_wiring.py
+      # it. And a component tag main cannot reach leaves main's dev builds
+      # describing from an older component tag, below the framework's floor.
+      # Shared with release-package.yml; tests/deployment/test_ci_workflow_wiring.py
       # holds the two copies equal and runs this one against a scratch repo.
       env:
         TAG_SHA: ${{ github.sha }}
@@ -79,7 +78,7 @@ jobs:
         echo "✅ $TAG_NAME is on main"
 
     - name: Require a green full-ci run on this tree
-      # scripts/ci/require_green_lanes.py, shared with release-connectors.yml:
+      # scripts/ci/require_green_lanes.py, shared with release-package.yml:
       # a successful ci.yml run on a commit carrying the tagged tree in which
       # every lane below concluded `success`. A skipped lane is a lane the
       # `full-ci` label was missing for, and does not count.
@@ -117,6 +116,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [verify-full-ci]
     if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
+    outputs:
+      # The wheel prefix of every component stream, read from STREAMS, so the
+      # refusal below and verify-pypi-resolvable's exclusion follow the table.
+      component_dists: ${{ steps.streams.outputs.component_dists }}
 
     steps:
     - name: Checkout repository
@@ -131,14 +134,20 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
+    - name: List the component streams
+      id: streams
+      run: |
+        COMPONENT_DISTS=$(python3 scripts/ci/release_streams.py dists --joined)
+        echo "component streams: $COMPONENT_DISTS"
+        echo "component_dists=$COMPONENT_DISTS" >> "$GITHUB_OUTPUT"
+
     - name: Build packages
       # The framework and the members that ride its v-tag, named one by one
-      # rather than `--all-packages`: osprey-connectors is a workspace member
-      # too, but it releases from its own tags (release-connectors.yml), and a
-      # wheel of it built here would carry the framework-tag checkout's
-      # connectors number. osprey-facility is left out the same way: it has
-      # its own tag stream. tests/deployment/test_ci_workflow_wiring.py holds
-      # this list to the workspace members minus those two.
+      # rather than `--all-packages`: the component packages are workspace
+      # members too, but each releases from its own tags (release-package.yml),
+      # and a wheel of one built here would carry the framework-tag checkout's
+      # number for it. tests/deployment/test_ci_workflow_wiring.py holds this
+      # list to the workspace members minus the STREAMS packages.
       run: |
         uv build
         uv build --package osprey-optimizer
@@ -150,14 +159,24 @@ jobs:
       # wheel, since every package built above derives from the same tag. A shallow checkout
       # or a missing tag does not fail the build — it silently yields 0.0.postN+g…
       # or the previous tag's .postN — so this gate is what catches that before it reaches PyPI.
+      # A component wheel in dist/ is refused outright: it publishes from
+      # release-package.yml, on its own tags.
+      env:
+        COMPONENT_DISTS: ${{ steps.streams.outputs.component_dists }}
       run: |
         TAG_VERSION="${GITHUB_REF#refs/tags/v}"
         echo "Tag version: $TAG_VERSION"
-        status=0
-        if compgen -G "dist/osprey_connectors-*" > /dev/null; then
-          echo "❌ dist/ holds osprey-connectors, which publishes from release-connectors.yml"
-          status=1
+        if [ -z "$COMPONENT_DISTS" ]; then
+          echo "❌ no component streams listed: the refusal below would check nothing"
+          exit 1
         fi
+        status=0
+        for prefix in $COMPONENT_DISTS; do
+          if compgen -G "dist/${prefix}*" > /dev/null; then
+            echo "❌ dist/ holds ${prefix%-}, which publishes from release-package.yml"
+            status=1
+          fi
+        done
         for WHEEL in dist/*.whl; do
           # Wheel filenames are <name>-<version>-<python tag>-...; field 2 is the version.
           BUILT_VERSION=$(basename "$WHEEL" | cut -d'-' -f2)
@@ -205,12 +224,13 @@ jobs:
     # and let ANY unpublished dependency resolve locally and defeat the gate):
     # PyPI plus those wheels is exactly the index state the moment
     # publish-to-pypi lands, so this is what refuses a framework wheel whose
-    # OTHER pins nothing on PyPI satisfies yet. osprey-connectors is excluded by
-    # name as well as never built here: it must resolve from PyPI, which is what
-    # proves the framework's `osprey-connectors>=` floor is already published.
-    # Staged by exclusion otherwise, so a lockstep member added later is offered
-    # here the day it starts publishing, not after this gate has failed its
-    # first tag.
+    # OTHER pins nothing on PyPI satisfies yet. Every component stream's wheel
+    # (build's `component_dists`, read from STREAMS) is excluded by name as well
+    # as never built here: osprey-connectors and osprey-facility must resolve
+    # from PyPI, which is what proves the framework's floor on each is already
+    # published. Staged by exclusion otherwise, so a lockstep member added later
+    # is offered here the day it starts publishing, not after this gate has
+    # failed its first tag.
     steps:
     - name: Download distribution artifacts
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
@@ -232,13 +252,21 @@ jobs:
       # is its deprecated alias. setup-uv installs the current uv. The
       # framework's floor names a stable osprey-connectors release, so this
       # resolves a stable one and a connectors beta is never absorbed.
+      env:
+        COMPONENT_DISTS: ${{ needs.build.outputs.component_dists }}
       run: |
         mkdir -p /tmp/sibling
+        if [ -z "$COMPONENT_DISTS" ]; then
+          echo "::error::build listed no component streams to exclude"
+          exit 1
+        fi
         for wheel in dist/*.whl; do
-          case "$(basename "$wheel")" in
-            osprey_framework-*|osprey_connectors-*) ;;
-            *) cp "$wheel" /tmp/sibling/ ;;
-          esac
+          name="$(basename "$wheel")"
+          case "$name" in osprey_framework-*) continue ;; esac
+          for prefix in $COMPONENT_DISTS; do
+            case "$name" in "$prefix"*) continue 2 ;; esac
+          done
+          cp "$wheel" /tmp/sibling/
         done
         ls /tmp/sibling
         uv tool install ./dist/osprey_framework-*.whl --find-links /tmp/sibling \
@@ -254,24 +282,29 @@ jobs:
           "osprey-framework[optimizer] @ file://$FRAMEWORK_WHEEL" --find-links /tmp/sibling
         /tmp/optimizer-check/bin/python -c "import osprey, osprey_optimizer.models.api, osprey_optimizer.environments.spec"
 
-  verify-connectors-floor:
-    name: Verify Every Connectors Import Resolves At The Floor
+  verify-component-floors:
+    name: Verify Every Component Import Resolves At Its Floor
     needs: [build]
     if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
 
-    # verify-pypi-resolvable proves the floor is published; this proves the
-    # floor is enough. Between releases main may import connectors code no
+    # verify-pypi-resolvable proves each floor is published; this proves each
+    # floor is enough. Between releases main may import component code no
     # release carries yet, behind an `except ImportError` stand-in that keeps
     # the framework running at the floor with that feature switched off. A
     # published framework resolves the floor on every install that already has
     # it, so a tag refuses while any such import is still unpublished: release
-    # osprey-connectors, raise the floor, then tag.
+    # the component, raise the floor, then tag. Every STREAMS entry with
+    # `compat=True` is checked, all floors installed together, and each scanned
+    # over that stream's `floor_consumers` only. A floor the table marks
+    # optional and the root pyproject.toml does not declare (osprey-facility
+    # while it is listed bare) stands down with its reason logged; a missing
+    # connectors floor fails the plan step.
     steps:
     - name: Checkout repository
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
-        fetch-depth: 0  # the floor is checked against the tags reachable from HEAD
+        fetch-depth: 0  # the floors are checked against the tags reachable from HEAD
         persist-credentials: false
 
     - name: Download distribution artifacts
@@ -283,30 +316,112 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
 
-    - name: Install the built wheels with the floor connectors
-      # pyaml-cs-osprey without its dependencies: the scan reads its source and
-      # resolves only osprey_connectors names, so pyAML is not needed here.
+    - name: Plan the component floors
+      # Writes `requirements` (every armed floor, `<dist>==<floor>`) and `scans`
+      # (`<import name>:<consumer>,...` per armed floor). A component whose own
+      # osprey-connectors requirement at HEAD is above the framework's
+      # connectors floor is reported here, ahead of the install it would break.
+      id: plan
       run: |
-        FLOOR=$(python3 scripts/ci/connectors_compat_matrix.py floor)
-        echo "floor: osprey-connectors==$FLOOR"
+        python3 - <<'PLAN'
+        import os
+        import re
+        import subprocess
+        import sys
+        import tomllib
+
+        sys.path.insert(0, "scripts/ci")
+        from release_streams import STREAMS
+
+
+        def calver(version):
+            return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+        floors, scans = {}, []
+        for stream in (s for s in STREAMS if s.compat):
+            done = subprocess.run(
+                [sys.executable, "scripts/ci/compat_matrix.py", "--package", stream.key,
+                 "--root", ".", "floor"],
+                capture_output=True,
+                text=True,
+            )
+            if done.returncode != 0:
+                sys.exit(f"::error::{stream.dist}: no floor to verify\n{done.stderr.strip()}")
+            floor = done.stdout.strip()
+            if not floor:
+                print(f"{stream.dist} stands down: {done.stderr.strip()}")
+                continue
+            floors[stream.dist] = floor
+            scans.append(f"{stream.import_name}:{','.join(stream.floor_consumers)}")
+            print(f"floor: {stream.dist}=={floor}, scanned over {', '.join(stream.floor_consumers)}")
+
+        connectors = floors["osprey-connectors"]
+        for stream in STREAMS:
+            if stream.dist not in floors or stream.dist == "osprey-connectors":
+                continue
+            with open(f"{stream.package_dir}/pyproject.toml", "rb") as handle:
+                project = tomllib.load(handle).get("project", {})
+            for requirement in project.get("dependencies", []):
+                needed = re.fullmatch(r"osprey-connectors\s*>=\s*([^,;\s]+)", requirement.strip())
+                if not needed:
+                    continue
+                if calver(needed[1]) > calver(connectors):
+                    print(
+                        f"::warning::{stream.dist} at HEAD requires osprey-connectors>={needed[1]},"
+                        f" above the framework's connectors floor {connectors}"
+                    )
+                else:
+                    print(
+                        f"{stream.dist} at HEAD requires osprey-connectors>={needed[1]},"
+                        f" within the framework's connectors floor {connectors}"
+                    )
+
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write("requirements=" + " ".join(f"{d}=={v}" for d, v in floors.items()) + "\n")
+            out.write("scans=" + " ".join(scans) + "\n")
+        PLAN
+
+    - name: Install the built wheels with every floor together
+      # pyaml-cs-osprey without its dependencies: the scan reads its source and
+      # resolves only component names, so pyAML is not needed here.
+      env:
+        REQUIREMENTS: ${{ steps.plan.outputs.requirements }}
+      run: |
+        read -ra floors <<< "$REQUIREMENTS"
         uv venv /tmp/floor-check
         uv pip install --python /tmp/floor-check/bin/python \
-          ./dist/osprey_framework-*.whl "osprey-connectors==$FLOOR"
+          ./dist/osprey_framework-*.whl "${floors[@]}"
         uv pip install --python /tmp/floor-check/bin/python --no-deps \
           ./dist/pyaml_cs_osprey-*.whl
 
-    - name: Scan the built framework for connectors names the floor lacks
-      run: >-
-        /tmp/floor-check/bin/python -I
-        packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py
-        --release --package osprey --package pyaml_cs_osprey
+    - name: Scan the built framework for component names the floors lack
+      env:
+        SCANS: ${{ steps.plan.outputs.scans }}
+      run: |
+        if [ -z "$SCANS" ]; then
+          echo "::error::the plan armed no floor to scan"
+          exit 1
+        fi
+        status=0
+        for scan in $SCANS; do
+          target="${scan%%:*}"
+          IFS=, read -ra consumers <<< "${scan#*:}"
+          packages=()
+          for consumer in "${consumers[@]}"; do packages+=(--package "$consumer"); done
+          echo "scanning ${consumers[*]} for $target names its floor lacks"
+          /tmp/floor-check/bin/python -I \
+            packages/osprey-connectors/tests/osprey_connectors_tests/compat/scan_framework_imports.py \
+            --release --target "$target" "${packages[@]}" || status=1
+        done
+        exit "$status"
 
   publish-to-pypi:
     name: Publish to PyPI
     # `verify-full-ci` already gates `build`, so this repeats it — deliberately.
     # The publish is the one step nobody can take back, and a future edit that
     # re-wires the chain above must not be able to un-gate it silently.
-    needs: [verify-full-ci, build, validate-install-docs, verify-pypi-resolvable, verify-connectors-floor]
+    needs: [verify-full-ci, build, validate-install-docs, verify-pypi-resolvable, verify-component-floors]
     if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:
@@ -390,7 +505,7 @@ jobs:
 
     - name: Extract release notes from CHANGELOG
       id: changelog
-      # scripts/ci/release_notes.py, shared with release-connectors.yml: the
+      # scripts/ci/release_notes.py, shared with release-package.yml: the
       # tag's section, its heading matched literally, up to the next release
       # heading — or a pointer to the file when the section is missing.
       env:
@@ -408,5 +523,6 @@ jobs:
         draft: false
         prerelease: ${{ steps.get_version.outputs.prerelease == 'true' }}
 
-# osprey-connectors publishes from release-connectors.yml, on its own
-# osprey-connectors-v* tags, through its own `pypi-connectors` environment.
+# osprey-connectors, osprey-facility and osprey-panels publish from
+# release-package.yml, each on its own osprey-<package>-v* tags, through its own
+# `pypi-<package>` environment.

@@ -61,26 +61,24 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
         """
         self._check_selections(previous_selections, level)
 
-        # Navigate to current position in tree (skipping instance levels)
-        current_node = self._navigate_to_node(level, previous_selections)
-
-        if not current_node:
+        level_type = self.hierarchy_config["levels"][level]["type"]
+        if level_type not in ("tree", "instances"):
             return []
 
-        # Get level configuration
-        level_config = self.hierarchy_config["levels"][level]
-        level_type = level_config["type"]
-
-        # Extract options based on level type
-        if level_type == "tree":
-            # Direct children of current node
-            return self._extract_tree_options(current_node)
-
-        if level_type == "instances":
-            # Find expansion definition for this level
-            return self._get_expansion_options(current_node, level)
-
-        return []
+        # Every node the selections reach: a level selected with several values
+        # offers the options under each of them, each name once, in first-seen order.
+        options: dict[str, dict[str, str]] = {}
+        for node in self._navigate_to_nodes(level, previous_selections):
+            if not node:
+                continue
+            found = (
+                self._extract_tree_options(node)
+                if level_type == "tree"
+                else self._get_expansion_options(node, level)
+            )
+            for option in found:
+                options.setdefault(option["name"], option)
+        return list(options.values())
 
     def required_tree_levels(self) -> list[str]:
         """The levels an options request must select above the level it asks about.
@@ -174,23 +172,24 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
                 return child
         return None
 
-    def _navigate_to_node(
+    def _navigate_to_nodes(
         self, target_level: str, previous_selections: dict[str, Any]
-    ) -> dict | None:
+    ) -> list[dict]:
         """
-        Navigate to current node in tree based on previous selections.
+        The nodes the selections above ``target_level`` reach, each once, in order.
 
-        Key behavior: Instance levels do NOT change tree position during selection,
-        but we DO navigate INTO their containers to find children.
+        A tree level selected with several values follows each of them; an empty
+        selection is no selection. Instance levels do NOT change tree position
+        during selection, but we DO navigate INTO their containers to find children.
 
         Args:
             target_level: Level we're getting options for
             previous_selections: Selections made at previous levels
 
         Returns:
-            Current node in tree, or None if path invalid
+            The reached nodes; empty when a selected value reaches no node
         """
-        current_node = self.tree
+        frontier = [self.tree]
 
         for prev_level in self.hierarchy_levels:
             if prev_level == target_level:
@@ -200,20 +199,21 @@ class _HierarchicalQueryMixin(_HierarchicalBase):
 
             # Instance levels: navigate INTO container but don't use selection
             if level_type == "instances":
-                current_node = self._enter_instance_container(current_node, prev_level)
+                frontier = [self._enter_instance_container(node, prev_level) for node in frontier]
                 continue
 
-            # Tree levels - navigate down using selection; an empty one is no selection
-            if level_type == "tree" and prev_level in previous_selections:
-                selection = self._get_single_value(previous_selections[prev_level])
-                if not selection:
-                    continue
-                child = self._follow_tree_value(current_node, selection)
-                if child is None:
-                    return None  # Invalid path
-                current_node = child
+            values = [v for v in self._ensure_list(previous_selections.get(prev_level)) if v]
+            if level_type != "tree" or not values:
+                continue
+            reached: dict[int, dict] = {}
+            for value in values:
+                for node in frontier:
+                    child = self._follow_tree_value(node, value)
+                    if child is not None:
+                        reached.setdefault(id(child), child)
+            frontier = list(reached.values())
 
-        return current_node
+        return frontier
 
     def _extract_tree_options(self, node: dict) -> list[dict[str, str]]:
         """

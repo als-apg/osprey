@@ -1,8 +1,0 @@
-# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
-description: 'The transfer-line IOC sim-LINE stops, so the IOCs view shows one IOC gone silent. While
-  applied, every LINE:* channel (its BPMs, correctors and quadrupoles) gives no answer, and so do the
-  IOC''s own status and health PVs (ca:SIM:LINE:STATUS, HEARTBEAT, UPTIME, ENGINEER), on the virtual
-  accelerator and the stand-in alike; a LINE scan or orbit read fails. The storage ring and the BTS and
-  LTB transfer lines keep answering. Apply on demand; it is not a default scenario.'
-stopped_servers:
-- sim-LINE

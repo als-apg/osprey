@@ -64,6 +64,9 @@ def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
     reading = seeded_readback(view)
     assert reading in view.channels()
     assert view.seed(reading) is not None
+    # A lane compares what it reads with the seed's nominal as a number.
+    assert view.channel(reading).value_type == "float"
+    assert isinstance(view.seed(reading).get("nominal", 0.0), int | float)
 
     setpoint, value = bounded_setpoint(view)
     channel = view.channel(setpoint)

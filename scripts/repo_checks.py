@@ -1197,11 +1197,16 @@ def _wallclock_unit_command(
     return [kit.bounded(check.bound_s, argv)]
 
 
-#: The connectors wheel's import walk, shared with release-connectors.yml so the
-#: wheel a connectors tag publishes passes the check every pull request runs.
-#: Run with ``-I`` by the bare venv's interpreter: neither the checkout nor
-#: ``PYTHONPATH`` can lend it a module the wheel does not ship.
-LEAN_IMPORT_WALK = "scripts/ci/connectors_lean_import_walk.py"
+#: The component wheels' import walk, called with a stream key of
+#: scripts/ci/release_streams.py. Shared with release-package.yml and ci.yml's
+#: ``osprey-panels-standalone`` job, so the wheel a tag publishes passes the
+#: check every pull request runs. Run with ``-I`` by the bare venv's
+#: interpreter: neither the checkout nor ``PYTHONPATH`` can lend it a module the
+#: wheel does not ship.
+LEAN_IMPORT_WALK = "scripts/ci/lean_import_walk.py"
+
+#: Run ``-I`` by the facility venv: the installed wheel reports its own version.
+FACILITY_VERSION_PROBE = "import osprey_facility; print(osprey_facility.__version__)"
 
 #: Run by a venv holding the framework, connectors and pyaml-cs-osprey wheels.
 PYAML_WHEEL_PROBE = """\
@@ -1252,7 +1257,7 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
         "{scratch}/lean/bin/python",
         "dist/osprey_connectors-*.whl",
     ),
-    ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK),
+    ("{scratch}/lean/bin/python", "-I", LEAN_IMPORT_WALK, "connectors"),
     ("uv", "build", "--package", "osprey-optimizer"),
     ("uv", "venv", "{scratch}/optimizer", "--python", "3.11"),
     (
@@ -1261,6 +1266,17 @@ PACKAGE_STEPS: tuple[tuple[str, ...], ...] = (
     ),
     ("{scratch}/optimizer/bin/python", "-c", OPTIMIZER_BASE_PROBE),
     ("uv", "build", "--package", "osprey-facility"),
+    ("uvx", "twine", "check", "dist/osprey_facility-*.tar.gz", "dist/osprey_facility-*.whl"),
+    ("uv", "venv", "{scratch}/facility", "--python", "3.11"),
+    # The wheel and its extra as separate parts, with the local connectors wheel
+    # named and on --find-links: no OSPREY package resolves from PyPI.
+    (
+        *("uv", "pip", "install", "--python", "{scratch}/facility/bin/python"),
+        *("--find-links", "dist", "dist/osprey_connectors-*.whl"),
+        *("dist/osprey_facility-*.whl", "osprey-facility[mml]"),
+    ),
+    ("{scratch}/facility/bin/python", "-I", LEAN_IMPORT_WALK, "facility"),
+    ("{scratch}/facility/bin/python", "-I", "-c", FACILITY_VERSION_PROBE),
     ("uv", "build", "--package", "pyaml-cs-osprey"),
     ("uv", "venv", "{scratch}/pyaml", "--python", "3.11"),
     (
@@ -2231,11 +2247,29 @@ LANES: tuple[Lane, ...] = (
         (
             "src/osprey/**",
             "packages/pyaml-cs-osprey/**",
+            "packages/osprey-facility/**",
             "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
             "tests/connectors/**",
             "tests/registry/**",
-            "scripts/ci/connectors_compat_lane.py",
-            "scripts/ci/connectors_compat_matrix.py",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
+            "pyproject.toml",
+            "uv.lock",
+        ),
+    ),
+    Lane(
+        "framework-at-facility-floor",
+        "installs the published facility floor",
+        (
+            "src/osprey/**",
+            "packages/osprey-connectors/tests/osprey_connectors_tests/compat/**",
+            "tests/cli/test_facility_validate.py",
+            "tests/cli/test_facility_name_resolution.py",
+            "tests/cli/test_facility_error_output.py",
+            "tests/cli/test_facility_cmd_machine_root.py",
+            "tests/build_pipeline/test_facility_render_roots.py",
+            "scripts/ci/compat_lane.py",
+            "scripts/ci/compat_matrix.py",
             "pyproject.toml",
             "uv.lock",
         ),

@@ -62,6 +62,7 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_panels.Target": "a fork or tool reads what a view contains",
     "osprey_panels.Thing": "a fork or tool reads the panel graph",
     "osprey_panels.View": "a fork or tool reads what a view contains",
+    "osprey_panels.__version__": "a deployment or tool reads the installed release",
     "osprey_panels.channel_list": "a fork or tool says what a screen shows, without layout",
     "osprey_panels.channel_state": "a fork or tool turns channel values into states",
     "osprey_panels.checkout": "a fork or tool says what a screen shows, without layout",

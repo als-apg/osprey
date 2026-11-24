@@ -375,6 +375,19 @@ class FacilityRecords:
         held = self._wiring.get(address)
         return None if held is None else held[1]
 
+    def record_address(self, address: str) -> str:
+        """The address of the wiring record naming ``address`` under ``also``; ``address`` itself for any other channel.
+
+        Args:
+            address: A channel's address.
+
+        Returns:
+            The wiring record's ``address`` when a record names ``address``;
+            ``address`` itself otherwise.
+        """
+        wiring = self.wired(address)
+        return address if wiring is None else str(wiring["address"])
+
     def select_channels(self, selection: ChannelSelection) -> tuple[Mapping[str, Any], ...]:
         """The channel records a selection matches, in document order.
 

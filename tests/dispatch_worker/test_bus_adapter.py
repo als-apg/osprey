@@ -69,7 +69,7 @@ async def on_bus(monkeypatch, worker_record):
     monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
     monkeypatch.setattr(dispatch_api, "describe_run_input_artifacts", lambda run_id: [])
 
-    bus = WorkerBus("tcp://127.0.0.1:*", keys=None, heartbeat_sec=0.1)
+    bus = WorkerBus("tcp://127.0.0.1:*", keys=None)
     await bus.start()
     link = bus_adapter.make_link(WorkerSettings(bus.endpoint, "dispatch-worker-1", None))
     monkeypatch.setattr(dispatch_api, "event_tap", link.emit)

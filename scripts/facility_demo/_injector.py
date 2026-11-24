@@ -2,7 +2,7 @@
 
 ``_elements.load_elements()`` reads ``injector_elements.tsv``; this module turns
 the rows of the sections it emits into records and merges them into a facility
-tree, the way ``_line.py`` merges the transfer line: a record already in a file
+tree with ``_tree.merge``: a record already in a file
 keeps its position, a new one is added, every other record keeps its text.
 
 It emits the storage ring's two injection septa, SEK (``SR:MAG:SEPTUM:01``) and
@@ -30,8 +30,9 @@ its readback; every setpoint, on-status and unpaired readback carries the
 table's nominal. The booster septa sit on the BTS deck as fixed elements, so
 no model wires them and none carries a pulse. A channel bound by several
 legacy names (the septum supplies' interlock bits) is one channel. The
-booster's existing records -- its bends, quadrupoles, monitors, current
-monitor and system groups -- are not emitted and keep their text.
+booster's lattice records -- its bends, quadrupoles, correctors, monitors,
+the three supplies' currents and the system groups -- are ``_booster.py``'s;
+its current monitor is not emitted and keeps its text.
 
 The gun-to-linac line and the linac are texture stand-ins built by
 ``_standin.py``, and the linac-to-booster and booster-to-storage lines are
@@ -51,6 +52,11 @@ injection, in the table's beam order, and writes it as explicit ``gate`` seeds:
 - each screen's lamp readback reads ``TRUE`` while its own paddle is in;
 - the "all paddles out" count reads 1 while any paddle is in.
 
+The booster's own beam readings are in the chain too: its monitors'
+``STATUS:VALID``, which the lattice records hold, and its DCCT current are gated
+by the gun and by every paddle up to and including the booster's, since a
+screen anywhere in a ring stops the circulating beam.
+
 A BPM's positions carry no gate, and no storage ring channel does: the SR01C
 screen and the paddle count sit in BTS. This module writes every ``gate`` key
 of ``seeds.yaml``; the runtime reads the inputs as written and does no ordering.
@@ -62,10 +68,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import _booster
 import _elements
-import _line
 import _standin
 import _transfer
+import _tree
 
 from osprey_connectors.simulation.values import is_waveform
 
@@ -719,6 +726,10 @@ GUN_ON_ROLES = ("gun_hv_on_rb", "gun_heater_on_rb")
 #: reading's factor, a bool reading's label. No gated reading is exactly 0.
 BEAM_GATES: dict[str, Any] = {"bpm_sum": 0.01, "ict_charge": 0.01, "bpm_valid": "FALSE"}
 
+#: The booster's reading of its circulating current, which its records hold
+#: outside the element table, gated as a charge reading is.
+BOOSTER_CURRENT = "BR:DIAG:DCCT:01:CURRENT:RB"
+
 #: What a screen's lamp readback reads while its own paddle is in.
 LAMP_LIT = "TRUE"
 
@@ -744,15 +755,31 @@ def _paddle(lamp: str) -> str:
     return lamp.removesuffix("LAMP:RB") + "PADDLE:RB"
 
 
-def gates() -> dict[str, dict[str, Any]]:
+def booster_beam_readings(tree: Path) -> dict[str, Any]:
+    """The booster's readings of its circulating beam under ``tree``, each with what it reads gated.
+
+    Its monitors' valid flags, as many as its committed deck binds, and its
+    DCCT current: a line reading of the same kind reads the same when gated.
+    """
+    valid = _booster.valid_flags(_transfer.read_deck(tree, BOOSTER))
+    return {
+        **dict.fromkeys(valid, BEAM_GATES["bpm_valid"]),
+        BOOSTER_CURRENT: BEAM_GATES["ict_charge"],
+    }
+
+
+def gates(tree: Path) -> dict[str, dict[str, Any]]:
     """The chain's ``gate`` seeds by address: ``{inputs: {address: label}, gated}``.
 
     A beam reading's inputs are the gun's on-status readbacks and every paddle
     readback before it in beam order; a lamp's input is its own paddle; the
     paddle count's inputs are every paddle. A reading with no input carries no
-    gate, and a storage ring reading carries none.
+    gate, and a storage ring reading carries none. The booster's circulating
+    beam readings (:func:`booster_beam_readings`) take the gun and every paddle
+    up to the end of the booster.
     """
     rows = _chain()
+    ring: dict[str, str] = {}
     names = {row.demo_name for row in rows}
     upstream: dict[str, str] = {}
     paddles: dict[str, str] = {}
@@ -773,8 +800,12 @@ def gates() -> dict[str, dict[str, Any]]:
             out[address] = {"inputs": {paddle: "TRUE"}, "gated": LAMP_LIT}
         elif row.role == "paddle_count":
             counts.append(address)
+        if row.section == BOOSTER:
+            ring = dict(upstream)
     for address in counts:
         out[address] = {"inputs": dict(sorted(paddles.items())), "gated": PADDLES_IN}
+    for address, gated in booster_beam_readings(tree).items():
+        out[address] = {"inputs": dict(sorted(ring.items())), "gated": gated}
     if stray := sorted(a for a in out if a.startswith(STORAGE_RING_PREFIX)):
         raise ValueError(f"storage ring channels in the gate chain: {stray}")
     return out
@@ -822,7 +853,7 @@ def _merge_seeds(
         for address in sorted(committed)
         if committed[address]
     }
-    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    text = _tree.origin_line() + yaml.safe_dump(document, sort_keys=False)
     path.write_text(text, encoding="utf-8")
 
 
@@ -837,16 +868,16 @@ def write_sources(tree: Path) -> None:
     """
     records = tree / "records"
     lines = (_standin, _transfer)
-    _line._merge(records / "places.yaml", places(), "id", ordered=False)
+    _tree.merge(records / "places.yaml", places(), "id", ordered=False)
     emitters = (
         ("devices", devices() + booster_devices() + [r for x in lines for r in x.devices()]),
         ("channels", channels() + booster_channels() + [r for x in lines for r in x.channels()]),
         ("groups", groups() + booster_groups() + line_groups()),
     )
     for name, emitted in emitters:
-        _line._merge(records / f"{name}.yaml", emitted, "id", ordered=True)
+        _tree.merge(records / f"{name}.yaml", emitted, "id", ordered=True)
     _merge_seeds(
         tree / "seeds.yaml",
         {**seeds(), **booster_seeds(), **_standin.seeds(), **_transfer.seeds()},
-        gates(),
+        gates(tree),
     )

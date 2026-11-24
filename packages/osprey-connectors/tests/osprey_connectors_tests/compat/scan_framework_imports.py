@@ -56,6 +56,12 @@ Usage::
     python -I scan_framework_imports.py <framework package dir>...
     python -I scan_framework_imports.py --package osprey [--package pyaml_cs_osprey]
     python -I scan_framework_imports.py src/osprey --connectors-path packages/osprey-connectors/src
+    python -I scan_framework_imports.py --target osprey_facility --package osprey
+
+``--target`` names the package whose names are checked (default
+``osprey_connectors``): ``osprey_facility`` asks the same of every name a
+framework tree takes from the facility package, and ``--target-path`` (an
+alias of ``--connectors-path``) then names the directory it imports from.
 
 Prints one line per unresolved site, ``<file>:<line>: <module>[:<name>]`` and
 the reason, then a summary per tree on stderr. Exits 1 when any site is unresolved, 2
@@ -67,6 +73,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import importlib
 import importlib.util
 import re
@@ -77,14 +84,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-#: The distribution's import name.
+#: The distribution's import name, and the default ``--target``.
 CONNECTORS = "osprey_connectors"
 
-#: A string literal that names a connectors module path, whole: ``-m`` prefix
-#: and ``:attr`` suffix optional, one dotted component at least.
-_STRING_PATH_RE = re.compile(
-    rf"^(?P<flag>-m\s+)?(?P<path>{CONNECTORS}(?:\.[A-Za-z_]\w*)+)(?::(?P<attr>[A-Za-z_]\w*))?$"
-)
+
+@functools.cache
+def _string_path_re(target: str) -> re.Pattern[str]:
+    """A string literal that names a ``target`` module path, whole: ``-m`` prefix
+    and ``:attr`` suffix optional, one dotted component at least."""
+    return re.compile(
+        rf"^(?P<flag>-m\s+)?(?P<path>{re.escape(target)}(?:\.[A-Za-z_]\w*)+)"
+        r"(?::(?P<attr>[A-Za-z_]\w*))?$"
+    )
+
 
 #: The keyword pair a connector registration names its class with.
 _REGISTRATION_KEYWORDS = ("module_path", "class_name")
@@ -147,8 +159,8 @@ class Unresolved:
         return f"{self.site.file}:{self.site.line}: {self.site.label()}  ({self.reason})"
 
 
-def _is_connectors(module: str | None) -> bool:
-    return module is not None and (module == CONNECTORS or module.startswith(CONNECTORS + "."))
+def _is_connectors(module: str | None, target: str = CONNECTORS) -> bool:
+    return module is not None and (module == target or module.startswith(target + "."))
 
 
 def _string_value(node: ast.expr | None) -> str | None:
@@ -157,7 +169,7 @@ def _string_value(node: ast.expr | None) -> str | None:
     return None
 
 
-def _module_bindings(imports: Iterable[ast.AST]) -> dict[str, str]:
+def _module_bindings(imports: Iterable[ast.AST], target: str = CONNECTORS) -> dict[str, str]:
     """Each name the ``imports`` bind to what may be a connectors module.
 
     ``import osprey_connectors.a`` binds ``osprey_connectors`` itself; ``import
@@ -169,13 +181,17 @@ def _module_bindings(imports: Iterable[ast.AST]) -> dict[str, str]:
     for node in imports:
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if not _is_connectors(alias.name):
+                if not _is_connectors(alias.name, target):
                     continue
                 if alias.asname:
                     bound[alias.asname] = alias.name
                 else:
-                    bound[CONNECTORS] = CONNECTORS
-        elif isinstance(node, ast.ImportFrom) and not node.level and _is_connectors(node.module):
+                    bound[target] = target
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and not node.level
+            and _is_connectors(node.module, target)
+        ):
             for alias in node.names:
                 if alias.name != "*":
                     bound[alias.asname or alias.name] = f"{node.module}.{alias.name}"
@@ -206,7 +222,7 @@ def _attribute_sites(
             yield Site(file, node.lineno, bound[base.id], ".".join(chain), "attr")
 
 
-def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
+def _sites_in(tree: ast.AST, file: str, target: str = CONNECTORS) -> Iterator[Site]:
     # One walk sorts out every node a site can sit on, in the walk's order:
     # walking the tree is what the scan spends its time on beside parsing it.
     attributes: list[ast.Attribute] = []
@@ -222,14 +238,15 @@ def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
             isinstance(node, ast.Constant) and isinstance(node.value, str)
         ):
             candidates.append(node)
-    yield from _attribute_sites(attributes, _module_bindings(imports), file)
+    yield from _attribute_sites(attributes, _module_bindings(imports, target), file)
+    string_path = _string_path_re(target)
     for node in candidates:
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if _is_connectors(alias.name):
+                if _is_connectors(alias.name, target):
                     yield Site(file, node.lineno, alias.name, None, "import")
         elif isinstance(node, ast.ImportFrom):
-            if node.level or not _is_connectors(node.module):
+            if node.level or not _is_connectors(node.module, target):
                 continue
             assert node.module is not None
             for alias in node.names:
@@ -238,11 +255,11 @@ def _sites_in(tree: ast.AST, file: str) -> Iterator[Site]:
         elif isinstance(node, ast.Call):
             keywords = {kw.arg: _string_value(kw.value) for kw in node.keywords if kw.arg}
             module, name = (keywords.get(key) for key in _REGISTRATION_KEYWORDS)
-            if _is_connectors(module) and name:
+            if _is_connectors(module, target) and name:
                 assert module is not None
                 yield Site(file, node.lineno, module, name, "registration")
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            match = _STRING_PATH_RE.match(node.value.strip())
+            match = string_path.match(node.value.strip())
             if match is None:
                 continue
             kind = "string-m" if match["flag"] else "string"
@@ -290,17 +307,19 @@ def source_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
 
 
-def collect_sites(root: Path) -> tuple[list[Site], list[str]]:
+def collect_sites(root: Path, *, target: str = CONNECTORS) -> tuple[list[Site], list[str]]:
     """Every site under ``root`` in source order, and every file that would not parse.
 
     File labels are relative to ``root``'s parent, so a scan of an installed
     ``.../site-packages/osprey`` reads ``osprey/registry/builtins.py``.
     """
-    sites, unparsable, _ = _collect(root)
+    sites, unparsable, _ = _collect(root, target)
     return sites, unparsable
 
 
-def _collect(root: Path) -> tuple[list[Site], list[str], list[FallbackGroup]]:
+def _collect(
+    root: Path, target: str = CONNECTORS
+) -> tuple[list[Site], list[str], list[FallbackGroup]]:
     base = root.parent
     sites: list[Site] = []
     unparsable: list[str] = []
@@ -312,7 +331,7 @@ def _collect(root: Path) -> tuple[list[Site], list[str], list[FallbackGroup]]:
         except (SyntaxError, ValueError) as error:
             unparsable.append(f"{label}: {error.__class__.__name__}: {error}")
             continue
-        found = list(_sites_in(tree, label))
+        found = list(_sites_in(tree, label, target))
         sites.extend(found)
         # A group settles only sites of its own file, so a file with none
         # needs no walk for its groups.
@@ -457,19 +476,22 @@ class Resolver:
         return self.name_error(site.module, site.name)
 
 
-def scan(root: Path, *, release: bool = False) -> tuple[list[Site], list[Unresolved], list[str]]:
-    """Scan ``root`` against the importable connectors.
+def scan(
+    root: Path, *, release: bool = False, target: str = CONNECTORS
+) -> tuple[list[Site], list[Unresolved], list[str]]:
+    """Scan ``root`` against the importable ``target`` (the connectors by default).
 
     Args:
         root: The framework package directory, or one file.
         release: Hold every ``try`` body to resolving; a stand-in in its
             handler does not answer for it.
+        target: The import name whose sites are collected and resolved.
 
     Returns:
         Every site, the unresolved ones a fallback does not settle, and every
         file that would not parse.
     """
-    sites, unparsable, groups = _collect(root)
+    sites, unparsable, groups = _collect(root, target)
     resolver = Resolver()
     errors = {site: resolver.site_error(site) for site in sites}
     settled = _settled_by_fallback(sites, groups, errors, body_must_resolve=release)
@@ -488,18 +510,29 @@ def _package_dir(name: str) -> Path:
     return Path(next(iter(spec.submodule_search_locations)))
 
 
-def _use_connectors_path(path: Path) -> None:
-    """Import ``osprey_connectors`` from ``path`` and nowhere else."""
+def _use_connectors_path(path: Path, target: str = CONNECTORS) -> None:
+    """Import ``target`` from ``path`` and nowhere else."""
     sys.path.insert(0, str(path))
-    module = importlib.import_module(CONNECTORS)
+    try:
+        module = importlib.import_module(target)
+    except ImportError as error:
+        # Neither from ``path`` nor from the environment: no tree to resolve against.
+        raise SystemExit(f"error: {target} did not import from {path}: {error}") from None
     origin = Path(module.__file__ or "").resolve()
     if path.resolve() not in origin.parents:
-        raise SystemExit(f"error: {CONNECTORS} imported from {origin}, not from {path}")
+        raise SystemExit(f"error: {target} imported from {origin}, not from {path}")
 
 
 def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Report every osprey_connectors name a framework tree imports that does not resolve."
+        description="Report every name a framework tree takes from --target "
+        "(default osprey_connectors) that does not resolve."
+    )
+    parser.add_argument(
+        "--target",
+        default=CONNECTORS,
+        help=f"the import name whose names are checked (default: {CONNECTORS}), "
+        "e.g. osprey_facility",
     )
     parser.add_argument(
         "root", nargs="*", type=Path, help="framework package directory (or file) to scan"
@@ -512,8 +545,10 @@ def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--connectors-path",
+        "--target-path",
+        dest="connectors_path",
         type=Path,
-        help="directory holding the osprey_connectors package to resolve against "
+        help="directory holding the --target package to resolve against "
         "(default: the active environment's)",
     )
     parser.add_argument(
@@ -530,12 +565,13 @@ def _parse_args(argv: Iterable[str] | None) -> argparse.Namespace:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = _parse_args(argv)
+    target = args.target
     if args.connectors_path is not None:
-        _use_connectors_path(args.connectors_path)
+        _use_connectors_path(args.connectors_path, target)
     try:
-        connectors = importlib.import_module(CONNECTORS)
+        connectors = importlib.import_module(target)
     except Exception as error:
-        print(f"error: {CONNECTORS} does not import: {error}", file=sys.stderr)
+        print(f"error: {target} does not import: {error}", file=sys.stderr)
         return 2
     roots = [_package_dir(name) for name in args.package] if args.package else args.root
     missing = [root for root in roots if not root.exists()]
@@ -546,13 +582,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     version = getattr(connectors, "__version__", "unknown")
     status = 0
     for root in roots:
-        sites, unresolved, unparsable = scan(root, release=args.release)
+        sites, unresolved, unparsable = scan(root, release=args.release, target=target)
         for problem in unresolved:
             print(problem)
         for problem in unparsable:
             print(f"{problem}  (unparsable)")
         print(
-            f"scanned {root} against {CONNECTORS} {version} "
+            f"scanned {root} against {target} {version} "
             f"({Path(connectors.__file__ or '').parent}): {len(sites)} sites, "
             f"{len(unresolved)} unresolved, {len(unparsable)} unparsable",
             file=sys.stderr,

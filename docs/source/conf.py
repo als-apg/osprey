@@ -411,5 +411,68 @@ def _check_redirect_stubs(app, exception):
         raise SphinxError("redirect stubs missing from the build: " + " ".join(missing))
 
 
+# -- Published facility.json schemas ---------------------------------------
+
+#: Where the osprey-facility package keeps its generated schemas; the docs serve
+#: copies taken at build time, so no schema file is committed twice.
+FACILITY_SCHEMA_DIR = os.path.join(facility_src_root, "osprey_facility", "schema", "_generated")
+
+#: The directory, below the html output, the facility schemas are served from.
+FACILITY_SCHEMA_SERVED = "schemas/facility"
+
+
+def _published_schemas(generated_dir):
+    """Map each served schema path (below the html root) to its file in *generated_dir*.
+
+    The current schema is served at ``<N>.schema.json`` for the N of its
+    ``schema`` const, each frozen ``facility-<N>.final.schema.json`` at
+    ``<N>.schema.json``, and each floor ``facility-<M>.schema.json`` at
+    ``<M>.floor.schema.json``. Two files claiming one served path is an error.
+    """
+    import json
+    import re
+
+    served = {}
+
+    def claim(name, source):
+        path = f"{FACILITY_SCHEMA_SERVED}/{name}"
+        if path in served:
+            raise ValueError(f"{path} is claimed by {served[path]} and {source}")
+        served[path] = source
+
+    current = os.path.join(generated_dir, "facility.schema.json")
+    with open(current, encoding="utf-8") as handle:
+        header = json.load(handle)["properties"]["schema"]["const"]
+    claim(f"{header.rsplit('/', 1)[-1]}.schema.json", current)
+    for name in sorted(os.listdir(generated_dir)):
+        final = re.fullmatch(r"facility-(\d+)\.final\.schema\.json", name)
+        floor = re.fullmatch(r"facility-(\d+)\.schema\.json", name)
+        if final:
+            claim(f"{final.group(1)}.schema.json", os.path.join(generated_dir, name))
+        elif floor:
+            claim(f"{floor.group(1)}.floor.schema.json", os.path.join(generated_dir, name))
+    return served
+
+
+def _copy_published_schemas(outdir, generated_dir=FACILITY_SCHEMA_DIR):
+    """Copy the facility schemas into *outdir* at their served paths; return the map."""
+    import shutil
+
+    served = _published_schemas(generated_dir)
+    for path, source in served.items():
+        target = os.path.join(outdir, *path.split("/"))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(source, target)
+    return served
+
+
+def _publish_schemas(app, exception):
+    """Serve the facility.json schemas from the html build, at the URL their ``$id`` names."""
+    if exception is not None or app.builder.name != "html":
+        return
+    _copy_published_schemas(app.outdir)
+
+
 def setup(app):
     app.connect("build-finished", _check_redirect_stubs)
+    app.connect("build-finished", _publish_schemas)

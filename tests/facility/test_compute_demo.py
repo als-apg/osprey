@@ -1,9 +1,8 @@
-"""Spans place each device of the four-model demo from its own model's deck.
+"""Spans place each device of the three-model demo from its own model's deck.
 
-The built demo holds four deck-bearing models: the periodic
-``SR`` and the single-pass lines ``LINE``, ``LTB`` and ``BTS``. Every LINE
-device takes its s from the LINE deck and its place ``LINE`` from the LINE
-span; every wired LTB and BTS device takes its s from its own deck and keeps
+The built demo holds three deck-bearing models: the periodic
+``SR`` and the single-pass lines ``LTB`` and ``BTS``. Every wired LTB and BTS
+device takes its s from its own deck and keeps
 its authored place, which lies in its own model's span. No device is placed by
 a span of a model other than the one that gave its s, though the models' s
 ranges overlap. No group, and no middle-layer Family derived from the build,
@@ -26,10 +25,10 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.slow]
 
 #: The demo's models that have a deck.
-MODELS = ("BTS", "LINE", "LTB", "SR")
+MODELS = ("BR", "BTS", "LTB", "SR")
 
 #: The models whose devices state their place, inside the model's span.
-AUTHORED_PLACE_MODELS = ("BTS", "LTB")
+AUTHORED_PLACE_MODELS = ("BR", "BTS", "LTB")
 
 
 def _model_of(record_id: str) -> str | None:
@@ -78,21 +77,13 @@ def middle_layer(built_demo: BuiltProject) -> dict[str, Any]:
     return document
 
 
-def test_every_line_device_is_placed_by_the_line_span(facility: dict[str, Any]) -> None:
-    line = [device for device in facility["devices"] if _model_of(device["id"]) == "LINE"]
-    assert len(line) == 20
-    assert {
-        (device["model"], device["place"], device["provenance"]["place_from"]) for device in line
-    } == {("LINE", "LINE", "span")}
-    assert all(isinstance(device["s"], float) for device in line)
-
-
 def test_the_models_s_ranges_overlap(facility: dict[str, Any]) -> None:
     s = {
         model: [device["s"] for device in facility["devices"] if device.get("model") == model]
         for model in MODELS
     }
-    assert min(s["SR"]) < max(s["LINE"])
+    assert min(s["SR"]) < max(s["BTS"])
+    assert min(s["BTS"]) < max(s["LTB"])
 
 
 def test_every_span_placed_device_lies_in_a_span_of_its_own_model(
@@ -111,7 +102,7 @@ def test_every_span_placed_device_lies_in_a_span_of_its_own_model(
     assert crossed == []
 
 
-def test_the_facility_counts_four_deck_models(facility: dict[str, Any]) -> None:
+def test_the_facility_counts_three_deck_models(facility: dict[str, Any]) -> None:
     decked = sorted(model["name"] for model in facility["models"] if model.get("deck"))
     assert decked == sorted(MODELS)
 
@@ -144,11 +135,7 @@ def test_no_group_mixes_devices_of_two_models(facility: dict[str, Any]) -> None:
         for group in facility["groups"]
         if len(_models(group.get("members", [])) - {None}) > 1
     ]
-    line = sorted(
-        group["id"] for group in facility["groups"] if _models(group["members"]) == {"LINE"}
-    )
     assert mixed == []
-    assert line == ["LINE/BPM", "LINE/HCM", "LINE/QD", "LINE/QF", "LINE/VCM"]
 
 
 def test_no_middle_layer_family_mixes_channels_of_two_models(
@@ -170,21 +157,8 @@ def test_no_middle_layer_family_mixes_channels_of_two_models(
         for family, node in families.items()
         if not family.startswith("_")
         for _field, addresses in _cells(node)
-        if "LINE" in _models(addresses)
+        if "BTS" in _models(addresses)
     ]
     assert mixed == []
     assert line_cells
-    assert {system for system, _family in line_cells} == {"LINE"}
-
-
-def test_the_line_device_list_counts_its_own_devices(middle_layer: dict[str, Any]) -> None:
-    setups = {
-        family: node["_setup"]
-        for family, node in middle_layer["LINE"].items()
-        if not family.startswith("_")
-    }
-    assert sorted(setups) == ["BPM", "HCM", "QD", "QF", "VCM"]
-    assert all(
-        common.startswith("LINE ") for setup in setups.values() for common in setup["CommonNames"]
-    )
-    assert sum(len(setup["DeviceList"]) for setup in setups.values()) == 20
+    assert {system for system, _family in line_cells} == {"BTS"}

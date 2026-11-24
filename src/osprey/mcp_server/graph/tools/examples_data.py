@@ -153,7 +153,7 @@ RETURN [l IN labels(d) WHERE l <> "Resource"][0] AS device_class,
        d.sectionCode AS section,
        d.deviceId AS device
 ORDER BY device_class, section, device
-LIMIT 500
+LIMIT 1000
 """.strip(),
     parameters={"class_uri": _MAGNET_URI},
 )

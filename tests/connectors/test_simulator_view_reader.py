@@ -66,11 +66,11 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert view.code == variables["code"]
     assert [model.name for model in view.models()] == [m["name"] for m in variables["models"]]
     assert all(isinstance(model, Model) for model in view.models())
-    assert view.served() == ("BTS", "LINE", "LTB", "SR", TEXTURE)
-    assert [model.name for model in view.physics_models()] == ["BTS", "LINE", "LTB", "SR"]
+    assert view.served() == ("BR", "BTS", "LTB", "SR", TEXTURE)
+    assert [model.name for model in view.physics_models()] == ["BR", "BTS", "LTB", "SR"]
     assert view.channels() == tuple(addresses["channels"])
     assert dict(view.status_addresses()) == {
-        name: f"{view.code}:SIM:{name}:STATUS" for name in ("BTS", "LINE", "LTB", "SR")
+        name: f"{view.code}:SIM:{name}:STATUS" for name in ("BR", "BTS", "LTB", "SR")
     }
     assert isinstance(view.status_addresses(), MappingProxyType)
 
@@ -82,9 +82,9 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert dict(sr.settings) == {"pyat": {"solve": "periodic"}}
     wiring = {model["name"]: model["wiring"] for model in variables["models"]}
     assert len(sr.bindings) == len(wiring["SR"]) > 0
-    line = view.model("LINE")
+    line = view.model("BTS")
     assert dict(line.settings)["pyat"]["solve"] == "single_pass"
-    assert len(line.bindings) == len(wiring["LINE"]) > 0
+    assert len(line.bindings) == len(wiring["BTS"]) > 0
     assert view.model(TEXTURE).bindings == ()
     with pytest.raises(KeyError):
         view.model("NOPE")
@@ -103,7 +103,7 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     channel = view.channel(first.address)
     assert isinstance(channel, Channel)
     assert channel.owner == first.model
-    assert view.channel(line.bindings[0].address).owner == "LINE"
+    assert view.channel(line.bindings[0].address).owner == "BTS"
     assert view.channel(sr.bindings[0].address).owner == "SR"
     textured = next(address for address in view.channels() if view.binding(address) is None)
     assert view.channel(textured).owner == TEXTURE

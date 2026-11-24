@@ -185,7 +185,10 @@ def test_the_build_connects_the_stub_check_to_build_finished(monkeypatch, tmp_pa
     ns = run_conf(monkeypatch)
     app = _FakeApp("html", tmp_path, {})
     ns["setup"](app)
-    assert app.connected == [("build-finished", ns["_check_redirect_stubs"])]
+    assert app.connected == [
+        ("build-finished", ns["_check_redirect_stubs"]),
+        ("build-finished", ns["_publish_schemas"]),
+    ]
 
 
 def test_the_stub_check_names_each_missing_stub(

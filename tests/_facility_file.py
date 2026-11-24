@@ -180,8 +180,8 @@ def demo_facility_document() -> dict[str, Any]:
 def write_demo_facility_file(render: Path | str) -> Path:
     """Write the facility file of the tree the demo preset ships.
 
-    4731 channels: 674 setpoints, all but the 29 gauge trip resets paired with a
-    readback, and 4057 readbacks.
+    4765 channels: 677 setpoints, all but the 29 gauge trip resets paired with a
+    readback, and 4088 readbacks.
 
     Args:
         render: The render root, the directory holding ``config.yml``.

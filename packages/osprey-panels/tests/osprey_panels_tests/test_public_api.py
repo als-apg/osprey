@@ -13,6 +13,7 @@ import ast
 import importlib
 import re
 import tomllib
+from importlib import metadata
 from pathlib import Path
 from types import ModuleType
 
@@ -109,6 +110,18 @@ def test_a_public_module_lists_every_public_name_it_defines(name: str) -> None:
 def test_every_unlisted_entry_names_a_public_module() -> None:
     stray = set(UNLISTED) - set(PUBLIC)
     assert stray == set(), "not a public module; remove from UNLISTED"
+
+
+def test_the_package_declares_its_version() -> None:
+    package = importlib.import_module("osprey_panels")
+    assert "__version__" in package.__all__
+    try:
+        installed = metadata.version("osprey-panels")
+    except metadata.PackageNotFoundError:  # pragma: no cover — source tree without an install
+        installed = "0.0.0+unbuilt"
+    assert package.__version__ == installed
+    readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "`osprey_panels.__version__`" in readme, "the README does not declare the version"
 
 
 def test_the_console_script_names_a_listed_entry_point() -> None:

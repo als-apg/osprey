@@ -337,6 +337,82 @@ repository documents the dialog in full, in
 ``docs/confirmed-and-staged-writes.md`` at the commit ``--pins`` names for
 ``canopy-screen-runtime``.
 
+Make a drawn shape clickable
+----------------------------
+
+A node with actions takes the pointer on its box. A polygon can take it on the
+shape it draws instead, so one node covers a band along an arc or a bent line
+and what lies under the corners of its box stays reachable. Set these on the
+polygon's ``props``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it does
+   * - ``hitArea``
+     - ``"shape"`` makes the drawn shape the pointer target: a closed polygon
+       over its inside and its outline, an open one along its path. Of two
+       shapes that overlap, the later node is met.
+   * - ``hitWidth``
+     - The width, in the screen's pixels, of the path an open polygon is met
+       on. Without it: the line width, and at least 12.
+   * - ``hoverLabelAt``
+     - ``[x, y]`` in the node's coordinates, where the hover label is centred.
+       Without it the viewer picks a point on the path or well inside the
+       shape.
+
+Hovering such a polygon tints and outlines the shape and shows one label. A
+click runs the node's actions as a click on a box does, with the same write
+dialog. A polygon without ``hitArea`` behaves as before, and no other node
+type reads the prop.
+
+Make several nodes hover as one
+-------------------------------
+
+One thing is often drawn as several nodes: two polygons, an ellipse and a row
+in a list. Give them a group name and they hover together. Set these on the
+``props`` of any node type:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Prop
+     - What it does
+   * - ``hoverGroups``
+     - A list of group names, from narrow to wide. While the pointer is on
+       the node, every node whose list holds its first name is highlighted,
+       and every other node that holds one of its further names is
+       highlighted at lower strength.
+   * - ``hoverDimGroup``
+     - The name of the drawing the node is a part of. While a node with
+       ``hoverGroups`` and the same ``hoverDimGroup`` is hovered, the nodes
+       of that drawing with neither highlight are drawn at reduced opacity.
+       Without it nothing is dimmed.
+   * - ``hoverLabelLines``
+     - Lines for the hover label, under the ``hoverLabel`` if there is one.
+       A line is ``{"text": "..."}``, or ``{"label": ..., "pv": ...,
+       "precision": ...}`` for a channel's live value, shown as
+       ``label: value``. ``label``, ``precision`` and ``showUnits`` are
+       optional.
+
+A node with ``hoverGroups`` takes the pointer whether it has actions or not:
+on its box, or on its shape when it is a polygon with ``hitArea: "shape"``.
+A click runs the actions of the node it lands on, as before. One label
+shows, that of the node the pointer is on. Names are matched over the whole
+screen, embedded screens included, after macro substitution, so a macro in a
+name keeps the instances of an embedded screen apart. Put ``hoverDimGroup``
+on the parts and not on a container around them: a dimmed container dims
+everything in it.
+
+A value line is formatted as a text readout formats it, and a channel that is
+not connected shows ``---``. The channels of a label are subscribed only
+while the label shows. The lines show on a node that hovers: one with actions
+or with ``hoverGroups``. A node with none of the three props behaves as
+before.
+
 What the agent can do in the panel
 ----------------------------------
 

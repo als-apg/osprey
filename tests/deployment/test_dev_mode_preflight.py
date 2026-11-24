@@ -404,7 +404,7 @@ class TestMemberWheelsSatisfyTheFramework:
         assert "osprey-connectors>=2026.6.2" in str(exc.value)
         assert self.CONNECTORS_GLOB in exc.value.remedy
         assert "git fetch --tags" in exc.value.remedy
-        assert "osprey-connectors-v*" in exc.value.remedy
+        assert f"sync the {self.CONNECTORS_GLOB} tags" in exc.value.remedy
         assert not list(ctx.glob("*")), "nothing may be staged for a refused member"
 
     def test_a_dev_build_from_a_beta_tag_satisfies_the_floor(
@@ -442,7 +442,14 @@ class TestMemberWheelsSatisfyTheFramework:
 
         assert "osprey-facility" in str(exc.value)
         assert self.FACILITY_UNTAGGED in str(exc.value)
-        assert self.FACILITY_GLOB in exc.value.remedy
+        # The remedy names the glob the refused member's own pyproject declares,
+        # read the way the refusal reads it, and no other member's tag stream.
+        from osprey.deployment.wheel_build import _describe_glob
+
+        glob = _describe_glob(editable_checkout / "packages" / "osprey-facility")
+        assert glob == self.FACILITY_GLOB
+        assert f"sync the {glob} tags" in exc.value.remedy
+        assert "osprey-connectors" not in exc.value.remedy
         assert not list(ctx.glob("*")), "nothing may be staged for a refused member"
 
 

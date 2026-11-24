@@ -75,9 +75,11 @@ ALL_SETTINGS = [
 #: What ``BASE`` pinned for the demo graph and facility: ``EXPECTED_TRIPLES_LOADED`` in
 #: ``tests/integration/test_graphdb_store.py`` and the ``facility`` counts of
 #: ``tests/facility/golden/demo_census.json``, as they stand at that commit, which never
-#: changes; copied here so the comparison needs no git history.
-BASE_TRIPLES_LOADED = 43801
-BASE_FACILITY_COUNTS = {"devices": 1016, "groups": 79, "channels": 4731}
+#: changes; copied here so the comparison needs no git history, and lowered by what the
+#: synthetic transfer line the example has since dropped held: 542 triples, 20 devices,
+#: 5 groups and 40 channels.
+BASE_TRIPLES_LOADED = 45163
+BASE_FACILITY_COUNTS = {"devices": 1080, "groups": 76, "channels": 4765}
 
 
 def _at_base(path: str) -> str:

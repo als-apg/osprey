@@ -489,6 +489,13 @@ classes:
         range: Tolerance
         inlined: true
         description: "On a float setpoint: how close its readback (its pair, else itself) must come."
+      idle:
+        range: Any
+        description: >-
+          On a readback a command pairs with, its status: what it reads while no
+          act runs, typed by the channel: a label on a bool or enum channel, an
+          integer on an int, a number on a float, text on a string; a waveform
+          channel is never a status.
       "on":
         range: OnTarget
         inlined: true
@@ -541,6 +548,9 @@ classes:
           Computed; true on a command, a setpoint fired rather than set: its
           vocabulary signal is a command word or a model's engine marks its
           wiring record command. Absent on every other channel.
+      timeout_s:
+        range: float
+        description: "On a command whose status states `idle`: the longest one act may take, in seconds."
       provenance:
         range: Provenance
         inlined: true
@@ -979,11 +989,16 @@ classes:
       writable:
         range: boolean
         description: >-
-          Absent means true on a setpoint carrying both `min_value` and
-          `max_value`, false otherwise.
+          Absent means true on a float or int setpoint carrying both
+          `min_value` and `max_value`, false otherwise. A setpoint of any other
+          value_type carries no bounds and is writable only when this is true;
+          its value is not checked against this record.
       confirm:
         range: boolean
-        description: Absent means true; false turns off the re-read after a write.
+        description: >-
+          Absent means true, and false on a command that states `timeout_s`,
+          whose status confirms the write; false turns off the re-read after a
+          write.
 
   Scenario:
     description: Values written into the models at start, and the narratives that go with them.

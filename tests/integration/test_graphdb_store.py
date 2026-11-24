@@ -8,9 +8,9 @@ call shapes but not the two things that decide whether the feature works: that
 produces a graph the operator queries can traverse, and that the graph view the
 demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
-that view (1017 binding owners / 4731 bindings / 674 write-only + 4052 read-only
-/ 481 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 44145 triples.
+that view (1025 binding owners / 4765 bindings / 677 write-only + 4083 read-only
+/ 537 magnets rolled up through the class hierarchy), plus n10s's own
+``terminationStatus`` and its 45507 triples.
 
 Beyond the counts, the seeded demo's ``PARTOF`` and ``LOCATEDIN`` edges must be
 exactly the pairs the facility records imply, and the two match strings the
@@ -80,22 +80,23 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # locatedIn and record names (40928 then); this test is what confirms it holds.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 44145
-#: Distinct resources carrying at least one channel binding: the 1016 devices
+EXPECTED_TRIPLES_LOADED = 45507
+#: Distinct resources carrying at least one channel binding: the 1024 devices
 #: and the top place ``SR``, which carries the tune, chromaticity, user
 #: beam mode and operation-mode channels.
-EXPECTED_DEVICES = 1017
+EXPECTED_DEVICES = 1025
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 4731
-EXPECTED_WRITE_ONLY = 674
-EXPECTED_READ_ONLY = 4052
+EXPECTED_BINDINGS = 4765
+EXPECTED_WRITE_ONLY = 677
+EXPECTED_READ_ONLY = 4083
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector + Septum + Kicker
 #: + Solenoid + BuckingCoil + InsertionDevice. ``SR/MAG-Q-0301``, the quadrupole
 #: the controls system names and no channel binds, counts with them: ``sameAs``
-#: merges nothing.
+#: merges nothing. So do the booster's 56 bends and quadrupoles, which share
+#: three supplies and have no channel of their own.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.
-EXPECTED_MAGNETS = 481
+EXPECTED_MAGNETS = 537
 
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.

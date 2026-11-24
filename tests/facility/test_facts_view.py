@@ -120,13 +120,13 @@ def test_the_facts_are_the_facility_files(built_demo: BuiltProject) -> None:
     assert facts["place_levels"] == ["building", "machine", "row", "sector", "girder", "rack"]
     assert facts["hierarchy_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
-    assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
+    assert list(facts["measurement_models"]) == ["BR", "BTS", "LTB", "SR"]
     for model, record in facts["measurement_models"].items():
         assert record["path"] == f"data/pyaml/{model}/configuration.yaml"
     assert facts["snapshot"] is None
     assert facts["models"] == [
+        {"name": "BR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": "BTS", "engine": "pyat", "served": True, "solve": "single_pass"},
-        {"name": "LINE", "engine": "pyat", "served": True, "solve": "single_pass"},
         {"name": "LTB", "engine": "pyat", "served": True, "solve": "single_pass"},
         {"name": "SR", "engine": "pyat", "served": True, "solve": "periodic"},
         {"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None},
@@ -332,8 +332,8 @@ def test_two_renders_differing_in_served_models_write_different_facts(
         served[name] = {model["name"]: model["served"] for model in facts["models"]}
 
     assert served == {
-        "all": {"BTS": True, "LINE": True, "LTB": True, "SR": True, TEXTURE: True},
-        "none": {"BTS": False, "LINE": False, "LTB": False, "SR": False, TEXTURE: True},
+        "all": {"BR": True, "BTS": True, "LTB": True, "SR": True, TEXTURE: True},
+        "none": {"BR": False, "BTS": False, "LTB": False, "SR": False, TEXTURE: True},
     }
 
 
@@ -484,7 +484,7 @@ def test_the_built_context_reads_the_written_facts(built_demo: BuiltProject) -> 
     assert ctx["pyaml_view_present"] is True
     records = facts["measurement_models"]
     assert ctx["measurement"] == hook_measurement(facts, built_demo.build_dir)
-    assert list(ctx["measurement"]) == ["BTS", "LINE", "LTB", "SR"]
+    assert list(ctx["measurement"]) == ["BR", "BTS", "LTB", "SR"]
     for model, record in records.items():
         assert ctx["measurement"][model]["view_sha256"] == record["sha256"]
 

@@ -1,51 +1,163 @@
 # Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 - id: BR/BPM01
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 01.
   names:
   - BPM01
+  - BPM(1,2)
   label: BPM 01
   place: BR
 - id: BR/BPM02
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 02.
   names:
   - BPM02
+  - BPM(1,3)
   label: BPM 02
   place: BR
 - id: BR/BPM03
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 03.
   names:
   - BPM03
+  - BPM(1,4)
   label: BPM 03
   place: BR
 - id: BR/BPM04
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 04.
   names:
   - BPM04
+  - BPM(1,6)
   label: BPM 04
   place: BR
 - id: BR/BPM05
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 05.
   names:
   - BPM05
+  - BPM(1,8)
   label: BPM 05
   place: BR
 - id: BR/BPM06
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 06.
   names:
   - BPM06
+  - BPM(2,2)
   label: BPM 06
   place: BR
 - id: BR/BPM07
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 07.
   names:
   - BPM07
+  - BPM(2,3)
   label: BPM 07
   place: BR
 - id: BR/BPM08
   class: BeamPositionMonitor
+  description: Booster ring beam position monitor 08.
   names:
   - BPM08
+  - BPM(2,4)
   label: BPM 08
+  place: BR
+- id: BR/BPM09
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 09.
+  names:
+  - BPM09
+  - BPM(2,6)
+  label: BPM 09
+  place: BR
+- id: BR/BPM10
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 10.
+  names:
+  - BPM10
+  - BPM(2,8)
+  label: BPM 10
+  place: BR
+- id: BR/BPM11
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 11.
+  names:
+  - BPM11
+  - BPM(3,2)
+  label: BPM 11
+  place: BR
+- id: BR/BPM12
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 12.
+  names:
+  - BPM12
+  - BPM(3,3)
+  label: BPM 12
+  place: BR
+- id: BR/BPM13
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 13.
+  names:
+  - BPM13
+  - BPM(3,4)
+  label: BPM 13
+  place: BR
+- id: BR/BPM14
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 14.
+  names:
+  - BPM14
+  - BPM(3,6)
+  label: BPM 14
+  place: BR
+- id: BR/BPM15
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 15.
+  names:
+  - BPM15
+  - BPM(3,8)
+  label: BPM 15
+  place: BR
+- id: BR/BPM16
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 16.
+  names:
+  - BPM16
+  - BPM(4,2)
+  label: BPM 16
+  place: BR
+- id: BR/BPM17
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 17.
+  names:
+  - BPM17
+  - BPM(4,3)
+  label: BPM 17
+  place: BR
+- id: BR/BPM18
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 18.
+  names:
+  - BPM18
+  - BPM(4,4)
+  label: BPM 18
+  place: BR
+- id: BR/BPM19
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 19.
+  names:
+  - BPM19
+  - BPM(4,6)
+  label: BPM 19
+  place: BR
+- id: BR/BPM20
+  class: BeamPositionMonitor
+  description: Booster ring beam position monitor 20.
+  names:
+  - BPM20
+  - BPM(4,8)
+  label: BPM 20
   place: BR
 - id: BR/DCCT01
   class: BeamCurrentMonitor
@@ -64,51 +176,283 @@
   place: BR
 - id: BR/DIPOLE01
   class: Dipole
+  description: Booster ring bending magnet 01.
   names:
   - DIPOLE01
   label: DIPOLE 01
   place: BR
 - id: BR/DIPOLE02
   class: Dipole
+  description: Booster ring bending magnet 02.
   names:
   - DIPOLE02
   label: DIPOLE 02
   place: BR
 - id: BR/DIPOLE03
   class: Dipole
+  description: Booster ring bending magnet 03.
   names:
   - DIPOLE03
   label: DIPOLE 03
   place: BR
 - id: BR/DIPOLE04
   class: Dipole
+  description: Booster ring bending magnet 04.
   names:
   - DIPOLE04
   label: DIPOLE 04
   place: BR
 - id: BR/DIPOLE05
   class: Dipole
+  description: Booster ring bending magnet 05.
   names:
   - DIPOLE05
   label: DIPOLE 05
   place: BR
 - id: BR/DIPOLE06
   class: Dipole
+  description: Booster ring bending magnet 06.
   names:
   - DIPOLE06
   label: DIPOLE 06
   place: BR
 - id: BR/DIPOLE07
   class: Dipole
+  description: Booster ring bending magnet 07.
   names:
   - DIPOLE07
   label: DIPOLE 07
   place: BR
 - id: BR/DIPOLE08
   class: Dipole
+  description: Booster ring bending magnet 08.
   names:
   - DIPOLE08
   label: DIPOLE 08
+  place: BR
+- id: BR/DIPOLE09
+  class: Dipole
+  description: Booster ring bending magnet 09.
+  names:
+  - DIPOLE09
+  label: DIPOLE 09
+  place: BR
+- id: BR/DIPOLE10
+  class: Dipole
+  description: Booster ring bending magnet 10.
+  names:
+  - DIPOLE10
+  label: DIPOLE 10
+  place: BR
+- id: BR/DIPOLE11
+  class: Dipole
+  description: Booster ring bending magnet 11.
+  names:
+  - DIPOLE11
+  label: DIPOLE 11
+  place: BR
+- id: BR/DIPOLE12
+  class: Dipole
+  description: Booster ring bending magnet 12.
+  names:
+  - DIPOLE12
+  label: DIPOLE 12
+  place: BR
+- id: BR/DIPOLE13
+  class: Dipole
+  description: Booster ring bending magnet 13.
+  names:
+  - DIPOLE13
+  label: DIPOLE 13
+  place: BR
+- id: BR/DIPOLE14
+  class: Dipole
+  description: Booster ring bending magnet 14.
+  names:
+  - DIPOLE14
+  label: DIPOLE 14
+  place: BR
+- id: BR/DIPOLE15
+  class: Dipole
+  description: Booster ring bending magnet 15.
+  names:
+  - DIPOLE15
+  label: DIPOLE 15
+  place: BR
+- id: BR/DIPOLE16
+  class: Dipole
+  description: Booster ring bending magnet 16.
+  names:
+  - DIPOLE16
+  label: DIPOLE 16
+  place: BR
+- id: BR/DIPOLE17
+  class: Dipole
+  description: Booster ring bending magnet 17.
+  names:
+  - DIPOLE17
+  label: DIPOLE 17
+  place: BR
+- id: BR/DIPOLE18
+  class: Dipole
+  description: Booster ring bending magnet 18.
+  names:
+  - DIPOLE18
+  label: DIPOLE 18
+  place: BR
+- id: BR/DIPOLE19
+  class: Dipole
+  description: Booster ring bending magnet 19.
+  names:
+  - DIPOLE19
+  label: DIPOLE 19
+  place: BR
+- id: BR/DIPOLE20
+  class: Dipole
+  description: Booster ring bending magnet 20.
+  names:
+  - DIPOLE20
+  label: DIPOLE 20
+  place: BR
+- id: BR/DIPOLE21
+  class: Dipole
+  description: Booster ring bending magnet 21.
+  names:
+  - DIPOLE21
+  label: DIPOLE 21
+  place: BR
+- id: BR/DIPOLE22
+  class: Dipole
+  description: Booster ring bending magnet 22.
+  names:
+  - DIPOLE22
+  label: DIPOLE 22
+  place: BR
+- id: BR/DIPOLE23
+  class: Dipole
+  description: Booster ring bending magnet 23.
+  names:
+  - DIPOLE23
+  label: DIPOLE 23
+  place: BR
+- id: BR/DIPOLE24
+  class: Dipole
+  description: Booster ring bending magnet 24.
+  names:
+  - DIPOLE24
+  label: DIPOLE 24
+  place: BR
+- id: BR/HCM01
+  class: HCorrector
+  description: Booster ring horizontal corrector 01.
+  names:
+  - HCM01
+  label: HCM 01
+  place: BR
+- id: BR/HCM02
+  class: HCorrector
+  description: Booster ring horizontal corrector 02.
+  names:
+  - HCM02
+  label: HCM 02
+  place: BR
+- id: BR/HCM03
+  class: HCorrector
+  description: Booster ring horizontal corrector 03.
+  names:
+  - HCM03
+  label: HCM 03
+  place: BR
+- id: BR/HCM04
+  class: HCorrector
+  description: Booster ring horizontal corrector 04.
+  names:
+  - HCM04
+  label: HCM 04
+  place: BR
+- id: BR/HCM05
+  class: HCorrector
+  description: Booster ring horizontal corrector 05.
+  names:
+  - HCM05
+  label: HCM 05
+  place: BR
+- id: BR/HCM06
+  class: HCorrector
+  description: Booster ring horizontal corrector 06.
+  names:
+  - HCM06
+  label: HCM 06
+  place: BR
+- id: BR/HCM07
+  class: HCorrector
+  description: Booster ring horizontal corrector 07.
+  names:
+  - HCM07
+  label: HCM 07
+  place: BR
+- id: BR/HCM08
+  class: HCorrector
+  description: Booster ring horizontal corrector 08.
+  names:
+  - HCM08
+  label: HCM 08
+  place: BR
+- id: BR/HCM09
+  class: HCorrector
+  description: Booster ring horizontal corrector 09.
+  names:
+  - HCM09
+  label: HCM 09
+  place: BR
+- id: BR/HCM10
+  class: HCorrector
+  description: Booster ring horizontal corrector 10.
+  names:
+  - HCM10
+  label: HCM 10
+  place: BR
+- id: BR/HCM11
+  class: HCorrector
+  description: Booster ring horizontal corrector 11.
+  names:
+  - HCM11
+  label: HCM 11
+  place: BR
+- id: BR/HCM12
+  class: HCorrector
+  description: Booster ring horizontal corrector 12.
+  names:
+  - HCM12
+  label: HCM 12
+  place: BR
+- id: BR/HCM13
+  class: HCorrector
+  description: Booster ring horizontal corrector 13.
+  names:
+  - HCM13
+  label: HCM 13
+  place: BR
+- id: BR/HCM14
+  class: HCorrector
+  description: Booster ring horizontal corrector 14.
+  names:
+  - HCM14
+  label: HCM 14
+  place: BR
+- id: BR/HCM15
+  class: HCorrector
+  description: Booster ring horizontal corrector 15.
+  names:
+  - HCM15
+  label: HCM 15
+  place: BR
+- id: BR/HCM16
+  class: HCorrector
+  description: Booster ring horizontal corrector 16.
+  names:
+  - HCM16
+  label: HCM 16
   place: BR
 - id: BR/KICKER01
   class: Kicker
@@ -126,27 +470,115 @@
   place: BR
 - id: BR/QD01
   class: Quadrupole
+  description: Booster ring defocusing quadrupole 01.
   names:
   - QD01
   label: QD 01
   place: BR
 - id: BR/QD02
   class: Quadrupole
+  description: Booster ring defocusing quadrupole 02.
   names:
   - QD02
   label: QD 02
   place: BR
 - id: BR/QD03
   class: Quadrupole
+  description: Booster ring defocusing quadrupole 03.
   names:
   - QD03
   label: QD 03
   place: BR
 - id: BR/QD04
   class: Quadrupole
+  description: Booster ring defocusing quadrupole 04.
   names:
   - QD04
   label: QD 04
+  place: BR
+- id: BR/QD05
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 05.
+  names:
+  - QD05
+  label: QD 05
+  place: BR
+- id: BR/QD06
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 06.
+  names:
+  - QD06
+  label: QD 06
+  place: BR
+- id: BR/QD07
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 07.
+  names:
+  - QD07
+  label: QD 07
+  place: BR
+- id: BR/QD08
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 08.
+  names:
+  - QD08
+  label: QD 08
+  place: BR
+- id: BR/QD09
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 09.
+  names:
+  - QD09
+  label: QD 09
+  place: BR
+- id: BR/QD10
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 10.
+  names:
+  - QD10
+  label: QD 10
+  place: BR
+- id: BR/QD11
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 11.
+  names:
+  - QD11
+  label: QD 11
+  place: BR
+- id: BR/QD12
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 12.
+  names:
+  - QD12
+  label: QD 12
+  place: BR
+- id: BR/QD13
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 13.
+  names:
+  - QD13
+  label: QD 13
+  place: BR
+- id: BR/QD14
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 14.
+  names:
+  - QD14
+  label: QD 14
+  place: BR
+- id: BR/QD15
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 15.
+  names:
+  - QD15
+  label: QD 15
+  place: BR
+- id: BR/QD16
+  class: Quadrupole
+  description: Booster ring defocusing quadrupole 16.
+  names:
+  - QD16
+  label: QD 16
   place: BR
 - id: BR/QF-RAMP01
   class: Quadrupole
@@ -157,27 +589,115 @@
   place: BR
 - id: BR/QF01
   class: Quadrupole
+  description: Booster ring focusing quadrupole 01.
   names:
   - QF01
   label: QF 01
   place: BR
 - id: BR/QF02
   class: Quadrupole
+  description: Booster ring focusing quadrupole 02.
   names:
   - QF02
   label: QF 02
   place: BR
 - id: BR/QF03
   class: Quadrupole
+  description: Booster ring focusing quadrupole 03.
   names:
   - QF03
   label: QF 03
   place: BR
 - id: BR/QF04
   class: Quadrupole
+  description: Booster ring focusing quadrupole 04.
   names:
   - QF04
   label: QF 04
+  place: BR
+- id: BR/QF05
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 05.
+  names:
+  - QF05
+  label: QF 05
+  place: BR
+- id: BR/QF06
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 06.
+  names:
+  - QF06
+  label: QF 06
+  place: BR
+- id: BR/QF07
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 07.
+  names:
+  - QF07
+  label: QF 07
+  place: BR
+- id: BR/QF08
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 08.
+  names:
+  - QF08
+  label: QF 08
+  place: BR
+- id: BR/QF09
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 09.
+  names:
+  - QF09
+  label: QF 09
+  place: BR
+- id: BR/QF10
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 10.
+  names:
+  - QF10
+  label: QF 10
+  place: BR
+- id: BR/QF11
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 11.
+  names:
+  - QF11
+  label: QF 11
+  place: BR
+- id: BR/QF12
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 12.
+  names:
+  - QF12
+  label: QF 12
+  place: BR
+- id: BR/QF13
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 13.
+  names:
+  - QF13
+  label: QF 13
+  place: BR
+- id: BR/QF14
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 14.
+  names:
+  - QF14
+  label: QF 14
+  place: BR
+- id: BR/QF15
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 15.
+  names:
+  - QF15
+  label: QF 15
+  place: BR
+- id: BR/QF16
+  class: Quadrupole
+  description: Booster ring focusing quadrupole 16.
+  names:
+  - QF16
+  label: QF 16
   place: BR
 - id: BR/SEPTUM01
   class: Septum
@@ -229,6 +749,118 @@
   names:
   - TV05
   label: TV 05
+  place: BR
+- id: BR/VCM01
+  class: VCorrector
+  description: Booster ring vertical corrector 01.
+  names:
+  - VCM01
+  label: VCM 01
+  place: BR
+- id: BR/VCM02
+  class: VCorrector
+  description: Booster ring vertical corrector 02.
+  names:
+  - VCM02
+  label: VCM 02
+  place: BR
+- id: BR/VCM03
+  class: VCorrector
+  description: Booster ring vertical corrector 03.
+  names:
+  - VCM03
+  label: VCM 03
+  place: BR
+- id: BR/VCM04
+  class: VCorrector
+  description: Booster ring vertical corrector 04.
+  names:
+  - VCM04
+  label: VCM 04
+  place: BR
+- id: BR/VCM05
+  class: VCorrector
+  description: Booster ring vertical corrector 05.
+  names:
+  - VCM05
+  label: VCM 05
+  place: BR
+- id: BR/VCM06
+  class: VCorrector
+  description: Booster ring vertical corrector 06.
+  names:
+  - VCM06
+  label: VCM 06
+  place: BR
+- id: BR/VCM07
+  class: VCorrector
+  description: Booster ring vertical corrector 07.
+  names:
+  - VCM07
+  label: VCM 07
+  place: BR
+- id: BR/VCM08
+  class: VCorrector
+  description: Booster ring vertical corrector 08.
+  names:
+  - VCM08
+  label: VCM 08
+  place: BR
+- id: BR/VCM09
+  class: VCorrector
+  description: Booster ring vertical corrector 09.
+  names:
+  - VCM09
+  label: VCM 09
+  place: BR
+- id: BR/VCM10
+  class: VCorrector
+  description: Booster ring vertical corrector 10.
+  names:
+  - VCM10
+  label: VCM 10
+  place: BR
+- id: BR/VCM11
+  class: VCorrector
+  description: Booster ring vertical corrector 11.
+  names:
+  - VCM11
+  label: VCM 11
+  place: BR
+- id: BR/VCM12
+  class: VCorrector
+  description: Booster ring vertical corrector 12.
+  names:
+  - VCM12
+  label: VCM 12
+  place: BR
+- id: BR/VCM13
+  class: VCorrector
+  description: Booster ring vertical corrector 13.
+  names:
+  - VCM13
+  label: VCM 13
+  place: BR
+- id: BR/VCM14
+  class: VCorrector
+  description: Booster ring vertical corrector 14.
+  names:
+  - VCM14
+  label: VCM 14
+  place: BR
+- id: BR/VCM15
+  class: VCorrector
+  description: Booster ring vertical corrector 15.
+  names:
+  - VCM15
+  label: VCM 15
+  place: BR
+- id: BR/VCM16
+  class: VCorrector
+  description: Booster ring vertical corrector 16.
+  names:
+  - VCM16
+  label: VCM 16
   place: BR
 - id: BTS/BPM01
   class: BeamPositionMonitor
@@ -711,66 +1343,6 @@
   place: GTL
 - id: HALL/PANEL-3A
   class: Circuit
-- id: LINE/BPM01
-  class: BeamPositionMonitor
-  label: LINE BPM 01
-- id: LINE/BPM02
-  class: BeamPositionMonitor
-  label: LINE BPM 02
-- id: LINE/BPM03
-  class: BeamPositionMonitor
-  label: LINE BPM 03
-- id: LINE/BPM04
-  class: BeamPositionMonitor
-  label: LINE BPM 04
-- id: LINE/HCM01
-  class: HCorrector
-  label: LINE HCM 01
-- id: LINE/HCM02
-  class: HCorrector
-  label: LINE HCM 02
-- id: LINE/HCM03
-  class: HCorrector
-  label: LINE HCM 03
-- id: LINE/HCM04
-  class: HCorrector
-  label: LINE HCM 04
-- id: LINE/QD01
-  class: Quadrupole
-  label: LINE QD 01
-- id: LINE/QD02
-  class: Quadrupole
-  label: LINE QD 02
-- id: LINE/QD03
-  class: Quadrupole
-  label: LINE QD 03
-- id: LINE/QD04
-  class: Quadrupole
-  label: LINE QD 04
-- id: LINE/QF01
-  class: Quadrupole
-  label: LINE QF 01
-- id: LINE/QF02
-  class: Quadrupole
-  label: LINE QF 02
-- id: LINE/QF03
-  class: Quadrupole
-  label: LINE QF 03
-- id: LINE/QF04
-  class: Quadrupole
-  label: LINE QF 04
-- id: LINE/VCM01
-  class: VCorrector
-  label: LINE VCM 01
-- id: LINE/VCM02
-  class: VCorrector
-  label: LINE VCM 02
-- id: LINE/VCM03
-  class: VCorrector
-  label: LINE VCM 03
-- id: LINE/VCM04
-  class: VCorrector
-  label: LINE VCM 04
 - id: LN/ACC01
   class: TravellingWaveCavity
   description: Linac accelerating section 01.

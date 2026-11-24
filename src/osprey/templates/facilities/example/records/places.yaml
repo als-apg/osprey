@@ -80,6 +80,9 @@
   description: 'Booster Ring (BR): Accelerates electron beam from 150 MeV (linac energy) to 2.0 GeV before injection into the storage ring. Compact ring with 4-fold symmetry, operates at 1-10 Hz repetition rate.'
   names:
   - booster ring
+  span:
+    model: BR
+    from_marker: START
 - id: BTS
   level: machine
   description: 'Booster-to-Storage Transfer Line (BTS): the transfer line, about 35 m long, that carries the 2.0 GeV beam extracted from the booster to injection into the storage ring. Bending magnets route it, focusing and defocusing quadrupoles match its optics, and horizontal and vertical correctors steer it onto the injection septa. Beam position monitors with sum signals, an integrating current transformer, and screens up to the storage ring''s first screen follow the beam; a paddle summary counts the screens in the beam.'
@@ -90,12 +93,6 @@
   - storage ring injection line
   span:
     model: BTS
-    from_marker: START
-- id: LINE
-  level: machine
-  description: 'Transfer line (LINE): single-pass line of 4 focusing-defocusing cells, each with one BPM, one horizontal and one vertical corrector and two quadrupoles.'
-  span:
-    model: LINE
     from_marker: START
 - id: SR/SECT3/G2
   level: girder
