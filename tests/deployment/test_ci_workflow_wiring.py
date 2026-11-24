@@ -1706,7 +1706,7 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_adds_an_exclude() -> N
     ("selector", "mutant"),
     [
         # A bare `-k "demo"` matches by substring: the demo cell also selects, and
-        # builds, every `[demo-orbit-bump]` test.
+        # builds, every `[demo-app]` test.
         ('-k "[$CASE]"', '-k "$CASE"'),
         # No `-k` at all: every cell runs the whole file and stays green doing it.
         (' -k "[$CASE]"', ""),
