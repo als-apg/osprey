@@ -27,6 +27,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.build.manifest import note_sha256
 from osprey_facility import FACILITY_FILE
 from osprey_facility.build import FacilityDocument
 from osprey_facility.render import copy_checked, file_sha256, write_facility_file
@@ -160,6 +161,8 @@ def _write_view(
     views_written[key] = [
         (path.relative_to(render_dir).as_posix(), path, file_sha256(path)) for path in paths
     ]
+    for _relative, path, digest in views_written[key]:
+        note_sha256(path, digest)
     return paths
 
 
@@ -177,5 +180,6 @@ def _copy_written(files: list[tuple[str, Path, str]], render_dir: Path) -> list[
         path.parent.mkdir(parents=True, exist_ok=True)
         if not copy_checked(written, path, digest):
             return None
+        note_sha256(path, digest)
         paths.append(path)
     return paths

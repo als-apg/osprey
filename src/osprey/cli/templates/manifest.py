@@ -17,7 +17,7 @@ from osprey.agent_runner.build_artifacts.catalog import (
     BuildArtifactCatalog,
 )
 from osprey.agent_runner.build_artifacts.ownership import framework_template_hash
-from osprey.build.manifest import MANIFEST_FILENAME, sha256_file
+from osprey.build.manifest import MANIFEST_FILENAME, noted_sha256, sha256_file
 from osprey_connectors.errors import BuildProfileError
 
 logger = logging.getLogger("osprey.cli.templates")
@@ -397,9 +397,9 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
         if file_path.suffix in [".pyc", ".pyo", ".so", ".dll", ".dylib", ".duckdb"]:
             continue
 
-        # Calculate checksum
+        # Calculate checksum, unless the build that wrote the file noted it
         try:
-            checksum = sha256_file(file_path)
+            checksum = noted_sha256(file_path) or sha256_file(file_path)
             checksums[rel_path_str] = f"sha256:{checksum}"
         except OSError:
             # Skip files that can't be read
