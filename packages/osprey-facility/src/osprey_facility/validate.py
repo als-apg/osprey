@@ -80,10 +80,13 @@ __all__ = [
     "check_references",
     "check_schema",
     "known_classes",
+    "limit_records",
+    "missing_text",
     "need",
     "ordered_slots",
     "paired_nominal_error",
     "record_missing",
+    "record_range",
     "record_writable",
     "relation_types",
     "run_stages",
@@ -3638,6 +3641,54 @@ def tolerance_warnings(
             f"floor {floor:g}{listed}" + (f"\nand {more} more" if more > 0 else "")
         )
     return lines
+
+
+def limit_records(document: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """The limits records of a built facility document, keyed by address.
+
+    Args:
+        document: A built facility document.
+
+    Returns:
+        Each record of ``limits.records`` under its address, sorted by
+        address; empty when the document states no limits records.
+    """
+    limits = document.get("limits")
+    rows = limits.get("records") if isinstance(limits, Mapping) else None
+    keyed = {str(row["address"]): row for row in rows or ()}
+    return dict(sorted(keyed.items()))
+
+
+def record_range(record: Mapping[str, Any]) -> tuple[float, float] | None:
+    """The range a limits record states: ``(min_value, max_value)`` as floats.
+
+    Args:
+        record: A limits record.
+
+    Returns:
+        Both edges as floats; None when the record leaves either unstated.
+    """
+    low, high = (record.get(edge) for edge in _LIMIT_EDGES)
+    if low is None or high is None:
+        return None
+    return float(low), float(high)
+
+
+def missing_text(record: Mapping[str, Any], missing: Iterable[str]) -> str:
+    """What a limits record states and lacks, as one phrase.
+
+    Args:
+        record: A limits record.
+        missing: The slots it lacks, as :func:`record_missing` answers them.
+
+    Returns:
+        Each bound the record states as ``<slot> <value>`` in
+        :data:`LIMIT_BOUNDS` order, then each missing slot as ``no <slot>``
+        (``no writable: true`` for ``writable``), joined by ``, ``.
+    """
+    stated = [f"{slot} {record[slot]}" for slot in LIMIT_BOUNDS if record.get(slot) is not None]
+    lacks = ["no writable: true" if slot == "writable" else f"no {slot}" for slot in missing]
+    return ", ".join([*stated, *lacks])
 
 
 def record_missing(record: Mapping[str, Any], role: str, value_type: str) -> tuple[str, ...] | None:
