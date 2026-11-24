@@ -928,6 +928,14 @@ plain float.
      - none
      - The apertures of single elements, a list of items read in order; see
        *Apertures per element* below.
+   * - ``pickup``
+     - none
+     - The button pickup of every monitor of the ring; see *Button pickups*
+       below. Unstated, a monitor reads the beam position as it is.
+   * - ``pickups``
+     - none
+     - The pickups of single monitors, a list of items read in order; see
+       *Button pickups* below.
    * - ``sum_per_charge``
      - ``1.0``
      - Sum per unit of the shot's charge.
@@ -955,8 +963,8 @@ plain float.
 
 Every number but ``launch``, ``alpha`` and ``dispersion`` in ``twiss``, and a
 rectangle's limits is finite and not negative; an unknown key, also inside
-``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture`` or an
-``apertures`` item, stops the build. The apertures decide when an RF-off bunch
+``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture``, an
+``apertures`` item, ``pickup`` or a ``pickups`` item, stops the build. The apertures decide when an RF-off bunch
 is lost; they are the facility's to calibrate.
 
 **Apertures per element.** A vacuum chamber is not one pipe: it narrows in the
@@ -1145,6 +1153,186 @@ As a fault of the running model its name is
 ``SIM:RING:BPM01:TBT:SUM/gain``. Where two records read one monitor's sum,
 the first carries the gain. A ``turn_sum`` record takes no other fault field,
 and a ``turn_x`` or ``turn_y`` record none at all.
+
+**Button pickups.** A real monitor does not measure a position. It has
+buttons on the chamber wall, each reads more of a beam that is closer to it,
+and the electronics form the sum and the two positions from the button
+signals. Both therefore depend on where the beam is: the sum is not the same
+for one charge everywhere in the chamber, and a position far from the centre
+reads short of the true one. A monitor that states a pickup is read that way.
+A monitor that states none reads as described above, to the last bit.
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           pickup:
+             shape: round
+             radius: 0.016
+             buttons: [45, 135, 225, 315]
+             half_width: 14
+             x: {plus: [1, 4], minus: [2, 3]}
+             y: {plus: [1, 2], minus: [3, 4]}
+           pickups:
+             - elements: [BPM07, BPM08]
+               shape: table
+               table: pickups/flat-chamber.json
+               buttons: 4
+               interpolation: bicubic
+               x: {plus: [1, 4], minus: [2, 3], scale: 0.0125}
+               y: {plus: [1, 2], minus: [3, 4]}
+
+``pickup`` is the pickup of every monitor of the ring. Each ``pickups`` item
+states one in the same words and names its monitors' deck elements under
+``elements``; a monitor takes the last item that names it, and the ring's
+``pickup`` where none does. A pickup has one of two shapes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Key
+     - Meaning
+   * - ``shape: round``
+     - Buttons on a round pipe.
+   * - ``radius``
+     - The pipe's radius in metres, above 0.
+   * - ``buttons``
+     - The centre angle of each button in degrees, counterclockwise from the
+       positive x axis, looking along the beam; two buttons or more. Their
+       order numbers them from 1.
+   * - ``half_width`` or ``diameter``
+     - The buttons' size, exactly one of the two: the angular half-width in
+       degrees, above 0 and at most 90, or the diameter in metres. A diameter
+       is read as an arc of that width along the wall, a half-width of
+       ``diameter / (2 * radius)`` radians.
+   * - ``shape: table``
+     - Each button's response on a grid, computed outside OSPREY, for a
+       chamber that is not round.
+   * - ``table``
+     - The table's JSON file, relative to the directory of the model's deck.
+   * - ``buttons``
+     - How many buttons the table holds, two or more.
+   * - ``interpolation``
+     - ``bilinear`` (the default) or ``bicubic``, how the table is read
+       between its grid points.
+
+Both shapes state the electronics' difference over sum, one map per plane:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Key
+     - Meaning
+   * - ``x.plus``, ``x.minus``
+     - The numbers of the buttons that add to and subtract from the
+       horizontal difference. Both lists are required; a button is in at most
+       one of them.
+   * - ``x.scale``
+     - The horizontal reading per unit of difference over sum, in metres.
+       Unstated, it is the scale that makes the reading exact to first order
+       at the centre, computed from the geometry or, for a table, from the
+       table's slope at the centre.
+   * - ``y.plus``, ``y.minus``, ``y.scale``
+     - The same for the vertical reading.
+
+A round pickup's button reads the wall image charge of the beam averaged over
+its arc. For a button at angle :math:`\varphi` of half-width :math:`\delta`
+on a pipe of radius :math:`a`, and a beam at :math:`(r, \theta)`, that is
+
+.. math::
+
+   1 + 2 \sum_{n \ge 1} \left(\frac{r}{a}\right)^{n}
+   \cos\bigl(n(\theta - \varphi)\bigr)\,
+   \frac{\sin n\delta}{n\delta} ,
+
+which OSPREY evaluates in closed form, with no truncation. Four buttons at
+45 degrees to the axes so read a sum that is larger for a beam displaced
+towards a button and smaller for one displaced along an axis, by an amount
+that grows with the fourth power of the displacement. A beam at or beyond
+99.9 % of the radius is read at that share of it, in its own direction.
+
+A table is a JSON map of three keys. ``x`` and ``y`` are the grid, in metres:
+each two or more values, increasing in equal steps, with 0 inside their
+range. ``buttons`` holds one array per button, each ``len(y)`` rows of
+``len(x)`` responses, none negative; row ``j``, column ``i`` is the response
+to a beam at ``(x[i], y[j])``. Only the ratios matter: the table is divided
+by the sum of its responses at the centre, which must be above 0. A beam
+outside the grid is read at the grid's edge, plane by plane, so make the grid
+as wide as the chamber.
+
+.. code-block:: json
+
+   {"x": [-0.002, 0.0, 0.002],
+    "y": [-0.001, 0.0, 0.001],
+    "buttons": [[[0.91, 1.0, 1.10], [0.95, 1.05, 1.16], [1.0, 1.10, 1.22]],
+                [[1.10, 1.0, 0.91], [1.16, 1.05, 0.95], [1.22, 1.10, 1.0]],
+                [[1.22, 1.10, 1.0], [1.16, 1.05, 0.95], [1.10, 1.0, 0.91]],
+                [[1.0, 1.10, 1.22], [0.95, 1.05, 1.16], [0.91, 1.0, 1.10]]]}
+
+With a pickup stated, a monitor's three arrays are formed in this order:
+
+1. The injected weight of a sample is the shot's charge times the share of
+   the bunch alive times ``sum_per_charge``; the stored weight is, with the
+   RF on, the stored current times ``sum_per_stored``.
+2. Each button's signal is its gain times the sum of the injected weight
+   times its response at the bunch's centroid and the stored weight times its
+   response at zero. The injected bunch and the stored beam so add at the
+   buttons, not as two positions.
+3. The beam sum is the sum of the button signals. A position is the plane's
+   ``scale`` times its ``plus`` buttons minus its ``minus`` buttons, over the
+   beam sum.
+4. There is beam to read where that beam sum, button gains included and the
+   monitor's sum gain not, exceeds ``sum_floor``.
+5. The positions take ``position_noise``, then the monitor's read-out
+   faults, ``floor_noise`` where there is no beam, and the pilot tone, as
+   without a pickup.
+6. The sum array is the beam sum times the monitor's sum gain, plus
+   ``sum_noise``, floored at ``sum_floor``, plus the pilot tone, as without
+   a pickup.
+
+The responses to a centred beam sum to 1, so a centred beam on buttons of
+gain 1 reads the sum it reads without a pickup; the two agree to floating-
+point rounding, not bit for bit.
+
+Each button has a gain of its own, a fault on the monitor's ``turn_sum``
+record beside the sum gain: ``button_1`` to ``button_<N>``, ``1`` when
+unstated and between 0 and 10. A facility states measured button gains there
+and a scenario weakens or kills a button:
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       SIM:RING:BPM01:TBT:SUM: {button_1: 0.95}
+       SIM:RING:BPM02:TBT:SUM: {button_3: 0.0, gain: 1.08}
+
+Uneven buttons show as an offset in both positions with no offset stated: a
+button that is weaker by a small share :math:`d` moves each plane it adds to
+by about ``-scale * d / N`` for ``N`` buttons, and each plane it subtracts
+from by as much the other way. With every button at 0 the monitor reads no
+beam. As a fault of the running model the name is
+``SIM:RING:BPM01:TBT:SUM/button_1``. A monitor with no pickup carries no
+button gain, and one with a pickup but no ``turn_sum`` record wired has none
+to state.
+
+The limits of the model:
+
+- OSPREY serves the raw difference over sum times the scale, as the
+  electronics do. It applies no linearisation; a correction polynomial is the
+  reading application's.
+- The buttons read the bunch at its centroid, not particle by particle, so a
+  bunch as wide as the chamber reads as a point.
+- The stored beam is read at zero, not at its closed orbit.
+- A monitor's ``roll`` fault turns the pair of readings, as before; it does
+  not turn the buttons.
+- The orbit readings of the same monitor do not use the pickup: they read the
+  closed orbit as it is, through the monitor's read-out faults alone.
+- The trajectory response, below, is the deck's and shows no pickup.
 
 With the pilot tone on, every sample whose index is a
 multiple of ``tone_period`` carries a spike in all three arrays. The noise is

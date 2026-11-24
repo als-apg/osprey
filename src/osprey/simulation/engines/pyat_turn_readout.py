@@ -25,15 +25,39 @@ Every random number is a ``keyed_normals`` draw keyed on the array's record
 address, the shot's value and the sample index, never on Python's ``hash``
 or the clock, so a shot reads the same in every process. Everything here
 takes plain numbers and arrays; nothing reads a model or a lattice.
+
+A monitor that states a pickup (:mod:`~osprey.simulation.engines.pyat_pickup`)
+is read button by button instead, in this order:
+
+1. The injected and the stored weight per sample, as above.
+2. Each button's signal: its gain times the sum of the injected weight times
+   its response at the bunch centroid and the stored weight times its
+   response at zero (:func:`button_signals`). The two beams add at the
+   buttons, not as positions.
+3. The beam sum is the sum of the button signals; a position is the plane's
+   scale times its signed button sum over the beam sum
+   (:func:`pickup_position`). No button signal reads as no beam.
+4. Beam is seen where that beam sum, button gains included, exceeds the
+   floor.
+5. Position noise, then the monitor's read-out faults, floor noise and tone,
+   as without a pickup.
+6. The sum array is the beam sum times the monitor's sum gain, plus noise,
+   floored, plus tone, as without a pickup.
+
+The responses of a centred beam sum to 1, so a centred beam on buttons of
+gain 1 reads the sum it reads without a pickup, to rounding.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from osprey.simulation.engines.pyat_pickup import Pickup
 
 __all__ = [
     "FAULT_NOISE_SUBKEY",
@@ -43,8 +67,10 @@ __all__ = [
     "TurnReadout",
     "beam_position",
     "beam_sum",
+    "button_signals",
     "floor_and_tone",
     "monitor_turn_arrays",
+    "pickup_position",
     "sample_draws",
     "turn_sum",
 ]
@@ -223,6 +249,76 @@ def beam_position(
     return np.asarray(position, dtype=np.float64), beam
 
 
+def button_signals(
+    pickup: Pickup,
+    centroid_x: Any,
+    centroid_y: Any,
+    injected: np.ndarray,
+    stored: np.ndarray,
+    *,
+    trigger_sample: int,
+    gains: Sequence[float] | None = None,
+) -> np.ndarray:
+    """Each button's signal per sample: the injected bunch and the stored beam, added.
+
+    The injected bunch is read at its centroid, the stored beam at zero; a
+    turn with no centroid reads at zero too, where its weight is none.
+
+    Args:
+        pickup: The monitor's pickup.
+        centroid_x: The survivors' horizontal centroid, one per turn.
+        centroid_y: The vertical one, turn for turn.
+        injected: The injected part of the sum, per sample.
+        stored: The stored part of the sum, per sample.
+        trigger_sample: The samples before injected turn 1.
+        gains: Each button's gain; ``None`` is 1 on every button.
+
+    Returns:
+        A float64 array of shape ``(buttons, samples)``, no NaN.
+    """
+    before = np.zeros(trigger_sample)
+    x = np.nan_to_num(np.concatenate([before, np.asarray(centroid_x, dtype=np.float64)]), nan=0.0)
+    y = np.nan_to_num(np.concatenate([before, np.asarray(centroid_y, dtype=np.float64)]), nan=0.0)
+    signals: np.ndarray = injected * pickup.response(x, y) + stored * pickup.centre[:, None]
+    if gains is not None:
+        signals = np.asarray(gains, dtype=np.float64)[:, None] * signals
+    return signals
+
+
+def pickup_position(
+    signals: np.ndarray,
+    signs: np.ndarray,
+    scale: float,
+    *,
+    address: str,
+    shot: int,
+    readout: TurnReadout,
+) -> tuple[np.ndarray, np.ndarray]:
+    """One plane's difference over sum of the button signals, and where beam is seen.
+
+    Args:
+        signals: The button signals, ``(buttons, samples)``.
+        signs: The plane's sign per button.
+        scale: The plane's reading per unit of difference over sum, metres.
+        address: The position record's address, which keys its noise.
+        shot: The shot's value.
+        readout: The calibration.
+
+    Returns:
+        ``(position, beam)``: the reading plus position noise where the sum
+        of the button signals exceeds the floor and zero elsewhere, and
+        those samples.
+    """
+    total = signals.sum(axis=0)
+    beam = total > readout.sum_floor
+    safe_total = np.where(total > 0.0, total, 1.0)
+    position = np.where(beam, scale * (signs @ signals) / safe_total, 0.0)
+    if readout.position_noise != 0.0:
+        draws = sample_draws(address, NOISE_SUBKEY, shot, signals.shape[1])
+        position = position + np.where(beam, readout.position_noise, 0.0) * draws
+    return np.asarray(position, dtype=np.float64), beam
+
+
 def floor_and_tone(
     position: np.ndarray,
     beam: np.ndarray,
@@ -279,6 +375,8 @@ def monitor_turn_arrays(
     readout: TurnReadout,
     faults: Callable[[np.ndarray, np.ndarray], tuple[Any, Any]] | None = None,
     sum_gain: float = 1.0,
+    pickup: Pickup | None = None,
+    button_gains: Sequence[float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One monitor's ``x``, ``y`` and ``sum`` arrays for one shot.
 
@@ -301,6 +399,11 @@ def monitor_turn_arrays(
         sum_gain: The monitor's own factor on the beam sum, injected and
             stored, applied before the sum's noise and floor. The positions
             never read it.
+        pickup: The monitor's pickup. With one, the sum and the positions
+            are formed from its button signals; ``None`` reads the beam
+            position as it is.
+        button_gains: Each button's gain, read only with a pickup; ``None``
+            is 1 on every button.
 
     Returns:
         ``(x, y, sum)``, float64 arrays of ``trigger_sample + turns`` samples, no NaN.
@@ -329,18 +432,38 @@ def monitor_turn_arrays(
         rf_on=rf_on,
         readout=readout,
     )
-    (x, beam_x), (y, beam_y) = (
-        beam_position(
-            centroid,
+    if pickup is None:
+        (x, beam_x), (y, beam_y) = (
+            beam_position(
+                centroid,
+                injected,
+                stored,
+                trigger_sample=trigger_sample,
+                address=address,
+                shot=shot,
+                readout=readout,
+            )
+            for centroid, address in ((centroid_x, address_x), (centroid_y, address_y))
+        )
+        physics = injected + stored
+    else:
+        signals = button_signals(
+            pickup,
+            centroid_x,
+            centroid_y,
             injected,
             stored,
             trigger_sample=trigger_sample,
-            address=address,
-            shot=shot,
-            readout=readout,
+            gains=button_gains,
         )
-        for centroid, address in ((centroid_x, address_x), (centroid_y, address_y))
-    )
+        (x, beam_x), (y, beam_y) = (
+            pickup_position(signals, signs, scale, address=address, shot=shot, readout=readout)
+            for signs, scale, address in (
+                (pickup.signs_x, pickup.scale_x, address_x),
+                (pickup.signs_y, pickup.scale_y, address_y),
+            )
+        )
+        physics = signals.sum(axis=0)
     if faults is not None:
         x, y = faults(x, y)
     x, y = (
@@ -354,7 +477,6 @@ def monitor_turn_arrays(
         )
         for position, beam, address in ((x, beam_x, address_x), (y, beam_y, address_y))
     )
-    physics = injected + stored
     if sum_gain != 1.0:
         physics = physics * float(sum_gain)
     total = turn_sum(physics, address=address_sum, shot=shot, tone_on=tone_on, readout=readout)

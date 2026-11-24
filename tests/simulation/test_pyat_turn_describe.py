@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,32 @@ def _kick(address: str, *, element: str | None = "Q", write: bool = True, **word
     record = _record("pulsed_kick", address, element=element, write=write)
     record["engine"].update(words)
     return record
+
+
+PICKUP: dict[str, Any] = {
+    "shape": "round",
+    "radius": 0.016,
+    "buttons": [45.0, 135.0, 225.0, 315.0],
+    "half_width": 14.0,
+    "x": {"plus": [1, 4], "minus": [2, 3]},
+    "y": {"plus": [1, 2], "minus": [3, 4]},
+}
+TABLE: dict[str, Any] = {
+    "shape": "table",
+    "table": "pickup.json",
+    "buttons": 4,
+    "x": PICKUP["x"],
+    "y": PICKUP["y"],
+}
+
+
+def _table(path: Path, *, buttons: int = 4) -> Path:
+    """A table of ``buttons`` buttons on a 5 by 5 grid, each leaning to its own corner."""
+    grid = [-0.002, -0.001, 0.0, 0.001, 0.002]
+    corners = [(1, 1), (-1, 1), (-1, -1), (1, -1), (1, 0), (0, 1)][:buttons]
+    values = [[[1.0 + 60.0 * (cx * x + cy * y) for x in grid] for y in grid] for cx, cy in corners]
+    path.write_text(json.dumps({"x": grid, "y": grid, "buttons": values}), encoding="utf-8")
+    return path
 
 
 def kind_of(record: dict[str, Any]) -> str:
@@ -285,6 +312,104 @@ class TestPrepareBlock:
         assert caught.value.kind == "engine-invalid"
         assert caught.value.record_id == "SR"
         assert detail in caught.value.detail
+
+    def test_no_pickup_is_stated_by_default(self, deck: Path) -> None:
+        block = engine.prepare(deck, _settings()).turn_by_turn
+        assert block.pickup is None
+        assert block.pickups == ()
+        assert block.pickup_of("BPM1") is None
+
+    def test_the_rings_pickup_is_every_monitors(self, deck: Path) -> None:
+        block = engine.prepare(deck, _settings(pickup=PICKUP)).turn_by_turn
+        assert block.pickup.buttons == 4
+        assert block.pickup_of("BPM1") is block.pickup
+        assert block.pickup_of("BPM2") is block.pickup
+
+    def test_a_monitor_takes_the_last_pickups_item_that_names_it(self, deck: Path) -> None:
+        two = {
+            "shape": "round",
+            "radius": 0.02,
+            "buttons": [0.0, 180.0],
+            "diameter": 0.006,
+            "x": {"plus": [1], "minus": [2]},
+            "y": {"plus": [1], "minus": [2], "scale": 0.01},
+        }
+        items = [
+            {"elements": ["BPM1", "BPM2"], **two},
+            {"elements": ["BPM2"], **PICKUP, "x": {**PICKUP["x"], "scale": 0.012}},
+        ]
+        block = engine.prepare(deck, _settings(pickup=PICKUP, pickups=items)).turn_by_turn
+        assert block.pickup_of("BPM1").buttons == 2
+        assert block.pickup_of("BPM2").scale_x == 0.012
+        assert block.pickup_of("Q") is block.pickup
+        only = engine.prepare(deck, _settings(pickups=items[:1])).turn_by_turn
+        assert only.pickup is None
+        assert only.pickup_of("BPM1").buttons == 2
+        assert only.pickup_of("Q") is None
+
+    def test_a_table_is_found_relative_to_the_decks_directory(self, deck: Path) -> None:
+        (deck.parent / "tables").mkdir()
+        _table(deck.parent / "tables" / "pickup.json")
+        stated = {**TABLE, "table": "tables/pickup.json"}
+        block = engine.prepare(deck, _settings(pickup=stated)).turn_by_turn
+        assert block.pickup.buttons == 4
+        assert block.pickup.response(0.0, 0.0).sum() == pytest.approx(1.0)
+
+    @pytest.mark.parametrize(
+        ("block", "detail"),
+        [
+            ({"pickup": "round"}, ".pickup is not a map"),
+            ({"pickup": {**PICKUP, "shape": "oval"}}, ".pickup.shape is 'oval'"),
+            ({"pickup": {**PICKUP, "radius": -1}}, ".pickup.radius is -1"),
+            ({"pickup": {**PICKUP, "gap": 1}}, ".pickup carries unknown keys gap"),
+            ({"pickup": {**PICKUP, "elements": ["BPM1"]}}, "unknown keys elements"),
+            (
+                {"pickup": {**PICKUP, "x": {"plus": [1, 5], "minus": [2]}}},
+                ".pickup.x.plus names button 5",
+            ),
+            ({"pickup": {**PICKUP, "y": {"plus": [1, 2]}}}, ".pickup.y.minus is None"),
+            (
+                {"pickup": {**PICKUP, "y": {"plus": [1, 4], "minus": [2, 3]}}},
+                "does not move with the beam along y",
+            ),
+            ({"pickups": {"elements": ["BPM1"]}}, ".pickups is not a list"),
+            ({"pickups": ["BPM1"]}, ".pickups[0].elements is None"),
+            ({"pickups": [PICKUP]}, ".pickups[0].elements is None"),
+            ({"pickups": [{**PICKUP, "elements": "BPM1"}]}, ".pickups[0].elements is 'BPM1'"),
+            ({"pickups": [{**PICKUP, "elements": []}]}, ".pickups[0].elements is []"),
+            (
+                {"pickups": [{**PICKUP, "elements": ["BPM1", "NOPE"]}]},
+                ".pickups[0]: element NOPE selects no element",
+            ),
+            (
+                {"pickups": [{**PICKUP, "elements": ["BPM1"]}, {"elements": ["BPM2"]}]},
+                ".pickups[1].shape is None",
+            ),
+        ],
+        ids=lambda value: str(value)[:48],
+    )
+    def test_pickup_refusals(self, deck: Path, block: Any, detail: str) -> None:
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.prepare(deck, _settings(**block), model="SR")
+        assert caught.value.kind == "engine-invalid"
+        assert caught.value.record_id == "SR"
+        assert caught.value.record_kind == "model"
+        assert detail in caught.value.detail
+
+    def test_a_missing_table_is_named_with_its_resolved_path(self, deck: Path) -> None:
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.prepare(deck, _settings(pickup=TABLE), model="SR")
+        assert caught.value.kind == "engine-invalid"
+        assert str(deck.parent.resolve() / "pickup.json") in caught.value.detail
+        assert "cannot be read" in caught.value.detail
+
+    def test_a_malformed_table_is_named_with_its_resolved_path(self, deck: Path) -> None:
+        path = _table(deck.parent / "pickup.json", buttons=3)
+        with pytest.raises(FacilityBuildError) as caught:
+            engine.prepare(deck, _settings(pickups=[{"elements": ["BPM1"], **TABLE}]), model="SR")
+        assert str(path.resolve()) in caught.value.detail
+        assert "buttons has shape [3, 5, 5]" in caught.value.detail
+        assert ".pickups[0].table" in caught.value.detail
 
     @pytest.mark.parametrize(("element", "count"), [("NOPE", 0), ("D", 2)])
     def test_injection_element_held_once(self, deck: Path, element: str, count: int) -> None:

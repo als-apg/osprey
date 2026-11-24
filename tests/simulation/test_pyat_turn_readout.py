@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from osprey.simulation.engines import pyat_pickup
 from osprey.simulation.engines.pyat_turn_readout import (
     NOISE_SUBKEY,
     TONE_SPIKE_M,
@@ -306,3 +308,235 @@ def test_the_sum_noise_is_added_after_the_gain_at_its_own_width() -> None:
 def test_the_floor_holds_under_a_gained_sum() -> None:
     _, _, total = arrays(quiet(), charge=0.01, sum_gain=0.5)
     assert np.all(total == 0.03)
+
+
+# A monitor that states a pickup is read button by button.
+
+PICKUP_RADIUS = 0.016
+STATED_PICKUP = {
+    "shape": "round",
+    "radius": PICKUP_RADIUS,
+    "buttons": [45.0, 135.0, 225.0, 315.0],
+    "half_width": 14.0,
+    "x": {"plus": [1, 4], "minus": [2, 3]},
+    "y": {"plus": [1, 2], "minus": [3, 4]},
+}
+
+
+def refuse(detail: str, remedy: str) -> Exception:
+    return ValueError(f"{detail}; {remedy}")
+
+
+def pickup(**changes):
+    return pyat_pickup.parse({**STATED_PICKUP, **changes}, "pickup", Path("."), refuse)
+
+
+def reading(buttons: np.ndarray, signs: np.ndarray, scale: float) -> float:
+    return float(scale * (signs @ buttons) / buttons.sum())
+
+
+def test_a_centred_beam_on_a_pickup_reads_the_perfect_monitors_arrays() -> None:
+    readout = quiet(position_noise=1e-5, sum_noise=1e-3, floor_noise=2e-3, tone_amplitude=1.0)
+    centred = {
+        "centroid_x": np.zeros(TURNS),
+        "centroid_y": np.zeros(TURNS),
+        "alive": np.linspace(1.0, 0.0, TURNS),
+        "stored_current": 1.5,
+        "tone_on": True,
+    }
+    plain = arrays(readout, **centred)
+    read = arrays(readout, pickup=pickup(), **centred)
+    for with_pickup, without in zip(read, plain, strict=True):
+        np.testing.assert_allclose(with_pickup, without, rtol=1e-14, atol=1e-18)
+
+
+def test_the_stored_beam_alone_reads_zero_on_a_pickup() -> None:
+    x, y, total = arrays(quiet(), pickup=pickup(), charge=0.0, stored_current=4.0)
+    np.testing.assert_allclose(total, 2.0, rtol=1e-14)
+    np.testing.assert_allclose(x, 0.0, atol=1e-18)
+    np.testing.assert_allclose(y, 0.0, atol=1e-18)
+
+
+def test_a_small_offset_reads_true_and_a_large_one_reads_short_on_a_pickup() -> None:
+    small = arrays(
+        quiet(), pickup=pickup(), centroid_x=np.full(TURNS, 2e-6), centroid_y=np.full(TURNS, -3e-6)
+    )
+    np.testing.assert_allclose(small[0][TRIGGER:], 2e-6, rtol=1e-6)
+    np.testing.assert_allclose(small[1][TRIGGER:], -3e-6, rtol=1e-6)
+    large = arrays(
+        quiet(), pickup=pickup(), centroid_x=np.full(TURNS, 8e-3), centroid_y=np.zeros(TURNS)
+    )
+    assert np.all((large[0][TRIGGER:] > 4e-3) & (large[0][TRIGGER:] < 7.5e-3))
+    np.testing.assert_allclose(large[1][TRIGGER:], 0.0, atol=1e-15)
+
+
+def test_the_arrays_are_the_difference_over_sum_of_the_button_responses() -> None:
+    stated = pickup()
+    centroid_x = np.linspace(-6e-3, 6e-3, TURNS)
+    centroid_y = np.linspace(4e-3, -5e-3, TURNS)
+    x, y, total = arrays(quiet(), pickup=stated, centroid_x=centroid_x, centroid_y=centroid_y)
+    for turn in (0, 7, 31, TURNS - 1):
+        buttons = stated.response(centroid_x[turn], centroid_y[turn])
+        assert total[TRIGGER + turn] == pytest.approx(2.0 * buttons.sum(), rel=1e-13)
+        assert x[TRIGGER + turn] == pytest.approx(
+            reading(buttons, stated.signs_x, stated.scale_x), rel=1e-12
+        )
+        assert y[TRIGGER + turn] == pytest.approx(
+            reading(buttons, stated.signs_y, stated.scale_y), rel=1e-12
+        )
+
+
+def test_the_sum_is_larger_towards_a_button_and_smaller_on_the_axes() -> None:
+    offset = 6e-3
+    on_axis = arrays(
+        quiet(), pickup=pickup(), centroid_x=np.full(TURNS, offset), centroid_y=np.zeros(TURNS)
+    )[2]
+    to_button = arrays(
+        quiet(),
+        pickup=pickup(),
+        centroid_x=np.full(TURNS, offset / np.sqrt(2.0)),
+        centroid_y=np.full(TURNS, offset / np.sqrt(2.0)),
+    )[2]
+    assert np.all(on_axis[TRIGGER:] < 2.0)
+    assert np.all(to_button[TRIGGER:] > 2.0)
+    assert to_button[TRIGGER] - 2.0 == pytest.approx(2.0 - on_axis[TRIGGER], rel=0.05)
+
+
+def test_the_stored_and_the_injected_beam_add_at_the_buttons() -> None:
+    stated = pickup()
+    x, y, total = arrays(
+        quiet(),
+        pickup=stated,
+        centroid_x=np.full(TURNS, 6e-3),
+        centroid_y=np.full(TURNS, 5e-3),
+        stored_current=3.0,
+    )
+    buttons = 2.0 * stated.response(6e-3, 5e-3) + 1.5 * stated.centre
+    assert total[TRIGGER] == pytest.approx(buttons.sum(), rel=1e-13)
+    assert x[TRIGGER] == pytest.approx(reading(buttons, stated.signs_x, stated.scale_x), rel=1e-12)
+    assert y[TRIGGER] == pytest.approx(reading(buttons, stated.signs_y, stated.scale_y), rel=1e-12)
+    # Not the sum-weighted mix of the two beams' own readings.
+    alone = reading(stated.response(6e-3, 5e-3), stated.signs_x, stated.scale_x)
+    assert abs(x[TRIGGER] - alone * 2.0 / 3.5) > 1e-5
+    np.testing.assert_allclose(x[:TRIGGER], 0.0, atol=1e-18)
+
+
+def test_a_weak_button_shifts_a_centred_beams_reading_by_the_first_order_amount() -> None:
+    stated = pickup()
+    centred = {"centroid_x": np.zeros(TURNS), "centroid_y": np.zeros(TURNS)}
+    x, y, total = arrays(quiet(), pickup=stated, button_gains=[0.95, 1.0, 1.0, 1.0], **centred)
+    # Button 1 adds to both planes: a share d weaker shifts each by -scale * d / 4.
+    np.testing.assert_allclose(x[TRIGGER:], -stated.scale_x * 0.05 / 4.0, rtol=2e-2)
+    np.testing.assert_allclose(y[TRIGGER:], -stated.scale_y * 0.05 / 4.0, rtol=2e-2)
+    np.testing.assert_allclose(x[TRIGGER:], -stated.scale_x * 0.05 / 3.95, rtol=1e-12)
+    np.testing.assert_allclose(total[TRIGGER:], 2.0 * 3.95 / 4.0, rtol=1e-13)
+    other = arrays(quiet(), pickup=stated, button_gains=[1.0, 0.95, 1.0, 1.0], **centred)
+    np.testing.assert_allclose(other[0][TRIGGER:], stated.scale_x * 0.05 / 3.95, rtol=1e-12)
+    np.testing.assert_allclose(other[1][TRIGGER:], -stated.scale_y * 0.05 / 3.95, rtol=1e-12)
+
+
+def test_unit_button_gains_are_the_pickup_without_gains_bit_for_bit() -> None:
+    readout = quiet(position_noise=1e-5, sum_noise=1e-3)
+    plain = arrays(readout, pickup=pickup())
+    gained = arrays(readout, pickup=pickup(), button_gains=[1.0, 1.0, 1.0, 1.0])
+    for with_gains, without in zip(gained, plain, strict=True):
+        np.testing.assert_array_equal(with_gains, without)
+
+
+def test_dead_buttons_read_as_no_beam() -> None:
+    readout = quiet(floor_noise=2e-3)
+    x, y, total = arrays(readout, pickup=pickup(), button_gains=[0.0, 0.0, 0.0, 0.0])
+    assert np.all(total == 0.03)
+    for position, address in ((x, ADDRESSES[0]), (y, ADDRESSES[1])):
+        assert np.all(np.isfinite(position))
+        np.testing.assert_array_equal(
+            position, 2e-3 * sample_draws(address, NOISE_SUBKEY, 3, TRIGGER + TURNS)
+        )
+
+
+def test_beam_is_seen_on_the_button_sum_with_its_gains_before_the_sum_gain() -> None:
+    readout = quiet(floor_noise=2e-3, sum_floor=1.0)
+    weak = arrays(readout, pickup=pickup(), button_gains=[0.4] * 4, sum_gain=5.0)
+    floor = 2e-3 * sample_draws(ADDRESSES[0], NOISE_SUBKEY, 3, TRIGGER + TURNS)
+    np.testing.assert_array_equal(weak[0], floor)
+    np.testing.assert_allclose(weak[2][TRIGGER:], 5.0 * 0.8 * weak_sum_share(), rtol=1e-13)
+    seen = arrays(readout, pickup=pickup(), button_gains=[0.6] * 4, sum_gain=0.1)
+    assert np.all(seen[0][TRIGGER:] != floor[TRIGGER:])
+    assert np.all(seen[2][TRIGGER:] == 1.0)
+
+
+def weak_sum_share() -> float:
+    return float(pickup().response(1e-3, -2e-3).sum())
+
+
+def test_the_sum_gain_scales_a_pickups_sum_and_leaves_its_positions() -> None:
+    plain = arrays(quiet(), pickup=pickup(), stored_current=1.0)
+    gained = arrays(quiet(), pickup=pickup(), stored_current=1.0, sum_gain=0.8)
+    np.testing.assert_array_equal(gained[0], plain[0])
+    np.testing.assert_array_equal(gained[1], plain[1])
+    np.testing.assert_allclose(gained[2], 0.8 * plain[2], rtol=1e-14)
+
+
+def test_the_monitors_faults_act_on_what_the_pickup_reads() -> None:
+    def faults(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        return 1.1 * x + 1e-4, -y
+
+    plain = arrays(quiet(), pickup=pickup())
+    faulted = arrays(quiet(), pickup=pickup(), faults=faults)
+    np.testing.assert_allclose(faulted[0][TRIGGER:], 1.1 * plain[0][TRIGGER:] + 1e-4, rtol=1e-14)
+    np.testing.assert_allclose(faulted[1][TRIGGER:], -plain[1][TRIGGER:], rtol=1e-14)
+    np.testing.assert_array_equal(faulted[2], plain[2])
+
+
+def test_position_noise_is_added_to_a_pickups_reading_where_beam_is_seen() -> None:
+    plain = arrays(quiet(), pickup=pickup())
+    noisy = arrays(quiet(position_noise=1e-5), pickup=pickup())
+    draws = sample_draws(ADDRESSES[0], NOISE_SUBKEY, 3, TRIGGER + TURNS)
+    np.testing.assert_allclose(noisy[0][TRIGGER:], plain[0][TRIGGER:] + 1e-5 * draws[TRIGGER:])
+    np.testing.assert_array_equal(noisy[0][:TRIGGER], 0.0)
+
+
+def test_a_turn_with_no_centroid_reads_the_floor_on_a_pickup() -> None:
+    alive = np.ones(TURNS)
+    alive[20:] = 0.0
+    centroid = np.full(TURNS, 1e-3)
+    centroid[20:] = np.nan
+    x, y, total = arrays(
+        quiet(), pickup=pickup(), alive=alive, centroid_x=centroid, centroid_y=centroid
+    )
+    assert np.all(np.isfinite(x)) and np.all(np.isfinite(y)) and np.all(np.isfinite(total))
+    assert np.all(total[TRIGGER + 20 :] == 0.03)
+    assert np.all(x[TRIGGER + 20 :] == 0.0)
+
+
+def test_a_table_pickup_reads_as_the_round_one_it_tabulates(tmp_path) -> None:
+    grid = np.linspace(-8e-3, 8e-3, 33)
+    mesh_x, mesh_y = np.meshgrid(grid, grid)
+    values = pyat_pickup.round_response(
+        mesh_x, mesh_y, PICKUP_RADIUS, np.radians(STATED_PICKUP["buttons"]), np.radians(14.0)
+    )
+    (tmp_path / "pickup.json").write_text(
+        json.dumps({"x": grid.tolist(), "y": grid.tolist(), "buttons": values.tolist()})
+    )
+
+    tabulated = pyat_pickup.parse(
+        {
+            "shape": "table",
+            "table": "pickup.json",
+            "buttons": 4,
+            "interpolation": "bicubic",
+            "x": STATED_PICKUP["x"],
+            "y": STATED_PICKUP["y"],
+        },
+        "pickup",
+        tmp_path,
+        refuse,
+    )
+    centroid_x = np.linspace(-6e-3, 6e-3, TURNS)
+    centroid_y = np.linspace(4e-3, -5e-3, TURNS)
+    beam = {"centroid_x": centroid_x, "centroid_y": centroid_y}
+    analytic = arrays(quiet(), pickup=pickup(), **beam)
+    read = arrays(quiet(), pickup=tabulated, **beam)
+    np.testing.assert_allclose(read[2], analytic[2], rtol=1e-4)
+    np.testing.assert_allclose(read[0], analytic[0], rtol=3e-3, atol=2e-6)
+    np.testing.assert_allclose(read[1], analytic[1], rtol=3e-3, atol=2e-6)

@@ -97,6 +97,9 @@ from pydantic import ConfigDict, model_validator
 
 from osprey.simulation.engines.pyat import SOLVES
 from osprey.simulation.engines.pyat_faults import (
+    BUTTON_GAIN_BOUNDS,
+    BUTTON_GAIN_IDENTITY,
+    BUTTON_GAIN_PREFIX,
     FAULT_BOUNDS,
     FAULT_SEPARATOR,
     POLARITY_OPTIONS,
@@ -109,6 +112,8 @@ from osprey.simulation.engines.pyat_faults import (
     SUM_SIGNAL,
     SUPPLY_FIELDS,
     SUPPLY_IDENTITY,
+    button_attribute,
+    button_field,
     supply_attribute,
 )
 from osprey.simulation.engines.pyat_single_pass import SinglePassSimulator
@@ -247,23 +252,49 @@ def _monitor_faults(
     return faults, list(by_element)
 
 
-def _sum_faults(channels: Iterable[Variable], seeds: Mapping[str, float]) -> list[FaultVariable]:
-    """Declare each turn-by-turn monitor's sum gain, on its first sum record."""
-    faults: dict[str, FaultVariable] = {}
+def _sum_faults(
+    channels: Iterable[Variable], seeds: Mapping[str, float], buttons: Mapping[str, int]
+) -> list[FaultVariable]:
+    """Declare each turn-by-turn monitor's sum gain and button gains, on its first sum record.
+
+    ``buttons`` is the button count of every monitor that states a pickup, by
+    its element; such a monitor carries one gain per button.
+    """
+    faults: dict[str, list[FaultVariable]] = {}
     for variable in channels:
         if not isinstance(variable, TurnArrayVariable) or variable.signal != SUM_SIGNAL:
             continue
         if variable.monitor in faults:
             continue
         name = _fault_name(variable.name, SUM_GAIN)
-        faults[variable.monitor] = PyATWritableScalarVariable(
-            name=name,
-            bindings=[ElementBinding(element_name=variable.monitor, attribute=SUM_GAIN_ATTRIBUTE)],
-            default_value=seeds.get(name, SUM_GAIN_IDENTITY),
-            value_range=FAULT_BOUNDS.get(SUM_GAIN),
-            default_validation_config=ConfigEnum.ERROR,
-        )
-    return list(faults.values())
+        declared: list[FaultVariable] = [
+            PyATWritableScalarVariable(
+                name=name,
+                bindings=[
+                    ElementBinding(element_name=variable.monitor, attribute=SUM_GAIN_ATTRIBUTE)
+                ],
+                default_value=seeds.get(name, SUM_GAIN_IDENTITY),
+                value_range=FAULT_BOUNDS.get(SUM_GAIN),
+                default_validation_config=ConfigEnum.ERROR,
+            )
+        ]
+        for number in range(1, buttons.get(variable.monitor, 0) + 1):
+            name = _fault_name(variable.name, button_field(number))
+            declared.append(
+                PyATWritableScalarVariable(
+                    name=name,
+                    bindings=[
+                        ElementBinding(
+                            element_name=variable.monitor, attribute=button_attribute(number)
+                        )
+                    ],
+                    default_value=seeds.get(name, BUTTON_GAIN_IDENTITY),
+                    value_range=BUTTON_GAIN_BOUNDS,
+                    default_validation_config=ConfigEnum.ERROR,
+                )
+            )
+        faults[variable.monitor] = declared
+    return [fault for declared in faults.values() for fault in declared]
 
 
 def _calibration_faults(
@@ -500,6 +531,7 @@ class PyATLatticeModel(LUMEPyATModel):
         solve: str = PERIODIC,
         twiss_in: Mapping[str, np.ndarray] | None = None,
         tolerant: bool = False,
+        sum_buttons: Mapping[str, int] | None = None,
     ) -> None:
         """Adopt the wired variables, declare their faults, and solve once.
 
@@ -525,6 +557,9 @@ class PyATLatticeModel(LUMEPyATModel):
                 orbit as a state (:attr:`no_closed_orbit`) instead of
                 refusing the write that leads to it; ignored by a
                 ``single_pass`` model.
+            sum_buttons: Monitor element -> the button count of its pickup,
+                for every turn-by-turn monitor that states one. Such a
+                monitor's sum record carries one gain fault per button.
 
         Raises:
             ValueError: a seed names a fault the model does not declare, a
@@ -554,12 +589,17 @@ class PyATLatticeModel(LUMEPyATModel):
 
         monitor_faults, monitors = _monitor_faults(channels, seeds)
         calibration_faults = _calibration_faults(channels, seeds)
-        declared = [*monitor_faults, *_sum_faults(channels, seeds), *calibration_faults]
+        declared = [
+            *monitor_faults,
+            *_sum_faults(channels, seeds, sum_buttons or {}),
+            *calibration_faults,
+        ]
         if unknown := sorted(set(seeds) - {fault.name for fault in declared}):
             raise ValueError(
                 f"fault seeds name {unknown}, which the model does not declare; a monitor "
                 f"readback takes {sorted(READOUT_IDENTITY)} (and {ROLL!r} on its x-axis or "
-                f"only readback), a turn-by-turn monitor's sum record {SUM_GAIN!r}, "
+                f"only readback), a turn-by-turn monitor's sum record {SUM_GAIN!r} "
+                f"(and {BUTTON_GAIN_PREFIX}<n> for each button of a stated pickup), "
                 f"a PolynomB or KickAngle setpoint takes "
                 f"{sorted(SUPPLY_IDENTITY)}, a Frequency or TimeLag setpoint 'cal_offset' "
                 f"and a Voltage setpoint 'cal_factor'"
