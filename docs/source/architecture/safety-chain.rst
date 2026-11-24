@@ -274,6 +274,9 @@ with none of the checks in the way. Both then meet the gates the queue holds:
 - **Every channel the plan declares must answer first.** Before a run starts, each channel the
   plan declares it will read or write is asked to respond; if any does not, the run is refused
   before anything is written.
+- **A launch writes only what its plan declares.** Every plan device states the channels its
+  moves and triggers write. A plan whose metadata does not say ``writes: true`` is refused at
+  its first write, before that write is sent, and so is a device that does not state its writes.
 - **Each write is checked as it happens.** The verdict for the plan's owner on the machine
   the lane drives, then the limits.
 

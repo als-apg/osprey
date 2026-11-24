@@ -1,0 +1,1 @@
+The approval prompt states what each launch writes, per channel with its value and count, from the launch's own pre-flight walk; a plan that does not declare `writes: true` and would write is refused before its first write (#2892, #2893).
