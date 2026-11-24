@@ -39,6 +39,7 @@ from osprey.deployment.web_terminals.env_production import USERS_ENV_FILENAME
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.docs_links import DEPLOY_DOCS_URL
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port, resolve_port_base
+from osprey.repo_layout import child, child_display_path, entry
 from osprey.utils.shell_resolver import resolve_shell_command
 from osprey.version import pins_prerelease
 from osprey_connectors.errors import BuildProfileError
@@ -84,13 +85,13 @@ BOOT_HOOK_MARKER: str = "deploy/boot-hook"
 #: the unit's own header tells the operator which file to copy and which name to
 #: pass ``systemctl``, and a name the caller could change is a name that header
 #: could get wrong.
-SYSTEMD_UNIT_NAME: str = "osprey.service"
+SYSTEMD_UNIT_NAME: str = entry("osprey.service").path
 
 #: What the emitted boot hook is called, fixed for the same reason the unit's
 #: name is: the script's own header tells the operator the ``@reboot`` line to
 #: paste into their crontab, and a name the caller could change is a name that
 #: line could get wrong.
-BOOT_HOOK_OUTPUT_NAME: str = "osprey-boot-hook.sh"
+BOOT_HOOK_OUTPUT_NAME: str = child("scripts", "boot-hook").path
 
 #: How long systemd may wait for ``osprey up -d``. A oneshot gets 90 seconds by
 #: default, which a start that pulls images first will exceed — and a start
@@ -155,11 +156,11 @@ DEPLOY_SSH_KEY_VAR: str = "DEPLOY_SSH_KEY"
 PROFILE_PATH: str = PROFILE_FILENAME
 BUILD_DIR: str = BUILD_OUTPUT_DIR
 STATE_DIR_PATH: str = STATE_DIR
-VERIFY_PATH: str = "scripts/verify.sh"
+VERIFY_PATH: str = child_display_path("scripts", "verify-script")
 #: The one group every health check has: the deployment's containers. It runs
 #: first, because a container that is down explains the endpoint failures below it.
 CONTAINERS_GROUP_ID: str = "containers"
-BOOT_HOOK_PATH: str = f"scripts/{BOOT_HOOK_OUTPUT_NAME}"
+BOOT_HOOK_PATH: str = child_display_path("scripts", "boot-hook")
 
 #: What ``osprey users env --output`` writes on the deploy host, at the repo
 #: root where compose reads it. Aliased from the writer's own constant rather
@@ -798,7 +799,9 @@ def service_image_names(profile: dict[str, Any], profile_dir: Path) -> list[str]
     if not isinstance(declared, dict):
         return []
     return [
-        name for name in declared if (profile_dir / "services" / str(name) / "Dockerfile").is_file()
+        name
+        for name in declared
+        if (profile_dir / entry("services").path / str(name) / "Dockerfile").is_file()
     ]
 
 

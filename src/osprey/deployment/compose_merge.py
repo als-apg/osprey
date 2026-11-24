@@ -60,6 +60,7 @@ from typing import Any
 import yaml
 
 from osprey.deployment.errors import DeploymentError
+from osprey.repo_layout import entry
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
 
@@ -71,7 +72,7 @@ logger = get_logger("deployment.compose_merge")
 #: the artifact — the two ``.gitignore`` sources, the image-context exclusion in
 #: :mod:`osprey.cli.build_cmd`, ``osprey reset``'s removal list — imports this
 #: name rather than spelling it again.
-MERGED_COMPOSE_FILENAME = ".osprey-compose.yml"
+MERGED_COMPOSE_FILENAME = entry(".osprey-compose.yml").path
 
 #: Header of the written file. Fixed text: the artifact's bytes are a function
 #: of its inputs and nothing else, so a timestamp or a host path here would make

@@ -38,6 +38,7 @@ import click
 import yaml
 
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
+from osprey.repo_layout import entry
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
@@ -690,7 +691,7 @@ def preset_authored_config(preset: str) -> dict[str, Any]:
 #: :mod:`~osprey.cli.deploy_scaffold_templates`, which renders the name into the
 #: CI pipeline; :data:`osprey.cli.repo_resolver.PROFILE_FILENAME` is the same
 #: name in its role as the discovery marker.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 
 def write_back_cli_overrides(

@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.repo_layout import entry
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.safety_file import atomic_replace
 
@@ -79,7 +80,7 @@ from .repo_resolver import PROFILE_FILENAME
 #: else. Adding a platform therefore means three deliberate edits — a template,
 #: an entry here, and a marker of its own (:data:`CI_MARKER` is a single
 #: constant only because there is a single platform).
-CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": ".gitlab-ci.yml"}
+CI_OUTPUT_NAMES: dict[str, str] = {"gitlab": entry(".gitlab-ci.yml").path}
 
 #: Where the health check is emitted, as path segments relative to the repo
 #: root. It lands in the source zone, beside the profile that renders it, and

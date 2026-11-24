@@ -49,6 +49,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.health.core.claude_cli import _run_command
 from osprey.health.models import CheckResult, Status
+from osprey.repo_layout import entry
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -64,14 +65,12 @@ CATEGORY = "systemd_unit"
 #: or unreachable bus, and waiting longer only delays the ``skip``.
 _SYSTEMCTL_TIMEOUT_S = 5.0
 
-#: The boot unit ``osprey scaffold systemd`` writes, spelled as a literal rather
-#: than imported from :mod:`~osprey.cli.deploy_scaffold_templates` (which owns
-#: the name as ``SYSTEMD_UNIT_NAME``). Importing it would pull the CLI package
-#: into the web and MCP health surfaces, which import this module. This is the
-#: same choice :mod:`~osprey.cli.profile_conventions` made for its own copy of
-#: the name, and the same answer: the two spellings are pinned to each other by
-#: a test rather than by an import.
-_UNIT_NAME = "osprey.service"
+#: The boot unit ``osprey scaffold systemd`` writes, read from its row in the
+#: deployment-root declaration rather than imported from
+#: :mod:`~osprey.cli.deploy_scaffold_templates`: the declaration is a leaf below
+#: the CLI package, which the web and MCP health surfaces that import this
+#: module must not load.
+_UNIT_NAME = entry("osprey.service").path
 
 _LOAD_STATE_NOT_FOUND = "not-found"
 

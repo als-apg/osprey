@@ -29,6 +29,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from osprey.repo_layout import entry
 from osprey_connectors.dotenv import parse_dotenv_file
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -49,7 +50,7 @@ VARIANT_SETTING_KEY = "OSPREY_PROFILE_VARIANT"
 
 #: Repo-root directory holding the overlay profiles, one ``<name>.yml`` per
 #: variant. Tracked, unlike the setting that picks among them.
-VARIANT_DIRNAME = "profiles"
+VARIANT_DIRNAME = entry("profiles").path
 
 #: How long the tracked probe waits for git before giving up. A probe that
 #: gives up answers "could not check", never "untracked".

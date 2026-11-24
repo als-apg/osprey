@@ -31,11 +31,13 @@ from typing import Any, TypeVar
 
 import click
 
+from osprey.repo_layout import entry
+
 #: The marker that makes a directory a deployment repo root. It sits at the
 #: repo root rather than one level down: the root is the deployment, and
 #: everything beside the manifest — ``data/``, ``tiers/``, the CI files —
 #: is content the manifest refers to.
-PROFILE_FILENAME = "profile.yml"
+PROFILE_FILENAME = entry("profile.yml").path
 
 #: Where ``osprey init --force`` holds the source zone it is replacing while the
 #: new one renders. Spelled here, beside the marker it temporarily displaces,
