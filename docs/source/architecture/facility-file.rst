@@ -198,8 +198,9 @@ stages and a stage runs only when every earlier one is clean:
    * - wiring
      - Fills each wiring record's direction, unit, value range and start
        value from its model's engine, and marks each command channel; then
-       checks each command's ``timeout_s`` and its status's ``idle`` as
-       :doc:`/how-to/describe-your-facility` states them, and stops with
+       checks each command's ``timeout_s`` and its status's ``idle``, and each
+       setpoint's ``started_by``, as :doc:`/how-to/describe-your-facility`
+       states them, and stops with
        ``command-invalid`` when one is wrong.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
