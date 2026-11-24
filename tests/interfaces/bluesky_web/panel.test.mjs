@@ -1502,6 +1502,24 @@ describe('results helpers', () => {
 // Results half — the view, against a real element bag
 // ---------------------------------------------------------------------------
 
+describe('formatCell', () => {
+  test('an array cell reads as its length and range', () => {
+    expect(formatCell([3, 0.1 + 0.2, 812, -1])).toBe('[4] -1 … 812');
+    // A nested cell counts its own elements, skipping what is not a finite number.
+    expect(
+      formatCell([
+        [1, NaN],
+        [null, 7],
+      ])
+    ).toBe('[4] 1 … 7');
+  });
+
+  test('an array cell with no finite number reads as its length', () => {
+    expect(formatCell([])).toBe('[0]');
+    expect(formatCell([null, 'x', Infinity])).toBe('[3]');
+  });
+});
+
 describe('createResultsView', () => {
   function mountElements() {
     document.body.innerHTML = `
@@ -1695,6 +1713,39 @@ describe('createResultsView', () => {
     expect(time.querySelector('span')).toBeNull();
     expect(signal.querySelector('span.muted').textContent).toBe('(mm)');
     expect(signal.textContent).toBe('signal (mm)');
+  });
+
+  test("a table header states an array column's declared shape", async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'scan' } },
+        '/runs/r1/data': {
+          status: 200,
+          body: {
+            ...DATA,
+            columns: [
+              { name: 'time', unit: null, shape: [] },
+              { name: 'det_wave', unit: 'counts', shape: [1024] },
+              { name: 'image', unit: null, shape: [2, 3] },
+              { name: 'other', unit: null, shape: null },
+            ],
+          },
+        },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    const [time, wave, image, other] = elements.tableHeadRow.querySelectorAll('th');
+    expect(time.textContent).toBe('time');
+    expect(wave.textContent).toBe('det_wave (counts) [1024]');
+    expect(wave.querySelectorAll('span.muted')[1].textContent).toBe('[1024]');
+    expect(image.textContent).toBe('image [2, 3]');
+    expect(other.textContent).toBe('other');
   });
 
   test('"Remove from history" is offered for a finished run only, and hands the id up', async () => {

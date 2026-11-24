@@ -21,7 +21,7 @@
  * separately, so a truncated window says how much it is withholding and points
  * at the export. The export is the other half: it re-reads `/data` with
  * `max_rows` set to the full count and writes a CSV through `csv-export.js`.
- * If even that comes back short — `live_rows` caps stored rows per run — the
+ * If even that comes back short — `live_rows` caps a run's stored bytes — the
  * file still saves and the note says exactly how short, because a partial
  * export presented as complete is the one outcome worth preventing.
  *
@@ -65,7 +65,7 @@ import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 
 /** @typedef {{
  *   run_uid?: string|null,
- *   columns: Array<{name: string, unit: string|null}>,
+ *   columns: Array<{name: string, unit: string|null, shape: Array<number|null>|null}>,
  *   rows: Array<Array<unknown>>,
  *   row_count: number,
  *   truncated: boolean,
@@ -118,6 +118,10 @@ export function runMetaParts(run) {
 }
 
 /**
+ * One cell as table text. An array cell reads as its element count and the
+ * range of its finite numbers, `[1024] 0 … 812`, or `[1024]` alone when it
+ * holds none; a nested cell counts its own elements.
+ *
  * @param {unknown} value
  * @returns {string}
  */
@@ -126,7 +130,28 @@ export function formatCell(value) {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? String(Number(value.toFixed(6))) : String(value);
   }
+  if (Array.isArray(value)) {
+    const values = value.flat(Infinity);
+    const numbers = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const length = `[${values.length}]`;
+    if (numbers.length === 0) return length;
+    const min = numbers.reduce((a, b) => Math.min(a, b));
+    const max = numbers.reduce((a, b) => Math.max(a, b));
+    return `${length} ${formatCell(min)} … ${formatCell(max)}`;
+  }
   return String(value);
+}
+
+/**
+ * A declared shape as header text, `[1024]` or `[2, 3]`; `null` for a scalar
+ * or a column that declared none.
+ *
+ * @param {Array<number|null>|null|undefined} shape
+ * @returns {string|null}
+ */
+function shapeLabel(shape) {
+  if (!Array.isArray(shape) || shape.length === 0) return null;
+  return `[${shape.map((size) => (size === null ? 'null' : String(size))).join(', ')}]`;
 }
 
 /**
@@ -577,6 +602,13 @@ export function createResultsView({
         unit.className = 'muted';
         unit.textContent = `(${column.unit})`;
         th.append(' ', unit);
+      }
+      const shape = shapeLabel(column.shape);
+      if (shape !== null) {
+        const dims = document.createElement('span');
+        dims.className = 'muted';
+        dims.textContent = shape;
+        th.append(' ', dims);
       }
       elements.tableHeadRow.appendChild(th);
     }
