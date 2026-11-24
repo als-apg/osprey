@@ -964,7 +964,7 @@ keys:
   services.bluesky.settle_timeout_s: {rendered: false, evidence: 'BLUESKY_SETTLE_TIMEOUT_S: "\{\{ svc\.settle_timeout_s', default: 5.0}
   services.bluesky.settle_tolerance: {rendered: false, evidence: 'svc\.settle_tolerance is defined', default: 1.0e-09}
   services.bluesky.live_max_runs: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_RUNS: "\{\{ svc\.live_max_runs', default: 50}
-  services.bluesky.live_max_rows_per_run: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_ROWS_PER_RUN: "\{\{ svc\.live_max_rows_per_run', default: 10000}
+  services.bluesky.live_max_bytes_per_run: {rendered: false, evidence: 'BLUESKY_LIVE_MAX_BYTES_PER_RUN: "\{\{ svc\.live_max_bytes_per_run', default: 20000000}
   services.bluesky.external:
     rendered: false
     evidence: 'set external = svc\.external \| default\(false\)'
@@ -4449,6 +4449,9 @@ deleted:
   # The worker's device file is the build's Bluesky view; the lane key and its
   # reader both postdate the baseline, so there is no orphan site.
 - services.bluesky.devices_file
+  # The byte cap bounds a run's live buffer; the row-cap key and its reader
+  # both postdate the baseline, so there is no orphan site.
+- services.bluesky.live_max_rows_per_run
   # The graph search index sits at data/channel_databases/graph.duckdb under the
   # render, a fixed path every reader resolves; nothing moves it.
 - services.graphdb.index_path

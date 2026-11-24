@@ -112,14 +112,17 @@ def test_event_missing_an_already_known_column_records_none() -> None:
 
 
 # =========================================================================
-# Per-run row cap: total_seen keeps counting past the storage cap
+# Per-run byte cap: total_seen keeps counting past the storage cap
 # =========================================================================
 
+#: One float cell, as the byte cap counts it.
+_FLOAT = live_rows.VALUE_BYTES
 
-def test_row_storage_cap_stops_appending_but_total_seen_keeps_counting(
+
+def test_the_byte_cap_stops_storing_but_total_seen_keeps_counting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "3")
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(3 * _FLOAT))
 
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))
@@ -127,27 +130,60 @@ def test_row_storage_cap_stops_appending_but_total_seen_keeps_counting(
         recorder("event", _event_doc({"x": float(i)}))
 
     buf = live_rows.get("run-1")
-    assert len(buf["rows"]) == 3
+    assert buf["rows"] == [[0.0], [1.0], [2.0]]
     assert buf["total_seen"] == 5
 
 
-def test_the_row_cap_is_resolved_at_the_start_document_not_per_event(
+def test_the_byte_cap_is_resolved_at_the_start_document_not_per_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One run keeps the cap it began under, whatever the env says later."""
-    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "3")
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(3 * _FLOAT))
 
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))
     recorder("event", _event_doc({"x": 0.0}))
 
-    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "10")
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(10 * _FLOAT))
     for i in range(1, 6):
         recorder("event", _event_doc({"x": float(i)}))
 
     buf = live_rows.get("run-1")
     assert len(buf["rows"]) == 3
     assert buf["total_seen"] == 6
+
+
+@pytest.mark.parametrize(("slack", "stored"), [(0, 1), (-1, 0)])
+def test_a_row_counts_32_bytes_a_value_and_a_strings_length(
+    monkeypatch: pytest.MonkeyPatch, slack: int, stored: int
+) -> None:
+    """A scalar, each element of an array, and a string with its characters."""
+    row = {"x": 1.0, "wave": np.arange(3.0), "image": np.zeros((2, 2)), "name": "abcde"}
+    row_bytes = (1 + 3 + 4) * _FLOAT + (_FLOAT + len("abcde"))
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(row_bytes + slack))
+
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc(row))
+
+    assert len(live_rows.get("run-1")["rows"]) == stored
+
+
+def test_a_row_wider_than_the_cap_is_counted_and_not_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The buffer stays a prefix of the run: nothing past the first refused row is stored."""
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(4 * _FLOAT))
+
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"wave": np.arange(2.0)}))
+    recorder("event", _event_doc({"wave": np.arange(8.0)}))
+    recorder("event", _event_doc({"wave": np.arange(1.0)}))
+
+    buf = live_rows.get("run-1")
+    assert buf["rows"] == [[[0.0, 1.0]]]
+    assert buf["total_seen"] == 3
 
 
 # =========================================================================
@@ -411,33 +447,33 @@ def test_a_malformed_descriptor_does_not_raise() -> None:
 def test_caps_default_when_the_env_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     """With nothing in the environment the module's own defaults are in force."""
     monkeypatch.delenv(live_rows.MAX_RUNS_ENV, raising=False)
-    monkeypatch.delenv(live_rows.MAX_ROWS_PER_RUN_ENV, raising=False)
+    monkeypatch.delenv(live_rows.MAX_BYTES_PER_RUN_ENV, raising=False)
 
     assert live_rows.max_runs() == live_rows.DEFAULT_MAX_RUNS
-    assert live_rows.max_rows_per_run() == live_rows.DEFAULT_MAX_ROWS_PER_RUN
+    assert live_rows.max_bytes_per_run() == live_rows.DEFAULT_MAX_BYTES_PER_RUN
 
 
 def test_caps_read_the_env_on_every_call(monkeypatch: pytest.MonkeyPatch) -> None:
     """The value in force is whatever the environment says now, never at import."""
     monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "4")
-    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "200")
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, "200")
 
     assert live_rows.max_runs() == 4
-    assert live_rows.max_rows_per_run() == 200
+    assert live_rows.max_bytes_per_run() == 200
 
     monkeypatch.setenv(live_rows.MAX_RUNS_ENV, "7")
     assert live_rows.max_runs() == 7
 
 
 @pytest.mark.parametrize("raw", ["", "abc", "0", "-1"])
-@pytest.mark.parametrize("env_var", ["MAX_RUNS_ENV", "MAX_ROWS_PER_RUN_ENV"])
+@pytest.mark.parametrize("env_var", ["MAX_RUNS_ENV", "MAX_BYTES_PER_RUN_ENV"])
 def test_caps_refuse_a_value_below_one(
     monkeypatch: pytest.MonkeyPatch, env_var: str, raw: str
 ) -> None:
     """A cap of zero would evict every buffer the moment it was created."""
     name = getattr(live_rows, env_var)
     monkeypatch.setenv(name, raw)
-    reader = live_rows.max_runs if env_var == "MAX_RUNS_ENV" else live_rows.max_rows_per_run
+    reader = live_rows.max_runs if env_var == "MAX_RUNS_ENV" else live_rows.max_bytes_per_run
 
     with pytest.raises(ValueError, match=name):
         reader()

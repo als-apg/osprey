@@ -36,7 +36,7 @@ Exercised here:
 - The refusal message names the resolved limits key and the lane it refused
   for, and no writes key, but never leaks the database file's contents.
 - The other boot-time refusals in the same hook: a `BLUESKY_DEVICE_PAGE_SIZE`,
-  `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_ROWS_PER_RUN` that is not a
+  `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_BYTES_PER_RUN` that is not a
   whole number >= 1 fails the start rather than the first request.
 """
 
@@ -60,7 +60,7 @@ _LANE_ENV = "OSPREY_BLUESKY_LANE"
 _EXECUTION_MODE_ENV = "OSPREY_EXECUTION_MODE"
 _DEVICE_PAGE_SIZE_ENV = "BLUESKY_DEVICE_PAGE_SIZE"
 _LIVE_MAX_RUNS_ENV = "BLUESKY_LIVE_MAX_RUNS"
-_LIVE_MAX_ROWS_ENV = "BLUESKY_LIVE_MAX_ROWS_PER_RUN"
+_LIVE_MAX_BYTES_ENV = "BLUESKY_LIVE_MAX_BYTES_PER_RUN"
 
 
 class _InertBackend:
@@ -92,7 +92,7 @@ def _clean_env_and_inert_backend(monkeypatch: pytest.MonkeyPatch):
         _EXECUTION_MODE_ENV,
         _DEVICE_PAGE_SIZE_ENV,
         _LIVE_MAX_RUNS_ENV,
-        _LIVE_MAX_ROWS_ENV,
+        _LIVE_MAX_BYTES_ENV,
     ):
         monkeypatch.delenv(var, raising=False)
     set_queue_backend(_InertBackend())
@@ -588,7 +588,7 @@ def test_device_page_size_reads_the_environment(monkeypatch: pytest.MonkeyPatch)
 # =========================================================================
 
 
-@pytest.mark.parametrize("env_var", [_LIVE_MAX_RUNS_ENV, _LIVE_MAX_ROWS_ENV])
+@pytest.mark.parametrize("env_var", [_LIVE_MAX_RUNS_ENV, _LIVE_MAX_BYTES_ENV])
 @pytest.mark.parametrize("bad_value", ["abc", "0", "-1"])
 def test_malformed_live_row_cap_refuses_startup(
     monkeypatch: pytest.MonkeyPatch, env_var: str, bad_value: str

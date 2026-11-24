@@ -148,7 +148,7 @@ def test_read_data_after_stop_omits_partial(client: TestClient) -> None:
 def test_read_data_row_count_is_true_total_even_past_storage_cap(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv(live_rows.MAX_ROWS_PER_RUN_ENV, "3")
+    monkeypatch.setenv(live_rows.MAX_BYTES_PER_RUN_ENV, str(3 * live_rows.VALUE_BYTES))
     _feed("run-10", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get("/runs/run-10/data").json()
     assert len(body["rows"]) == 3

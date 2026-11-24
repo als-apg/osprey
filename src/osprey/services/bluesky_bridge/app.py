@@ -246,7 +246,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
       at all, and a gated guard leaves whole classes of deployment unchecked.
       Alongside it, `queue.device_page_size()` and the two `live_rows` caps are
       parsed once so a malformed `BLUESKY_DEVICE_PAGE_SIZE`,
-      `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_ROWS_PER_RUN` fails the boot
+      `BLUESKY_LIVE_MAX_RUNS` or `BLUESKY_LIVE_MAX_BYTES_PER_RUN` fails the boot
       instead of the first request.
     - The document plane: the 0MQ proxy the queueserver's Publisher connects
       to, and the dispatcher that turns that stream into live rows.
@@ -277,7 +277,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # value there would silently drop every run buffer instead of announcing
     # itself. Parsing both here makes an unusable value fail the start.
     live_rows.max_runs()
-    live_rows.max_rows_per_run()
+    live_rows.max_bytes_per_run()
 
     # The document plane's 0MQ proxy — the binding element the queueserver's
     # Publisher connects to, and the RemoteDispatcher that turns that stream

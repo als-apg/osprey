@@ -78,7 +78,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
             "settle_timeout_s": 30.0,
             "settle_tolerance": 0.001,
             "live_max_runs": 4,
-            "live_max_rows_per_run": 200,
+            "live_max_bytes_per_run": 200,
         },
     }
 
@@ -95,7 +95,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         settle_timeout_s=30.0,
         settle_tolerance=0.001,
         live_max_runs=4,
-        live_max_rows_per_run=200,
+        live_max_bytes_per_run=200,
     )
 
 
@@ -158,10 +158,10 @@ def test_settle_keys_default_when_unstated() -> None:
     assert profile.bluesky.settle_tolerance == BlueskyConfig.settle_tolerance
 
 
-@pytest.mark.parametrize("key", ["live_max_runs", "live_max_rows_per_run"])
+@pytest.mark.parametrize("key", ["live_max_runs", "live_max_bytes_per_run"])
 @pytest.mark.parametrize("value", [0, -5, True, "abc"])
 def test_live_buffer_caps_reject_a_value_that_is_not_a_positive_int(key: str, value: Any) -> None:
-    """Retaining zero runs or zero rows evicts everything the moment it lands."""
+    """Retaining zero runs or zero bytes evicts everything the moment it lands."""
     with pytest.raises(BuildProfileError) as excinfo:
         _parse_profile({"name": "x", "data": "data", "bluesky": {key: value}})
 
@@ -176,7 +176,7 @@ def test_live_buffer_caps_default_when_unstated() -> None:
 
     assert profile.bluesky is not None
     assert profile.bluesky.live_max_runs == BlueskyConfig.live_max_runs
-    assert profile.bluesky.live_max_rows_per_run == BlueskyConfig.live_max_rows_per_run
+    assert profile.bluesky.live_max_bytes_per_run == BlueskyConfig.live_max_bytes_per_run
 
 
 def test_settle_keys_read_an_authored_integer_as_a_float() -> None:

@@ -391,15 +391,15 @@ services:
 {%- if svc.live_max_runs %}
       # Live-run buffer retention: how many run buffers the bridge holds in
       # memory, oldest evicted first. The bridge is where the buffers live, so
-      # this and the row cap below stop here. Written by _inject_bluesky
+      # this and the byte cap below stop here. Written by _inject_bluesky
       # (build_injectors.py) only when the profile departs from the default.
       BLUESKY_LIVE_MAX_RUNS: "{{ svc.live_max_runs }}"
 {% endif %}
-{%- if svc.live_max_rows_per_run %}
-      # Per-run row storage cap. Rows past it are still counted, so the
-      # run-data route reports the true total over a truncated buffer. Same
-      # omit-when-default contract as the retention count above.
-      BLUESKY_LIVE_MAX_ROWS_PER_RUN: "{{ svc.live_max_rows_per_run }}"
+{%- if svc.live_max_bytes_per_run %}
+      # Per-run storage cap, in bytes of stored values. Rows past it are still
+      # counted, so the run-data route reports the true total over a truncated
+      # buffer. Same omit-when-default contract as the retention count above.
+      BLUESKY_LIVE_MAX_BYTES_PER_RUN: "{{ svc.live_max_bytes_per_run }}"
 {% endif %}
 {% if svc.target == 'standin' %}
       # This lane serves the STAND-IN target: the `live-standin` soft IOC this

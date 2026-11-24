@@ -1741,10 +1741,10 @@ build** and prints the valid set:
      - How many runs' live data the bridge keeps in memory, oldest dropped
        first (default 50). This is what decides how long a finished run stays
        readable in the web panel.
-   * - ``live_max_rows_per_run``
-     - How many rows of one run the bridge stores (default 10000). Rows past
-       the cap are still counted, so a long run reports its true length over a
-       truncated buffer.
+   * - ``live_max_bytes_per_run``
+     - How many bytes of one run's values the bridge holds in memory (default
+       20000000), each number counted at 32 bytes. Rows past the cap are still
+       counted, so a long run reports its true length over a truncated buffer.
    * - ``external``
      - An externally-run RE Manager this deployment's bridge fronts, as a
        block of ``zmq_control_addr`` (required, the manager's 0MQ control
