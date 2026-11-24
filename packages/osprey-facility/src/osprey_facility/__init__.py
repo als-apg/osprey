@@ -12,12 +12,16 @@ import re
 from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
+from types import MappingProxyType
 from typing import Any
 
 __all__ = [
+    "ADDRESS_KIND",
+    "ADDRESS_SLOTS",
     "DEFAULT_ROLE",
     "FACILITY_FILE",
     "PN_LOCAL",
+    "RECORD_FACTS",
     "STILL_ALL",
     "TEXTURE",
     "__version__",
@@ -64,6 +68,48 @@ def wiring_addresses(record: Mapping[str, Any]) -> list[str]:
     also = record.get("also")
     stated = [record.get("address"), *(also if isinstance(also, list | tuple) else ())]
     return [address for address in stated if isinstance(address, str)]
+
+
+#: The channel slots a further address of a wiring record (under ``also``) states
+#: for itself: its id, its place, its names, its label and its description, and
+#: the provenance the build writes per row.
+ADDRESS_SLOTS: tuple[str, ...] = (
+    "id",
+    "on",
+    "endpoint_of",
+    "names",
+    "former_addresses",
+    "label",
+    "description",
+    "provenance",
+)
+
+#: Every other channel slot is a fact of the wiring record, read under each of
+#: its addresses from the record's ``address``; each maps to the stop code a
+#: further address stating it raises.
+RECORD_FACTS: Mapping[str, str] = MappingProxyType(
+    {
+        "role": "pair-invalid",
+        "value_type": "pair-invalid",
+        "options": "pair-invalid",
+        "shape": "pair-invalid",
+        "signal": "pair-invalid",
+        "pair": "pair-invalid",
+        "unit": "value-invalid",
+        "precision": "value-invalid",
+        "tolerance": "value-invalid",
+        "tags": "value-invalid",
+        "attributes": "value-invalid",
+        "simulation": "seed-invalid",
+        "timeout_s": "command-invalid",
+        "idle": "command-invalid",
+        "command": "command-invalid",
+    }
+)
+
+#: The record facts that say what kind of channel an address is; the build
+#: writes them on every address of a record, from the record.
+ADDRESS_KIND: tuple[str, ...] = ("role", "value_type", "options", "shape", "command")
 
 
 def fold_code(name: str) -> str:
