@@ -252,7 +252,7 @@ def test_the_vocabulary_counts_every_channel(built_demo: BuiltProject) -> None:
         for channel in channels
         if channel.get("role") == "setpoint" and channel.get("pair") not in (None, channel["id"])
     )
-    described = {row["name"]: row.get("description") for row in vocabulary()["signal_roles"]}
+    described = {row["name"]: row.get("description") for row in facility["signals"]}
     assert used["signals"]
     for name, entry in used["signals"].items():
         assert entry["description"] == described.get(name)

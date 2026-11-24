@@ -31,7 +31,10 @@ what ``variables.json`` already holds. The example facility's
 ``scenarios.json`` and ``decks/BTS.json`` were retaken, and its fifth deck
 dropped, when the facility lost its synthetic transfer line, the BTS
 quadrupoles gained their aperture and the stopped-server scenario moved to
-``sim-BTS``; every other file of the example kept its digest.
+``sim-BTS``; every other file of the example kept its digest. The example
+facility's ``addresses.json``, ``scenarios.json``, ``seeds.json`` and
+``variables.json`` were retaken when the example gained end station ES1;
+every other file kept its digest.
 """
 
 from __future__ import annotations

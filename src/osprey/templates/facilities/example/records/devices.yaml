@@ -562,6 +562,20 @@
     repository: sr-magnets
 - id: CTRL/srioc03
   class: Host
+- id: ES1-MCA01
+  class: Detector
+  description: End station 1 multichannel analyzer 01.
+  names:
+  - MCA01
+  label: MCA 01
+  place: ES1
+- id: ES1/STAGE01
+  class: Stage
+  description: End station 1 sample stage 01.
+  names:
+  - STAGE01
+  label: Stage 01
+  place: ES1
 - id: GTL/BC01
   class: BuckingCoil
   description: Gun-to-linac line bucking coil 01.

@@ -268,6 +268,7 @@ DEMO_PULLABLE = [
     "data/facility/scenarios/rf-thermal/plots/cavity_temperatures.json",
     "data/facility/scenarios/vacuum-burst.yaml",
     "data/facility/seeds.yaml",
+    "data/facility/signals.yaml",
     "data/landing/working-safely.md",
     "web-terminal-context/base.md",
 ]

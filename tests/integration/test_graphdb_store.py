@@ -8,9 +8,9 @@ call shapes but not the two things that decide whether the feature works: that
 produces a graph the operator queries can traverse, and that the graph view the
 demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
-that view (997 binding owners / 4691 bindings / 658 write-only + 4028 read-only
+that view (999 binding owners / 4701 bindings / 662 write-only + 4034 read-only
 / 465 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 43603 triples.
+``terminationStatus`` and its 43718 triples.
 
 Beyond the counts, the seeded demo's ``PARTOF`` and ``LOCATEDIN`` edges must be
 exactly the pairs the facility records imply, and the two match strings the
@@ -80,15 +80,15 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 # locatedIn and record names (40928 then); this test is what confirms it holds.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 43603
-#: Distinct resources carrying at least one channel binding: the 996 devices
+EXPECTED_TRIPLES_LOADED = 43718
+#: Distinct resources carrying at least one channel binding: the 998 devices
 #: and the top place ``SR``, which carries the tune, chromaticity, user
 #: beam mode and operation-mode channels.
-EXPECTED_DEVICES = 997
+EXPECTED_DEVICES = 999
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 4691
-EXPECTED_WRITE_ONLY = 658
-EXPECTED_READ_ONLY = 4028
+EXPECTED_BINDINGS = 4701
+EXPECTED_WRITE_ONLY = 662
+EXPECTED_READ_ONLY = 4034
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector + Septum + Kicker
 #: + Solenoid + BuckingCoil + InsertionDevice. ``SR/MAG-Q-0301``, the quadrupole

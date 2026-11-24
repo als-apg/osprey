@@ -162,6 +162,12 @@ SECTIONS: dict[str, Section] = {
             "LTB/VCM",
         ),
     ),
+    "ES1": Section(
+        waveforms=frozenset({"ES1:DET:MCA:01:SPECTRUM:WAVEFORM"}),
+        new_classes=("Detector", "Stage"),
+        new_places=("ES1",),
+        new_families=("ES1/MCA", "ES1/STAGE"),
+    ),
 }
 
 

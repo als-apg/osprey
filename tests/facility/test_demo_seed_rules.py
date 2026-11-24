@@ -11,6 +11,7 @@ and every other seed key to the frozen table at the end of this file.
 from __future__ import annotations
 
 import importlib.util
+import math
 from functools import cache
 from pathlib import Path
 from types import ModuleType
@@ -98,7 +99,7 @@ def test_every_moving_channel_is_matched_by_exactly_one_rule() -> None:
     module = reseed_module()
     channels, devices = records("channel"), records("device")
     moving = [a for a, seed in generated().items() if set(MOTION_KEYS) & set(seed)]
-    assert len(moving) == 1203
+    assert len(moving) == 1205
     for address in moving:
         channel = channels[address]
         device = channel["on"]["device"]
@@ -147,7 +148,7 @@ def test_every_setpoint_carries_a_tolerance() -> None:
         and channel.get("value_type") != "bool"
         and channel.get("unit")
     ]
-    assert len(setpoints) == 574
+    assert len(setpoints) == 575
     for channel in setpoints:
         assert set(channel["tolerance"]) == {"absolute"}, channel["id"]
         assert channel["tolerance"]["absolute"] > 0, channel["id"]
@@ -358,8 +359,13 @@ def test_a_float_setpoint_with_no_tolerance_row_still_stops_the_stamper(small_tr
         module.tolerances(small_tree, rules=[])
 
 
-#: Every seed's ``nominal``, ``pulse``, ``gate``, ``clamp``, ``linear`` and
-#: top-off key -- each value the rule table does not own -- as ``(address, key,
+#: The detector spectrum's simulated counts: a peak of 480 over a flat
+#: background of 20 in each of its 1024 channels.
+SPECTRUM = [round(20.0 + 480.0 * math.exp(-0.5 * ((i - 512) / 16.0) ** 2), 1) for i in range(1024)]
+
+
+#: Every seed's ``nominal``, ``pulse``, ``gate``, ``responds``, ``clamp``, ``linear``
+#: and top-off key -- each value the rule table does not own -- as ``(address, key,
 #: value)`` in address order. A change that moves one moves its row here in the
 #: same commit.
 BASELINE: tuple[tuple[str, str, Any], ...] = (
@@ -1041,6 +1047,23 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
     ("BTS:MAG:VCM:07:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:08:STATUS:ON", "nominal", "TRUE"),
     ("BTS:MAG:VCM:09:STATUS:ON", "nominal", "TRUE"),
+    ("ES1:DET:MCA:01:ACQUIRE:SP", "nominal", "FALSE"),
+    ("ES1:DET:MCA:01:COUNTS:RB", "nominal", 1200.0),
+    ("ES1:DET:MCA:01:SPECTRUM:WAVEFORM", "nominal", SPECTRUM),
+    (
+        "ES1:DET:MCA:01:STATUS:ACQUIRE",
+        "responds",
+        {"to": "ES1:DET:MCA:01:ACQUIRE:SP", "for_s": 1.0},
+    ),
+    ("ES1:MOT:STAGE:01:MOVE:SP", "nominal", "FALSE"),
+    ("ES1:MOT:STAGE:01:POSITION:RB", "nominal", 0.0),
+    ("ES1:MOT:STAGE:01:POSITION:SP", "nominal", 0.0),
+    (
+        "ES1:MOT:STAGE:01:STATUS:MOVE",
+        "responds",
+        {"to": "ES1:MOT:STAGE:01:MOVE:SP", "for_s": 2.0, "value": "MOVING"},
+    ),
+    ("ES1:MOT:STAGE:01:STOP:SP", "nominal", "FALSE"),
     ("GTL:DIAG:BPM:01:POSITION:X", "nominal", 0.0),
     ("GTL:DIAG:BPM:01:POSITION:Y", "nominal", 0.0),
     ("GTL:DIAG:BPM:01:STATUS:VALID", "nominal", "TRUE"),

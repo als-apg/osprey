@@ -920,6 +920,76 @@
       "description": "Booster-to-storage transfer line vertical corrector 09 on status (read-only): the corrector supply is on."
     },
     {
+      "address": "ES1:DET:MCA:01:ACQUIRE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "End station 1 multichannel analyzer 01 acquire command (read-write): writing TRUE starts one acquisition."
+    },
+    {
+      "address": "ES1:DET:MCA:01:COUNTS:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "End station 1 multichannel analyzer 01 counts (read-only): the total counts of the last acquisition."
+    },
+    {
+      "address": "ES1:DET:MCA:01:SPECTRUM:WAVEFORM",
+      "role": "readback",
+      "value_type": "waveform",
+      "names": [],
+      "description": "End station 1 multichannel analyzer 01 spectrum (read-only): the counts in each of 1024 energy channels of the last acquisition."
+    },
+    {
+      "address": "ES1:DET:MCA:01:STATUS:ACQUIRE",
+      "role": "readback",
+      "value_type": "bool",
+      "names": [],
+      "description": "End station 1 multichannel analyzer 01 acquire status (read-only): TRUE while an acquisition runs."
+    },
+    {
+      "address": "ES1:DET:MCA:01:TEMPERATURE:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "End station 1 multichannel analyzer 01 temperature (read-only): the detector head temperature."
+    },
+    {
+      "address": "ES1:MOT:STAGE:01:MOVE:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "End station 1 sample stage 01 move command (read-write): writing TRUE starts a move to the position setpoint."
+    },
+    {
+      "address": "ES1:MOT:STAGE:01:POSITION:RB",
+      "role": "readback",
+      "value_type": "float",
+      "names": [],
+      "description": "End station 1 sample stage 01 position readback (read-only): the measured stage position."
+    },
+    {
+      "address": "ES1:MOT:STAGE:01:POSITION:SP",
+      "role": "setpoint",
+      "value_type": "float",
+      "names": [],
+      "description": "End station 1 sample stage 01 position setpoint (read-write): the target stage position."
+    },
+    {
+      "address": "ES1:MOT:STAGE:01:STATUS:MOVE",
+      "role": "readback",
+      "value_type": "enum",
+      "names": [],
+      "description": "End station 1 sample stage 01 move status (read-only): MOVING while a move runs, DONE when it has ended, FAULT when it failed."
+    },
+    {
+      "address": "ES1:MOT:STAGE:01:STOP:SP",
+      "role": "setpoint",
+      "value_type": "bool",
+      "names": [],
+      "description": "End station 1 sample stage 01 stop command (read-write): writing TRUE ends a running move where the stage stands."
+    },
+    {
       "address": "GTL:DIAG:BPM:01:POSITION:X",
       "role": "readback",
       "value_type": "float",

@@ -6,8 +6,9 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 4691 channels, 658 of them settable, every one of
-those but the gauge trip resets paired with the readback the file states.
+the tree OSPREY ships -- 4701 channels, 662 of them settable, every one of
+those but the gauge trip resets and the stage's stop command paired with the
+readback the file states.
 
 The second is memoization. A build asks this question several times -- both
 bridge lanes render from it and the channel snapshot is written from it -- and
@@ -43,24 +44,39 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 4691
-DEMO_WRITES = 658
-DEMO_READS = 4033
+DEMO_CHANNELS = 4701
+DEMO_WRITES = 662
+DEMO_READS = 4039
 
-#: The demo's unpaired setpoints: each vacuum gauge's trip reset, a command with
-#: no readback of its own.
-DEMO_UNPAIRED = 29
+#: The demo's unpaired setpoints: each vacuum gauge's trip reset and the ES1
+#: stage's stop command, commands with no readback of their own.
+DEMO_UNPAIRED = 30
+#: The demo's stop command, the one unpaired setpoint that is no gauge trip reset.
+DEMO_STOP = "ES1:MOT:STAGE:01:STOP:SP"
+#: The ES1 commands, each read back on its device's ``STATUS:<verb>``.
+STATION_COMMANDS = ("ES1:MOT:STAGE:01:MOVE:SP", "ES1:DET:MCA:01:ACQUIRE:SP")
 
 
 def demo_readback(setpoint: str) -> str:
     """The readback the demo pairs a setpoint with.
 
     ``:SP`` reads back on ``:RB``, but a gate valve's open setpoint reads back on
-    the valve's open limit switch.
+    the valve's open limit switch, and an ES1 command ``<device>:<verb>:SP`` on
+    its status ``<device>:STATUS:<verb>``.
     """
     if setpoint.startswith("SR:VAC:VALVE:") and setpoint.endswith(":OPEN:SP"):
         return setpoint.removesuffix("OPEN:SP") + "POSITION:OPEN"
+    if setpoint in STATION_COMMANDS:
+        device, verb, _ = setpoint.rsplit(":", 2)
+        return f"{device}:STATUS:{verb}"
     return setpoint[: -len("SP")] + "RB"
+
+
+def is_demo_unpaired(setpoint: str) -> bool:
+    """Whether the demo leaves a setpoint without a readback: a gauge trip reset or the stop."""
+    return setpoint == DEMO_STOP or (
+        setpoint.startswith("SR:VAC:GAUGE:") and setpoint.endswith(":RESET:SP")
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -150,10 +166,7 @@ class TestTheShippedDemoTree:
         assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED
         assert all(record.readback == demo_readback(record.address) for record in paired)
         assert len(unpaired) == DEMO_UNPAIRED
-        assert all(
-            address.startswith("SR:VAC:GAUGE:") and address.endswith(":RESET:SP")
-            for address in unpaired
-        )
+        assert all(is_demo_unpaired(address) for address in unpaired)
 
     def test_names_the_file_it_read(self, demo_config) -> None:
         source = registered_channels(demo_config).source

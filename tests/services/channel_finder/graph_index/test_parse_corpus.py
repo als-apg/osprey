@@ -34,19 +34,19 @@ BINDING = corpora.BINDING
 
 #: Store-verified counts for the demo build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
-#: ``DEMO_DEVICES`` counts every binding owner: the 996 typed devices and the
+#: ``DEMO_DEVICES`` counts every binding owner: the 998 typed devices and the
 #: top place ``SR``, which carries the tune, chromaticity, user beam mode
 #: and operation-mode channels itself.
-DEMO_DEVICES = 997
-DEMO_TYPED_DEVICES = 996
-DEMO_BINDINGS = 4691
-DEMO_WRITE_ONLY = 658
-DEMO_READ_ONLY = 4028
+DEMO_DEVICES = 999
+DEMO_TYPED_DEVICES = 998
+DEMO_BINDINGS = 4701
+DEMO_WRITE_ONLY = 662
+DEMO_READ_ONLY = 4034
 DEMO_MAGNETS = 464
-#: 47 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
+#: 49 ``owl:Class`` subjects less the leaves that pruning drops: ``SemanticSignal``,
 #: ``ChannelBinding`` and the eight infrastructure classes whose devices bind no
 #: channel. Their parent ``Infrastructure`` stays, as the parent of a class.
-DEMO_CLASS_COUNT = 36
+DEMO_CLASS_COUNT = 38
 #: The channels bound to the top place rather than to a device: no system, no
 #: class.
 DEMO_PLACE_BOUND = frozenset(
@@ -494,12 +494,13 @@ class TestTheBuildsGraphView:
         assert sum(row.direct_devices for row in demo.class_rows) == DEMO_TYPED_DEVICES
 
     def test_censuses(self, demo):
-        assert demo.signal_count == 62
+        assert demo.signal_count == 71
         assert demo.section_codes == frozenset(
             {
                 "SR",
                 "BR",
                 "BTS",
+                "ES1",
                 "GTL",
                 "LN",
                 "LTB",

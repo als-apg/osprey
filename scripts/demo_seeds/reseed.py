@@ -6,8 +6,8 @@ no ``linear`` or ``topoff_lifetime`` key gets its ``noise`` and ``drift`` from t
 ``rules.yaml`` that matches its device's class and its signal, converted into the
 channel's unit; ``noise`` is written as ``{absolute: <sigma>}``. A channel no
 row matches stays still, unless its committed seed moves, which is an error.
-Every other seed key (``nominal``, ``pulse``, ``gate``, ``clamp``, ``linear``,
-``topoff``, ``topoff_lifetime``) is carried through as data.
+Every other seed key (``nominal``, ``pulse``, ``gate``, ``responds``, ``clamp``,
+``linear``, ``topoff``, ``topoff_lifetime``) is carried through as data.
 
 Every setpoint gets its ``tolerance`` from the one ``tolerance`` row that
 matches it, converted into its unit and written ``{absolute: <x>}`` directly
@@ -19,8 +19,8 @@ Nor does a setpoint that states no unit, since a tolerance is in the channel's
 unit.
 
 The outputs are the committed ``seeds.yaml``, addresses sorted, each entry's
-keys in the order nominal, pulse, gate, noise, drift, clamp, linear, topoff,
-topoff_lifetime, written with one canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
+keys in the order nominal, pulse, gate, responds, noise, drift, clamp, linear,
+topoff, topoff_lifetime, written with one canonical ``yaml.safe_dump``; and the committed ``records/channels.yaml`` with
 its tolerance lines stamped.
 
 Usage::
@@ -80,6 +80,7 @@ KEY_ORDER = (
     "nominal",
     "pulse",
     "gate",
+    "responds",
     "noise",
     "drift",
     "clamp",

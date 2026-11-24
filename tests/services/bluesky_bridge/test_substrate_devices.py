@@ -44,12 +44,12 @@ from osprey.services.bluesky_bridge.substrate_devices import (
     write_devices_file,
 )
 from tests._facility_file import write_demo_facility_file
-from tests.channel_roster.test_facade import DEMO_UNPAIRED, demo_readback
+from tests.channel_roster.test_facade import DEMO_UNPAIRED, demo_readback, is_demo_unpaired
 
 #: What the shipped demo tree holds, pinned alongside
 #: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 658
-DEMO_READS = 4033
+DEMO_WRITES = 662
+DEMO_READS = 4039
 
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
@@ -358,7 +358,7 @@ class TestTheShippedDemoRoster:
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """658 settables / 4033 readables: every channel the demo tree holds."""
+        """662 settables / 4039 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)
@@ -375,10 +375,7 @@ class TestTheShippedDemoRoster:
         unpaired = [entry["setpoint"] for entry in document["settables"] if "readback" not in entry]
         assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED
         assert all(entry["readback"] == demo_readback(entry["setpoint"]) for entry in paired)
-        assert all(
-            address.startswith("SR:VAC:GAUGE:") and address.endswith(":RESET:SP")
-            for address in unpaired
-        )
+        assert all(is_demo_unpaired(address) for address in unpaired)
 
 
 class TestWriteDevicesFile:
