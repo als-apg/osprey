@@ -1164,3 +1164,25 @@ def test_a_run_no_catalog_knows_is_still_a_404_not_an_outage(
 
     assert response.status_code == 404
     assert "unknown run" in response.json()["detail"]
+
+
+# =========================================================================
+# A stored cell with no JSON reading spelling is refused, and the run loads
+# =========================================================================
+
+
+def test_a_stored_cell_of_undecodable_bytes_reads_refused_not_text_and_the_table_loads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bytes that are not UTF-8 text are one refused cell, not a failed read of the run."""
+    from fastapi.testclient import TestClient
+
+    run_node = _run_node_with_events("uid-raw", "run-raw", [{"motor": 1.0, "det_raw": b"\xff\xfe"}])
+    _configured(monkeypatch, "run-raw", run_node)
+
+    response = TestClient(app_module.app, raise_server_exceptions=False).get("/runs/run-raw/data")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rows"] == [[1.0, {"refused": "not text"}]]
+    assert "analysis" in body

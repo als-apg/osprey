@@ -42,6 +42,7 @@ fail only in production.
 from __future__ import annotations
 
 import pickle
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -462,3 +463,70 @@ def test_live_and_tiled_bodies_of_one_waveform_run_agree(
     live_body, stored_body = live.json(), stored.json()
     for key in ("columns", "rows", "row_count", "truncated"):
         assert live_body[key] == stored_body[key], key
+
+
+# =========================================================================
+# A cell with no JSON reading spelling is refused, and the run still loads
+# =========================================================================
+
+
+def test_a_live_cell_of_undecodable_bytes_reads_refused_not_text_and_the_table_loads() -> None:
+    """Bytes that are not UTF-8 text are one refused cell, not a failed read of the run."""
+    _feed_pickled("run-live-raw", [{"motor": 1.0, "det_raw": b"\xff\xfe"}])
+
+    response = TestClient(app, raise_server_exceptions=False).get("/runs/run-live-raw/data")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rows"] == [[1.0, {"refused": "not text"}]]
+    assert "analysis" in body
+
+
+def test_live_and_tiled_bodies_of_a_run_with_odd_cells_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every odd cell reads the same from either source: text, a UTC date, or a refusal."""
+    from tests.services.bluesky_bridge.test_data_route import (
+        _configured,
+        _run_node_with_events,
+    )
+
+    rows = [
+        {
+            "motor": 1.0,
+            "det_text": b"abc",
+            "det_raw": b"\xff\xfe",
+            "det_when": datetime(2026, 11, 24, 10, 0, 0, 500000),
+            "det_complex": 1 + 2j,
+            "det_set": {1, 2},
+            "det_dict": {"a": 1},
+        }
+    ]
+    _feed_pickled("run-odd-live", rows)
+    _configured(
+        monkeypatch,
+        "run-odd-tiled",
+        _run_node_with_events("uid-odd-tiled", "run-odd-tiled", rows),
+    )
+
+    test_client = TestClient(app, raise_server_exceptions=False)
+    live = test_client.get("/runs/run-odd-live/data")
+    stored = test_client.get("/runs/run-odd-tiled/data")
+
+    assert live.status_code == 200, live.text
+    assert stored.status_code == 200, stored.text
+    live_body, stored_body = live.json(), stored.json()
+    for key in ("columns", "rows", "row_count", "truncated"):
+        assert live_body[key] == stored_body[key], key
+    not_a_reading = {"refused": "not a number, text or array"}
+    assert live_body["rows"] == [
+        [
+            1.0,
+            "abc",
+            {"refused": "not text"},
+            "2026-11-24T10:00:00.5Z",
+            not_a_reading,
+            not_a_reading,
+            not_a_reading,
+        ]
+    ]
