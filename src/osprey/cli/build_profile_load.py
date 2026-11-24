@@ -39,6 +39,7 @@ from osprey.port_layout import (
     default_port,
     resolve_port_base,
 )
+from osprey.repo_layout import child_display_path
 from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
@@ -1081,7 +1082,7 @@ _RETIRED_APP_TEMPLATE_REFUSAL = (
 #: ``data/facility/``; a profile's facility is the tree under its own ``data:``.
 _PRESET_FACILITY_REFUSAL = (
     "facility is a preset key, not a profile key — this profile's facility is "
-    "the data/facility/ tree under its own `data:`. Drop the key."
+    f"the {child_display_path('data', 'facility')}/ tree under its own `data:`. Drop the key."
 )
 
 

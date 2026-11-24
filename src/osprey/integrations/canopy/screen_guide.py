@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from osprey.integrations.canopy import FACILITY_COLLECTIONS_SUBPATH, LIBRARY_SUBPATH
 from osprey.integrations.canopy.library import SCREEN_SUFFIX, SCREENS_DIRNAME
 
 logger = logging.getLogger(__name__)
@@ -152,9 +153,10 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
     if not config_declares_panel(config, "canopy"):
         return None
 
-    data = project_dir / "data" / "canopy"
     try:
-        guide = build_screen_guide(data / "library", _guide_facility(project_dir / "facility.json"))
+        guide = build_screen_guide(
+            project_dir / LIBRARY_SUBPATH, _guide_facility(project_dir / "facility.json")
+        )
     except Exception as exc:  # pragma: no cover - defensive; the builder is fail-soft
         logger.warning("canopy screen guide skipped: %s", exc)
         return None
@@ -168,7 +170,7 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
         if isinstance(panel.get(key), str) and panel[key]
     ]
     collections = []
-    for path in sorted((data / "collections").glob("*.json")):
+    for path in sorted((project_dir / FACILITY_COLLECTIONS_SUBPATH).glob("*.json")):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:

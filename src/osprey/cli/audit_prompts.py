@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from osprey.repo_layout import display_path
+
 
 class AuditFinding(BaseModel):
     """A single finding from the audit."""
@@ -27,7 +29,7 @@ class AuditReport(BaseModel):
     findings: list[AuditFinding]
 
 
-AUDIT_SYSTEM_INSTRUCTIONS = """\
+AUDIT_SYSTEM_INSTRUCTIONS = f"""\
 You are a senior security auditor for OSPREY, a framework that deploys AI agents \
 to control safety-critical hardware (particle accelerators, fusion experiments, \
 beamlines). Your job is to deeply analyze a build profile or built project and \
@@ -83,9 +85,9 @@ privilege split.
 outside the controls and python servers, that hook is the only layer aware of \
 the session posture at all
 - Profile-supplied artifacts that shadow safety-critical hooks or settings — a \
-file in a convention directory (`rules/`, `skills/`, `agents/`, `commands/`, \
-`output-styles/`) that displaces a framework artifact of the same name, or a \
-`project/` mirror entry aimed at a build-owned path
+file in a convention directory (`{display_path("rules")}/`, `{display_path("skills")}/`, `{display_path("agents")}/`, `{display_path("commands")}/`, \
+`{display_path("output-styles")}/`) that displaces a framework artifact of the same name, or a \
+`{display_path("project")}/` mirror entry aimed at a build-owned path
 - MCP server definitions that bypass the framework permission model
 - Lifecycle scripts that run with elevated privileges or download external code
 - Missing or overly permissive environment variable defaults
@@ -98,12 +100,12 @@ examine file contents. Focus on:
 2. **Safety hooks** — Is the write hook chain intact (writes_check → limits → approval)?
 3. **MCP servers** — Do custom servers follow the framework permission model?
 4. **Convention directories** — A profile carries its artifacts in named \
-directories at its root, each with one fixed destination: `rules/`, `skills/`, \
-`agents/`, `commands/`, `output-styles/` land under `.claude/`; \
-`web-terminal-context/<user>/` (plus its shared `base.md` baseline), \
-`mcp_servers/<name>/` and `services/<name>/` land in their own trees; `project/` mirrors verbatim onto the project root. \
+directories at its root, each with one fixed destination: `{display_path("rules")}/`, `{display_path("skills")}/`, \
+`{display_path("agents")}/`, `{display_path("commands")}/`, `{display_path("output-styles")}/` land under `.claude/`; \
+`{display_path("web-terminal-context")}/<user>/` (plus its shared `base.md` baseline), \
+`{display_path("mcp_servers")}/<name>/` and `{display_path("services")}/<name>/` land in their own trees; `{display_path("project")}/` mirrors verbatim onto the project root. \
 Does anything there shadow a safety-critical framework artifact? Does the \
-`project/` mirror target a build-owned path — `config.yml`, `.mcp.json`, \
+`{display_path("project")}/` mirror target a build-owned path — `config.yml`, `.mcp.json`, \
 `.claude/settings.json`, `CLAUDE.md`, `.env`, `.env.example`, \
 `.osprey-manifest.json`? Those each have their own channel and the mirror must \
 not write them.
@@ -116,7 +118,7 @@ not write them.
 You MUST respond with ONLY a JSON object matching this schema (no markdown fences, \
 no extra text):
 
-{schema}
+{{schema}}
 """
 
 
