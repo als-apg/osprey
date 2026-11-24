@@ -30,6 +30,8 @@ Exercised here:
   response carry the identical key set — including the `analysis` block, whose
   own keys are pinned to match across the two sources so an absent result reads
   the same either way.
+- Cell parity: a waveform reading is a list of floats from either source, and
+  the same rows read live and from the catalog give the same table.
 
 The `_from_tiled` stubs below stand in for a function that computes an
 `analysis` block from the snapshot it read, so they carry one: a stub whose
@@ -39,8 +41,10 @@ fail only in production.
 
 from __future__ import annotations
 
+import pickle
 from typing import Any
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -356,3 +360,64 @@ def test_live_and_tiled_snapshots_of_one_run_agree_on_its_units(
     assert live["units"] == {
         key: entry["units"] for key, entry in declared.items() if "units" in entry
     }
+
+
+# =========================================================================
+# A waveform cell reads the same from either source
+# =========================================================================
+
+
+def _feed_pickled(key: str, rows: list[dict[str, Any]]) -> None:
+    """Feed *rows* as the document plane delivers them: through a pickle round trip.
+
+    The worker's publisher pickles every document, so a cell reaches the
+    recorder as whatever type the connector returned — a waveform is a
+    `numpy.ndarray`.
+    """
+    recorder = LiveRowRecorder(key=key)
+    recorder("start", {"uid": f"engine-{key}"})
+    for row in rows:
+        recorder("event", pickle.loads(pickle.dumps({"data": row})))
+
+
+def test_a_live_run_with_a_waveform_cell_is_served() -> None:
+    """A live run whose reading is an array answers 200 with the array as a list of floats."""
+    _feed_pickled("run-live-wave", [{"motor": 1.0, "det_wave": np.arange(3.0)}])
+
+    response = TestClient(app, raise_server_exceptions=False).get("/runs/run-live-wave/data")
+
+    assert response.status_code == 200, response.text
+    rows = response.json()["rows"]
+    assert rows == [[1.0, [0.0, 1.0, 2.0]]]
+    wave_cell = rows[0][1]
+    assert type(wave_cell) is list
+    assert all(type(value) is float for value in wave_cell)
+
+
+def test_live_and_tiled_bodies_of_one_waveform_run_agree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same rows read live and from the catalog give the same table, NaN included."""
+    from tests.services.bluesky_bridge.test_data_route import _configured, _waveform_run
+
+    scalars = [float("nan"), 2.0]
+    waves = [np.array([float("nan"), 1.0, 2.0]), np.arange(3.0) + 10.0]
+    _feed_pickled(
+        "run-wave-live",
+        [{"motor": motor, "det_wave": wave} for motor, wave in zip(scalars, waves, strict=True)],
+    )
+    _configured(
+        monkeypatch, "run-wave-tiled", _waveform_run("run-wave-tiled", waves, scalars=scalars)
+    )
+
+    test_client = TestClient(app, raise_server_exceptions=False)
+    live = test_client.get("/runs/run-wave-live/data")
+    stored = test_client.get("/runs/run-wave-tiled/data")
+
+    assert live.status_code == 200, live.text
+    assert stored.status_code == 200, stored.text
+    assert "NaN" not in live.text
+    assert "NaN" not in stored.text
+    live_body, stored_body = live.json(), stored.json()
+    for key in ("columns", "rows", "row_count", "truncated"):
+        assert live_body[key] == stored_body[key], key

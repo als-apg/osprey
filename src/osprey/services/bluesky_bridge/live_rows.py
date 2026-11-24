@@ -22,11 +22,13 @@ Document handling (bluesky's plain-dict document protocol):
   ``units`` records that unit under its column name. A later descriptor adds
   units, never clears them; a column whose data key declares none has none.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
-  discovered incrementally in first-seen order across events. A key seen for
-  the first time extends the column list and backfills every already-stored
-  row with ``None`` in that column, so all stored rows stay aligned to the
-  current column list; a later event missing an already-known column simply
-  records ``None`` for it.
+  discovered incrementally in first-seen order across events. Each cell is
+  stored as a plain JSON value (:func:`json_cell`): an array reading is a
+  list, a numpy scalar is a Python scalar. A key seen for the first time
+  extends the column list and backfills every already-stored row with
+  ``None`` in that column, so all stored rows stay aligned to the current
+  column list; a later event missing an already-known column simply records
+  ``None`` for it.
 - ``stop``: flips ``partial`` to ``False``. This is the ONLY thing that ends
   the "still filling in" state — a buffer that never gets a stop doc (e.g.
   the process crashed mid-run) stays partial forever, which is the honest
@@ -126,9 +128,10 @@ def get(run_uid: str) -> dict[str, Any] | None:
     """A snapshot of the live buffer for *run_uid* (or None if unknown).
 
     ``columns``, ``rows`` and ``units`` are copies, so a caller cannot reach
-    back into the buffer through them. ``plan`` is whatever the recorder was handed and is
-    returned by reference — this module never inspects or mutates it, and
-    neither may a caller.
+    back into the buffer through them. A cell that is a list is not copied: it
+    is shared with the buffer, and a caller must not mutate it. ``plan`` is
+    whatever the recorder was handed and is returned by reference — this module
+    never inspects or mutates it, and neither may a caller.
     """
     with _lock:
         buf = _buffers.get(run_uid)
@@ -158,6 +161,23 @@ def declared_units(descriptor: Any) -> dict[str, str]:
         for column, key in data_keys.items()
         if isinstance(key, dict) and isinstance(key.get("units"), str) and key["units"]
     }
+
+
+def json_cell(value: Any) -> Any:
+    """One cell of a run's table as a plain JSON value.
+
+    The one rule both readers of a run apply, so a live run and a stored run
+    serve the same cell. A value with a callable ``tolist`` (a `numpy.ndarray`
+    of any dimension, a numpy scalar) becomes ``tolist()``: nested lists of
+    Python numbers, or one Python scalar. Every other value passes through
+    unchanged.
+
+    ``tolist()`` rather than ``list()``: it recurses, so an image cell is a
+    nested list rather than a list of arrays, and it turns numpy scalars into
+    Python ones.
+    """
+    to_list = getattr(value, "tolist", None)
+    return to_list() if callable(to_list) else value
 
 
 def _clear() -> None:
@@ -261,7 +281,7 @@ class LiveRowRecorder:
                     row.extend([None] * len(new_columns))
             buf["total_seen"] += 1
             if len(buf["rows"]) < self._max_rows:
-                buf["rows"].append([data.get(col) for col in buf["columns"]])
+                buf["rows"].append([json_cell(data.get(col)) for col in buf["columns"]])
             _buffers.move_to_end(self._uid)
 
     def _on_stop(self, _doc: dict[str, Any]) -> None:

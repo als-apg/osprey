@@ -34,7 +34,7 @@ from osprey.facility.views import VIEWS, ViewInputs
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.state import STILL_SCENARIO
 from osprey_facility.build import build_facility
-from osprey_facility.errors import KINDS
+from osprey_facility.errors import KINDS, FacilityBuildError
 from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS, init_project, run_build
 from tests._facility_file import FACILITY_V4
@@ -71,6 +71,21 @@ def _plain(*edits: Edit) -> Callable[[], Tree]:
 
 def _deck(*edits: Edit) -> Callable[[], Tree]:
     return _from(deck_tree, edits)
+
+
+#: The injection fixture's facility tree: its engine marks the request a command.
+INJECTION = Path(__file__).resolve().parent / "fixtures" / "injection"
+
+
+def _injection_tree() -> Tree:
+    return {
+        rel: yaml.safe_load((INJECTION / rel).read_text(encoding="utf-8"))
+        for rel in ("models.yaml", "limits.yaml", "records/channels.yaml")
+    }
+
+
+def _injection(*edits: Edit) -> Callable[[], Tree]:
+    return _from(_injection_tree, edits)
 
 
 def _from(base: Callable[[], Tree], edits: tuple[Edit, ...]) -> Callable[[], Tree]:
@@ -232,6 +247,36 @@ MML_MODELS = "imported/mml/models.yaml"
 EXTRA_SP = {"id": "Q2:SP", "role": "setpoint", "on": {"device": "SR/Q1"}}
 #: A model without a deck, wiring the plain tree's setpoint.
 NO_DECK = {"name": "optics", "engine": "pyat", "wiring": [{"address": "Q1:SP", "element": "Q1"}]}
+
+
+#: A command on the plain tree's quadrupole that states a bound, and the idle status it pairs with.
+COMMAND_ON = {
+    "id": "Q1:ON",
+    "role": "setpoint",
+    "signal": "power_on_command",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "timeout_s": 5.0,
+    "on": {"device": "SR/Q1"},
+}
+COMMAND_STATE = {
+    "id": "Q1:STATE",
+    "signal": "power_on_status",
+    "value_type": "bool",
+    "options": ["OFF", "ON"],
+    "idle": "OFF",
+    "on": {"device": "SR/Q1"},
+}
+
+
+def commanded(on: dict[str, Any] | None = None, state: dict[str, Any] | None = None) -> Edit:
+    """Append ``COMMAND_ON`` and ``COMMAND_STATE`` with slots changed; a slot set to None is dropped."""
+
+    def changed(record: dict[str, Any], slots: dict[str, Any] | None) -> dict[str, Any]:
+        merged = {**record, **(slots or {})}
+        return {key: value for key, value in merged.items() if value is not None}
+
+    return append("records/channels.yaml", changed(COMMAND_ON, on), changed(COMMAND_STATE, state))
 
 
 #: The groups file, and the group holding both of the deck tree's SR quadrupoles.
@@ -396,6 +441,56 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "pair-invalid",
         "a wired `endpoint_of` device named by no slice",
     ),
+    ("command_invalid__bound_on_no_command", "command-invalid", "`timeout_s` on no command"),
+    ("command_invalid__bound_not_positive", "command-invalid", "`timeout_s` not > 0"),
+    (
+        "command_invalid__bound_without_idle",
+        "command-invalid",
+        "`timeout_s` on a command whose status states no `idle`",
+    ),
+    (
+        "command_invalid__bound_on_own_pair",
+        "command-invalid",
+        "`timeout_s` on a command that is its own pair",
+    ),
+    (
+        "command_invalid__idle_without_bound",
+        "command-invalid",
+        "a command whose status states `idle` states no `timeout_s`",
+    ),
+    ("command_invalid__idle_on_setpoint", "command-invalid", "`idle` on a setpoint"),
+    ("command_invalid__idle_type", "command-invalid", "`idle` not of its channel's type"),
+    ("command_invalid__idle_on_waveform", "command-invalid", "`idle` on a waveform channel"),
+    (
+        "command_invalid__bound_on_waveform_status",
+        "command-invalid",
+        "`timeout_s` on a command whose status is a waveform channel",
+    ),
+    (
+        "command_invalid__idle_unpaired",
+        "command-invalid",
+        "`idle` on a readback no command pairs with",
+    ),
+    (
+        "command_invalid__idle_followed",
+        "command-invalid",
+        "`follows` naming a setpoint on a status that states `idle`",
+    ),
+    (
+        "command_invalid__confirm_on_bound",
+        "command-invalid",
+        "`confirm: true` on a command that states `timeout_s`",
+    ),
+    (
+        "command_invalid__on_further_address",
+        "command-invalid",
+        "`timeout_s` or `idle` on a further address of a wiring record",
+    ),
+    (
+        "command_invalid__confirm_on_further_address",
+        "command-invalid",
+        "`confirm: true` on a further address of a command that states `timeout_s`",
+    ),
     (
         "value_invalid__measurement_step_key",
         "value-invalid",
@@ -466,6 +561,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "value-invalid",
         "a relative `tolerance` on a setpoint without a seed `nominal`",
     ),
+    (
+        "value_invalid__tolerance_on_further_address",
+        "value-invalid",
+        "`tolerance` on a further address of a wiring record",
+    ),
     ("value_invalid__enum_bounds", "value-invalid", "enum bounds"),
     ("value_invalid__linear_wired", "value-invalid", "`linear` inputs wired"),
     ("value_invalid__linear_cyclic", "value-invalid", "`linear` inputs cyclic"),
@@ -524,6 +624,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     ),
     ("limit_invalid__writable", "limit-invalid", "writable on a non-setpoint"),
     ("limit_invalid__int_bound", "limit-invalid", "non-integral bound on an int channel"),
+    (
+        "limit_invalid__writable_without_bounds",
+        "limit-invalid",
+        "writable on a numeric setpoint without both bounds",
+    ),
     (
         "place_conflict__imported_place",
         "place-conflict",
@@ -1522,6 +1627,144 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "`endpoint_of`"
         ),
     ),
+    "command_invalid__bound_on_no_command": (
+        _plain(update("records/channels.yaml", 0, timeout_s=1.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `timeout_s` on a channel that is no "
+            "command; fix: remove `timeout_s`; only a command states how long one act may take"
+        ),
+    ),
+    "command_invalid__bound_not_positive": (
+        _plain(commanded(on={"timeout_s": 0})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` 0 is not a finite number > 0; "
+            "fix: state `timeout_s` as the longest one act may take, in seconds"
+        ),
+    ),
+    "command_invalid__bound_without_idle": (
+        _plain(commanded(state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE states no `idle`; fix: state `idle` on Q1:STATE"
+        ),
+    ),
+    "command_invalid__bound_on_own_pair": (
+        _plain(commanded(on={"pair": "Q1:ON"}, state={"idle": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command that is its own "
+            "pair; fix: name the readback that reads the act as `pair`, and state `idle` on it"
+        ),
+    ),
+    "command_invalid__idle_without_bound": (
+        _plain(commanded(on={"timeout_s": None})),
+        (
+            "facility: command-invalid: channel Q1:ON — a command whose status Q1:STATE states "
+            "`idle` states no `timeout_s`; fix: state `timeout_s` on Q1:ON"
+        ),
+    ),
+    "command_invalid__idle_on_setpoint": (
+        _plain(update("records/channels.yaml", 0, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:SP — `idle` on a setpoint channel; fix: remove "
+            "`idle`; only a readback a command pairs with states it"
+        ),
+    ),
+    "command_invalid__idle_type": (
+        _plain(commanded(state={"idle": "MAYBE"})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` of bool channel Q1:STATE is "
+            "'MAYBE', not a label; fix: type `idle` by the channel: a label on a bool or enum "
+            "channel, an integer on an int, a number on a float, text on a string; a waveform "
+            "channel is never a status"
+        ),
+    ),
+    "command_invalid__idle_on_waveform": (
+        _plain(
+            commanded(
+                on={"timeout_s": None},
+                state={"value_type": "waveform", "options": None, "shape": [3], "idle": 0},
+            )
+        ),
+        (
+            "facility: command-invalid: channel Q1:STATE — `idle` on waveform channel Q1:STATE; "
+            "a waveform channel is never a status; fix: type `idle` by the channel: a label on a "
+            "bool or enum channel, an integer on an int, a number on a float, text on a string; "
+            "a waveform channel is never a status"
+        ),
+    ),
+    "command_invalid__bound_on_waveform_status": (
+        _plain(
+            commanded(state={"value_type": "waveform", "options": None, "shape": [3], "idle": None})
+        ),
+        (
+            "facility: command-invalid: channel Q1:ON — `timeout_s` on a command whose status "
+            "Q1:STATE is a waveform channel; fix: pair Q1:ON with a status that is no waveform, "
+            "or remove `timeout_s`"
+        ),
+    ),
+    "command_invalid__idle_unpaired": (
+        _plain(update("records/channels.yaml", 1, idle=0.0)),
+        (
+            "facility: command-invalid: channel Q1:RB — `idle` on a readback no command pairs "
+            "with; fix: remove `idle`, or name Q1:RB as a command's `pair`"
+        ),
+    ),
+    "command_invalid__idle_followed": (
+        _plain(commanded(state={"simulation": {"follows": "Q1:ON"}})),
+        (
+            "facility: command-invalid: channel Q1:STATE — `follows` names Q1:ON on a status that "
+            "states `idle`; a followed status holds each write to Q1:ON and never returns to "
+            "`idle` by itself; fix: remove `follows`; a status that states `idle` is never followed"
+        ),
+    ),
+    "command_invalid__confirm_on_bound": (
+        _plain(commanded(), limits({"address": "Q1:ON", "writable": True, "confirm": True})),
+        (
+            "facility: command-invalid: limit Q1:ON — `confirm: true` on a command that states "
+            "`timeout_s`; fix: remove `confirm`; the wait for Q1:STATE confirms the write"
+        ),
+    ),
+    "command_invalid__on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "timeout_s": 2.0,
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: channel RACK:QD:SP — `timeout_s` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `timeout_s` on QD:SP only; it "
+            "holds under each of its addresses"
+        ),
+    ),
+    "command_invalid__confirm_on_further_address": (
+        _injection(
+            update("records/channels.yaml", 0, pair="INJ:SHOT:BUSY", timeout_s=2.0),
+            update("records/channels.yaml", 13, idle=0.0),
+            append("records/channels.yaml", {"id": "INJ:RACK:REQ", "role": "setpoint"}),
+            wiring("CHAIN", 0, also=["INJ:RACK:REQ"]),
+            limits(
+                {
+                    "address": "INJ:RACK:REQ",
+                    "writable": True,
+                    "min_value": 0,
+                    "max_value": 1,
+                    "confirm": True,
+                },
+            ),
+        ),
+        (
+            "facility: command-invalid: limit INJ:RACK:REQ — `confirm: true` on a further "
+            "address of a command that states `timeout_s`; fix: remove `confirm`; the wait for "
+            "INJ:SHOT:BUSY confirms the write"
+        ),
+    ),
     "value_invalid__measurement_step_key": (
         _deck(
             put(GROUPS_FILE, [QUAD_GROUP]),
@@ -1806,6 +2049,25 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: value-invalid: channel Q1:SP — a relative `tolerance` is taken of the "
             "setpoint's seed `nominal`, which it does not state; fix: state `absolute`, or give "
             "the setpoint a seed `nominal`"
+        ),
+    ),
+    "value_invalid__tolerance_on_further_address": (
+        _deck(
+            wiring("SR", 1, also=["RACK:QD:SP"]),
+            append(
+                "records/channels.yaml",
+                {
+                    "id": "RACK:QD:SP",
+                    "role": "setpoint",
+                    "tolerance": {"absolute": 0.1},
+                    "on": {"device": "SR/QD"},
+                },
+            ),
+        ),
+        (
+            "facility: value-invalid: channel RACK:QD:SP — `tolerance` on RACK:QD:SP, which "
+            "wiring record SR/QD:SP states under `also`; fix: state `tolerance` on QD:SP only; it "
+            "holds under each of its addresses"
         ),
     ),
     "value_invalid__enum_bounds": (
@@ -2103,6 +2365,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: limit-invalid: limit T — `max_value` 2.5 on an int channel is not "
             "integral; fix: write integral bounds"
+        ),
+    ),
+    "limit_invalid__writable_without_bounds": (
+        _plain(limits({"address": "Q1:SP", "writable": True, "max_value": 1.0})),
+        (
+            "facility: limit-invalid: limit Q1:SP — `writable: true` on a float setpoint "
+            "without both `min_value` and `max_value`; fix: state `min_value` and `max_value`"
         ),
     ),
     "place_conflict__imported_place": (
@@ -3427,6 +3696,45 @@ def test_limits_records_without_a_defaults_block_build(tmp_path: Path) -> None:
     assert document["limits"] == {
         "records": [{"address": "Q1:SP", "min_value": 0.0, "max_value": 1.0}]
     }
+
+
+#: A bool command setpoint on the plain tree's quadrupole, with no bounds.
+GO_SP = {"id": "GO:SP", "role": "setpoint", "value_type": "bool", "on": {"device": "SR/Q1"}}
+
+
+def test_an_override_on_a_stated_writable_bool_setpoint_builds(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "writable": True}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    document = build_facility(
+        write_tree(tmp_path / "facility", tree), project_name=PROJECT, extra_checks=FRAMEWORK_CHECKS
+    )
+
+    assert [s["overrides"] for s in document["scenarios"]] == [{"GO:SP": 1}]
+
+
+def test_an_override_on_a_bool_setpoint_with_a_bare_record_stops(tmp_path: Path) -> None:
+    tree = _plain(
+        append("records/channels.yaml", GO_SP),
+        limits({"address": "GO:SP", "confirm": False}),
+        scenario("warm", {"overrides": {"GO:SP": 1}}),
+    )()
+
+    with pytest.raises(FacilityBuildError) as stopped:
+        build_facility(
+            write_tree(tmp_path / "facility", tree),
+            project_name=PROJECT,
+            extra_checks=FRAMEWORK_CHECKS,
+        )
+
+    assert str(stopped.value) == (
+        "facility: seed-invalid: scenario warm — `overrides.GO:SP` writes GO:SP, which "
+        "limits.yaml locks; fix: remove `overrides.GO:SP`, or make GO:SP writable in "
+        "limits.yaml"
+    )
 
 
 def test_a_tree_without_limits_builds(tmp_path: Path) -> None:

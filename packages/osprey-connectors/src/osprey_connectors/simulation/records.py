@@ -34,6 +34,7 @@ __all__ = [
     "NoiseRecord",
     "PulseRecord",
     "ResolvedCoupling",
+    "RespondsRecord",
     "ScenarioRecord",
     "ScenariosDocument",
     "SeedRecord",
@@ -115,6 +116,14 @@ class GateRecord(TypedDict):
     gated: float | str
 
 
+class RespondsRecord(TypedDict):
+    """A ``responds`` seed: the value a channel reads for ``for_s`` seconds after each write to ``to``."""
+
+    to: str
+    for_s: float
+    value: str | int
+
+
 class SeedRecord(TypedDict, total=False):
     """One channel's seed in ``seeds.json``."""
 
@@ -127,13 +136,16 @@ class SeedRecord(TypedDict, total=False):
     pulse: PulseRecord
     topoff: TopoffRecord
     topoff_lifetime: _LifetimeRecord
+    responds: RespondsRecord
 
 
 class ChannelRecord(TypedDict):
     """One channel entry of ``variables.json``.
 
     ``value_range`` is ``[min, max]`` when the channel's limits record states
-    both, else ``None``.
+    both, else ``None``. ``started_by`` names the command whose write moves a
+    setpoint's readback to the setpoint's held value; only a setpoint the
+    texture serves states it.
     """
 
     address: str
@@ -149,6 +161,7 @@ class ChannelRecord(TypedDict):
     options: NotRequired[Sequence[str]]
     shape: NotRequired[Sequence[int]]
     precision: NotRequired[int]
+    started_by: NotRequired[str]
 
 
 class WiringRecord(TypedDict, total=False):

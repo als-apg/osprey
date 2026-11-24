@@ -40,8 +40,11 @@ def _render(root: Path, control_system: dict[str, Any]) -> None:
     reset_config_cache()
 
 
-def _plant(root: Path, *channels: dict[str, Any]) -> Path:
-    return write_facility_v4(root / "build", {"channels": list(channels)})
+def _plant(root: Path, *channels: dict[str, Any], models: list | None = None) -> Path:
+    document: dict[str, Any] = {"channels": list(channels)}
+    if models is not None:
+        document["models"] = models
+    return write_facility_v4(root / "build", document)
 
 
 @pytest.fixture
@@ -92,6 +95,22 @@ def test_the_readback_read_is_the_setpoints_pair(repo: Path, served: Readbacks) 
     served.values["Q1:RB"] = 2.04
 
     osprey.runtime.settle({"Q1:SP": 2.0})
+
+    assert served.reads == ["Q1:RB"]
+
+
+def test_a_further_address_settles_on_its_records_pair_within_its_tolerance(
+    repo: Path, served: Readbacks
+) -> None:
+    _plant(
+        repo,
+        {"id": "Q1:SP", "role": "setpoint", "pair": "Q1:RB", "tolerance": {"absolute": 0.05}},
+        {"id": "RACK:SP", "role": "setpoint"},
+        models=[{"name": "M", "wiring": [{"address": "Q1:SP", "also": ["RACK:SP"]}]}],
+    )
+    served.values["Q1:RB"] = 2.04
+
+    osprey.runtime.settle({"RACK:SP": 2.0})
 
     assert served.reads == ["Q1:RB"]
 

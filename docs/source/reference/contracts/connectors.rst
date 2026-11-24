@@ -182,12 +182,38 @@ channel with no entry, has confirmation on. The database holds no ``defaults``
 block: a top-level ``defaults`` key, or an entry without ``writable``, fails the
 load. Switch it off for the channels a re-read cannot answer
 for -- a command channel that resets itself, a register that cannot be read back
--- so those writes report ``unrequested`` rather than ``unconfirmed``. A call
+-- so those writes report ``unrequested`` rather than ``unconfirmed``. A
+command whose status reports when what it started is over needs no re-read
+when it is fired: ``fire`` (below) writes it with confirmation off and
+confirms it by waiting for the status. A call
 site may pass ``confirm=True`` or ``confirm=False`` to decide for one call;
 passing nothing means "no opinion" and leaves the choice to the configuration.
 ``write_multiple_channels()`` confirms each channel exactly as a single write
 would, which is why ``osprey.runtime.write_channels`` behaves like
 ``osprey.runtime.write_channel``.
+
+Firing a command
+~~~~~~~~~~~~~~~~
+
+A command is a channel written to start something, such as a reset; what it
+starts is its act, and a status channel reports when the act is over.
+``osprey_connectors.command.fire(connector, act, value)`` writes a command
+channel once and returns when its status says the act is over. A
+``CommandAct`` names the command, the status, the value the status reads when
+``idle`` and the longest one act may take (``timeout_s``). ``fire`` subscribes
+to the status before it writes, so no update the write causes is missed, and
+reads it; a status that is not idle refuses the act with ``CommandBusyError``
+and nothing is written. It then
+writes the command with ``confirm=False``, because the wait confirms the write
+more strongly than a re-read, and waits for a status update that is not idle
+followed by one that is. The status is compared with ``values_match``, the rule
+a write's confirmation uses. A status that does not leave idle within
+``start_s`` seconds of the write (a keyword of ``fire``; at most, and by
+default, ``timeout_s``) raises ``CommandNoEffectError``; one that leaves and does not come back within
+``timeout_s`` raises ``CommandTimeoutError``; a status that cannot be
+subscribed, read or compared, or whose connection drops, raises
+``CommandStatusError``. Every other write of the command is confirmed as its
+limits entry says.
 
 What a batch means
 ~~~~~~~~~~~~~~~~~~

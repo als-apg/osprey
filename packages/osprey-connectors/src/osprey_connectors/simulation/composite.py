@@ -1361,13 +1361,31 @@ class Composite(LUMEModel):
                 ``address`` names the channel when one channel was refused.
             ReadOnlyError: A name is not a settable channel.
         """
-        self._write(values_by_name, client=True)
+        self.write(values_by_name)
+
+    def write(self, values_by_name: Mapping[str, object]) -> float:
+        """Write channels as :meth:`set` does; returns the instant of the write.
+
+        The instant is read once from the composite's clock. The texture is
+        told of the write at it, whichever model serves each channel: every
+        response a command fires runs from it, and a journal of the write
+        records it. A write a channel fault holds fires nothing.
+
+        Returns:
+            The instant of the write, in epoch seconds.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        return self._write(values_by_name, client=True)
 
     def restore(self, values_by_name: Mapping[str, object]) -> None:
         """Put channels back as :meth:`set` writes them, without a client write.
 
-        For a rollback or a replay: the children's models take the values, and
-        no engine is told a client wrote them.
+        For a rollback: the children's models take the values, no engine is
+        told a client wrote them, and no response fires. A journal is put back
+        by :meth:`replay`.
 
         Raises:
             WriteRefusedError: As :meth:`set`.
@@ -1375,34 +1393,88 @@ class Composite(LUMEModel):
         """
         self._write(values_by_name, client=False)
 
-    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> None:
+    def replay(self, entries: Sequence[tuple[str, object, float | None]]) -> None:
+        """Put journalled writes back, without a client write.
+
+        Each entry is ``(address, value, t_s)``, in the order it was written,
+        with the instant it was written at or ``None``. A physics child takes
+        each of its channels' last value, as :meth:`restore` puts it; the
+        texture is told of every entry in order, whichever model serves it,
+        and fires each command's responses at the entry's instant
+        (:meth:`TextureModel.replay`). An entry a channel fault holds is put
+        back as a held write and fires nothing.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
         self._refresh()
+        latest: dict[str, values.StoredValue] = {}
+        told: list[tuple[str, values.StoredValue, float | None]] = []
+        for name, value, t_s in entries:
+            own, stored = self._coerced(name, value)
+            if own not in self._held_writes:
+                told.append((own, stored, t_s))
+            if own in self._held_writes or self._owner[own] != TEXTURE_OWNER:
+                latest[own] = stored
+        if latest or told:
+            self._apply(latest, float(self._clock()), client=False, told=told)
+
+    def _coerced(self, name: str, value: object) -> tuple[str, values.StoredValue]:
+        """The address ``name`` is served as and ``value`` stored for its channel.
+
+        Raises:
+            WriteRefusedError: As :meth:`set`.
+            ReadOnlyError: As :meth:`set`.
+        """
+        variable = self._variables.get(name)
+        if variable is None:
+            raise WriteRefusedError(
+                f"Variable '{name}' is not supported by the model.", address=name
+            )
+        if variable.read_only:
+            raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
+        channel = self._channels[name]
+        try:
+            stored = values.coerce(
+                value.tolist() if isinstance(value, np.ndarray) else value,
+                channel.get("value_type"),
+                channel.get("options"),
+                channel.get("shape"),
+            )
+            variable.validate_value(_for_variable(variable, stored))
+        except ValueError as exc:
+            raise WriteRefusedError(str(exc), address=name) from exc
+        return self._record_of.get(name, name), stored
+
+    def _write(self, values_by_name: Mapping[str, object], *, client: bool) -> float:
+        """Write channels at one reading of the clock; returns that reading.
+
+        A client write is told to the texture at the reading, a restore with
+        no instant.
+        """
+        self._refresh()
+        t_s = float(self._clock())
         if not values_by_name:
-            return
+            return t_s
         coerced: dict[str, values.StoredValue] = {}
         for name, value in values_by_name.items():
-            variable = self._variables.get(name)
-            if variable is None:
-                raise WriteRefusedError(
-                    f"Variable '{name}' is not supported by the model.", address=name
-                )
-            if variable.read_only:
-                raise ReadOnlyError(f"Variable '{name}' is read-only. Cannot be set.")
-            channel = self._channels[name]
-            own = self._record_of.get(name, name)
-            try:
-                coerced[own] = values.coerce(
-                    value.tolist() if isinstance(value, np.ndarray) else value,
-                    channel.get("value_type"),
-                    channel.get("options"),
-                    channel.get("shape"),
-                )
-                variable.validate_value(_for_variable(variable, coerced[own]))
-            except ValueError as exc:
-                raise WriteRefusedError(str(exc), address=name) from exc
-        t_s = float(self._clock())
+            own, coerced[own] = self._coerced(name, value)
+        self._apply(coerced, t_s, client=client, at=t_s if client else None)
+        return t_s
+
+    def _apply(
+        self,
+        coerced: Mapping[str, values.StoredValue],
+        t_s: float,
+        *,
+        client: bool,
+        at: float | None = None,
+        told: Sequence[tuple[str, values.StoredValue, float | None]] | None = None,
+    ) -> None:
+        """Advance to ``t_s``, write the coerced values, then deliver and report."""
         self._advance(t_s)
-        forwarded = self._forward(coerced)
+        forwarded = self._forward(coerced, at=at, told=told)
         if not self._evolve:
             for child in self._children.values():
                 self._deliver(child, t_s)
@@ -1412,36 +1484,59 @@ class Composite(LUMEModel):
     @override
     def _set(self, values_by_name: dict[str, values.StoredValue]) -> None:
         self._forward(
-            {self._record_of.get(name, name): value for name, value in values_by_name.items()}
+            {self._record_of.get(name, name): value for name, value in values_by_name.items()},
+            at=float(self._clock()),
         )
 
     def _forward(
-        self, values_by_name: Mapping[str, values.StoredValue]
+        self,
+        values_by_name: Mapping[str, values.StoredValue],
+        *,
+        at: float | None,
+        told: Sequence[tuple[str, values.StoredValue, float | None]] | None = None,
     ) -> dict[str, dict[str, values.StoredValue]]:
-        """Write the children, then the texture; returns what reached each child's model."""
+        """Write the children, then tell the texture; returns what reached each child's model.
+
+        The texture holds its channels' values and takes every write no
+        channel fault holds as an act, whichever model serves it: the write of
+        ``values_by_name`` made at ``at``, or, for a replay, the ``told``
+        entries in order at their instants.
+        """
         batches: dict[str, dict[str, values.StoredValue]] = {}
         for name, value in values_by_name.items():
             batches.setdefault(self._owner[name], {})[name] = value
         restores: list[Callable[[], None]] = []
         forwarded: dict[str, dict[str, values.StoredValue]] = {}
-        texture = batches.get(TEXTURE_OWNER) or {}
-        demands = {name: value for name, value in texture.items() if name in self._held_writes}
-        writing: Mapping[str, values.StoredValue] = {}
+        demands = {
+            name: value
+            for name, value in (batches.get(TEXTURE_OWNER) or {}).items()
+            if name in self._held_writes
+        }
+        writing: Mapping[str, object] = {}
         try:
             for model, child in self._children.items():
                 if model in batches:
                     writing = batches[model]
                     restore, forwarded[model] = self._set_child(child, writing)
                     restores.append(restore)
-            forward = {name: value for name, value in texture.items() if name not in demands}
-            if forward:
-                writing = forward
-                self._texture.set(
-                    {
-                        name: _for_variable(self._texture.supported_variables[name], value)
-                        for name, value in forward.items()
-                    }
+            if told is not None:
+                writing = {name: value for name, value, _t_s in told}
+                self._texture.replay(
+                    [(name, self._for_texture(name, value), t_s) for name, value, t_s in told]
                 )
+            else:
+                acts = {
+                    name: self._for_texture(name, value)
+                    for name, value in values_by_name.items()
+                    if name not in self._held_writes
+                }
+                if acts:
+                    writing = {
+                        name: value
+                        for name, value in acts.items()
+                        if self._owner[name] == TEXTURE_OWNER
+                    } or acts
+                    self._texture.write(acts, at=at)
         except Exception as exc:
             for restore in reversed(restores):
                 restore()
@@ -1451,6 +1546,11 @@ class Composite(LUMEModel):
             raise WriteRefusedError(str(exc) or type(exc).__name__, address=address) from exc
         self._texture_demands.update(demands)
         return forwarded
+
+    def _for_texture(self, name: str, value: values.StoredValue) -> object:
+        """``value`` as the texture takes it: a texture channel's in its variable's form."""
+        variable = self._texture.supported_variables.get(name)
+        return value if variable is None else _for_variable(variable, value)
 
     def _set_child(
         self, child: _Child, batch: Mapping[str, values.StoredValue]

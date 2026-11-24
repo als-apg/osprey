@@ -1696,25 +1696,6 @@ def _data_columns(table: Any) -> list[str]:
     return [c for c in table.columns if c != "seq_num" and c != "time" and not c.startswith("ts_")]
 
 
-def _json_cell(value: Any) -> Any:
-    """One stored cell as something JSON can carry losslessly.
-
-    Only ever called for cells that came out of an object-dtype column, which
-    is the only place a non-scalar reading can be. A waveform signal is stored
-    as an arrow ``list<double>`` column and reads back as a one-dimensional
-    object array whose every cell is itself a `numpy.ndarray`; ``tolist()``
-    turns one into a plain nested list of Python floats, which is what a JSON
-    array is made of. Anything else in an object column — a string status, a
-    ``None``, a Python float — has no ``tolist`` and passes through untouched.
-
-    ``tolist()`` rather than ``list()`` on purpose: it recurses (an image cell
-    is a nested list, not a list of arrays) and it converts numpy scalars to
-    Python ones, so nothing downstream has to know a numpy type ever existed.
-    """
-    to_list = getattr(value, "tolist", None)
-    return to_list() if callable(to_list) else value
-
-
 def _json_rows(frame: Any) -> list[list[Any]]:
     """The frame's rows as JSON-ready lists — arrays become arrays, not text.
 
@@ -1725,7 +1706,8 @@ def _json_rows(frame: Any) -> list[list[Any]]:
     array, not round-trippable, and indistinguishable from a signal that really
     did record that string. So the array cells are converted here, at the one
     place rows are built, rather than left for whatever encoder happens to see
-    them last.
+    them last, by `live_rows.json_cell`: the rule the live buffer applies to
+    every cell it stores, so both sources serve the same cell.
 
     Which cells those are is decided per COLUMN, from the frame's own dtypes,
     not per cell: a scalar-only run is the common case and this route is polled
@@ -1748,7 +1730,7 @@ def _json_rows(frame: Any) -> list[list[Any]]:
         return rows
     for row in rows:
         for position in object_columns:
-            row[position] = _json_cell(row[position])
+            row[position] = live_rows.json_cell(row[position])
     return rows
 
 
@@ -1961,6 +1943,8 @@ def _data_response(
     - ``columns`` states each column once, in row order, as ``{"name",
       "unit"}``: ``unit`` is what the run declared for it and ``None`` when
       it declared none, so a row's values are read by position against it.
+    - Each cell is a plain JSON value (`live_rows.json_cell`): a scalar
+      reading is a number, an array reading is a list of numbers.
 
     *generation* is the caller's, read BEFORE the source, as the figure route
     reads it: an eviction landing between the two reads then leaves a cache

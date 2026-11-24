@@ -34,9 +34,14 @@ BEAM = "SR:BEAM:CURRENT"
 SLOTS = ("min_value", "max_value", "max_step", "writable", "confirm")
 
 
-def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict[str, Any]:
+def _doc(
+    channels: dict[str, str],
+    records: list[dict[str, Any]] | None,
+    value_type: str | None = None,
+) -> dict[str, Any]:
+    typed = {} if value_type is None else {"value_type": value_type}
     doc: dict[str, Any] = {
-        "channels": [{"id": id_, "role": role} for id_, role in channels.items()]
+        "channels": [{"id": id_, "role": role, **typed} for id_, role in channels.items()]
     }
     if records is not None:
         doc["limits"] = {"records": records}
@@ -47,14 +52,16 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
 
 
 @pytest.mark.parametrize(
-    ("role", "record", "entry"),
+    ("value_type", "role", "record", "entry"),
     [
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0},
             {"min_value": 0.0, "max_value": 5.0, "writable": True, "confirm": True},
         ),
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0, "max_step": 0.5, "confirm": False},
             {
@@ -66,29 +73,51 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
             },
         ),
         (
+            "float",
             "setpoint",
             {"min_value": 0.0, "max_value": 5.0, "writable": False},
             {"min_value": 0.0, "max_value": 5.0, "writable": False, "confirm": True},
         ),
-        ("setpoint", {"max_value": 5.0}, {"max_value": 5.0, "writable": False, "confirm": True}),
-        ("setpoint", {"min_value": 0.0}, {"min_value": 0.0, "writable": False, "confirm": True}),
-        ("setpoint", {}, {"writable": False, "confirm": True}),
-        ("setpoint", {"writable": False}, {"writable": False, "confirm": True}),
         (
+            "float",
+            "setpoint",
+            {"max_value": 5.0},
+            {"max_value": 5.0, "writable": False, "confirm": True},
+        ),
+        (
+            "float",
+            "setpoint",
+            {"min_value": 0.0},
+            {"min_value": 0.0, "writable": False, "confirm": True},
+        ),
+        ("float", "setpoint", {}, {"writable": False, "confirm": True}),
+        ("float", "setpoint", {"writable": False}, {"writable": False, "confirm": True}),
+        (
+            "float",
             "readback",
             {"min_value": 0.0, "max_value": 5.0},
             {"min_value": 0.0, "max_value": 5.0, "writable": False, "confirm": True},
         ),
-        ("readback", {"writable": False}, {"writable": False, "confirm": True}),
-        ("setpoint", {"writable": True}, {"writable": False, "confirm": True}),
+        ("float", "readback", {"writable": False}, {"writable": False, "confirm": True}),
+        ("float", "setpoint", {"writable": True}, {"writable": False, "confirm": True}),
+        ("bool", "setpoint", {}, {"writable": False, "confirm": True}),
+        ("bool", "setpoint", {"writable": False}, {"writable": False, "confirm": True}),
+        ("bool", "readback", {"writable": True}, {"writable": False, "confirm": True}),
     ],
 )
 def test_a_record_resolves_to_one_entry(
-    role: str, record: dict[str, Any], entry: dict[str, Any]
+    value_type: str, role: str, record: dict[str, Any], entry: dict[str, Any]
 ) -> None:
-    document = limits_document(FacilityRecords(_doc({"A:B": role}, [{"address": "A:B", **record}])))
+    doc = _doc({"A:B": role}, [{"address": "A:B", **record}], value_type)
 
-    assert document == {"_version": "4.0", "A:B": entry}
+    assert limits_document(FacilityRecords(doc)) == {"_version": "4.0", "A:B": entry}
+
+
+@pytest.mark.parametrize("value_type", ["bool", "enum", "string", "waveform"])
+def test_a_stated_writable_makes_a_setpoint_without_bounds_writable(value_type: str) -> None:
+    doc = _doc({"A:GO": "setpoint"}, [{"address": "A:GO", "writable": True}], value_type)
+
+    assert limits_document(FacilityRecords(doc))["A:GO"] == {"writable": True, "confirm": True}
 
 
 def test_a_channel_without_a_record_has_no_entry() -> None:
@@ -215,6 +244,50 @@ class TestTheCorrectorSetpointHasNoRecord:
         assert refusal.value.violation_type == "MAX_EXCEEDED"
 
 
+# --- a bool command setpoint --------------------------------------------------------
+
+PADDLE = "BR:DIAG:TV:01:PADDLE:SP"
+
+
+@pytest.mark.slow
+class TestABoolCommandUnderExclusive:
+    def test_a_stated_writable_record_passes_the_validator(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        record = {"address": PADDLE, "writable": True, "confirm": False}
+        validator = validator_under(
+            monkeypatch, render_limits(tmp_path, "demo", added=[record]), "exclusive"
+        )
+
+        validator.validate(PADDLE, 1)
+        validator.validate(PADDLE, "TRUE")
+        assert validator.resolve_confirm(PADDLE) is False
+
+    @pytest.mark.parametrize(
+        ("added", "refusal"),
+        [
+            ([], "UNLISTED_CHANNEL"),
+            ([{"address": PADDLE, "confirm": False}], "READ_ONLY_CHANNEL"),
+            ([{"address": PADDLE, "writable": False}], "READ_ONLY_CHANNEL"),
+        ],
+        ids=["no-record", "confirm-only", "writable-false"],
+    )
+    def test_it_is_refused_without_a_stated_writable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        added: list[dict[str, Any]],
+        refusal: str,
+    ) -> None:
+        validator = validator_under(
+            monkeypatch, render_limits(tmp_path, "demo", added=added), "exclusive"
+        )
+
+        with pytest.raises(ChannelLimitsViolationError) as refused:
+            validator.validate(PADDLE, 1)
+        assert refused.value.violation_type == refusal
+
+
 # --- the database path -------------------------------------------------------------
 
 DATABASE_KEY = "control_system.limits_checking.database_path"
@@ -302,7 +375,7 @@ class TestTheBuildDerivesTheDatabasePath:
 # --- findings: report lines, nothing changed ----------------------------------------
 
 
-def test_findings_name_open_setpoints_and_one_edged_records() -> None:
+def test_findings_name_open_setpoints_and_records_short_of_writable() -> None:
     from osprey.facility.views.limits import limits_findings
 
     doc = _doc(
@@ -316,7 +389,8 @@ def test_findings_name_open_setpoints_and_one_edged_records() -> None:
     assert limits_findings(records, True) == [
         "limits: 1 setpoints have no limits record; the target serves them writable with no range",
         f"  {CORR}",  # a readback without a record is no finding: it is never writable
-        "limits: 1 limits records state one edge; each is served not writable until it states both",
+        "limits: 1 limits records serve their setpoint not writable; stating what each line "
+        "lacks makes it writable",
         f"  {QD}: min_value 0.0, no max_value",
     ]
     # the same setpoint where the target refuses a write to a channel with no record
@@ -324,6 +398,76 @@ def test_findings_name_open_setpoints_and_one_edged_records() -> None:
     assert refused == "limits: 1 setpoints have no limits record; the target refuses writes to them"
     # the findings change nothing: the database is what it was
     assert limits_document(records)[QD]["writable"] is False
+
+
+def _stating(record: dict[str, Any], missing: tuple[str, ...]) -> dict[str, Any]:
+    """The record with each slot it lacks stated: an edge inside any stated one, else `true`."""
+    stated = dict(record)
+    for slot in missing:
+        if slot == "min_value":
+            stated[slot] = stated["max_value"] - 1.0 if "max_value" in stated else 0.0
+        elif slot == "max_value":
+            stated[slot] = stated["min_value"] + 1.0
+        else:
+            stated[slot] = True
+    return stated
+
+
+def test_every_listed_record_becomes_writable_by_stating_what_its_line_lacks() -> None:
+    from osprey.facility.views.limits import limits_findings
+    from osprey_facility.validate import record_missing, record_writable
+
+    qs = "SR:MAG:QS:01:CURRENT:SP"
+    lock = "SR:MAG:QL:01:CURRENT:SP"
+    rb = "SR:MAG:QD:01:CURRENT:RB"
+    valve = "SR:VAC:VALVE:01:OPEN:SP"
+    gate = "SR:VAC:GATE:01:OPEN:SP"
+    channels = {
+        QD: ("setpoint", "float"),
+        qs: ("setpoint", "float"),
+        lock: ("setpoint", "float"),
+        QF: ("setpoint", "float"),
+        rb: ("readback", "float"),
+        valve: ("setpoint", "bool"),
+        gate: ("setpoint", "bool"),
+    }
+    limits = {
+        QD: {"min_value": 0.0},
+        qs: {"max_step": 0.5},
+        lock: {"min_value": 0.0, "writable": False},
+        QF: {"min_value": 0.0, "max_value": 5.0},
+        rb: {"min_value": 0.0},
+        valve: {"confirm": False},
+        gate: {"writable": True},
+    }
+    records = FacilityRecords(
+        {
+            "channels": [
+                {"id": address, "role": role, "value_type": value_type}
+                for address, (role, value_type) in channels.items()
+            ],
+            "limits": {
+                "records": [{"address": address, **record} for address, record in limits.items()]
+            },
+        }
+    )
+
+    assert limits_findings(records, True) == [
+        "limits: 3 limits records serve their setpoint not writable; stating what each line "
+        "lacks makes it writable",
+        f"  {QD}: min_value 0.0, no max_value",
+        f"  {qs}: max_step 0.5, no min_value, no max_value",
+        f"  {valve}: no writable: true",
+    ]
+    listed = {QD, qs, valve}
+    for address, record in limits.items():
+        role, value_type = channels[address]
+        missing = record_missing(record, role, value_type)
+        if address in listed:
+            assert missing
+            assert record_writable(_stating(record, missing), role, value_type), address
+        else:
+            assert record_writable(record, role, value_type) or missing is None, address
 
 
 def test_findings_list_the_first_addresses_unless_every_one_is_asked_for() -> None:
