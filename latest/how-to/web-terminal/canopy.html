@@ -953,6 +953,58 @@ click runs the node’s actions as a click on a box does, with the same write
 dialog. A polygon without <code class="docutils literal notranslate"><span class="pre">hitArea</span></code> behaves as before, and no other node
 type reads the prop.</p>
 </section>
+<section id="make-several-nodes-hover-as-one">
+<h2>Make several nodes hover as one<a class="headerlink" href="#make-several-nodes-hover-as-one" title="Link to this heading">#</a></h2>
+<p>One thing is often drawn as several nodes: two polygons, an ellipse and a row
+in a list. Give them a group name and they hover together. Set these on the
+<code class="docutils literal notranslate"><span class="pre">props</span></code> of any node type:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Prop</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hoverGroups</span></code></p></td>
+<td><p>A list of group names, from narrow to wide. While the pointer is on
+the node, every node whose list holds its first name is highlighted,
+and every other node that holds one of its further names is
+highlighted at lower strength.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">hoverDimGroup</span></code></p></td>
+<td><p>The name of the drawing the node is a part of. While a node with
+<code class="docutils literal notranslate"><span class="pre">hoverGroups</span></code> and the same <code class="docutils literal notranslate"><span class="pre">hoverDimGroup</span></code> is hovered, the nodes
+of that drawing with neither highlight are drawn at reduced opacity.
+Without it nothing is dimmed.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">hoverLabelLines</span></code></p></td>
+<td><p>Lines for the hover label, under the <code class="docutils literal notranslate"><span class="pre">hoverLabel</span></code> if there is one.
+A line is <code class="docutils literal notranslate"><span class="pre">{&quot;text&quot;:</span> <span class="pre">&quot;...&quot;}</span></code>, or <code class="docutils literal notranslate"><span class="pre">{&quot;label&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;pv&quot;:</span> <span class="pre">...,</span>
+<span class="pre">&quot;precision&quot;:</span> <span class="pre">...}</span></code> for a channel’s live value, shown as
+<code class="docutils literal notranslate"><span class="pre">label:</span> <span class="pre">value</span></code>. <code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">precision</span></code> and <code class="docutils literal notranslate"><span class="pre">showUnits</span></code> are
+optional.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>A node with <code class="docutils literal notranslate"><span class="pre">hoverGroups</span></code> takes the pointer whether it has actions or not:
+on its box, or on its shape when it is a polygon with <code class="docutils literal notranslate"><span class="pre">hitArea:</span> <span class="pre">&quot;shape&quot;</span></code>.
+A click runs the actions of the node it lands on, as before. One label
+shows, that of the node the pointer is on. Names are matched over the whole
+screen, embedded screens included, after macro substitution, so a macro in a
+name keeps the instances of an embedded screen apart. Put <code class="docutils literal notranslate"><span class="pre">hoverDimGroup</span></code>
+on the parts and not on a container around them: a dimmed container dims
+everything in it.</p>
+<p>A value line is formatted as a text readout formats it, and a channel that is
+not connected shows <code class="docutils literal notranslate"><span class="pre">---</span></code>. The channels of a label are subscribed only
+while the label shows. The lines show on a node that hovers: one with actions
+or with <code class="docutils literal notranslate"><span class="pre">hoverGroups</span></code>. A node with none of the three props behaves as
+before.</p>
+</section>
 <section id="what-the-agent-can-do-in-the-panel">
 <h2>What the agent can do in the panel<a class="headerlink" href="#what-the-agent-can-do-in-the-panel" title="Link to this heading">#</a></h2>
 <p>The agent reaches your CANOPY and nobody else’s. Its CANOPY tools fall into
@@ -1082,6 +1134,7 @@ commit of step 3, and rebuild.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#make-a-drawn-shape-clickable">Make a drawn shape clickable</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#make-several-nodes-hover-as-one">Make several nodes hover as one</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-agent-can-do-in-the-panel">What the agent can do in the panel</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#size-the-host">Size the host</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#upgrade-canopy">Upgrade CANOPY</a></li>
