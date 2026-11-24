@@ -898,17 +898,18 @@ and the record lists it under ``also``:
      engine:
        axis: x
 
-Each address under ``also`` is a channel of ``records/channels.yaml`` with the
-``role``, ``value_type``, ``options`` and ``shape`` of the record's ``address``,
-and the same ``unit`` when both state one. It reads what ``address`` reads at
-the same instant, with the same calibration, motion and readout noise, and a
-write to it is a write to ``address``. It reads back the ``pair`` of
-``address`` and settles within its ``tolerance``, and on a command it has the
-time bound and the status of ``address``; ``tolerance``, ``timeout_s`` and ``idle`` are stated on ``address`` only. It
-carries no seed of its own, and a limit is still stated per address. A pair is stated between
-records' ``address`` names: the build stops when an address under ``also``
-states a ``pair``, and when a setpoint's ``pair`` names an address under
-``also``. A fault variable is named by ``address``
+Each address under ``also`` is a channel of ``records/channels.yaml`` that
+states only its ``id``, its place (``on``, ``endpoint_of``), its names
+(``names``, ``former_addresses``), its ``label`` and its ``description``.
+Every other slot is the record's, ``role`` and ``unit`` included: the build
+writes the record's ``role``, ``value_type``, ``options`` and ``shape`` on it,
+and stops when a source states any slot but its own on it, naming the slot
+and the record's ``address``. It reads what ``address`` reads at the same instant,
+with the same calibration, motion and readout noise, a write to it is a write
+to ``address``, it reads back the ``pair`` of ``address`` and settles within
+its ``tolerance``, and on a command it has the time bound and the status of
+``address``; a limit is still stated per address, and the build stops when a
+setpoint's ``pair`` names an address under ``also``. A fault variable is named by ``address``
 only (``BTS:DIAG:BPM:01:POSITION:X/offset``); a scenario block keyed by channel address
 (``overrides``, ``noise``, ``couple``, ``channel_faults``, ``still``) may name
 either. An address belongs to one wiring record: the build stops when two
