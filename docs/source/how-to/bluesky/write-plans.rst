@@ -177,6 +177,12 @@ mounts that file unchanged.
        readback: SR:MAG:HCM:01:CURRENT:RB
        unit: A
        setpoint_unit: A
+   triggerables:
+     - name: ES1:DET:MCA:01:ACQUIRE:SP
+       command: ES1:DET:MCA:01:ACQUIRE:SP
+       status: ES1:DET:MCA:01:STATUS:ACQUIRE
+       idle: 'FALSE'
+       timeout_s: 5.0
    readables:
      - name: SR:MAG:HCM:01:CURRENT:RB
        pv: SR:MAG:HCM:01:CURRENT:RB
@@ -185,12 +191,16 @@ mounts that file unchanged.
        pv: SR:DIAG:BPM:01:POSITION:X
        unit: mm
 
-The file has two lists:
+The file has three lists:
 
 - **Settables** are devices a plan may drive. There is one per setpoint
   channel of the facility file. A settable is written to that channel and read
   back from the channel it is paired with. A setpoint the facility pairs with
   no readback reads its own setpoint.
+- **Triggerables** are commands a plan fires and waits for. There is one per
+  command whose status states ``idle`` and which states ``timeout_s``; such a
+  command is no settable. A plan triggers it and never sets it, and it records
+  its status under its own address.
 - **Readables** are recorded and never written. There is one per readback
   channel. A readback on a waveform channel carries the ``shape`` the facility
   file states, and each run records it as an array of that length. A waveform
@@ -371,11 +381,12 @@ A plan says what it touches
 ===========================
 
 A plan's parameters name channels, but a list of names on its own does not say
-whether the plan *drives* those channels or only *records* them. Every plan
-file answers that outright. A parameter holding channel names is marked as
-one of:
+whether the plan *drives* those channels, *triggers* them or only *records*
+them. Every plan file answers that outright. A parameter holding channel names
+is marked as one of:
 
 - **movable**: the plan drives it to a value;
+- **triggered**: the plan fires it, waits for its act to end, and records it;
 - **readable**: the plan records it without changing it.
 
 The rest of OSPREY works from that one marking. It decides:
@@ -402,10 +413,12 @@ Two consequences you will notice:
 - **The names are yours.** Call the parameters whatever your facility calls
   them: correctors, BPMs, setpoints, monitors. The marking carries the
   meaning, so nothing downstream depends on the spelling.
-- **A plan that moves the machine has to show what it moves.** If a plan's
-  metadata says it writes but the plan marks nothing as movable, the catalog
-  refuses the plan when it loads it. The refusal message says exactly that,
-  and the plan never appears.
+- **A plan that moves the machine has to show what it moves or triggers.** If
+  a plan's metadata says it writes but the plan marks nothing as movable or
+  triggered, the catalog refuses the plan when it loads it. Triggering a
+  device writes to it, so a plan whose metadata says it does not write and
+  that marks a channel as triggered is refused too. The refusal message says
+  exactly that, and the plan never appears.
 
   Such a plan must also open a run and state how many points that run will
   take. Live progress counts against that number. A plan built on top of one
@@ -417,6 +430,12 @@ Two consequences you will notice:
   watches the rehearsal. It refuses a plan that moves a channel without ever
   recording it alongside its readings, because such a run would finish with
   no record of what each reading was taken at.
+- **A command is triggered, never moved.** The queue worker refuses a run
+  that marks a triggerable as movable or readable, before anything is written.
+
+An abort ends an unfinished trigger: no command is written after it. A command
+already written finishes its act by itself. OSPREY pauses a run only to abort
+it; a run resumed by hand after a pause fails at the trigger it cut.
 
 Give a plan its own view
 ========================
