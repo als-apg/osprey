@@ -1339,15 +1339,18 @@ def test_no_tiled_uri_means_no_tiled_writer() -> None:
     assert qserver_startup.build_tiled_writer(env={}) is None
 
 
-def test_tiled_writer_is_built_from_the_uri_and_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_tiled_writer_keeps_every_array_in_the_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The writer is built from the URI and API key, and keeps every array reading
+    in the run's table, the one part the data route reads."""
     import bluesky.callbacks.tiled_writer as tiled_writer_module
 
     calls: list[tuple[str, Any]] = []
 
     class _FakeTiledWriter:
         @staticmethod
-        def from_uri(uri: str, api_key: str | None = None) -> str:
-            calls.append((uri, api_key))
+        def from_uri(uri: str, **kwargs: Any) -> str:
+            calls.append((uri, kwargs.pop("api_key", None)))
+            assert kwargs == {"max_array_size": -1}
             return "writer"
 
     monkeypatch.setattr(tiled_writer_module, "TiledWriter", _FakeTiledWriter)
