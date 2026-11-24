@@ -567,7 +567,7 @@ Web Interface
 The browser-based channel explorer is the Channel Finder panel of the web
 terminal (``osprey web``).
 
-The explorer is read-only. To correct a channel, edit ``fixes.yaml`` in the
+The explorer is read-only. To correct a channel, edit ``provenance/fixes.yaml`` in the
 facility tree and run ``osprey build``.
 
 The explorer browses a channel database. On the graph pipeline there is no such

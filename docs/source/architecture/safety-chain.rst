@@ -251,7 +251,7 @@ or a chromaticity routine; pyAML, the Python accelerator middle layer, calls the
 --- on the control target. It is not how the agent measures: the agent reads channels, runs
 its own Python and queues plans for that. It is the one path on which the executor runs code
 OSPREY ships rather than code the agent wrote: the pyAML view the build rendered from the
-facility description, with the tool's settings from ``data/facility/measurement/``. The call
+facility description, with the tool's settings from ``data/facility/simulation/measurement/``. The call
 passes the write verdict and the approval prompt. The prompt lists the model, the kind, the
 digest of the view the tool runs on and every setpoint the call steps; a call that would step
 more setpoints than a prompt can list is refused without asking. The tool then runs in the

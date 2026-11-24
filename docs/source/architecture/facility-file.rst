@@ -179,7 +179,7 @@ stages and a stage runs only when every earlier one is clean:
        build may write.
    * - combine
      - Merges the layers field by field, stops on two layers that disagree,
-       applies ``fixes.yaml`` and fills the defaults.
+       applies ``provenance/fixes.yaml`` and fills the defaults.
    * - schema
      - Holds the combined file to the facility-agnostic schema.
    * - references
@@ -307,7 +307,7 @@ The views
    * - benchmarks
      - ``data/<dataset_path>``, by default ``data/benchmarks/queries.json``
      - ``channel_finder.benchmark.dataset_path`` is stated and the facility
-       ships query sources under ``benchmarks/cross_paradigm/queries/``
+       ships query sources under ``benchmarks/channel_finder/``
      - ``osprey channel-finder benchmark``.
    * - pyaml
      - ``data/pyaml/<model>/configuration.yaml`` and the files it names
@@ -383,10 +383,10 @@ optional relation slots are not carried; relations are claims
 .. raw:: html
    :file: ../_diagrams/facility-vocabulary.html
 
-A facility adds device classes in ``classes.yaml``, each under a vocabulary
+A facility adds device classes in ``vocabulary/classes.yaml``, each under a vocabulary
 class or one it added earlier; they reach the facts view and the graph with their aliases. A
 channel's ``signal`` is a role the vocabulary lists or one the facility adds in
-``signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
+``vocabulary/signals.yaml``. The build pairs setpoints with readbacks by the quantity their signals name, so a
 quantity the vocabulary lacks pairs only through an explicit ``pair``. The
 roles a measurement kind and an engine use are in
 :doc:`/reference/contracts/facility-kinds`.

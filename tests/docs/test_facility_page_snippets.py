@@ -37,6 +37,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey_facility.source_tree import path as source_path
 from tests._builds import FRAMEWORK_CHECKS
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -190,27 +191,27 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "- id: SR/SECT1": ("records/places.yaml", _by("id")),
     "- id: SR:MAG:QF:01:CURRENT:SP": ("records/channels.yaml", _by("id")),
     "- id: BTS:RACK:03:UNIT:01:X": ("records/channels.yaml", _by("id")),
-    "- address: BTS:DIAG:BPM:01:POSITION:X": ("models.yaml", _wiring_of("BTS")),
-    "- class: Undulator": ("classes.yaml", _by("class")),
-    "- name: taper_setpoint": ("signals.yaml", _by("name")),
+    "- address: BTS:DIAG:BPM:01:POSITION:X": (source_path("models"), _wiring_of("BTS")),
+    "- class: Undulator": (source_path("classes"), _by("class")),
+    "- name: taper_setpoint": (source_path("signals"), _by("name")),
     "# data/facility/imported/names/channels.yaml": (
         "imported/names/channels.yaml",
         _by("id"),
     ),
-    "BR:DIAG:DCCT:01:CURRENT:RB:": ("seeds.yaml", _update),
-    "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": ("seeds.yaml", _update),
-    "GTL:DIAG:BPM:01:SUM:RB:": ("seeds.yaml", _update),
-    "SR:VAC:VALVE:01:POSITION:OPEN:": ("seeds.yaml", _update),
+    "BR:DIAG:DCCT:01:CURRENT:RB:": (source_path("seeds"), _update),
+    "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM:": (source_path("seeds"), _update),
+    "GTL:DIAG:BPM:01:SUM:RB:": (source_path("seeds"), _update),
+    "SR:VAC:VALVE:01:POSITION:OPEN:": (source_path("seeds"), _update),
     "- id: SR:MAG:QF:01:VOLTAGE:RB": ("records/channels.yaml", _by("id")),
-    "- address: SR:MAG:QF:01:VOLTAGE:RB": ("models.yaml", _wired_in("SR")),
+    "- address: SR:MAG:QF:01:VOLTAGE:RB": (source_path("models"), _wired_in("SR")),
     "- id: SR:MAG:BEND:CURRENT:SP": ("records/channels.yaml", _by("id")),
-    "- address: SR:MAG:BEND:CURRENT:SP": ("models.yaml", _wired_in("SR")),
+    "- address: SR:MAG:BEND:CURRENT:SP": (source_path("models"), _wired_in("SR")),
 }
 
 #: Blocks that show part of a preset record, by first line: the preset file.
 SUBSETS: dict[str, str] = {
-    "SR:DIAG:DCCT:01:CURRENT:RB:": "seeds.yaml",
-    "- name: BTS": "models.yaml",
+    "SR:DIAG:DCCT:01:CURRENT:RB:": source_path("seeds"),
+    "- name: BTS": source_path("models"),
 }
 
 #: The fixes block, applied on top of the imported channel list.
@@ -308,7 +309,7 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
         _replace_or_refuse(ctx, "list", FacilityRoots.single(facility), tmp_path)
 
     import_list(HOW_TO / CHANNEL_LIST, facility)
-    _dump(facility / "fixes.yaml", _block(FACILITY_PAGE, FIXES).data)
+    _dump(facility / source_path("fixes"), _block(FACILITY_PAGE, FIXES).data)
 
     assert _validates(facility) == ""
 

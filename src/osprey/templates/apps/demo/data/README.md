@@ -20,19 +20,22 @@ data/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources
     ├── identity.yaml                     # The facility's code and display name
-    ├── classes.yaml                      # Device classes, their parents and aliases
     ├── records/                          # places, devices, channels, groups, relations
-    ├── documents.yaml                    # The facility's documents and the system holding each
-    ├── policy.yaml                       # Which document kind wins for each relation
-    ├── models.yaml                       # Each simulated model, its engine and wiring
-    ├── decks/                            # The deck each model runs
-    ├── measurement/                      # The measurement kinds each model offers
     ├── limits.yaml                       # Write limits, one record per channel
-    ├── seeds.yaml                        # Simulated channels' nominal values and noise
-    ├── scenarios/                        # Simulation scenarios, one YAML file each
+    ├── vocabulary/
+    │   └── classes.yaml                  # Device classes, their parents and aliases
+    ├── provenance/
+    │   ├── documents.yaml                # The facility's documents and the system holding each
+    │   └── policy.yaml                   # Which document kind wins for each relation
+    ├── simulation/
+    │   ├── models.yaml                   # Each simulated model, its engine and wiring
+    │   ├── decks/                        # The deck each model runs
+    │   ├── measurement/                  # The measurement kinds each model offers
+    │   ├── seeds.yaml                    # Simulated channels' nominal values and noise
+    │   └── scenarios/                    # Simulation scenarios, one YAML file each
     ├── knowledge/                        # Markdown knowledge bundle
     ├── benchmarks/
-    │   └── cross_paradigm/queries/       # Benchmark query sources, one per channel-finder pipeline
+    │   └── channel_finder/               # Benchmark query sources, one per channel-finder pipeline
     └── ariel/
         ├── vocabulary.yml                # Logbook shorthand -> the words entries use
         └── README.md                     # Vocabulary format walkthrough
@@ -55,7 +58,7 @@ the benchmarks view `benchmarks/queries.json`. `osprey facility show` prints
 the facility the tree builds and each view's path.
 
 The benchmarks view writes `benchmarks/queries.json` from
-`facility/benchmarks/cross_paradigm/queries/`: `in_context_queries.json` for
+`facility/benchmarks/channel_finder/`: `in_context_queries.json` for
 `in_context`, `tree_queries.json` for every other mode. The query sources do
 not reach the render.
 

@@ -34,9 +34,9 @@ disagreement means.
 The chain
 =========
 
-**Records.** ``records/relations.yaml`` holds the claims. ``documents.yaml``
+**Records.** ``records/relations.yaml`` holds the claims. ``provenance/documents.yaml``
 declares the documents they cite, each with a ``kind`` (``rack-layout``,
-``cable-schedule``, ...). ``policy.yaml`` is optional; its
+``cable-schedule``, ...). ``provenance/policy.yaml`` is optional; its
 ``relations.precedence`` ranks document kinds per relation type or by
 ``default``, and ``stated_over_inferred`` (true unless set false) ranks a
 stated claim before an inferred one.
@@ -80,14 +80,14 @@ the storage-ring quadrupole ``SR/QF05`` and the monitor ``SR/BPM13``: four
 documents (an equipment list, a rack layout, a cable schedule and a network
 plan), eleven devices, the rack row ``HALL/ROW3`` with racks ``RK07`` and
 ``RK08``, the vacuum-section group ``SR/VS03``, and 18 claims, 16 stated and 2
-inferred, and a ``policy.yaml``. Built as it ships, 17 claims are accepted
+inferred, and a ``provenance/policy.yaml``. Built as it ships, 17 claims are accepted
 and 1 superseded, and ``osprey facility validate`` prints one warning and
 exits 0.
 
 **The disputed rack.** ``qf05-ps-rack-a`` puts the supply ``SR/QF05-PS`` in
 ``HALL/ROW3/RK07``, citing the released rack layout; ``qf05-ps-rack-b`` puts
 it in ``HALL/ROW3/RK08``, citing the in-work cable schedule. The shipped
-``policy.yaml`` states ``precedence: {located_in: [rack-layout,
+``provenance/policy.yaml`` states ``precedence: {located_in: [rack-layout,
 cable-schedule]}``, so the rack layout ranks first: ``qf05-ps-rack-a`` is
 accepted and ``qf05-ps-rack-b`` superseded. ``SR/QF05-PS`` takes the place
 ``HALL/ROW3/RK07`` with ``place_from: relation``; the graph holds one
@@ -113,7 +113,7 @@ own in the facts view, the graph and the demo's device counts.
 keeps its description and its members and is no family: it describes none of
 its members and is no channel-finder Family.
 
-**Without the policy.** With ``policy.yaml`` deleted neither document ranks
+**Without the policy.** With ``provenance/policy.yaml`` deleted neither document ranks
 first: both rack claims are contested (16 accepted, 2 contested), the build
 also warns ``relation-contested``, ``SR/QF05-PS`` stays unplaced, and the
 graph holds two ``LOCATEDINCONTESTED`` edges in place of the ``LOCATEDIN``.
