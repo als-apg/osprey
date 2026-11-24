@@ -1123,12 +1123,14 @@ checkout.</p></li>
 </pre></div>
 </div>
 <p>It also needs the checkout’s release tags. Each wheel takes its version from
-git tags: the framework from <code class="docutils literal notranslate"><span class="pre">v*</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> from its own
-<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code>. A checkout with no connectors tag reachable builds
-that package as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code>. The framework’s requirement on it refuses that
-version, so <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so.</p>
+git tags: the framework from <code class="docutils literal notranslate"><span class="pre">v*</span></code>, and <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code>,
+<code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> each from their own
+<code class="docutils literal notranslate"><span class="pre">&lt;package&gt;-v*</span></code>. A checkout with no tag of a package reachable builds that
+package as <code class="docutils literal notranslate"><span class="pre">0.0.postN</span></code>. Where the framework’s requirement on it refuses that
+version, <code class="docutils literal notranslate"><span class="pre">--dev</span></code> stops before staging and says so.</p>
 <p>To fix it, run <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">fetch</span> <span class="pre">--tags</span></code>. A fork or an internal mirror must sync the
-<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code> tags as well as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey-connectors-v*</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey-panels-v*</span></code> tags
+as well as the <code class="docutils literal notranslate"><span class="pre">v*</span></code> ones.</p>
 <p>A dev build installs third-party packages at the versions the checkout’s
 <code class="docutils literal notranslate"><span class="pre">uv.lock</span></code> holds, not the newest the index has that day. So the images run
 your code against the dependency set the repo’s own tests ran with.</p>

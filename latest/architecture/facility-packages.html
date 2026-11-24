@@ -700,8 +700,9 @@ depends on osprey-facility with a floor. osprey-panels declares the
 osprey-facility floor.</p>
 <p><em>Why:</em> each package gets its own version and cadence. One parameterised workflow
 generalises the connectors’ release stream instead of copying it twice.</p>
-<p><em>Phase:</em> 6. <em>Today:</em> osprey-facility and osprey-panels are built from the
-checkout only and no release publishes them.</p>
+<p><em>Phase:</em> 6. <em>Today:</em> an <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey-panels-v*</span></code> tag
+runs <code class="docutils literal notranslate"><span class="pre">release-package.yml</span></code>, which publishes that package to PyPI and nothing
+else. The framework’s <code class="docutils literal notranslate"><span class="pre">v*</span></code> release builds neither.</p>
 </section>
 <section id="a-fork-is-a-separate-distribution-that-replaces-osprey-panels">
 <h2>7. A fork is a separate distribution that replaces osprey-panels<a class="headerlink" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels" title="Link to this heading">#</a></h2>

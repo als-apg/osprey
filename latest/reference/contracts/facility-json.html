@@ -424,6 +424,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
 </ul>
 </details></li>
+<li class="toctree-l1"><a class="reference internal" href="../osprey-panels.html">osprey-panels</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
 </ul>
 </div>
@@ -594,10 +595,22 @@ description’s schema model, in <code class="docutils literal notranslate"><spa
 <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> package:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">facility.schema.json</span></code> is the current shape. It is open: it does not
-refuse a key it does not name, so a document with an added key validates.</p></li>
+refuse a key it does not name, so a document with an added key validates.
+Its <code class="docutils literal notranslate"><span class="pre">$schema</span></code> names the JSON Schema 2020-12 dialect and its <code class="docutils literal notranslate"><span class="pre">$id</span></code> the
+URL it is served under, ending in the header’s <code class="docutils literal notranslate"><span class="pre">N</span></code>. Within one <code class="docutils literal notranslate"><span class="pre">N</span></code> the
+current shape only grows additively, so the <code class="docutils literal notranslate"><span class="pre">$id</span></code> names the newest
+additive form of <code class="docutils literal notranslate"><span class="pre">N</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">facility-&lt;N&gt;.schema.json</span></code> is the floor for version <code class="docutils literal notranslate"><span class="pre">N</span></code>, written once
-when <code class="docutils literal notranslate"><span class="pre">N</span></code> first appears and never rewritten. <code class="docutils literal notranslate"><span class="pre">facility-4.schema.json</span></code> is
-today’s floor.</p></li>
+when <code class="docutils literal notranslate"><span class="pre">N</span></code> first appears and never rewritten. It carries no <code class="docutils literal notranslate"><span class="pre">$schema</span></code> or
+<code class="docutils literal notranslate"><span class="pre">$id</span></code>. <code class="docutils literal notranslate"><span class="pre">facility-4.schema.json</span></code> is today’s floor.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">facility-&lt;N&gt;.final.schema.json</span></code> is written at a bump of <code class="docutils literal notranslate"><span class="pre">N</span></code>: the last
+current of the old <code class="docutils literal notranslate"><span class="pre">N</span></code>, with its <code class="docutils literal notranslate"><span class="pre">$id</span></code>, so the old URL keeps serving.</p></li>
+</ul>
+<p>The docs serve these files, copied from the package at build time:</p>
+<ul class="simple">
+<li><p>the current schema and each final at <code class="docutils literal notranslate"><span class="pre">schemas/facility/&lt;N&gt;.schema.json</span></code>;
+today that is <code class="docutils literal notranslate"><span class="pre">https://als-apg.github.io/osprey/latest/schemas/facility/4.schema.json</span></code>;</p></li>
+<li><p>each floor at <code class="docutils literal notranslate"><span class="pre">schemas/facility/&lt;N&gt;.floor.schema.json</span></code>.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_facility.schema._generate</span></code> regenerates them, and
 its <code class="docutils literal notranslate"><span class="pre">--check</span></code> fails when the current file is stale or a floor is missing. A
@@ -668,12 +681,18 @@ change</p></td>
 the built <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> wheel holds both schema files where
 <code class="docutils literal notranslate"><span class="pre">published_schema</span></code> resolves them, and the compat module</p></td>
 </tr>
-<tr class="row-even"><td><p>Readers ignore unknown keys</p></td>
+<tr class="row-even"><td><p>The served schema’s <code class="docutils literal notranslate"><span class="pre">$id</span></code> is the URL it is served under</p></td>
+<td><p>Enforced</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tests/docs/test_published_schemas.py</span></code>: the docs build hook copies the
+package’s schema files unchanged, and every served <code class="docutils literal notranslate"><span class="pre">$id</span></code> equals its
+served URL</p></td>
+</tr>
+<tr class="row-odd"><td><p>Readers ignore unknown keys</p></td>
 <td><p>Enforced for the panel engine</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">packages/osprey-panels/tests/osprey_panels_tests/test_unknown_keys.py</span></code>; the framework’s readers
 look up the keys they use and pass over the rest, not checked</p></td>
 </tr>
-<tr class="row-odd"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and act on others through their channel</p></td>
+<tr class="row-even"><td><p>Readers check <code class="docutils literal notranslate"><span class="pre">N</span></code> and act on others through their channel</p></td>
 <td><p>Enforced</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tests/facility/test_reader_coverage.py</span></code>: every function that reads
 the document reaches the header check and is on the reader roster
