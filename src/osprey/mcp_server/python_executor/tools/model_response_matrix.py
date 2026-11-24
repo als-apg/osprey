@@ -173,9 +173,15 @@ async def model_response_matrix(
         carrying its stderr.
     """
     from osprey.mcp_server.python_executor import executor
+    from osprey.mcp_server.python_executor.tools._execution_gates import (
+        require_protected_paths,
+    )
     from osprey.mcp_server.python_executor.tools._pyaml_measure_args import TIMEOUT_KEY
     from osprey.utils.config_paths import resolve_config_dir
 
+    protected_entries = await require_protected_paths(
+        tool=TOOL_NAME, execution_mode=_EXECUTION_MODE
+    )
     config_dir = resolve_config_dir()
     if config_dir is None:
         _refuse("no rendered config.yml to read the model from", "Run `osprey build`.")
@@ -186,6 +192,7 @@ async def model_response_matrix(
         execution_mode=_EXECUTION_MODE,
         description=f"{TOOL_NAME} {request.model}",
         tool=TOOL_NAME,
+        protected_entries=protected_entries,
     )
     if result.failure_kind == executor.FAILURE_KIND_TIMEOUT:
         make_error(

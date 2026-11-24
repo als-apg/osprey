@@ -94,6 +94,21 @@ POSTURE_WRITES = posture.POSTURE_WRITES
 #: pins all three (the hook by AST, since it imports nothing from ``osprey``).
 REASON_POSTURE = "posture"
 
+#: The reason a run is filed under when the deployment's build output does not
+#: carry the protected-path list. Its own reason, not a layer that refused a
+#: control-system write: nothing about the run's code was judged.
+REASON_NO_PROTECTED_PATHS = "no_protected_paths"
+
+#: The ``error_type`` of that refusal: a deployment fault an operator fixes.
+NO_PROTECTED_PATHS_ERROR_TYPE = "configuration_error"
+
+#: The operator alert for that refusal. Says what was refused and why, and
+#: never reads as a refused write: the code was not looked at.
+NO_PROTECTED_PATHS_ALERT = (
+    "Refused agent code: this deployment's build output lacks the protected-path list "
+    "(run `osprey build`)"
+)
+
 #: The layer that refused a control-system write, filed as the record's
 #: ``reason``. Static layers refuse before the script is launched;
 #: ``runtime_guard`` is the one that fires inside the subprocess, so it is the
@@ -468,18 +483,95 @@ async def refuse_readonly_write(
     make_error("safety_error", message, suggestions)
 
 
+async def require_protected_paths(
+    *,
+    tool: str,
+    execution_mode: str,
+    project_root: Path | None = None,
+) -> tuple[str, ...]:
+    """Return the run's protected-path entries, or refuse the run.
+
+    The gate-chain face of
+    :func:`~osprey.mcp_server.python_executor.executor.read_run_protected_entries`:
+    the one read of the deployment's configuration file for this request.
+
+    Args:
+        tool: Tool name as the agent knows it, recorded with a refusal.
+        execution_mode: The run's mode, recorded with a refusal.
+        project_root: Project root when the caller has already resolved one;
+            ``None`` lets the reader resolve it.
+
+    Returns:
+        The entries, possibly empty, to hand to the pre-run check and the
+        executor.
+
+    Raises:
+        Whatever :func:`make_error` raises — the refusal naming ``osprey build``.
+    """
+    from osprey.mcp_server.python_executor.executor import (
+        ProtectedPathsRefusal,
+        read_run_protected_entries,
+    )
+
+    try:
+        return read_run_protected_entries(project_root)
+    except ProtectedPathsRefusal as refusal:
+        await _refuse_without_protected_paths(
+            tool=tool, execution_mode=execution_mode, message=str(refusal)
+        )
+
+
+async def _refuse_without_protected_paths(
+    *, tool: str, execution_mode: str, message: str
+) -> NoReturn:
+    """Record, alert, then raise the refusal of a deployment without the list.
+
+    Recorded first, as this layer's own decision under
+    :data:`REASON_NO_PROTECTED_PATHS`; alerted second with
+    :data:`NO_PROTECTED_PATHS_ALERT`; raised last. Nothing was spawned.
+    """
+    try:
+        from osprey.audit.dedup import record_and_mark
+        from osprey.audit.envelope import DECISION_REFUSED, SURFACE_EXECUTOR
+
+        record_and_mark(
+            decision=DECISION_REFUSED,
+            reason=REASON_NO_PROTECTED_PATHS,
+            surface=SURFACE_EXECUTOR,
+            posture=posture.posture(),
+            posture_source=posture.posture_source(),
+            session=posture.posture_session(),
+            subject=_tool_subject(tool),
+            detail=f"tool={tool} mode={execution_mode} {message}",
+        )
+    except Exception:  # the audit trail degrades; the refusal does not
+        logger.warning("Could not record the protected-path refusal", exc_info=True)
+
+    await notify_agent_activity_async(tool, "config", detail=NO_PROTECTED_PATHS_ALERT)
+    # An operator fixes this, not the agent: the deployment needs rebuilding.
+    make_error(
+        NO_PROTECTED_PATHS_ERROR_TYPE,
+        message,
+        [
+            "Nothing ran. Calling again will not help until the deployment is rebuilt.",
+            "Run `osprey build` in the deployment, then call again.",
+        ],
+    )
+
+
 async def enforce_path_policy(
     *,
     tool: str,
     code: str,
     description: str | None,
     execution_mode: str,
+    entries: tuple[str, ...],
     project_root: Path | None = None,
 ) -> None:
     """Refuse *code* if it statically writes into the protected set.
 
     Deliberately *not* under the readonly branch. The render zone, the profile
-    sources and the audit ledger are off limits to executed code in every mode,
+    sources, the paths the profile names and the audit ledger are off limits to executed code in every mode,
     because the boundary here is the agent rewriting the configuration it is
     itself constrained by, which the write posture has nothing to say about.
     The roots are resolved parent-side and handed in; the walker never
@@ -497,6 +589,8 @@ async def enforce_path_policy(
             the wording of one suggestion — both modes refuse, so the readwrite
             message must not read as "you are in readonly", or the agent would
             resubmit as readwrite and hit exactly the same refusal.
+        entries: The protected-path entries this run's one
+            :func:`require_protected_paths` read returned.
         project_root: Project root when the caller has already resolved one;
             ``None`` lets the resolvers derive it.
 
@@ -506,15 +600,27 @@ async def enforce_path_policy(
     """
     try:
         from osprey.mcp_server.python_executor.executor import (
+            _resolve_project_root,
             resolve_permitted_roots,
             resolve_protected_roots,
         )
         from osprey.services.python_executor.execution.path_policy import path_policy_issues
+        from osprey_connectors.workspace import load_osprey_config
 
+        osprey_config = load_osprey_config()
+        root = project_root if project_root is not None else _resolve_project_root()
+        permitted_roots = resolve_permitted_roots(root, osprey_config)
         path_issues = path_policy_issues(
             code,
-            protected_roots=resolve_protected_roots(project_root),
-            permitted_roots=resolve_permitted_roots(project_root),
+            protected_roots=resolve_protected_roots(
+                root,
+                entries=entries,
+                permitted_roots=permitted_roots,
+            ),
+            permitted_roots=permitted_roots,
+            # The child runs with the project root as its working directory,
+            # so a relative literal names what it names from there.
+            working_directory=root,
         )
     except ImportError:
         logger.warning("Path policy module unavailable — skipping protected-path check")
@@ -531,7 +637,8 @@ async def enforce_path_policy(
         execution_mode=execution_mode,
         message=(
             "This code writes into a location the deployment protects "
-            "(the render zone, the profile sources, or the audit ledger). "
+            "(the render zone, the profile sources, a path the profile names, "
+            "or the audit ledger). "
             "The path policy applies in every execution mode."
         ),
         suggestions=[
@@ -904,11 +1011,13 @@ async def run_gated_execution(
     code_review: bool = True,
     script_args: Sequence[str] = (),
     on_launch: Callable[[], None] | None = None,
+    protected_entries: tuple[str, ...] | None = None,
 ) -> tuple[ExecutionResult, dict]:
     """Run *code* through every executor gate, launch it, and report the run.
 
     The one gate sequence every executor tool runs, in this order: the posture
-    clamp, ``quick_safety_check``, the path policy, the readonly import
+    clamp, the protected-path list (:func:`require_protected_paths`),
+    ``quick_safety_check``, the path policy, the readonly import
     denylist, pattern detection, the readonly pattern refusal, the code review, the launch, the
     write-activity report and the runtime-refusal report. A call that trips several gates is told about the
     first one only, so the order is part of what every tool says, and keeping
@@ -958,6 +1067,10 @@ async def run_gated_execution(
         script_args: The script's arguments, which only the review request uses.
         on_launch: Called once every gate has passed, just before the launch, so
             a caller can tell a refusal before the launch from one after it.
+        protected_entries: The entries a caller that already made this
+            request's one :func:`require_protected_paths` read got back; ``None``
+            makes that read here, right after the posture clamp. Either way the
+            same entries reach the path policy and the launch.
 
     Returns:
         ``(exec_result, patterns)`` — the backend's result and the pattern
@@ -970,6 +1083,10 @@ async def run_gated_execution(
 
     require_known_execution_mode(execution_mode)
     enforce_posture_clamp(execution_mode, tool=tool)
+    if protected_entries is None:
+        protected_entries = await require_protected_paths(
+            tool=tool, execution_mode=execution_mode, project_root=project_root
+        )
 
     try:
         from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
@@ -989,6 +1106,7 @@ async def run_gated_execution(
         code=gated,
         description=description,
         execution_mode=execution_mode,
+        entries=protected_entries,
         project_root=project_root,
     )
 
@@ -1077,6 +1195,7 @@ async def run_gated_execution(
         # A review spared on a predicted decline holds the launch to that decline, unless the
         # deployment only flags: there an unreviewed run goes ahead and the agent is told.
         expect_declined=review.spared is not None and review.level != "flag",
+        protected_entries=protected_entries,
     )
     review_message = await _conclude_spared_review(tool, review, exec_result)
     if review_message is not None:

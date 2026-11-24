@@ -646,7 +646,7 @@ def test_watchdogs_directory_is_a_source_entry() -> None:
 
 
 def test_watchdogs_directory_is_a_protected_root(tmp_path: Path) -> None:
-    protected = resolve_protected_roots(tmp_path)
+    protected = resolve_protected_roots(tmp_path, entries=())
     assert (tmp_path / "watchdogs").resolve() in protected
 
 
