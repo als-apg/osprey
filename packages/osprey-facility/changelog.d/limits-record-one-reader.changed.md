@@ -1,0 +1,1 @@
+The `limit-invalid` stop for `writable: true` names only the bound the record lacks. `import mml` names a wired setpoint it leaves not writable as `limits not writable: <address>: <what it lacks>`, in the words of the validate report, and stops when a family field writes an address the tune block reads.
