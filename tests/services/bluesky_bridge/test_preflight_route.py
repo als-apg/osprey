@@ -157,6 +157,11 @@ def _summary(**overrides: Any) -> dict[str, Any]:
         "total_moves": 2,
         "truncated": False,
         "move_cap": 10000,
+        "writes": [
+            {"channel": "SR:COR1:SP", "device": "COR1", "value": 0.5, "count": 1},
+            {"channel": "SR:COR2:SP", "device": "COR2", "value": 1.5, "count": 1},
+        ],
+        "total_writes": 2,
         **overrides,
     }
 
@@ -226,6 +231,8 @@ def _preview(client: TestClient, name: str = "grid_scan", params: Any = _PARAMS)
         "total_moves",
         "truncated",
         "move_cap",
+        "writes",
+        "total_writes",
         "reason",
         "detail",
         "retryable",
@@ -265,6 +272,19 @@ def test_a_summary_carries_the_trajectory_and_the_declared_channels(bridge) -> N
         {"channel": "BPM1", "role": "readable"},
         {"channel": "BPM2", "role": "readable"},
     ]
+
+
+def test_a_summary_relays_the_writes_list_and_its_total(bridge) -> None:
+    client, _manager = bridge(_accepted(), [_completed(_summary())])
+
+    body = _preview(client)
+
+    assert body["ok"] is True
+    assert body["writes"] == [
+        {"channel": "SR:COR1:SP", "device": "COR1", "value": 0.5, "count": 1},
+        {"channel": "SR:COR2:SP", "device": "COR2", "value": 1.5, "count": 1},
+    ]
+    assert body["total_writes"] == 2
 
 
 def test_a_flat_declaration_is_read_the_same_way(bridge) -> None:
@@ -583,6 +603,42 @@ def test_a_summary_missing_its_moves_is_a_reason(bridge, payload: dict[str, Any]
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_FAILED
     assert body["retryable"] is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"writes": None},
+        {"total_writes": None},
+        {"total_writes": "lots"},
+        # `bool` is an `int` subclass, and the one that is never a count.
+        {"total_writes": True},
+    ],
+)
+def test_a_summary_missing_its_writes_is_a_reason(bridge, overrides: dict[str, Any]) -> None:
+    payload = {key: value for key, value in _summary(**overrides).items() if value is not None}
+    client, _manager = bridge(_accepted(), [_completed(payload)])
+
+    body = _preview(client)
+
+    assert body["ok"] is False
+    assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["detail"] == "The pre-flight answered without the writes it would make."
+    assert body["total_writes"] is None
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [{"ok": False, "error": "ValidationError: axes", "moves": []}, "not a summary"],
+)
+def test_an_unavailable_answer_states_no_write_total(bridge, summary: Any) -> None:
+    client, _manager = bridge(_accepted(), [_completed(summary)])
+
+    body = _preview(client)
+
+    assert body["ok"] is False
+    assert body["writes"] == []
+    assert body["total_writes"] is None
 
 
 def test_a_plan_that_does_not_build_carries_the_workers_own_reason(bridge) -> None:
