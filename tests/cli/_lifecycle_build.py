@@ -18,7 +18,9 @@ For the tests that do run one, :func:`invoke_build` is the in-process
 ``osprey build`` with the install and the lifecycle hooks skipped (the one the
 application SDK's test support runs, named here for OSPREY's own tests),
 :func:`invoke_build_in` the same from a working directory instead of ``--repo``, and
-:func:`rendered_config` reads back the ``build/config.yml`` it rendered.
+:func:`rendered_config` reads back the ``build/config.yml`` it rendered. A test
+that writes its own ``build/config.yml`` passes the text through
+:func:`with_protected_paths`.
 
 Lives in a ``_``-prefixed module rather than ``conftest.py`` because these are
 plain functions, not fixtures — callers want them inside a test body, often more
@@ -97,7 +99,7 @@ def stub_build(
     build.mkdir(parents=True, exist_ok=True)
     if with_config:
         (build / "config.yml").write_text(
-            _with_protected_paths(config, protected_paths), encoding="utf-8"
+            with_protected_paths(config, protected_paths), encoding="utf-8"
         )
 
     creation: dict[str, object] = {"osprey_version": version or installed_version()}
@@ -109,10 +111,13 @@ def stub_build(
     return build
 
 
-def _with_protected_paths(config: str, protected_paths: Sequence[str] | None) -> str:
+def with_protected_paths(config: str, protected_paths: Sequence[str] | None = ()) -> str:
     """*config* with the protected-path key a real build writes, unless it has one.
 
-    A text that is no mapping is left alone: it is a test of a malformed render.
+    For any ``build/config.yml`` a test writes by hand under a ``profile.yml``
+    root, :func:`stub_build`'s included: the start verbs and the python
+    executor refuse a deployment whose render lacks the key. A text that is no
+    mapping is left alone: it is a test of a malformed render.
     """
     from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
 
