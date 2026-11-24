@@ -218,6 +218,8 @@ class ChannelRecord:
         options: The labels of a labelled (``bool`` or ``enum``) channel, in
             option-index order, as the facility file's ``options`` states them;
             ``None`` when the file states none.
+        shape: The facility file's ``shape`` of a waveform channel, its
+            dimensions in order; ``None`` when the file states none.
         command: Whether the facility file marks the channel a command; its
             status is ``readback``.
         timeout_s: On a command, the longest one act may take, in seconds,
@@ -241,6 +243,7 @@ class ChannelRecord:
     description: str | None = None
     on: tuple[str, str] | None = None
     options: tuple[str, ...] | None = None
+    shape: tuple[int, ...] | None = None
     command: bool = False
     timeout_s: float | None = None
     idle: str | int | float | None = None
