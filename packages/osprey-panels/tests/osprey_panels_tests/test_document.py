@@ -312,3 +312,25 @@ def test_mapping_constructor_does_not_copy_rows_in() -> None:
 )
 def test_end_identity(end: dict[str, Any], identity: tuple[str, str] | None) -> None:
     assert end_identity(end) == identity
+
+
+def test_a_further_address_reads_as_its_record() -> None:
+    document = FacilityDocument(
+        _document(
+            channels=[
+                {"id": "q1:I", "role": "setpoint", "unit": "A", "pair": "q1:RB", "label": "Q1"},
+                {"id": "rack:I", "role": "setpoint", "label": "Rack", "on": {"device": "q1"}},
+                {"id": "q2:I", "unit": "T"},
+            ],
+            models=[{"name": "lattice", "wiring": [{"address": "q1:I", "also": ["rack:I"]}]}],
+        )
+    )
+
+    assert document.record_address("rack:I") == "q1:I"
+    assert document.record_address("q2:I") == "q2:I"
+    read = document.channel("rack:I")
+    assert read is not None
+    assert (read["unit"], read["pair"], read["role"]) == ("A", "q1:RB", "setpoint")
+    assert (read["id"], read["label"], read["on"]) == ("rack:I", "Rack", {"device": "q1"})
+    assert document.channel("q2:I") == {"id": "q2:I", "unit": "T"}
+    assert document.channel("none") is None

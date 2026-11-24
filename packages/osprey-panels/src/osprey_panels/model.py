@@ -829,10 +829,12 @@ class PanelGraph:
         self._channels: dict[_Key, list[Channel]] = {}
         self._unheld: list[Channel] = []
         limits = _limits(records.document)
-        for record in records.of_kind("channel"):
-            name = str(record["id"])
+        for stated in records.of_kind("channel"):
+            name = str(stated["id"])
             if name in excluded or name.startswith(SIMULATION_PREFIX):
                 continue
+            # a further address of a wiring record reads its record's facts
+            record = records.channel(name) or stated
             on = record.get("on") or {}
             holder = end_identity(on) if isinstance(on, Mapping) and on else None
             if holder is not None and holder not in self._things:
@@ -851,8 +853,10 @@ class PanelGraph:
                     self.redundant_columns.get(_DRAWN_AS_COLUMN, 0) + 1
                 )
             paired = _text(record.get("pair"))
-            if paired is not None and paired != name and record.get("role") == "setpoint":
-                self._stated_pairs[name] = _facility_pair(name, paired, record)
+            own = records.record_address(name)
+            if paired is not None and paired != own and record.get("role") == "setpoint":
+                basis = records.channel(own) or record
+                self._stated_pairs[name] = _facility_pair(name, paired, basis)
             channel = Channel(
                 name=name,
                 drawn_as=row.drawn_as if row is not None and row.drawn_as else default,

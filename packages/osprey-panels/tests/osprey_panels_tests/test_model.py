@@ -171,6 +171,42 @@ def test_a_readback_two_setpoints_name_is_drawn_beside_each(tmp_path: Path) -> N
         assert pair is not None and pair.readback == "XR01-QF1:Current-RB"
 
 
+#: A further address the fixture's quadrupole setpoint is also served as.
+FURTHER = "XR01-RACK:Unit2-SP"
+
+
+def _further(document: dict[str, Any]) -> None:
+    """What the build writes for a further address: its own slots and its record's kind."""
+    document["channels"].append(
+        {
+            "id": FURTHER,
+            "label": "Rack unit 2",
+            "on": {"device": "XR01:QF1"},
+            "role": "setpoint",
+            "value_type": "float",
+            "provenance": {"sources": [], "fixes": [], "defaults": ["role", "value_type"]},
+        }
+    )
+    (texture,) = document["models"]
+    texture["wiring"] = [
+        {"id": "XR01-QF1:Current-SP", "address": "XR01-QF1:Current-SP", "also": [FURTHER]}
+    ]
+
+
+def test_a_further_address_shows_its_records_pair_unit_and_tolerance(tmp_path: Path) -> None:
+    graph = load_graph(write_fixture_facility(tmp_path / "f.json", _further), PANELS_DIR)
+    record = graph.channel("XR01-QF1:Current-SP")
+    further = graph.channel(FURTHER)
+
+    assert (further.unit, further.tolerance) == (record.unit, record.tolerance)
+    assert further.unit == "A" and further.tolerance is not None
+    assert (further.thing, further.writable) == ("XR01:QF1", True)
+    pair = graph.pair(FURTHER)
+    assert pair is not None and pair.readback == "XR01-QF1:Current-RB"
+    own = graph.pair("XR01-QF1:Current-SP")
+    assert own is not None and (own.readback, own.basis) == ("XR01-QF1:Current-RB", "stated")
+
+
 def test_a_readback_or_a_left_out_setpoint_has_no_pair(panel_graph: PanelGraph) -> None:
     assert panel_graph.pair("XR01-QF1:Current-RB") is None
     assert panel_graph.pair(VA_CHANNEL) is None
