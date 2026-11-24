@@ -522,7 +522,7 @@ class TestTheFacilityImportOfATwoZeroExport:
     ) -> None:
         """One line, and the preset's records are gone.
 
-        The preset's ``classes.yaml`` goes with the rest of the bundled
+        The preset's ``vocabulary/classes.yaml`` goes with the rest of the bundled
         facility, and the import seeds the tree's own classes in its place, so
         the build reaches the limits records rather than stopping on a class
         nothing declares.
@@ -542,9 +542,9 @@ class TestTheFacilityImportOfATwoZeroExport:
             lines[0] == f"import mml: replaced the bundled example facility ({len(packaged)} files)"
         )
         assert not (facility / "records").exists()
-        assert (PACKAGED_FACILITY / "classes.yaml").is_file()
-        assert (facility / "classes.yaml").read_text(encoding="utf-8") != (
-            PACKAGED_FACILITY / "classes.yaml"
+        assert (PACKAGED_FACILITY / "vocabulary" / "classes.yaml").is_file()
+        assert (facility / "vocabulary" / "classes.yaml").read_text(encoding="utf-8") != (
+            PACKAGED_FACILITY / "vocabulary" / "classes.yaml"
         ).read_text(encoding="utf-8")
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
 

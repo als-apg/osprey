@@ -72,7 +72,7 @@ SEEDED = (
 
 FIX_MISSING = (
     "facility: fix-missing: device SR/Q9 — no device SR/Q9 exists;"
-    " fix: remove the fix from fixes.yaml"
+    " fix: remove the fix from provenance/fixes.yaml"
 )
 
 SERVERS = (
@@ -83,13 +83,13 @@ SERVERS = (
 TURN = "sessions[0].parts[0].turns[0]"
 
 UNKNOWN_SERVER = (
-    f"facility: reference-missing: scenario warm — scenarios/warm.yaml `{TURN}.steps[0]"
+    f"facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `{TURN}.steps[0]"
     f".tool.server` names server nowhere, not an OSPREY server; fix: name one of {SERVERS}"
     f" in `{TURN}.steps[0].tool.server`"
 )
 
 UNKNOWN_CHANNEL = (
-    f"facility: reference-missing: scenario warm — scenarios/warm.yaml `{TURN}.channels`"
+    f"facility: reference-missing: scenario warm — simulation/scenarios/warm.yaml `{TURN}.channels`"
     f" names channel NO:SUCH:CHANNEL; fix: add channel NO:SUCH:CHANNEL or correct"
     f" `{TURN}.channels`"
 )
@@ -157,7 +157,7 @@ def _break(repo: Path) -> None:
         "schema": "osprey.facility.fixes/1",
         "fixes": [{"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"}],
     }
-    (repo / "data" / "facility" / "fixes.yaml").write_text(
+    (repo / "data" / "facility" / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
     )
 
@@ -181,7 +181,7 @@ def _scenario(
         "when": {"days_ago": 1, "time": "08:00"},
         "parts": [{"title": "Look", "turns": [turn]}],
     }
-    (repo / "data" / "facility" / "scenarios" / "warm.yaml").write_text(
+    (repo / "data" / "facility" / "simulation" / "scenarios" / "warm.yaml").write_text(
         yaml.safe_dump({"sessions": [session]}, sort_keys=False), encoding="utf-8"
     )
 

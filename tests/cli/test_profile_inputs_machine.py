@@ -156,7 +156,7 @@ def test_a_new_machine_file_moves_the_profile_hash(repo: Path) -> None:
     machine = _mount(repo)
     before = _hash(repo)
 
-    _write(machine / "decks" / "lattice.yaml")
+    _write(machine / "simulation" / "decks" / "lattice.yaml")
 
     assert _hash(repo) != before
 
@@ -298,13 +298,13 @@ def test_staging_a_top_level_submodule_mount(repo: Path, tmp_path: Path) -> None
 def test_staging_a_machine_root_that_is_its_own_mount_top(repo: Path, tmp_path: Path) -> None:
     machine = _machine_tree(repo / "facility-repo")
     _git_init(machine)
-    _write(machine / "decks" / "lattice.yaml")
+    _write(machine / "simulation" / "decks" / "lattice.yaml")
     _set_machine(repo, "facility-repo")
 
     staged = _staged(_stage(repo, tmp_path))
 
     assert "facility-repo/identity.yaml" in staged
-    assert "facility-repo/decks/lattice.yaml" in staged
+    assert "facility-repo/simulation/decks/lattice.yaml" in staged
     assert "facility-repo/.git" not in staged
 
 

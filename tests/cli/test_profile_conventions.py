@@ -1058,7 +1058,7 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         ("data/bluesky_devices.yml", "`data/`"),
         ("facility.json", "`data/facility/`"),
         ("data/facility/records/devices.yaml", "`data/facility/`"),
-        ("data/facility/decks/SR.json", "`data/facility/`"),
+        ("data/facility/simulation/decks/SR.json", "`data/facility/`"),
         ("data/simulator/served_models.json", "`data/facility/`"),
         ("data/simulator/decks/SR.json", "`data/facility/`"),
         ("data/facility_facts.json", "`data/facility/`"),

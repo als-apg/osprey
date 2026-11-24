@@ -83,7 +83,7 @@ class TestTemplateManager:
         )
 
         data = project_dir / "data"
-        assert not (data / "facility" / "benchmarks" / "cross_paradigm").exists()
+        assert not (data / "facility" / "benchmarks" / "channel_finder").exists()
         assert not (data / "raw").exists()
         for paradigm in VALID_CHANNEL_FINDER_MODES:
             assert not (data / "channel_databases" / f"{paradigm}.json").exists()

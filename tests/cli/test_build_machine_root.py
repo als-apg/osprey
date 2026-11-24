@@ -69,7 +69,7 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     note = machine / MACHINE_KNOWLEDGE
     note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("# The machine repository's own note\n", encoding="utf-8")
-    scenario = machine / "scenarios" / f"{MARKED_SCENARIO}.yaml"
+    scenario = machine / "simulation" / "scenarios" / f"{MARKED_SCENARIO}.yaml"
     scenario.write_text(
         scenario.read_text(encoding="utf-8").rstrip("\n") + "\nstart: true\n", encoding="utf-8"
     )

@@ -1381,7 +1381,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/models.yaml. null
+  # Models the simulator serves, named from data/facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models:
   # Seconds between the simulator's ticks; must be greater than 0.
@@ -3099,12 +3099,12 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/carol/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/facility/benchmarks/channel_finder/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
-    "data/facility/scenarios/demo-history.yaml": "{}\n",
-    "data/facility/scenarios/rf-thermal.yaml": "{}\n",
+    "data/facility/simulation/scenarios/demo-history.yaml": "{}\n",
+    "data/facility/simulation/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
