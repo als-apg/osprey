@@ -14,7 +14,7 @@ license = {text = "BSD-3-Clause"}
 # Lower bounds are the framework's own, so a framework install and this package
 # resolve the same floors.
 dependencies = [
-    "osprey-connectors>=2026.11.15",
+    "osprey-connectors>=2026.11.16",
     "pydantic>=2.11,<3",
     "PyYAML>=6.0.2",
     "packaging>=26.3",
