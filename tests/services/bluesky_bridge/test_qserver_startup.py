@@ -1064,7 +1064,7 @@ def test_previewing_a_plan_probes_no_channel_at_all(
 ) -> None:
     """A read-only walk moves nothing, so it has nothing to refuse.
 
-    ``collect_channel_moves`` consumes the wrapper's messages without executing
+    ``walk_launch`` consumes the wrapper's messages without executing
     any of them and with no RunEngine behind it, so the probe is never awaited
     — a preview must not turn into control-system traffic on the strength of a
     question about a run that is not happening.
@@ -1573,11 +1573,13 @@ def test_plan_function_annotations_are_real_objects_not_pep563_strings() -> None
 # every read and write the device layer would perform.
 
 
-def _trajectory_plan_source(name: str) -> str:
+def _trajectory_plan_source(name: str, *, writes: bool = True, moves: bool = True) -> str:
     """A catalog plan whose message stream drives one movable channel.
 
     Targets are numpy scalars, as every stock bluesky scan's are: the preview
-    has to reduce them to plain JSON numbers on the way out.
+    has to reduce them to plain JSON numbers on the way out. ``writes`` is the
+    plan's declaration; ``moves`` False drops the ``set`` messages, leaving a
+    launch that only triggers and reads.
     """
     return (
         "import numpy\n"
@@ -1590,7 +1592,7 @@ def _trajectory_plan_source(name: str) -> str:
         "PLAN_METADATA = {\n"
         f'    "name": {name!r},\n'
         '    "description": "A sample catalog plan that moves one channel.",\n'
-        '    "writes": True,\n'
+        f'    "writes": {writes!r},\n'
         "}\n\n\n"
         "class PARAMS(BaseModel):\n"
         "    movable: MovableChannel\n"
@@ -1602,8 +1604,12 @@ def _trajectory_plan_source(name: str) -> str:
         "    def _gen():\n"
         "        yield Msg('open_run', None)\n"
         "        for target in params.targets:\n"
-        "            yield Msg('set', movable, numpy.float64(target))\n"
-        "            yield Msg('trigger', readable)\n"
+        + (
+            "            yield Msg('set', movable, numpy.float64(target))\n"
+            if moves
+            else "            numpy.float64(target)\n"
+        )
+        + "            yield Msg('trigger', readable)\n"
         "            yield Msg('read', readable)\n"
         "        yield Msg('close_run', None)\n"
         "    return _gen()\n"
@@ -1611,13 +1617,19 @@ def _trajectory_plan_source(name: str) -> str:
 
 
 def _trajectory_namespace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str = "trajectory_scan"
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    name: str = "trajectory_scan",
+    *,
+    writes: bool = True,
+    moves: bool = True,
+    extra_devices: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], FakeConnector]:
     """A worker namespace holding the moving plan and the real devices it drives."""
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no-shipped-dir")
     directory = tmp_path / "preview-plans"
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / f"{name}.py").write_text(_trajectory_plan_source(name))
+    (directory / f"{name}.py").write_text(_trajectory_plan_source(name, writes=writes, moves=moves))
     monkeypatch.setenv(_PLAN_DIRS_ENV, str(directory))
 
     plans = dict(plan_loader.get_facility_plans().plans)
@@ -1627,6 +1639,7 @@ def _trajectory_namespace(
     devices = asyncio.run(
         qserver_startup.build_devices(env=_stock_devices_env(tmp_path), connector=connector)
     )
+    devices.update(extra_devices or {})
     namespace: dict[str, Any] = dict(devices)
     namespace.update(qserver_startup.build_plan_functions(devices, plans))
     return namespace, connector
@@ -1677,6 +1690,129 @@ def test_preview_counts_every_move_past_the_cap_and_flags_truncation(
     # end, and the end-to-end proof of this same contract has to walk a plan of
     # just over this many moves, so the number is what that walk costs.
     assert qserver_startup.PREVIEW_MOVE_CAP == 200
+
+
+def test_preview_lists_every_write_per_channel_with_value_and_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The writes list names the channel address each device states it writes.
+
+    The plan also triggers ``bpm_01``, a readable with no ``trigger``: the
+    RunEngine refuses that message itself, so it writes nothing.
+    """
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert preview["ok"] is True
+    assert preview["writes"] == [
+        {
+            "channel": _CORRECTOR_ENTRY["setpoint"],
+            "device": "corrector_01",
+            "value": None,
+            "count": 3,
+        }
+    ]
+    assert preview["total_writes"] == 3
+
+
+class _StageWithCommand:
+    """A plan device whose ``set`` writes its setpoint and then a go command."""
+
+    name = "stage_01"
+
+    def set(self, value: Any) -> None:  # noqa: ARG002 - the bluesky verb signature
+        raise AssertionError("a preview never drives a device")
+
+    def set_writes(self, value: Any) -> tuple[Any, ...]:
+        from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
+
+        return (ChannelWrite("ES:STAGE:SP", value), ChannelWrite("ES:STAGE:GO", 1))
+
+
+def test_preview_counts_a_device_command_write_beside_its_move(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(
+        tmp_path, monkeypatch, extra_devices={"stage_01": _StageWithCommand()}
+    )
+    kwargs = _trajectory_kwargs()
+    kwargs["movable"] = "stage_01"
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace)
+
+    assert preview["ok"] is True, preview.get("error")
+    assert preview["moves"] == [
+        {"channel": "stage_01", "target": 0.0},
+        {"channel": "stage_01", "target": 0.5},
+        {"channel": "stage_01", "target": 1.0},
+    ]
+    assert preview["writes"] == [
+        {"channel": "ES:STAGE:SP", "device": "stage_01", "value": None, "count": 3},
+        {"channel": "ES:STAGE:GO", "device": "stage_01", "value": 1, "count": 3},
+    ]
+    assert preview["total_writes"] == 2 * preview["total_moves"]
+
+
+def test_preview_of_a_launch_that_writes_nothing_states_zero_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(tmp_path, monkeypatch, moves=False)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert preview["ok"] is True
+    assert preview["writes"] == []
+    assert preview["total_writes"] == 0
+    assert preview["total_moves"] == 0
+
+
+def test_preview_refuses_a_launch_that_writes_under_writes_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, connector = _trajectory_namespace(tmp_path, monkeypatch, writes=False)
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "trajectory_scan", _trajectory_kwargs(), namespace
+    )
+
+    assert preview["ok"] is False
+    assert (
+        "plan 'trajectory_scan' does not declare writes: true and this launch writes "
+        f"{_CORRECTOR_ENTRY['setpoint']}"
+    ) in preview["error"]
+    assert preview["writes"] == []
+    assert preview["total_writes"] is None
+    assert connector.writes == []
+
+
+class _SilentStage:
+    """A plan device that can be set but states nothing about what that writes."""
+
+    name = "stage_01"
+
+    def set(self, value: Any) -> None:  # noqa: ARG002 - the bluesky verb signature
+        raise AssertionError("a preview never drives a device")
+
+
+def test_preview_refuses_a_device_that_does_not_state_its_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    namespace, _connector = _trajectory_namespace(
+        tmp_path, monkeypatch, extra_devices={"stage_01": _SilentStage()}
+    )
+    kwargs = _trajectory_kwargs()
+    kwargs["movable"] = "stage_01"
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace)
+
+    assert preview["ok"] is False
+    assert "device 'stage_01' does not state the channels its set writes" in preview["error"]
+    assert preview["total_writes"] is None
 
 
 def test_preview_payload_is_json_serializable(

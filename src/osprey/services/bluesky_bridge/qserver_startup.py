@@ -62,7 +62,6 @@ resolve fine — so they cannot catch a regression here; the AST pin in
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 import logging
 import os
@@ -594,55 +593,59 @@ def _preview_channel(obj: Any) -> str:
     return repr(obj)
 
 
-def _json_safe(value: Any) -> Any:
-    """Reduce one move target to a plain JSON-serializable scalar.
-
-    Targets arrive as whatever the plan computed — commonly a numpy scalar out
-    of ``numpy.linspace``, which no JSON encoder accepts. ``.item()`` unwraps
-    those to plain Python; anything left that is not already a JSON scalar is
-    carried as its ``repr`` so an exotic target degrades to a readable string
-    instead of failing the whole response at encode time.
-    """
-    unwrap = getattr(value, "item", None)
-    if callable(unwrap):
-        # a non-scalar `.item()`; fall through to repr
-        with contextlib.suppress(Exception):
-            value = unwrap()
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    return repr(value)
-
-
-def collect_channel_moves(
+def walk_launch(
     messages: Any, *, cap: int = PREVIEW_MOVE_CAP
-) -> tuple[list[dict[str, Any]], int]:
-    """Walk a plan's message stream read-only, collecting the moves it would make.
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]], int]:
+    """Walk a plan's message stream read-only, collecting the moves and writes it would make.
 
     Pure iteration, and that is the whole safety argument: a bluesky plan is a
     generator of *instructions*, and every instruction that changes machine
     state is carried out by the RunEngine when it consumes one. Walking the
     stream here — no RunEngine, nothing sent back into the generator, no device
-    method ever called — reads the trajectory the plan would drive without
-    driving any of it.
+    method that does I/O called (``set_writes`` / ``trigger_writes`` are pure) —
+    reads what the plan would drive without driving any of it.
+
+    Moves are the ``set`` messages, labelled by device name. Writes are every
+    channel write a message makes as its device states it
+    (:func:`~osprey.services.bluesky_bridge.plan_writes.message_writes`),
+    tallied per channel address; a device's ``set`` may write more than its
+    setpoint, and a ``trigger`` may write too.
 
     Iteration continues past ``cap``: the plan's contract is an exact total, so
     the walk always runs the generator to exhaustion and only stops *collecting*
-    at the cap. A plan that never terminates would therefore spin here; the
-    walk is CPU-only and touches nothing, and the caller runs it as a background
-    task under its own timeout, which is the bound that applies.
+    moves at the cap. The writes list is not capped: it holds one entry per
+    channel, so it is bounded by the declared devices. A plan that never
+    terminates would spin here; the walk is CPU-only and touches nothing, and
+    the caller runs it as a background task under its own timeout, which is the
+    bound that applies.
 
     Args:
         messages: The plan generator, or any iterable of bluesky ``Msg``\\ s.
         cap: Most moves to collect into the returned list.
 
     Returns:
-        ``(moves, total)`` — the collected ``{"channel", "target"}`` mappings in
-        the order the plan would make them, and the exact count of moves the
-        whole stream carried.
+        ``(moves, total_moves, writes, total_writes)`` — the collected
+        ``{"channel", "target"}`` mappings in the order the plan would make
+        them, the exact count of moves the whole stream carried, one
+        ``{"channel", "device", "value", "count"}`` entry per channel written
+        in first-write order, and the exact count of writes.
+
+    Raises:
+        UnstatedWriteError: A device that can write does not state its writes.
     """
+    # Absolute and function-local — see the module docstring.
+    from osprey.services.bluesky_bridge.plan_writes import (
+        WritesTally,
+        _json_safe,
+        message_writes,
+    )
+
     moves: list[dict[str, Any]] = []
     total = 0
+    tally = WritesTally()
     for message in messages:
+        obj = getattr(message, "obj", None)
+        tally.add(_preview_channel(obj), message_writes(message))
         if getattr(message, "command", None) != "set":
             continue
         total += 1
@@ -651,11 +654,11 @@ def collect_channel_moves(
         args = getattr(message, "args", ()) or ()
         moves.append(
             {
-                "channel": _preview_channel(getattr(message, "obj", None)),
+                "channel": _preview_channel(obj),
                 "target": _json_safe(args[0]) if args else None,
             }
         )
-    return moves, total
+    return moves, total, tally.entries(), tally.total()
 
 
 def preview_plan_in_namespace(
@@ -682,7 +685,9 @@ def preview_plan_in_namespace(
         two shapes. On failure ``moves`` is empty and ``total_moves`` is 0:
         moves collected before a mid-stream failure describe a trajectory the
         run would never complete, so ``total_moves`` keeps one meaning (the
-        exact total of a complete walk) rather than two.
+        exact total of a complete walk) rather than two. ``writes`` is empty
+        and ``total_writes`` is ``None`` on failure, never 0: 0 states that a
+        walked launch writes nothing, which a failed walk cannot say.
     """
     result: dict[str, Any] = {
         "ok": True,
@@ -691,6 +696,8 @@ def preview_plan_in_namespace(
         "total_moves": 0,
         "truncated": False,
         "move_cap": cap,
+        "writes": [],
+        "total_writes": None,
     }
 
     plan_function = namespace.get(name) if isinstance(name, str) else None
@@ -708,7 +715,7 @@ def preview_plan_in_namespace(
     plan = None
     try:
         plan = plan_function(**dict(kwargs or {}))
-        moves, total = collect_channel_moves(plan, cap=cap)
+        moves, total, writes, total_writes = walk_launch(plan, cap=cap)
     except Exception as exc:  # every failure is reported, never raised
         result["ok"] = False
         result["error"] = f"{type(exc).__name__}: {exc}"[:PREVIEW_ERROR_CHARS]
@@ -724,18 +731,20 @@ def preview_plan_in_namespace(
     result["moves"] = moves
     result["total_moves"] = total
     result["truncated"] = total > len(moves)
+    result["writes"] = writes
+    result["total_writes"] = total_writes
     return result
 
 
 def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Read-only pre-flight: the channel moves running ``name`` with ``kwargs`` would make.
+    """Read-only pre-flight: the moves and writes running ``name`` with ``kwargs`` would make.
 
     Exposed to the manager as a namespace *function* (``function_execute``),
     not a plan: it is a plain function, so upstream's namespace scan classifies
     it as a callable to invoke directly rather than as a plan to hand the
     RunEngine, and it is the single deliberate exception in an otherwise
     deny-all function permission list. It moves nothing — see
-    :func:`collect_channel_moves` for why walking a plan's message stream
+    :func:`walk_launch` for why walking a plan's message stream
     cannot.
 
     Reads the *live* worker namespace (this module's globals, which upstream
@@ -752,15 +761,22 @@ def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, A
 
             {"ok": True, "plan": "grid_scan", "move_cap": 10000,
              "moves": [{"channel": "corrector_01", "target": 0.5}, ...],
-             "total_moves": 42, "truncated": False}
+             "total_moves": 42, "truncated": False,
+             "writes": [{"channel": "SR:C01:COR:SP", "device": "corrector_01",
+                         "value": None, "count": 42}],
+             "total_writes": 42}
 
         ``moves`` is in the order the run would make them and holds at most
         ``move_cap`` entries; ``total_moves`` is the exact count regardless, and
-        ``truncated`` is True when the list is only its opening slice. On
-        failure — an unknown plan, kwargs the params schema rejects, a device
-        this worker never built, or anything the plan raises while building —
-        the same shape with ``ok`` False, an ``error`` string naming the
-        failure, no moves, and a zero total.
+        ``truncated`` is True when the list is only its opening slice.
+        ``writes`` holds one entry per channel address the launch writes, in
+        first-write order, with ``value`` the value every write carried when
+        they all carried an equal one (else ``None``); ``total_writes`` is the
+        exact number of writes. On failure — an unknown plan, kwargs the params
+        schema rejects, a device this worker never built, a write the plan
+        does not declare, or anything the plan raises while building — the
+        same shape with ``ok`` False, an ``error`` string naming the failure,
+        no moves, a zero move total, no writes and a ``None`` write total.
     """
     return preview_plan_in_namespace(name, kwargs, globals())
 

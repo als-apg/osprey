@@ -562,7 +562,7 @@ def test_shipped_permissions_allow_only_preview_plan() -> None:
     reading the YAML shape, so the assertion tracks upstream's actual
     resolution (root-as-preliminary-filter, allow/forbid pattern matching)
     instead of our assumptions about it. `preview_plan_in_namespace` and
-    `collect_channel_moves` are sibling worker-namespace callables that share
+    `walk_launch` are sibling worker-namespace callables that share
     `preview_plan`'s prefix; both must stay denied, which also pins that the
     entry is an exact-match literal, not an unanchored substring or regex."""
     from bluesky_queueserver.manager.profile_ops import (
@@ -577,7 +577,7 @@ def test_shipped_permissions_allow_only_preview_plan() -> None:
         assert check_if_function_allowed(
             "preview_plan", group_name=group, user_group_permissions=permissions
         )
-        for other in ("preview_plan_in_namespace", "collect_channel_moves"):
+        for other in ("preview_plan_in_namespace", "walk_launch"):
             assert not check_if_function_allowed(
                 other, group_name=group, user_group_permissions=permissions
             )
