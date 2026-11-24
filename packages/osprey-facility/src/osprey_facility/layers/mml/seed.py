@@ -9,13 +9,16 @@ whoever wrote it.
 What :func:`seed_once` writes, relative to ``data/facility/``:
 
 * ``limits.yaml``: one record per setpoint whose field states a ``Range``,
-  holding the band as stated (:func:`band`). A setpoint a model wires carries
-  ``writable: true`` beside a band with both edges; every other setpoint
-  carries its band only. The band is never widened to reach a nominal: a
-  nominal outside it is the build's ``seed-invalid`` stop. A wired setpoint
-  whose ``Range`` lacks a finite edge carries ``writable: false`` beside
-  whichever edge is stated, and the import names it: the channel is refused
-  until a person bands it.
+  holding the band as stated (:func:`band`). The import writes float
+  setpoints only: a write field naming a tune address stops the import. A
+  setpoint a model wires carries ``writable`` as
+  :func:`~osprey_facility.validate.record_writable` answers for its record
+  and its channel's value type; every other setpoint carries its band only.
+  The band is never widened to reach a nominal: a nominal outside it is the
+  build's ``seed-invalid`` stop. A wired setpoint whose record lacks a slot
+  carries ``writable: false``, and the import names what it lacks in the
+  words of the validate report, ``limits not writable: <address>: <what it
+  lacks>``: the channel is refused until a person states it.
 * ``seeds.yaml``: the nominal the export states for each channel no model
   wires. A wired channel starts from its deck, so its nominal is not written
   and the import says how many it skipped.
@@ -198,10 +201,14 @@ def seed_once(
     models = _load(facility_dir / LAYER_DIR / "models.yaml") or []
     group_of = _group_of(_load(facility_dir / LAYER_DIR / "groups.yaml") or [])
     wired = {str(record["address"]) for model in models for record in model.get("wiring") or ()}
+    value_types = {
+        str(channel["id"]): str(channel.get("value_type") or "float")
+        for channel in _load(facility_dir / LAYER_DIR / "channels.yaml") or []
+    }
     claims = _claims(views, mapping)
     seeded = Seeded()
 
-    records, unbanded = _limit_records(claims, wired)
+    records, not_writable = _limit_records(claims, wired, value_types)
     seeded.lines.extend(_misaligned_tables(claims))
     limits = facility_dir / LIMITS_FILE
     if limits.exists():
@@ -211,7 +218,7 @@ def seed_once(
     else:
         if records:
             seeded.written.append(_write(limits, {"records": records}))
-        seeded.lines.extend(unbanded)
+        seeded.lines.extend(not_writable)
 
     seeds = facility_dir / SEEDS_FILE
     if not seeds.exists():
@@ -347,25 +354,29 @@ def band(declared: Any, indices: Sequence[int], devices: int) -> tuple[float | N
 
 
 def _limit_records(
-    claims: dict[str, _Claim], wired: set[str]
+    claims: dict[str, _Claim], wired: set[str], value_types: dict[str, str]
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """One record per setpoint its field bands or a model wires, and one line per locked one.
 
+    Args:
+        claims: The claimed fields by address.
+        wired: The addresses a model wires.
+        value_types: Each channel's value type by address.
+
     Returns:
         The records, sorted by address, and a line for each wired setpoint
-        whose band lacks an edge, whose record is locked.
+        whose record lacks a slot to be writable, naming what it lacks.
     """
+    from osprey_facility.validate import missing_text, record_missing
+
     records: list[dict[str, Any]] = []
-    unbanded: list[str] = []
+    not_writable: list[str] = []
     for address in sorted(claims):
         claim = claims[address]
         if claim.role != SETPOINT_ROLE:
             continue
         low, high = band(claim.fld.body.get(_RANGE_KEY), claim.indices, claim.view.n_devices)
-        banded = low is not None and high is not None
-        if address in wired and not banded:
-            unbanded.append(f"limits unbanded: {address} export [{_edge(low)},{_edge(high)}]")
-        elif low is None and high is None:
+        if address not in wired and low is None and high is None:
             continue
         record: dict[str, Any] = {"address": address}
         if low is not None:
@@ -373,9 +384,14 @@ def _limit_records(
         if high is not None:
             record["max_value"] = high
         if address in wired:
-            record["writable"] = banded
+            missing = record_missing(record, SETPOINT_ROLE, value_types[address])
+            record["writable"] = missing == ()
+            if missing:
+                not_writable.append(
+                    f"limits not writable: {address}: {missing_text(record, missing)}"
+                )
         records.append(record)
-    return records, unbanded
+    return records, not_writable
 
 
 def _edge(value: Any) -> str:
