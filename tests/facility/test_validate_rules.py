@@ -1323,6 +1323,14 @@ class TestLimitRules:
         assert missing_text({"min_value": 0.0}, ("max_value",)) == "min_value 0.0, no max_value"
         assert missing_text({}, ("writable",)) == "no writable: true"
 
+    def test_the_writable_stop_names_both_edges_when_both_are_missing(self, tmp_path: Path) -> None:
+        files = _tree(**self._limits({"address": "Q1:SP", "writable": True}))
+        error = _rule(tmp_path, files, "limit-invalid")
+        assert error.format_message() == (
+            "facility: limit-invalid: limit Q1:SP — `writable: true` on a float setpoint "
+            "without `min_value`, `max_value`; fix: state `min_value`, `max_value`"
+        )
+
     def test_integral_bounds_on_an_int_channel(self, tmp_path: Path) -> None:
         files = _with_channels(
             {"id": "T", "role": "setpoint", "value_type": "int"},

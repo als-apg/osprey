@@ -2566,7 +2566,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(limits({"address": "Q1:SP", "writable": True, "max_value": 1.0})),
         (
             "facility: limit-invalid: limit Q1:SP — `writable: true` on a float setpoint "
-            "without both `min_value` and `max_value`; fix: state `min_value` and `max_value`"
+            "without `min_value`; fix: state `min_value`"
         ),
     ),
     "place_conflict__imported_place": (
