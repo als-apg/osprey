@@ -390,7 +390,9 @@ def import_mml(
             needs is undecided; ``mapping-invalid`` for a ``devices`` answer
             the export cannot carry, or where a wired channel would name a
             device another family binds it as, before anything is written;
-            ``export-invalid`` or ``reference-missing`` from the wiring pass.
+            ``export-invalid`` for a tune address a family's write field
+            names; ``export-invalid`` or ``reference-missing`` from the wiring
+            pass.
         MappingProblems: The mapping fails its check; nothing is written.
         MappingError: The mapping has the wrong structure.
     """
@@ -437,7 +439,9 @@ def write_records(
             twiss; ``mapping-invalid`` for a ``devices`` answer the export
             cannot carry, or where a wired channel would name a device
             another family binds it as, before anything is written;
-            ``export-invalid`` or ``reference-missing`` from the wiring pass.
+            ``export-invalid`` for a tune address a family's write field
+            names; ``export-invalid`` or ``reference-missing`` from the wiring
+            pass.
         MappingProblems: The mapping leaves out a system or a family these
             exports carry; nothing is written.
         MappingError: The mapping answers a cavity voltage for a deck that
@@ -523,7 +527,7 @@ def _write_records(
     groups = _physical_groups(groups)
 
     for system in exports.systems:
-        _tune_channels(mapping.models[system].tune, channels)
+        _tune_channels(system, mapping.models[system].tune, channels)
 
     places = _place(exports, mapping, views, ids, channels, devices)
     if places.problems:
@@ -812,15 +816,30 @@ def _described(channel: dict[str, Any], sentence: str, devices: dict[str, dict[s
     return f"{owner}: {sentence}" if owner else sentence
 
 
-def _tune_channels(tune: TuneBlock | None, channels: dict[str, dict[str, Any]]) -> None:
+def _tune_channels(
+    system: str, tune: TuneBlock | None, channels: dict[str, dict[str, Any]]
+) -> None:
     """Make each tune address a readback channel, a waveform block's a waveform of its planes.
 
     A family field that wrote the address keeps its record, typed here; an
     address no field wrote is written as a readback.
+
+    Raises:
+        ImportStop: ``export-invalid``, one line per tune address, of a
+            waveform or a per-plane block, that a family's write field made a
+            setpoint: the tune block reads it.
     """
     if tune is None:
         return
-    for address in dict.fromkeys(tune.planes.values()):
+    addresses = list(dict.fromkeys(tune.planes.values()))
+    written = [
+        f"{system}: address {address} is a family's setpoint and the tune block's readback"
+        for address in addresses
+        if channels.get(address, {}).get("role") == SETPOINT_ROLE
+    ]
+    if written:
+        raise ImportStop("export-invalid", written)
+    for address in addresses:
         channel = channels.setdefault(address, {"id": address, "role": READBACK_ROLE})
         if tune.address is not None:
             channel["value_type"] = "waveform"

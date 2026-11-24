@@ -111,12 +111,36 @@ def test_a_scalar_block_wires_one_record_per_plane(tmp_path: Path) -> None:
 def test_a_tune_address_a_family_wires_stops_the_import(tmp_path: Path) -> None:
     from osprey_facility.errors import ImportStop
 
-    facility = _facility(tmp_path, {"address": "SPEAR:RFFreqSetpt", "planes": ["x", "y"]})
+    facility = _facility(tmp_path, {"address": "01G-BPM1:U", "planes": ["x", "y"]})
     with pytest.raises(ImportStop) as stop:
         import_mml([EXPORT], facility)
     assert stop.value.format_message() == (
-        "import mml: export-invalid: StorageRing: address SPEAR:RFFreqSetpt is wired by a "
+        "import mml: export-invalid: StorageRing: address 01G-BPM1:U is wired by a "
         "family and by the tune block"
+    )
+
+
+@pytest.mark.parametrize(
+    "tune",
+    [
+        {"address": "01G-BPM1:UDes", "planes": ["x", "y"]},
+        {"x": "01G-BPM1:UDes", "y": "01G-BPM1:VDes"},
+    ],
+    ids=["waveform", "per-plane"],
+)
+def test_a_tune_address_a_write_field_names_stops_the_import(
+    tmp_path: Path, tune: dict[str, Any]
+) -> None:
+    from osprey_facility.errors import ImportStop
+
+    facility = _facility(tmp_path, tune)
+    with pytest.raises(ImportStop) as stop:
+        import_mml([EXPORT], facility)
+    addresses = list(dict.fromkeys(value for key, value in tune.items() if key != "planes"))
+    assert stop.value.format_message() == "\n".join(
+        f"import mml: export-invalid: StorageRing: address {address} is a family's setpoint "
+        "and the tune block's readback"
+        for address in addresses
     )
 
 
