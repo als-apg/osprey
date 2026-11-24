@@ -11,16 +11,22 @@ in real time.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
+from osprey_connectors.simulation.view import SEEDS_FILE, SimulatorView
+from osprey_connectors_tests._write_fakes import arm_switch, writes_enabled_config
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityBuildError
 from tests._builds import FRAMEWORK_CHECKS
+from tests._live import async_wait_until
 from tests.facility._pyaml_trees import built_document, measured_tree
 from tests.facility._synthetic_trees import plain_tree, write_tree
+from tests.facility.served_tree import in_process_config, served_tree
 from tests.facility.test_command_completion import _further_tree, _marking
 
 #: A command on the plain tree's quadrupole, and the status it pairs with.
@@ -314,3 +320,119 @@ def test_a_value_equal_to_idle_stops_the_build(tmp_path: Path) -> None:
         "facility: seed-invalid: channel Q1:STATE — `responds.value` 'OFF' is the status's "
         "`idle`; fix: state as `responds.value` a value other than `idle`"
     )
+
+
+# --- the view the simulator serves ---------------------------------------------------
+
+#: The served tree's bool command and its status, which reads ``ON`` for ``SERVED_FOR_S``.
+SWITCH_COMMAND, SWITCH_STATUS = "C:CMD", "C:STS"
+#: The served tree's enum command and its status of three labels, which states its value.
+MODE_COMMAND, MODE_STATUS = "M:CMD", "M:STS"
+SERVED_FOR_S = 0.3
+#: The simulator's tick in the live tests: the idle edge arrives on the tick after ``for_s``.
+TICK_S = 0.05
+
+
+def _served(root: Path) -> Path:
+    """A served tree of two commands, each with a responding status, ticking every ``TICK_S``."""
+    view = served_tree(
+        root,
+        {SWITCH_COMMAND: SWITCH_STATUS, MODE_COMMAND: MODE_STATUS},
+        channels={
+            SWITCH_COMMAND: {"signal": "power_on_command", "timeout_s": 2.0, **SWITCH},
+            SWITCH_STATUS: {
+                "idle": "OFF",
+                "simulation": {"responds": {"to": SWITCH_COMMAND, "for_s": SERVED_FOR_S}},
+                **SWITCH,
+            },
+            MODE_COMMAND: {"signal": "reset_command", "timeout_s": 2.0, **THREE},
+            MODE_STATUS: {
+                "idle": "IDLE",
+                "simulation": {
+                    "responds": {"to": MODE_COMMAND, "for_s": SERVED_FOR_S, "value": "RAMPING"}
+                },
+                **THREE,
+            },
+        },
+    )
+    (view.parent.parent / "config.yml").write_text(f"simulation:\n  tick_s: {TICK_S}\n")
+    return view
+
+
+def test_the_released_reader_opens_a_responding_view(tmp_path: Path) -> None:
+    seeds = SimulatorView(_served(tmp_path)).document(SEEDS_FILE)["seeds"]
+
+    assert seeds[SWITCH_STATUS] == {
+        "nominal": "OFF",
+        "responds": {"to": SWITCH_COMMAND, "for_s": SERVED_FOR_S, "value": "ON"},
+    }
+
+
+def _labels(values: list[Any], status: dict[str, Any]) -> list[str]:
+    """The labels of a labelled status's values, which the simulator serves by index."""
+    return [status["options"][value] for value in values]
+
+
+@pytest.fixture
+def _armed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The login's switch on for the simulator target, with a write tier that allows."""
+    arm_switch(monkeypatch, tmp_path / "armed-data")
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", writes_enabled_config)
+
+
+async def _act(
+    root: Path, command: str, status: str, value: Any
+) -> tuple[VAInProcessConnector, list[tuple[Any, float]], float, list[Any]]:
+    """Subscribe to ``status``, write ``value`` to ``command`` and wait for the idle edge.
+
+    Returns:
+        The connected connector; each callback's value with its arrival on the
+        monotonic clock; the instant before the write; and the values seen
+        when the write returned.
+    """
+    connector = VAInProcessConnector()
+    await connector.connect(in_process_config(_served(root), response_delay_ms=0))
+    seen: list[tuple[Any, float]] = []
+    await connector.subscribe(
+        status, lambda reading: seen.append((reading.value, time.monotonic()))
+    )
+    await async_wait_until(lambda: len(seen) >= 1, what=f"the current value of {status}")
+
+    t0 = time.monotonic()
+    await connector.write_channel(command, value)
+    at_return = [value for value, _ in seen]
+    await async_wait_until(lambda: len(seen) >= 3, what=f"the idle edge of {status}")
+    return connector, seen, t0, at_return
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_armed")
+async def test_a_subscriber_sees_idle_then_non_idle_then_idle(tmp_path: Path) -> None:
+    connector, seen, t0, at_return = await _act(tmp_path, SWITCH_COMMAND, SWITCH_STATUS, "ON")
+    try:
+        assert _labels([value for value, _ in seen], SWITCH) == ["OFF", "ON", "OFF"]
+        assert "ON" in _labels(at_return, SWITCH)
+        assert seen[2][1] >= t0 + SERVED_FOR_S
+    finally:
+        await connector.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_armed")
+async def test_a_read_after_the_idle_edge_reads_idle(tmp_path: Path) -> None:
+    connector, _seen, _t0, _at_return = await _act(tmp_path, SWITCH_COMMAND, SWITCH_STATUS, "ON")
+    try:
+        reading = await connector.read_channel(SWITCH_STATUS)
+        assert _labels([reading.value], SWITCH) == ["OFF"]
+    finally:
+        await connector.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("_armed")
+async def test_a_stated_value_is_the_one_served(tmp_path: Path) -> None:
+    connector, seen, _t0, _at_return = await _act(tmp_path, MODE_COMMAND, MODE_STATUS, "RAMPING")
+    try:
+        assert _labels([value for value, _ in seen], THREE) == ["IDLE", "RAMPING", "IDLE"]
+    finally:
+        await connector.disconnect()
