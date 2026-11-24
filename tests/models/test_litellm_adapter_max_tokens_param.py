@@ -145,20 +145,41 @@ class TestTheWireCarriesTheDeclaredParameter:
         assert bodies, "no request reached the HTTP layer"
         return bodies[0]
 
-    def test_an_openai_id_litellm_does_not_know_is_sent_max_completion_tokens(self):
-        body = self._posted_body("openai", "gpt-6-astra", "https://api.openai.com/v1")
-        assert body["max_completion_tokens"] == 16
-        assert "max_tokens" not in body
-
-    def test_anthropic_is_sent_its_own_max_tokens(self):
-        body = self._posted_body("anthropic", "claude-haiku-4-5-20251001", None)
-        assert body["max_tokens"] == 16
-        assert "max_completion_tokens" not in body
-
-    def test_an_openai_compatible_gateway_is_sent_max_tokens(self):
-        body = self._posted_body("als-apg", "claude-haiku-4-5-20251001", GATEWAY_URL)
-        assert body["max_tokens"] == 16
-        assert "max_completion_tokens" not in body
+    @pytest.mark.parametrize(
+        ("provider", "model_id", "base_url", "sent", "absent"),
+        [
+            pytest.param(
+                "openai",
+                "gpt-6-astra",
+                "https://api.openai.com/v1",
+                "max_completion_tokens",
+                "max_tokens",
+                id="an_openai_id_litellm_does_not_know_is_sent_max_completion_tokens",
+            ),
+            pytest.param(
+                "anthropic",
+                "claude-haiku-4-5-20251001",
+                None,
+                "max_tokens",
+                "max_completion_tokens",
+                id="anthropic_is_sent_its_own_max_tokens",
+            ),
+            pytest.param(
+                "als-apg",
+                "claude-haiku-4-5-20251001",
+                GATEWAY_URL,
+                "max_tokens",
+                "max_completion_tokens",
+                id="an_openai_compatible_gateway_is_sent_max_tokens",
+            ),
+        ],
+    )
+    def test_the_body_carries_exactly_one_cap_parameter(
+        self, provider, model_id, base_url, sent, absent
+    ):
+        body = self._posted_body(provider, model_id, base_url)
+        assert body[sent] == 16
+        assert absent not in body
 
 
 # (provider, model_id, base_url, whether the request carries a temperature)

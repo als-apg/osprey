@@ -145,14 +145,36 @@ def _sidecar(handler) -> FastAPI:
 # ---------------------------------------------------------------------------
 
 
-def test_health_publishes_capability_alongside_liveness(connector, bridge) -> None:
-    connector("virtual_accelerator")
+@pytest.mark.parametrize(
+    ("configured", "can_execute", "reason"),
+    [
+        pytest.param(
+            "virtual_accelerator", True, qb.REASON_EXECUTABLE, id="publishes-alongside-liveness"
+        ),
+        pytest.param(
+            FileNotFoundError("no project config mounted"),
+            False,
+            qb.REASON_CONFIG_UNREADABLE,
+            id="fails-closed-on-an-unreadable-config",
+        ),
+        pytest.param(
+            "doocs",
+            False,
+            qb.REASON_UNSUPPORTED_CONNECTOR,
+            id="fails-closed-on-an-unsupported-connector",
+        ),
+    ],
+)
+def test_health_publishes_the_connectors_capability(
+    connector, bridge, configured: object, can_execute: bool, reason: str
+) -> None:
+    connector(configured)
 
     with bridge(_ScriptedManager()) as client:
         capability = _capability(client.get("/health"))
 
-    assert capability["can_execute"] is True
-    assert capability["reason"] == qb.REASON_EXECUTABLE
+    assert capability["can_execute"] is can_execute
+    assert capability["reason"] == reason
 
 
 def test_health_on_mock_refuses_and_names_the_flip_command(connector, bridge) -> None:
@@ -185,26 +207,6 @@ def test_health_stays_ok_when_the_deployment_cannot_execute(connector, bridge) -
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["capability"]["can_execute"] is False
-
-
-def test_health_fails_closed_on_an_unreadable_config(connector, bridge) -> None:
-    connector(FileNotFoundError("no project config mounted"))
-
-    with bridge(_ScriptedManager()) as client:
-        capability = _capability(client.get("/health"))
-
-    assert capability["can_execute"] is False
-    assert capability["reason"] == qb.REASON_CONFIG_UNREADABLE
-
-
-def test_health_fails_closed_on_an_unsupported_connector(connector, bridge) -> None:
-    connector("doocs")
-
-    with bridge(_ScriptedManager()) as client:
-        capability = _capability(client.get("/health"))
-
-    assert capability["can_execute"] is False
-    assert capability["reason"] == qb.REASON_UNSUPPORTED_CONNECTOR
 
 
 def test_an_unsupported_connector_is_not_told_to_run_the_simulator(connector, bridge) -> None:

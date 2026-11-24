@@ -28,36 +28,43 @@ APP_ERROR_TYPES = {
 # -- classification ---------------------------------------------------------
 
 
-def test_app_error_type_takes_its_class_and_text_from_the_app_map(error_guidance):
-    response = error_response("beam_viewer.unreachable", "panel down")
-    assert error_guidance._detect_error(response, APP_ERROR_TYPES) == (
-        "Connection",
-        "panel down",
-        "The beam viewer panel is not running; ask the operator to open it.",
-    )
-
-
-def test_app_error_type_carries_its_guidance_text(error_guidance):
-    response = error_response("beam_viewer.refused", "declined")
-    assert error_guidance._detect_error(response, APP_ERROR_TYPES) == (
-        "Safety",
-        "declined",
-        "The operator declined the request in the panel.",
-    )
-
-
-def test_framework_error_type_keeps_its_class_and_has_no_text(error_guidance):
-    response = error_response("connection_error", "refused")
-    assert error_guidance._detect_error(response, APP_ERROR_TYPES) == (
-        "Connection",
-        "refused",
-        None,
-    )
-
-
-def test_type_in_neither_map_falls_back_to_internal(error_guidance):
-    response = error_response("beam_viewer.exploded", "boom")
-    assert error_guidance._detect_error(response, APP_ERROR_TYPES) == ("Internal", "boom", None)
+@pytest.mark.parametrize(
+    ("error_type", "text", "expected"),
+    [
+        pytest.param(
+            "beam_viewer.unreachable",
+            "panel down",
+            (
+                "Connection",
+                "panel down",
+                "The beam viewer panel is not running; ask the operator to open it.",
+            ),
+            id="app-error-type-takes-its-class-and-text-from-the-app-map",
+        ),
+        pytest.param(
+            "beam_viewer.refused",
+            "declined",
+            ("Safety", "declined", "The operator declined the request in the panel."),
+            id="app-error-type-carries-its-guidance-text",
+        ),
+        pytest.param(
+            "connection_error",
+            "refused",
+            ("Connection", "refused", None),
+            id="framework-error-type-keeps-its-class-and-has-no-text",
+        ),
+        pytest.param(
+            "beam_viewer.exploded",
+            "boom",
+            ("Internal", "boom", None),
+            id="type-in-neither-map-falls-back-to-internal",
+        ),
+    ],
+)
+def test_error_type_classification(error_guidance, error_type, text, expected):
+    """An app type takes class and text from the app map; a framework type keeps its class."""
+    response = error_response(error_type, text)
+    assert error_guidance._detect_error(response, APP_ERROR_TYPES) == expected
 
 
 def test_missing_app_map_takes_the_framework_path(error_guidance):

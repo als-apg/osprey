@@ -138,21 +138,32 @@ async def test_execute_file_not_found(tmp_path, monkeypatch):
         return_value=tmp_path,
     ):
         fn = _get_python_execute_file()
-        with assert_raises_error(error_type="file_not_found") as _exc_ctx:
+        with assert_raises_error(error_type="file_not_found"):
             await fn(
                 file_path=str(tmp_path / "missing.py"),
                 description="missing file test",
             )
 
-    _exc_ctx["envelope"]
 
-
-async def test_execute_file_not_python(tmp_path, monkeypatch):
-    """Non-.py file returns validation_error."""
+@pytest.mark.parametrize(
+    ("name", "content", "needle"),
+    [
+        # Non-.py file returns validation_error.
+        pytest.param("data.txt", b"not python\n", "not a python file", id="not_python"),
+        # Empty file returns validation_error.
+        pytest.param("empty.py", b"", "empty", id="empty"),
+        # Binary file returns clean validation error.
+        pytest.param("binary.py", b"\x80\x81\x82\xff\xfe", "utf-8", id="encoding_error"),
+    ],
+)
+async def test_execute_file_refuses_a_file_it_cannot_run(
+    tmp_path, monkeypatch, name, content, needle
+):
+    """A file that is not readable Python source is a validation_error naming why."""
     monkeypatch.chdir(tmp_path)
 
-    txt_file = tmp_path / "data.txt"
-    txt_file.write_text("not python\n")
+    script = tmp_path / name
+    script.write_bytes(content)
 
     with patch(
         "osprey.mcp_server.python_executor.executor._resolve_project_root",
@@ -160,13 +171,9 @@ async def test_execute_file_not_python(tmp_path, monkeypatch):
     ):
         fn = _get_python_execute_file()
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(
-                file_path=str(txt_file),
-                description="not python test",
-            )
+            await fn(file_path=str(script), description=f"{name} test")
 
-    data = _exc_ctx["envelope"]
-    assert "not a python file" in data["error_message"].lower()
+    assert needle in _exc_ctx["envelope"]["error_message"].lower()
 
 
 async def test_execute_file_outside_project_root(tmp_path, monkeypatch):
@@ -225,7 +232,7 @@ async def test_execute_file_safety_check_blocks(tmp_path, monkeypatch):
             )
 
     mock_exec.assert_not_called()
-    _exc_ctx["envelope"]
+    assert "failed pre-execution safety checks" in _exc_ctx["envelope"]["error_message"]
 
 
 async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
@@ -247,7 +254,7 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
             )
 
     mock_exec.assert_not_called()
-    _exc_ctx["envelope"]
+    assert "write patterns detected in readonly mode" in _exc_ctx["envelope"]["error_message"]
 
 
 @pytest.mark.usefixtures("armed")
@@ -355,50 +362,6 @@ async def test_execute_file_script_args(tmp_path, monkeypatch):
     assert "input.dat" in executed_code
     # sys.argv should contain script path + args
     assert "sys.argv = [" in executed_code
-
-
-async def test_execute_file_empty(tmp_path, monkeypatch):
-    """Empty file returns validation_error."""
-    monkeypatch.chdir(tmp_path)
-
-    script = tmp_path / "empty.py"
-    script.write_text("")
-
-    with patch(
-        "osprey.mcp_server.python_executor.executor._resolve_project_root",
-        return_value=tmp_path,
-    ):
-        fn = _get_python_execute_file()
-        with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(
-                file_path=str(script),
-                description="empty file test",
-            )
-
-    data = _exc_ctx["envelope"]
-    assert "empty" in data["error_message"].lower()
-
-
-async def test_execute_file_encoding_error(tmp_path, monkeypatch):
-    """Binary file returns clean validation error."""
-    monkeypatch.chdir(tmp_path)
-
-    script = tmp_path / "binary.py"
-    script.write_bytes(b"\x80\x81\x82\xff\xfe")
-
-    with patch(
-        "osprey.mcp_server.python_executor.executor._resolve_project_root",
-        return_value=tmp_path,
-    ):
-        fn = _get_python_execute_file()
-        with assert_raises_error(error_type="validation_error") as _exc_ctx:
-            await fn(
-                file_path=str(script),
-                description="encoding error test",
-            )
-
-    data = _exc_ctx["envelope"]
-    assert "utf-8" in data["error_message"].lower()
 
 
 async def test_execute_file_empty_path():

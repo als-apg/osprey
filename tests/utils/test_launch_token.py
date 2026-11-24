@@ -57,9 +57,16 @@ def test_require_returns_the_configured_token(monkeypatch: pytest.MonkeyPatch) -
     assert require_launch_token(_ENV) == "s3cr3t"
 
 
-def test_matching_token_passes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(_ENV, "s3cr3t")
-    verify_launch_token("s3cr3t", _ENV)
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("s3cr3t", id="ascii"),
+        pytest.param("tokén", id="non-ascii-configured-token"),
+    ],
+)
+def test_matching_token_passes(monkeypatch: pytest.MonkeyPatch, token: str) -> None:
+    monkeypatch.setenv(_ENV, token)
+    verify_launch_token(token, _ENV)
 
 
 @pytest.mark.parametrize("presented", [None, "", "wrong", "s3cr3t ", "S3CR3T"])
@@ -114,8 +121,3 @@ def test_non_ascii_header_is_refused_not_crashed(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(HTTPException) as excinfo:
         verify_launch_token("s3cr3té", _ENV)
     assert _refusal(excinfo)[0] == 403
-
-
-def test_non_ascii_configured_token_matches_itself(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(_ENV, "tokén")
-    verify_launch_token("tokén", _ENV)

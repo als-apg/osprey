@@ -76,22 +76,23 @@ def test_agent_template_carries_no_literal_tool_count():
     assert not re.search(r"\b\d+\s+ARIEL\s+MCP\s+tools\b", text)
 
 
-def test_attachment_view_row_is_conditional_on_the_view_switch():
+@pytest.mark.parametrize(
+    ("row", "flag"),
+    [
+        pytest.param(
+            "attachment_view", "ariel_attachment_view", id="attachment_view-on-the-view-switch"
+        ),
+        pytest.param("sql_query", "ariel_sql_tool", id="sql_query-on-the-readonly-login"),
+    ],
+)
+def test_optional_tool_row_is_conditional_on_its_switch(row, flag):
+    """The template's row for an optional tool sits inside that tool's own ``if`` block."""
     text = _TEMPLATE.read_text(encoding="utf-8")
-    row = text.index("- `attachment_view`")
-    opener = text.rfind("{%- if ariel_attachment_view %}", 0, row)
+    row_at = text.index(f"- `{row}`")
+    opener = text.rfind(f"{{%- if {flag} %}}", 0, row_at)
     assert opener != -1
-    assert "{%- endif %}" in text[row:]
-    assert "{%- endif %}" not in text[opener:row]
-
-
-def test_sql_query_row_is_conditional_on_the_readonly_login():
-    text = _TEMPLATE.read_text(encoding="utf-8")
-    row = text.index("- `sql_query`")
-    opener = text.rfind("{%- if ariel_sql_tool %}", 0, row)
-    assert opener != -1
-    assert "{%- endif %}" in text[row:]
-    assert "{%- endif %}" not in text[opener:row]
+    assert "{%- endif %}" in text[row_at:]
+    assert "{%- endif %}" not in text[opener:row_at]
 
 
 def test_contract_documents_the_view_switch():

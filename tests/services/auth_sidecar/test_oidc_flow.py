@@ -410,44 +410,26 @@ def test_identity_comes_from_the_id_token_not_the_userinfo_endpoint(idp: MockIdP
 # --- the ID token has to validate --------------------------------------------
 
 
-def test_a_replayed_nonce_is_refused(idp: MockIdP, caplog: pytest.LogCaptureFixture) -> None:
-    """A token whose nonce is not the one this browser's handshake carries.
-
-    The nonce is the binding between the authorization request and the token;
-    without this check a token minted for one login could be planted into
-    another.
-    """
-    idp.nonce_claim = "a-nonce-from-another-handshake"
-    with caplog.at_level(logging.WARNING), _browser(_sidecar(idp)) as client:
-        response = _log_in(client, "alice")
-
-    assert response.status_code == 502
-    assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in osprey_log(caplog)
-
-
-def test_a_token_signed_by_an_unpublished_key_is_refused(
-    idp: MockIdP, caplog: pytest.LogCaptureFixture
+@pytest.mark.parametrize(
+    ("idp_attr", "value"),
+    [
+        # The nonce is the binding between the authorization request and the
+        # token; without this check a token minted for one login could be
+        # planted into another.
+        pytest.param("nonce_claim", "a-nonce-from-another-handshake", id="replayed-nonce"),
+        # Signed with the provider's ``kid`` but not its key: the signature
+        # fails. The matching ``kid`` is what makes this a signature test — an
+        # unknown one would be refused as a missing key, which is a different path.
+        pytest.param("sign_with_intruder_key", True, id="signed-by-an-unpublished-key"),
+        # ``iss`` must be the issuer the discovery document named.
+        pytest.param("issuer_claim", "https://idp.evil.example.org", id="from-another-issuer"),
+    ],
+)
+def test_an_id_token_that_does_not_validate_is_refused(
+    idp: MockIdP, caplog: pytest.LogCaptureFixture, idp_attr: str, value: object
 ) -> None:
-    """Signed with the provider's ``kid`` but not its key: the signature fails.
-
-    The matching ``kid`` is what makes this a signature test — an unknown one
-    would be refused as a missing key, which is a different path.
-    """
-    idp.sign_with_intruder_key = True
-    with caplog.at_level(logging.WARNING), _browser(_sidecar(idp)) as client:
-        response = _log_in(client, "alice")
-
-    assert response.status_code == 502
-    assert SESSION_COOKIE_NAME not in response.cookies
-    assert "did not validate" in osprey_log(caplog)
-
-
-def test_a_token_from_another_issuer_is_refused(
-    idp: MockIdP, caplog: pytest.LogCaptureFixture
-) -> None:
-    """``iss`` must be the issuer the discovery document named."""
-    idp.issuer_claim = "https://idp.evil.example.org"
+    """A token the callback cannot validate logs nobody in and says why."""
+    setattr(idp, idp_attr, value)
     with caplog.at_level(logging.WARNING), _browser(_sidecar(idp)) as client:
         response = _log_in(client, "alice")
 

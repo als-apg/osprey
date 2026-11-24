@@ -50,10 +50,10 @@ def make_trivial_app() -> FastAPI:
 # ---------------------------------------------------------------------------
 
 
-def test_osprey_version_non_empty() -> None:
-    version = osprey_version()
-    assert isinstance(version, str)
-    assert version
+def test_osprey_version_is_the_package_version() -> None:
+    import osprey
+
+    assert osprey_version() == osprey.__version__
 
 
 def test_output_filename_theme_suffix_rule() -> None:

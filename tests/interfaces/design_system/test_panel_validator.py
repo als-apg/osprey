@@ -250,13 +250,23 @@ def test_missing_entry_file_errors(tmp_path: Path) -> None:
 # --- Check 2: design-system linked --------------------------------------------
 
 
-def test_missing_design_system_link_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_TOKENS_CSS_TAG, "")
+@pytest.mark.parametrize(
+    ("tag", "rule"),
+    [
+        pytest.param(
+            _TOKENS_CSS_TAG, PanelRule.MISSING_DESIGN_SYSTEM_LINK, id="design_system_link"
+        ),
+        pytest.param(_THEME_BOOT_TAG, PanelRule.MISSING_THEME_BOOT, id="theme_boot_script"),
+        pytest.param(_FONTS_CSS_TAG, PanelRule.MISSING_FONT_LINK, id="font_link"),
+    ],
+)
+def test_missing_tag_errors(tmp_path: Path, tag: str, rule: PanelRule) -> None:
+    html = _compliant_html().replace(tag, "")
     panel = _write_panel(tmp_path / "panel", entry_html=html)
 
     errors = validate_panel(panel)
 
-    assert _rules(errors) == {PanelRule.MISSING_DESIGN_SYSTEM_LINK}
+    assert _rules(errors) == {rule}
 
 
 @pytest.mark.parametrize("tag", [_BASE_CSS_TAG, _PRIMITIVES_CSS_TAG])
@@ -276,24 +286,6 @@ def test_a_panel_linking_only_the_token_sheet_is_refused(tmp_path: Path) -> None
     errors = validate_panel(panel)
 
     assert [error.rule for error in errors] == [PanelRule.MISSING_DESIGN_SYSTEM_LINK] * 2
-
-
-def test_missing_theme_boot_script_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_THEME_BOOT_TAG, "")
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    errors = validate_panel(panel)
-
-    assert _rules(errors) == {PanelRule.MISSING_THEME_BOOT}
-
-
-def test_missing_font_link_errors(tmp_path: Path) -> None:
-    html = _compliant_html().replace(_FONTS_CSS_TAG, "")
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    errors = validate_panel(panel)
-
-    assert _rules(errors) == {PanelRule.MISSING_FONT_LINK}
 
 
 def test_design_system_link_matches_regardless_of_attribute_order(tmp_path: Path) -> None:
@@ -369,19 +361,19 @@ def test_var_token_only_panel_passes_hex_check(tmp_path: Path) -> None:
     assert validate_panel(panel) == []
 
 
-def test_hex_shaped_fragment_anchor_does_not_false_positive(tmp_path: Path) -> None:
-    # A fragment link with a non-hex character in its name must not be read
-    # as a color -- the classic false-positive shape the pattern guards.
-    html = _compliant_html(body='<a href="#section">jump</a>')
-    panel = _write_panel(tmp_path / "panel", entry_html=html)
-
-    assert validate_panel(panel) == []
-
-
-def test_html_numeric_entity_does_not_false_positive(tmp_path: Path) -> None:
-    # &#160; / &#8212; are numeric character references, not colors, even
-    # though their digits are hex-shaped -- the (?<!&) guard must skip them.
-    html = _compliant_html(body="<p>a&#160;b&#8212;c</p>")
+@pytest.mark.parametrize(
+    "body",
+    [
+        # A fragment link with a non-hex character in its name must not be read
+        # as a color -- the classic false-positive shape the pattern guards.
+        pytest.param('<a href="#section">jump</a>', id="hex_shaped_fragment_anchor"),
+        # &#160; / &#8212; are numeric character references, not colors, even
+        # though their digits are hex-shaped -- the (?<!&) guard must skip them.
+        pytest.param("<p>a&#160;b&#8212;c</p>", id="html_numeric_entity"),
+    ],
+)
+def test_does_not_false_positive(tmp_path: Path, body: str) -> None:
+    html = _compliant_html(body=body)
     panel = _write_panel(tmp_path / "panel", entry_html=html)
 
     assert validate_panel(panel) == []

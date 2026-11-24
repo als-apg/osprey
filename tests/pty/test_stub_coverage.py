@@ -352,33 +352,40 @@ class TestScanner:
             f"it found {sorted(seams)} — the scanner is broken, not the stub"
         )
 
-    def test_scan_reads_a_compose_concatenation(self) -> None:
-        """``base_cmd + ["up", "-d", svc]`` is a compose ``up``, not a plain one."""
-        source = 'base_cmd = x\nup_cmd = base_cmd + ["up", "-d", service]\n'
-        seams = _seams_of_source(source)
-        assert seams == ["compose up"]
-
-    def test_scan_reads_a_plain_argv_with_a_namespace(self) -> None:
-        """``[runtime, "image", "inspect", …]`` is two words, not one."""
-        source = 'cmd = [runtime, "image", "inspect", "--format", "{{.Id}}", image]\n'
-        assert _seams_of_source(source) == ["image inspect"]
-
-    def test_scan_skips_a_flag_only_append(self) -> None:
-        """``cmd.append("--follow")`` adds a flag to a seam, not a seam."""
-        assert _seams_of_source('cmd.append("--follow")\n') == []
-
-    def test_scan_reads_a_compose_extend(self) -> None:
-        """``cmd.extend(["down", "--volumes"])`` names a subcommand like an append does."""
-        assert _seams_of_source('cmd.extend(["down", "--volumes"])\n') == ["compose down"]
-
-    def test_scan_skips_a_flag_only_extend(self) -> None:
-        """``ps_cmd.extend(["--format", "json"])`` adds arguments to a seam, not a seam."""
-        assert _seams_of_source('ps_cmd.extend(["--format", "json"])\n') == []
-
-    def test_scan_reads_an_inline_runtime_binary(self) -> None:
-        """``[get_runtime_command(config)[0], "build", …]`` is a plain ``build``."""
-        source = 'cmd = [get_runtime_command(config)[0], "build", "-t", tag]\n'
-        assert _seams_of_source(source) == ["build"]
+    @pytest.mark.parametrize(
+        ("source", "expected"),
+        [
+            # ``base_cmd + ["up", "-d", svc]`` is a compose ``up``, not a plain one.
+            pytest.param(
+                'base_cmd = x\nup_cmd = base_cmd + ["up", "-d", service]\n',
+                ["compose up"],
+                id="compose-concatenation",
+            ),
+            # ``[runtime, "image", "inspect", …]`` is two words, not one.
+            pytest.param(
+                'cmd = [runtime, "image", "inspect", "--format", "{{.Id}}", image]\n',
+                ["image inspect"],
+                id="plain-argv-with-a-namespace",
+            ),
+            # ``cmd.append("--follow")`` adds a flag to a seam, not a seam.
+            pytest.param('cmd.append("--follow")\n', [], id="flag-only-append"),
+            # ``cmd.extend(["down", "--volumes"])`` names a subcommand like an append does.
+            pytest.param(
+                'cmd.extend(["down", "--volumes"])\n', ["compose down"], id="compose-extend"
+            ),
+            # ``ps_cmd.extend(["--format", "json"])`` adds arguments to a seam, not a seam.
+            pytest.param('ps_cmd.extend(["--format", "json"])\n', [], id="flag-only-extend"),
+            # ``[get_runtime_command(config)[0], "build", …]`` is a plain ``build``.
+            pytest.param(
+                'cmd = [get_runtime_command(config)[0], "build", "-t", tag]\n',
+                ["build"],
+                id="inline-runtime-binary",
+            ),
+        ],
+    )
+    def test_scan_reads_a_snippet(self, source: str, expected: list[str]) -> None:
+        """Each snippet's seams, as the scanner names them (or none, for a flag-only call)."""
+        assert _seams_of_source(source) == expected
 
 
 def _seams_of_source(source: str) -> list[str]:

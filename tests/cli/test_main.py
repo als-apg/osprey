@@ -3,7 +3,6 @@
 Tests the main CLI group and lazy command loading mechanism.
 """
 
-import contextlib
 import importlib
 import subprocess
 import sys
@@ -11,6 +10,7 @@ import textwrap
 from pathlib import Path
 from unittest import mock
 
+import click
 import pytest
 
 from osprey.cli.main import LazyGroup, cli, main
@@ -19,27 +19,27 @@ from osprey.cli.main import LazyGroup, cli, main
 class TestLazyGroup:
     """Test the LazyGroup command loading mechanism."""
 
-    def test_lazy_group_initialization(self):
-        """Verify LazyGroup can be instantiated."""
-        group = LazyGroup(name="test")
-        assert group is not None
-        assert isinstance(group, LazyGroup)
-
-    def test_get_command_returns_valid_commands(self):
-        """Test get_command returns valid command objects."""
+    @pytest.mark.parametrize(
+        ("name", "module"),
+        [
+            pytest.param("build", "osprey.cli.build_cmd", id="valid-commands"),
+            # config resolves through the generic getattr on its own module.
+            pytest.param("config", "osprey.cli.config_cmd", id="config-command"),
+        ],
+    )
+    def test_get_command_returns_the_command_its_module_defines(self, name, module):
+        """get_command imports the command's module and returns its command object."""
         group = LazyGroup(name="test")
         ctx = mock.Mock()
 
-        # Test a known command
         with mock.patch("importlib.import_module") as mock_import:
             mock_module = mock.Mock()
-            mock_module.build = mock.Mock()
             mock_import.return_value = mock_module
 
-            group.get_command(ctx, "build")
+            cmd = group.get_command(ctx, name)
 
-            # Should attempt to import the module
-            mock_import.assert_called_once()
+        mock_import.assert_called_once_with(module)
+        assert cmd is getattr(mock_module, name)
 
     @pytest.mark.parametrize(
         "name",
@@ -127,21 +127,6 @@ class TestLazyGroup:
         for name in cli.list_commands(ctx):
             assert cli.get_command(ctx, name) is not None, name
 
-    def test_get_command_handles_config_command(self):
-        """Test special handling for config command."""
-        group = LazyGroup(name="test")
-        ctx = mock.Mock()
-
-        with mock.patch("importlib.import_module") as mock_import:
-            mock_module = mock.Mock()
-            mock_module.config = mock.Mock()
-            mock_import.return_value = mock_module
-
-            group.get_command(ctx, "config")
-
-            # Should get config attribute from module
-            assert mock_import.called
-
 
 class TestCliGroup:
     """Test the main CLI group."""
@@ -158,9 +143,10 @@ class TestCliGroup:
         """Test --version flag displays version."""
         result = runner.invoke(cli, ["--version"])
 
+        from osprey.cli.main import __version__
+
         assert result.exit_code == 0
-        # Should contain version info
-        assert "osprey" in result.output.lower() or "version" in result.output.lower()
+        assert __version__ in result.output
 
     def test_cli_without_command_prints_help(self, runner):
         """Bare `osprey` lists what there is to run.
@@ -246,33 +232,36 @@ class TestLazyLoading:
     """Test lazy loading performance optimization."""
 
     def test_lazy_loading_defers_imports(self):
-        """Test that commands are not imported until needed."""
-        # Creating the CLI group should not import heavy dependencies
-        group = LazyGroup(name="test")
+        """Test that commands are not imported until needed.
 
-        # The group should exist without loading langgraph, langchain, etc.
-        assert group is not None
+        A fresh interpreter, because this one has long since imported every
+        command module: importing the CLI and listing its commands must load
+        none of them.
+        """
+        program = textwrap.dedent(
+            """
+            import importlib
+            import sys
 
-    def test_command_modules_map(self):
-        """Test that command-to-module mapping is complete."""
-        group = LazyGroup(name="test")
-        ctx = mock.Mock()
+            main_module = importlib.import_module("osprey.cli.main")
+            main_module.LazyGroup(name="test").list_commands(None)
+            for name in (
+                "osprey.cli.build_cmd",
+                "osprey.cli.deploy_cmd",
+                "osprey.cli.init_cmd",
+                "osprey.cli.chat_cmd",
+                "osprey.cli.audit_cmd",
+                "osprey.cli.query_cmd",
+            ):
+                assert name not in sys.modules, name
+            """
+        )
 
-        # All listed commands should have module mappings
-        commands = group.list_commands(ctx)
+        result = subprocess.run(
+            [sys.executable, "-c", program], capture_output=True, text=True, timeout=120
+        )
 
-        for cmd_name in commands:
-            # Should be able to get command (even if import fails)
-            # This tests the mapping exists
-            with mock.patch("importlib.import_module") as mock_import:
-                mock_module = mock.Mock()
-                setattr(mock_module, cmd_name, mock.Mock())
-                mock_import.return_value = mock_module
-
-                # Import errors are OK - we're testing mapping exists
-                with contextlib.suppress(ImportError):
-                    group.get_command(ctx, cmd_name)
-                    # Should not raise KeyError from missing mapping
+        assert result.returncode == 0, result.stderr
 
 
 class TestIntegration:
@@ -299,14 +288,6 @@ class TestIntegration:
         # Should be semver format
         assert "." in __version__
 
-    def test_cli_as_module(self):
-        """Test CLI can be invoked as module."""
-        # This tests the if __name__ == "__main__" case
-        # We verify the main function exists and is callable
-        from osprey.cli.main import main
-
-        assert callable(main)
-
 
 class TestEdgeCases:
     """Test edge cases and error conditions."""
@@ -322,9 +303,7 @@ class TestEdgeCases:
         """Test LazyGroup handles None context."""
         group = LazyGroup(name="test")
 
-        # Should handle gracefully
-        group.get_command(None, "init")
-        # May return None or command - documenting behavior
+        assert isinstance(group.get_command(None, "init"), click.Command)
 
     def test_a_subcommand_gets_its_own_help_not_the_groups(self, runner):
         """The group prints its help only when no subcommand was named.

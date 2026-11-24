@@ -386,15 +386,19 @@ class TestNonStreamErrorTranslation:
         messages = messages or [{"role": "user", "content": "x"}]
         return TestClient(app).post("/v1/messages", json={"model": "m", "messages": messages})
 
-    def test_400_maps_to_invalid_request_error(self, monkeypatch):
-        out = self._post_error(monkeypatch, 400, {"error": {"message": "bad field"}})
-        assert out.status_code == 400
-        assert out.json()["error"] == {"type": "invalid_request_error", "message": "bad field"}
-
-    def test_413_maps_to_request_too_large(self, monkeypatch):
-        out = self._post_error(monkeypatch, 413, {"error": {"message": "too big"}})
-        assert out.status_code == 413
-        assert out.json()["error"] == {"type": "request_too_large", "message": "too big"}
+    @pytest.mark.parametrize(
+        ("status", "err_type", "message"),
+        [
+            pytest.param(400, "invalid_request_error", "bad field", id="400-invalid-request"),
+            pytest.param(413, "request_too_large", "too big", id="413-request-too-large"),
+        ],
+    )
+    def test_status_maps_to_its_error_type_and_keeps_the_message(
+        self, monkeypatch, status, err_type, message
+    ):
+        out = self._post_error(monkeypatch, status, {"error": {"message": message}})
+        assert out.status_code == status
+        assert out.json()["error"] == {"type": err_type, "message": message}
 
     def test_a_refused_image_request_names_the_image(self, monkeypatch):
         out = self._post_error(

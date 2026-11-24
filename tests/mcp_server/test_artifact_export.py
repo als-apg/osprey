@@ -93,10 +93,8 @@ async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
 
     with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
-        with assert_raises_error(error_type="not_found") as _exc_ctx:
+        with assert_raises_error(error_type="not_found"):
             await fn(artifact_id="nonexistent-id")
-
-    _exc_ctx["envelope"]
 
 
 async def test_export_non_html_artifact(tmp_path, monkeypatch):
@@ -115,10 +113,8 @@ async def test_export_non_html_artifact(tmp_path, monkeypatch):
 
     with patch("osprey.stores.artifact_store.get_artifact_store", return_value=store):
         fn = _get_artifact_export()
-        with assert_raises_error(error_type="conversion_not_supported") as _exc_ctx:
+        with assert_raises_error(error_type="conversion_not_supported"):
             await fn(artifact_id=entry.id)
-
-    _exc_ctx["envelope"]
 
 
 async def test_export_playwright_missing(tmp_path, monkeypatch):

@@ -934,53 +934,44 @@ concepts:
         assert errors == []
         assert warnings == []
 
-    def test_trailing_period_form_is_an_edge_warning(self, tmp_path: Path) -> None:
-        """A trailing period alone is outer-edge stripping, not an interior break."""
-        text = """
+    @pytest.mark.parametrize(
+        ("form_yaml", "expected_warning"),
+        [
+            # A trailing period alone is outer-edge stripping, not an interior break.
+            pytest.param(
+                "vert orbit.",
+                'form "vert orbit." (concept "vertical orbit") is matched as "vert orbit" '
+                "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries",
+                id="trailing_period_is_an_edge_warning",
+            ),
+            # A form with both interior and outer edges gets only the interior warning.
+            pytest.param(
+                '"(vert. orbit)"',
+                'form "(vert. orbit)" (concept "vertical orbit"): its interior punctuation is '
+                "required — only text that breaks the same way matches",
+                id="interior_break_wins_over_outer_edges",
+            ),
+            # A dropped edge-only token between two words still breaks the form.
+            pytest.param(
+                '"vert : orbit"',
+                'form "vert : orbit" (concept "vertical orbit"): its interior punctuation is '
+                "required — only text that breaks the same way matches",
+                id="spaced_edge_only_token_is_an_interior_break",
+            ),
+        ],
+    )
+    def test_edge_punctuation_form_warns_once(
+        self, tmp_path: Path, form_yaml: str, expected_warning: str
+    ) -> None:
+        """Each punctuated form loads without errors and draws exactly one warning."""
+        text = f"""
 concepts:
   - canonical: vertical orbit
     kind: shorthand
     forms:
-      - vert orbit.
+      - {form_yaml}
 """
         _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
 
         assert errors == []
-        assert warnings == [
-            'form "vert orbit." (concept "vertical orbit") is matched as "vert orbit" '
-            "— edge punctuation (, . : ; ! ? ( ) [ ] \" ') is ignored in queries and entries"
-        ]
-
-    def test_interior_break_wins_over_outer_edges(self, tmp_path: Path) -> None:
-        """A form with both interior and outer edges gets only the interior warning."""
-        text = """
-concepts:
-  - canonical: vertical orbit
-    kind: shorthand
-    forms:
-      - "(vert. orbit)"
-"""
-        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
-
-        assert errors == []
-        assert warnings == [
-            'form "(vert. orbit)" (concept "vertical orbit"): its interior punctuation is '
-            "required — only text that breaks the same way matches"
-        ]
-
-    def test_spaced_edge_only_token_is_an_interior_break(self, tmp_path: Path) -> None:
-        """A dropped edge-only token between two words still breaks the form."""
-        text = """
-concepts:
-  - canonical: vertical orbit
-    kind: shorthand
-    forms:
-      - "vert : orbit"
-"""
-        _, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
-
-        assert errors == []
-        assert warnings == [
-            'form "vert : orbit" (concept "vertical orbit"): its interior punctuation is '
-            "required — only text that breaks the same way matches"
-        ]
+        assert warnings == [expected_warning]

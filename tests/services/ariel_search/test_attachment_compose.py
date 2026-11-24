@@ -55,12 +55,15 @@ class TestCaptionModelId:
             data["enhancement_modules"] = {"image_caption": image_caption}
         return ARIELConfig.from_dict(data)
 
-    def test_configured_and_enabled(self):
-        cfg = self._config({"enabled": True, "provider": "ollama", "model": {"model_id": MODEL}})
-        assert caption_model_id(cfg) == MODEL
-
-    def test_configured_but_disabled_still_resolves(self):
-        cfg = self._config({"enabled": False, "provider": "ollama", "model": {"model_id": MODEL}})
+    @pytest.mark.parametrize(
+        "enabled",
+        [
+            pytest.param(True, id="configured_and_enabled"),
+            pytest.param(False, id="configured_but_disabled_still_resolves"),
+        ],
+    )
+    def test_configured_model_resolves_whether_enabled_or_not(self, enabled):
+        cfg = self._config({"enabled": enabled, "provider": "ollama", "model": {"model_id": MODEL}})
         assert caption_model_id(cfg) == MODEL
 
     def test_module_absent(self):

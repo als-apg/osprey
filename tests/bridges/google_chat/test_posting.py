@@ -179,13 +179,6 @@ def test_an_unset_version_tag_leaves_the_ack_untouched():
     assert only_body(service)["text"] == ACK_TEXT
 
 
-def test_a_failing_ack_is_swallowed_so_the_dispatch_continues():
-    ops, service = make_ops()
-    fail_every_create(service)
-
-    ops.post_ack(ENTRY)  # must not raise: the ack is a courtesy, the answer is not
-
-
 def test_an_entry_naming_no_space_never_raises_out_of_the_ack():
     ops, service = make_ops()
 
@@ -708,14 +701,6 @@ def test_a_resume_notice_without_a_usable_queue_time_still_says_resuming():
     assert "None" not in body["text"]
 
 
-def test_a_failing_resume_notice_is_swallowed():
-    # Best-effort by contract: the answer follows whether or not this line landed.
-    ops, service = make_ops()
-    fail_every_create(service)
-
-    ops.post_resumed({**ENTRY, "first_queued_at": 1.0}, {"status": "completed"})
-
-
 def test_the_give_up_notice_uses_the_fixed_wording_in_the_questions_thread():
     ops, service = make_ops()
     ops.post_giveup({**ENTRY, "give_up_reason": "ceiling reached"})
@@ -750,12 +735,30 @@ def test_the_superseded_note_lands_in_the_old_messages_own_thread():
     assert body["thread"] == {"name": THREAD}
 
 
-def test_a_failing_superseded_note_is_swallowed():
-    # The coalesce CAS has already committed; a failed note must not disturb the pass.
+@pytest.mark.parametrize(
+    "post",
+    [
+        # The ack is a courtesy, the answer is not: the dispatch continues.
+        pytest.param(lambda ops: ops.post_ack(ENTRY), id="ack"),
+        # Best-effort by contract: the answer follows whether or not this line landed.
+        pytest.param(
+            lambda ops: ops.post_resumed(
+                {**ENTRY, "first_queued_at": 1.0}, {"status": "completed"}
+            ),
+            id="resume-notice",
+        ),
+        # The coalesce CAS has already committed; a failed note must not disturb the pass.
+        pytest.param(lambda ops: ops.post_superseded(ENTRY), id="superseded-note"),
+    ],
+)
+def test_a_failing_best_effort_post_is_swallowed(post):
     ops, service = make_ops()
     fail_every_create(service)
 
-    ops.post_superseded(ENTRY)
+    post(ops)  # must not raise
+
+    # The post was attempted and failed: a member that never posted would not raise either.
+    assert creates(service).return_value.execute.call_count == 1
 
 
 @pytest.mark.parametrize(

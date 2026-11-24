@@ -137,17 +137,13 @@ class TestFormatSemanticResult:
 class TestServiceExports:
     """Tests for service module exports."""
 
-    def test_ariel_search_service_exported(self):
-        """ARIELSearchService is exported from package."""
-        from osprey.services.ariel_search import ARIELSearchService
+    def test_package_exports_the_service_entry_points(self):
+        """The package re-exports the service class and its factory from the service module."""
+        import osprey.services.ariel_search as package
+        from osprey.services.ariel_search import service
 
-        assert ARIELSearchService is not None
-
-    def test_create_ariel_service_exported(self):
-        """create_ariel_service is exported from package."""
-        from osprey.services.ariel_search import create_ariel_service
-
-        assert callable(create_ariel_service)
+        assert package.ARIELSearchService is service.ARIELSearchService
+        assert package.create_ariel_service is service.create_ariel_service
 
 
 class TestARIELSearchService:

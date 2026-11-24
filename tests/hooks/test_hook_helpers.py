@@ -96,33 +96,44 @@ def test_a_supplied_short_name_decides_the_carve_out():
 # ---------------------------------------------------------------------------
 
 
-def test_exact_entry_matches():
-    """An entry equal to the tool name covers it."""
-    write_tools = ["mcp__controls__channel_write", "mcp__python__execute"]
-    assert hook_log.is_write_tool("mcp__controls__channel_write", write_tools) is True
-
-
-def test_exact_entry_does_not_match_another_tool():
-    """An exact entry covers nothing but itself."""
-    write_tools = ["mcp__controls__channel_write"]
-    assert hook_log.is_write_tool("mcp__controls__channel_read", write_tools) is False
-
-
-def test_wildcard_entry_matches_on_prefix():
-    """``mcp__myserver__.*`` covers every tool on that server."""
-    write_tools = ["mcp__myserver__.*"]
-    assert hook_log.is_write_tool("mcp__myserver__set_current", write_tools) is True
-
-
-def test_wildcard_entry_does_not_match_a_different_prefix():
-    """The prefix has to match; a neighbouring server is not covered."""
-    write_tools = ["mcp__myserver__.*"]
-    assert hook_log.is_write_tool("mcp__otherserver__set_current", write_tools) is False
-
-
-def test_wildcard_entry_matches_the_bare_prefix_itself():
-    """``foo.*`` covers ``foo``: the rule is startswith, and ``.*`` matches empty."""
-    assert hook_log.is_write_tool("foo", ["foo.*"]) is True
+@pytest.mark.parametrize(
+    ("tool", "write_tools", "expected"),
+    [
+        # An entry equal to the tool name covers it.
+        pytest.param(
+            "mcp__controls__channel_write",
+            ["mcp__controls__channel_write", "mcp__python__execute"],
+            True,
+            id="exact-entry-matches",
+        ),
+        # An exact entry covers nothing but itself.
+        pytest.param(
+            "mcp__controls__channel_read",
+            ["mcp__controls__channel_write"],
+            False,
+            id="exact-entry-does-not-match-another-tool",
+        ),
+        # ``mcp__myserver__.*`` covers every tool on that server.
+        pytest.param(
+            "mcp__myserver__set_current",
+            ["mcp__myserver__.*"],
+            True,
+            id="wildcard-entry-matches-on-prefix",
+        ),
+        # The prefix has to match; a neighbouring server is not covered.
+        pytest.param(
+            "mcp__otherserver__set_current",
+            ["mcp__myserver__.*"],
+            False,
+            id="wildcard-entry-does-not-match-a-different-prefix",
+        ),
+        # ``foo.*`` covers ``foo``: the rule is startswith, and ``.*`` matches empty.
+        pytest.param("foo", ["foo.*"], True, id="wildcard-entry-matches-the-bare-prefix-itself"),
+    ],
+)
+def test_write_tool_entry_coverage(tool, write_tools, expected):
+    """An exact entry covers only its own tool; a ``<prefix>.*`` entry covers tools by prefix."""
+    assert hook_log.is_write_tool(tool, write_tools) is expected
 
 
 def test_non_string_entries_are_ignored():

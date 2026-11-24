@@ -137,8 +137,11 @@ class TestArchiverDownsampleBasic:
         raw = await fn(artifact_id=timeseries_entry.id)
         result = json.loads(raw)
 
-        assert result["time_range"]["start"] is not None
-        assert result["time_range"]["end"] is not None
+        # The first and last of the 50 one-minute samples.
+        assert result["time_range"] == {
+            "start": "2026-02-19T12:00:00Z",
+            "end": "2026-02-19T12:49:00Z",
+        }
 
     @pytest.mark.asyncio
     async def test_no_downsample_when_under_max(self, timeseries_entry):

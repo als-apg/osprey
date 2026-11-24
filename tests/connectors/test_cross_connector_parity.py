@@ -525,6 +525,7 @@ class TestTranslatedReadFailures:
         failure = await _UNREACHABLE_DRIVERS[connector_name](monkeypatch)
 
         assert isinstance(failure.exception.__cause__, RuntimeError)
+        assert str(failure.exception.__cause__) == UNREACHABLE
 
 
 # ---------------------------------------------------------------------------

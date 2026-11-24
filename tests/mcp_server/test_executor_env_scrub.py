@@ -192,26 +192,31 @@ def test_perimeter_ports_parse_when_the_marker_is_open():
     assert _perimeter_denied_ports(env) == (10000, 10100, 10101)
 
 
-def test_perimeter_ports_empty_without_the_marker():
-    """A deny-list with no marker is inert.
-
-    The marker names the posture that justifies the guard. A list rendered
-    without it would mean a credentialed method, where denying these ports
-    guards nothing and only breaks traffic entitled to them.
-    """
-    env = {"OSPREY_WEB_PERIMETER_DENY_PORTS": "10000,10100"}
+@pytest.mark.parametrize(
+    "env",
+    [
+        # A deny-list with no marker is inert. The marker names the posture that
+        # justifies the guard. A list rendered without it would mean a credentialed
+        # method, where denying these ports guards nothing and only breaks traffic
+        # entitled to them.
+        pytest.param({"OSPREY_WEB_PERIMETER_DENY_PORTS": "10000,10100"}, id="without-the-marker"),
+        # Only the exact value "open" arms it — anything else stays inert.
+        pytest.param(
+            {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000"},
+            id="marker-not-open",
+        ),
+        # A host with no deployment stamp at all gets the inert default.
+        pytest.param({}, id="nothing-stamped"),
+        # A list that parses to nothing is the inert value, not a partial guard.
+        pytest.param(
+            {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "abc,,-3"},
+            id="every-entry-is-junk",
+        ),
+    ],
+)
+def test_perimeter_ports_are_empty_when_not_armed(env):
+    """Without the open marker and at least one parseable port, the deny-list is the inert ``()``."""
     assert _perimeter_denied_ports(env) == ()
-
-
-def test_perimeter_ports_empty_when_the_marker_is_not_open():
-    """Only the exact value "open" arms it — anything else stays inert."""
-    env = {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000"}
-    assert _perimeter_denied_ports(env) == ()
-
-
-def test_perimeter_ports_empty_when_nothing_is_stamped():
-    """A host with no deployment stamp at all gets the inert default."""
-    assert _perimeter_denied_ports({}) == ()
 
 
 def test_perimeter_ports_ignore_junk_entries():
@@ -226,12 +231,6 @@ def test_perimeter_ports_ignore_junk_entries():
         "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000, ,not-a-port,,0,70000,-1,10100",
     }
     assert _perimeter_denied_ports(env) == (10000, 10100)
-
-
-def test_perimeter_ports_empty_when_every_entry_is_junk():
-    """A list that parses to nothing is the inert value, not a partial guard."""
-    env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "abc,,-3"}
-    assert _perimeter_denied_ports(env) == ()
 
 
 async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):

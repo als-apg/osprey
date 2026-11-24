@@ -296,16 +296,16 @@ class TestCounts:
 class TestFamilyDescription:
     """Family description with provenance ``imported``."""
 
-    def test_underscore_description(self):
-        """_description is carried as imported."""
-        assert _view({"_description": "Beam position"}).description == (
-            "Beam position",
-            "imported",
-        )
-
-    def test_mml_description(self):
-        """An MML Description is carried as imported."""
-        assert _view({"Description": "BPMs"}).description == ("BPMs", "imported")
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            pytest.param("_description", "Beam position", id="underscore_description"),
+            pytest.param("Description", "BPMs", id="mml_description"),
+        ],
+    )
+    def test_a_description_is_carried_as_imported(self, key, value):
+        """Both _description and an MML Description are carried as imported."""
+        assert _view({key: value}).description == (value, "imported")
 
     def test_underscore_description_first(self):
         """_description is preferred when both are present."""

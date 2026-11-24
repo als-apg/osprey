@@ -437,15 +437,16 @@ def test_video_cli_help_lists_theme(capsys):
     assert "--theme" in capsys.readouterr().out
 
 
-def test_video_cli_rejects_unknown_theme():
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["--theme", "sepia"], id="unknown-theme"),
+        pytest.param(["--video", "nope"], id="unknown-video"),
+    ],
+)
+def test_video_cli_rejects(argv):
     with pytest.raises(SystemExit) as exc:
-        main(["video", "--theme", "sepia"])
-    assert exc.value.code == 2
-
-
-def test_video_cli_rejects_unknown_video():
-    with pytest.raises(SystemExit) as exc:
-        main(["video", "--video", "nope"])
+        main(["video", *argv])
     assert exc.value.code == 2
 
 

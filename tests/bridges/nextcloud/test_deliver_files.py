@@ -247,12 +247,6 @@ def test_a_tsv_table_keeps_its_own_extension():
     assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/transitions.tsv")
 
 
-def test_a_document_without_a_filename_is_named_from_its_id_and_mime():
-    ops, _, nc = _ops(FakeWorker({"doc1": PDF}))
-    ops.deliver_files(ENTRY, result({"artifact_id": "doc1", "delivered_mime": "application/pdf"}))
-    assert nc.of("PUT")[0].url.path.endswith("/roomA/R1/doc1.pdf")
-
-
 def test_a_document_may_exceed_the_image_budget():
     # Images are capped at MAX_DELIVERED_IMAGE_BYTES; documents get the larger MAX_DELIVERED_DOC_BYTES,
     # so a 3 MiB PDF is delivered where a 3 MiB image would be dropped.

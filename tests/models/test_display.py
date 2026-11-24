@@ -42,60 +42,65 @@ def test_display_name_never_carries_the_vendor():
 
 
 class TestAliasCandidates:
-    def test_newest_version_of_a_family_wins(self):
-        assert claude_code_alias_candidates(["claude-sonnet-5", "claude-sonnet-4-6"]) == {
-            "sonnet": "claude-sonnet-5"
-        }
-
-    def test_order_of_the_served_list_does_not_decide(self):
-        assert claude_code_alias_candidates(["claude-sonnet-4-6", "claude-sonnet-5"]) == {
-            "sonnet": "claude-sonnet-5"
-        }
-
-    def test_minor_version_ranks_above_its_major(self):
-        served = ["claude-opus-5", "claude-opus-5-5"]
-        assert claude_code_alias_candidates(served) == {"opus": "claude-opus-5-5"}
-
-    def test_argo_compact_spelling_fills_all_three(self):
-        assert claude_code_alias_candidates(
-            ["claudehaiku45", "claudesonnet45", "claudeopus41"]
-        ) == {
-            "haiku": "claudehaiku45",
-            "sonnet": "claudesonnet45",
-            "opus": "claudeopus41",
-        }
-
-    def test_the_als_apg_list_fills_all_three_and_never_fable(self):
-        served = [
-            "claude-fable-5-1",
-            "claude-opus-5-5",
-            "claude-sonnet-5",
-            "claude-haiku-4-5-20251001",
-            "gpt-6-sol",
-            "gpt-6-luna",
-            "gpt-6-astra",
-        ]
-        assert claude_code_alias_candidates(served) == {
-            "haiku": "claude-haiku-4-5-20251001",
-            "sonnet": "claude-sonnet-5",
-            "opus": "claude-opus-5-5",
-        }
-
-    def test_an_unversioned_id_still_qualifies(self):
-        served = ["claude-haiku", "claude-sonnet", "claude-opus"]
-        assert claude_code_alias_candidates(served) == {
-            "haiku": "claude-haiku",
-            "sonnet": "claude-sonnet",
-            "opus": "claude-opus",
-        }
-
-    def test_a_versioned_id_ranks_above_an_unversioned_one(self):
-        served = ["claude-sonnet", "claude-sonnet-4-6"]
-        assert claude_code_alias_candidates(served) == {"sonnet": "claude-sonnet-4-6"}
-
-    def test_a_tie_is_broken_by_id(self):
-        served = ["claude-haiku-4-5-20251001", "claude-haiku-4-5"]
-        assert claude_code_alias_candidates(served) == {"haiku": "claude-haiku-4-5"}
+    @pytest.mark.parametrize(
+        ("served", "expected"),
+        [
+            pytest.param(
+                ["claude-sonnet-5", "claude-sonnet-4-6"],
+                {"sonnet": "claude-sonnet-5"},
+                id="newest_version_of_a_family_wins",
+            ),
+            pytest.param(
+                ["claude-sonnet-4-6", "claude-sonnet-5"],
+                {"sonnet": "claude-sonnet-5"},
+                id="order_of_the_served_list_does_not_decide",
+            ),
+            pytest.param(
+                ["claude-opus-5", "claude-opus-5-5"],
+                {"opus": "claude-opus-5-5"},
+                id="minor_version_ranks_above_its_major",
+            ),
+            pytest.param(
+                ["claudehaiku45", "claudesonnet45", "claudeopus41"],
+                {"haiku": "claudehaiku45", "sonnet": "claudesonnet45", "opus": "claudeopus41"},
+                id="argo_compact_spelling_fills_all_three",
+            ),
+            pytest.param(
+                [
+                    "claude-fable-5-1",
+                    "claude-opus-5-5",
+                    "claude-sonnet-5",
+                    "claude-haiku-4-5-20251001",
+                    "gpt-6-sol",
+                    "gpt-6-luna",
+                    "gpt-6-astra",
+                ],
+                {
+                    "haiku": "claude-haiku-4-5-20251001",
+                    "sonnet": "claude-sonnet-5",
+                    "opus": "claude-opus-5-5",
+                },
+                id="the_als_apg_list_fills_all_three_and_never_fable",
+            ),
+            pytest.param(
+                ["claude-haiku", "claude-sonnet", "claude-opus"],
+                {"haiku": "claude-haiku", "sonnet": "claude-sonnet", "opus": "claude-opus"},
+                id="an_unversioned_id_still_qualifies",
+            ),
+            pytest.param(
+                ["claude-sonnet", "claude-sonnet-4-6"],
+                {"sonnet": "claude-sonnet-4-6"},
+                id="a_versioned_id_ranks_above_an_unversioned_one",
+            ),
+            pytest.param(
+                ["claude-haiku-4-5-20251001", "claude-haiku-4-5"],
+                {"haiku": "claude-haiku-4-5"},
+                id="a_tie_is_broken_by_id",
+            ),
+        ],
+    )
+    def test_alias_candidates(self, served, expected):
+        assert claude_code_alias_candidates(served) == expected
 
     def test_a_non_claude_gateway_yields_nothing(self):
         assert claude_code_alias_candidates(["gpt-6-sol"]) == {}

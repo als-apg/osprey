@@ -50,35 +50,37 @@ def refuse_io(self, *args, **kwargs):  # noqa: ARG001
 
 
 class TestParseFragmentName:
-    def test_an_issue_number_name_carries_the_ref(self):
-        assert cf.parse_fragment_name("745.fixed.md") == ("745", "fixed", "745")
-
-    def test_an_issue_number_with_a_slug_suffix_still_carries_the_ref(self):
-        """`745-gate` names the issue and says which of its fixes this is."""
-        assert cf.parse_fragment_name("745-gate.fixed.md") == ("745-gate", "fixed", "745")
-
-    def test_a_slug_name_has_no_ref(self):
-        assert cf.parse_fragment_name("gate.fixed.md") == ("gate", "fixed", None)
-
-    def test_a_leading_date_is_read_as_an_issue_number(self):
-        """Documented sharp edge: the leading digits ARE the issue reference.
-
-        `2026-cleanup.changed.md` renders `(#2026)`. The rule cannot tell a
-        year from an issue, so the README tells contributors not to start a
-        name with a date.
-        """
-        assert cf.parse_fragment_name("2026-cleanup.changed.md") == (
-            "2026-cleanup",
-            "changed",
-            "2026",
-        )
-
-    def test_underscores_and_digits_inside_a_slug_are_fine(self):
-        assert cf.parse_fragment_name("web_terminal2.added.md") == (
-            "web_terminal2",
-            "added",
-            None,
-        )
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param(
+                "745.fixed.md", ("745", "fixed", "745"), id="an-issue-number-name-carries-the-ref"
+            ),
+            # `745-gate` names the issue and says which of its fixes this is.
+            pytest.param(
+                "745-gate.fixed.md",
+                ("745-gate", "fixed", "745"),
+                id="an-issue-number-with-a-slug-suffix-still-carries-the-ref",
+            ),
+            pytest.param("gate.fixed.md", ("gate", "fixed", None), id="a-slug-name-has-no-ref"),
+            # Documented sharp edge: the leading digits ARE the issue reference.
+            # `2026-cleanup.changed.md` renders `(#2026)`. The rule cannot tell a
+            # year from an issue, so the README tells contributors not to start a
+            # name with a date.
+            pytest.param(
+                "2026-cleanup.changed.md",
+                ("2026-cleanup", "changed", "2026"),
+                id="a-leading-date-is-read-as-an-issue-number",
+            ),
+            pytest.param(
+                "web_terminal2.added.md",
+                ("web_terminal2", "added", None),
+                id="underscores-and-digits-inside-a-slug-are-fine",
+            ),
+        ],
+    )
+    def test_parse_fragment_name(self, name, expected):
+        assert cf.parse_fragment_name(name) == expected
 
     @pytest.mark.parametrize(
         "filename",
@@ -402,37 +404,51 @@ class TestUnreleasedSpan:
             "",
         ]
 
-    def test_a_heading_on_the_first_line_is_found(self):
-        lines = ["## [Unreleased]", "", "- a bullet", "", "## [2026.8.0] - 2026-08-20"]
-        assert cf.unreleased_span(lines) == (0, 4)
-
-    def test_a_bracket_less_heading_does_not_end_the_block(self):
-        """`## Notes` is prose inside the section — the terminator needs `[`."""
-        lines = ["## [Unreleased]", "", "## Notes", "", "- still unreleased"]
-        assert cf.unreleased_span(lines) == (0, 5)
-
-    def test_a_release_heading_without_a_date_ends_the_block(self):
-        """A release in preparation has no date yet; it still closes the section."""
-        lines = ["## [Unreleased]", "", "## [2026.8.0]", "", "- shipped"]
-        assert cf.unreleased_span(lines) == (0, 2)
-
-    def test_the_last_section_runs_to_the_end_of_the_file(self):
-        lines = ["# Changelog", "", "## [Unreleased]", "", "### Fixed", "", "- one"]
-        assert cf.unreleased_span(lines) == (2, len(lines))
+    @pytest.mark.parametrize(
+        ("lines", "expected"),
+        [
+            pytest.param(
+                ["## [Unreleased]", "", "- a bullet", "", "## [2026.8.0] - 2026-08-20"],
+                (0, 4),
+                id="a-heading-on-the-first-line-is-found",
+            ),
+            # `## Notes` is prose inside the section — the terminator needs `[`.
+            pytest.param(
+                ["## [Unreleased]", "", "## Notes", "", "- still unreleased"],
+                (0, 5),
+                id="a-bracket-less-heading-does-not-end-the-block",
+            ),
+            # A release in preparation has no date yet; it still closes the section.
+            pytest.param(
+                ["## [Unreleased]", "", "## [2026.8.0]", "", "- shipped"],
+                (0, 2),
+                id="a-release-heading-without-a-date-ends-the-block",
+            ),
+            pytest.param(
+                ["# Changelog", "", "## [Unreleased]", "", "### Fixed", "", "- one"],
+                (2, 7),
+                id="the-last-section-runs-to-the-end-of-the-file",
+            ),
+            pytest.param(
+                ["## [Unreleased]   ", "", "- a bullet"],
+                (0, 3),
+                id="a-heading-with-trailing-spaces-matches",
+            ),
+            pytest.param(
+                ["## [Unreleased]", "", "## [2026.8.0]", "", "## [Unreleased]"],
+                (0, 2),
+                id="the-first-heading-wins",
+            ),
+        ],
+    )
+    def test_unreleased_span(self, lines, expected):
+        assert cf.unreleased_span(lines) == expected
 
     def test_an_empty_block_still_has_a_span(self):
         lines = ["## [Unreleased]", "", "## [2026.8.0] - 2026-08-20"]
         heading, end = cf.unreleased_span(lines)
         assert (heading, end) == (0, 2)
         assert lines[heading + 1 : end] == [""]
-
-    def test_a_heading_with_trailing_spaces_matches(self):
-        lines = ["## [Unreleased]   ", "", "- a bullet"]
-        assert cf.unreleased_span(lines) == (0, 3)
-
-    def test_the_first_heading_wins(self):
-        lines = ["## [Unreleased]", "", "## [2026.8.0]", "", "## [Unreleased]"]
-        assert cf.unreleased_span(lines) == (0, 2)
 
     @pytest.mark.parametrize(
         "lines",

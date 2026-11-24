@@ -98,15 +98,18 @@ class TestChannelKeysAndFamilyArrays:
 class TestOtherStrings:
     """Strings outside the scoped keys pass through unchanged."""
 
-    def test_units_string_passes_through(self):
-        """Units is a TEXT scalar and stays a string."""
-        assert normalize_family({"Monitor": {"Units": "Hardware"}}) == {
-            "Monitor": {"Units": "Hardware"}
-        }
-
-    def test_empty_scalar_stays_empty_string(self):
-        """An empty DataType stays '' rather than becoming a list."""
-        assert normalize_family({"Monitor": {"DataType": ""}}) == {"Monitor": {"DataType": ""}}
+    @pytest.mark.parametrize(
+        "family",
+        [
+            # Units is a TEXT scalar and stays a string.
+            pytest.param({"Monitor": {"Units": "Hardware"}}, id="units_string_passes_through"),
+            # An empty DataType stays '' rather than becoming a list.
+            pytest.param({"Monitor": {"DataType": ""}}, id="empty_scalar_stays_empty_string"),
+        ],
+    )
+    def test_a_string_passes_through(self, family):
+        """A string scalar outside the scoped keys comes back as it went in."""
+        assert normalize_family(copy.deepcopy(family)) == family
 
     def test_description_with_trailing_blank_is_untouched(self):
         """A scalar string outside the scoped keys is not deblanked."""

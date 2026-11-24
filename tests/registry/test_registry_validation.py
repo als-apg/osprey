@@ -10,26 +10,42 @@ This test module validates error handling and validation in the registry system:
 
 import pytest
 
+from osprey.registry import RegistryConfig
 from osprey.registry.manager import RegistryError, RegistryManager, resolve_registry_path
 
 
 class TestFileLoadingErrors:
     """Test error handling for file loading issues."""
 
-    def test_load_missing_file_raises_error(self):
-        """Test that missing registry file raises clear error."""
-        # Error is raised during __init__ when config is built
-        with pytest.raises(RegistryError, match="Registry file not found"):
-            _ = RegistryManager(registry_path="./nonexistent/registry.py")
+    @pytest.mark.parametrize(
+        ("source", "match"),
+        [
+            pytest.param(
+                "this is not valid python syntax{{{",
+                "Failed to load Python module",
+                id="invalid-python",
+            ),
+            pytest.param(
+                """
+from nonexistent_module import something  # This will fail
 
-    def test_load_invalid_python_raises_error(self, tmp_path):
-        """Test that invalid Python file raises clear error."""
-        # Create invalid Python file
+from osprey.registry import RegistryConfigProvider, RegistryConfig
+
+class Provider(RegistryConfigProvider):
+    def get_registry_config(self):
+        return RegistryConfig()
+""",
+                "Failed to load",
+                id="import-errors",
+            ),
+        ],
+    )
+    def test_a_bad_registry_file_is_refused(self, tmp_path, source, match):
+        """A registry file that cannot be loaded raises a clear error during __init__."""
         registry_file = tmp_path / "bad_registry.py"
-        registry_file.write_text("this is not valid python syntax{{{")
+        registry_file.write_text(source)
 
-        # Error is raised during __init__
-        with pytest.raises(RegistryError, match="Failed to load Python module"):
+        with pytest.raises(RegistryError, match=match):
             _ = RegistryManager(registry_path=str(registry_file))
 
     def test_load_directory_instead_of_file_raises_error(self, tmp_path):
@@ -53,81 +69,48 @@ class TestFileLoadingErrors:
         assert "Registry file not found" in error_msg
         assert "does_not_exist.py" in error_msg
 
-    def test_load_file_with_import_errors(self, tmp_path):
-        """Test that files with import errors provide clear messages."""
-        registry_file = tmp_path / "bad_imports.py"
-        registry_file.write_text(
-            """
-from nonexistent_module import something  # This will fail
-
-from osprey.registry import RegistryConfigProvider, RegistryConfig
-
-class Provider(RegistryConfigProvider):
-    def get_registry_config(self):
-        return RegistryConfig()
-"""
-        )
-
-        # Should raise during module loading
-        with pytest.raises(RegistryError, match="Failed to load"):
-            _ = RegistryManager(registry_path=str(registry_file))
-
 
 class TestProviderValidationErrors:
     """Test validation of RegistryConfigProvider implementations."""
 
-    def test_no_provider_raises_error(self, tmp_path):
-        """Test that registry without RegistryConfigProvider raises error."""
-        # Create valid Python file but no provider
-        registry_file = tmp_path / "no_provider.py"
-        registry_file.write_text(
-            """
+    @pytest.mark.parametrize(
+        "source",
+        [
+            pytest.param(
+                """
 # Valid Python but no RegistryConfigProvider
 def some_function():
     pass
 
 class SomeClass:
     pass
-"""
-        )
-
-        # Error is raised during __init__
-        with pytest.raises(RegistryError, match="No RegistryConfigProvider implementation found"):
-            _ = RegistryManager(registry_path=str(registry_file))
-
-    def test_multiple_providers_raises_error(self, tmp_path):
-        """Test that registry with multiple providers raises error."""
-        # Create file with two providers
-        registry_file = tmp_path / "multi_provider.py"
-        registry_file.write_text(
-            """
-from osprey.registry import RegistryConfigProvider, RegistryConfig
-
-class Provider1(RegistryConfigProvider):
-    def get_registry_config(self):
-        return RegistryConfig()
-
-class Provider2(RegistryConfigProvider):
-    def get_registry_config(self):
-        return RegistryConfig()
-"""
-        )
-
-        # Error is raised during __init__
-        with pytest.raises(RegistryError, match="Multiple RegistryConfigProvider"):
-            _ = RegistryManager(registry_path=str(registry_file))
-
-    def test_no_provider_error_includes_helpful_example(self, tmp_path):
-        """Test error message when no provider found includes example."""
+""",
+                id="code-without-provider",
+            ),
+            pytest.param("# No provider here\n", id="one-comment"),
+            pytest.param("", id="empty-file"),
+            pytest.param(
+                """
+# This is just a comment
+# No actual code here
+""",
+                id="only-comments",
+            ),
+        ],
+    )
+    def test_no_provider_raises_error_with_an_example(self, tmp_path, source):
+        """A registry without a RegistryConfigProvider is refused, and the error shows one."""
         registry_file = tmp_path / "registry.py"
-        registry_file.write_text("# No provider here\n")
+        registry_file.write_text(source)
 
         with pytest.raises(RegistryError) as exc_info:
             _ = RegistryManager(registry_path=str(registry_file))
 
         error_msg = str(exc_info.value)
         assert "No RegistryConfigProvider implementation found" in error_msg
-        assert "Example:" in error_msg  # Should include helpful example
+        # Should include an example implementation
+        assert "Example:" in error_msg
+        assert "class MyRegistryProvider(RegistryConfigProvider)" in error_msg
 
     def test_provider_with_syntax_error_in_method(self, tmp_path):
         """Test that syntax errors in provider methods are caught."""
@@ -176,33 +159,14 @@ class MinimalProvider(RegistryConfigProvider):
 
         # Validation still runs during RegistryManager init
         # Warnings are emitted as TypedEvents (not Python logs)
-        _ = RegistryManager(registry_path=str(registry_file2))
+        manager = RegistryManager(registry_path=str(registry_file2))
+
+        # Standalone: the app's own config is used as-is, the framework's is not merged in.
+        assert manager.config == RegistryConfig()
 
 
 class TestHelpfulErrorMessages:
     """Test that error messages are helpful and actionable."""
-
-    def test_missing_file_error_is_actionable(self):
-        """Test missing file error provides actionable guidance."""
-        with pytest.raises(RegistryError) as exc_info:
-            _ = RegistryManager(registry_path="./missing/registry.py")
-
-        error_msg = str(exc_info.value).lower()
-        # Should mention the file wasn't found
-        assert "not found" in error_msg or "does not exist" in error_msg
-
-    def test_no_provider_error_shows_example(self, tmp_path):
-        """Test no provider error includes example code."""
-        registry_file = tmp_path / "empty.py"
-        registry_file.write_text("")
-
-        with pytest.raises(RegistryError) as exc_info:
-            _ = RegistryManager(registry_path=str(registry_file))
-
-        error_msg = str(exc_info.value)
-        # Should include example implementation
-        assert "class" in error_msg
-        assert "RegistryConfigProvider" in error_msg
 
     def test_multiple_providers_error_lists_classes(self, tmp_path):
         """Test multiple providers error lists the conflicting classes."""
@@ -225,8 +189,9 @@ class SecondProvider(RegistryConfigProvider):
             _ = RegistryManager(registry_path=str(registry_file))
 
         error_msg = str(exc_info.value)
-        # Should mention there are multiple providers
-        assert "Multiple" in error_msg or "multiple" in error_msg
+        assert "Multiple RegistryConfigProvider" in error_msg
+        assert "FirstProvider" in error_msg
+        assert "SecondProvider" in error_msg
 
 
 class TestEdgeCases:
@@ -264,27 +229,6 @@ class BadProvider(RegistryConfigProvider):
 
         # Should wrap and re-raise as RegistryError
         with pytest.raises((RegistryError, ValueError)):
-            _ = RegistryManager(registry_path=str(registry_file))
-
-    def test_empty_file_handled_gracefully(self, tmp_path):
-        """Test that empty registry file gives clear error."""
-        registry_file = tmp_path / "empty.py"
-        registry_file.write_text("")
-
-        with pytest.raises(RegistryError, match="No RegistryConfigProvider"):
-            _ = RegistryManager(registry_path=str(registry_file))
-
-    def test_file_with_only_comments(self, tmp_path):
-        """Test file with only comments gives clear error."""
-        registry_file = tmp_path / "comments.py"
-        registry_file.write_text(
-            """
-# This is just a comment
-# No actual code here
-"""
-        )
-
-        with pytest.raises(RegistryError, match="No RegistryConfigProvider"):
             _ = RegistryManager(registry_path=str(registry_file))
 
 

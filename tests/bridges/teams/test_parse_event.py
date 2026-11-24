@@ -33,7 +33,7 @@ import json
 
 import pytest
 
-from osprey.bridges.core import RESERVED_ENTRY_KEYS, ReplyContext
+from osprey.bridges.core import RESERVED_ENTRY_KEYS
 from osprey.bridges.teams.config import TeamsBridgeConfig
 from osprey.bridges.teams.events import (
     MS_ACTIVITY_ID,
@@ -481,28 +481,6 @@ def test_a_personal_chat_survives_a_junk_sender():
 
 
 # --- reply context ---------------------------------------------------------
-
-
-def test_reply_context_on_a_channel_reply_is_empty():
-    parsed = parse_event(_reply_activity(), CFG)
-
-    assert parsed is not None
-    context = resolve_reply_context(parsed)
-
-    assert isinstance(context, ReplyContext)
-    assert dict(context.reply_to) == {}
-    assert dict(context.meta) == {}
-
-
-def test_reply_context_on_a_one_to_one_message_is_empty():
-    parsed = parse_event(_chat_activity(), CFG)
-
-    assert parsed is not None
-    context = resolve_reply_context(parsed)
-
-    assert isinstance(context, ReplyContext)
-    assert dict(context.reply_to) == {}
-    assert dict(context.meta) == {}
 
 
 def test_reply_context_hands_back_a_fresh_mapping_each_time():

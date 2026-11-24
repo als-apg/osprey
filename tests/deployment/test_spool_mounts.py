@@ -695,10 +695,19 @@ def test_the_bundle_dir_is_named_when_a_bundle_is_mounted():
     assert _env(service)["OSPREY_FACILITY_BUNDLE_DIR"] == bundle_targets[0]
 
 
-def test_no_bundle_dir_without_a_bundle_mount():
-    """A service with no bundle bound names no bundle directory, and the
-    entrypoint's step skips what is unset."""
-    assert "OSPREY_FACILITY_BUNDLE_DIR" not in _env(_corpus_web_services()["web-alice"])
+@pytest.mark.parametrize(
+    "var",
+    [
+        # A service with no bundle bound names no bundle directory, and the
+        # entrypoint's step skips what is unset.
+        pytest.param("OSPREY_FACILITY_BUNDLE_DIR", id="bundle"),
+        # A deployment running no qmd export binds no mirror and names none.
+        pytest.param("OSPREY_ARIEL_MIRROR_DIR", id="mirror"),
+    ],
+)
+def test_no_corpus_dir_without_its_mount(var):
+    """A directory variable is named only when its mount is bound."""
+    assert var not in _env(_corpus_web_services()["web-alice"])
 
 
 def test_the_mirror_dir_is_named_when_a_mirror_is_mounted():
@@ -710,11 +719,6 @@ def test_the_mirror_dir_is_named_when_a_mirror_is_mounted():
     ]
     assert len(mirror_targets) == 1, service["volumes"]
     assert _env(service)["OSPREY_ARIEL_MIRROR_DIR"] == mirror_targets[0]
-
-
-def test_no_mirror_dir_without_a_mirror_mount():
-    """A deployment running no qmd export binds no mirror and names none."""
-    assert "OSPREY_ARIEL_MIRROR_DIR" not in _env(_corpus_web_services()["web-alice"])
 
 
 def test_a_worker_names_no_bundle_dir():

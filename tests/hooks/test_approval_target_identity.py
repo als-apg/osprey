@@ -1087,51 +1087,52 @@ def test_a_simulator_only_deployment_reaches_one_target(reader):
     assert reader.session_types(VA_ONLY_SECTION) == {"va": "virtual_accelerator"}
 
 
-def test_the_simulator_in_process_carrying_one_live_block_is_two_targets(reader):
-    """`live` resolves to the block and the baseline is `va`, so both are reachable."""
-    section = {
-        "type": "virtual_accelerator",
-        "connector": {
-            "virtual_accelerator": {"serving": "in_process"},
-            "epics": {"address_list": "10.0.0.1"},
-        },
-    }
-
-    assert reader.session_types(section) == {"live": "epics", "va": "virtual_accelerator"}
-
-
-def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
-    """Both types configured with a block."""
-    section = {
-        "type": "epics",
-        "connector": {
-            "epics": {"address_list": "10.0.0.1"},
-            "virtual_accelerator": {"port": 5074},
-        },
-    }
-
-    assert reader.session_types(section) == {"live": "epics", "va": "virtual_accelerator"}
-
-
-def test_a_standin_beside_a_simulator_reaches_both_without_a_live_block(reader):
-    """Two configured targets are the switching world, whichever two they are.
-
-    Mirrors ``osprey_connectors.types.switch_capable``: a deployment rehearsing
-    on its stand-in beside the simulator has two machines a session can be
-    pointed at, and ``live`` — underivable here — is simply not among them.
-    """
-    section = {
-        "type": "live_standin",
-        "connector": {
-            "virtual_accelerator": {"port": 5075},
-            "live_standin": {"port": 5074},
-        },
-    }
-
-    assert reader.session_types(section) == {
-        "standin": "live_standin",
-        "va": "virtual_accelerator",
-    }
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        # `live` resolves to the block and the baseline is `va`, so both are reachable.
+        pytest.param(
+            {
+                "type": "virtual_accelerator",
+                "connector": {
+                    "virtual_accelerator": {"serving": "in_process"},
+                    "epics": {"address_list": "10.0.0.1"},
+                },
+            },
+            {"live": "epics", "va": "virtual_accelerator"},
+            id="simulator-in-process-carrying-one-live-block",
+        ),
+        # Both types configured with a block.
+        pytest.param(
+            {
+                "type": "epics",
+                "connector": {
+                    "epics": {"address_list": "10.0.0.1"},
+                    "virtual_accelerator": {"port": 5074},
+                },
+            },
+            {"live": "epics", "va": "virtual_accelerator"},
+            id="both-targets-configured-with-a-block",
+        ),
+        # Mirrors ``osprey_connectors.types.switch_capable``: a deployment rehearsing
+        # on its stand-in beside the simulator has two machines a session can be
+        # pointed at, and ``live`` — underivable here — is simply not among them.
+        pytest.param(
+            {
+                "type": "live_standin",
+                "connector": {
+                    "virtual_accelerator": {"port": 5075},
+                    "live_standin": {"port": 5074},
+                },
+            },
+            {"standin": "live_standin", "va": "virtual_accelerator"},
+            id="standin-beside-a-simulator-without-a-live-block",
+        ),
+    ],
+)
+def test_two_configured_targets_are_both_reachable(reader, section, expected):
+    """Two configured targets are the switching world, whichever two they are."""
+    assert reader.session_types(section) == expected
 
 
 def test_the_target_to_type_mapping_is_public(reader):

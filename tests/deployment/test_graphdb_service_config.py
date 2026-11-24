@@ -253,15 +253,23 @@ class TestBindAddress:
 class TestValidation:
     """A malformed scalar refuses rather than silently defaulting."""
 
-    @pytest.mark.parametrize("bad", [0, -1, 65536, "7687", 7687.0, True, [7687]])
-    def test_bad_bolt_port_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.graphdb\.port_host"):
-            resolve_graphdb_service_config({"services": {"graphdb": {"port_host": bad}}})
-
-    @pytest.mark.parametrize("bad", [0, -1, 65536, "7474", 7474.0, True])
-    def test_bad_http_port_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.graphdb\.http_port_host"):
-            resolve_graphdb_service_config({"services": {"graphdb": {"http_port_host": bad}}})
+    @pytest.mark.parametrize(
+        ("key", "bad"),
+        [
+            (key, bad)
+            for key, bads in {
+                # The Bolt port.
+                "port_host": [0, -1, 65536, "7687", 7687.0, True, [7687]],
+                "http_port_host": [0, -1, 65536, "7474", 7474.0, True],
+                "image": ["", "   ", 5, True, ["neo4j:5.20-community"]],
+                "ttl_path": ["", "   ", 7, True, ["facility.ttl"]],
+            }.items()
+            for bad in bads
+        ],
+    )
+    def test_bad_scalar_raises(self, key: str, bad: object) -> None:
+        with pytest.raises(ValueError, match=rf"services\.graphdb\.{key}"):
+            resolve_graphdb_service_config({"services": {"graphdb": {key: bad}}})
 
     @pytest.mark.parametrize(
         "key",
@@ -279,16 +287,6 @@ class TestValidation:
         )
         assert resolved is not None
         assert resolved.heap_max_size == good.strip()
-
-    @pytest.mark.parametrize("bad", ["", "   ", 5, True, ["neo4j:5.20-community"]])
-    def test_bad_image_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.graphdb\.image"):
-            resolve_graphdb_service_config({"services": {"graphdb": {"image": bad}}})
-
-    @pytest.mark.parametrize("bad", ["", "   ", 7, True, ["facility.ttl"]])
-    def test_bad_ttl_path_raises(self, bad: object) -> None:
-        with pytest.raises(ValueError, match=r"services\.graphdb\.ttl_path"):
-            resolve_graphdb_service_config({"services": {"graphdb": {"ttl_path": bad}}})
 
     def test_ttl_path_is_kept_verbatim(self) -> None:
         """Relative stays relative: consumers resolve it against config.yml's directory."""

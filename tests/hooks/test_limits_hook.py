@@ -88,7 +88,7 @@ def test_max_step_is_left_to_the_writer(tmp_path, hook_runner):
         cwd=tmp_path,
     )
 
-    assert result is None or result["hookSpecificOutput"]["permissionDecision"] != "deny"
+    assert result is None
 
 
 def test_max_step_channel_still_gets_every_other_check(tmp_path, hook_runner):

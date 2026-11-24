@@ -70,9 +70,13 @@ class TestAppend:
         assert session_ledger.append(tmp_path, OTHER_KEY, T1, AT_1) is True
 
     def test_default_time_is_aware_now(self, tmp_path):
+        before = datetime.now(UTC)
         session_ledger.append(tmp_path, KEY, T1)
+        after = datetime.now(UTC)
         (row,) = session_ledger.load(tmp_path).rows
-        assert datetime.fromisoformat(row.from_ts).tzinfo is not None
+        stamp = datetime.fromisoformat(row.from_ts)
+        assert stamp.tzinfo is not None
+        assert before <= stamp <= after
 
     def test_datetime_time_is_stored_as_aware_iso(self, tmp_path):
         session_ledger.append(tmp_path, KEY, T1, datetime(2026, 11, 1, 10, tzinfo=UTC))

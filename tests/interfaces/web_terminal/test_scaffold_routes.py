@@ -73,26 +73,6 @@ class TestUntracked:
         assert resp.status_code == 200
         svc.register_untracked.assert_called_once_with("rules/x")
 
-    def test_register_missing_file_404(self, client, svc):
-        svc.register_untracked.side_effect = FileNotFoundError("gone")
-        resp = client.post("/api/scaffold/untracked/register", json={"name": "rules/x"})
-        assert resp.status_code == 404
-
-    def test_register_already_exists_409(self, client, svc):
-        svc.register_untracked.side_effect = FileExistsError("dup")
-        resp = client.post("/api/scaffold/untracked/register", json={"name": "rules/x"})
-        assert resp.status_code == 409
-
-    def test_delete_untracked_missing_404(self, client, svc):
-        svc.delete_untracked.side_effect = FileNotFoundError("gone")
-        resp = client.delete("/api/scaffold/untracked/rules/x")
-        assert resp.status_code == 404
-
-    def test_delete_untracked_framework_artifact_400(self, client, svc):
-        svc.delete_untracked.side_effect = ValueError("is framework")
-        resp = client.delete("/api/scaffold/untracked/rules/x")
-        assert resp.status_code == 400
-
 
 class TestCreateArtifact:
     def test_create_success(self, client, svc):
@@ -104,16 +84,6 @@ class TestCreateArtifact:
         assert resp.status_code == 200
         svc.create_artifact.assert_called_once_with("rules", "my-rule", "x")
 
-    def test_create_invalid_category_400(self, client, svc):
-        svc.create_artifact.side_effect = ValueError("bad category")
-        resp = client.post("/api/scaffold/create", json={"category": "bogus", "name": "x"})
-        assert resp.status_code == 400
-
-    def test_create_conflict_409(self, client, svc):
-        svc.create_artifact.side_effect = FileExistsError("exists")
-        resp = client.post("/api/scaffold/create", json={"category": "rules", "name": "x"})
-        assert resp.status_code == 409
-
 
 class TestFrameworkAndDiff:
     def test_get_framework_success(self, client, svc):
@@ -123,43 +93,13 @@ class TestFrameworkAndDiff:
         data = resp.json()
         assert data == {"name": "rules/x", "content": "rendered", "source": "framework"}
 
-    def test_get_framework_unknown_404(self, client, svc):
-        svc.get_framework_content.side_effect = KeyError("unknown")
-        resp = client.get("/api/scaffold/rules/x/framework")
-        assert resp.status_code == 404
-
-    def test_diff_unknown_artifact_404(self, client, svc):
-        svc.compute_diff.side_effect = KeyError("unknown")
-        resp = client.get("/api/scaffold/rules/x/diff")
-        assert resp.status_code == 404
-
-    def test_diff_not_user_owned_404(self, client, svc):
-        svc.compute_diff.side_effect = FileNotFoundError("not owned")
-        resp = client.get("/api/scaffold/rules/x/diff")
-        assert resp.status_code == 404
-
 
 class TestClaimAndOverride:
-    def test_claim_unknown_404(self, client, svc):
-        svc.scaffold_override.side_effect = KeyError("unknown")
-        resp = client.post("/api/scaffold/rules/x/claim")
-        assert resp.status_code == 404
-
-    def test_claim_already_owned_409(self, client, svc):
-        svc.scaffold_override.side_effect = FileExistsError("owned")
-        resp = client.post("/api/scaffold/rules/x/claim")
-        assert resp.status_code == 409
-
     def test_save_override_success(self, client, svc):
         svc.save_override.return_value = {"status": "saved"}
         resp = client.put("/api/scaffold/rules/x/override", json={"content": "new"})
         assert resp.status_code == 200
         svc.save_override.assert_called_once_with("rules/x", "new")
-
-    def test_save_override_not_owned_404(self, client, svc):
-        svc.save_override.side_effect = FileNotFoundError("not owned")
-        resp = client.put("/api/scaffold/rules/x/override", json={"content": "new"})
-        assert resp.status_code == 404
 
     @pytest.mark.parametrize(
         ("url", "delete_file"),
@@ -176,10 +116,140 @@ class TestClaimAndOverride:
         assert resp.status_code == 200
         svc.unoverride.assert_called_once_with("rules/x", delete_file=delete_file)
 
-    def test_delete_override_unknown_404(self, client, svc):
-        svc.unoverride.side_effect = KeyError("unknown")
-        resp = client.delete("/api/scaffold/rules/x/override")
-        assert resp.status_code == 404
+
+_RULES_X = "/api/scaffold/rules/x"
+
+
+@pytest.mark.parametrize(
+    ("svc_method", "error", "http_method", "url", "body", "status"),
+    [
+        pytest.param(
+            "register_untracked",
+            FileNotFoundError("gone"),
+            "post",
+            "/api/scaffold/untracked/register",
+            {"name": "rules/x"},
+            404,
+            id="register_missing_file_404",
+        ),
+        pytest.param(
+            "register_untracked",
+            FileExistsError("dup"),
+            "post",
+            "/api/scaffold/untracked/register",
+            {"name": "rules/x"},
+            409,
+            id="register_already_exists_409",
+        ),
+        pytest.param(
+            "delete_untracked",
+            FileNotFoundError("gone"),
+            "delete",
+            "/api/scaffold/untracked/rules/x",
+            None,
+            404,
+            id="delete_untracked_missing_404",
+        ),
+        pytest.param(
+            "delete_untracked",
+            ValueError("is framework"),
+            "delete",
+            "/api/scaffold/untracked/rules/x",
+            None,
+            400,
+            id="delete_untracked_framework_artifact_400",
+        ),
+        pytest.param(
+            "create_artifact",
+            ValueError("bad category"),
+            "post",
+            "/api/scaffold/create",
+            {"category": "bogus", "name": "x"},
+            400,
+            id="create_invalid_category_400",
+        ),
+        pytest.param(
+            "create_artifact",
+            FileExistsError("exists"),
+            "post",
+            "/api/scaffold/create",
+            {"category": "rules", "name": "x"},
+            409,
+            id="create_conflict_409",
+        ),
+        pytest.param(
+            "get_framework_content",
+            KeyError("unknown"),
+            "get",
+            f"{_RULES_X}/framework",
+            None,
+            404,
+            id="get_framework_unknown_404",
+        ),
+        pytest.param(
+            "compute_diff",
+            KeyError("unknown"),
+            "get",
+            f"{_RULES_X}/diff",
+            None,
+            404,
+            id="diff_unknown_artifact_404",
+        ),
+        pytest.param(
+            "compute_diff",
+            FileNotFoundError("not owned"),
+            "get",
+            f"{_RULES_X}/diff",
+            None,
+            404,
+            id="diff_not_user_owned_404",
+        ),
+        pytest.param(
+            "scaffold_override",
+            KeyError("unknown"),
+            "post",
+            f"{_RULES_X}/claim",
+            None,
+            404,
+            id="claim_unknown_404",
+        ),
+        pytest.param(
+            "scaffold_override",
+            FileExistsError("owned"),
+            "post",
+            f"{_RULES_X}/claim",
+            None,
+            409,
+            id="claim_already_owned_409",
+        ),
+        pytest.param(
+            "save_override",
+            FileNotFoundError("not owned"),
+            "put",
+            f"{_RULES_X}/override",
+            {"content": "new"},
+            404,
+            id="save_override_not_owned_404",
+        ),
+        pytest.param(
+            "unoverride",
+            KeyError("unknown"),
+            "delete",
+            f"{_RULES_X}/override",
+            None,
+            404,
+            id="delete_override_unknown_404",
+        ),
+    ],
+)
+def test_a_service_error_maps_to_its_status(
+    client, svc, svc_method, error, http_method, url, body, status
+):
+    """Each route turns the service's refusal into the status the browser reads."""
+    getattr(svc, svc_method).side_effect = error
+    send = getattr(client, http_method)
+    resp = send(url) if body is None else send(url, json=body)
+    assert resp.status_code == status
 
 
 class TestConflictHandlers:

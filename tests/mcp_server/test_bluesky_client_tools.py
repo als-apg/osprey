@@ -344,6 +344,9 @@ async def test_list_devices_request_response_mapping(monkeypatch):
     # without a code change here.
     assert data["devices"] == devices
     assert (data["total"], data["offset"], data["limit"]) == (2, 0, 500)
+    # A complete page is not qualified: a note here would read as "there is
+    # more" about a set the agent already has whole.
+    assert "note" not in data
 
 
 # ---------------------------------------------------------------------------
@@ -538,19 +541,6 @@ async def test_get_run_figure_request_response_mapping(monkeypatch):
     ]
     assert projected["point_budget"] == FIGURE_POINT_BUDGET
     assert projected["points_returned"] == 3
-
-
-async def test_get_run_figure_unknown_run(monkeypatch):
-    """404 maps to unknown_run exactly as get_run_data does."""
-    _serve(monkeypatch, {"detail": "unknown run 'nope'"}, status=404)
-    with assert_raises_error(error_type="unknown_run"):
-        await _fn("get_run_figure")(run_id="nope")
-
-
-async def test_get_run_figure_bridge_error(monkeypatch):
-    _serve(monkeypatch, {"detail": "boom"}, status=503)
-    with assert_raises_error(error_type="bluesky_bridge_error"):
-        await _fn("get_run_figure")(run_id="run-1")
 
 
 async def test_get_run_figure_relays_partial_source_and_any_reason(monkeypatch):

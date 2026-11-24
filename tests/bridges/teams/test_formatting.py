@@ -139,16 +139,6 @@ def test_a_heading_at_any_level_becomes_a_bold_line():
         assert markdown_to_teams("#" * n + " Title") == "**Title**"
 
 
-def test_a_fenced_block_survives_untouched_including_its_language_tag():
-    md = "```bash\n# a comment\necho **not bold**\n| a | b |\n```"
-    assert markdown_to_teams(md) == md
-
-
-def test_inline_code_and_links_are_preserved_verbatim():
-    md = "call `func(**a, _b_)` then read [the docs](http://x/a_b_c#frag)"
-    assert markdown_to_teams(md) == md
-
-
 # --- code masking / restoration --------------------------------------------------
 
 
@@ -171,31 +161,58 @@ def test_inline_code_and_links_are_preserved_verbatim():
         pytest.param(
             "body\n[d]: http://x", "body\n[d]: http://x", id="reference-definition-line-kept"
         ),
+        pytest.param(
+            "```\n### still a comment\n```\n\n### but this one converts",
+            "```\n### still a comment\n```\n\n**but this one converts**",
+            id="heading-inside-a-fence-is-never-bolded",
+        ),
+        pytest.param(
+            "| Name |  |\n| --- | --- |\n| Alice | extra |",
+            "**Name**: Alice, extra",
+            id="table-cell-with-no-header-emits-the-value-alone",
+        ),
+        # The masked code span carries the pipe, so the row still splits into two cells.
+        pytest.param(
+            "| Key | Value |\n| --- | --- |\n| `x` | `a | b` |",
+            "**Key**: `x`, **Value**: `a | b`",
+            id="inline-code-inside-a-table-cell-survives-the-row-rewrite",
+        ),
     ],
 )
 def test_markdown_converts_to_its_teams_form(md, expected):
     assert markdown_to_teams(md) == expected
 
 
-def test_markdown_significant_characters_inside_inline_code_are_preserved():
-    md = "call `func(**a, _b_)` and `x | y` and `# not a heading` and `$HOME`"
+@pytest.mark.parametrize(
+    "md",
+    [
+        pytest.param(
+            "```bash\n# a comment\necho **not bold**\n| a | b |\n```",
+            id="fenced-block-including-its-language-tag",
+        ),
+        pytest.param(
+            "call `func(**a, _b_)` then read [the docs](http://x/a_b_c#frag)",
+            id="inline-code-and-links",
+        ),
+        pytest.param(
+            "call `func(**a, _b_)` and `x | y` and `# not a heading` and `$HOME`",
+            id="markdown-significant-characters-inside-inline-code",
+        ),
+        # No closing ``` -> not a fence match -> emitted unchanged (malformed -> raw).
+        pytest.param("```python\nprint('hi')\nno closing fence", id="unterminated-fence"),
+        # Several code spans come back each in its own place, in order.
+        pytest.param(
+            "first `one` then `two` then ```\nthree\n``` done",
+            id="multiple-code-spans-restored-in-order",
+        ),
+        # A header and separator with no data rows has nothing to label.
+        pytest.param(
+            "| a | b |\n| --- | --- |", id="header-only-table-falls-back-to-the-raw-block"
+        ),
+    ],
+)
+def test_markdown_teams_renders_natively_is_left_verbatim(md):
     assert markdown_to_teams(md) == md
-
-
-def test_an_unterminated_fence_is_left_verbatim():
-    # No closing ``` -> not a fence match -> emitted unchanged (malformed -> raw).
-    md = "```python\nprint('hi')\nno closing fence"
-    assert markdown_to_teams(md) == md
-
-
-def test_multiple_code_spans_are_restored_in_order():
-    md = "first `one` then `two` then ```\nthree\n``` done"
-    assert markdown_to_teams(md) == md
-
-
-def test_a_heading_inside_a_fence_is_never_bolded():
-    md = "```\n### still a comment\n```\n\n### but this one converts"
-    assert markdown_to_teams(md) == "```\n### still a comment\n```\n\n**but this one converts**"
 
 
 # --- tables ----------------------------------------------------------------------
@@ -205,23 +222,6 @@ def test_the_text_surrounding_a_table_is_preserved():
     md = "before\n\n| H | V |\n| --- | --- |\n| k | 1 |\n\nafter"
     out = markdown_to_teams(md)
     assert out == "before\n\n**H**: k, **V**: 1\n\nafter"
-
-
-def test_a_table_cell_with_no_header_emits_the_value_alone():
-    md = "| Name |  |\n| --- | --- |\n| Alice | extra |"
-    assert markdown_to_teams(md) == "**Name**: Alice, extra"
-
-
-def test_a_header_only_table_falls_back_to_the_raw_block():
-    # A header and separator with no data rows has nothing to label.
-    md = "| a | b |\n| --- | --- |"
-    assert markdown_to_teams(md) == md
-
-
-def test_inline_code_inside_a_table_cell_survives_the_row_rewrite():
-    md = "| Key | Value |\n| --- | --- |\n| `x` | `a | b` |"
-    # The masked code span carries the pipe, so the row still splits into two cells.
-    assert markdown_to_teams(md) == "**Key**: `x`, **Value**: `a | b`"
 
 
 # --- math ------------------------------------------------------------------------

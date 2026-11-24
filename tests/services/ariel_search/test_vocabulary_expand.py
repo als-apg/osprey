@@ -197,17 +197,15 @@ class TestFormToCanonical:
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
         assert expansion.flattened_text == "check the ts on shift troubleshoot"
 
-    def test_no_match_leaves_query_untouched(self, demo: Vocabulary) -> None:
-        expansion = expand("undulator gap", demo)
+    @pytest.mark.parametrize(
+        "text",
+        [pytest.param("undulator gap", id="no_match"), pytest.param("", id="empty_text")],
+    )
+    def test_no_match_leaves_query_untouched(self, demo: Vocabulary, text: str) -> None:
+        expansion = expand(text, demo)
 
         assert expansion.groups == ()
-        assert expansion.flattened_text == "undulator gap"
-
-    def test_empty_text(self, demo: Vocabulary) -> None:
-        expansion = expand("", demo)
-
-        assert expansion.groups == ()
-        assert expansion.flattened_text == ""
+        assert expansion.flattened_text == text
 
 
 class TestAmbiguousForms:
@@ -431,20 +429,28 @@ class TestDeduplication:
 class TestNormalization:
     """`original` is the matched span as it appears in the NORMALIZED text."""
 
-    def test_hyphen_and_case_are_normalized_in_the_group(self, demo: Vocabulary) -> None:
-        expansion = expand("Beam-Position   Monitor", demo)
-
-        assert pairs(expansion) == [("beam position monitor", ("bpm",))]
-
     def test_flattened_text_keeps_the_original_surface(self, demo: Vocabulary) -> None:
         expansion = expand("Beam-Position   Monitor", demo)
 
         assert expansion.flattened_text == "Beam-Position   Monitor bpm"
 
-    def test_uppercase_form_matches(self, demo: Vocabulary) -> None:
-        expansion = expand("BPM offset", demo)
-
-        assert pairs(expansion) == [("bpm", ("beam position monitor",))]
+    @pytest.mark.parametrize(
+        ("query", "expected_pairs"),
+        [
+            pytest.param(
+                "Beam-Position   Monitor",
+                [("beam position monitor", ("bpm",))],
+                id="hyphen_and_case_are_normalized_in_the_group",
+            ),
+            pytest.param(
+                "BPM offset", [("bpm", ("beam position monitor",))], id="uppercase_form_matches"
+            ),
+        ],
+    )
+    def test_group_original_is_normalized(
+        self, demo: Vocabulary, query: str, expected_pairs: list
+    ) -> None:
+        assert pairs(expand(query, demo)) == expected_pairs
 
     def test_normalize_is_the_shared_rule(self) -> None:
         assert normalize("Beam-Position   Monitor") == "beam position monitor"
@@ -758,13 +764,16 @@ class TestScan:
             ("beam", 3, 4),
         ]
 
-    def test_interior_period_after_first_token_matches_nothing(self, demo: Vocabulary) -> None:
-        assert scan("beam. position monitor", demo) == []
-        assert pairs(expand("beam. position monitor", demo)) == []
-
-    def test_interior_spaced_period_matches_nothing(self, demo: Vocabulary) -> None:
-        assert scan("beam . position monitor", demo) == []
-        assert pairs(expand("beam . position monitor", demo)) == []
+    @pytest.mark.parametrize(
+        "text",
+        [
+            pytest.param("beam. position monitor", id="after_first_token"),
+            pytest.param("beam . position monitor", id="spaced"),
+        ],
+    )
+    def test_interior_period_matches_nothing(self, demo: Vocabulary, text: str) -> None:
+        assert scan(text, demo) == []
+        assert pairs(expand(text, demo)) == []
 
     def test_interior_comma_inside_canonical_matches_nothing(self, demo: Vocabulary) -> None:
         assert scan("beam position, monitor", demo) == []

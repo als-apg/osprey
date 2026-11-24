@@ -1363,27 +1363,23 @@ class TestTheSelinuxHint:
 
         assert self.HINT not in run.stderr, run.stderr
 
-    def test_a_super_privileged_container_adds_no_hint(self, sandbox: Sandbox):
+    @pytest.mark.parametrize(
+        "proc_attr",
+        [
+            # A super-privileged container.
+            pytest.param("system_u:system_r:spc_t:s0\0", id="spc_t"),
+            # An unconfined label.
+            pytest.param("unconfined_u:unconfined_r:unconfined_t:s0\0", id="unconfined"),
+        ],
+    )
+    def test_an_unconfining_label_adds_no_hint(self, sandbox: Sandbox, proc_attr: str):
         spool = sandbox.spool_mount(gid=3000)
 
         run = sandbox.run(
             spool_dir=spool,
             probe_rc=1,
             selinux_enforce=None,
-            proc_attr="system_u:system_r:spc_t:s0\0",
-        )
-
-        assert "cannot write" in run.stderr, run.stderr
-        assert "SELinux" not in run.stderr, run.stderr
-
-    def test_an_unconfined_label_adds_no_hint(self, sandbox: Sandbox):
-        spool = sandbox.spool_mount(gid=3000)
-
-        run = sandbox.run(
-            spool_dir=spool,
-            probe_rc=1,
-            selinux_enforce=None,
-            proc_attr="unconfined_u:unconfined_r:unconfined_t:s0\0",
+            proc_attr=proc_attr,
         )
 
         assert "cannot write" in run.stderr, run.stderr

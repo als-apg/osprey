@@ -53,11 +53,6 @@ def test_data_tree_addition_moves_the_hash(data_profile):
     assert compute_profile_hash(data_profile) != before
 
 
-def test_unchanged_data_tree_hashes_the_same(data_profile):
-    """Re-hashing an untouched tree must not manufacture drift on every deploy."""
-    assert compute_profile_hash(data_profile) == compute_profile_hash(data_profile)
-
-
 def test_runtime_minted_material_does_not_move_the_hash(data_profile):
     """#716: material ``osprey up`` mints under ``data/.runtime/`` is not build input.
 

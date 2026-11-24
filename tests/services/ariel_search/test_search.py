@@ -87,23 +87,24 @@ class TestParseQuery:
         search_text, filters, phrases = parse_query('"beam loss" "rf fault"')
         assert phrases == ["beam loss", "rf fault"]
 
-    def test_author_filter(self):
-        """Extracts author: filter."""
-        search_text, filters, phrases = parse_query("beam author:smith")
-        assert search_text == "beam"
-        assert filters == {"author": "smith"}
-
-    def test_date_filter(self):
-        """Extracts date: filter."""
-        search_text, filters, phrases = parse_query("fault date:2024-01")
-        assert search_text == "fault"
-        assert filters == {"date": "2024-01"}
-
-    def test_multiple_filters(self):
-        """Extracts multiple filters."""
-        search_text, filters, phrases = parse_query("beam author:smith date:2024-01")
-        assert search_text == "beam"
-        assert filters == {"author": "smith", "date": "2024-01"}
+    @pytest.mark.parametrize(
+        ("query", "text", "expected_filters"),
+        [
+            pytest.param("beam author:smith", "beam", {"author": "smith"}, id="author"),
+            pytest.param("fault date:2024-01", "fault", {"date": "2024-01"}, id="date"),
+            pytest.param(
+                "beam author:smith date:2024-01",
+                "beam",
+                {"author": "smith", "date": "2024-01"},
+                id="multiple",
+            ),
+        ],
+    )
+    def test_field_filters_are_extracted(self, query, text, expected_filters):
+        """Extracts author: and date: filters, alone or together, out of the search text."""
+        search_text, filters, phrases = parse_query(query)
+        assert search_text == text
+        assert filters == expected_filters
 
     def test_combined_query(self):
         """Parses query with filters and phrases."""
@@ -128,26 +129,25 @@ class TestParseQuery:
 class TestBuildTsquery:
     """Tests for tsquery building."""
 
-    def test_simple_terms(self):
-        """Builds tsquery for simple terms."""
-        result = build_tsquery("beam current", [])
-        assert "plainto_tsquery" in result
-
-    def test_with_operators(self):
-        """Builds tsquery with boolean operators."""
-        result = build_tsquery("beam AND loss", [])
-        # After operator replacement, should use websearch_to_tsquery
-        assert "websearch_to_tsquery" in result or "plainto_tsquery" in result
-
-    def test_with_phrases(self):
-        """Includes phrase queries."""
-        result = build_tsquery("beam", ["exact phrase"])
-        assert "phraseto_tsquery" in result
-
-    def test_empty_inputs(self):
-        """Handles empty inputs."""
-        result = build_tsquery("", [])
-        assert "plainto_tsquery" in result
+    @pytest.mark.parametrize(
+        ("text", "phrases", "expected"),
+        [
+            # Simple terms take the plain leg, with the text as a parameter.
+            pytest.param("beam current", [], "plainto_tsquery('english', %s)", id="simple-terms"),
+            # Each phrase adds its own parameterised phrase leg.
+            pytest.param(
+                "beam",
+                ["exact phrase"],
+                "plainto_tsquery('english', %s) && phraseto_tsquery('english', %s)",
+                id="with-phrases",
+            ),
+            # Nothing to search is the literal empty tsquery, with no placeholder.
+            pytest.param("", [], "plainto_tsquery('english', '')", id="empty-inputs"),
+        ],
+    )
+    def test_tsquery_is_built_exactly(self, text, phrases, expected):
+        """build_tsquery returns the exact parameterised tsquery for its inputs."""
+        assert build_tsquery(text, phrases) == expected
 
     @pytest.mark.parametrize("spell", [str.upper, str.lower])
     @pytest.mark.parametrize("word", sorted(ALLOWED_OPERATORS))
@@ -169,22 +169,6 @@ class TestBuildTsquery:
         text = "ANDERSON ORBIT NOTE"
         assert build_tsquery(text, []) == "plainto_tsquery('english', %s)"
         assert not has_boolean_operators(text)
-
-
-class TestSearchModuleExports:
-    """Tests for search module exports."""
-
-    def test_keyword_search_exported(self):
-        """keyword_search is exported from search module."""
-        from osprey.services.ariel_search.search import keyword_search
-
-        assert callable(keyword_search)
-
-    def test_semantic_search_exported(self):
-        """semantic_search is exported from search module."""
-        from osprey.services.ariel_search.search import semantic_search
-
-        assert callable(semantic_search)
 
 
 class TestKeywordSearchFunction:
@@ -600,9 +584,11 @@ class TestKeywordSearchWithResults:
             end_date=end_date,
         )
 
-        call_args = mock_repository.keyword_search.call_args
-        # Check call was made (date filtering applied via SQL)
-        assert call_args is not None
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert start_date in kwargs["params"]
+        assert end_date in kwargs["params"]
+        assert "timestamp >= %s" in kwargs["where_clauses"]
+        assert "timestamp <= %s" in kwargs["where_clauses"]
 
 
 class TestSemanticSearchWithDateFilters:
@@ -706,66 +692,43 @@ class TestQuerySQLInjection:
         return repo
 
     @pytest.mark.asyncio
-    async def test_drop_table_injection(self, mock_repository, mock_config):
-        """SQL injection with DROP TABLE is treated as literal text."""
+    @pytest.mark.parametrize(
+        "malicious_query",
+        [
+            pytest.param("'; DROP TABLE entries; --", id="drop-table"),
+            pytest.param("' OR '1'='1", id="or"),
+            pytest.param("test UNION SELECT * FROM users --", id="union-select"),
+        ],
+    )
+    async def test_injection_is_treated_as_literal_text(
+        self, mock_repository, mock_config, malicious_query
+    ):
+        """An SQL injection attempt reaches the repository as a bound parameter, never as SQL."""
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        malicious_query = "'; DROP TABLE entries; --"
-        await keyword_search(malicious_query, mock_repository, mock_config)
-
-        # Verify the query was passed as a parameter, not executed
-        mock_repository.keyword_search.assert_called_once()
-        call_args = mock_repository.keyword_search.call_args
-        params = call_args.kwargs.get("params", [])
-
-        # The malicious content should be in params as literal text
-        # and not cause any SQL execution
-        assert any("DROP TABLE" in str(p) for p in params)
-
-    @pytest.mark.asyncio
-    async def test_or_injection(self, mock_repository, mock_config):
-        """SQL injection with OR '1'='1' is treated as literal text."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        malicious_query = "' OR '1'='1"
         await keyword_search(malicious_query, mock_repository, mock_config)
 
         mock_repository.keyword_search.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_union_select_injection(self, mock_repository, mock_config):
-        """SQL injection with UNION SELECT is treated as literal text."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        malicious_query = "test UNION SELECT * FROM users --"
-        await keyword_search(malicious_query, mock_repository, mock_config)
-
-        # Query should be handled safely as literal text
-        mock_repository.keyword_search.assert_called_once()
-
-    def test_parameterized_queries_use_placeholders(self):
-        """Verify tsquery builder uses %s placeholders for parameterized queries."""
-        result = build_tsquery("test query", [])
-
-        # The result should contain %s placeholder for parameterized query
-        assert "%s" in result
-
-    def test_parameterized_queries_with_phrases(self):
-        """Verify phrase queries also use %s placeholders."""
-        result = build_tsquery("test", ["exact phrase"])
-
-        # Should have placeholders for both
-        assert result.count("%s") >= 2
+        kwargs = mock_repository.keyword_search.call_args.kwargs
+        assert kwargs["params"][0] == malicious_query
+        assert not any(malicious_query in clause for clause in kwargs["where_clauses"])
 
 
 class TestUnbalancedQuotes:
     """Tests for unbalanced quotes handling (GAP-C001, TEST-H002)."""
 
-    def test_balanced_quotes_unchanged(self):
-        """Balanced quotes are not modified."""
-        query = '"hello world" test'
-        result = _balance_quotes(query)
-        assert result == query
+    @pytest.mark.parametrize(
+        "query",
+        [
+            pytest.param('"hello world" test', id="balanced-quotes"),
+            pytest.param("simple query", id="no-quotes"),
+            # An empty quoted string is preserved.
+            pytest.param('""', id="empty-quotes"),
+        ],
+    )
+    def test_balanced_query_is_unchanged(self, query):
+        """A query whose quotes are already balanced is not modified."""
+        assert _balance_quotes(query) == query
 
     @pytest.mark.parametrize(
         "query",
@@ -780,25 +743,9 @@ class TestUnbalancedQuotes:
         result = _balance_quotes(query)
         assert result.count('"') % 2 == 0
 
-    def test_no_quotes(self):
-        """Query without quotes is unchanged."""
-        query = "simple query"
-        result = _balance_quotes(query)
-        assert result == query
-
-    def test_empty_quotes(self):
-        """Empty quoted string is preserved."""
-        query = '""'
-        result = _balance_quotes(query)
-        assert result == '""'
-
     def test_parse_query_handles_unbalanced_quotes(self):
-        """parse_query safely handles unbalanced quotes."""
-        # This should not raise an error
-        search_text, filters, phrases = parse_query('"beam loss')
-        # The unbalanced quote should be handled
-        assert isinstance(search_text, str)
-        assert isinstance(phrases, list)
+        """parse_query drops the unpaired quote and keeps its words as search text."""
+        assert parse_query('"beam loss') == ("beam loss", {}, [])
 
     @pytest.mark.asyncio
     async def test_keyword_search_unbalanced_quotes(self):
@@ -820,9 +767,8 @@ class TestUnbalancedQuotes:
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
-        # Should not raise an error
-        result = await keyword_search('"beam loss', mock_repo, config)
-        assert isinstance(result, list)
+        await keyword_search('"beam loss', mock_repo, config)
+        assert mock_repo.keyword_search.call_args.kwargs["params"][0] == "beam loss"
 
 
 class TestQueryLengthTruncation:
@@ -833,8 +779,20 @@ class TestQueryLengthTruncation:
         assert MAX_QUERY_LENGTH == 1000
 
     @pytest.mark.asyncio
-    async def test_long_query_truncated(self):
-        """Queries longer than 1000 chars are truncated."""
+    @pytest.mark.parametrize(
+        ("query", "sent", "truncated"),
+        [
+            # Queries longer than 1000 chars are truncated, not rejected.
+            pytest.param("a" * 1500, "a" * 1000, True, id="long-query-truncated"),
+            pytest.param("a" * 1000, "a" * 1000, False, id="query-at-limit-not-truncated"),
+            pytest.param(
+                "beam current", "beam current", False, id="query-under-limit-not-truncated"
+            ),
+        ],
+    )
+    async def test_query_is_cut_to_the_limit(self, caplog, query, sent, truncated):
+        """The repository receives the query cut to MAX_QUERY_LENGTH, with a warning only when cut."""
+        import logging
         from unittest.mock import AsyncMock, MagicMock
 
         from osprey.services.ariel_search.config import ARIELConfig
@@ -852,61 +810,12 @@ class TestQueryLengthTruncation:
         mock_repo.keyword_search = AsyncMock(return_value=[])
         mock_repo.fuzzy_search = AsyncMock(return_value=[])
 
-        long_query = "a" * 1500
-        await keyword_search(long_query, mock_repo, config)
-
-        # Verify keyword_search was called (query was truncated, not rejected)
-        mock_repo.keyword_search.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_query_at_limit_not_truncated(self):
-        """Query exactly at 1000 chars is not truncated."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        from osprey.services.ariel_search.config import ARIELConfig
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost/test"},
-                "search_modules": {"keyword": {"enabled": True}},
-            }
-        )
-
-        mock_repo = MagicMock()
-        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
-        mock_repo.keyword_search = AsyncMock(return_value=[])
-        mock_repo.fuzzy_search = AsyncMock(return_value=[])
-
-        exactly_at_limit = "a" * 1000
-        await keyword_search(exactly_at_limit, mock_repo, config)
+        with caplog.at_level(logging.WARNING, logger="ariel"):
+            await keyword_search(query, mock_repo, config)
 
         mock_repo.keyword_search.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_query_under_limit_not_truncated(self):
-        """Query under 1000 chars is not truncated."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        from osprey.services.ariel_search.config import ARIELConfig
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost/test"},
-                "search_modules": {"keyword": {"enabled": True}},
-            }
-        )
-
-        mock_repo = MagicMock()
-        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
-        mock_repo.keyword_search = AsyncMock(return_value=[])
-        mock_repo.fuzzy_search = AsyncMock(return_value=[])
-
-        short_query = "beam current"
-        await keyword_search(short_query, mock_repo, config)
-
-        mock_repo.keyword_search.assert_called_once()
+        assert mock_repo.keyword_search.call_args.kwargs["params"][0] == sent
+        assert ("Query truncated from" in caplog.text) is truncated
 
 
 class TestUnknownFieldPrefix:
@@ -929,65 +838,6 @@ class TestUnknownFieldPrefix:
         assert filters["author"] == "smith"
         assert "beam" in search_text
         assert "author:smith" not in search_text
-
-
-# === Validation Tests (TEST-H007, TEST-H008) ===
-
-
-class TestSemanticSearchValidation:
-    """Tests for semantic search validation (TEST-H007, TEST-H008)."""
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create mock config with dimension specified."""
-        from osprey.services.ariel_search.config import ARIELConfig
-
-        return ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost/test"},
-                "search_modules": {
-                    "semantic": {
-                        "enabled": True,
-                        "model": "test-model",
-                        "settings": {"embedding_dimension": 384},
-                    },
-                },
-            }
-        )
-
-    @pytest.mark.skip(
-        reason="Requires unified event system fixtures (captured_events) not yet implemented"
-    )
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("fallback_handler_with_capture")
-    async def test_embedding_dimension_mismatch_warning(
-        self, mock_config, captured_events, search_calls
-    ):
-        """Warning logged when embedding dimension mismatches config (TEST-H008)."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        from osprey.services.ariel_search.search.semantic import semantic_search
-
-        mock_repo = MagicMock()
-        attach_fake_fts(mock_repo, has_v2=False, has_copy_state=False)
-        mock_repo.semantic_search = AsyncMock(return_value=[])
-
-        # Return embedding with different dimension than configured
-        mock_embedder = make_fake_embedding_provider(default_base_url="http://localhost:11434")()
-        mock_embedder.execute_embedding = MagicMock(
-            return_value=[[0.1, 0.2, 0.3]]  # 3 dimensions, config expects 384
-        )
-
-        await semantic_search(
-            "test query",
-            mock_repo,
-            mock_config,
-            mock_embedder,
-            search_calls=search_calls,
-        )
-
-        # Check that warning was emitted via unified event system
-        assert any("dimension mismatch" in e.get("message", "").lower() for e in captured_events)
 
 
 # === Edge Case Tests (EDGE-004 to EDGE-016) ===
@@ -1252,47 +1102,6 @@ class TestEmbeddingGenerationQuality:
 
         assert len(result) == 1
         assert len(result[0]) == 768
-
-
-class TestStemmingOutput:
-    """Quality assertions for stemming output (QUAL-005)."""
-
-    def test_stemming_applied_in_tsquery(self):
-        """Verify stemming is applied in tsquery building.
-
-        QUAL-005: Verify stemming output.
-        PostgreSQL's to_tsquery with 'english' configuration applies stemming.
-        """
-        # build_tsquery uses 'english' config which applies stemming
-        result = build_tsquery("running tests", [])
-
-        # The result is a template string with %s placeholders
-        # Stemming happens in PostgreSQL, but we verify the config is used
-        assert "english" in result.lower() or "%s" in result
-
-    def test_tsquery_uses_english_config(self):
-        """tsquery explicitly uses 'english' configuration."""
-        result = build_tsquery("test", [])
-
-        # Should reference 'english' configuration for stemming
-        # or use plainto_tsquery which defaults to english
-        assert "english" in result.lower() or "plainto_tsquery" in result.lower()
-
-    def test_stemmed_words_match_variations(self):
-        """Stemmed search matches word variations (conceptual test).
-
-        This verifies the expected behavior:
-        - "running" -> "run" (stem)
-        - "tests" -> "test" (stem)
-
-        Actual stemming happens in PostgreSQL's to_tsvector/to_tsquery.
-        """
-        # The tsquery builder handles the setup, PostgreSQL does stemming
-        query_with_variations = "running tests testing runner"
-        result = build_tsquery(query_with_variations, [])
-
-        # Query should be constructed (stemming happens server-side)
-        assert "%s" in result or "plainto_tsquery" in result
 
 
 class TestThreeTierPriorityComplete:

@@ -67,15 +67,13 @@ def _assert_epics_prohibitions_present(content: str) -> None:
     )
 
 
-def test_epics_prohibitions_present(tmp_path):
-    content = _render_safety_rule(tmp_path, "safety-epics", "epics")
-    _assert_epics_prohibitions_present(content)
+@pytest.mark.parametrize("cs_type", CA_TYPES)
+def test_channel_access_prohibitions_present(tmp_path, cs_type):
+    """Every Channel Access connector gets the EPICS caget/caput prohibitions.
 
-
-def test_virtual_accelerator_prohibitions_present(tmp_path):
-    """The bug this task fixes: virtual_accelerator must get the same
-    caget/caput prohibitions as epics, not the generic else-branch text."""
-    content = _render_safety_rule(tmp_path, "safety-va", "virtual_accelerator")
+    The bug this pins: virtual_accelerator got the generic else-branch text
+    instead of the same prohibitions as epics."""
+    content = _render_safety_rule(tmp_path, f"safety-{cs_type[:8]}", cs_type)
     _assert_epics_prohibitions_present(content)
 
 

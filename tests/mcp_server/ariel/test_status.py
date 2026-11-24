@@ -95,7 +95,6 @@ async def test_status_service_exception(ariel_registry):
 
     with patch_ariel_service(mock_service):
         fn = _get_status()
-        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+        with assert_raises_error(error_type="internal_error") as ctx:
             await fn()
-
-    _exc_ctx["envelope"]
+        assert "Service crashed" in ctx["envelope"]["error_message"]

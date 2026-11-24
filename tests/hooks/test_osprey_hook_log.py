@@ -342,13 +342,10 @@ class TestIsDebugEnabled:
     def test_no_env_no_config_returns_false(self):
         assert hook_log._is_debug_enabled({"cwd": "/nonexistent"}) is False
 
-    def test_config_fallback_returns_true(self, tmp_path):
-        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": True}}))
-        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is True
-
-    def test_config_fallback_false(self, tmp_path):
-        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": False}}))
-        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is False
+    @pytest.mark.parametrize("debug", [True, False])
+    def test_config_fallback(self, tmp_path, debug):
+        (tmp_path / "config.yml").write_text(yaml.dump({"hooks": {"debug": debug}}))
+        assert hook_log._is_debug_enabled({"cwd": str(tmp_path)}) is debug
 
     def test_caches_result(self, tmp_path):
         """A second call answers from the first read, not from the file."""

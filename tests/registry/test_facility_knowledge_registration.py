@@ -101,10 +101,10 @@ class TestFacilityKnowledgeResolved:
         names = [s["name"] for s in servers]
         assert "osprey_facility_knowledge" in names
 
-    def test_enabled_by_default(self):
+    def test_enabled_by_default_and_not_custom(self):
         servers = resolve_servers({}, base_ctx())
         fk = _get_fk(servers)
-        assert fk["enabled"] is True
+        assert (fk["enabled"], fk["is_custom"]) == (True, False)
 
     def test_command_uses_python_env(self):
         ctx = base_ctx(current_python_env="/custom/python3")
@@ -165,11 +165,6 @@ class TestFacilityKnowledgeResolved:
         servers = resolve_servers(cfg, ctx)
         fk = _get_fk(servers)
         assert fk["enabled"] is False
-
-    def test_is_not_custom(self):
-        servers = resolve_servers({}, base_ctx())
-        fk = _get_fk(servers)
-        assert fk["is_custom"] is False
 
 
 # ---------------------------------------------------------------------------

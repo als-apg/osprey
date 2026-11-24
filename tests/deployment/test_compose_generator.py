@@ -1922,7 +1922,7 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     read-only at ``/app/qserver/user_group_permissions.yaml`` (see the
     compose template's mount comment), so ``_copy_service_templates`` staging
     it into ``services/bluesky/`` is what "rendered" means here — the same
-    staging ``test_nextcloud_bridge_template_is_bundled_into_a_declaring_project``
+    staging ``test_chat_bridge_template_is_bundled_into_a_declaring_project``
     checks for presence.
     """
     _write_config(tmp_path, deployed_services=["bluesky"])
@@ -3414,69 +3414,57 @@ def test_resolve_user_volume_names_none_config_uses_default_project_name() -> No
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_project_name_valid_lowercase_unchanged() -> None:
-    """An already-valid lowercase name passes through byte-for-byte."""
-    assert resolve_project_name({"project_name": "my-facility-project"}) == "my-facility-project"
-    assert resolve_project_name({"project_name": "als_beamline-7"}) == "als_beamline-7"
-
-
-def test_resolve_project_name_lowercases_mixed_case() -> None:
-    """Mixed-case names are lowercased, matching compose normalization."""
-    assert resolve_project_name({"project_name": "MyProject"}) == "myproject"
-    assert resolve_project_name({"project_name": "Example-Booster"}) == "example-booster"
-
-
-def test_resolve_project_name_drops_spaces() -> None:
-    """Whitespace is dropped (not replaced), matching compose normalization."""
-    assert resolve_project_name({"project_name": "my project"}) == "myproject"
-    assert resolve_project_name({"project_name": "  Spaced  Name  "}) == "spacedname"
-
-
-def test_resolve_project_name_drops_invalid_characters() -> None:
-    """Characters outside [a-z0-9_-] are dropped."""
-    assert resolve_project_name({"project_name": "proj@2024!"}) == "proj2024"
-    assert resolve_project_name({"project_name": "a.b/c:d"}) == "abcd"
-
-
-def test_resolve_project_name_strips_leading_invalid_chars() -> None:
-    """Leading ``_``/``-`` are stripped so the name starts with a letter or number."""
-    assert resolve_project_name({"project_name": "-leading-dash"}) == "leading-dash"
-    assert resolve_project_name({"project_name": "__underscored"}) == "underscored"
-    assert resolve_project_name({"project_name": "-_-mixed"}) == "mixed"
-
-
-def test_resolve_project_name_normalizes_project_root_fallback() -> None:
-    """The basename(project_root) fallback is normalized just like project_name."""
-    assert resolve_project_name({"project_root": "/home/user/My Facility"}) == "myfacility"
-
-
-def test_resolve_project_name_all_invalid_falls_back_to_default() -> None:
-    """A candidate with no valid characters falls back to ``unnamed-project``."""
-    assert resolve_project_name({"project_name": "@#$%"}) == "unnamed-project"
-    assert resolve_project_name({"project_name": "---"}) == "unnamed-project"
-
-
-def test_resolve_project_name_empty_config_uses_default() -> None:
-    """With neither project_name nor project_root, the default name applies."""
-    assert resolve_project_name({}) == "unnamed-project"
-
-
-def test_resolve_project_name_strips_trailing_separators() -> None:
-    """Trailing ``_``/``-`` are stripped, not just leading ones.
-
-    The project name is used as an image-tag prefix (``<project>-dispatch:local``);
-    a surviving trailing separator would produce invalid docker references like
-    ``proj_-dispatch:local``.
-    """
-    assert resolve_project_name({"project_name": "trailing_"}) == "trailing"
-    assert resolve_project_name({"project_name": "trailing-"}) == "trailing"
-    assert resolve_project_name({"project_name": "_both_"}) == "both"
-
-
-def test_resolve_project_name_project_root_trailing_separator_normalized() -> None:
-    """The basename(project_root) fallback also gets trailing separators stripped."""
-    assert resolve_project_name({"project_root": "/home/user/my-project_"}) == "my-project"
-    assert resolve_project_name({"project_root": "/home/user/my-project-"}) == "my-project"
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        # An already-valid lowercase name passes through byte-for-byte.
+        pytest.param(
+            {"project_name": "my-facility-project"}, "my-facility-project", id="valid-hyphen"
+        ),
+        pytest.param({"project_name": "als_beamline-7"}, "als_beamline-7", id="valid-underscore"),
+        # Mixed-case names are lowercased, matching compose normalization.
+        pytest.param({"project_name": "MyProject"}, "myproject", id="mixed-case"),
+        pytest.param(
+            {"project_name": "Example-Booster"}, "example-booster", id="mixed-case-hyphen"
+        ),
+        # Whitespace is dropped (not replaced), matching compose normalization.
+        pytest.param({"project_name": "my project"}, "myproject", id="spaces"),
+        pytest.param({"project_name": "  Spaced  Name  "}, "spacedname", id="spaces-padded"),
+        # Characters outside [a-z0-9_-] are dropped.
+        pytest.param({"project_name": "proj@2024!"}, "proj2024", id="invalid-chars"),
+        pytest.param({"project_name": "a.b/c:d"}, "abcd", id="invalid-chars-punctuation"),
+        # Leading `_`/`-` are stripped so the name starts with a letter or number.
+        pytest.param({"project_name": "-leading-dash"}, "leading-dash", id="leading-dash"),
+        pytest.param({"project_name": "__underscored"}, "underscored", id="leading-underscores"),
+        pytest.param({"project_name": "-_-mixed"}, "mixed", id="leading-mixed-seps"),
+        # The basename(project_root) fallback is normalized just like project_name.
+        pytest.param({"project_root": "/home/user/My Facility"}, "myfacility", id="root-fallback"),
+        # A candidate with no valid characters falls back to `unnamed-project`.
+        pytest.param({"project_name": "@#$%"}, "unnamed-project", id="all-invalid"),
+        pytest.param({"project_name": "---"}, "unnamed-project", id="all-separators"),
+        # With neither project_name nor project_root, the default name applies.
+        pytest.param({}, "unnamed-project", id="empty-config"),
+        # Trailing `_`/`-` are stripped, not just leading ones: the project name
+        # is an image-tag prefix (`<project>-dispatch:local`), and a surviving
+        # trailing separator would produce invalid docker references like
+        # `proj_-dispatch:local`.
+        pytest.param({"project_name": "trailing_"}, "trailing", id="trailing-underscore"),
+        pytest.param({"project_name": "trailing-"}, "trailing", id="trailing-dash"),
+        pytest.param({"project_name": "_both_"}, "both", id="leading-and-trailing"),
+        # The basename(project_root) fallback also gets trailing separators stripped.
+        pytest.param(
+            {"project_root": "/home/user/my-project_"}, "my-project", id="root-trailing-underscore"
+        ),
+        pytest.param(
+            {"project_root": "/home/user/my-project-"}, "my-project", id="root-trailing-dash"
+        ),
+    ],
+)
+def test_resolve_project_name_normalizes_to_a_compose_project_name(
+    config: dict, expected: str
+) -> None:
+    """The resolved name is what compose itself would derive from the candidate."""
+    assert resolve_project_name(config) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -4616,62 +4604,6 @@ _NEXTCLOUD_BRIDGE = _ChatBridge(
 )
 
 
-def test_nextcloud_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger and the poll offsets.
-
-    Both state files default to paths under /data (``DEDUP_PATH``,
-    ``OFFSETS_PATH``); conversation history lives in the agent record. Without a persisted volume a restart
-    loses the in-flight dedup ledger (re-answering or dropping questions) and
-    resets the poll offsets (replaying or skipping room history), so this is a
-    correctness requirement, not a convenience. Named rather than a bind mount so
-    it is namespaced per compose project and survives ``osprey down``.
-    """
-    rendered = _render_bridge_template(_NEXTCLOUD_BRIDGE)
-    parsed = yaml.safe_load(rendered)
-    service = parsed["services"]["nextcloud-bridge"]
-
-    # The state volume, then the bridge's own spool and state binds (its
-    # agent-record zones, not its bridge state).
-    assert service["volumes"][0] == "nextcloud_bridge_data:/data"
-    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
-        "/nextcloud-bridge",
-        "/nextcloud-bridge",
-    ]
-    assert "nextcloud_bridge_data" in parsed["volumes"], (
-        "the /data mount names nextcloud_bridge_data, so the compose file must "
-        "declare it as a top-level named volume or `compose up` errors"
-    )
-    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
-        "bridge state must not be a host bind mount — a named volume is what "
-        "keeps it project-namespaced and portable across runtimes"
-    )
-
-
-@pytest.mark.parametrize("var", _NEXTCLOUD_FAIL_CLOSED_VARS)
-def test_nextcloud_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
-    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
-
-    This is the fail-closed contract. With a fallback, a deployment missing the
-    Talk app password or a dispatch token would come up and authenticate with a
-    guessable placeholder; bare, the value stays empty and
-    ``NextcloudBridgeConfig.require_startup`` aborts at boot naming the missing
-    variables. The absence of the fallback is the requirement, so both the parsed
-    value and the raw text are checked — a substring test for the name alone
-    would pass on the very regression this guards.
-    """
-    rendered = _render_bridge_template(_NEXTCLOUD_BRIDGE)
-    environment = yaml.safe_load(rendered)["services"]["nextcloud-bridge"]["environment"]
-
-    assert environment[var] == f"${{{var}}}", (
-        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
-        "unset value stays empty and the bridge fails closed at boot"
-    )
-    assert f"${{{var}:" not in rendered, (
-        f"{var} carries a compose default — a missing secret would silently "
-        "resolve to it instead of failing the boot"
-    )
-
-
 def test_nextcloud_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
     """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value.
 
@@ -4759,25 +4691,6 @@ def test_nextcloud_bridge_state_paths_match_their_code_defaults() -> None:
     assert cfg.offsets_path == "/srv/state/offsets_path.json"
 
 
-def test_nextcloud_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
-    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
-
-    The bridge reconciles in-flight runs against the dispatcher before accepting
-    a message, so co-deployed it must start after the dispatcher's health probe.
-    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
-    compose fails hard on a ``depends_on`` naming an undefined service.
-    """
-    with_dispatcher = _bridge_service(_NEXTCLOUD_BRIDGE, dispatcher_deployed=True)
-    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
-
-    external = _render_bridge_template(_NEXTCLOUD_BRIDGE, dispatcher_deployed=False)
-    assert "depends_on:" not in external, (
-        "a bridge deployed without the dispatcher must emit no depends_on — "
-        "compose errors on a dependency naming an undefined service"
-    )
-    assert yaml.safe_load(external)["services"]["nextcloud-bridge"].get("depends_on") is None
-
-
 def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     """With the .env supplying the credentials, the same block yields a valid config.
 
@@ -4815,31 +4728,6 @@ def test_nextcloud_bridge_rendered_env_boots_with_host_secrets_supplied() -> Non
     # Both state files must land on the mounted volume, not the image layer.
     for path in (cfg.offsets_path, cfg.core.dedup_path):
         assert path.startswith("/data/"), path
-
-
-def test_nextcloud_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
-    """``osprey build`` copies the packaged bridge template into the project tree.
-
-    The whole service directory (compose template, Dockerfile, .dockerignore)
-    must ship in the package and be discoverable under the ``nextcloud_bridge``
-    service key, or ``osprey up`` has nothing to render and no build
-    context to build.
-    """
-    _write_config(tmp_path, deployed_services=["nextcloud_bridge"])
-
-    # The bridge, plus the always-bundled agent record.
-    assert _copy_service_templates(tmp_path) == 2
-
-    service_dir = tmp_path / "services" / "nextcloud_bridge"
-    assert (service_dir / "docker-compose.yml.j2").is_file()
-    assert (service_dir / "Dockerfile").is_file(), (
-        "the build context needs its Dockerfile — the compose template declares "
-        "build: ./nextcloud_bridge with dockerfile: Dockerfile"
-    )
-    assert (service_dir / ".dockerignore").is_file(), (
-        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
-        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -4977,32 +4865,6 @@ def test_gchat_bridge_sa_key_is_mounted_read_only_at_its_own_path() -> None:
     assert resolved_set["mount"] == "/secrets/gchat-sa.json"
 
 
-@pytest.mark.parametrize("var", _GCHAT_FAIL_CLOSED_VARS)
-def test_gchat_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
-    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
-
-    This is the fail-closed contract. With a fallback, a deployment missing the
-    service-account key or a dispatch token would come up authenticating with a
-    guessable placeholder; bare, the value stays empty and
-    ``GoogleChatBridgeConfig.require_startup`` aborts at boot naming the missing
-    variables. The absence of the fallback is the requirement, so both the parsed
-    value and the raw text of the ``environment:`` block are checked — a
-    substring test for the name alone would pass on the very regression this
-    guards.
-    """
-    rendered = _render_bridge_template(_GCHAT_BRIDGE)
-    environment = yaml.safe_load(rendered)["services"]["gchat-bridge"]["environment"]
-
-    assert environment[var] == f"${{{var}}}", (
-        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
-        "unset value stays empty and the bridge fails closed at boot"
-    )
-    assert f"${{{var}:" not in _gchat_environment_text(rendered), (
-        f"{var} carries a compose default — a missing secret would silently "
-        "resolve to it instead of failing the boot"
-    )
-
-
 def test_gchat_bridge_documents_the_single_subscriber_constraint() -> None:
     """The template warns, beside ``GCHAT_SUBSCRIPTION``, that ONE bridge may pull it.
 
@@ -5128,25 +4990,6 @@ def test_gchat_bridge_state_paths_match_their_code_defaults() -> None:
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
 
 
-def test_gchat_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
-    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
-
-    The bridge reconciles in-flight runs against the dispatcher before accepting
-    a message, so co-deployed it must start after the dispatcher's health probe.
-    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
-    compose fails hard on a ``depends_on`` naming an undefined service.
-    """
-    with_dispatcher = _bridge_service(_GCHAT_BRIDGE, dispatcher_deployed=True)
-    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
-
-    external = _render_bridge_template(_GCHAT_BRIDGE, dispatcher_deployed=False)
-    assert "depends_on:" not in external, (
-        "a bridge deployed without the dispatcher must emit no depends_on — "
-        "compose errors on a dependency naming an undefined service"
-    )
-    assert yaml.safe_load(external)["services"]["gchat-bridge"].get("depends_on") is None
-
-
 def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     """With the .env supplying the credentials, the same block passes the boot gate.
 
@@ -5183,31 +5026,6 @@ def test_gchat_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
     # The state file must land on the mounted volume, not the image layer.
     assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
-
-
-def test_gchat_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
-    """``osprey build`` copies the packaged bridge template into the project tree.
-
-    The whole service directory (compose template, Dockerfile, .dockerignore)
-    must ship in the package and be discoverable under the ``gchat_bridge``
-    service key, or ``osprey up`` has nothing to render and no build
-    context to build.
-    """
-    _write_config(tmp_path, deployed_services=["gchat_bridge"])
-
-    # The bridge, plus the always-bundled agent record.
-    assert _copy_service_templates(tmp_path) == 2
-
-    service_dir = tmp_path / "services" / "gchat_bridge"
-    assert (service_dir / "docker-compose.yml.j2").is_file()
-    assert (service_dir / "Dockerfile").is_file(), (
-        "the build context needs its Dockerfile — the compose template declares "
-        "build: ./gchat_bridge with dockerfile: Dockerfile"
-    )
-    assert (service_dir / ".dockerignore").is_file(), (
-        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
-        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
-    )
 
 
 def test_gchat_bridge_image_installs_the_gchat_extra_over_the_shared_deps_layer() -> None:
@@ -5282,64 +5100,6 @@ _TEAMS_SERVICEBUS_CONNECTION_STRING = (
     "Endpoint=sb://osprey.servicebus.windows.net/;"
     "SharedAccessKeyName=bridge-listen;SharedAccessKey=k"
 )
-
-
-def test_teams_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — it holds the dedup ledger.
-
-    The state file defaults to a path under /data (``DEDUP_PATH``); conversation
-    history lives in the agent record. Without a persisted volume a restart loses the in-flight
-    dedup ledger and the bridge re-answers or drops questions that were mid-run,
-    so this is a correctness requirement, not a convenience. There is no third
-    state file: unlike the nextcloud poller the bridge keeps no read cursor of
-    its own, because Service Bus settlement is the cursor. Named rather than a
-    bind mount so it is namespaced per compose project and survives
-    ``osprey down``.
-    """
-    rendered = _render_bridge_template(_TEAMS_BRIDGE)
-    parsed = yaml.safe_load(rendered)
-    service = parsed["services"]["teams-bridge"]
-
-    # The state volume, then the bridge's own spool and state binds (its
-    # agent-record zones, not its bridge state).
-    assert service["volumes"][0] == "teams_bridge_data:/data"
-    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
-        "/teams-bridge",
-        "/teams-bridge",
-    ]
-    assert "teams_bridge_data" in parsed["volumes"], (
-        "the /data mount names teams_bridge_data, so the compose file must "
-        "declare it as a top-level named volume or `compose up` errors"
-    )
-    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
-        "bridge state must not be a host bind mount — a named volume is what "
-        "keeps it project-namespaced and portable across runtimes"
-    )
-
-
-@pytest.mark.parametrize("var", _TEAMS_FAIL_CLOSED_VARS)
-def test_teams_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
-    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
-
-    This is the fail-closed contract. With a fallback, a deployment missing the
-    bot secret or a dispatch token would come up and authenticate with a
-    guessable placeholder; bare, the value stays empty and
-    ``TeamsBridgeConfig.require_startup`` aborts at boot naming the missing
-    variables. The absence of the fallback is the requirement, so both the parsed
-    value and the raw text are checked — a substring test for the name alone
-    would pass on the very regression this guards.
-    """
-    rendered = _render_bridge_template(_TEAMS_BRIDGE)
-    environment = yaml.safe_load(rendered)["services"]["teams-bridge"]["environment"]
-
-    assert environment[var] == f"${{{var}}}", (
-        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
-        "unset value stays empty and the bridge fails closed at boot"
-    )
-    assert f"${{{var}:" not in rendered, (
-        f"{var} carries a compose default — a missing secret would silently "
-        "resolve to it instead of failing the boot"
-    )
 
 
 def test_teams_bridge_documents_the_one_bridge_per_queue_constraint() -> None:
@@ -5489,17 +5249,14 @@ def test_teams_bridge_state_paths_match_their_code_defaults() -> None:
     assert cfg.core.dedup_path == "/srv/state/dedup_path.json"
 
 
-def test_teams_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
-    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
+def test_teams_bridge_emits_no_depends_on_with_no_dispatch_service_deployed() -> None:
+    """With neither the dispatcher nor the worker co-deployed, no ``depends_on`` at all.
 
-    The bridge reconciles in-flight runs against the dispatcher before accepting
-    a message, so co-deployed it must start after the dispatcher's health probe.
-    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
-    compose fails hard on a ``depends_on`` naming an undefined service.
+    The co-deployed and worker-only (dispatcher absent) cases are the shared
+    ``test_chat_bridge_depends_on_dispatcher_only_when_co_deployed[teams]``; this
+    is the fully external deployment, rendered from a minimal ``services:``
+    mapping that names only the bridge.
     """
-    co_deployed = _bridge_service(_TEAMS_BRIDGE)
-    assert co_deployed["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
-
     external = _bridge_service(
         _TEAMS_BRIDGE,
         dispatcher_deployed=False,
@@ -5554,33 +5311,21 @@ def test_teams_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
 
 
-def test_teams_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
-    """``osprey build`` copies the packaged bridge template into the project tree.
+def test_teams_bridge_template_bundles_its_relay_directory(tmp_path: Path) -> None:
+    """``osprey build`` copies the nested ``relay/`` directory along with the rest.
 
-    The whole service directory (compose template, Dockerfile, .dockerignore)
-    must ship in the package and be discoverable under the ``teams_bridge``
-    service key, or ``osprey up`` has nothing to render and no build context to
-    build. The nested ``relay/`` directory has to make the same trip: it is the
-    half an operator publishes to Azure Functions, and a deployment repo that did
-    not carry it would leave them with a bridge draining a queue nothing writes
-    to. No other bundled service template has a subdirectory, so this is the one
+    The service directory itself is the shared
+    ``test_chat_bridge_template_is_bundled_into_a_declaring_project[teams]``. The
+    nested ``relay/`` directory has to make the same trip: it is the half an
+    operator publishes to Azure Functions, and a deployment repo that did not
+    carry it would leave them with a bridge draining a queue nothing writes to.
+    No other bundled service template has a subdirectory, so this is the one
     place the recursive copy is pinned.
     """
     _write_config(tmp_path, deployed_services=["teams_bridge"])
-
-    # The bridge, plus the always-bundled agent record.
-    assert _copy_service_templates(tmp_path) == 2
+    _copy_service_templates(tmp_path)
 
     service_dir = tmp_path / "services" / "teams_bridge"
-    assert (service_dir / "docker-compose.yml.j2").is_file()
-    assert (service_dir / "Dockerfile").is_file(), (
-        "the build context needs its Dockerfile — the compose template declares "
-        "build: ./build/services/teams_bridge with dockerfile: Dockerfile"
-    )
-    assert (service_dir / ".dockerignore").is_file(), (
-        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
-        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
-    )
     for relay_file in ("function_app.py", "validation.py", "host.json", "requirements.txt"):
         assert (service_dir / "relay" / relay_file).is_file(), (
             f"relay/{relay_file} must reach the deployment repo — it is published "
@@ -5678,41 +5423,6 @@ _SLACK_BRIDGE = _ChatBridge(
 )
 
 
-def test_slack_bridge_state_volume_is_named_and_mounted_at_data() -> None:
-    """/data is a NAMED volume — the dedup ledger and the durable inbox live there.
-
-    Slack never redelivers an event the bridge has acked, so losing /data on a
-    restart drops questions or re-answers ones that were mid-run. Named rather
-    than a bind mount so it is namespaced per compose project.
-    """
-    parsed = yaml.safe_load(_render_bridge_template(_SLACK_BRIDGE))
-    service = parsed["services"]["slack-bridge"]
-
-    assert service["volumes"][0] == "slack_bridge_data:/data"
-    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
-        "/slack-bridge",
-        "/slack-bridge",
-    ]
-    assert "slack_bridge_data" in parsed["volumes"]
-    assert not str(service["volumes"][0]).startswith((".", "/", "$"))
-
-
-@pytest.mark.parametrize("var", _SLACK_FAIL_CLOSED_VARS)
-def test_slack_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
-    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
-
-    Bare, an unset token stays empty and ``require_startup`` aborts at boot
-    naming it; with a fallback the bridge would come up on a placeholder. Both
-    the parsed value and the raw text are checked, since the absence of the
-    fallback is the requirement.
-    """
-    rendered = _render_bridge_template(_SLACK_BRIDGE)
-    environment = yaml.safe_load(rendered)["services"]["slack-bridge"]["environment"]
-
-    assert environment[var] == f"${{{var}}}", environment[var]
-    assert f"${{{var}:" not in rendered
-
-
 def test_slack_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
     """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value."""
     environment = _bridge_service(_SLACK_BRIDGE)["environment"]
@@ -5760,17 +5470,6 @@ def test_slack_bridge_state_paths_match_their_code_defaults() -> None:
     assert SlackBridgeConfig.from_env(overridden).core.dedup_path == "/srv/dedup.json"
 
 
-def test_slack_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
-    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed;
-    compose fails hard on a ``depends_on`` naming an undefined service."""
-    with_dispatcher = _bridge_service(_SLACK_BRIDGE, dispatcher_deployed=True)
-    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
-
-    external = _render_bridge_template(_SLACK_BRIDGE, dispatcher_deployed=False)
-    assert "depends_on:" not in external
-    assert yaml.safe_load(external)["services"]["slack-bridge"].get("depends_on") is None
-
-
 def test_slack_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     """With the .env supplying the credentials, the same block yields a valid config.
 
@@ -5801,19 +5500,6 @@ def test_slack_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
     assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
     assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
     assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
-
-
-def test_slack_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
-    """``osprey build`` copies the packaged bridge service directory into the project."""
-    _write_config(tmp_path, deployed_services=["slack_bridge"])
-
-    # The bridge, plus the always-bundled agent record.
-    assert _copy_service_templates(tmp_path) == 2
-
-    service_dir = tmp_path / "services" / "slack_bridge"
-    assert (service_dir / "docker-compose.yml.j2").is_file()
-    assert (service_dir / "Dockerfile").is_file()
-    assert (service_dir / ".dockerignore").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -6206,6 +5892,134 @@ def test_chat_bridge_publishes_no_ports_and_declares_no_healthcheck(bridge: _Cha
     assert "healthcheck" not in service
     assert service["networks"] == ["osprey-network"]
     assert service["restart"] == "unless-stopped"
+
+
+# Every bridge but Google Chat mounts its /data volume first; Google Chat's first
+# mount is its read-only service-account key, so its state-volume test (which
+# also pins the absent offsets store) stays in its own section.
+_DATA_FIRST_CHAT_BRIDGES = [param for param in _CHAT_BRIDGES if param.id != "gchat"]
+
+
+@pytest.mark.parametrize("bridge", _DATA_FIRST_CHAT_BRIDGES)
+def test_chat_bridge_state_volume_is_named_and_mounted_at_data(bridge: _ChatBridge) -> None:
+    """/data is a NAMED volume — it holds the bridge's state.
+
+    Every bridge keeps its dedup ledger there (``DEDUP_PATH``); conversation
+    history lives in the agent record. The Nextcloud poller also keeps its poll
+    offsets there (``OFFSETS_PATH``) and the Slack bridge its durable inbox; the
+    Teams bridge keeps no read cursor of its own, because Service Bus settlement
+    is the cursor. Without a persisted volume a restart loses the in-flight dedup
+    ledger (re-answering or dropping questions — Slack never redelivers an event
+    the bridge has acked) and, for Nextcloud, resets the poll offsets (replaying
+    or skipping room history), so this is a correctness requirement, not a
+    convenience. Named rather than a bind mount so it is namespaced per compose
+    project and survives ``osprey down``.
+    """
+    parsed = yaml.safe_load(_render_bridge_template(bridge))
+    service = parsed["services"][bridge.service_key]
+    data_volume = f"{bridge.config_key}_data"
+
+    # The state volume, then the bridge's own spool and state binds (its
+    # agent-record zones, not its bridge state).
+    assert service["volumes"][0] == f"{data_volume}:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        f"/{bridge.service_key}",
+        f"/{bridge.service_key}",
+    ]
+    assert data_volume in parsed["volumes"], (
+        f"the /data mount names {data_volume}, so the compose file must "
+        "declare it as a top-level named volume or `compose up` errors"
+    )
+    assert not str(service["volumes"][0]).startswith((".", "/", "$")), (
+        "bridge state must not be a host bind mount — a named volume is what "
+        "keeps it project-namespaced and portable across runtimes"
+    )
+
+
+@pytest.mark.parametrize(
+    ("bridge", "var"),
+    [
+        pytest.param(param.values[0], var, id=f"{param.id}-{var}")
+        for param in _CHAT_BRIDGES
+        for var in param.values[0].fail_closed_vars
+    ],
+)
+def test_chat_bridge_credentials_render_without_a_default_fallback(
+    bridge: _ChatBridge, var: str
+) -> None:
+    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
+
+    This is the fail-closed contract. With a fallback, a deployment missing a
+    credential (the Talk app password, the Google service-account key, the Teams
+    bot secret, a Slack token) or a dispatch token would come up and
+    authenticate with a guessable placeholder; bare, the value stays empty and
+    the bridge config's ``require_startup`` aborts at boot naming the missing
+    variables. The absence of the fallback is the requirement, so both the parsed
+    value and the raw text are checked — a substring test for the name alone
+    would pass on the very regression this guards.
+    """
+    rendered = _render_bridge_template(bridge)
+    environment = yaml.safe_load(rendered)["services"][bridge.service_key]["environment"]
+    # Google Chat's raw-text check is scoped to its ``environment:`` block: its
+    # ``volumes:`` block legitimately carries the ``${GCHAT_SA_KEY:-/dev/null}``
+    # mount sentinel, which never reaches the container's environment.
+    raw = _gchat_environment_text(rendered) if bridge is _GCHAT_BRIDGE else rendered
+
+    assert environment[var] == f"${{{var}}}", (
+        f"{var} must be a bare ${{{var}}} reference (got {environment[var]!r}) so an "
+        "unset value stays empty and the bridge fails closed at boot"
+    )
+    assert f"${{{var}:" not in raw, (
+        f"{var} carries a compose default — a missing secret would silently "
+        "resolve to it instead of failing the boot"
+    )
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_depends_on_dispatcher_only_when_co_deployed(bridge: _ChatBridge) -> None:
+    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed.
+
+    The bridge reconciles in-flight runs against the dispatcher before accepting
+    a message, so co-deployed it must start after the dispatcher's health probe.
+    A bridge pointed at an EXTERNAL dispatcher must not emit the block at all:
+    compose fails hard on a ``depends_on`` naming an undefined service.
+    """
+    with_dispatcher = _bridge_service(bridge, dispatcher_deployed=True)
+    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
+
+    external = _render_bridge_template(bridge, dispatcher_deployed=False)
+    assert "depends_on:" not in external, (
+        "a bridge deployed without the dispatcher must emit no depends_on — "
+        "compose errors on a dependency naming an undefined service"
+    )
+    assert yaml.safe_load(external)["services"][bridge.service_key].get("depends_on") is None
+
+
+@pytest.mark.parametrize("bridge", _CHAT_BRIDGES)
+def test_chat_bridge_template_is_bundled_into_a_declaring_project(
+    bridge: _ChatBridge, tmp_path: Path
+) -> None:
+    """``osprey build`` copies the packaged bridge template into the project tree.
+
+    The whole service directory (compose template, Dockerfile, .dockerignore)
+    must ship in the package and be discoverable under the bridge's service
+    key, or ``osprey up`` has nothing to render and no build context to build.
+    """
+    _write_config(tmp_path, deployed_services=[bridge.config_key])
+
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
+
+    service_dir = tmp_path / "services" / bridge.config_key
+    assert (service_dir / "docker-compose.yml.j2").is_file()
+    assert (service_dir / "Dockerfile").is_file(), (
+        "the build context needs its Dockerfile — the compose template declares "
+        f"build: ./build/services/{bridge.config_key} with dockerfile: Dockerfile"
+    )
+    assert (service_dir / ".dockerignore").is_file(), (
+        ".dockerignore is the guaranteed COPY sibling the Dockerfile's optional "
+        "wheel/requirements globs rely on, and it keeps a stale .env out of the image"
+    )
 
 
 def test_find_existing_compose_files_answers_from_an_explicit_base(tmp_path, monkeypatch) -> None:
