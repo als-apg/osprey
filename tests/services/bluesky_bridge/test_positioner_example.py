@@ -18,10 +18,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from bluesky import RunEngine
+from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
+from bluesky.utils import RunEngineInterrupted
 
 from osprey.facility.views.bluesky import BLUESKY_DEVICES_FILE
+from osprey.services.bluesky_bridge.devices import connector as connector_module
 from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey.services.bluesky_bridge.devices.connector import ConnectorPositioner, build_devices
 from osprey_connectors.control_system._va_in_process_connector import VAInProcessConnector
@@ -33,6 +35,7 @@ pytestmark = [pytest.mark.slow]
 
 POSITION, POSITION_RB = "ES1:MOT:STAGE:01:POSITION:SP", "ES1:MOT:STAGE:01:POSITION:RB"
 MOVE, MOVE_STATUS = "ES1:MOT:STAGE:01:MOVE:SP", "ES1:MOT:STAGE:01:STATUS:MOVE"
+STOP = "ES1:MOT:STAGE:01:STOP:SP"
 #: The simulator's tick in these tests.
 TICK_S = 0.05
 
@@ -50,6 +53,7 @@ class _Stage:
     positioner: ConnectorPositioner
     connector: VAInProcessConnector
     statuses: list[str]
+    options: list[str]
     tolerance: float
     hang_s: float
 
@@ -96,7 +100,9 @@ def stage(
     positioner = devices[POSITION]
     assert isinstance(positioner, ConnectorPositioner)
     try:
-        yield _Stage(run_engine, positioner, connector, statuses, spec.settle_tolerance, hang_s)
+        yield _Stage(
+            run_engine, positioner, connector, statuses, options, spec.settle_tolerance, hang_s
+        )
     finally:
         _on_loop(run_engine, connector.disconnect(), hang_s)
 
@@ -132,3 +138,39 @@ def test_the_example_move_command_is_no_device(built_demo: BuiltProject) -> None
     (spec,) = [spec for spec in specs.settables if spec.name == POSITION]
     assert spec.started_by is not None
     assert (spec.started_by.command, spec.started_by.status) == (MOVE, MOVE_STATUS)
+
+
+def test_the_example_stop_command_is_no_device(built_demo: BuiltProject) -> None:
+    specs = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
+    names = {spec.name for spec in (*specs.settables, *specs.triggerables, *specs.readables)}
+
+    assert STOP not in names
+    (spec,) = [spec for spec in specs.settables if spec.name == POSITION]
+    assert spec.stopped_by == STOP
+
+
+def test_an_abort_mid_move_writes_the_stop_channel(stage: _Stage) -> None:
+    """OSPREY aborts a run by pausing it mid-move, then aborting the paused run."""
+    moving = asyncio.Event()
+    loop = stage.run_engine.loop
+
+    def on_status(reading: Any) -> None:
+        if stage.options[reading.value] == "MOVING":
+            loop.call_soon_threadsafe(moving.set)
+
+    stage.on_loop(stage.connector.subscribe(MOVE_STATUS, on_status))
+    target = _readback(stage) + 1.0
+
+    def move_then_pause() -> Iterator[Any]:
+        yield from bps.abs_set(stage.positioner, target)
+        yield Msg("wait_for", None, [moving.wait])
+        yield Msg("pause")
+
+    with pytest.raises(RunEngineInterrupted):
+        stage.run_engine(move_then_pause())
+    stage.run_engine.abort()
+
+    assert stage.run_engine.state == "idle"
+    assert stage.on_loop(stage.connector.read_channel(STOP)).value == connector_module.PRESS_VALUE
+    outcome = stage.positioner.stop_outcome
+    assert outcome is not None and outcome.state == "written"

@@ -125,3 +125,11 @@ async def test_the_stage_setpoint_is_started_by_its_move_command(
         assert_unmoved(POSITION_RB, demand, moved, band)
     finally:
         await connector.disconnect()
+
+
+def test_the_stage_setpoint_names_its_stop_channel(built_demo: BuiltProject) -> None:
+    channels = _channels(built_demo)
+
+    assert channels[POSITION]["started_by"] == MOVE
+    assert channels[POSITION]["stopped_by"] == STOP
+    assert channels[STOP]["command"] is True
