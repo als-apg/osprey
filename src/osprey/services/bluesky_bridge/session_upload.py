@@ -61,7 +61,6 @@ from osprey_connectors.posture_store import bind_owner, current_owner
 
 from .plan_fields import declared_channels
 from .plan_validation import declares_writes, hash_plan_body
-from .plan_writes import held_to_declaration
 from .preflight import (
     available_devices_phrase,
     cancel_unfinished_triggers,
@@ -226,7 +225,10 @@ def install_session_plan(
     with the declaration read by ``plan_validation.declares_writes`` — the
     validator's own reading, so only a literal ``"writes": True`` in the body's
     ``PLAN_METADATA`` lets the launch write. Any other body is refused at its
-    first write, before that write is sent.
+    first write, before that write is sent. The run's write authorization is
+    surveyed from the same statements, after the declaration check
+    (``write_grant.run_under_grant``), so a launch refused for a write asks
+    nobody.
 
     A device the plan triggers is held to its declaration and its unfinished
     trigger is cancelled on every exit but the plan's own return, through the
@@ -305,10 +307,8 @@ def install_session_plan(
             try:
                 try:
                     return (
-                        yield from held_to_declaration(
-                            name,
-                            declares,
-                            run_under_grant(name, lambda: build_plan(declared, params), plan),
+                        yield from run_under_grant(
+                            name, declares, lambda: build_plan(declared, params), plan
                         )
                     )
                 except Exception as exc:

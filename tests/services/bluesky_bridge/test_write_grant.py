@@ -26,7 +26,7 @@ from bluesky.utils import FailedStatus
 from ophyd_async.core import AsyncStatus
 from pydantic import BaseModel, ConfigDict
 
-from osprey.services.bluesky_bridge import qserver_startup, write_grant
+from osprey.services.bluesky_bridge import qserver_startup, session_upload, write_grant
 from osprey.services.bluesky_bridge.devices.connector import (
     PRESS_VALUE,
     ConnectorSettable,
@@ -36,6 +36,7 @@ from osprey.services.bluesky_bridge.devices.mock import MockReadable
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
 from osprey.services.bluesky_bridge.plan_writes import (
     ChannelWrite,
+    UndeclaredWriteError,
     UnstatedWriteError,
     message_may_writes,
     message_writes,
@@ -859,6 +860,121 @@ def test_a_command_write_of_a_value_that_is_no_number_ends_the_run_before_it_ask
 
     assert person.seen == []
     assert connector.sent == []
+
+
+# --- a launch refused for a write asks nobody first --------------------------
+
+_PLAN_SOURCE = """PLAN_METADATA = {{"name": "quad_scan", "writes": {writes}}}
+
+import itertools
+
+from bluesky import plan_stubs as bps
+from pydantic import BaseModel, ConfigDict
+
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+
+_BUILDS = itertools.count()
+
+
+class PARAMS(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    quad: MovableChannel = {device!r}
+    points: list[float] = [1.0, 2.0, 3.0]
+
+
+def _scan(devices, params, moves):
+    if moves:
+        for point in params.points:
+            yield from bps.mv(devices[params.quad], point)
+    yield from bps.null()
+
+"""
+
+_SCAN = """
+def build_plan(devices, params):
+    return _scan(devices, params, True)
+"""
+
+_MOVES_ONLY_FOR_REAL = """
+def build_plan(devices, params):
+    # The wrapper builds the run's plan first and the survey's copy second.
+    return _scan(devices, params, next(_BUILDS) == 0)
+"""
+
+
+def _wrapped(kind: str, body: str, device: Any, *, writes: bool) -> Any:
+    """The plan *body* as the catalog or the session wrapper installs it."""
+    source = _PLAN_SOURCE.format(writes=writes, device=DEVICE) + body
+    if kind == "session":
+        namespace: dict[str, Any] = {"__name__": "__main__", DEVICE: device}
+        return session_upload.install_session_plan(namespace, "quad_scan", source)
+    module: dict[str, Any] = {"__name__": "catalog_plan"}
+    exec(compile(source, "<catalog plan>", "exec", dont_inherit=True), module)
+    spec = SimpleNamespace(
+        name="quad_scan",
+        schema=module["PARAMS"],
+        plan=module["build_plan"],
+        description="",
+        metadata=SimpleNamespace(writes=writes),
+    )
+    return qserver_startup._make_plan_function(spec, devices={DEVICE: device})
+
+
+def _launch(plan_function: Any) -> None:
+    RunEngine(context_managers=[])(plan_function(**{RESERVED_OWNER_KWARG: ME}))
+
+
+def _nothing_was_asked(ledger: Path, person: _Person, connector: _Connector) -> None:
+    assert person.seen == []
+    requests, _ = wa.list_requests(ledger / wa.REQUESTS_DIR_NAME)
+    assert requests == ()
+    assert connector.writes == []
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_both_wrappers_refuse_an_undeclared_write_before_anybody_is_asked(
+    ledger: Path, person: _Person, kind: str
+) -> None:
+    connector = _Connector()
+    device = ConnectorSettable(connector, CHANNEL, name=DEVICE)
+
+    with pytest.raises(UndeclaredWriteError):
+        _launch(_wrapped(kind, _SCAN, device, writes=False))
+
+    _nothing_was_asked(ledger, person, connector)
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_an_undeclared_write_the_survey_did_not_see_is_refused_before_anybody_is_asked(
+    ledger: Path, person: _Person, kind: str
+) -> None:
+    connector = _Connector()
+    device = ConnectorSettable(connector, CHANNEL, name=DEVICE)
+
+    with pytest.raises(UndeclaredWriteError):
+        _launch(_wrapped(kind, _MOVES_ONLY_FOR_REAL, device, writes=False))
+
+    _nothing_was_asked(ledger, person, connector)
+
+
+class _Unstated(ConnectorSettable):
+    """A setpoint that can be set and states nothing about what that writes."""
+
+    set_writes = None
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_a_device_that_does_not_state_its_writes_is_refused_before_anybody_is_asked(
+    ledger: Path, person: _Person, kind: str
+) -> None:
+    connector = _Connector()
+    device = _Unstated(connector, CHANNEL, name=DEVICE)
+
+    with pytest.raises(UnstatedWriteError):
+        _launch(_wrapped(kind, _SCAN, device, writes=True))
+
+    _nothing_was_asked(ledger, person, connector)
 
 
 # --- every shipped plan device class, surveyed -------------------------------

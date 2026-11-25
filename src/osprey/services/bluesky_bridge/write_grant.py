@@ -82,6 +82,7 @@ from .plan_writes import (
     ChannelWrite,
     UndeclaredWriteError,
     UnstatedWriteError,
+    held_to_declaration,
     message_may_writes,
     message_writes,
 )
@@ -673,27 +674,41 @@ def withdraw_leftover_requests() -> tuple[str, ...]:
 
 
 def run_under_grant(
-    plan_name: str, build: Callable[[], Iterable[Any]], plan: Iterable[Any]
+    plan_name: str,
+    declares_writes: bool | None,
+    build: Callable[[], Iterable[Any]],
+    plan: Iterable[Any],
 ) -> Generator[Any, Any, Any]:
-    """Run *plan* with every write under a write authorization for this run.
+    """Run *plan* held to its declaration, with every write under a write authorization.
 
     *build* makes a fresh copy of the same plan for the survey; *plan* is the
     one the RunEngine runs. Must be entered inside the wrapper's
     ``bind_owner``, so the owner is the queue item's. The grant names the
     control target this worker's lane declares, the target its connector is
     stamped with.
+
+    Both copies run through ``plan_writes.held_to_declaration`` with
+    *declares_writes*, the declaration guard inside the grant: the survey
+    steps the held copy, so an undeclared or unstated write it sees refuses
+    the launch before anything is asked, and the run's held plan sits between
+    the plan and the grant's check, so a write only the run reaches is refused
+    before the check can ask anybody. A run with no ledger directory, no owner
+    or no write is held to its declaration all the same.
     """
     from bluesky.preprocessors import plan_mutator, single_gen
 
     from osprey.services.bluesky_bridge.queue_backend import resolve_lane_identity
     from osprey_connectors.posture_store import NO_OWNER, current_owner
 
+    def held(copy: Iterable[Any]) -> Generator[Any, Any, Any]:
+        return held_to_declaration(plan_name, declares_writes, copy)
+
     owner = current_owner()
     if not enabled() or owner is NO_OWNER or not isinstance(owner, str):
-        return (yield from plan)
-    survey = yield from survey_writes(build)
+        return (yield from held(plan))
+    survey = yield from survey_writes(lambda: held(build()))
     if survey.complete and survey.steps == 0 and survey.reserve == 0:
-        return (yield from plan)
+        return (yield from held(plan))
     authorization = PlanAuthorization(plan_name, owner, resolve_lane_identity()[1])
     authorization.reserved = survey.reserve
     authorization.stoppers = set(survey.stoppers)
@@ -737,6 +752,6 @@ def run_under_grant(
 
             return head(), None
 
-        return (yield from plan_mutator(plan, check))
+        return (yield from plan_mutator(held(plan), check))
     finally:
         authorization.release()
