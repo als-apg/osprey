@@ -311,7 +311,7 @@ VIEWS: tuple[View, ...] = (
         path=VIEW_RELPATH.name,
         written_when=_always,
         write=_write_simulator,
-        reads=("control_system", "simulation.default_scenarios"),
+        reads=("control_system", "deployed_services", "simulation.default_scenarios"),
     ),
     View(
         name="limits",

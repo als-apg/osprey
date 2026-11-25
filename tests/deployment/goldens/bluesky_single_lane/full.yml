@@ -206,6 +206,12 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 
+      # The write requests this lane's queueserver files, read-only, and the
+      # name it files them under: a plan waiting for a person to approve its
+      # writes shows in the queue summary as `awaiting_approval`
+      # (`bluesky_bridge.write_grant.awaiting_approval`).
+      OSPREY_WRITE_REQUESTS_DIR: /opt/osprey/write_authorization/requests
+      BLUESKY_WORKER_HOLDER: queueserver
       HTTP_PROXY: ${HTTP_PROXY}
       NO_PROXY: ${NO_PROXY}
     volumes:
@@ -259,6 +265,9 @@ services:
       # connector follows. The writes gate above still decides WHETHER to mount.
       - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 
+      # The queueserver's write requests, READ-ONLY: the bridge only reports
+      # that one is waiting; approving it is the web terminal's.
+      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro
     networks:
       # Dual-homed: osprey-network for the bluesky-web sidecar and Tiled,
       # bluesky-internal to reach the RE Manager's control socket.
@@ -426,6 +435,12 @@ services:
       # image's group-joining entrypoint, so nothing here joins the tree's
       # group: the mode on the host directory is the whole access story.
       OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
+      # The write ledger, mounted read-write below: where a plan run files the
+      # write request a person approves from the chip, where the worker's
+      # connector spends the grant's steps, and where the run renews its lease
+      # (`bluesky_bridge.write_grant`). Naming it is what turns the per-run
+      # write authorization on; bound with the tree, as the optimizer's is.
+      OSPREY_WRITE_LEDGER_DIR: /opt/osprey/write_authorization/ledger
       # ── queue control plane (server side) ────────────────────────────────
       # Upstream-spelled: `start-re-manager` reads the private key from
       # QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER. It treats an EMPTY value as
@@ -557,6 +572,10 @@ services:
       # follows `agent_data.base_dir`, and a template that joined that itself
       # would be a second spelling of the path the writer resolves.
       - ./var/agent_data/control_target:/osprey/control_tree:ro
+      # The deployment's write ledger, READ-WRITE and outside the state zone:
+      # each plan run's requests, ledgers and self-issued grants. Every web
+      # terminal reads its requests/ through a read-only bind of its own.
+      - ./var/write_ledger:/opt/osprey/write_authorization/ledger
     networks:
       # Necessarily dual-homed: bluesky-internal for the bridge and Redis,
       # osprey-network to reach the Virtual Accelerator's Channel Access

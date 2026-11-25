@@ -27,8 +27,8 @@ What goes where
        knowledge/  ariel/  benchmarks/
 
 The machine repository holds every machine fact, including its start set: the
-scenarios marked ``start: true``, which the simulator activates when it first
-comes up. The deployment keeps only what it writes about its own use of the
+scenarios marked ``start: true`` or ``start_on``, which the simulator
+activates when it first comes up. The deployment keeps only what it writes about its own use of the
 machine: ``knowledge/``, ``ariel/`` and ``benchmarks/``
 (:doc:`/how-to/describe-your-facility`).
 
@@ -89,8 +89,8 @@ fix, on:
    remove the deployment's copy.
 ``profile-invalid``
    ``machine:`` and ``data:`` overlap; a login file states ``machine:``; or the
-   profile states ``simulation.default_scenarios`` beside ``start: true`` marks
-   or a mounted machine. ``simulation.default_scenarios: null`` cancels a
+   profile states ``simulation.default_scenarios`` beside ``start: true`` or
+   ``start_on`` marks or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.
 
 .. _machine-repository-upgrade:

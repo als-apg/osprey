@@ -103,7 +103,7 @@ from tests.e2e._deploy_support import find_osprey_console_script
 from tests.e2e._orm_stack import VA_PVA_PORT, seed_repo_env
 from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
-from tests.e2e.sdk_helpers import set_switch_in_record
+from tests.e2e.sdk_helpers import approving_write_requests, set_switch_in_record
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
@@ -655,7 +655,9 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     # The plan runs later, in the lane's worker, for the owner the tools stamp
     # on every add (``current_owner`` here); its writes follow THAT owner's
     # switch, read from the deployment's control tree. On for the simulator,
-    # so an armed add executes rather than failing its first write.
+    # so an armed add executes rather than failing its first write. At `asked`
+    # each plan's worker asks for its write authorization, and the approver
+    # around the yield answers it the way a person would.
     owner = posture_store.current_owner()
     assert isinstance(owner, str) and owner, f"this process names no owner: {owner!r}"
     config = yaml.safe_load(stack.config_path.read_text(encoding="utf-8"))
@@ -663,7 +665,8 @@ def bluesky_tools(stack: LaneStack, monkeypatch):
     set_switch_in_record(stack.repo, owner=owner, targets=[TARGET_VA])
     initialize_server_context()
     try:
-        yield queue_tools
+        with approving_write_requests(stack.repo):
+            yield queue_tools
     finally:
         reset_server_context()
         reset_config_cache()

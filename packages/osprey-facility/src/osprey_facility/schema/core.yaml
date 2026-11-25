@@ -1089,8 +1089,17 @@ classes:
       start:
         range: boolean
         description: >-
-          True puts the scenario in the deployment's start set, the scenarios
-          the simulator activates when it first comes up; absent means false.
+          True puts the scenario in the start set of every simulator instance
+          the deployment runs, the scenarios an instance activates when it
+          first comes up; absent means false.
+      start_on:
+        range: string
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          The simulator targets (`va`, `standin`) whose instances start in the
+          scenario, for a scenario that starts on some instances and not on
+          others; stated in place of `start: true`.
       still:
         range: Any
         description: >-

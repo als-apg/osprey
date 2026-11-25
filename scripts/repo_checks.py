@@ -2474,6 +2474,7 @@ LANES: tuple[Lane, ...] = (
         "test_per_target_posture.py",
         "test_model_status_va.py",
         "test_ca_loop_exit.py",
+        "test_instance_scenarios.py",
     ),
     Lane("plugin-smoke", "plugin install", _PLUGIN_TREES),
     Lane(

@@ -92,4 +92,5 @@ retired paths, and its move machinery assumes nothing about the facility tree:
 | `osprey_facility.simulated` | framework job: `osprey.facility.views` |
 | `osprey_facility.source_tree` | framework job: `osprey.cli`, `osprey.facility`, `osprey.mcp_server.python_executor`, `osprey.registry`, `osprey.simulation` |
 | `osprey_facility.sources` | framework job: `osprey.facility.views` |
+| `osprey_facility.start` | framework job: `osprey.facility.settings` |
 | `osprey_facility.validate` | framework job: `osprey.cli`, `osprey.facility.views`, `osprey.mcp_server.channel_finder_graph`, `osprey.registry` |

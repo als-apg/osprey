@@ -1144,8 +1144,9 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
 
     Raises:
         FacilityBuildError: ``profile-invalid`` naming
-            ``simulation.default_scenarios`` if the value is not a list of
-            non-empty strings.
+            ``simulation.default_scenarios`` if the value is neither a list of
+            non-empty strings nor a mapping of ``va`` and ``standin`` to such
+            lists.
     """
     from osprey.simulation import DEFAULT_SCENARIOS_KEY
     from osprey.simulation.apply import resolve_default_scenarios
@@ -1157,7 +1158,8 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
             "profile-invalid",
             DEFAULT_SCENARIOS_KEY,
             ["profile.yml"],
-            f"set `{DEFAULT_SCENARIOS_KEY}` to a list of scenario names",
+            f"set `{DEFAULT_SCENARIOS_KEY}` to a list of scenario names, or to a mapping "
+            "with such a list under `va` and under `standin`",
             record_kind="path",
             detail=str(error),
         ) from error

@@ -45,6 +45,7 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     configured_ariel_mirror_path,
+    render_shares_scenario_state,
     rendered_checkout,
     repo_identity,
     resolve_image_defaults,
@@ -53,6 +54,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_site_build_args,
     resolve_site_image_axes,
+    simulator_log_mount_sources,
 )
 from osprey.deployment.compose_watch import ContainerState, watched_compose_up
 from osprey.deployment.container_ownership import (
@@ -4834,10 +4836,10 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
     :raises ViewSchemaError: The render's view is from an older build.
     """
     from osprey.simulation.apply import persisted_scenario_anchor
+    from osprey.simulation.targets import HISTORY_TARGET, target_state_dir
     from osprey_connectors.simulation.archive import build
     from osprey_connectors.simulation.state import read_active_state
     from osprey_connectors.simulation.view import SimulatorView
-    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     view = SimulatorView.find(project_dir)
     if view is None:
@@ -4846,7 +4848,7 @@ def _archiver_seed_inputs(config: dict, project_dir: Path):
             f"{SimulatorView.path_for_project(project_dir)}. "
             "Run `osprey build`; the seed never invents a namespace."
         )
-    names, _ = read_active_state(resolve_simulation_state_dir(config, project_dir))
+    names, _ = read_active_state(target_state_dir(config, project_dir, HISTORY_TARGET))
     anchor = persisted_scenario_anchor(config, project_dir)
     return build(view, names, anchor_s=None if anchor is None else anchor.timestamp())
 
@@ -4881,15 +4883,15 @@ def _reapply_active_scenarios(config: dict, project_dir: Path) -> None:
         persisted_scenario_anchor,
         view_scenarios,
     )
+    from osprey.simulation.targets import HISTORY_TARGET, target_state_dir
     from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
-    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     if view_scenarios(project_dir) is None:
         logger.debug("No simulator view in this project; no scenarios to re-apply after the reseed")
         return
 
     names = resolve_active_scenarios(
-        read_active_state(resolve_simulation_state_dir(config, project_dir))[0]
+        read_active_state(target_state_dir(config, project_dir, HISTORY_TARGET))[0]
     )
     # The anchor the running world is already on: re-anchoring here would slide
     # the live VA's events, the logbook and the archive's windows to a T0 nobody
@@ -5474,16 +5476,41 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
     """Activate ``simulation.default_scenarios`` when the deployment never chose a set.
 
     Run before the archiver and ARIEL stages, which then seed the history and the
-    narrative of the set written here. Never fatal: a deployment whose defaults
+    narrative of the set written here. A second simulator instance the
+    deployment runs is given its own start set after it
+    (:func:`_activate_instance_scenarios`). Never fatal: a deployment whose defaults
     cannot be activated still comes up on ``nominal``, and the warning names the
     command that activates them.
 
     :param config: Raw deploy config.
     :param project_dir: The deployment repo root.
-    :returns: The activated set, or ``()`` when nothing was activated.
+    :returns: The set activated on the target the stored data follows, or ``()``
+        when nothing was activated there.
     """
     from osprey.simulation.apply import activate_default_scenarios
+    from osprey.simulation.targets import (
+        HISTORY_TARGET,
+        active_scenarios,
+        deployed_simulator_targets,
+        target_state_dir,
+    )
+    from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
+    # Read before anything is activated: a second instance that ran before this
+    # deploy, on a deployment whose history target already holds a set, followed
+    # that set until now. An instance that is new to the deployment followed
+    # nothing, whatever the history target holds.
+    history_state = target_state_dir(config, project_dir, HISTORY_TARGET)
+    followed = (
+        active_scenarios(config, project_dir, HISTORY_TARGET)
+        if (history_state / ACTIVE_SCENARIOS_FILENAME).is_file()
+        else None
+    )
+    others = [t for t in deployed_simulator_targets(config) if t != HISTORY_TARGET]
+    # The compose file is written by `osprey build` alone. A render made before
+    # instances had sets of their own mounts one state into both, so nothing is
+    # handed over until the deployment is built again.
+    shared = bool(others) and render_shares_scenario_state(config, project_dir)
     try:
         active = activate_default_scenarios(
             config, project_dir, store_deadline_s=_ARIEL_STORE_DEADLINE_S
@@ -5494,10 +5521,103 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
             f"so this deployment runs `nominal` only. Run `osprey sim apply <names>` from "
             f"{project_dir} to choose a set. Cause: {exc}"
         )
-        return ()
+        active = ()
     if active:
         _report_step(f"scenarios active by default: {', '.join(active)}")
+    for target in others:
+        if shared:
+            _report_step(
+                f"{target} follows the {HISTORY_TARGET} scenario set: this render mounts one "
+                "scenario state into both simulator instances. Run `osprey build`, then "
+                "`osprey up`, to give each instance a set of its own"
+            )
+            continue
+        ran_before = _instance_ran_before(project_dir, target)
+        _activate_instance_scenarios(config, project_dir, target, followed if ran_before else None)
     return active
+
+
+def _instance_ran_before(project_dir: Path, target: str) -> bool:
+    """Whether a second simulator instance has served on this deployment before.
+
+    The record is the instance's own model-log directory: its container
+    appends a log per model there, and nothing else writes to it. An instance
+    that is newly deployed, or whose first start never got as far as serving,
+    has left none.
+    """
+    from osprey.simulation.targets import SIMULATOR_SERVICES
+
+    source = simulator_log_mount_sources().get(SIMULATOR_SERVICES[target])
+    if source is None:
+        return False
+    try:
+        return any((Path(project_dir) / source).iterdir())
+    except OSError:
+        return False
+
+
+def _activate_instance_scenarios(
+    config: dict, project_dir: Path, target: str, followed: list[str] | None
+) -> None:
+    """Give a second simulator instance its own start set when it holds no set yet.
+
+    Each simulator instance has an active scenario set of its own. An instance
+    with no state file starts in the set ``simulation.default_scenarios`` names
+    for it, telemetry only: the stored data follows the history target. On a
+    deployment that was already running, the instance read the history target's
+    set until this deploy, and one line says which set it runs now and which it
+    followed. The instance is given a state file even when its start set is
+    empty, so that line is printed by one deploy and no later one.
+    Never fatal, as :func:`_activate_default_scenarios` is not.
+
+    :param config: Raw deploy config.
+    :param project_dir: The deployment repo root.
+    :param target: The simulator target of the instance.
+    :param followed: The names the history target's state file held before this
+        deploy, or ``None`` when it had no state file or the instance had not
+        served on this deployment before.
+    """
+    from osprey.simulation.apply import (
+        activate_default_scenarios,
+        apply_scenarios,
+        view_scenarios,
+    )
+    from osprey.simulation.targets import HISTORY_TARGET, target_state_dir
+    from osprey_connectors.simulation.state import (
+        ACTIVE_SCENARIOS_FILENAME,
+        DEFAULT_SCENARIO,
+        resolve_active_scenarios,
+    )
+
+    state_file = target_state_dir(config, project_dir, target) / ACTIVE_SCENARIOS_FILENAME
+    if state_file.is_file() or view_scenarios(project_dir) is None:
+        return
+    try:
+        active = activate_default_scenarios(
+            config, project_dir, target=target, store_deadline_s=_ARIEL_STORE_DEADLINE_S
+        )
+        if not active:
+            active = apply_scenarios(
+                project_dir, [], target=target, store_deadline_s=_ARIEL_STORE_DEADLINE_S
+            ).active
+    except Exception as exc:  # reported, never fatal (see docstring)
+        logger.warning(
+            f"The default scenarios of the {target} instance could not be activated, so it "
+            f"runs `nominal` only. Run `osprey sim apply --target {target} <names>` from "
+            f"{project_dir} to choose a set. Cause: {exc}"
+        )
+        return
+    if followed is None:
+        if set(active) - {DEFAULT_SCENARIO}:
+            _report_step(f"scenarios active by default on {target}: {', '.join(active)}")
+        return
+    before = resolve_active_scenarios(followed)
+    restore = " ".join(name for name in before if name != DEFAULT_SCENARIO) or DEFAULT_SCENARIO
+    _report_step(
+        f"{target} now holds a scenario set of its own: {', '.join(active)}. Until this deploy "
+        f"it followed the {HISTORY_TARGET} set ({', '.join(before)}); "
+        f"`osprey sim apply --target {target} {restore}` puts that set back"
+    )
 
 
 # ---------------------------------------------------------------------------

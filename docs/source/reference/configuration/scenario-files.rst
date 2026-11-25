@@ -56,6 +56,15 @@ Every key is optional.
        `Select readings to still`_). While the scenario is active, those
        readings serve without drift, couplings or noise; readout faults
        still apply.
+   * - ``start``
+     - ``true`` puts the scenario in the start set of every simulator
+       instance the deployment runs: the set an instance that has never
+       been given one starts in.
+   * - ``start_on``
+     - The simulator instances whose start set holds the scenario, a list of
+       ``va`` and ``standin``: ``start_on: [standin]`` starts it on the live
+       stand-in alone. A scenario states ``start`` or ``start_on``, not both.
+       An instance the deployment does not run is no error.
    * - ``sessions``
      - Past agent sessions, ``[{slug, title, when, parts}]``. Each part has
        a ``title`` and ``turns``; a ``/clear`` starts the next part. A turn

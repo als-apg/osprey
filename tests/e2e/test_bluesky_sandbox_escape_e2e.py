@@ -96,7 +96,7 @@ from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import env_value, format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.sdk_helpers import arm_deployed_queue_owner
+from tests.e2e.sdk_helpers import approving_write_requests, arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.slow,
@@ -447,6 +447,8 @@ def deployed_sandbox_stack(
     _orm_stack.seed_repo_env(repo)
     # The positive plan writes: this login's switch on in the deployment's
     # record, before `up`, for the owner every add here names.
+    # At `asked` each plan's worker asks for its write authorization; the
+    # approver around the yield below answers it the way a person would.
     arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
@@ -478,13 +480,14 @@ def deployed_sandbox_stack(
             _queue_drive.wait_for_worker_environment(BRIDGE_URL)
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
-        yield DeployedSandboxStack(
-            repo=repo,
-            escape_target_sp=escape_sp,
-            escape_target_rb=escape_rb,
-            positive_correctors=positive_correctors,
-            positive_bpms=bpms,
-        )
+        with approving_write_requests(repo):
+            yield DeployedSandboxStack(
+                repo=repo,
+                escape_target_sp=escape_sp,
+                escape_target_rb=escape_rb,
+                positive_correctors=positive_correctors,
+                positive_bpms=bpms,
+            )
     finally:
         down = subprocess.run(
             [str(osprey_bin), "down"],

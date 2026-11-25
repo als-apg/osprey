@@ -165,6 +165,27 @@ DEVICES_FILE_TARGET = "/app/project/data/bluesky_devices.yml"
 DEVICES_MOUNT = f"./build/services/bluesky/bluesky_devices.yml:{DEVICES_FILE_TARGET}:ro"
 
 
+def _write_ledger_context() -> dict[str, str]:
+    """The write-ledger and write-request keys the generator injects into every render."""
+    from osprey.deployment.compose_generator import (
+        WRITE_LEDGER_CONTAINER_DIR,
+        WRITE_REQUESTS_CONTAINER_DIR,
+        repo_relative_mount_source,
+        write_ledger_relpath,
+        write_requests_relpath,
+    )
+    from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR, REQUESTS_DIR_ENV_VAR
+
+    return {
+        "write_ledger_mount_source": repo_relative_mount_source(write_ledger_relpath()),
+        "write_ledger_container_dir": WRITE_LEDGER_CONTAINER_DIR,
+        "write_ledger_env": LEDGER_DIR_ENV_VAR,
+        "write_requests_mount_source": repo_relative_mount_source(write_requests_relpath()),
+        "write_requests_container_dir": WRITE_REQUESTS_CONTAINER_DIR,
+        "write_requests_env": REQUESTS_DIR_ENV_VAR,
+    }
+
+
 def _context(
     *,
     lanes: dict[str, dict[str, Any]],
@@ -242,6 +263,9 @@ def _context(
         "control_identity_container_path": CONTROL_IDENTITY_CONTAINER_PATH,
         "control_identity_container_dir": CONTROL_IDENTITY_CONTAINER_DIR,
         "lane_control_identities": {lane: lane_control_identity(lane) for lane in LANE_KEYS},
+        # The write ledger, injected unconditionally like the tree: the template
+        # binds it to a lane that binds the tree.
+        **_write_ledger_context(),
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
