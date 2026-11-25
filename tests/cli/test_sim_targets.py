@@ -5,6 +5,10 @@ names none acts on the deployment's own target, and on a deployment with one
 instance prints what it always did. A set applied to the stand-in changes
 telemetry only, and the stand-in's set is refused on a deployment that runs
 no stand-in.
+
+On a render that still mounts one scenario state into both instances, made
+before instances had sets of their own, a command acts on the set both follow
+and says so, and the stand-in's set is refused with the fix.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.sim import sim_group
-from osprey.simulation.apply import active_scenarios
+from osprey.simulation.targets import active_scenarios
 from osprey_connectors.control_system._va_in_process_connector import simulation_state_dir
 from tests._simulator_view import write_scenarios_view
 from tests.cli._lifecycle_build import STUB_CONFIG, stub_build
@@ -83,7 +87,9 @@ def test_apply_to_the_standin_moves_the_standin_alone_and_says_telemetry_only(
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
     assert "✓ Active scenarios on standin: nominal, cold" in lines
-    assert any("telemetry only" in line and "follow va" in line for line in lines)
+    assert any(
+        "telemetry only" in line and "follow va" in line and "--target va" in line for line in lines
+    )
     assert active_scenarios(config, lifecycle_repo, "va") == ["warm"]
     assert active_scenarios(config, lifecycle_repo, "standin") == ["cold"]
 
@@ -97,6 +103,22 @@ def test_the_default_target_is_the_deployments_own(lifecycle_repo: Path) -> None
     assert "✓ Active scenarios on standin: nominal, cold" in result.output.splitlines()
     assert active_scenarios(config, lifecycle_repo, "va") == []
     assert active_scenarios(config, lifecycle_repo, "standin") == ["cold"]
+
+
+def test_a_standin_baseline_that_runs_no_standin_here_acts_on_va(lifecycle_repo: Path) -> None:
+    """The deployment's own target is the stand-in, served elsewhere: the one set here is va's."""
+    config = _deployment(
+        lifecycle_repo,
+        ONE_INSTANCE
+        + "control_system:\n  type: live_standin\n  connector:\n    live_standin: {}\n",
+    )
+
+    result = _apply(lifecycle_repo, "warm")
+
+    assert result.exit_code == 0, result.output
+    assert "✓ Active scenarios: nominal, warm" in result.output.splitlines()
+    assert "telemetry only" not in result.output
+    assert active_scenarios(config, lifecycle_repo, "va") == ["warm"]
 
 
 @pytest.mark.parametrize("verb", [("apply", "--yes", "--no-seed", "warm"), ("list",)])
@@ -151,6 +173,77 @@ def test_list_on_one_instance_prints_no_target_line(lifecycle_repo: Path) -> Non
 
     assert result.exit_code == 0, result.output
     assert "active set of" not in result.output
+
+
+# --- a render that still shares the state ---------------------------------------------
+
+SHARED_RENDER = (
+    TWO_INSTANCES + "services:\n  virtual_accelerator:\n    path: services/virtual_accelerator\n"
+)
+STATE = "./var/agent_data/simulation"
+
+
+def _render_compose(repo: Path, standin_state: str) -> None:
+    """Write the simulator's compose file with the stand-in on *standin_state*."""
+    document = {
+        "services": {
+            "live-standin": {
+                "environment": {"VA_INSTANCE": "live_standin"},
+                "volumes": [f"{standin_state}:/state/simulation:ro"],
+            }
+        }
+    }
+    compose = repo / "build" / "services" / "virtual_accelerator" / "docker-compose.yml"
+    compose.parent.mkdir(parents=True, exist_ok=True)
+    compose.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+
+def test_on_a_shared_render_apply_changes_the_set_both_follow_and_says_so(
+    lifecycle_repo: Path,
+) -> None:
+    config = _deployment(lifecycle_repo, SHARED_RENDER)
+    _render_compose(lifecycle_repo, STATE)
+
+    result = _apply(lifecycle_repo, "warm")
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert "✓ Active scenarios: nominal, warm" in lines
+    assert any("both simulator instances follow this set" in line for line in lines)
+    assert any("'osprey build'" in line and "'osprey up'" in line for line in lines)
+    assert active_scenarios(config, lifecycle_repo, "va") == ["warm"]
+    assert active_scenarios(config, lifecycle_repo, "standin") == []
+    assert _sim(lifecycle_repo, "list").output.splitlines()[0] == (
+        "active set of both simulator instances:"
+    )
+
+
+@pytest.mark.parametrize("verb", [("apply", "--yes", "--no-seed", "warm"), ("list",)])
+def test_on_a_shared_render_the_standin_set_is_refused_with_the_fix(
+    lifecycle_repo: Path, verb: tuple[str, ...]
+) -> None:
+    """A set written for the stand-in would be read by nothing until the next build."""
+    config = _deployment(lifecycle_repo, SHARED_RENDER)
+    _render_compose(lifecycle_repo, STATE)
+
+    result = _sim(lifecycle_repo, *verb, "--target", "standin")
+
+    assert result.exit_code == 1, result.output
+    assert "no scenario set of its own yet" in result.output
+    assert "osprey build" in result.output
+    assert active_scenarios(config, lifecycle_repo, "standin") == []
+
+
+def test_once_built_again_the_standin_set_is_its_own(lifecycle_repo: Path) -> None:
+    config = _deployment(lifecycle_repo, SHARED_RENDER)
+    _render_compose(lifecycle_repo, f"{STATE}/standin")
+
+    result = _apply(lifecycle_repo, "cold", "--target", "standin")
+
+    assert result.exit_code == 0, result.output
+    assert "✓ Active scenarios on standin: nominal, cold" in result.output.splitlines()
+    assert active_scenarios(config, lifecycle_repo, "standin") == ["cold"]
+    assert active_scenarios(config, lifecycle_repo, "va") == []
 
 
 # --- the simulator in process ---------------------------------------------------------

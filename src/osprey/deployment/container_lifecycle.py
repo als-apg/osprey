@@ -44,6 +44,7 @@ from osprey.deployment.compose_generator import (
     compose_base_cmd,
     compose_provider_env,
     configured_ariel_mirror_path,
+    render_shares_scenario_state,
     rendered_checkout,
     repo_identity,
     resolve_image_defaults,
@@ -52,6 +53,7 @@ from osprey.deployment.compose_generator import (
     resolve_repo_root,
     resolve_site_build_args,
     resolve_site_image_axes,
+    simulator_log_mount_sources,
 )
 from osprey.deployment.compose_watch import ContainerState, watched_compose_up
 from osprey.deployment.container_ownership import (
@@ -5505,23 +5507,30 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
     :returns: The set activated on the target the stored data follows, or ``()``
         when nothing was activated there.
     """
-    from osprey.simulation.apply import activate_default_scenarios, active_scenarios
+    from osprey.simulation.apply import activate_default_scenarios
     from osprey.simulation.targets import (
         HISTORY_TARGET,
+        active_scenarios,
         deployed_simulator_targets,
         target_state_dir,
     )
     from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 
-    # Read before anything is activated: a deployment whose history target
-    # already holds a set was running before this deploy, and an instance
-    # without state of its own followed that set until now.
+    # Read before anything is activated: a second instance that ran before this
+    # deploy, on a deployment whose history target already holds a set, followed
+    # that set until now. An instance that is new to the deployment followed
+    # nothing, whatever the history target holds.
     history_state = target_state_dir(config, project_dir, HISTORY_TARGET)
     followed = (
         active_scenarios(config, project_dir, HISTORY_TARGET)
         if (history_state / ACTIVE_SCENARIOS_FILENAME).is_file()
         else None
     )
+    others = [t for t in deployed_simulator_targets(config) if t != HISTORY_TARGET]
+    # The compose file is written by `osprey build` alone. A render made before
+    # instances had sets of their own mounts one state into both, so nothing is
+    # handed over until the deployment is built again.
+    shared = bool(others) and render_shares_scenario_state(config, project_dir)
     try:
         active = activate_default_scenarios(
             config, project_dir, store_deadline_s=_ARIEL_STORE_DEADLINE_S
@@ -5535,10 +5544,36 @@ def _activate_default_scenarios(config: dict, project_dir: Path) -> tuple[str, .
         active = ()
     if active:
         _report_step(f"scenarios active by default: {', '.join(active)}")
-    for target in deployed_simulator_targets(config):
-        if target != HISTORY_TARGET:
-            _activate_instance_scenarios(config, project_dir, target, followed)
+    for target in others:
+        if shared:
+            _report_step(
+                f"{target} follows the {HISTORY_TARGET} scenario set: this render mounts one "
+                "scenario state into both simulator instances. Run `osprey build`, then "
+                "`osprey up`, to give each instance a set of its own"
+            )
+            continue
+        ran_before = _instance_ran_before(project_dir, target)
+        _activate_instance_scenarios(config, project_dir, target, followed if ran_before else None)
     return active
+
+
+def _instance_ran_before(project_dir: Path, target: str) -> bool:
+    """Whether a second simulator instance has served on this deployment before.
+
+    The record is the instance's own model-log directory: its container
+    appends a log per model there, and nothing else writes to it. An instance
+    that is newly deployed, or whose first start never got as far as serving,
+    has left none.
+    """
+    from osprey.simulation.targets import SIMULATOR_SERVICES
+
+    source = simulator_log_mount_sources().get(SIMULATOR_SERVICES[target])
+    if source is None:
+        return False
+    try:
+        return any((Path(project_dir) / source).iterdir())
+    except OSError:
+        return False
 
 
 def _activate_instance_scenarios(
@@ -5559,7 +5594,8 @@ def _activate_instance_scenarios(
     :param project_dir: The deployment repo root.
     :param target: The simulator target of the instance.
     :param followed: The names the history target's state file held before this
-        deploy, or ``None`` when it had no state file.
+        deploy, or ``None`` when it had no state file or the instance had not
+        served on this deployment before.
     """
     from osprey.simulation.apply import (
         activate_default_scenarios,

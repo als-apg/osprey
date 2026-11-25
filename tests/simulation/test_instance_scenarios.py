@@ -19,13 +19,14 @@ import yaml
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.simulation.apply import (
     activate_default_scenarios,
-    active_scenarios,
     apply_scenarios,
     resolve_default_scenarios,
+    started_default_scenarios,
 )
 from osprey.simulation.targets import (
     HISTORY_TARGET,
     SIMULATOR_TARGETS,
+    active_scenarios,
     default_simulator_target,
     deployed_simulator_targets,
     require_simulator_target,
@@ -235,6 +236,35 @@ def test_a_target_the_mapping_leaves_out_starts_none() -> None:
 
     assert resolve_default_scenarios(config, "va") == ()
     assert resolve_default_scenarios(config, "standin") == ("cut",)
+
+
+@pytest.mark.parametrize(
+    "defaults", [None, ["cut"], {"standin": ["cut"]}], ids=["absent", "list", "mapping"]
+)
+def test_a_start_set_is_asked_of_a_simulator_target_alone(defaults: object) -> None:
+    config = {"simulation": {"default_scenarios": defaults}}
+
+    with pytest.raises(ValueError, match="va or standin"):
+        resolve_default_scenarios(config, "live")
+
+
+@pytest.mark.parametrize(
+    ("services", "expected"),
+    [
+        ([], ("other",)),
+        (["virtual_accelerator"], ("other",)),
+        (["virtual_accelerator", "live_standin"], ("other", "cut")),
+    ],
+)
+def test_the_sets_a_deployment_starts_in_are_those_of_the_instances_it_runs(
+    services: list[str], expected: tuple[str, ...]
+) -> None:
+    config = {
+        "deployed_services": services,
+        "simulation": {"default_scenarios": {"va": ["other"], "standin": ["cut", "other"]}},
+    }
+
+    assert started_default_scenarios(config) == expected
 
 
 @pytest.mark.parametrize(

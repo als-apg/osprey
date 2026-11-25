@@ -23,8 +23,10 @@ number.
 
 Every Channel Access read happens in a subprocess pointed at one container's
 port, for the reason ``test_live_standin`` gives. The containers are plain
-``docker run`` over one data root; rendering the two compose blocks is
-``tests/deployment/``'s subject.
+``docker run`` over one data root, each mounting the state directory the
+compose generator names for its service, so the directory a command writes
+and the one a container reads are tied here end to end. Rendering the two
+compose blocks is ``tests/deployment/``'s subject.
 
 The whole directory is opt-in behind ``OSPREY_VA_E2E_ENABLE=1``.
 """
@@ -153,6 +155,25 @@ class Deployment:
         )
 
 
+def _rendered_state_mounts(root: Path) -> dict[str, Path]:
+    """The host directory the compose generator mounts as each instance's scenario state."""
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    context = _inject_project_metadata(
+        {
+            "project_root": str(root),
+            "project_name": "instance-sets",
+            "build_dir": "./build",
+            "system": {"timezone": "UTC"},
+            "deployment": {},
+            "services": {VIRTUAL_ACCELERATOR: {}, LIVE_STANDIN: {}},
+            **CONFIG,
+        }
+    )
+    sources = context["osprey_state_mount_sources"]
+    return {target: (root / sources[INSTANCE[target]]).resolve() for target in INSTANCE}
+
+
 @pytest.fixture(scope="module")
 def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deployment]:
     """One render, its start sets activated as a deploy does, and a container per instance."""
@@ -166,7 +187,7 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deployment]
     gm.readable_by_anyone(data_dir)
 
     container_lifecycle._activate_default_scenarios(CONFIG, root)
-    state_dirs = {t: target_state_dir(CONFIG, root, t) for t in (TARGET_VA, TARGET_STANDIN)}
+    state_dirs = _rendered_state_mounts(root)
     gm.readable_by_anyone(state_dirs[TARGET_VA])
 
     with reserved_ports(2) as (va_port, standin_port):

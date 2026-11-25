@@ -112,6 +112,10 @@ SRC_DIR = "src"
 OUT_SRC_DIR = "repo_src"
 
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
+
+#: Where a simulator container reads its scenario state, as the simulator's
+#: compose template mounts it.
+_SCENARIO_STATE_CONTAINER_PATH = "/state/simulation"
 #: The history page's template directory under ``services/``.
 HISTORY_TEMPLATE_DIR = HISTORY_SERVICE
 #: The agent-record service's template directory under ``services/``. Its
@@ -5561,6 +5565,59 @@ def simulator_log_mount_sources():
         VIRTUAL_ACCELERATOR: f"./{base}",
         LIVE_STANDIN: f"./{base / SIMULATOR_STANDIN_LOG_SUBDIR}",
     }
+
+
+def render_shares_scenario_state(config, repo_root):
+    """Whether the render on disk mounts one scenario state into both simulator instances.
+
+    Each simulator instance holds a scenario set of its own only once its
+    container mounts its own state directory, and the compose file is written
+    by ``osprey build`` alone. A render made before instances had sets of their
+    own still mounts the first instance's directory into the stand-in, so the
+    stand-in follows that set until the deployment is built again. The rendered
+    file is the record: what a container reads is what the file mounts.
+
+    :param config: The rendered project config
+    :type config: dict
+    :param repo_root: The deployment repo root, which every rendered mount
+        source is relative to
+    :type repo_root: str | pathlib.Path
+    :return: ``True`` when a rendered stand-in service mounts a scenario state
+        directory other than its own. ``False`` when it mounts its own, and
+        when no rendered stand-in service is found
+    :rtype: bool
+    """
+    from osprey.simulation.targets import target_state_dir
+    from osprey_connectors.types import LIVE_STANDIN, TARGET_STANDIN, VIRTUAL_ACCELERATOR
+
+    root = Path(repo_root).expanduser().absolute()
+    own = target_state_dir(config, root, TARGET_STANDIN).expanduser().absolute()
+    compose_files = dict.fromkeys(
+        find_existing_compose_files(
+            config, [VIRTUAL_ACCELERATOR, LIVE_STANDIN], quiet=True, base=root
+        )
+    )
+    for compose_file in compose_files:
+        try:
+            document = yaml.safe_load((root / compose_file).read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        services = document.get("services") if isinstance(document, Mapping) else None
+        for service in (services or {}).values() if isinstance(services, Mapping) else ():
+            if not isinstance(service, Mapping):
+                continue
+            environment = service.get("environment")
+            if not isinstance(environment, Mapping):
+                continue
+            if environment.get("VA_INSTANCE") != LIVE_STANDIN:
+                continue
+            for volume in service.get("volumes") or []:
+                parts = str(volume).split(":")
+                if len(parts) >= 2 and parts[1] == _SCENARIO_STATE_CONTAINER_PATH:
+                    source = Path(parts[0]).expanduser()
+                    source = source if source.is_absolute() else root / source
+                    return os.path.normpath(source) != os.path.normpath(own)
+    return False
 
 
 def simulated_target_configured(config):

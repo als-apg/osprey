@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.simulation.state import read_active_state
 from osprey_connectors.types import (
     LIVE_STANDIN,
     TARGET_STANDIN,
@@ -35,6 +36,7 @@ __all__ = [
     "SIMULATOR_SERVICES",
     "SIMULATOR_TARGETS",
     "STATE_SUBDIRS",
+    "active_scenarios",
     "default_simulator_target",
     "deployed_simulator_targets",
     "require_simulator_target",
@@ -113,3 +115,10 @@ def target_state_dir(config: Mapping[str, Any] | None, project_root: Path, targe
     subdir = STATE_SUBDIRS[require_simulator_target(target)]
     base = resolve_simulation_state_dir(config, project_root)
     return base / subdir if subdir else base
+
+
+def active_scenarios(
+    config: Mapping[str, Any] | None, project_root: Path, target: str
+) -> list[str]:
+    """The names a simulator target's state file records; empty when it has none."""
+    return read_active_state(target_state_dir(config, project_root, target))[0]

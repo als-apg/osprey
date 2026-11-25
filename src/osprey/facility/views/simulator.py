@@ -441,7 +441,7 @@ def _split_stopped_servers(
         FacilityBuildError: ``value-invalid``: a default scenario names an IOC
             this render does not serve.
     """
-    from osprey.simulation.apply import resolve_default_scenarios
+    from osprey.simulation.apply import started_default_scenarios
     from osprey_facility.errors import FacilityBuildError
 
     name = str(scenario["name"])
@@ -455,7 +455,7 @@ def _split_stopped_servers(
     known = served_servers(physics)
     stopped = [str(ioc) for ioc in scenario["stopped_servers"] if ioc in known]
     unserved = [str(ioc) for ioc in scenario["stopped_servers"] if ioc not in known]
-    if unserved and name in resolve_default_scenarios(inputs.rendered_config):
+    if unserved and name in started_default_scenarios(inputs.rendered_config):
         raise FacilityBuildError(
             "value-invalid",
             name,

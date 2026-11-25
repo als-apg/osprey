@@ -31,6 +31,7 @@ from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.simulation.targets import (
     HISTORY_TARGET,
     SIMULATOR_TARGETS,
+    deployed_simulator_targets,
     require_simulator_target,
     target_state_dir,
 )
@@ -297,11 +298,6 @@ def apply_scenarios(
     )
 
 
-def active_scenarios(config: Mapping[str, Any], project_dir: Path, target: str) -> list[str]:
-    """The names a simulator target's state file records; empty when it has none."""
-    return read_active_state(target_state_dir(config, project_dir, target))[0]
-
-
 # ---------------------------------------------------------------------------
 # The archive rewrite
 # ---------------------------------------------------------------------------
@@ -427,8 +423,11 @@ def resolve_default_scenarios(
 
     Raises:
         ValueError: If the value is not a list of non-empty scenario names, or
-            a mapping of ``va`` and ``standin`` to such lists.
+            a mapping of ``va`` and ``standin`` to such lists; or if ``target``
+            is not a simulator target.
     """
+    if target is not None:
+        require_simulator_target(target)
     raw = (config.get("simulation") or {}).get("default_scenarios")
     if raw is None:
         return ()
@@ -446,6 +445,24 @@ def resolve_default_scenarios(
         targets = SIMULATOR_TARGETS if target is None else (target,)
         return tuple(dict.fromkeys(name for key in targets for name in sets.get(key, [])))
     return tuple(dict.fromkeys(_names(raw, "a list of scenario names")))
+
+
+def started_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
+    """The scenario names a simulator instance of this deployment starts in.
+
+    The start sets of ``va``, which every deployment has in process or as a
+    service, and of the stand-in when the deployment runs one. A scenario
+    marked for an instance the deployment does not run starts nowhere, and is
+    not named here.
+
+    Raises:
+        ValueError: As :func:`resolve_default_scenarios`.
+    """
+    resolve_default_scenarios(config)
+    targets = dict.fromkeys((HISTORY_TARGET, *deployed_simulator_targets(config)))
+    return tuple(
+        dict.fromkeys(name for t in targets for name in resolve_default_scenarios(config, t))
+    )
 
 
 def activate_default_scenarios(

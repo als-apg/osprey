@@ -2,10 +2,14 @@
 
 ``_activate_default_scenarios`` activates the start set of the instance the
 stored data follows, then of a second instance the deployment runs. A second
-instance on a deployment that was already running read the first one's set
-until that deploy: it is given a set of its own, nothing is copied, and one
-line, printed by that deploy alone, says which set it runs now and which it
-followed.
+instance that served before read the first one's set until that deploy: it is
+given a set of its own, nothing is copied, and one line, printed by that deploy
+alone, says which set it runs now and which it followed. An instance that is
+new to the deployment followed nothing and is told nothing.
+
+Nothing is handed over while the render on disk still mounts one scenario
+state into both instances: the compose file is written by ``osprey build``
+alone, and until then both containers read the first instance's set.
 """
 
 from __future__ import annotations
@@ -17,8 +21,12 @@ import pytest
 import yaml
 
 from osprey.deployment import container_lifecycle
-from osprey.simulation.apply import active_scenarios, apply_scenarios
-from osprey.simulation.targets import target_state_dir
+from osprey.deployment.compose_generator import (
+    render_shares_scenario_state,
+    simulator_log_mount_sources,
+)
+from osprey.simulation.apply import apply_scenarios
+from osprey.simulation.targets import active_scenarios, target_state_dir
 from osprey_connectors.simulation.state import ACTIVE_SCENARIOS_FILENAME
 from tests._simulator_view import write_scenarios_view
 
@@ -33,6 +41,37 @@ def _config(defaults: Any, *services: str) -> dict[str, Any]:
 
 
 TWO = ("virtual_accelerator", "live_standin")
+
+#: Where the simulator's compose file is rendered, and the config that says so.
+SERVICES = {"virtual_accelerator": {"path": "services/virtual_accelerator"}}
+COMPOSE = Path("build/services/virtual_accelerator/docker-compose.yml")
+
+STATE = "./var/agent_data/simulation"
+
+
+def _standin_has_served(project: Path) -> None:
+    """Leave what a stand-in container leaves behind: a model log in its own directory."""
+    logs = project / simulator_log_mount_sources()["live_standin"]
+    logs.mkdir(parents=True)
+    (logs / "model.log").write_text("served\n", encoding="utf-8")
+
+
+def _render(project: Path, standin_state: str) -> None:
+    """Write the simulator's compose file with the stand-in on *standin_state*."""
+    document = {
+        "services": {
+            "virtual-accelerator": {
+                "environment": {"VA_INSTANCE": "virtual_accelerator"},
+                "volumes": ["./build/data:/data:ro", f"{STATE}:/state/simulation:ro"],
+            },
+            "live-standin": {
+                "environment": {"VA_INSTANCE": "live_standin"},
+                "volumes": ["./build/data:/data:ro", f"{standin_state}:/state/simulation:ro"],
+            },
+        }
+    }
+    (project / COMPOSE).parent.mkdir(parents=True, exist_ok=True)
+    (project / COMPOSE).write_text(yaml.safe_dump(document), encoding="utf-8")
 
 
 @pytest.fixture
@@ -106,6 +145,7 @@ def test_a_running_standin_is_told_once_that_it_stopped_following(
     """Before instances had sets of their own, the stand-in read the one state file."""
     config = _config({"va": ["warm"], "standin": ["cold"]}, *TWO)
     apply_scenarios(project, ["warm", "cold"], seed_logbook=False, seed_archive=False)
+    _standin_has_served(project)
     assert not _has_state(config, project, "standin")
 
     container_lifecycle._activate_default_scenarios(config, project)
@@ -130,6 +170,7 @@ def test_a_running_standin_with_no_start_set_is_given_nominal_and_told(
 ) -> None:
     config = _config(None, *TWO)
     apply_scenarios(project, ["warm"], seed_logbook=False, seed_archive=False)
+    _standin_has_served(project)
 
     container_lifecycle._activate_default_scenarios(config, project)
 
@@ -142,6 +183,67 @@ def test_a_running_standin_with_no_start_set_is_given_nominal_and_told(
     steps.clear()
     container_lifecycle._activate_default_scenarios(config, project)
     assert steps == []
+
+
+def test_a_standin_new_to_a_running_deployment_followed_nothing(
+    project: Path, steps: list[str]
+) -> None:
+    """The first instance holds a set, and the stand-in has never served: no hand-over line.
+
+    The same state is left by a first deploy that stopped after the first
+    instance's set was written.
+    """
+    config = _config({"va": ["warm"], "standin": ["cold"]}, *TWO)
+    apply_scenarios(project, ["warm"], seed_logbook=False, seed_archive=False)
+
+    container_lifecycle._activate_default_scenarios(config, project)
+
+    assert active_scenarios(config, project, "standin") == ["cold"]
+    assert steps == ["scenarios active by default on standin: nominal, cold"]
+
+
+def test_a_render_with_a_state_mount_per_instance_is_not_shared(project: Path) -> None:
+    config = {**_config(None, *TWO), "services": SERVICES}
+    assert not render_shares_scenario_state(config, project)
+
+    _render(project, f"{STATE}/standin")
+
+    assert not render_shares_scenario_state(config, project)
+
+
+def test_a_render_that_mounts_one_state_into_both_instances_is_shared(project: Path) -> None:
+    config = {**_config(None, *TWO), "services": SERVICES}
+    _render(project, STATE)
+
+    assert render_shares_scenario_state(config, project)
+
+
+def test_nothing_is_handed_over_on_a_render_that_shares_the_state(
+    project: Path, steps: list[str]
+) -> None:
+    """Deployed again without a build: both containers still read the first instance's set."""
+    config = {**_config({"va": ["warm"], "standin": ["cold"]}, *TWO), "services": SERVICES}
+    apply_scenarios(project, ["warm"], seed_logbook=False, seed_archive=False)
+    _standin_has_served(project)
+    _render(project, STATE)
+
+    container_lifecycle._activate_default_scenarios(config, project)
+
+    assert not _has_state(config, project, "standin")
+    assert steps == [
+        "standin follows the va scenario set: this render mounts one scenario state into "
+        "both simulator instances. Run `osprey build`, then `osprey up`, to give each "
+        "instance a set of its own"
+    ]
+
+    # Built again: the hand-over happens at the next deploy, and says so once.
+    steps.clear()
+    _render(project, f"{STATE}/standin")
+    container_lifecycle._activate_default_scenarios(config, project)
+
+    assert active_scenarios(config, project, "standin") == ["cold"]
+    assert len(steps) == 1
+    assert steps[0].startswith("standin now holds a scenario set of its own: nominal, cold. ")
 
 
 def test_a_fresh_standin_with_no_start_set_is_given_its_state_silently(

@@ -130,16 +130,27 @@ _target_option = click.option(
 )
 
 
-def _resolve_sim_target(config: dict, target: str | None) -> tuple[str, bool]:
-    """The simulator target a command acts on, and whether its lines name it.
+def _resolve_sim_target(
+    config: dict, repo_root: Path, target: str | None
+) -> tuple[str, bool, bool]:
+    """The simulator target a command acts on, whether its lines name it, and whether it is shared.
 
-    A command that names none acts on the deployment's own target. The lines
-    name the target when the caller did, or when the deployment runs more than
-    one simulator instance; a deployment with one prints what it always did.
+    A command that names none acts on the deployment's own target when this
+    deployment runs that instance, else on ``va``. The lines name the target
+    when the caller did, or when the deployment runs more than one simulator
+    instance; a deployment with one prints what it always did.
+
+    The set is shared when the render on disk still mounts one scenario state
+    into both instances (see
+    :func:`~osprey.deployment.compose_generator.render_shares_scenario_state`):
+    both follow the ``va`` set until the deployment is built again, so a command
+    that names no target acts on that set and its lines say so.
 
     Exits with the fix when the target is ``standin`` on a deployment that runs
-    no stand-in: a set written there would be read by nothing.
+    no stand-in, or whose render gives the stand-in no set of its own: a set
+    written there would be read by nothing.
     """
+    from osprey.deployment.compose_generator import render_shares_scenario_state
     from osprey.simulation.targets import (
         SIMULATOR_SERVICES,
         default_simulator_target,
@@ -148,8 +159,7 @@ def _resolve_sim_target(config: dict, target: str | None) -> tuple[str, bool]:
     from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
 
     deployed = deployed_simulator_targets(config)
-    resolved = default_simulator_target(config) if target is None else target
-    if resolved == TARGET_STANDIN and TARGET_STANDIN not in deployed:
+    if target == TARGET_STANDIN and TARGET_STANDIN not in deployed:
         output.fail(
             "This deployment runs no live stand-in",
             f"`{SIMULATOR_SERVICES[TARGET_STANDIN]}` is not one of its deployed services, "
@@ -158,7 +168,29 @@ def _resolve_sim_target(config: dict, target: str | None) -> tuple[str, bool]:
             "the profile and run 'osprey build'",
         )
         raise SystemExit(1)
-    return resolved, target is not None or len(deployed) > 1
+    shared = len(deployed) > 1 and render_shares_scenario_state(config, repo_root)
+    if shared and target == TARGET_STANDIN:
+        output.fail(
+            "The stand-in has no scenario set of its own yet",
+            "This render mounts one scenario state into both simulator instances, so the "
+            f"stand-in follows the {TARGET_VA} set.",
+            f"run 'osprey build', then 'osprey up'; or use --target {TARGET_VA} to change "
+            "the set both follow",
+        )
+        raise SystemExit(1)
+    if shared:
+        return TARGET_VA, False, True
+    resolved = default_simulator_target(config) if target is None else target
+    if resolved not in deployed:
+        resolved = TARGET_VA
+    return resolved, target is not None or len(deployed) > 1, False
+
+
+#: Said by a command that acted on a set both simulator instances still follow.
+_SHARED_SET_NOTE = (
+    "(both simulator instances follow this set: run 'osprey build', then 'osprey up', "
+    "to give each a set of its own)"
+)
 
 
 def _require_simulator_view(repo_root: Path) -> SimulatorView:
@@ -271,15 +303,17 @@ def list_command(repo: Path | None, target: str | None) -> None:
     Each simulator instance has an active set of its own; --target names whose
     is marked.
     """
-    from osprey.simulation.apply import active_scenarios
+    from osprey.simulation.targets import active_scenarios
     from osprey_connectors.simulation.state import resolve_active_scenarios
 
     repo_root, config = _resolve_deployment(repo)
     view = _require_simulator_view(repo_root)
-    target, named = _resolve_sim_target(config, target)
+    target, named, shared = _resolve_sim_target(config, repo_root, target)
     active = set(resolve_active_scenarios(active_scenarios(config, repo_root, target)))
     if named:
         output.report(f"active set of {target}:")
+    elif shared:
+        output.report("active set of both simulator instances:")
     for scenario in view.scenarios():
         name = str(scenario["name"])
         marker = "*" if name in active else " "
@@ -354,14 +388,26 @@ def _report_active_set(config: dict, repo_root: Path, connector_type: str) -> No
     """Print the active scenario set of the simulator instance a connector type reaches.
 
     Nothing is printed for a target that is no simulator instance, or on a
-    deployment that runs one instance and so has one set to speak of.
+    deployment that runs one instance and so has one set to speak of. On a
+    render that still mounts one scenario state into both instances, the set
+    printed is the one both follow.
     """
-    from osprey.simulation.apply import active_scenarios
-    from osprey.simulation.targets import SIMULATOR_SERVICES, deployed_simulator_targets
+    from osprey.deployment.compose_generator import render_shares_scenario_state
+    from osprey.simulation.targets import (
+        SIMULATOR_SERVICES,
+        active_scenarios,
+        deployed_simulator_targets,
+    )
     from osprey_connectors.simulation.state import resolve_active_scenarios
 
     target = next((t for t, service in SIMULATOR_SERVICES.items() if service == connector_type), "")
     if not target or len(deployed_simulator_targets(config)) < 2:
+        return
+    if render_shares_scenario_state(config, repo_root):
+        from osprey.simulation.targets import HISTORY_TARGET
+
+        active = resolve_active_scenarios(active_scenarios(config, repo_root, HISTORY_TARGET))
+        output.report(f"active scenarios on both simulator instances: {', '.join(active)}")
         return
     active = resolve_active_scenarios(active_scenarios(config, repo_root, target))
     output.report(f"active scenarios on {target}: {', '.join(active)}")
@@ -440,7 +486,7 @@ def apply_command(
 
     repo_root, config = _resolve_deployment(repo)
     _require_simulator_view(repo_root)
-    target, named = _resolve_sim_target(config, target)
+    target, named, shared = _resolve_sim_target(config, repo_root, target)
     # The stored data follows one instance's set, so a set applied to the
     # other is never seeded, whatever the flags say.
     telemetry_only = target != HISTORY_TARGET
@@ -535,10 +581,12 @@ def apply_command(
 
     on = f" on {target}" if named else ""
     output.report(f"✓ Active scenarios{on}: " + ", ".join(result.active))
+    if shared:
+        output.note(_SHARED_SET_NOTE)
     if telemetry_only:
         output.note(
             f"(telemetry only: the logbook and the stored archive follow {HISTORY_TARGET} "
-            "and were not touched)"
+            f"and were not touched; --target {HISTORY_TARGET} changes the set they follow)"
         )
         return
     if not seed_logbook:

@@ -524,6 +524,39 @@ def test_va_compose_instances_share_the_view_and_split_state_and_logs(
     ]
 
 
+def test_the_rendered_state_mounts_are_read_back_as_one_per_instance(tmp_path: Path) -> None:
+    """What `osprey up` and `osprey sim` read off a render to learn whose set a container holds.
+
+    The render of this template is one per instance. The same render with the
+    stand-in on the first instance's directory, as the template rendered it
+    before instances had sets of their own, is read as shared.
+    """
+    from osprey.deployment.compose_generator import render_shares_scenario_state
+
+    config = {
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+        "services": {"virtual_accelerator": {"path": "services/virtual_accelerator"}},
+    }
+    text = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    compose = tmp_path / "build" / "services" / "virtual_accelerator" / "docker-compose.yml"
+    compose.parent.mkdir(parents=True)
+
+    compose.write_text(text, encoding="utf-8")
+    assert not render_shares_scenario_state(config, tmp_path)
+
+    own = f"{STATE_MOUNT_SOURCE}/standin:/state/simulation:ro"
+    assert text.count(own) == 1
+    compose.write_text(
+        text.replace(own, f"{STATE_MOUNT_SOURCE}:/state/simulation:ro"), encoding="utf-8"
+    )
+    assert render_shares_scenario_state(config, tmp_path)
+
+
 def test_va_compose_header_announces_the_second_instance() -> None:
     """The emitted header says a two-instance file is what it is.
 
