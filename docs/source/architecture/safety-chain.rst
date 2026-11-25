@@ -277,8 +277,12 @@ with none of the checks in the way. Both then meet the gates the queue holds:
 - **A launch writes only what its plan declares.** Every plan device states the channels its
   moves and triggers write. A plan whose metadata does not say ``writes: true`` is refused at
   its first write, before that write is sent, and so is a device that does not state its writes.
+- **At the asked position a person approves the run's writes.** Before it writes, the run asks
+  for every write its devices state, and for the stop a positioner may write if the run stops
+  mid-move; it asks again when it needs more.
 - **Each write is checked as it happens.** The verdict for the plan's owner on the machine
-  the lane drives, then the limits.
+  the lane drives, then the limits; a positioner's stop too; a refused stop is named in the
+  run's error.
 
 Stopping a plan never needs a token, anywhere. See :doc:`/how-to/bluesky/queue` for the token
 and :doc:`/how-to/bluesky/write-plans` for the pre-run check.

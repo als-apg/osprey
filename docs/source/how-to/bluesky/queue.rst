@@ -44,7 +44,8 @@ One queue, three ways to drive it
         that follows the refusal immediately can meet it a second time.
       - **Stop** and **Abort** (BLUESKY) — never disabled. Stop lets the
         current plan finish; Abort stops it right now, after a second,
-        confirming click, and an unfinished positioner move is cancelled.
+        confirming click, and an unfinished positioner move is cancelled and
+        its stop command, if it states one, written.
         Both leave the queue stopped. They sit on the Queue view always,
         quiet while nothing moves, and appear on the other views whenever a
         plan is moving or the state is in doubt.
