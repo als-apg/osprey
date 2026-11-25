@@ -38,10 +38,12 @@ import-clean of ophyd.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import os
 import time
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from bluesky.protocols import DataKey, Hints, Location, Reading
 from ophyd_async.core import AsyncStatus, StandardReadable
@@ -56,7 +58,7 @@ from osprey_connectors.command import (
     fire,
 )
 from osprey_connectors.control_system import values_match
-from osprey_connectors.errors import ChannelError
+from osprey_connectors.errors import ChannelError, ChannelWriteBlockedError
 from osprey_connectors.settle import Landing, SettleTimeoutError, settle, settle_bound
 
 from ._connect import connect_all
@@ -398,6 +400,50 @@ class ConnectorSettable(StandardReadable):
         return {"fields": [self.name]}
 
 
+@dataclass(frozen=True)
+class StopOutcome:
+    """What a positioner's stop write came to.
+
+    ``state`` is ``written``, ``refused`` (the write was refused and nothing was
+    written) or ``failed`` (any other error), with the error's text as
+    ``reason``.
+    """
+
+    setpoint: str
+    stop: str
+    state: Literal["written", "refused", "failed"]
+    reason: str | None = None
+
+    @property
+    def sentence(self) -> str | None:
+        """The run's error for a stop that was not written; ``None`` for one that was."""
+        if self.state == "written":
+            return None
+        verb = "was refused" if self.state == "refused" else "failed"
+        return f"{self.setpoint} may still be moving: its stop {self.stop} {verb}: {self.reason}"
+
+
+class _StartWatch:
+    """The connector a move fires its start command through.
+
+    Every call goes to ``connector``; a write to ``command`` calls ``started``
+    first, as the write is issued.
+    """
+
+    def __init__(self, connector: Any, command: str, started: Callable[[], None]) -> None:
+        self._connector = connector
+        self._command = command
+        self._started = started
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._connector, name)
+
+    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any) -> Any:
+        if channel_address == self._command:
+            self._started()
+        return await self._connector.write_channel_checked(channel_address, value, **kwargs)
+
+
 class ConnectorPositioner(ConnectorSettable):
     """A setpoint whose move starts only when a command is written: a positioner.
 
@@ -423,9 +469,18 @@ class ConnectorPositioner(ConnectorSettable):
 
     The RunEngine calls :meth:`stop` on a pause, a suspend, an abort, a
     failure and at the run's end. A move still unfinished then is cancelled:
-    nothing more is written to the device, and a stage already moving moves
-    on by itself. A finished move's ``stop()`` does nothing, and ``stop()``
-    writes nothing: :meth:`stop_writes` states no write.
+    nothing more of the move is written to the device. A move is unfinished
+    from the moment its start command's write is issued until ``set()``
+    returns, so a move that failed after its start is unfinished too. A
+    positioner that states ``stopped_by`` then writes :data:`PRESS_VALUE` to
+    that command through ``write_channel_checked``, under the channel's own
+    confirm policy, in the context its move ran in, so the write is judged for
+    the move's owner whoever calls ``stop()``. What the write came to is kept
+    as :attr:`stop_outcome` until the next ``set()``; ``stop()`` never raises
+    it. One without ``stopped_by`` writes nothing, and a stage already moving
+    moves on by itself. A finished move's ``stop()``, and a second ``stop()``
+    of the same move, write nothing. :meth:`stop_writes` states the stop's
+    write.
 
     The device is named, read and recorded as the settable it is: the start
     command and its status are probed before a run (:meth:`channel_addresses`)
@@ -439,11 +494,22 @@ class ConnectorPositioner(ConnectorSettable):
         readback_pv: str | None = None,
         *,
         started_by: CommandAct,
+        stopped_by: str | None = None,
         **settable: Any,
     ) -> None:
         super().__init__(connector, setpoint_pv, readback_pv, **settable)
         self._started_by = started_by
+        self._stopped_by = stopped_by
         self._move: asyncio.Task[Any] | None = None
+        self._move_context: contextvars.Context | None = None
+        self._unfinished = False
+        #: What the last stop write came to, until the next ``set()``.
+        self.stop_outcome: StopOutcome | None = None
+
+    @property
+    def move_unfinished(self) -> bool:
+        """Whether a move's start command was written and the move has not ended or been stopped."""
+        return self._unfinished
 
     def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
         """The channel writes ``set(value)`` makes, in order: ``value`` to the
@@ -454,8 +520,11 @@ class ConnectorPositioner(ConnectorSettable):
         )
 
     def stop_writes(self) -> tuple[ChannelWrite, ...]:
-        """The channel writes ``stop()`` makes: none. No I/O."""
-        return ()
+        """The channel writes ``stop()`` makes of an unfinished move:
+        :data:`PRESS_VALUE` to the ``stopped_by`` command, or none. No I/O."""
+        if self._stopped_by is None:
+            return ()
+        return (ChannelWrite(self._stopped_by, PRESS_VALUE),)
 
     def channel_addresses(self) -> tuple[str, ...]:
         """The addresses a run of this device touches: the setpoint, the
@@ -479,13 +548,16 @@ class ConnectorPositioner(ConnectorSettable):
             write or the settle, unchanged.
         """
         self._move = asyncio.current_task()
+        self._move_context = contextvars.copy_context()
+        self._unfinished = False
+        self.stop_outcome = None
         target, start = self.set_writes(value)
         await self._refuse_while_busy()
         # No ``confirm`` kwarg, as on a settable: the channel's own policy.
         await self._osprey_connector.write_channel_checked(target.address, target.value)
         landing = self._landing(value)
         try:
-            await fire(self._osprey_connector, self._started_by, start.value)
+            await fire(self._watched(), self._started_by, start.value)
         except CommandNoEffectError as no_effect:
             await self._already_there(no_effect, landing)
         except Exception as failed:
@@ -494,7 +566,14 @@ class ConnectorPositioner(ConnectorSettable):
         else:
             if self.has_distinct_readback:
                 await settle(self._osprey_connector, [landing], timeout_s=settle_timeout_s())
+        self._unfinished = False
         self._move = None
+
+    def _watched(self) -> _StartWatch:
+        def started() -> None:
+            self._unfinished = True
+
+        return _StartWatch(self._osprey_connector, self._started_by.command, started)
 
     async def _refuse_while_busy(self) -> None:
         """Read the status once; refuse when it is not the act's idle value.
@@ -553,11 +632,38 @@ class ConnectorPositioner(ConnectorSettable):
             raise
 
     async def stop(self, *, success: bool = True) -> None:  # noqa: ARG002 - the bluesky verb signature
-        """Cancel an unfinished move and wait for it to end; write nothing."""
+        """Cancel an unfinished move and wait for it to end, then write its stop.
+
+        The stop is written only when the device states ``stopped_by`` and the
+        move's start was written; its outcome is kept as :attr:`stop_outcome`.
+        """
         move = self._move
         if move is not None and not move.done():
             move.cancel()
             await asyncio.wait([move])
+        unfinished, self._unfinished = self._unfinished, False
+        if self._stopped_by is None or not unfinished:
+            return
+        stopping = asyncio.create_task(
+            self._write_stop(self._stopped_by), context=self._move_context
+        )
+        self.stop_outcome = await stopping
+
+    async def _write_stop(self, stop: str) -> StopOutcome:
+        """Write the stop command once; what came of it, never raised."""
+        try:
+            # No ``confirm`` kwarg: the channel's own policy.
+            await self._osprey_connector.write_channel_checked(stop, PRESS_VALUE)
+        except ChannelWriteBlockedError as refused:
+            return StopOutcome(self._setpoint_pv, stop, "refused", _reason(refused))
+        except Exception as failed:
+            return StopOutcome(self._setpoint_pv, stop, "failed", _reason(failed))
+        return StopOutcome(self._setpoint_pv, stop, "written")
+
+
+def _reason(error: Exception) -> str:
+    """An error's text, or its class name when it has none."""
+    return str(error) or type(error).__name__
 
 
 class ConnectorReadable(StandardReadable):
@@ -787,6 +893,7 @@ async def build_devices(
                 settable_spec.setpoint_pv,
                 settable_spec.readback_pv,
                 started_by=settable_spec.started_by,
+                stopped_by=settable_spec.stopped_by,
                 **settable,
             )
         else:

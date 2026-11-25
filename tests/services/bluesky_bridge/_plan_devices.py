@@ -55,6 +55,7 @@ def _connector_positioner(connector: Any) -> Any:
         "PLAN:DEVICES:POSITION:SP",
         "PLAN:DEVICES:POSITION:RB",
         started_by=CommandAct("PLAN:DEVICES:MOVE", "PLAN:DEVICES:MOVE:STATUS", 0, 1.0),
+        stopped_by="PLAN:DEVICES:STOP",
         name="positioner",
     )
 

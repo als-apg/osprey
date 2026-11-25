@@ -17,7 +17,9 @@ from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
 from bluesky.protocols import Stoppable
 from bluesky.utils import RunEngineInterrupted
+from ophyd_async.core import AsyncStatus
 
+from osprey.services.bluesky_bridge.devices import connector as connector_module
 from osprey.services.bluesky_bridge.devices.connector import (
     PRESS_VALUE,
     ConnectorPositioner,
@@ -25,18 +27,20 @@ from osprey.services.bluesky_bridge.devices.connector import (
     build_devices,
 )
 from osprey.services.bluesky_bridge.devices.specs import SettableSpec
+from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
 from osprey_connectors.command import (
     CommandAct,
     CommandBusyError,
     CommandNoEffectError,
     CommandTimeoutError,
 )
-from osprey_connectors.errors import ChannelWriteBlockedError
+from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from osprey_connectors.settle import SettleReadError
 from tests.services.bluesky_bridge._fake_connector import FakeChannelValue, FakeConnector
 
 SETPOINT, READBACK = "ES:STAGE:POS:SP", "ES:STAGE:POS:RB"
 COMMAND, STATUS = "ES:STAGE:MOVE", "ES:STAGE:STATUS"
+STOP = "ES:STAGE:STOP"
 IDLE, MOVING = 0, 1
 #: The act's bound, which is also how long ``fire`` waits for the status to leave idle.
 TIMEOUT_S = 0.2
@@ -68,6 +72,8 @@ class _Stage(FakeConnector):
         self.reads_at_command: int | None = None
         self.arrives_after = 0
         self.responses[COMMAND] = (STATUS, [MOVING, IDLE])
+        #: Raised by a write to the stop command, as a refusal or a failure would be.
+        self.stop_error: Exception | None = None
 
     async def read_channel(self, channel_address: str, timeout: float | None = None):
         if channel_address == READBACK and self.command_written.is_set():
@@ -78,6 +84,9 @@ class _Stage(FakeConnector):
         return await super().read_channel(channel_address, timeout)
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
+        if channel_address == STOP and self.stop_error is not None:
+            self.write_calls.append((channel_address, value, kwargs))
+            raise self.stop_error
         if channel_address == COMMAND and self.moves:
             self.readbacks[READBACK] = self.readbacks[SETPOINT]
         result = await super().write_channel_checked(channel_address, value, **kwargs)
@@ -89,12 +98,15 @@ class _Stage(FakeConnector):
         return result
 
 
-def _positioner(connector: FakeConnector, *, separate_readback: bool = True) -> ConnectorPositioner:
+def _positioner(
+    connector: FakeConnector, *, separate_readback: bool = True, stopped_by: str | None = None
+) -> ConnectorPositioner:
     return ConnectorPositioner(
         connector,
         SETPOINT,
         READBACK if separate_readback else None,
         started_by=CommandAct(COMMAND, STATUS, IDLE, TIMEOUT_S),
+        stopped_by=stopped_by,
         name=SETPOINT,
         settle_tolerance=TOLERANCE,
     )
@@ -322,3 +334,143 @@ def test_a_pause_mid_move_cancels_it_and_an_abort_writes_nothing_after() -> None
 
     assert run_engine.state == "idle"
     assert stage.write_calls == [(SETPOINT, TARGET, {})]
+
+
+# --- the stop command -------------------------------------------------------
+
+
+def test_a_plan_fires_a_command_with_the_value_a_panel_button_writes() -> None:
+    from osprey_panels import layout
+
+    assert connector_module.PRESS_VALUE == layout.COMMAND_VALUE
+
+
+async def _mid_move(stage: _Stage, positioner: ConnectorPositioner) -> AsyncStatus:
+    """Start a move whose status leaves idle and never returns, and wait for its start."""
+    stage.responses[COMMAND] = (STATUS, [MOVING])
+    status = positioner.set(TARGET)
+    await stage.command_written.wait()
+    return status
+
+
+def _stop_writes(stage: FakeConnector) -> list[tuple[str, Any, dict[str, Any]]]:
+    return [call for call in stage.write_calls if call[0] == STOP]
+
+
+@pytest.mark.asyncio
+async def test_stop_writes_the_stop_channel_while_the_move_is_unfinished() -> None:
+    stage = _Stage()
+    positioner = _positioner(stage, stopped_by=STOP)
+    status = await _mid_move(stage, positioner)
+
+    await positioner.stop()
+
+    assert status.done and not status.success
+    assert stage.write_calls[-1] == (STOP, connector_module.PRESS_VALUE, {})
+    assert positioner.stop_outcome is not None
+    assert (positioner.stop_outcome.state, positioner.stop_outcome.sentence) == ("written", None)
+    assert positioner.stop_writes() == (ChannelWrite(STOP, connector_module.PRESS_VALUE),)
+
+
+@pytest.mark.asyncio
+async def test_a_finished_move_writes_no_stop() -> None:
+    stage = _Stage()
+    positioner = _positioner(stage, stopped_by=STOP)
+    await positioner.set(TARGET)
+
+    await positioner.stop()
+
+    assert _stop_writes(stage) == []
+    assert positioner.stop_outcome is None
+
+
+@pytest.mark.asyncio
+async def test_a_move_cancelled_before_its_start_write_writes_no_stop() -> None:
+    stage = _Stage(hold_after_target=True)
+    positioner = _positioner(stage, stopped_by=STOP)
+    positioner.set(TARGET)
+    await stage.read_held_here.wait()
+
+    await positioner.stop()
+
+    assert stage.write_calls == [(SETPOINT, TARGET, {})]
+    assert positioner.stop_outcome is None
+
+
+@pytest.mark.asyncio
+async def test_a_move_that_timed_out_after_its_start_writes_the_stop() -> None:
+    stage = _Stage()
+    stage.responses[COMMAND] = (STATUS, [MOVING])
+    positioner = _positioner(stage, stopped_by=STOP)
+    with pytest.raises(CommandTimeoutError):
+        await positioner.set(TARGET)
+
+    await positioner.stop()
+
+    assert _stop_writes(stage) == [(STOP, connector_module.PRESS_VALUE, {})]
+    assert positioner.stop_outcome is not None
+    assert positioner.stop_outcome.state == "written"
+
+
+@pytest.mark.asyncio
+async def test_a_refused_stop_is_kept_as_the_outcome() -> None:
+    stage = _Stage()
+    stage.stop_error = ChannelWriteBlockedError(STOP, "WRITES_DISABLED", message="writes are off")
+    positioner = _positioner(stage, stopped_by=STOP)
+    await _mid_move(stage, positioner)
+
+    await positioner.stop()
+
+    outcome = positioner.stop_outcome
+    assert outcome is not None
+    assert (outcome.state, outcome.reason) == ("refused", "writes are off")
+    assert outcome.sentence == (
+        f"{SETPOINT} may still be moving: its stop {STOP} was refused: writes are off"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_stop_is_kept_as_the_outcome() -> None:
+    stage = _Stage()
+    stage.stop_error = ChannelWriteFailedError(STOP, "no answer")
+    positioner = _positioner(stage, stopped_by=STOP)
+    await _mid_move(stage, positioner)
+
+    await positioner.stop()
+
+    outcome = positioner.stop_outcome
+    assert outcome is not None
+    assert outcome.state == "failed"
+    assert outcome.sentence == (
+        f"{SETPOINT} may still be moving: its stop {STOP} failed: {stage.stop_error}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_second_stop_writes_nothing() -> None:
+    stage = _Stage()
+    stage.stop_error = ChannelWriteBlockedError(STOP, "WRITES_DISABLED", message="writes are off")
+    positioner = _positioner(stage, stopped_by=STOP)
+    await _mid_move(stage, positioner)
+    await positioner.stop()
+    outcome = positioner.stop_outcome
+
+    await positioner.stop()
+
+    assert len(_stop_writes(stage)) == 1
+    assert positioner.stop_outcome is outcome
+
+
+@pytest.mark.asyncio
+async def test_the_next_move_clears_the_stop_outcome() -> None:
+    stage = _Stage()
+    positioner = _positioner(stage, stopped_by=STOP)
+    status = await _mid_move(stage, positioner)
+    await positioner.stop()
+    assert status.done and positioner.stop_outcome is not None
+    stage.readbacks[STATUS] = IDLE  # the stage stopped
+    stage.responses[COMMAND] = (STATUS, [MOVING, IDLE])
+
+    await positioner.set(TARGET)
+
+    assert positioner.stop_outcome is None
