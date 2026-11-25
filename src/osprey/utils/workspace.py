@@ -26,7 +26,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Final
 
-from osprey.repo_layout import child, entry, layer_rows
+from osprey.repo_layout import child_display_path, entry, layer_rows
 from osprey_connectors.dotenv import ENV_CHAIN_FILENAMES
 from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
@@ -47,7 +47,7 @@ __all__ = [
     "PROFILE_FILENAME",
     "RECORD_DIR_RELPATH",
     "RETIRED_LAYER_DIRS",
-    "RUNTIME_DATA_DIR_NAME",
+    "RUNTIME_DIR_RELPATH",
     "RUNTIME_WRITE_PATH_KEYS",
     "SIMULATOR_STANDIN_LOG_SUBDIR",
     "SPOOL_DIR_RELPATH",
@@ -122,19 +122,15 @@ def layer_dir_kind(dirname: str) -> str | None:
 #: disagree about where it is.
 IMAGE_DIR_NAME = ".image"
 
-#: Reserved runtime-output directory directly under a repo's ``data/`` tree:
-#: ``data/.runtime/``. The one place ``osprey up`` may write inside the
-#: otherwise build-owned data tree — today the per-lane Bluesky CURVE
-#: certificate sets, ``data/.runtime/<lane>_curve/``. The build treats it as
-#: not existing: the profile-material fold never hashes it (a successful start
-#: must not mark its own build OUT OF DATE and strand the scaffolded boot
-#: unit at the drift gate, #716) and the data copy never stages it (secrets
-#: must not land in ``build/`` or in images). The ``data`` row's ``runtime``
-#: child (:mod:`osprey.repo_layout`), named here beside the zone names because
-#: the writer lives in ``deployment/`` and the fold in ``cli/``, and the two
-#: must agree on these exact bytes. Both match it as one name directly under
-#: the data tree.
-RUNTIME_DATA_DIR_NAME = child("data", "runtime").path
+#: Material ``osprey up`` mints when it starts a deployment, relative to the
+#: repo root: the per-lane Bluesky CURVE certificate sets,
+#: ``<lane>_curve/``. It lies in the state zone, so the build never hashes it,
+#: never stages it and never copies it into an image, and a start never marks
+#: its own build out of date. The ``var`` row's ``runtime`` child
+#: (:mod:`osprey.repo_layout`), named here beside the other state-zone paths
+#: because the executor's protected-write roots and the reset listing have to
+#: name the same directory.
+RUNTIME_DIR_RELPATH = child_display_path("var", "runtime")
 
 #: The audit tree a deployment wrote before the agent record existed, relative
 #: to the repo root. Nothing writes or reads it: it stays on disk

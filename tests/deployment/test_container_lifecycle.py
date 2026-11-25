@@ -1088,8 +1088,8 @@ def test_start_runs_verify_script_when_present_ignoring_exit_code(
     advisory only, per the script's own convention and run_verify_script's
     contract."""
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir()
+    scripts_dir = tmp_path / "ops" / "scripts"
+    scripts_dir.mkdir(parents=True)
     verify_path = scripts_dir / "verify.sh"
     verify_path.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
 

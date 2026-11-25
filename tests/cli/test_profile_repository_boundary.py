@@ -106,7 +106,7 @@ def _template_outside(repo: Path) -> Path:
 
 def _watchdog(repo: Path, *, enabled: bool = True) -> Path:
     """Declare one decision watchdog, ``judge``, with its files; return its directory."""
-    directory = repo / "watchdogs" / "judge"
+    directory = repo / "agent" / "watchdogs" / "judge"
     directory.mkdir(parents=True)
     (directory / "instructions.md").write_text("Judge the prompt.\n", encoding="utf-8")
     profile = repo / PROFILE_FILENAME
@@ -249,14 +249,14 @@ def test_a_two_hop_link_out_of_a_convention_directory_is_refused_by_the_loader(
     hop = repo / "hop"
     hop.mkdir()
     (hop / "c").symlink_to(outside, target_is_directory=True)
-    (repo / "rules").mkdir(exist_ok=True)
-    (repo / "rules" / "a").symlink_to(hop, target_is_directory=True)
+    (repo / "agent" / "rules").mkdir(parents=True, exist_ok=True)
+    (repo / "agent" / "rules" / "a").symlink_to(hop, target_is_directory=True)
 
     with pytest.raises(BuildProfileError) as raised:
         load_profile(repo / PROFILE_FILENAME)
 
     assert str(raised.value) == (
-        f"rules/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
+        f"agent/rules/a/c resolves to {outside.resolve().as_posix()}, outside the repository. {REMEDY}"
     )
 
 
@@ -370,7 +370,7 @@ def test_a_second_hop_in_a_watchdog_tree_is_refused_before_anything_is_copied(
 
     assert result.exit_code != 0
     assert (
-        f"watchdogs/judge/references/c resolves to {outside.resolve().as_posix()}, "
+        f"agent/watchdogs/judge/references/c resolves to {outside.resolve().as_posix()}, "
         f"outside the repository. {REMEDY}"
     ) in caplog.text
     assert not (repo / BUILD_DIR_NAME / "watchdogs").exists()
@@ -415,12 +415,12 @@ def test_reordering_the_watchdogs_block_does_not_move_the_material_hash(repo: Pa
 
 
 def test_a_link_under_the_runtime_subtree_is_not_walked(repo: Path) -> None:
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
+    from osprey.utils.workspace import RUNTIME_DIR_RELPATH
 
     elsewhere = repo.parent / "elsewhere"
     elsewhere.mkdir()
-    runtime = repo / "data" / RUNTIME_DATA_DIR_NAME
-    runtime.mkdir(exist_ok=True)
+    runtime = repo / RUNTIME_DIR_RELPATH
+    runtime.mkdir(parents=True, exist_ok=True)
     (runtime / "k").symlink_to(elsewhere, target_is_directory=True)
 
     assert _outside(repo) == ()
