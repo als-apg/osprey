@@ -11,7 +11,8 @@ Every channel the roster enumerated becomes a device: each write-direction
 record a settable -- or, for a command with a completion signal, a triggerable
 a plan fires and never sets -- and each read-direction record a readable,
 except a read channel of more than one dimension, which a run cannot record in
-its table and so is no device. Nothing here filters by machine, family, field or address
+its table and so is no device, and a command a setpoint names as
+``started_by``, which that setpoint's settable carries as its start act. Nothing here filters by machine, family, field or address
 grammar. Which channels exist and which way
 they point is the roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
@@ -100,6 +101,8 @@ from osprey.channel_roster.records import CommandCompletion
 # than restated so the host-side producer and the container-side consumer can
 # never drift on the schema.
 from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    COMMAND_KEY,
+    IDLE_KEY,
     MOTION_BAND_KEY,
     READABLES_KEY,
     RELATIVE_KEY,
@@ -108,6 +111,8 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
     SHAPE_KEY,
+    STARTED_BY_KEY,
+    STATUS_KEY,
     TIMEOUT_KEY,
     TRIGGERABLES_KEY,
     UNIT_KEY,
@@ -116,30 +121,45 @@ from osprey_connectors import yaml_loader
 from osprey_connectors.safety_file import atomic_replace
 
 
+def _act(completion: CommandCompletion) -> dict[str, Any]:
+    """A command's completion signal as the device file states it."""
+    return {
+        COMMAND_KEY: completion.command,
+        STATUS_KEY: completion.status,
+        IDLE_KEY: completion.idle,
+        TIMEOUT_KEY: float(completion.timeout_s),
+    }
+
+
 def _write_entry(
     record: ChannelRecord,
-    completion: CommandCompletion | None,
+    completions: Mapping[str, CommandCompletion],
+    started: frozenset[str],
     tolerance: Mapping[str, float] | None,
     bands: Mapping[str, float],
     stated: Mapping[str, str],
-) -> tuple[str, dict[str, Any]]:
-    """The device one write-direction record becomes: its device-file section and entry.
+) -> tuple[str, dict[str, Any]] | None:
+    """The device one write-direction record becomes: its device-file section and
+    entry, or ``None`` for no device.
 
-    The one place a write record's device kind is decided: a command with a
-    completion signal is a triggerable, every other write record a settable.
+    The one place a write record's device kind is decided: a command a
+    positioner carries as its start act (``started``) is no device, any other
+    command with a completion signal is a triggerable, every other write
+    record a settable. A settable whose ``started_by`` command has a
+    completion signal carries it as ``started_by``, after its ``readback``.
     """
+    if record.address in started:
+        return None
+    completion = completions.get(record.address)
     if completion is not None:
-        return TRIGGERABLES_KEY, {
-            "name": record.address,
-            "command": completion.command,
-            "status": completion.status,
-            "idle": completion.idle,
-            TIMEOUT_KEY: float(completion.timeout_s),
-        }
+        return TRIGGERABLES_KEY, {"name": record.address, **_act(completion)}
     entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
     readback = record.address
     if record.readback is not None and record.readback != record.address:
         entry["readback"] = readback = record.readback
+    start = completions.get(record.started_by) if record.started_by is not None else None
+    if start is not None:
+        entry[STARTED_BY_KEY] = _act(start)
     band = bands.get(readback, 0.0)
     if tolerance is not None and RELATIVE_KEY in tolerance:
         entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
@@ -175,7 +195,10 @@ def devices_document(
     ``completions`` maps a command address to its
     :class:`~osprey.channel_roster.records.CommandCompletion`: that write
     record is a triggerable a plan fires and waits for, and no settable. A
-    command without one stays a settable.
+    command without one stays a settable. A setpoint whose ``started_by``
+    names a command with one is a positioner: its settable carries
+    ``started_by: {command, status, idle, timeout_s}``, and the command is no
+    device of its own.
 
     ``readback`` is emitted only for a settable the roster actually paired: an
     unpaired setpoint gets no ``readback`` key at all, which is how the loader
@@ -231,13 +254,22 @@ def devices_document(
     bands = motion_bands or {}
     stated = units or {}
     commands = completions or {}
+    started = frozenset(
+        record.started_by
+        for record in records
+        if record.direction == "write"
+        and record.started_by is not None
+        and record.started_by in commands
+    )
 
     for record in records:
         if record.direction == "write":
-            section, entry = _write_entry(
-                record, commands.get(record.address), declared.get(record.address), bands, stated
+            device = _write_entry(
+                record, commands, started, declared.get(record.address), bands, stated
             )
-            document[section].append(entry)
+            if device is not None:
+                section, entry = device
+                document[section].append(entry)
         elif record.direction == "read":
             if record.shape is not None and len(record.shape) > 1:
                 continue
@@ -264,6 +296,8 @@ _GENERATED_HEADER = """\
 # one, and a settable names a readback only where the facility pairs one.
 # A command whose status states `idle` and which states `timeout_s` is a
 # triggerable a plan fires and waits for, and no settable.
+# A setpoint stating `started_by` carries its start act; the start command is
+# no device.
 # A readback of more than one dimension is no device.
 """
 """Header the written file carries, filled with the roster source's

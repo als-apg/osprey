@@ -113,6 +113,60 @@ class TestDevicesDocument:
         assert document["settables"] == [{"name": command, "setpoint": command}]
         assert document["triggerables"] == []
 
+    _POSITION, _POSITION_RB = "ES1:MOT:STAGE:01:POSITION:SP", "ES1:MOT:STAGE:01:POSITION:RB"
+    _MOVE, _MOVE_STATUS = "ES1:MOT:STAGE:01:MOVE:SP", "ES1:MOT:STAGE:01:STATUS:MOVE"
+
+    def _stage(self) -> tuple[ChannelRecord, ...]:
+        """A setpoint started by its move command, the command and both readbacks."""
+        return (
+            ChannelRecord(
+                address=self._POSITION,
+                source=_SOURCE,
+                direction="write",
+                readback=self._POSITION_RB,
+                started_by=self._MOVE,
+            ),
+            _write(self._MOVE, readback=self._MOVE_STATUS),
+            _read(self._POSITION_RB),
+            _read(self._MOVE_STATUS),
+        )
+
+    def _completions(self) -> dict[str, CommandCompletion]:
+        return {self._MOVE: CommandCompletion(self._MOVE, self._MOVE_STATUS, "DONE", 10.0)}
+
+    def test_a_positioner_carries_its_start_act(self) -> None:
+        document = devices_document(
+            self._stage(),
+            tolerances={self._POSITION: {"absolute": 0.01}},
+            completions=self._completions(),
+        )
+
+        (entry,) = document["settables"]
+        assert entry == {
+            "name": self._POSITION,
+            "setpoint": self._POSITION,
+            "readback": self._POSITION_RB,
+            "started_by": {
+                "command": self._MOVE,
+                "status": self._MOVE_STATUS,
+                "idle": "DONE",
+                "timeout_s": 10.0,
+            },
+            "settle_tolerance": 0.01,
+        }
+        assert list(entry).index("started_by") == list(entry).index("readback") + 1
+        assert validate_device_document(document) == []
+
+    def test_the_start_command_a_positioner_names_is_no_device(self) -> None:
+        document = devices_document(self._stage(), completions=self._completions())
+
+        assert [entry["name"] for entry in document["settables"]] == [self._POSITION]
+        assert document["triggerables"] == []
+        assert [entry["name"] for entry in document["readables"]] == [
+            self._POSITION_RB,
+            self._MOVE_STATUS,
+        ]
+
     def test_every_top_level_key_is_always_present(self) -> None:
         """Even a facility that yields nothing gets every key, so a caller can
         see WHICH kind came up empty instead of inferring it from a missing key."""
