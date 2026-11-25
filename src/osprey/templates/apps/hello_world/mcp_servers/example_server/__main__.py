@@ -20,4 +20,6 @@ if __name__ == "__main__":
         file=sys.stderr,
         flush=True,
     )
-    mcp.run()
+    # No banner: before printing it fastmcp asks PyPI for a newer release, and
+    # on a host without internet that request delays the first frame by seconds.
+    mcp.run(show_banner=False)

@@ -104,7 +104,7 @@ _FAKE_SERVER = textwrap.dedent(
         def add_middleware(self, _middleware):
             pass
 
-        def run(self):
+        def run(self, **_kwargs):
             names = {json_names!r}
             with open(os.environ["OSPREY_TEST_ENV_DUMP"], "w") as fh:
                 json.dump({{n: os.environ.get(n) for n in names}}, fh)

@@ -48,7 +48,8 @@ lookup material; the how-to guides link here for every value they mention.
       :link-type: doc
 
       The ``osprey-panels`` command: the operator screens it writes from a
-      built ``facility.json`` and the facility's panel rule tables.
+      built ``facility.json`` and the facility's panel rule tables. Not
+      published; installed from a checkout.
 
    .. grid-item-card:: Ports
       :link: ports
