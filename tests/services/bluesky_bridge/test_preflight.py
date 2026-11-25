@@ -531,3 +531,37 @@ def test_a_positioner_probes_its_start_command_and_status() -> None:
         "ES1:STAGE:STATUS",
     }
     assert connector.write_calls == []
+
+
+def test_a_positioner_probes_its_stop_channel() -> None:
+    """An unreachable stop channel refuses the run before anything is written."""
+    from bluesky import RunEngine
+    from bluesky import plan_stubs as bps
+
+    from osprey.services.bluesky_bridge.devices.connector import ConnectorPositioner
+    from osprey.services.bluesky_bridge.preflight import probe_before_motion
+    from osprey_connectors.command import CommandAct
+    from tests.services.bluesky_bridge._fake_connector import FakeConnector
+
+    class _DeadStop(FakeConnector):
+        async def validate_channel(self, channel_address: str) -> bool:
+            return channel_address != "ES1:STAGE:STOP"
+
+    connector = _DeadStop()
+    stage = ConnectorPositioner(
+        connector,
+        "ES1:STAGE:POS:SP",
+        "ES1:STAGE:POS:RB",
+        started_by=CommandAct("ES1:STAGE:MOVE", "ES1:STAGE:STATUS", 0, 5.0),
+        stopped_by="ES1:STAGE:STOP",
+        name="stage",
+    )
+
+    def plan():
+        yield from probe_before_motion("stage_scan", {"stage": stage})
+        yield from bps.mv(stage, 2.0)
+
+    with pytest.raises(ConnectionError, match="ES1:STAGE:STOP"):
+        RunEngine(context_managers=[])(plan())
+
+    assert connector.write_calls == []

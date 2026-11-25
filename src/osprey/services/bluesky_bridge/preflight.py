@@ -341,7 +341,8 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
     setpoint also reads the readback to settle each move, so an unreachable
     readback fails a run exactly as an unreachable setpoint does), a readable
     its one channel, a triggerable its command and its status, a positioner
-    its setpoint, its readback, its start command and that command's status.
+    its setpoint, its readback, its start command, that command's status and
+    its stop command.
     Asked by method
     name rather than by importing the device classes, which would pull
     ophyd-async into the import path of every module that wants a pre-flight.
