@@ -496,7 +496,7 @@ def test_run_builds_one_stack_per_init_sets(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(capture, "chromium_context", _browser)
     monkeypatch.setattr(capture, "capture_on_stack", _capture)
     monkeypatch.setattr(capture, "stamp_manifest", lambda name, kind: None)
-    app = ("apps.orbit-bump={}",)
+    app = ("apps.corrector-trim={}",)
     shots = [
         DocShot(name="a", environment="tutorial_stack", kind="static"),
         DocShot(name="b", environment="tutorial_stack", kind="static", init_sets=app),
@@ -521,9 +521,9 @@ def test_single_recipe_stack_takes_its_init_sets(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(capture, "tutorial_stack", _stack)
     monkeypatch.setattr(capture, "capture_on_stack", lambda *a, **k: [])
     shot = DocShot(
-        name="a", environment="tutorial_stack", kind="static", init_sets=("apps.orbit-bump={}",)
+        name="a", environment="tutorial_stack", kind="static", init_sets=("apps.corrector-trim={}",)
     )
 
     capture.capture_tutorial_stack(lambda: None, shot, agentic=False)
 
-    assert built == [("apps.orbit-bump={}",)]
+    assert built == [("apps.corrector-trim={}",)]

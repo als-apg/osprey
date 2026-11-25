@@ -38,8 +38,8 @@ runs for you.
   and free host ports 26000–26999, 27064 and 27075 (its own port block, so a
   deployment on the default one can keep running). The `--now` anchor freezes the seeded dates, so
   repeat captures are byte-stable.
-  A recipe that names `init_sets` (the app panel turns the orbit bump app on)
-  is captured on a stack of its own, after the shared one.
+  A recipe that names `init_sets` is captured on a stack of its own, after the
+  shared one.
 - `SCREENSHOTOPTS=--agentic` — the Web Terminal hero. Sends its prompt through
   the operator chat of a live agent session to produce a real beam-current plot, so it needs
   the provider's API key in the environment and spends its budget. The session
