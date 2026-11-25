@@ -28,6 +28,7 @@ from osprey_connectors.types import configured_targets, tier_writes
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
 from tests.cli.test_init_revalidate import (
     _hermetic_git,  # noqa: F401  (autouse: keeps the developer's git config out)
+    _only_host_steps_left,
     _previous_release_repo,
     _repo_files,
     _revalidate,
@@ -86,7 +87,7 @@ def test_the_previous_release_repo_revalidates_to_the_exemplar_and_then_rests(
 
     assert first.exit_code == 0, first.output
     assert _repo_files(root) == revalidated_exemplar()
-    assert "Left for you to do by hand" not in first.output
+    assert _only_host_steps_left(first.output), first.output
     profile = (root / "profile.yml").read_text(encoding="utf-8")
     assert "writes_enabled:" not in profile
     # The hooks-list end-of-line comment is a stanza of its own (D7): it is
