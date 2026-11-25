@@ -296,6 +296,9 @@ The worker refuses a run that names such a command under a movable or a
 readable field, before anything is written. An abort cancels an unfinished
 trigger, so no command is written after it.
 
+A positioner, a setpoint the facility starts with a command, moves with
+`bps.mv` like any settable; its start command is not a device.
+
 **The role is additive.** It records intent and validates nothing, so
 `min_length`, `title`, `description` and any `x-widget` presentation hint stay
 on the field exactly as you write them — the shipped plans depend on that.
