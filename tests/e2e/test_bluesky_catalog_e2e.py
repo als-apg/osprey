@@ -80,7 +80,7 @@ from tests.e2e._volumes import remove_project_volumes
 # approval prompt branches on these exact literals.
 _PREVIEW_REASONS = PREVIEW_REASONS | set(REFUSAL_REASONS)
 
-# The thirteen keys every pre-flight answer carries, success or not.
+# The fourteen keys every pre-flight answer carries, success or not.
 _PREVIEW_KEYS = {
     "ok",
     "plan",
@@ -91,6 +91,7 @@ _PREVIEW_KEYS = {
     "move_cap",
     "writes",
     "total_writes",
+    "stop_writes",
     "reason",
     "detail",
     "retryable",

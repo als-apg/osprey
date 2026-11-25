@@ -1290,6 +1290,7 @@ def _preview_unavailable(
         "move_cap": None,
         "writes": [],
         "total_writes": None,
+        "stop_writes": [],
         "reason": reason,
         "detail": detail[:_PREVIEW_DETAIL_CHARS],
         "retryable": REFUSAL_REASONS[reason].retryable if reason in REFUSAL_REASONS else False,
@@ -1369,7 +1370,10 @@ async def preview_plan(name: str, request: Request) -> dict:
     ``{"channel", "device", "value", "count"}`` per channel address the launch
     writes, in first-write order; ``value`` is ``None`` when the writes to that
     channel carry differing values) and ``total_writes`` (the exact number of
-    writes, 0 for a launch that writes nothing) — plus ``channels``, this
+    writes, 0 for a launch that writes nothing) and ``stop_writes`` (one
+    ``{"channel", "device", "value"}`` per channel a stop may write if the run
+    stops a positioner mid-move, never counted in ``total_writes``) — plus
+    ``channels``, this
     process's own reading of the plan's role declaration against these
     parameters. ``total_writes`` is ``None`` on every answer where no walk
     completed, so 0 always means a walked launch that writes nothing. ``channels`` is present on every answer, success
@@ -1487,10 +1491,12 @@ async def preview_plan(name: str, request: Request) -> dict:
 
     writes = payload.get("writes")
     total_writes = payload.get("total_writes")
+    stop_writes = payload.get("stop_writes")
     if (
         not isinstance(writes, list)
         or not isinstance(total_writes, int)
         or isinstance(total_writes, bool)
+        or not isinstance(stop_writes, list)
     ):
         # A write total that is not one would let the gate tell an approver a
         # launch is read-only, or writes a count it does not.
@@ -1512,6 +1518,7 @@ async def preview_plan(name: str, request: Request) -> dict:
         "move_cap": payload.get("move_cap"),
         "writes": writes,
         "total_writes": total_writes,
+        "stop_writes": stop_writes,
         "reason": None,
         "detail": None,
         "retryable": False,

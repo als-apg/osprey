@@ -1748,6 +1748,7 @@ def test_preview_lists_every_write_per_channel_with_value_and_count(
         }
     ]
     assert preview["total_writes"] == 3
+    assert preview["stop_writes"] == []
 
 
 class _StageWithCommand:
@@ -1818,6 +1819,36 @@ def test_a_positioners_launch_states_its_start_write(
         {"channel": "ES:STAGE:POS:SP", "device": "stage_01", "value": None, "count": 3},
         {"channel": "ES:STAGE:MOVE", "device": "stage_01", "value": PRESS_VALUE, "count": 3},
     ]
+    assert preview["total_writes"] == 2 * preview["total_moves"]
+
+
+def test_a_positioners_launch_states_what_its_stop_may_write_apart_from_its_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.services.bluesky_bridge.devices import connector as connector_module
+    from osprey_connectors.command import CommandAct
+
+    stage = connector_module.ConnectorPositioner(
+        FakeConnector(),
+        "ES:STAGE:POS:SP",
+        "ES:STAGE:POS:RB",
+        started_by=CommandAct("ES:STAGE:MOVE", "ES:STAGE:STATUS", 0, 5.0),
+        stopped_by="ES:STAGE:STOP",
+        name="stage_01",
+    )
+    namespace, _connector = _trajectory_namespace(
+        tmp_path, monkeypatch, extra_devices={"stage_01": stage}
+    )
+    kwargs = _trajectory_kwargs()
+    kwargs["movable"] = "stage_01"
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace)
+
+    assert preview["ok"] is True, preview.get("error")
+    assert preview["stop_writes"] == [
+        {"channel": "ES:STAGE:STOP", "device": "stage_01", "value": connector_module.PRESS_VALUE}
+    ]
+    assert "ES:STAGE:STOP" not in {entry["channel"] for entry in preview["writes"]}
     assert preview["total_writes"] == 2 * preview["total_moves"]
 
 

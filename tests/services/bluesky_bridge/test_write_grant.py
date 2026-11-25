@@ -750,14 +750,14 @@ def test_a_set_that_states_two_writes_spends_two_steps(person: _Person) -> None:
 
 def test_the_request_lists_every_write_the_approval_view_lists(person: _Person) -> None:
     device = _StartingSettable(_Connector(), CHANNEL, name=DEVICE)
-    _moves, _total_moves, writes, total_writes = qserver_startup.walk_launch(
+    _moves, _total_moves, writes, total_writes, stop_writes = qserver_startup.walk_launch(
         _scan({DEVICE: device}, _Params())
     )
 
     _run_device(_scan, device)
 
     [request] = person.seen
-    assert set(request.channels) == {entry["channel"] for entry in writes}
+    assert set(request.channels) == {entry["channel"] for entry in writes + stop_writes}
     assert request.steps == total_writes
 
 

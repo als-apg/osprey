@@ -1848,12 +1848,42 @@ def _writes_lines(preview) -> list[str]:
     return lines
 
 
+def _stop_writes_lines(preview) -> list[str]:
+    """What the run may write if it stops a positioner mid-move; nothing if none.
+
+    Read from the same walk as the writes list and kept apart from it: these
+    writes are made only if the run stops while a move is unfinished.
+    """
+    walked = _walked_writes(preview)
+    stops = preview.get("stop_writes") if walked is not None else None
+    if not isinstance(stops, list) or not stops:
+        return []
+    lines = ["May be written if the run stops mid-move:"]
+    for entry in stops[:_WRITES_LISTED_CHANNELS]:
+        if not isinstance(entry, dict):
+            lines.append(f"  {_sanitize_label(entry)}")
+            continue
+        channel = _sanitize_label(entry.get("channel"))
+        device = entry.get("device")
+        named = (
+            f" (device {_sanitize_label(device)})"
+            if device is not None and device != entry.get("channel")
+            else ""
+        )
+        lines.append(f"  {channel}{named} — {_sanitize_label(entry.get('value'))}")
+    hidden = len(stops) - _WRITES_LISTED_CHANNELS
+    if hidden > 0:
+        lines.append(f"  … {hidden} more {'channel' if hidden == 1 else 'channels'}, not shown …")
+    return lines
+
+
 def _preview_lines(preview) -> list[str]:
-    """The whole pre-flight block: hazard, declared channels, writes, trajectory."""
+    """The whole pre-flight block: hazard, declared channels, writes, stops, trajectory."""
     return (
         [_hazard_line(preview)]
         + _declared_channel_lines(preview)
         + _writes_lines(preview)
+        + _stop_writes_lines(preview)
         + _trajectory_lines(preview)
     )
 
