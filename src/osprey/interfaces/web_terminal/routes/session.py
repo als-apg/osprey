@@ -120,13 +120,23 @@ def _operator_row(row: Mapping[str, Any]) -> bool:
     A dispatch run (any ``run_ids``), a host, dispatch or watchdog terminal
     session and a promptless row the read was not cut short of are not.
     """
-    if row.get("run_ids"):
-        return False
-    terminal = row.get("terminal_session")
-    if isinstance(terminal, str) and terminal.startswith(_NOT_OPERATOR_PREFIXES):
+    if not _operator_stream(row):
         return False
     prompt = row.get("prompt")
     return (isinstance(prompt, str) and bool(prompt.strip())) or bool(row.get("truncated"))
+
+
+def _operator_stream(row: Mapping[str, Any]) -> bool:
+    """Whether a record row is an operator's stream at all: no dispatch run
+    (``run_ids``) and no host, dispatch or watchdog terminal session.
+
+    The part of :func:`_operator_row` that is the same in every read of the
+    session; ``prompt`` and ``truncated`` depend on where a read was cut.
+    """
+    if row.get("run_ids"):
+        return False
+    terminal = row.get("terminal_session")
+    return not (isinstance(terminal, str) and terminal.startswith(_NOT_OPERATOR_PREFIXES))
 
 
 def _live_keys(app) -> set[str]:
@@ -573,6 +583,24 @@ def _owned(app, tid: str, ledger: session_ledger.Ledger, sessions_dir: Path | No
     return sessions_dir is not None and (sessions_dir / f"{tid}.jsonl").is_file()
 
 
+def _is_deletable(
+    app, tid: str, identity: str, ledger: session_ledger.Ledger, sessions_dir: Path | None
+) -> bool:
+    """Whether *tid* is one this operator can delete: the hub holds it as theirs,
+    or the record names them on it.
+
+    The sidebar lists a session the hub holds nothing of when the record names
+    this operator on it, so the delete accepts it by the same check, and
+    whatever the read by id says of its prompt: a page's scan and this read
+    are cut at different rows. Another operator's session, a dispatch run and
+    a session a record that cannot answer does not vouch for are not.
+    """
+    if _owned(app, tid, ledger, sessions_dir):
+        return True
+    row = _record_rows_by_id([tid], record_client()).get(tid)
+    return row is not None and _operator_stream(row) and session_record.took_part(row, identity)
+
+
 def _keys_on(app, tid: str, ledger: session_ledger.Ledger) -> set[str]:
     """The session keys whose current transcript is *tid*."""
     keys = {row.session_key for row in ledger.rows if ledger.current(row.session_key) == tid}
@@ -652,7 +680,8 @@ def _delete_session(
     """Tombstone *tid*, then delete its artifacts, ledger rows, map entries and files.
 
     The tombstone goes first, so a delete cut short leaves the session hidden
-    rather than half-there. The agent record is not touched.
+    rather than half-there. The agent record is not touched: for a session
+    only the record holds, the tombstone is the whole delete.
     """
     session_meta.mark_deleted(app, tid)
     pending: set[str] = getattr(app.state, "session_naming_pending", set())
@@ -681,7 +710,10 @@ async def delete_session(request: Request, transcript_id: str):
     ledger = await asyncio.to_thread(session_ledger.load, session_meta.ledger_state_dir())
     sessions_dir = _sessions_dir(app)
     deleted = await asyncio.to_thread(session_meta.deleted_ids, app)
-    if tid in deleted or not await asyncio.to_thread(_owned, app, tid, ledger, sessions_dir):
+    mine = tid not in deleted and await asyncio.to_thread(
+        _is_deletable, app, tid, _identity(request), ledger, sessions_dir
+    )
+    if not mine:
         raise HTTPException(status_code=404, detail="No such session.")
     keys = _keys_on(app, tid, ledger)
     refusal = _refusal(app, keys)

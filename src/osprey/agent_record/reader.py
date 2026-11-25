@@ -1324,7 +1324,8 @@ class RecordReader:
         the operator typed no words of their own), ``message_count``
         counts its main-stream prompts (readable, not bookkeeping) and answers,
         and ``truncated`` says the read was cut (scan, time) before it reached
-        the session's first prompt, or that its first prompt is unreadable.
+        the session's first prompt, or that its first prompt is unreadable; a
+        session read with no transcript row (an audit stream) is never flagged.
         *session_ids* lists only those sessions (which of them the record
         knows); an empty collection lists none. *before* pages back: only sessions whose activity ends before
         it are listed, read through a backend bound (``until``), so a page
@@ -1419,12 +1420,16 @@ class RecordReader:
             row["message_count"] += 1
         # Cut short (scan limit, time limit): a session with no prompt in what
         # was read may have one before the cut. It is listed, never dropped.
+        # One read with no transcript row at all (an audit or OTLP stream) is
+        # not flagged: nothing read says it is a conversation, and one that is
+        # has its place on the ``before`` page that reaches its transcript.
         cut = ctx.cut
         idle = frozenset(s for s, row in groups.items() if row["activity_ts"] is None)
         rows = []
         for row in groups.values():
             session = row["session_id"]
-            row["truncated"] = row["prompt"] is None and (cut or session in unread_prompt)
+            unread = session in unread_prompt or (cut and session not in idle)
+            row["truncated"] = row["prompt"] is None and unread
             if row["activity_ts"] is not None:
                 row["last_ts"] = row["activity_ts"]
             del row["activity_ts"]

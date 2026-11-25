@@ -336,6 +336,44 @@ def test_an_unreadable_prompt_is_not_counted_and_flags_the_session(backend):
     assert row["message_count"] == 1  # the answer only
 
 
+def _audit(session: str, n: int, t: float) -> c.Entry:
+    return c.Entry(
+        key=f"audit:{ME}:{session}:{n}",
+        kind=c.KIND_AUDIT,
+        ts=_at(t),
+        identity=ME,
+        body={"event": "web_auth", "outcome": "refused"},
+        inserted_at=_at(t),
+        session_id=session,
+    )
+
+
+def test_a_stream_with_no_transcript_rows_is_not_truncated_by_a_cut(backend):
+    # A hub's audit stream for one server run: thousands of rows, no conversation.
+    backend.append([_audit(OLD, n, 200 + n) for n in range(30)])
+    reader = _reader(backend, scan_rows=10)
+    answer = reader.list_sessions(c.All())
+    assert not answer.complete and "scan limit" in answer.reason
+    assert _ids(answer) == [OLD]
+    # The cut hid no prompt of it: no transcript row was read, so none is promised.
+    assert answer.data[0]["prompt"] is None and answer.data[0]["truncated"] is False
+
+
+def test_a_conversation_behind_newer_keyed_rows_is_listed_by_the_page_that_reaches_it(backend):
+    backend.append(
+        [
+            _cc(T1, 1, c.KIND_PROMPT, 1, {"text": "first"}),
+            _cc(T1, 2, c.KIND_ANSWER, 2, {"text": "ok"}),
+            *[_audit(T1, n, 200 + n) for n in range(30)],
+        ]
+    )
+    reader = _reader(backend, scan_rows=10)
+    newest = reader.list_sessions(c.All())
+    assert newest.data[0]["prompt"] is None and newest.data[0]["truncated"] is False
+    older = reader.list_sessions(c.All(), before=_at(200))
+    assert _ids(older) == [T1] and older.data[0]["prompt"] == "first"
+
+
 def test_truncated_follows_the_cut_not_the_wording_of_its_reason(backend, monkeypatch):
     backend.append(_busy_newer_session(100, 30))
     reader = _reader(backend, scan_rows=10)

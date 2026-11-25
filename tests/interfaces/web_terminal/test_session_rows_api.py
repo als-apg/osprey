@@ -33,6 +33,7 @@ from osprey.build.claude_code_telemetry import (
 )
 from osprey.interfaces.web_terminal import session_handoff, session_meta, transcript_map
 from osprey.interfaces.web_terminal.routes import session as session_routes
+from osprey.mcp_server import session as session_record
 from osprey.stores import session_ledger
 from osprey_connectors import control_context, posture_store
 from tests.agent_record.fakes import FakeRecordClient
@@ -780,3 +781,121 @@ class TestDelete:
     def test_another_operators_session_is_404(self, client, hub):  # noqa: ARG002
         assert client.delete(f"/api/sessions/{OTHER}").status_code == 404
         assert client.delete("/api/sessions/not-a-uuid").status_code == 422
+
+    def test_a_session_only_the_record_lists_as_mine_is_deleted(self, client, record, hub):
+        record.answers["list_sessions"] = _answer([_row(FRESH, 30), _row(T1, 10)])
+        assert FRESH in _by_id(client.get("/api/sessions").json())
+        resp = client.delete(f"/api/sessions/{FRESH}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {
+            "transcript_id": FRESH,
+            "deleted_artifacts": [],
+            "transcript_files": 0,
+        }
+        assert {"session_ids": [FRESH], "limit": 1} in record.calls_to("list_sessions")
+        assert session_meta.get(hub.app, FRESH)["deleted"]
+        assert FRESH not in _by_id(client.get("/api/sessions").json())
+        assert hub.app.state.broadcaster.frames[-1] == {
+            "type": session_meta.SESSION_DELETED_FRAME,
+            "transcript_id": FRESH,
+        }
+        assert client.delete(f"/api/sessions/{FRESH}").status_code == 404
+
+    def test_a_listed_row_is_deleted_whatever_the_read_by_id_says_of_its_prompt(
+        self, client, record
+    ):
+        # The page's scan was cut before the prompt; the read narrowed to the
+        # session was not, and found none either.
+        def answer(**kwargs):
+            cut = not kwargs.get("session_ids")
+            return _answer([_row(FRESH, 30, prompt=None, truncated=cut)], complete=not cut)
+
+        record.answers["list_sessions"] = answer
+        assert FRESH in _by_id(client.get("/api/sessions").json())
+        assert client.delete(f"/api/sessions/{FRESH}").status_code == 200
+        assert FRESH not in _by_id(client.get("/api/sessions").json())
+
+    def test_another_operators_record_only_session_is_404(self, client, record, hub):
+        theirs = _row(OTHER, 10, persons=["bob"], identities=["bob"])
+        record.answers["list_sessions"] = _answer([theirs])
+        assert client.delete(f"/api/sessions/{OTHER}").status_code == 404
+        assert session_meta.get(hub.app, OTHER)["deleted"] is None
+        assert hub.app.state.broadcaster.frames == []
+
+    @pytest.mark.parametrize(
+        "fields",
+        [
+            {"run_ids": ["run-1"]},
+            {"terminal_session": f"{DISPATCH_SESSION_PREFIX}x"},
+            {"terminal_session": f"{HOST_SESSION_PREFIX}x"},
+            {"terminal_session": f"{WATCHDOG_SESSION_PREFIX}x"},
+        ],
+    )
+    def test_a_record_only_session_that_is_not_an_operators_is_404(self, client, record, fields):
+        record.answers["list_sessions"] = _answer([_row(OTHER, 10, **fields)])
+        assert client.delete(f"/api/sessions/{OTHER}").status_code == 404
+        assert session_meta.get(client.app, OTHER)["deleted"] is None
+
+    def test_with_the_record_down_a_session_the_hub_does_not_hold_is_404(self, client, record):
+        record.answers["list_sessions"] = ClientAnswer(unavailable="record down")
+        assert client.delete(f"/api/sessions/{FRESH}").status_code == 404
+        assert session_meta.get(client.app, FRESH)["deleted"] is None
+
+
+class TestAuditOnlyStreams:
+    """Issue 3110, against a real reader: a hub's audit stream past the scan cut."""
+
+    @pytest.fixture
+    def reader(self, record, tmp_path):
+        from datetime import UTC, datetime, timedelta
+
+        from osprey.agent_record import contract as c
+        from osprey.agent_record import reader as rd
+        from osprey.agent_record.backends.embedded import EmbeddedBackend
+        from tests.agent_record.test_identities import _config
+
+        start = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
+
+        def entry(session, n, kind, body):
+            at = start + timedelta(seconds=n)
+            return c.Entry(
+                key=f"{kind}:{ME}:{session}:{n}",
+                kind=kind,
+                ts=at,
+                identity=ME,
+                body=body,
+                inserted_at=at,
+                session_id=session,
+            )
+
+        with EmbeddedBackend(tmp_path / "record.duckdb") as backend:
+            backend.append(
+                [
+                    entry(T1, 1, c.KIND_PROMPT, {"text": "hello"}),
+                    entry(T1, 2, c.KIND_ANSWER, {"text": "ok"}),
+                    *[
+                        entry(FRESH, 100 + n, c.KIND_AUDIT, {"event": "web_auth"})
+                        for n in range(30)
+                    ],
+                ]
+            )
+            reader = rd.RecordReader(backend, _config(), limits=rd.Limits(scan_rows=10))
+
+            def answer(**kwargs):
+                kwargs.pop("wait", None)
+                read = reader.list_sessions(c.All(), **kwargs)
+                return ClientAnswer(
+                    data=read.data, complete=read.complete, more=read.more, reason=read.reason
+                )
+
+            record.answers["list_sessions"] = answer
+            yield reader
+
+    def test_every_row_the_listing_shows_can_be_deleted(self, client, reader):  # noqa: ARG002
+        body = client.get("/api/sessions").json()
+        assert body["record"] == session_record.RECORD_INCOMPLETE
+        # The audit stream is no conversation: it is not listed as one.
+        assert FRESH not in _by_id(body)
+        for row in body["sessions"]:
+            resp = client.delete(f"/api/sessions/{row['transcript_id']}")
+            assert resp.status_code == 200, (row, resp.text)
