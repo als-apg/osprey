@@ -7,9 +7,14 @@ views, web UI, etc.) and depends on `jsonschema` only.
 
 ## Install
 
+The package is not published on PyPI. Install it from a checkout of the
+[OSPREY repository](https://github.com/als-apg/osprey):
+
 ```
-pip install osprey-panels
+pip install ./packages/osprey-panels
 ```
+
+`uv sync` in the checkout installs it into the workspace environment.
 
 ## Usage
 
@@ -38,9 +43,9 @@ vendored schema.
 
 ## Stability
 
-The package is released on its own CalVer tags, `osprey-panels-vYYYY.M.P`, by
-`.github/workflows/release-package.yml`, independently of the framework's `v*`
-tags.
+The package is not released: it has no tags and no version to pin, and its
+commands, rule tables and Python API may change with any commit. What it reads
+and writes is recorded and held:
 
 - **Reads and emits.** `[tool.osprey-panels.compat]` in `pyproject.toml` lists
   the `facility.json` headers the package reads (`osprey_panels.document.READS`)
@@ -48,15 +53,12 @@ tags.
 - **Retirement.** Adding a read is additive and needs only the table edit.
   Dropping a read, or changing the emitted version, is a recorded retirement:
   the old value moves to `retired` with its reason beside it. A value the base
-  revision or a reachable `osprey-panels-v*` tag listed must stay in `reads`,
-  `emits` or `retired`.
+  revision listed must stay in `reads`, `emits` or `retired`.
 - **Enforced by** `tests/osprey_panels_tests/test_stability_table.py`, which holds
   both the code and the git history to the table; it runs in the
   `osprey-panels-standalone` lane.
 - **No framework window.** The package depends on `jsonschema` only, so it has
   no framework releases to stay compatible with.
-- **Facility N bump.** A facility release that first writes `/N+1` is cut only
-  after a panels release whose `reads` includes `/N+1` is on PyPI.
 
 ## Public API
 
@@ -65,7 +67,8 @@ private. Each names the one consumer it serves: a *fork/tool* that uses the
 engine without the framework, the *command* (`osprey-panels`), or a
 *contract test* (the root test that checks the written screens), named by
 its file. Each public module lists its public names in `__all__`.
-`osprey_panels.__version__` is the installed distribution's version, or
+`osprey_panels.__version__` is the installed distribution's version
+(`0.0.postN+g…`, numbered from the checkout it was built in), or
 `0.0.0+unbuilt` in a source tree with no install.
 
 | Module | Consumer |
