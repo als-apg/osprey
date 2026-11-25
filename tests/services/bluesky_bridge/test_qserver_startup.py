@@ -1788,6 +1788,39 @@ def test_preview_counts_a_device_command_write_beside_its_move(
     assert preview["total_writes"] == 2 * preview["total_moves"]
 
 
+def test_a_positioners_launch_states_its_start_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.services.bluesky_bridge.devices.connector import (
+        PRESS_VALUE,
+        ConnectorPositioner,
+    )
+    from osprey_connectors.command import CommandAct
+
+    stage = ConnectorPositioner(
+        FakeConnector(),
+        "ES:STAGE:POS:SP",
+        "ES:STAGE:POS:RB",
+        started_by=CommandAct("ES:STAGE:MOVE", "ES:STAGE:STATUS", 0, 5.0),
+        name="stage_01",
+    )
+    namespace, _connector = _trajectory_namespace(
+        tmp_path, monkeypatch, extra_devices={"stage_01": stage}
+    )
+    kwargs = _trajectory_kwargs()
+    kwargs["movable"] = "stage_01"
+
+    preview = qserver_startup.preview_plan_in_namespace("trajectory_scan", kwargs, namespace)
+
+    assert preview["ok"] is True, preview.get("error")
+    assert [move["channel"] for move in preview["moves"]] == ["stage_01"] * 3
+    assert preview["writes"] == [
+        {"channel": "ES:STAGE:POS:SP", "device": "stage_01", "value": None, "count": 3},
+        {"channel": "ES:STAGE:MOVE", "device": "stage_01", "value": PRESS_VALUE, "count": 3},
+    ]
+    assert preview["total_writes"] == 2 * preview["total_moves"]
+
+
 def test_preview_of_a_launch_that_writes_nothing_states_zero_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

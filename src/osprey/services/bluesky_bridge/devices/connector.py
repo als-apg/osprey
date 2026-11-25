@@ -22,7 +22,8 @@ decision D1): ``ConnectorSettable``/``ConnectorReadable``/
 the connector from ``set()``/``trigger()``/``read()``/``describe()``. A
 triggerable fires its command through ``osprey_connectors.command.fire``,
 which writes it once through ``connector.write_channel_checked`` and waits for
-its status to report the act ended. This is deliberately NOT a custom
+its status to report the act ended; a ``ConnectorPositioner`` fires the
+command that starts its move the same way, after writing its target. This is deliberately NOT a custom
 ``SignalBackend`` — the ophyd-async ``Signal``/backend protocol is an
 internal extension point, while ``StandardReadable``'s ``set``/``read``/
 ``describe``/``connect`` are the stable public device contract that plans
@@ -47,13 +48,21 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 
 from osprey.services.bluesky_bridge.plan_fields import SETPOINT_KEY_SUFFIX
 from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
-from osprey_connectors.command import CommandAct, fire
-from osprey_connectors.settle import Landing, settle, settle_bound
+from osprey_connectors.command import (
+    CommandAct,
+    CommandBusyError,
+    CommandNoEffectError,
+    CommandStatusError,
+    fire,
+)
+from osprey_connectors.control_system import values_match
+from osprey_connectors.errors import ChannelError
+from osprey_connectors.settle import Landing, SettleTimeoutError, settle, settle_bound
 
 from ._connect import connect_all
 from .specs import ReadableSpec, SettableSpec, TriggerableSpec
 
-#: The value a trigger writes to its command: the press value.
+#: The value written to a command to fire it.
 PRESS_VALUE = 1
 
 #: Env var carrying the floor on how close a readback must come to the demand
@@ -282,6 +291,10 @@ class ConnectorSettable(StandardReadable):
         # defaults: the facility authors them in its profile and they reach the
         # container as env vars, so the value in force is whatever the process
         # environment says at the moment the move starts.
+        await settle(self._osprey_connector, [self._landing(value)], timeout_s=settle_timeout_s())
+
+    def _landing(self, value: float) -> Landing:
+        """The readback's landing for a move to ``value``, its bound read from the environment now."""
         bound = settle_bound(
             self._tolerance_record(),
             value,
@@ -291,11 +304,7 @@ class ConnectorSettable(StandardReadable):
         )
         # The floor is always a number, so the bound always is.
         assert bound is not None
-        await settle(
-            self._osprey_connector,
-            [Landing(self._setpoint_pv, self._readback_pv, value, bound)],
-            timeout_s=settle_timeout_s(),
-        )
+        return Landing(self._setpoint_pv, self._readback_pv, value, bound)
 
     def _tolerance_record(self) -> dict[str, float] | None:
         """The device's declared tolerance as the facility states one, or ``None``."""
@@ -387,6 +396,168 @@ class ConnectorSettable(StandardReadable):
         ``__init__`` raises ``AttributeError``.
         """
         return {"fields": [self.name]}
+
+
+class ConnectorPositioner(ConnectorSettable):
+    """A setpoint whose move starts only when a command is written: a positioner.
+
+    ``set(value)`` makes its writes in the order :meth:`set_writes` states them:
+
+    1. it reads the start command's status once and refuses with
+       :class:`~osprey_connectors.command.CommandBusyError`, writing nothing,
+       when the status is not idle, so nothing is written while a previous act
+       runs;
+    2. it writes ``value`` to the setpoint through ``write_channel_checked``,
+       as :class:`ConnectorSettable` does;
+    3. it fires the start command with :data:`PRESS_VALUE` through
+       ``osprey_connectors.command.fire``, which waits for the status to leave
+       idle and return within the act's bound. A failure of ``fire`` fails the
+       move with a note that the setpoint now holds the target;
+    4. when the status never leaves idle, the readback is read once: within
+       its settle bound of the target the move is done, the stage was already
+       there; elsewhere, or with no separate readback, the move fails, the
+       start had no effect;
+    5. after a completed act, a separate readback settles as a settable's
+       does, its budget counted from the act's end; with none, the act's end
+       is the move's confirmation and nothing is polled.
+
+    The RunEngine calls :meth:`stop` on a pause, a suspend, an abort, a
+    failure and at the run's end. A move still unfinished then is cancelled:
+    nothing more is written to the device, and a stage already moving moves
+    on by itself. A finished move's ``stop()`` does nothing, and ``stop()``
+    writes nothing: :meth:`stop_writes` states no write.
+
+    The device is named, read and recorded as the settable it is: the start
+    command and its status are probed before a run (:meth:`channel_addresses`)
+    and never recorded.
+    """
+
+    def __init__(
+        self,
+        connector: Any,
+        setpoint_pv: str,
+        readback_pv: str | None = None,
+        *,
+        started_by: CommandAct,
+        **settable: Any,
+    ) -> None:
+        super().__init__(connector, setpoint_pv, readback_pv, **settable)
+        self._started_by = started_by
+        self._move: asyncio.Task[Any] | None = None
+
+    def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``set(value)`` makes, in order: ``value`` to the
+        setpoint, then :data:`PRESS_VALUE` to the start command. No I/O."""
+        return (
+            ChannelWrite(self._setpoint_pv, value),
+            ChannelWrite(self._started_by.command, PRESS_VALUE),
+        )
+
+    def stop_writes(self) -> tuple[ChannelWrite, ...]:
+        """The channel writes ``stop()`` makes: none. No I/O."""
+        return ()
+
+    def channel_addresses(self) -> tuple[str, ...]:
+        """The addresses a run of this device touches: the setpoint, the
+        readback, the start command and its status."""
+        return (*super().channel_addresses(), self._started_by.command, self._started_by.status)
+
+    @AsyncStatus.wrap
+    async def set(self, value: float) -> None:
+        """Write ``value``, fire the start command and wait for the move to end.
+
+        Raises:
+            CommandBusyError: The status was not idle; nothing was written.
+            CommandNoEffectError: The status never left idle and the readback
+                is not at the target, or there is no separate readback.
+            CommandTimeoutError: The status left idle and did not return
+                within the act's bound.
+            CommandStatusError: The status cannot be read or watched.
+            SettleTimeoutError: The readback did not settle after the act.
+
+            Every error :meth:`ConnectorSettable.set` raises on the setpoint
+            write or the settle, unchanged.
+        """
+        self._move = asyncio.current_task()
+        target, start = self.set_writes(value)
+        await self._refuse_while_busy()
+        # No ``confirm`` kwarg, as on a settable: the channel's own policy.
+        await self._osprey_connector.write_channel_checked(target.address, target.value)
+        landing = self._landing(value)
+        try:
+            await fire(self._osprey_connector, self._started_by, start.value)
+        except CommandNoEffectError as no_effect:
+            await self._already_there(no_effect, landing)
+        except Exception as failed:
+            failed.add_note(f"{target.address} holds the target {value}")
+            raise
+        else:
+            if self.has_distinct_readback:
+                await settle(self._osprey_connector, [landing], timeout_s=settle_timeout_s())
+        self._move = None
+
+    async def _refuse_while_busy(self) -> None:
+        """Read the status once; refuse when it is not the act's idle value.
+
+        Compared as ``fire`` compares, with ``values_match`` and the reading's
+        label.
+
+        Raises:
+            CommandBusyError: The status is not idle.
+            CommandStatusError: The read failed, answered no value, or ``idle``
+                is a label and the reading carries none.
+        """
+        act = self._started_by
+        try:
+            reading = await self._osprey_connector.read_channel(act.status)
+        except ChannelError as exc:
+            raise CommandStatusError(act, exc) from exc
+        value = getattr(reading, "value", None)
+        if value is None:
+            raise CommandStatusError(act, reason="no value")
+        label = getattr(getattr(reading, "metadata", None), "enum_label", None)
+        if isinstance(act.idle, str) and label is None:
+            raise CommandStatusError(
+                act,
+                reason=f"idle is the label {act.idle!r} and the reading {value} carries no label",
+            )
+        if not values_match(act.idle, value, enum_label=label):
+            raise CommandBusyError(act, value)
+
+    async def _already_there(self, no_effect: CommandNoEffectError, landing: Landing) -> None:
+        """Return when the readback already sits within its bound of the target.
+
+        Raises:
+            CommandNoEffectError: ``no_effect``, noted with the readback and the
+                target, when the readback is elsewhere or there is no separate
+                readback.
+            SettleReadError: The readback cannot be read, noted with the
+                target the setpoint holds.
+        """
+        if not self.has_distinct_readback:
+            no_effect.add_note(
+                f"start had no effect: {self._setpoint_pv} has no separate readback, "
+                f"target {landing.demand}"
+            )
+            raise no_effect
+        try:
+            await settle(self._osprey_connector, [landing], timeout_s=0)
+        except SettleTimeoutError as elsewhere:
+            no_effect.add_note(
+                f"start had no effect: {landing.readback} reads {elsewhere.last}, "
+                f"target {landing.demand}"
+            )
+            raise no_effect from None
+        except Exception as failed:
+            failed.add_note(f"{self._setpoint_pv} holds the target {landing.demand}")
+            raise
+
+    async def stop(self, *, success: bool = True) -> None:  # noqa: ARG002 - the bluesky verb signature
+        """Cancel an unfinished move and wait for it to end; write nothing."""
+        move = self._move
+        if move is not None and not move.done():
+            move.cancel()
+            await asyncio.wait([move])
 
 
 class ConnectorReadable(StandardReadable):
@@ -574,7 +745,8 @@ async def build_devices(
     as a no-op per device, same as the other factories in this package.
 
     Args:
-        settables: Specs for the ``ConnectorSettable`` instances to build.
+        settables: Specs for the ``ConnectorSettable`` instances to build; a
+            spec that states ``started_by`` builds a ``ConnectorPositioner``.
         readables: Specs for the ``ConnectorReadable`` instances to build.
         connector: The OSPREY control-system connector every built device
             delegates its reads/writes to. Every device shares this same
@@ -600,18 +772,27 @@ async def build_devices(
         )
     devices: dict[str, Any] = {}
     for settable_spec in settables:
-        devices[settable_spec.name] = ConnectorSettable(
-            connector,
-            settable_spec.setpoint_pv,
-            settable_spec.readback_pv,
-            name=settable_spec.name,
-            settle_tolerance=settable_spec.settle_tolerance,
-            settle_relative=settable_spec.settle_relative,
-            motion_band=settable_spec.motion_band,
-            simulated=simulated,
-            unit=settable_spec.unit,
-            setpoint_unit=settable_spec.setpoint_unit,
-        )
+        settable: dict[str, Any] = {
+            "name": settable_spec.name,
+            "settle_tolerance": settable_spec.settle_tolerance,
+            "settle_relative": settable_spec.settle_relative,
+            "motion_band": settable_spec.motion_band,
+            "simulated": simulated,
+            "unit": settable_spec.unit,
+            "setpoint_unit": settable_spec.setpoint_unit,
+        }
+        if settable_spec.started_by is not None:
+            devices[settable_spec.name] = ConnectorPositioner(
+                connector,
+                settable_spec.setpoint_pv,
+                settable_spec.readback_pv,
+                started_by=settable_spec.started_by,
+                **settable,
+            )
+        else:
+            devices[settable_spec.name] = ConnectorSettable(
+                connector, settable_spec.setpoint_pv, settable_spec.readback_pv, **settable
+            )
     for readable_spec in readables:
         devices[readable_spec.name] = ConnectorReadable(
             connector,
