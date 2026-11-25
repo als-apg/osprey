@@ -1432,3 +1432,31 @@ class TestPreflight:
     def test_the_payload_is_found_beside_the_config(self, deployment):
         sidecar = CanopySidecar(deployment.root, "", None)
         assert sidecar.payload_dir == deployment.payload
+
+    @staticmethod
+    def _payload_for(config: Path, monkeypatch) -> Path:
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text("{}\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        return CanopySidecar(config.parent / "agent-data", "", None).payload_dir
+
+    def test_a_host_deployment_render_finds_the_payload_the_build_staged(
+        self, tmp_path, monkeypatch
+    ):
+        repo = tmp_path / "repo"
+        (repo / "build" / "canopy_payload").mkdir(parents=True)
+        (repo / "canopy_payload").mkdir()  # an older build's root copy loses
+        found = self._payload_for(repo / "build" / "config.yml", monkeypatch)
+        assert found == repo / "build" / "canopy_payload"
+
+    def test_a_host_tier_render_finds_the_deployments_payload(self, tmp_path, monkeypatch):
+        repo = tmp_path / "repo"
+        (repo / "build" / "canopy_payload").mkdir(parents=True)
+        found = self._payload_for(repo / "build" / "demo-readonly" / "config.yml", monkeypatch)
+        assert found == repo / "build" / "canopy_payload"
+
+    def test_an_image_finds_the_payload_at_its_context_root(self, tmp_path, monkeypatch):
+        image = tmp_path / "app" / "demo"
+        (image / "canopy_payload").mkdir(parents=True)
+        found = self._payload_for(image / "build" / "config.yml", monkeypatch)
+        assert found == image / "canopy_payload"
