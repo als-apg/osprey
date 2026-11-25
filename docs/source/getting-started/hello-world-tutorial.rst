@@ -437,7 +437,7 @@ commented blocks map everything it can become.
   commands.
 
 The deployment repo that ``osprey init`` created also contains
-``mcp_servers/example_server/``, a small working MCP server; its
+``agent/mcp_servers/example_server/``, a small working MCP server; its
 ``example_status`` tool is one the agent already has. Copying that directory
 is the quickest way to start your own. The repo's ``README.md`` has a
 "Common questions" section that explains how to add your own server, panel,

@@ -67,7 +67,7 @@ QUOTED_MESSAGES = {
         "{} resolves to {}, outside the repository. {}",
         "Move it into the repository.",
     ],
-    "web-terminal-context/<name> is a file": ["{}/{} is a file: {}/ holds one "],
+    "agent/context/<name> is a file": ["{}/{} is a file: {}/ holds one "],
     "project/ mirror writes N build-owned path(s)": ["{}/ mirror writes {} build-owned path(s)"],
     "Repo root has N unrecognized top-level entry/entries": [
         "Repo root has %d unrecognized top-level entry/entries: %s",
@@ -178,11 +178,11 @@ def test_conditional_entries_paragraph_names_the_preset_specific_ones(
     named = paragraph.split("appear only when")[0]
     assert set(_literals(named)) == conditional
 
-    every_but = re.search(r"``demo`` deployment has all of them except (.+?);", paragraph)
-    only = re.search(r"``hello-world`` deployment has only (.+?)\.$", paragraph)
-    assert every_but and only, paragraph
-    assert conditional - set(_literals(every_but.group(1))) == (init_listings["demo"] & conditional)
-    assert set(_literals(only.group(1))) == init_listings["hello-world"] & conditional
+    flat = " ".join(paragraph.split())
+    assert "``demo`` deployment has all of them;" in flat, paragraph
+    assert conditional <= init_listings["demo"]
+    assert "``hello-world`` deployment has none." in flat, paragraph
+    assert not init_listings["hello-world"] & conditional
 
 
 def test_valid_hook_events_are_the_events_a_profile_may_declare() -> None:

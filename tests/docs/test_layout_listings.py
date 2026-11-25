@@ -144,10 +144,21 @@ def _scaffolded_names() -> list[str]:
     ]
 
 
+def _unlisted_source_entries() -> set[str]:
+    """The protected names the page leaves out: retired paths and moved-from names."""
+    source = repo_layout.rows_in_zone(repo_layout.Zone.SOURCE)
+    return {*repo_layout.retired_paths(source), *repo_layout.moved_from_top_level_names(source)}
+
+
 def _live_source_entries(entries: Sequence[str]) -> list[str]:
-    """*entries* without the retired paths of the source zone."""
-    retired = set(repo_layout.retired_paths(repo_layout.rows_in_zone(repo_layout.Zone.SOURCE)))
-    return [entry for entry in entries if entry not in retired]
+    """*entries* without the retired paths and moved-from names of the source zone."""
+    unlisted = _unlisted_source_entries()
+    return [entry for entry in entries if entry not in unlisted]
+
+
+def _top_level(name: str) -> str:
+    """What a listed name occupies at the root: ``agent/rules/`` answers ``agent``."""
+    return name.rstrip("/").split("/", 1)[0]
 
 
 # --- comparisons -------------------------------------------------------------
@@ -201,7 +212,7 @@ def _build_profiles_drift(
 
 def _protected_drift(page: Sequence[str], entries: Sequence[str]) -> list[str]:
     where = "architecture/python-executor.rst profile sources"
-    listed = {name.rstrip("/") for name in page}
+    listed = {_top_level(name) for name in page}
     code = set(entries)
     drift = [f"{where}: {name} is missing from the list" for name in sorted(code - listed)]
     drift += [
@@ -250,13 +261,17 @@ def test_the_protected_paths_list_is_the_live_profile_source_set() -> None:
     assert _protected_drift(_executor_page(), _live_source_entries(PROFILE_SOURCE_ENTRIES)) == []
 
 
-def test_the_retired_source_paths_are_protected_but_not_listed() -> None:
-    retired = repo_layout.retired_paths(repo_layout.rows_in_zone(repo_layout.Zone.SOURCE))
-    listed = {name.rstrip("/") for name in _executor_page()}
+def test_the_retired_and_moved_from_paths_are_protected_but_not_listed() -> None:
+    source = repo_layout.rows_in_zone(repo_layout.Zone.SOURCE)
+    retired = repo_layout.retired_paths(source)
+    live = set(repo_layout.top_level_names(repo_layout.ROOT_ENTRIES))
+    moved = {move.old.split("/", 1)[0] for move in repo_layout.retired_moves()} - live
+    listed = {_top_level(name) for name in _executor_page()}
 
     assert retired
-    assert set(retired) <= set(PROFILE_SOURCE_ENTRIES)
-    assert not set(retired) & listed
+    assert moved
+    assert {*retired, *moved} <= set(PROFILE_SOURCE_ENTRIES)
+    assert not {*retired, *moved} & listed
 
 
 # --- negative controls -------------------------------------------------------
@@ -331,7 +346,7 @@ def test_a_reordered_force_table_is_reported() -> None:
 def test_a_source_entry_dropped_from_the_code_is_reported_on_the_executor_page(pick: int) -> None:
     live = _live_source_entries(PROFILE_SOURCE_ENTRIES)
     source_rows = list(repo_layout.rows_in_zone(repo_layout.Zone.SOURCE))
-    dropped = _one_convention_and_one_zone_row(source_rows)[pick].path
+    dropped = _top_level(_one_convention_and_one_zone_row(source_rows)[pick].path)
 
     drift = _protected_drift(_executor_page(), [entry for entry in live if entry != dropped])
 

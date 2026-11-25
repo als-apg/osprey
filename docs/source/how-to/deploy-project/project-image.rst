@@ -38,15 +38,16 @@ Every ``osprey build`` renders a reference container recipe into ``build/``
 
 Both files are re-rendered from the framework on every build, so an edit made
 in ``build/`` lasts only until the next ``osprey build``. To customize them, put
-your version in the source zone's ``project/`` mirror instead. A
+your version in the source zone's ``ops/project/`` mirror instead. A
 ``.dockerignore`` placed there replaces OSPREY's list, so keep ``.env`` in it.
 The build also strips every ``.env`` file but ``.env.example`` from the image.
 
 .. code-block:: text
 
    my-facility/
-     project/
-       Dockerfile          # copied verbatim onto the render, every build
+     ops/
+       project/
+         Dockerfile        # copied verbatim onto the render, every build
 
 The mirror is applied after the framework render, so your copy wins each time.
 See :doc:`../build-profiles` for the profile's convention directories.
@@ -773,7 +774,7 @@ The file is yours — common edits:
   from the working directory); override it to run a process supervisor if you
   add sidecars.
 - **Carry the edit in the profile**: put your Dockerfile in the profile's
-  ``project/`` mirror (above) so every rebuild lands it again.
+  ``ops/project/`` mirror (above) so every rebuild lands it again.
 - **Template-level override**: an app bundle can ship its own
   ``apps/<bundle>/Dockerfile.j2``, which takes precedence over the framework
   template at build time. Use this when every project built from a bundle
@@ -782,7 +783,7 @@ The file is yours — common edits:
 .. warning::
 
    **A Dockerfile you forked keeps the recipe you forked.** A copy in your
-   deployment's ``project/`` mirror is laid over the render on every build,
+   deployment's ``ops/project/`` mirror is laid over the render on every build,
    and no regeneration ever rewrites it. That is what the mirror is for. It
    is also why your copy never picks up anything the framework's recipe
    gained afterwards.

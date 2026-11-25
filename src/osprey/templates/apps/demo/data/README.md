@@ -1,8 +1,9 @@
 # Project Data Directory
 
 The deployment's source data: the facility's authored sources, the CANOPY
-screens, collections and theme, the code reviewer's rules and the landing-page
-notice. These are your files — edit them freely.
+screens, collections and theme, and the landing-page notice. These are your
+files — edit them freely. The rules agent-written code is reviewed against live
+beside this tree, in `agent/code_review/reviewer.md`.
 
 ## Directory Structure
 
@@ -14,8 +15,6 @@ data/
 │   ├── library/screens/                  # CANOPY screens (facility overview and sections)
 │   ├── collections/                      # CANOPY collections: screens and views opened together
 │   └── theme/                            # CANOPY colour theme
-├── code_review/
-│   └── reviewer.md                       # The rules agent-written code is reviewed against
 ├── landing/
 │   └── working-safely.md                 # A notice on the web terminal's landing page
 └── facility/                             # The facility's authored sources

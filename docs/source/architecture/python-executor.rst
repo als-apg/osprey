@@ -470,7 +470,7 @@ What executed code may not change
 
 Refusing control-system writes is one boundary; this is a different one. Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Four locations are protected:
+Five locations are protected:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -478,14 +478,20 @@ Four locations are protected:
   build or, worse, survives as a rendered setting nobody wrote.
 - **The profile sources** --- what the build reads to produce that render:
 
-  - ``profile.yml``, with ``providers.yml``, ``triggers.yml``, ``ci-extra.yml``,
-    ``osprey.service`` and ``.dockerignore`` beside it
-  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/``, ``scripts/``,
-    ``watchdogs/`` and ``.osprey/`` directories
-  - the convention directories (``rules/``, ``skills/``, ``agents/``,
-    ``commands/``, ``output-styles/``, ``hooks/``, ``web-terminal-context/``,
-    ``mcp_servers/``, ``services/``)
-  - the ``project/`` mirror
+  - ``profile.yml``, with ``providers.yml``, ``triggers.yml`` and
+    ``.dockerignore`` beside it
+  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/`` and ``.osprey/``
+    directories
+  - the ``agent/`` directory whole, which groups what the agent is made of
+    (``agent/rules/``, ``agent/skills/``, ``agent/agents/``,
+    ``agent/commands/``, ``agent/output-styles/``, ``agent/hooks/``,
+    ``agent/context/``, ``agent/watchdogs/``, ``agent/code_review/``,
+    ``agent/mcp_servers/``); in a repo not yet migrated, the same directories
+    still at their former paths are protected too
+  - the ``ops/`` directory whole, which groups how the deployment is built and
+    run (``ops/ci-extra.yml``, ``ops/scripts/``, ``ops/services/``,
+    ``ops/project/``, ``ops/osprey.service``); in a repo not yet migrated, the
+    same entries still at their former paths are protected too
 
 - **The agent record's directories** (``var/spool/``, ``var/agent_record/``,
   ``var/state/`` and ``var/archive/``) --- the spool the record is read from,
@@ -495,6 +501,9 @@ Four locations are protected:
 - **The pre-upgrade audit files** --- the files a deployment kept before the
   agent record. Nothing writes them, and they stay protected for the
   same reason.
+- **The runtime certificates** (``var/runtime/``) --- the keys ``osprey up``
+  mints for the containers it starts. A run that could replace them could
+  swap the keys a running stack trusts.
 
 A protected entry that does not exist yet is protected all the same: in a repo
 with no ``apps/`` directory, creating one is exactly the write to refuse.

@@ -141,7 +141,7 @@ on their own machine. No OSPREY stack runs: channels show mock values, so a
 screenshot shows the layout, not the machine.
 
 1. Install the CANOPY and PyDMConverter wheels that ``osprey build`` copied
-   into the deployment root (``canopy-*.whl`` and ``pydmconverter-*.whl``) into
+   into the render (``build/canopy-*.whl`` and ``build/pydmconverter-*.whl``) into
    a fresh virtual environment, with the browser for screenshots. Use exactly
    these: the image build recomputes the report with the same CANOPY.
 
@@ -167,7 +167,7 @@ screenshot shows the layout, not the machine.
       unset CANOPY_PUSH_DIR        # this server takes no push requests
       CANOPY_ACCESS_TOKEN_FILE="$HOME/canopy-dev/access.key" \
       CANOPY_DRAFTS_DIR="$HOME/my-assistant/data/canopy/library" \
-      CANOPY_VIEWER_DIST="$HOME/my-assistant/canopy_payload/viewer" \
+      CANOPY_VIEWER_DIST="$HOME/my-assistant/build/canopy_payload/viewer" \
       CANOPY_VIEWS_DIR="$HOME/canopy-dev/views" \
       CANOPY_PV_MODE=mock \
       CANOPY_BROWSER_SANDBOX=1 \
