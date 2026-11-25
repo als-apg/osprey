@@ -405,7 +405,6 @@ def test_app_check_holds_no_class_rule_of_its_own() -> None:
 _VERDICT_PANELS = {
     "reference": Path(osprey.__file__).parent / "interfaces/design_system/panels/reference",
     "scaffold-app": Path(osprey.__file__).parent / "apps/scaffold-app/panel",
-    "orbit-bump": Path(osprey.__file__).parent / "profiles/presets/apps/orbit-bump/panel",
 }
 
 

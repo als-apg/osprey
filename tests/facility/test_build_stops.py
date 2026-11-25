@@ -2953,7 +2953,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got 'rf-thermal'; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__default_scenarios_entry_not_a_string": (
@@ -2961,7 +2962,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got [1]; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__default_scenarios_entry_empty": (
@@ -2969,7 +2971,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got ['']; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__limits_database_path": (

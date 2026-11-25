@@ -231,4 +231,8 @@ def run_mcp_server(server_module: str) -> None:
         flush=True,
     )
 
-    server.run()
+    # No banner: before printing it fastmcp asks PyPI for a newer release, a
+    # blocking request that holds a host without internet for seconds before
+    # the server answers ``initialize``. Nobody reads the banner of a server an
+    # agent spawns.
+    server.run(show_banner=False)

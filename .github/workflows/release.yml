@@ -8,11 +8,12 @@ on:
 # PAIRED PUBLISHING: the framework and the workspace members that version with
 # it (today osprey-optimizer and pyaml-cs-osprey: same v-tags, same describe —
 # see their pyproject.toml) build and publish from one v-tag, always carrying the same
-# number. The component packages are NOT among them: osprey-connectors,
-# osprey-facility and osprey-panels each have their own calendar stream on
-# their own osprey-<package>-v* tags (the STREAMS table in
-# scripts/ci/release_streams.py) and publish from release-package.yml, so
-# nothing here builds or uploads them. The framework declares at most a floor
+# number. The component packages are NOT among them: osprey-connectors and
+# osprey-facility each have their own calendar stream on their own
+# osprey-<package>-v* tags (the STREAMS table in
+# scripts/ci/release_streams.py) and publish from release-package.yml, and
+# osprey-panels is not published at all, so nothing here builds or uploads
+# them. The framework declares at most a floor
 # on each (`osprey-connectors>=` in the root pyproject.toml; osprey-facility
 # bare until it declares one), and verify-pypi-resolvable is the gate that
 # every component the framework needs is already on PyPI: it resolves the
@@ -117,7 +118,7 @@ jobs:
     needs: [verify-full-ci]
     if: github.repository == 'als-apg/osprey' && startsWith(github.ref, 'refs/tags/v')
     outputs:
-      # The wheel prefix of every component stream, read from STREAMS, so the
+      # The wheel prefix of every component package, read from PACKAGES, so the
       # refusal below and verify-pypi-resolvable's exclusion follow the table.
       component_dists: ${{ steps.streams.outputs.component_dists }}
 
@@ -134,20 +135,21 @@ jobs:
     - name: Set up Python
       run: uv python install 3.11
 
-    - name: List the component streams
+    - name: List the component packages
       id: streams
       run: |
         COMPONENT_DISTS=$(python3 scripts/ci/release_streams.py dists --joined)
-        echo "component streams: $COMPONENT_DISTS"
+        echo "component packages: $COMPONENT_DISTS"
         echo "component_dists=$COMPONENT_DISTS" >> "$GITHUB_OUTPUT"
 
     - name: Build packages
       # The framework and the members that ride its v-tag, named one by one
       # rather than `--all-packages`: the component packages are workspace
-      # members too, but each releases from its own tags (release-package.yml),
-      # and a wheel of one built here would carry the framework-tag checkout's
-      # number for it. tests/deployment/test_ci_workflow_wiring.py holds this
-      # list to the workspace members minus the STREAMS packages.
+      # members too, but a published one releases from its own tags
+      # (release-package.yml), where a wheel built here would carry the
+      # framework-tag checkout's number for it, and osprey-panels is not
+      # published. tests/deployment/test_ci_workflow_wiring.py holds this
+      # list to the workspace members minus the PACKAGES table.
       run: |
         uv build
         uv build --package osprey-optimizer
@@ -160,20 +162,20 @@ jobs:
       # or a missing tag does not fail the build — it silently yields 0.0.postN+g…
       # or the previous tag's .postN — so this gate is what catches that before it reaches PyPI.
       # A component wheel in dist/ is refused outright: it publishes from
-      # release-package.yml, on its own tags.
+      # release-package.yml, on its own tags, or (osprey-panels) not at all.
       env:
         COMPONENT_DISTS: ${{ steps.streams.outputs.component_dists }}
       run: |
         TAG_VERSION="${GITHUB_REF#refs/tags/v}"
         echo "Tag version: $TAG_VERSION"
         if [ -z "$COMPONENT_DISTS" ]; then
-          echo "❌ no component streams listed: the refusal below would check nothing"
+          echo "❌ no component packages listed: the refusal below would check nothing"
           exit 1
         fi
         status=0
         for prefix in $COMPONENT_DISTS; do
           if compgen -G "dist/${prefix}*" > /dev/null; then
-            echo "❌ dist/ holds ${prefix%-}, which publishes from release-package.yml"
+            echo "❌ dist/ holds ${prefix%-}, a component package this release never publishes"
             status=1
           fi
         done
@@ -224,8 +226,8 @@ jobs:
     # and let ANY unpublished dependency resolve locally and defeat the gate):
     # PyPI plus those wheels is exactly the index state the moment
     # publish-to-pypi lands, so this is what refuses a framework wheel whose
-    # OTHER pins nothing on PyPI satisfies yet. Every component stream's wheel
-    # (build's `component_dists`, read from STREAMS) is excluded by name as well
+    # OTHER pins nothing on PyPI satisfies yet. Every component package's wheel
+    # (build's `component_dists`, read from PACKAGES) is excluded by name as well
     # as never built here: osprey-connectors and osprey-facility must resolve
     # from PyPI, which is what proves the framework's floor on each is already
     # published. Staged by exclusion otherwise, so a lockstep member added later
@@ -257,7 +259,7 @@ jobs:
       run: |
         mkdir -p /tmp/sibling
         if [ -z "$COMPONENT_DISTS" ]; then
-          echo "::error::build listed no component streams to exclude"
+          echo "::error::build listed no component packages to exclude"
           exit 1
         fi
         for wheel in dist/*.whl; do

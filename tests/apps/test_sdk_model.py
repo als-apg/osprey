@@ -1,8 +1,8 @@
-"""The SDK's model accessors: closed-orbit models, their members, their orbit response.
+"""The SDK's model accessor: a served model's orbit response.
 
-The synthetic cases read a two-cell ring render written here; the example
-cases read the built demo's render. The real response solve is covered by the
-orbit-bump application's wall-clock test; here the child is stubbed.
+The cases read a two-cell ring render written here. The real solve of the
+example ring is ``test_sdk_orm_example_ring.py``; here the child is stubbed,
+but for the one case that checks the positions against the deck.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import types
 from pathlib import Path
 from typing import Any
 
@@ -22,8 +21,7 @@ from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey.simulation import model_request
 from osprey.simulation.engines import pyat as engine
 from osprey.simulation.response import RESULT_TAG
-from osprey_facility.errors import FacilityFileError
-from tests._facility_file import write_facility_document, write_facility_v4
+from tests._facility_file import write_facility_v4
 from tests._scoped_stdlib import scoped
 from tests._simulator_view import view_channel
 
@@ -185,165 +183,6 @@ def example_render(built_demo: Any) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# closed_orbit_models
-# ---------------------------------------------------------------------------
-
-
-class TestClosedOrbitModels:
-    def test_served_pyat_models_that_are_not_single_pass_are_offered_in_facility_order(self, ring):
-        assert sdk.closed_orbit_models(ring) == [RING, "PERIODIC"]
-
-    def test_the_texture_fallback_is_never_offered(self, tmp_path):
-        render = tmp_path / "bare"
-        render.mkdir()
-
-        assert sdk.closed_orbit_models(render) == []
-
-    def test_the_example_offers_its_ring_and_not_its_lines(self, example_render):
-        offered = sdk.closed_orbit_models(example_render)
-
-        assert "SR" in offered
-        assert "texture" not in offered
-        assert "BTS" not in offered
-
-
-# ---------------------------------------------------------------------------
-# model_members
-# ---------------------------------------------------------------------------
-
-
-class TestModelMembers:
-    def test_bpms_carry_their_position_golden_index_and_s(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        by_key = {(m.element, m.plane): m for m in members.bpms}
-        first = by_key[("BPM_1", "x")]
-        assert first.position_addr == "BPM_1:X"
-        assert first.golden_addr == "BPM_1:GOLDEN:X"
-        assert by_key[("BPM_1", "y")].golden_addr == "BPM_1:GOLDEN:Y"
-        assert first.unit == "mm"
-        assert first.index == engine.element_index(
-            ring / "data" / "simulator" / "decks" / f"{RING}.json", "BPM_1"
-        )
-        assert first.s_m == pytest.approx(2.3)
-        assert first.setpoint_addr is None and first.tolerance is None
-
-    def test_a_bpm_device_without_golden_has_none(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        (bpm2,) = [m for m in members.bpms if m.element == "BPM_2"]
-        assert bpm2.position_addr == "BPM_2:X"
-        assert bpm2.golden_addr is None
-
-    def test_correctors_carry_setpoint_readback_and_absolute_tolerance(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        (cor1,) = [m for m in members.correctors if m.element == "COR_1"]
-        assert cor1.plane == "x"
-        assert cor1.setpoint_addr == "COR_1:X:SP"
-        assert cor1.readback_addr == "COR_1:X:RB"
-        assert cor1.tolerance == pytest.approx(0.02)
-        assert cor1.unit == "A"
-        assert cor1.position_addr is None and cor1.golden_addr is None
-
-    def test_a_relative_only_tolerance_counts_as_none(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        (cor2,) = [m for m in members.correctors if m.element == "COR_2"]
-        assert cor2.plane == "y"
-        assert cor2.tolerance is None
-
-    def test_members_are_in_ring_order_and_co_located_ones_differ_by_index(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        assert [(m.element, m.plane) for m in members.bpms] == [
-            ("BPM_1", "x"),
-            ("BPM_1", "y"),
-            ("BPM_2", "x"),
-        ]
-        assert [m.element for m in members.correctors] == ["COR_1", "COR_2"]
-        bpm1 = members.bpms[0]
-        cor1 = members.correctors[0]
-        assert bpm1.s_m == cor1.s_m
-        assert bpm1.index + 1 == cor1.index
-
-    def test_the_ring_length_is_the_deck_length(self, ring):
-        members = sdk.model_members(RING, ring)
-
-        assert members.model == RING
-        assert members.length_m == pytest.approx(2 * (3 * 1.0 + 2 * 0.3))
-
-    def test_a_model_that_is_not_served_raises(self, ring):
-        with pytest.raises(ValueError, match="not a served deck model"):
-            sdk.model_members("NOPE", ring)
-
-    def test_a_plug_in_without_element_index_raises(self, ring, monkeypatch):
-        fake = types.ModuleType("fake_engine_without_index")
-        fake.locate = engine.locate  # type: ignore[attr-defined]
-        fake.deck_length = engine.deck_length  # type: ignore[attr-defined]
-        monkeypatch.setitem(sys.modules, fake.__name__, fake)
-        monkeypatch.setattr(model_request, "engine_module", lambda name: fake.__name__)
-
-        with pytest.raises(ValueError, match="element_index"):
-            sdk.model_members(RING, ring)
-
-    @pytest.mark.foreign_header
-    def test_a_v3_facility_file_is_refused(self, ring):
-        path = ring / "facility.json"
-        document = json.loads(path.read_text(encoding="utf-8"))
-        write_facility_document(ring, document, schema="osprey.facility.facility/3")
-
-        with pytest.raises(FacilityFileError) as raised:
-            sdk.model_members(RING, ring)
-
-        assert str(raised.value) == (
-            f"{path} is osprey.facility.facility/3; this reader reads "
-            "osprey.facility.facility/4 -- rebuild with osprey build"
-        )
-
-    def test_a_corrupt_facility_file_is_refused(self, ring):
-        (ring / "facility.json").write_text("{not json", encoding="utf-8")
-
-        with pytest.raises(FacilityFileError, match="is not JSON"):
-            sdk.model_members(RING, ring)
-
-    def test_without_a_facility_file_no_member_carries_golden_or_tolerance(self, ring):
-        (ring / "facility.json").unlink()
-
-        members = sdk.model_members(RING, ring)
-
-        assert [m.element for m in members.correctors] == ["COR_1", "COR_2"]
-        assert all(m.golden_addr is None for m in members.bpms)
-        assert all(m.tolerance is None for m in members.correctors)
-
-    def test_the_example_ring_orders_co_located_members_by_index(self, example_render):
-        members = sdk.model_members("SR", example_render)
-
-        everyone = members.bpms + members.correctors
-        assert [m.index for m in members.bpms] == sorted(m.index for m in members.bpms)
-        assert [m.index for m in members.correctors] == sorted(m.index for m in members.correctors)
-        co_located = [
-            (a, b)
-            for a in members.bpms
-            for b in members.correctors
-            if a.s_m == b.s_m and a.element != b.element
-        ]
-        assert co_located, "the example ring holds no BPM and corrector at one s"
-        for bpm, corrector in co_located:
-            assert bpm.index != corrector.index
-        assert all(0.0 <= m.s_m <= members.length_m for m in everyone)
-
-    def test_the_example_members_name_their_signals(self, example_render):
-        members = sdk.model_members("SR", example_render)
-
-        (bpm,) = [m for m in members.bpms if m.position_addr == "SR:DIAG:BPM:01:POSITION:X"]
-        assert bpm.golden_addr == "SR:DIAG:BPM:01:GOLDEN:X"
-        (cor,) = [m for m in members.correctors if m.setpoint_addr == "SR:MAG:HCM:01:CURRENT:SP"]
-        assert cor.readback_addr == "SR:MAG:HCM:01:CURRENT:RB"
-        assert cor.tolerance == pytest.approx(0.02)
-
-
-# ---------------------------------------------------------------------------
 # model_response_matrix
 # ---------------------------------------------------------------------------
 
@@ -444,11 +283,15 @@ class TestModelResponseMatrix:
         assert result.column_positions is None
 
     def test_the_ring_is_solved_with_positions_in_ring_order(self, ring):
-        result = sdk.model_response_matrix(RING, render_root=ring)
-        members = sdk.model_members(RING, render_root=ring)
+        from osprey_connectors.simulation.view import SimulatorView
 
-        index = {bpm.position_addr: bpm.index for bpm in members.bpms}
-        index |= {corrector.setpoint_addr: corrector.index for corrector in members.correctors}
+        result = sdk.model_response_matrix(RING, render_root=ring)
+
+        [model] = [m for m in SimulatorView.of_render(ring).physics_models() if m.name == RING]
+        index = {
+            address: engine.element_index(model.deck, element, model=RING)
+            for address, (element, _role, _plane) in WIRED.items()
+        }
         assert result.row_positions == [index[row] for row in result.rows]
         assert result.column_positions == [index[column] for column in result.columns]
 

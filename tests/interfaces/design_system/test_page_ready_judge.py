@@ -206,7 +206,7 @@ def _shipped_app_panels() -> list[Path]:
 
 def test_the_shipped_app_panels_are_found() -> None:
     names = {index.parent.parent.name for index in _shipped_app_panels()}
-    assert {"scaffold-app", "orbit-bump"} <= names
+    assert "scaffold-app" in names
 
 
 @pytest.mark.parametrize(

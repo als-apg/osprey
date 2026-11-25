@@ -29,6 +29,7 @@ from osprey_facility import DEFAULT_ROLE, TEXTURE
 from osprey_facility.errors import FacilityBuildError, quoted_slots
 from osprey_facility.records import FacilityRecords
 from osprey_facility.served import SIMULATION_MODELS_KEY, resolve_served, served_scope
+from osprey_facility.start import start_targets
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_archiver import VAArchiverConfig
@@ -338,16 +339,39 @@ def _derive_freshness(inputs: _Inputs) -> Any:
     return freshness_check_override(derived)[FRESHNESS_CONFIG_KEY]
 
 
+def _start_marks(inputs: _Inputs) -> tuple[dict[str, list[str]], bool]:
+    """Each simulator target's marked scenarios, sorted, and whether a mark names targets.
+
+    ``start: true`` marks a scenario for every simulator instance, ``start_on``
+    for the targets it lists. Marks the facility validator refuses are no mark
+    here.
+    """
+    from osprey.simulation.targets import SIMULATOR_TARGETS
+
+    marks: dict[str, list[str]] = {target: [] for target in SIMULATOR_TARGETS}
+    per_target = False
+    for scenario in inputs.records.document.get("scenarios", []):
+        targets = start_targets(scenario)
+        if not targets:
+            continue
+        per_target = per_target or scenario.get("start") is not True
+        for target in targets:
+            marks[target].append(str(scenario["name"]))
+    return {target: sorted(names) for target, names in marks.items()}, per_target
+
+
 def _marked_scenarios(inputs: _Inputs) -> list[str]:
-    """The names of the facility's scenarios marked ``start: true``, sorted."""
-    return sorted(
-        str(s["name"])
-        for s in inputs.records.document.get("scenarios", [])
-        if s.get("start") is True
-    )
+    """The names of the facility's scenarios marked to start on any instance, sorted."""
+    marks, _ = _start_marks(inputs)
+    return sorted({name for names in marks.values() for name in names})
 
 
 def _derive_start_set(inputs: _Inputs) -> Any:
+    # Marks that are all `true` derive the plain list, the start set of every
+    # instance; one mark that names targets derives the set of each.
+    marks, per_target = _start_marks(inputs)
+    if per_target:
+        return marks
     return _marked_scenarios(inputs) or None
 
 
@@ -360,9 +384,9 @@ def _check_start_set(inputs: _Inputs) -> None:
         # Mounted, the machine's marks are the only producer of the start set,
         # so a machine without marks starts no scenario rather than a preset's.
         found = (
-            f"the facility marks its start set ({quoted_slots(marked)}) with `start: true`"
+            f"the facility marks its start set ({quoted_slots(marked)}) with `start: true` or `start_on`"
             if marked
-            else "the profile mounts a machine root, whose `start: true` marks are the "
+            else "the profile mounts a machine root, whose `start: true` and `start_on` marks are the "
             "only start set"
         )
         raise _refusal(
@@ -371,13 +395,19 @@ def _check_start_set(inputs: _Inputs) -> None:
             f"remove `{DEFAULT_SCENARIOS_KEY}` from the profile; to cancel a value a preset "
             f"gives, state the dotted key `{DEFAULT_SCENARIOS_KEY}: null`",
         )
-    if not isinstance(stated, list):
+    # A list is every instance's start set, a mapping each target's own; the
+    # profile loader has already refused any other shape.
+    if isinstance(stated, Mapping):
+        named = [name for names in stated.values() if isinstance(names, list) for name in names]
+    elif isinstance(stated, list):
+        named = stated
+    else:
         return
     # The scenarios view adds the built-in still to every file that defines none.
     known = sorted(
         {str(s["name"]) for s in inputs.records.document.get("scenarios", [])} | {STILL_SCENARIO}
     )
-    unknown = sorted({str(name) for name in stated} - set(known))
+    unknown = sorted({str(name) for name in named} - set(known))
     if unknown:
         raise _refusal(
             DEFAULT_SCENARIOS_KEY,

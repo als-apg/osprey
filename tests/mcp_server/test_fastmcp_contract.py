@@ -358,6 +358,36 @@ class TestFastmcpFloorDependency:
         with pytest.raises(ToolError):
             make_error("safety_error", "refused", ["do the other thing"])
 
+    @pytest.mark.parametrize("show_banner", [False, True])
+    def test_a_server_run_without_its_banner_never_asks_pypi_for_a_release(
+        self, monkeypatch, show_banner
+    ):
+        """``run(show_banner=False)`` is what keeps a start off the network.
+
+        fastmcp's banner first asks PyPI whether a newer release exists, a
+        blocking request that holds a host without internet for seconds before
+        the server answers ``initialize``. ``run_mcp_server`` passes
+        ``show_banner=False`` to skip it; this pins that the argument still does.
+        The banner-on case shows the probe sees the check when it runs.
+        """
+        import fastmcp.server.mixins.transport as transport
+        import fastmcp.utilities.cli as banner
+
+        class _Served(Exception):
+            pass
+
+        def _serving():
+            raise _Served
+
+        checks: list[str] = []
+        monkeypatch.setattr(banner, "check_for_newer_version", lambda: checks.append("pypi"))
+        monkeypatch.setattr(transport, "stdio_server", _serving)
+
+        with pytest.raises(_Served):
+            FastMCP("contract-check").run(transport="stdio", show_banner=show_banner)
+
+        assert checks == (["pypi"] if show_banner else [])
+
     def test_the_transport_setting_is_snapshotted_when_fastmcp_is_imported(self, tmp_path):
         """The premise the whole predicate design rests on, checked directly.
 

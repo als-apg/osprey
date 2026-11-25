@@ -96,6 +96,7 @@ OPTIONAL_NAMES = (
     "readout",
     "response_matrix",
     "scenario_stops",
+    "served_settings",
     "take_inputs",
     "REFUSAL_ERRORS",
     "SOLVE_ERRORS",
@@ -133,7 +134,7 @@ class EnginePlugin(Protocol):
     ``client_write(model, values, t_s)``    tells the engine a client wrote these         a client write starts nothing
                                             setpoints, already forwarded; the one call
                                             that starts what a client write triggers
-    ``deck_length(deck, *, model=None)``    the length of the deck's lattice in metres    the SDK's ``model_members`` raises
+    ``deck_length(deck, *, model=None)``    the length of the deck's lattice in metres    the model states no ring length
                                             (a ring's circumference)
     ``deckless_start_values``               ``True``: ``start_values`` may be called      ``start_values`` is not called without a
                                             with no deck                                  deck
@@ -141,7 +142,7 @@ class EnginePlugin(Protocol):
                                             engine}`` record at facility build;           accepted as given
                                             raising ``ValueError`` refuses it and the
                                             build stops naming the input
-    ``element_index(deck, element,``        the element's lattice index: ring order,      the SDK's ``model_members`` raises
+    ``element_index(deck, element,``        the element's lattice index: ring order,      the model states no ring order
     ``*, model=None)``                      which tells co-located elements apart
     ``emitted(model)``                      the addresses of ``event`` channels fired     the model emits nothing
                                             since the last call, cleared as returned
@@ -184,6 +185,13 @@ class EnginePlugin(Protocol):
                                             keyed ones included, without a deck load;
                                             each stops the build ``engine-invalid``
                                             with the plug-in's remedy
+    ``served_settings(settings, carry)``    the settings a served view holds: for each    the view holds the settings as authored
+                                            file they name beside the deck, ``carry``     and copies the deck alone
+                                            takes its path as stated, relative to the
+                                            deck's directory, and returns the path the
+                                            view serves it under, relative to its copy
+                                            of the deck; called at facility build,
+                                            without a deck load
     ``take_inputs(model, inputs, t_s,``     stores ``inputs``: one ``(input_record,       the build refuses a model that declares
     ``*, baseline)``                        value)`` pair per declared input, the         inputs
                                             record its ``{address, engine}`` and the

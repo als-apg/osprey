@@ -1,9 +1,9 @@
 """Goldens of the example application as one real build projects it.
 
-The ``orbit-bump`` application ships beside the demo preset, off in it by
-default. This module builds that preset once with the application turned on at
-init and pins, as diff-readable YAML under ``goldens/``, every place the build
-writes the application into the deployment:
+The demo preset ships no application. This module inits that preset, adds the
+scaffold application with ``osprey app new``, builds once and pins, as
+diff-readable YAML under ``goldens/``, every place the build writes the
+application into the deployment:
 
 * ``deployment.yml`` — the host-level facts: the projected ``services`` row,
   the container's compose service and its ``app-config.yml``, the panel's
@@ -43,13 +43,14 @@ import pytest
 import yaml
 
 from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.fixtures.lifecycle_repo import LISTED_APP, add_scaffold_app
 
 #: Every golden reads one real build of the flagship preset.
 pytestmark = pytest.mark.slow
 
 GOLDENS = Path(__file__).parent / "goldens"
 
-APP = "orbit-bump"
+APP = LISTED_APP
 
 #: The full-name prefix of every tool the application's server exposes.
 TOOL_PREFIX = f"mcp__{APP}__"
@@ -70,11 +71,11 @@ PROJECT = "my-facility"
 
 
 def build_preset(parent: Path) -> Path:
-    """Init the demo preset with the application on, build it under *parent*; return the repo."""
+    """Init the demo preset, add the application, build it under *parent*; return the repo."""
     from tests._builds import init_project
-    from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP
 
-    repo = init_project(parent, "demo", PROJECT, ENABLE_ORBIT_BUMP)
+    repo = init_project(parent, "demo", PROJECT)
+    add_scaffold_app(repo)
     result = invoke_build(repo)
     assert result.exit_code == 0, result.output
     return repo
@@ -332,17 +333,10 @@ def test_the_panel_block_carries_the_login_arming_fact(
     block = projected[f"render-{render}.yml"]["web.panels"][APP]
     routes = [(route["method"], route["path"]) for route in block["agent_routes"]]
     if armed:
-        assert routes == [
-            ("GET", "/api/state"),
-            ("GET", "/api/approval"),
-            ("POST", "/api/recompute"),
-            ("POST", "/api/discard"),
-            ("POST", "/api/compute"),
-            ("POST", "/api/apply"),
-        ]
+        assert routes == [("GET", "/api/state"), ("POST", "/api/write")]
         assert block["launch_token_env"] == f"{TOKEN_PREFIX}_LAUNCH_TOKEN"
     else:
-        assert routes == [("GET", "/api/state"), ("GET", "/api/approval")]
+        assert routes == [("GET", "/api/state")]
         assert "launch_token_env" not in block
     assert "arm_writes" not in block
 
@@ -352,13 +346,10 @@ def test_the_write_tool_enters_the_gate_on_every_tier(
     projected: dict[str, dict[str, Any]], render: str
 ) -> None:
     sliced = projected[f"render-{render}.yml"]
-    assert sliced["claude_code.servers"][APP]["writes"] == ["apply_bump"]
-    assert sliced["hook_config.json"]["facility_write_tools"] == [f"{TOOL_PREFIX}apply_bump"]
-    # ``deny_in_jobs`` keeps every tool of the application out of jobs, not only the write.
-    assert sliced["dispatch.denied_app_tools"] == [
-        f"{TOOL_PREFIX}{tool}"
-        for tool in ("bump_state", "plan_bump", "discard_bump", "recompute_orm", "apply_bump")
-    ]
+    assert sliced["claude_code.servers"][APP]["writes"] == ["set_channel"]
+    assert sliced["hook_config.json"]["facility_write_tools"] == [f"{TOOL_PREFIX}set_channel"]
+    # The approval-bound write is the one tool of the application a job may not call.
+    assert sliced["dispatch.denied_app_tools"] == [f"{TOOL_PREFIX}set_channel"]
 
 
 @pytest.mark.parametrize("render", ["logbook", "knowledge", "channel-finder"])
@@ -373,7 +364,7 @@ def test_a_slice_keeps_only_what_the_app_owns_when_a_path_names_it() -> None:
     root = f"/tmp/{APP}-x/build"
     hook_config = {
         "approval": {
-            f"{TOOL_PREFIX}apply_bump": {"app": APP, "mode": "ask"},
+            f"{TOOL_PREFIX}set_channel": {"app": APP, "mode": "ask"},
             "mcp__other__apply": {"app": "other", "mode": "ask"},
             "project_root": {"path": root},
         },
@@ -382,35 +373,35 @@ def test_a_slice_keeps_only_what_the_app_owns_when_a_path_names_it() -> None:
             "other.refused": {"class": "Safety", "text": None},
             "build_dir": root,
         },
-        "facility_write_tools": [f"{TOOL_PREFIX}apply_bump", "mcp__other__apply", root],
+        "facility_write_tools": [f"{TOOL_PREFIX}set_channel", "mcp__other__apply", root],
         "project_dir": root,
     }
     assert _hook_config_slice(hook_config) == {
-        "approval": {f"{TOOL_PREFIX}apply_bump": {"app": APP, "mode": "ask"}},
+        "approval": {f"{TOOL_PREFIX}set_channel": {"app": APP, "mode": "ask"}},
         "app_error_types": {f"{APP}.refused": {"class": "Safety", "text": None}},
-        "facility_write_tools": [f"{TOOL_PREFIX}apply_bump"],
+        "facility_write_tools": [f"{TOOL_PREFIX}set_channel"],
     }
 
     hook = {"command": '"$CLAUDE_PROJECT_DIR/hooks/gate.py"', "timeout": 5}
     settings = {
         "hooks": {
             "PreToolUse": [
-                {"matcher": f"{TOOL_PREFIX}apply_bump", "hooks": [hook]},
+                {"matcher": f"{TOOL_PREFIX}set_channel", "hooks": [hook]},
                 {"matcher": f"Bash({root}/*)", "hooks": [hook]},
             ]
         },
-        "permissions": {"allow": [f"{TOOL_PREFIX}bump_state", f"Read({root}/**)"]},
+        "permissions": {"allow": [f"{TOOL_PREFIX}read_channel", f"Read({root}/**)"]},
     }
     assert _settings_slice(settings) == {
         "hooks": {
             "PreToolUse": [
                 {
-                    "matcher": f"{TOOL_PREFIX}apply_bump",
+                    "matcher": f"{TOOL_PREFIX}set_channel",
                     "hooks": [{"run": "hooks/gate.py", "timeout": 5}],
                 }
             ]
         },
-        "permissions": {"allow": [f"{TOOL_PREFIX}bump_state"]},
+        "permissions": {"allow": [f"{TOOL_PREFIX}read_channel"]},
     }
 
 

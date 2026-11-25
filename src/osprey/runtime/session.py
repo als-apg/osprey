@@ -1257,13 +1257,13 @@ class ControlSession:
         block with both gateways chooses by the switch; one with a write gateway
         alone stays on it, and its writes are refused in software. The choice
         follows :func:`~osprey_connectors.posture_store.write_verdict`, which has
-        no hold term, so a hold never asks for another gateway. There is no
-        public accessor for the choice, so this reads the attributes the
-        connector's ``_role_refusal`` reads, and any other connector never lags.
+        no hold term, so a hold never asks for another gateway. The choice is
+        read from the EPICS connector's public ``selected_gateway_role`` and
+        ``write_gateway_configured``; a connector without them never lags.
         """
         connector = self._connector
-        selected = getattr(connector, "_selected_role", None)
-        if selected is None or not getattr(connector, "_write_gateway_configured", False):
+        selected = getattr(connector, "selected_gateway_role", None)
+        if selected is None or not getattr(connector, "write_gateway_configured", False):
             return False
         from osprey_connectors.posture_store import write_verdict
 

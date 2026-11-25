@@ -14,16 +14,17 @@ Each case in ``CASES`` becomes a parametrized test ID, and each cell of the CI
 matrix selects exactly its own case's ids with ``pytest -k "[<case>]"`` — so
 every test here is parametrized over the cases. One that is not carries no case
 in its id and is selected by no cell of the matrix. The brackets make the match
-exact: ``[demo]`` is not a substring of ``[demo-orbit-bump]``. They also make it
+exact: ``[demo]`` is not a substring of ``[demo-app]``. They also make it
 the whole bracket, so a test given a second parametrize (ids such as
 ``[stdio-demo]``) is selected by no cell either; the wiring guard collects this
 module and fails on any id that no cell selects, or that two cells on the same
 Python select; a case may have a cell on more than one Python.
 
 A case is a preset as ``osprey init`` writes it, or, for a case named in
-``WITH_APP``, a preset with an application turned on at init. The plain
-``demo`` case stays app-free: the demo preset ships no application. The
-``demo-orbit-bump`` case is the one full install with an application enabled:
+``WITH_APP``, a preset with the scaffold application added by ``osprey app
+new`` after the init. The plain ``demo`` case stays app-free: the demo preset
+ships no application. The ``demo-app`` case is the one full install with an
+application enabled:
 the project venv installs osprey and the app's wheel offline in one resolve,
 and the app's own tool server boots from it.
 
@@ -59,7 +60,7 @@ import pytest
 
 from tests._builds import NO_ROUTE
 from tests.e2e._deploy_support import find_osprey_console_script
-from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP, ORBIT_BUMP
+from tests.fixtures.lifecycle_repo import LISTED_APP
 from tests.integration._mcp_handshake import (
     MCPHandshakeError,
     assert_tools_superset,
@@ -75,12 +76,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # ``project_dir`` is, so a case added on top of this list (osprey-edu adds
 # ``education``) is parametrized with ``scope="module"`` too; a function-scoped ``case`` errors
 # with ``ScopeMismatch`` at setup.
-CASES = ["hello-world", "demo", "demo-orbit-bump"]
+CASES = ["hello-world", "demo", "demo-app"]
 
-#: The cases that turn an application on at init, by case id: the preset the
-#: case initialises and the ``osprey init --set`` that enables the app. Any
+#: The cases that add an application after the init, by case id: the preset the
+#: case initialises and the name ``osprey app new`` gives the scaffold. Any
 #: other case initialises the preset of its own name, as init writes it.
-WITH_APP: dict[str, tuple[str, str]] = {"demo-orbit-bump": ("demo", ENABLE_ORBIT_BUMP)}
+WITH_APP: dict[str, tuple[str, str]] = {"demo-app": ("demo", LISTED_APP)}
 
 #: The cases that are a preset as init writes it, with no application turned on.
 PRESET_CASES = [case for case in CASES if case not in WITH_APP]
@@ -103,8 +104,8 @@ EXPECTED_TOOLS: dict[str, set[str]] = {
     # Seeded by the hello-world preset, not a framework server: the worked
     # example a first-time user gets from `osprey init --preset hello-world`.
     "example_server": {"example_status"},
-    # The orbit-bump application's own tool server, served from its wheel.
-    ORBIT_BUMP: {"bump_state", "plan_bump", "discard_bump", "recompute_orm", "apply_bump"},
+    # The application's own tool server, served from its wheel.
+    LISTED_APP: {"read_channel", "set_channel"},
 }
 # channel-finder: enumerated dynamically since which backend is enabled
 # (hierarchical | in_context | middle_layer) depends on preset config.
@@ -284,18 +285,18 @@ def _init_repo(osprey_bin: Path, repo: Path, case: str) -> None:
     Out of process, like the build itself: this module exists to exercise the
     real console script an operator runs, so the materialization half has to go
     through it too. ``--no-git`` because nothing here reads the history. A case
-    of ``WITH_APP`` initialises its preset with the app's ``--set``.
+    of ``WITH_APP`` initialises its preset, then adds the application with
+    ``osprey app new``.
     """
-    preset, *sets = WITH_APP.get(case, (case,))
-    edits = [arg for assignment in sets for arg in ("--set", assignment)]
-    proc = _run_to_completion(
-        [str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git", *edits],
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-    assert proc.returncode == 0, (
-        f"osprey init failed for {case} (rc={proc.returncode})\n"
-        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
-    )
+    preset, *apps = WITH_APP.get(case, (case,))
+    steps = [[str(osprey_bin), "init", str(repo), "--preset", preset, "--no-git"]]
+    steps += [[str(osprey_bin), "app", "new", name, "--repo", str(repo)] for name in apps]
+    for step in steps:
+        proc = _run_to_completion(step, env={**os.environ, "CLAUDECODE": ""})
+        assert proc.returncode == 0, (
+            f"osprey {step[1]} failed for {case} (rc={proc.returncode})\n"
+            f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+        )
 
 
 def _load_mcp_json(project_dir: Path) -> dict:

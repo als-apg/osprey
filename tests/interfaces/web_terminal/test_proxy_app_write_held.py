@@ -4,8 +4,8 @@ The application's container serves every session and reads no hold of its own, s
 proxy is the one door where a held session's write can be refused before it leaves the
 terminal: the agent's, on the panel token and naming its session, and the operator's
 from the application's own page, held while any session of this terminal is held. The
-agent-tool rows drive the orbit-bump tool server's own panel call through the real
-terminal app.
+agent-tool rows drive the scaffold application's tool server's own panel call through
+the real terminal app.
 
 The websocket hop asks the same rule at every frame the browser sends: the upgrade and
 the application's own frames pass as a read does, and a frame sent under a hold closes
@@ -17,18 +17,18 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
-import orbit_bump.tools as tools
 import pytest
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from orbit_bump import APP_NAME
 from starlette.websockets import WebSocketDisconnect
 
+import osprey.apps
 from osprey.apps.sdk import ApprovalRefused
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
 from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, WebCredentials
@@ -41,10 +41,15 @@ from tests.interfaces.web_terminal._proxy_fakes import _FakeConnect, _patch_conn
 
 BACKEND = "http://127.0.0.1:9300"
 STATE_ROUTE = "/api/state"
-COMPUTE_ROUTE = "/api/compute"
-APPLY_ROUTE = "/api/apply"
-AGENT_ROUTES = (("GET", STATE_ROUTE), ("POST", COMPUTE_ROUTE), ("POST", APPLY_ROUTE))
-APPLY_BODY = {"plan_id": "p-1", "setpoint_digest": "00"}
+#: A second POST route the panel declares: the proxy's rule is by method, not by route.
+RESET_ROUTE = "/api/reset"
+WRITE_ROUTE = "/api/write"
+AGENT_ROUTES = (("GET", STATE_ROUTE), ("POST", RESET_ROUTE), ("POST", WRITE_ROUTE))
+WRITE_BODY = {"value": 1.0, "target": "simulation", "readback": 0.0}
+
+#: The scaffold application, whose tool server the agent-tool rows drive.
+TEMPLATE = Path(osprey.apps.__file__).resolve().parent / "scaffold-app"
+APP_NAME = "scaffold-app"
 
 SESSION_KEY = "1f5a9c7e-0b44-4a1d-9cc2-0e5b6d2f7a31"  # gitleaks:allow - a test session id
 OTHER_SESSION_KEY = "2f5a9c7e-0b44-4a1d-9cc2-0e5b6d2f7a32"  # gitleaks:allow - a test session id
@@ -83,13 +88,13 @@ def _hold(root: Path, key: str = SESSION_KEY) -> None:
 
 @pytest.fixture
 def terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAPI]:
-    """The real terminal app on an arming login, with the orbit-bump panel declared."""
+    """The real terminal app on an arming login, with the application's panel declared."""
     monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
     render = tmp_path / "config.yml"
     render.write_text(yaml.safe_dump({"control_system": {"writes": "allowed"}}), encoding="utf-8")
     panel = {
         "id": APP_NAME,
-        "label": "Orbit bump",
+        "label": "Scaffold",
         "url": BACKEND,
         "configDefined": True,
         "app": APP_NAME,
@@ -132,7 +137,7 @@ def _send(
     if session is not None:
         headers[SESSION_HEADER] = session
     client = TestClient(app, client=("127.0.0.1", 54321))
-    body = APPLY_BODY if method == "POST" else None
+    body = WRITE_BODY if method == "POST" else None
     return client.request(method, f"/panel/{APP_NAME}{route}", json=body, headers=headers)
 
 
@@ -146,7 +151,7 @@ class TestTheAgentsWrite:
     """The panel token, naming the calling session."""
 
     @pytest.mark.no_auth_seam
-    @pytest.mark.parametrize("route", [APPLY_ROUTE, COMPUTE_ROUTE])
+    @pytest.mark.parametrize("route", [WRITE_ROUTE, RESET_ROUTE])
     def test_a_held_sessions_write_is_refused_before_the_backend(self, terminal, route):
         _hold(_root(terminal))
 
@@ -161,7 +166,7 @@ class TestTheAgentsWrite:
             SESSION_KEY, ["flag-a"], answer="continue", operator="alice", root=_root(terminal)
         )
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, BEARER, session=SESSION_KEY)
+        resp = _send(terminal, "POST", WRITE_ROUTE, BEARER, session=SESSION_KEY)
 
         assert resp.status_code == 200
         assert _backend(terminal).await_count == 1
@@ -172,7 +177,7 @@ class TestTheAgentsWrite:
         """Leaving the header off, or naming a key nobody runs, does not shed the hold."""
         ensure_session(SESSION_KEY, root=_root(terminal))
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, BEARER, session=session)
+        resp = _send(terminal, "POST", WRITE_ROUTE, BEARER, session=session)
 
         assert resp.status_code == 403
         assert "names none" in resp.text
@@ -195,7 +200,7 @@ class TestTheOperatorsWrite:
     def test_a_write_is_refused_while_a_session_of_this_terminal_is_held(self, terminal):
         _hold(_root(terminal))
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, OPERATOR)
+        resp = _send(terminal, "POST", WRITE_ROUTE, OPERATOR)
 
         _assert_refused_held(resp, terminal)
 
@@ -206,7 +211,7 @@ class TestTheOperatorsWrite:
         ensure_session(OTHER_SESSION_KEY, root=_root(terminal))
         _hold(_root(terminal))
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, OPERATOR, session=OTHER_SESSION_KEY)
+        resp = _send(terminal, "POST", WRITE_ROUTE, OPERATOR, session=OTHER_SESSION_KEY)
 
         _assert_refused_held(resp, terminal)
 
@@ -215,7 +220,7 @@ class TestTheOperatorsWrite:
         ensure_session(SESSION_KEY, root=_root(terminal))
         _hold(_root(terminal), OTHER_SESSION_KEY)  # held, but not a session this terminal runs
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, OPERATOR)
+        resp = _send(terminal, "POST", WRITE_ROUTE, OPERATOR)
 
         assert resp.status_code == 200
         assert _backend(terminal).await_count == 1
@@ -224,7 +229,7 @@ class TestTheOperatorsWrite:
     def test_a_write_reaches_the_backend_when_the_terminal_runs_no_session(self, terminal):
         terminal.state.pty_registry = _Pool()
 
-        resp = _send(terminal, "POST", APPLY_ROUTE, OPERATOR)
+        resp = _send(terminal, "POST", WRITE_ROUTE, OPERATOR)
 
         assert resp.status_code == 200
         assert _backend(terminal).await_count == 1
@@ -245,7 +250,7 @@ def test_with_no_hold_store_nothing_is_read(terminal, monkeypatch, credential):
     terminal.state.session_hold_root = None
     monkeypatch.setattr(proxy, "is_held", _no_read)
 
-    resp = _send(terminal, "POST", APPLY_ROUTE, credential)
+    resp = _send(terminal, "POST", WRITE_ROUTE, credential)
 
     assert resp.status_code == 200
     assert _backend(terminal).await_count == 1
@@ -412,8 +417,18 @@ class TestTheApplicationsSocket:
 
 
 @pytest.fixture
-def tool_server(terminal, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    """The orbit-bump tool server's panel calls, carried to the terminal app in-process.
+def tools(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """The scaffold's tool-server module, imported from its source tree."""
+    monkeypatch.syspath_prepend(str(TEMPLATE))
+    import scaffold_app.tools
+
+    assert scaffold_app.APP_NAME == APP_NAME and scaffold_app.WRITE_ROUTE == WRITE_ROUTE
+    return scaffold_app.tools
+
+
+@pytest.fixture
+def tool_server(terminal, tools: ModuleType, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """The scaffold tool server's panel calls, carried to the terminal app in-process.
 
     The tool server builds its headers with the SDK's own ``agent_panel_headers``, from
     the panel token and the session key its spawn handed it.
@@ -441,22 +456,21 @@ def tool_server(terminal, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
 
 
 @pytest.mark.no_auth_seam
-@pytest.mark.parametrize("route", [APPLY_ROUTE, COMPUTE_ROUTE], ids=["apply_bump", "plan_bump"])
-async def test_the_tool_servers_write_for_a_held_session_is_refused(tool_server, route):
+async def test_the_tool_servers_write_for_a_held_session_is_refused(tool_server, tools):
     _hold(_root(tool_server))
 
     with pytest.raises(ApprovalRefused) as info:
-        await tools._request("POST", route, json=APPLY_BODY)
+        await tools._panel_call("POST", WRITE_ROUTE, json=WRITE_BODY)
 
     assert "[osprey-refusal: session_held]" in info.value.message
     assert _backend(tool_server).await_count == 0
 
 
 @pytest.mark.no_auth_seam
-async def test_the_tool_servers_write_names_its_session_to_the_backend(tool_server):
+async def test_the_tool_servers_write_names_its_session_to_the_backend(tool_server, tools):
     ensure_session(SESSION_KEY, root=_root(tool_server))
 
-    answer = await tools._request("POST", APPLY_ROUTE, json=APPLY_BODY)
+    answer = await tools._panel_call("POST", WRITE_ROUTE, json=WRITE_BODY)
 
     assert answer == {"status": "applied"}
     forwarded = _backend(tool_server).await_args.kwargs["headers"]

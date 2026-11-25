@@ -427,3 +427,46 @@ def test_list_loads_no_scenario_apply_code(deployment: Path) -> None:
 
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip() == "False"
+
+
+# --- the active set of the instance reported on ----------------------------------------
+
+_STANDIN_BASELINE = "control_system:\n  type: live_standin\n  connector:\n    live_standin: {}\n"
+
+
+@pytest.mark.parametrize(
+    ("services", "line"),
+    [
+        (
+            ("virtual_accelerator", "live_standin"),
+            "active scenarios on standin: nominal, sr-broken",
+        ),
+        (("live_standin",), None),
+    ],
+    ids=["two-instances", "one-instance"],
+)
+def test_status_names_the_active_set_of_the_instance_it_reports_on(
+    lifecycle_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    services: tuple[str, ...],
+    line: str | None,
+) -> None:
+    """With two instances a status is one machine's, so its set is named; with one it is not."""
+    from osprey.simulation.apply import apply_scenarios
+    from osprey_connectors.factory import ConnectorFactory
+
+    config = _STANDIN_BASELINE + "deployed_services:\n" + "".join(f"  - {s}\n" for s in services)
+    write_simulator_view(stub_build(lifecycle_repo, config=config))
+    apply_scenarios(lifecycle_repo, ["sr-broken"], target="standin")
+
+    async def create(section: dict, control_target: str | None = None) -> _StatusChannels:
+        del section, control_target
+        return _StatusChannels({"ca:SIM:SR:STATUS": "ok"})
+
+    monkeypatch.setattr(ConnectorFactory, "create_control_system_connector", create)
+
+    result = _status(lifecycle_repo)
+
+    assert result.exit_code == 0, result.output
+    named = [text for text in result.output.splitlines() if text.startswith("active scenarios")]
+    assert named == ([line] if line else [])

@@ -14,9 +14,9 @@ are blanked first, so prose that describes the shape never hits. The pattern is
 a net, not a proof: a counter captured by destructuring or compared through a
 helper function slips past it, and review owns those forms.
 
-A guard of another rule is not this one: orbit-bump's panel shows a state answer
-only when it is no older than the one shown (``<=``), which lets a newer answer
-show while a still-newer poll is out, and the pattern leaves it alone.
+A guard of another rule is not this one: a panel that shows a state answer
+only when it is no older than the one shown (``<=``) lets a newer answer show
+while a still-newer poll is out, and the pattern leaves it alone.
 """
 
 from __future__ import annotations

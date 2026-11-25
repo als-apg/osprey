@@ -37,10 +37,6 @@ tags.
   published floor under HEAD's framework.
 - **Schema `$id`.** The `$id` of the schema for format version N names the
   newest additive form of N; a change that is not additive bumps N.
-- **Bumping N.** A facility release that first writes `/N+1` is cut only after
-  an `osprey-panels` release whose `reads` includes `/N+1` is on PyPI. The
-  facility package does not know panels exists; this is release order, not a
-  check.
 
 ## Public API
 
@@ -86,4 +82,5 @@ Schema: the current one, or `published_schema(4)` for a format version's floor.
 | `osprey_facility.sessions` | framework job: `osprey.agent_runner`, `osprey.interfaces.web_terminal`, `osprey.registry`, `osprey.simulation` |
 | `osprey_facility.simulated` | framework job: `osprey.facility.views` |
 | `osprey_facility.sources` | framework job: `osprey.facility.views` |
+| `osprey_facility.start` | framework job: `osprey.facility.settings` |
 | `osprey_facility.validate` | framework job: `osprey.cli`, `osprey.facility.views`, `osprey.mcp_server.channel_finder_graph`, `osprey.registry` |

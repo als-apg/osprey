@@ -953,6 +953,9 @@ its baseline: value overrides, model and channel faults, its own motion
 (drivers, couplings, noise), archive history and logbook entries. The
 simulator activates the scenarios marked ``start: true`` when it first comes
 up; with such marks the profile states no ``simulation.default_scenarios``.
+A deployment that runs the live stand-in has two simulator instances, and
+``start_on: [standin]`` or ``start_on: [va]`` starts a scenario on one of
+them alone, so one machine boots clean and the other with a set of errors.
 Writing and applying them is in :ref:`how-to-run-scenarios`.
 
 Knowledge
