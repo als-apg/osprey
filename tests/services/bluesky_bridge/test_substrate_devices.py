@@ -167,6 +167,52 @@ class TestDevicesDocument:
             self._MOVE_STATUS,
         ]
 
+    _STOP = "ES1:MOT:STAGE:01:STOP:SP"
+
+    def _stopping_stage(self, *others: ChannelRecord) -> tuple[ChannelRecord, ...]:
+        """The stage with its setpoint stopped by its stop command, which is a write record."""
+        position, *rest = self._stage()
+        stopped = ChannelRecord(
+            address=position.address,
+            source=_SOURCE,
+            direction="write",
+            readback=position.readback,
+            started_by=position.started_by,
+            stopped_by=self._STOP,
+        )
+        return (stopped, *rest, _write(self._STOP), *others)
+
+    def test_a_positioner_carries_its_stop_channel(self) -> None:
+        document = devices_document(self._stopping_stage(), completions=self._completions())
+
+        (entry,) = document["settables"]
+        assert entry["stopped_by"] == self._STOP
+        assert list(entry).index("stopped_by") == list(entry).index("started_by") + 1
+        assert validate_device_document(document) == []
+
+    def test_a_shared_stop_channel_is_no_device(self) -> None:
+        trim, trim_go = "ES1:MOT:STAGE:01:TRIM:SP", "ES1:MOT:STAGE:01:TRIM:GO"
+        second = ChannelRecord(
+            address=trim,
+            source=_SOURCE,
+            direction="write",
+            started_by=trim_go,
+            stopped_by=self._STOP,
+        )
+        completions = {
+            **self._completions(),
+            trim_go: CommandCompletion(trim_go, self._MOVE_STATUS, "DONE", 10.0),
+        }
+
+        document = devices_document(
+            self._stopping_stage(second, _write(trim_go, readback=self._MOVE_STATUS)),
+            completions=completions,
+        )
+
+        assert [entry["name"] for entry in document["settables"]] == [self._POSITION, trim]
+        assert [entry["stopped_by"] for entry in document["settables"]] == [self._STOP] * 2
+        assert document["triggerables"] == []
+
     def test_every_top_level_key_is_always_present(self) -> None:
         """Even a facility that yields nothing gets every key, so a caller can
         see WHICH kind came up empty instead of inferring it from a missing key."""

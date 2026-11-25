@@ -30,6 +30,7 @@ line naming the document and its version::
           status: ES1:STAGE:STATUS # the channel that reports the move
           idle: Done               # what the status reads while no move runs
           timeout_s: 10.0          # the longest one move may take
+        stopped_by: ES1:STAGE:STOP # optional, beside started_by; written 1 to stop a move
     triggerables:
       - name: ES1:MCA01:ACQ        # device name; its status is recorded under it
         command: ES1:MCA01:ACQ     # the channel a trigger writes 1 to
@@ -105,8 +106,12 @@ SHAPE_KEY = "shape"
 SETPOINT_UNIT_KEY = "setpoint_unit"
 """Optional settable key: the unit of the setpoint channel of a device with a
 separate readback, a non-empty string."""
+STOPPED_BY_KEY = "stopped_by"
+"""Optional settable key, only beside ``started_by``: the command that stops the
+setpoint's move, a non-empty address. A run that stops the move while it is
+unfinished writes it."""
 _SETTABLE_REQUIRED = ("name", "setpoint")
-_SETTABLE_OPTIONAL = ("readback", UNIT_KEY, SETPOINT_UNIT_KEY)
+_SETTABLE_OPTIONAL = ("readback", UNIT_KEY, SETPOINT_UNIT_KEY, STOPPED_BY_KEY)
 SETTLE_TOLERANCE_KEY = "settle_tolerance"
 """Optional settable key: how far the readback may sit from the demand once settled.
 
@@ -148,6 +153,7 @@ STATUS_KEY = "status"
 """A start act's key: the status that reports the move."""
 _START_ACT_KEYS = (COMMAND_KEY, STATUS_KEY, IDLE_KEY, TIMEOUT_KEY)
 _SETTABLE_ACT_OPTIONAL = (STARTED_BY_KEY,)
+_STOP_WITHOUT_START = f"{STOPPED_BY_KEY!r} is present without {STARTED_BY_KEY!r}"
 _START_ACT_TEXT = (
     "'command' and 'status' (non-empty strings), 'idle' (a non-null scalar) "
     "and 'timeout_s' (a finite number > 0)"
@@ -312,7 +318,9 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     optional strings: absent or null declares no unit; present but not a
     non-empty string is a malformed entry. ``started_by`` is optional: absent
     or null leaves the setpoint moving on its own write; present but not a
-    well-formed act (see ``_start_act``) is a malformed entry.
+    well-formed act (see ``_start_act``) is a malformed entry. ``stopped_by``
+    is an optional string, and an entry that states it without ``started_by``
+    is malformed.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -366,7 +374,7 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 )
                 continue
 
-        units = _optional_strings(entry, (UNIT_KEY, SETPOINT_UNIT_KEY), where, name)
+        units = _optional_strings(entry, (UNIT_KEY, SETPOINT_UNIT_KEY, STOPPED_BY_KEY), where, name)
         if units is None:
             continue
 
@@ -382,6 +390,9 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                     _START_ACT_TEXT,
                 )
                 continue
+        if units[STOPPED_BY_KEY] is not None and started_by is None:
+            logger.warning("skipping %s (%r): %s", where, name, _STOP_WITHOUT_START)
+            continue
 
         specs.append(
             SettableSpec(
@@ -394,6 +405,7 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 unit=units[UNIT_KEY],
                 setpoint_unit=units[SETPOINT_UNIT_KEY],
                 started_by=started_by,
+                stopped_by=units[STOPPED_BY_KEY],
             )
         )
     return specs
@@ -653,6 +665,19 @@ def _validate_section(
     return problems
 
 
+def _stop_without_start_problems(section: Any) -> list[str]:
+    """Return one problem per settable that states ``stopped_by`` without ``started_by``."""
+    if not isinstance(section, list):
+        return []
+    return [
+        f"{SETTABLES_KEY}[{index}]: {_STOP_WITHOUT_START}; only a positioner names a stop"
+        for index, entry in enumerate(section)
+        if isinstance(entry, dict)
+        and entry.get(STOPPED_BY_KEY) is not None
+        and entry.get(STARTED_BY_KEY) is None
+    ]
+
+
 def _duplicate_name_problems(doc: dict) -> list[str]:
     """Return one problem per device name already claimed by an earlier entry.
 
@@ -718,6 +743,7 @@ def validate_device_document(doc: Any) -> list[str]:
         _SETTABLE_TOLERANCE_OPTIONAL,
         acts=_SETTABLE_ACT_OPTIONAL,
     )
+    problems += _stop_without_start_problems(doc.get(SETTABLES_KEY))
     problems += _validate_section(
         doc.get(TRIGGERABLES_KEY),
         TRIGGERABLES_KEY,
