@@ -702,6 +702,7 @@ def test_the_queue_read_publishes_a_bounded_status_summary(client: TestClient) -
         "available",
         "runs_removed",
         "queue_removals",
+        "awaiting_approval",
         *queue._SUMMARY_KEYS,
     }
     assert body["status"]["available"] is True
@@ -1289,6 +1290,7 @@ def _assert_snapshot_frame(frame: dict[str, Any]) -> None:
         "available",
         "runs_removed",
         "queue_removals",
+        "awaiting_approval",
         *queue._SUMMARY_KEYS,
     }
     assert frame["status"]["available"] is True

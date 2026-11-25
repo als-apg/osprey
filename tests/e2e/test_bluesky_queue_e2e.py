@@ -337,6 +337,9 @@ class QueueStack:
     bpms: dict[str, str]
     limits: dict[str, Any]
     token: str
+    #: The person approving each plan's write request (the switch is at
+    #: ``asked``): a :class:`tests.e2e.sdk_helpers.WriteApprover`.
+    approver: Any
 
 
 # ---------------------------------------------------------------------------
@@ -581,7 +584,9 @@ def _arm_queue_owner(repo: Path) -> None:
     The preset's tier already allows writes (``control_system.writes:
     allowed``); the switch is the other half. Written through the production
     writers into the control tree the deploy provisions, before ``up`` so the
-    worker reads it.
+    worker reads it. At ``asked``, on purpose: every plan here asks for its
+    write authorization and the stack fixture's approver answers, so each
+    drain also proves the request, approve, run path.
     """
     import yaml
 
@@ -940,14 +945,18 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 
         limits = _orm_stack.channel_limits(repo)
 
-        yield QueueStack(
-            repo=repo,
-            osprey_bin=osprey_bin,
-            correctors=correctors,
-            bpms=bpms,
-            limits=limits,
-            token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
-        )
+        from tests.e2e.sdk_helpers import approving_write_requests
+
+        with approving_write_requests(repo) as approver:
+            yield QueueStack(
+                repo=repo,
+                osprey_bin=osprey_bin,
+                correctors=correctors,
+                bpms=bpms,
+                limits=limits,
+                token=env_value(repo, "BLUESKY_LAUNCH_TOKEN"),
+                approver=approver,
+            )
     finally:
         down = run_command([str(osprey_bin), "down"], cwd=repo, timeout=600)
         if down.returncode != 0:
@@ -1825,6 +1834,29 @@ def test_3_armed_start_drains_serially_with_live_rows(stack: QueueStack) -> None
         "the started run never published the point count its plan declared; "
         f"expected {LIVE_SAMPLE_POINTS}, saw {declared_points or 'no progress record at all'}"
     )
+
+
+def test_3_each_drained_plan_ran_under_an_approved_write_authorization(
+    stack: QueueStack,
+) -> None:
+    """The drained plans wrote only after a person approved their requests.
+
+    The switch is at ``asked``, so the worker files one write request per plan
+    and waits; the approver answers each with ``osprey write-authorization
+    approve``, the verb a person runs. Every request the drain filed was
+    approved (the CLI refused none, so the limits database covers what the
+    plans asked for), and the requests are gone once answered.
+    """
+    from osprey.deployment.compose_generator import write_requests_relpath
+    from osprey_connectors import write_authorization as wa
+
+    if _S.run_live is None or _S.run_short is None:
+        pytest.skip("stage 2 enqueued no runs, so stage 3 drained none")
+    approver = stack.approver
+    assert not approver.refused, f"the CLI refused a request: {approver.describe()}"
+    assert len(approver.approved) >= 2, f"two plans drained but {approver.describe()}"
+    pending, _unreadable = wa.list_requests(stack.repo / write_requests_relpath())
+    assert not pending, f"requests still pending after the drain: {[r.id for r in pending]}"
 
 
 # ===========================================================================
