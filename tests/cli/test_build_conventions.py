@@ -53,10 +53,10 @@ def _write_config(project_path: Path, config: dict) -> Path:
 
 
 def test_markdown_categories_copy_file_by_file(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "agents" / "orbit-writer.md")
-    _write(profile_dir / "commands" / "ops" / "restart.md")
-    _write(profile_dir / "output-styles" / "terse.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "agents" / "orbit-writer.md")
+    _write(profile_dir / "agent" / "commands" / "ops" / "restart.md")
+    _write(profile_dir / "agent" / "output-styles" / "terse.md")
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -69,7 +69,7 @@ def test_markdown_categories_copy_file_by_file(profile_dir: Path, project_path: 
 
 def test_hooks_copy_file_by_file_and_keep_their_mode(profile_dir: Path, project_path: Path):
     """A hook is a script the agent runs, so its executable bit has to survive."""
-    hook = _write(profile_dir / "hooks" / "facility_guard.py", "#!/usr/bin/env python3\n")
+    hook = _write(profile_dir / "agent" / "hooks" / "facility_guard.py", "#!/usr/bin/env python3\n")
     hook.chmod(0o755)
 
     applied = _apply_conventions(profile_dir, project_path)
@@ -82,8 +82,10 @@ def test_hooks_copy_file_by_file_and_keep_their_mode(profile_dir: Path, project_
 
 
 def test_skills_copy_as_whole_directories(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "skills" / "orbit-check" / "scripts" / "check.py", "print('hi')\n")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(
+        profile_dir / "agent" / "skills" / "orbit-check" / "scripts" / "check.py", "print('hi')\n"
+    )
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -94,8 +96,8 @@ def test_skills_copy_as_whole_directories(profile_dir: Path, project_path: Path)
 
 
 def test_services_and_mcp_servers_copy_as_whole_directories(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "services" / "archiver" / "docker-compose.yml", "services: {}\n")
-    _write(profile_dir / "mcp_servers" / "matlab" / "server.py", "x = 1\n")
+    _write(profile_dir / "ops" / "services" / "archiver" / "docker-compose.yml", "services: {}\n")
+    _write(profile_dir / "agent" / "mcp_servers" / "matlab" / "server.py", "x = 1\n")
 
     _apply_conventions(profile_dir, project_path)
 
@@ -104,9 +106,9 @@ def test_services_and_mcp_servers_copy_as_whole_directories(profile_dir: Path, p
 
 
 def test_project_mirror_lands_verbatim_on_the_root(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "project" / "docs" / "runbook.md")
-    _write(profile_dir / "project" / "Makefile", "all:\n\techo hi\n")
-    _write(profile_dir / "project" / ".gitignore", "_agent_data/\n")
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "ops" / "project" / "Makefile", "all:\n\techo hi\n")
+    _write(profile_dir / "ops" / "project" / ".gitignore", "_agent_data/\n")
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -117,7 +119,7 @@ def test_project_mirror_lands_verbatim_on_the_root(profile_dir: Path, project_pa
 
 
 def test_directory_copy_replaces_a_stale_destination(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md", "# new\n")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md", "# new\n")
     _write(project_path / ".claude/skills/orbit-check/SKILL.md", "# stale\n")
     _write(project_path / ".claude/skills/orbit-check/gone.md", "# removed upstream\n")
 
@@ -138,7 +140,7 @@ def test_nothing_to_apply_is_not_an_error(profile_dir: Path, project_path: Path)
 
 
 def test_reserved_mirror_path_fails_naming_its_channel(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "project" / "config.yml", "facility: {}\n")
+    _write(profile_dir / "ops" / "project" / "config.yml", "facility: {}\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _apply_conventions(profile_dir, project_path)
@@ -152,8 +154,8 @@ def test_reserved_mirror_path_rejects_before_copying_anything(
     profile_dir: Path, project_path: Path
 ):
     """Validation is up front: a bad mirror leaves the project untouched."""
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "project" / ".mcp.json", "{}\n")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "ops" / "project" / ".mcp.json", "{}\n")
 
     with pytest.raises(BuildProfileError):
         _apply_conventions(profile_dir, project_path)
@@ -162,8 +164,8 @@ def test_reserved_mirror_path_rejects_before_copying_anything(
 
 
 def test_misshapen_convention_source_fails_before_copying(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "skills" / "loose.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "skills" / "loose.md")
 
     with pytest.raises(BuildProfileError, match="one directory per skill"):
         _apply_conventions(profile_dir, project_path)
@@ -175,7 +177,7 @@ def test_symlinked_destination_escaping_the_project_fails_the_build(
     profile_dir: Path, project_path: Path, tmp_path: Path
 ):
     """A pre-existing symlink at a destination path must not redirect the copy."""
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     outside = tmp_path / "outside-rules"
     outside.mkdir()
     (project_path / ".claude").mkdir()
@@ -196,7 +198,7 @@ def test_profile_dir_inside_the_osprey_package_is_refused(project_path: Path):
     with pytest.raises(BuildProfileError, match="inside the installed osprey package"):
         _apply_conventions(presets_dir, project_path, ["alice"])
 
-    assert not (presets_dir / "web-terminal-context").exists()
+    assert not (presets_dir / "agent" / "context").exists()
 
 
 def test_known_root_entries_derive_from_the_profile():
@@ -324,7 +326,7 @@ def test_known_extra_root_entries_do_not_warn(
 
 
 def test_roster_users_get_their_context_copied(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     applied = _apply_conventions(profile_dir, project_path, ["alice"])
 
@@ -334,7 +336,7 @@ def test_roster_users_get_their_context_copied(profile_dir: Path, project_path: 
 
 def test_empty_roster_skips_per_user_context(profile_dir: Path, project_path: Path):
     """A render build disables web terminals, so it resolves no roster at all."""
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     applied = _apply_conventions(profile_dir, project_path, [])
 
@@ -345,7 +347,7 @@ def test_empty_roster_skips_per_user_context(profile_dir: Path, project_path: Pa
 def test_missing_user_directory_is_seeded_in_the_profile(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
 
     # Renderer migration (disposition row 36): the default view now carries only
     # the count, as a render sub-step; the list of seeded directories stayed on
@@ -354,18 +356,18 @@ def test_missing_user_directory_is_seeded_in_the_profile(
         applied = _apply_conventions(profile_dir, project_path, ["alice", "bob"])
 
     assert applied.seeded_users == ["bob"]
-    seeded = profile_dir / "web-terminal-context" / "bob"
+    seeded = profile_dir / "agent" / "context" / "bob"
     assert seeded.is_dir()
     # A .gitkeep so the seeded directory survives a commit of the profile.
     assert (seeded / ".gitkeep").is_file()
-    assert "web-terminal-context/bob" in caplog.text
+    assert "agent/context/bob" in caplog.text
 
 
 def test_departed_user_warns_and_is_skipped(
     profile_dir: Path, project_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    _write(profile_dir / "web-terminal-context" / "alice" / "extra.md")
-    _write(profile_dir / "web-terminal-context" / "departed" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "alice" / "extra.md")
+    _write(profile_dir / "agent" / "context" / "departed" / "extra.md")
 
     with caplog.at_level(logging.WARNING):
         applied = _apply_conventions(profile_dir, project_path, ["alice"])
@@ -374,7 +376,7 @@ def test_departed_user_warns_and_is_skipped(
     assert not (project_path / "docker/web-terminal-context/departed").exists()
     assert "departed" in caplog.text
     # Warn and skip — the profile's own directory is never removed.
-    assert (profile_dir / "web-terminal-context" / "departed" / "extra.md").is_file()
+    assert (profile_dir / "agent" / "context" / "departed" / "extra.md").is_file()
 
 
 # ── Roster resolution from the built project's config ────────────────
@@ -421,10 +423,12 @@ def test_missing_config_resolves_empty(project_path: Path):
 
 def test_applied_artifacts_register_as_user_owned(profile_dir: Path, project_path: Path):
     _write_config(project_path, {"scaffold": {"user_owned": []}})
-    _write(profile_dir / "rules" / "facility-ops.md")
-    _write(profile_dir / "skills" / "orbit-check" / "SKILL.md")
-    _write(profile_dir / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n")
-    _write(profile_dir / "project" / "docs" / "runbook.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "skills" / "orbit-check" / "SKILL.md")
+    _write(
+        profile_dir / "ops" / "services" / "beam-logger" / "docker-compose.yml", "services: {}\n"
+    )
+    _write(profile_dir / "ops" / "project" / "docs" / "runbook.md")
 
     applied = _apply_conventions(profile_dir, project_path)
     registered = _register_convention_artifacts(project_path, applied)
@@ -442,7 +446,7 @@ def test_applied_artifacts_register_as_user_owned(profile_dir: Path, project_pat
 
 
 def test_registration_without_config_is_a_no_op(profile_dir: Path, project_path: Path):
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     applied = _apply_conventions(profile_dir, project_path)
     assert _register_convention_artifacts(project_path, applied) == 0
 
@@ -472,7 +476,7 @@ def test_registration_never_claims_framework_artifacts(profile_dir: Path, tmp_pa
         return set(config["scaffold"]["user_owned"])
 
     owned_before = user_owned()
-    _write(profile_dir / "rules" / "facility-ops.md")
+    _write(profile_dir / "agent" / "rules" / "facility-ops.md")
     applied = _apply_conventions(profile_dir, project_path)
     _register_convention_artifacts(project_path, applied)
 

@@ -80,11 +80,14 @@ def _write(path: Path, text: str) -> Path:
 def write_house_artifacts(repo: Path) -> None:
     """One facility artifact of every list-selected kind, plus a second skill."""
     for name in ("house-report", "house-diag"):
-        _write(repo / "skills" / name / "SKILL.md", _SKILL.format(name=name))
-    _write(repo / "agents" / "house-search.md", _AGENT.format(name="house-search"))
-    _write(repo / "rules" / "house-rule.md", "# House rule\n\nBe careful.\n")
-    _write(repo / "output-styles" / "house-terse.md", "---\nname: house-terse\n---\n\nTerse.\n")
-    _write(repo / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
+        _write(repo / "agent" / "skills" / name / "SKILL.md", _SKILL.format(name=name))
+    _write(repo / "agent" / "agents" / "house-search.md", _AGENT.format(name="house-search"))
+    _write(repo / "agent" / "rules" / "house-rule.md", "# House rule\n\nBe careful.\n")
+    _write(
+        repo / "agent" / "output-styles" / "house-terse.md",
+        "---\nname: house-terse\n---\n\nTerse.\n",
+    )
+    _write(repo / "agent" / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
 
 
 def _named_repo(dest: Path) -> Path:
@@ -101,7 +104,10 @@ def _named_repo(dest: Path) -> Path:
     """
     repo = build_exemplar_repo(dest)
     write_house_artifacts(repo)
-    _write(repo / "skills" / "house-unlisted" / "SKILL.md", _SKILL.format(name="house-unlisted"))
+    _write(
+        repo / "agent" / "skills" / "house-unlisted" / "SKILL.md",
+        _SKILL.format(name="house-unlisted"),
+    )
 
     _insert_after(repo / "profile.yml", "skills:", "  - skills/house-report")
     _insert_after(repo / "profile.yml", "output_styles:", "  - output-styles/house-terse")
@@ -116,7 +122,7 @@ def _named_repo(dest: Path) -> Path:
     _insert_after(logbook, "agents:", "  - agents/house-search")
     # The deployment's own safety rule, named by its path in the logbook login
     # alone; every other render selects the library rule by its bare name.
-    _write(repo / "rules" / "safety.md", HOUSE_SAFETY)
+    _write(repo / "agent" / "rules" / "safety.md", HOUSE_SAFETY)
     _swap_entry(logbook, "safety", "rules/safety")
     return repo
 
@@ -249,8 +255,8 @@ def test_a_replacing_path_selects_its_library_artifact_for_library_readers() -> 
 
 
 def test_a_list_naming_a_library_artifact_and_its_shadow_is_refused(tmp_path: Path) -> None:
-    _write(tmp_path / "rules" / "facility.md", "x")
-    _write(tmp_path / "hooks" / "osprey_writes_check.py", "x")
+    _write(tmp_path / "agent" / "rules" / "facility.md", "x")
+    _write(tmp_path / "agent" / "hooks" / "osprey_writes_check.py", "x")
     errors = convention_selection_errors(
         tmp_path,
         {
@@ -270,8 +276,8 @@ def test_a_list_naming_a_library_artifact_and_its_shadow_is_refused(tmp_path: Pa
 
 
 def test_a_prefixed_entry_must_name_an_artifact_beside_the_profile(tmp_path: Path) -> None:
-    _write(tmp_path / "skills" / "here" / "SKILL.md", "x")
-    _write(tmp_path / "hooks" / "osprey_limits.py", "x")
+    _write(tmp_path / "agent" / "skills" / "here" / "SKILL.md", "x")
+    _write(tmp_path / "agent" / "hooks" / "osprey_limits.py", "x")
     errors = convention_selection_errors(
         tmp_path,
         {
@@ -282,17 +288,17 @@ def test_a_prefixed_entry_must_name_an_artifact_beside_the_profile(tmp_path: Pat
     )
     assert sorted(errors) == sorted(
         [
-            "hooks: 'hooks/guard' — there is no hooks/guard beside the profile.",
-            "skills: 'skills/gone' — there is no skills/gone/ beside the profile.",
+            "hooks: 'hooks/guard' — there is no agent/hooks/guard beside the profile.",
+            "skills: 'skills/gone' — there is no agent/skills/gone/ beside the profile.",
             "skills: 'agents/elsewhere' names a agents/ artifact. List it under agents: instead.",
             "output_styles: 'output-styles/missing' — there is no "
-            "output-styles/missing.md beside the profile.",
+            "agent/output-styles/missing.md beside the profile.",
         ]
     )
 
 
 def test_a_listed_facility_hook_that_replaces_no_osprey_hook_is_refused(tmp_path: Path) -> None:
-    _write(tmp_path / "hooks" / "house.py", _HOOK)
+    _write(tmp_path / "agent" / "hooks" / "house.py", _HOOK)
     errors = convention_selection_errors(tmp_path, {"hooks": ["hooks/house.py"]})
     assert errors == [
         "hooks: hooks/house.py replaces no OSPREY hook; wire it with a claude_code.hooks "
@@ -303,13 +309,17 @@ def test_a_listed_facility_hook_that_replaces_no_osprey_hook_is_refused(tmp_path
 def test_loading_a_profile_refuses_a_prefixed_entry_naming_nothing(tmp_path: Path) -> None:
     repo = build_exemplar_repo(tmp_path / PROJECT)
     _insert_after(repo / "profile.yml", "skills:", "  - skills/nowhere")
-    with pytest.raises(BuildProfileError, match="there is no skills/nowhere/ beside the profile"):
+    with pytest.raises(
+        BuildProfileError, match="there is no agent/skills/nowhere/ beside the profile"
+    ):
         load_profile_document(repo / "profile.yml")
 
 
 def test_a_qualified_exclusion_drops_the_selection_too(tmp_path: Path) -> None:
     repo = build_exemplar_repo(tmp_path / PROJECT)
-    _write(repo / "skills" / "house-report" / "SKILL.md", _SKILL.format(name="house-report"))
+    _write(
+        repo / "agent" / "skills" / "house-report" / "SKILL.md", _SKILL.format(name="house-report")
+    )
     _insert_after(repo / "profile.yml", "skills:", "  - skills/house-report")
     child = _write(
         tmp_path / "child" / "profile.yml",
@@ -369,7 +379,7 @@ def migrated(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, dict[str, 
     write_house_artifacts(repo)
     # A shadow of the library `safety` rule, which profile.yml and every app
     # select by its bare name: before, it replaced the library rule everywhere.
-    _write(repo / "rules" / "safety.md", HOUSE_SAFETY)
+    _write(repo / "agent" / "rules" / "safety.md", HOUSE_SAFETY)
     _insert_before_config(
         repo / "profile.yml", "", "  claude_code.hooks.PreToolUse:\n    - hooks/house_guard.py\n"
     )
@@ -455,7 +465,7 @@ def test_revalidate_leaves_a_repo_already_under_the_by_name_rule_selecting_what_
     # widen every render, and every app would gain the host's session hook.
     repo = build_exemplar_repo(tmp_path / PROJECT)
     write_house_artifacts(repo)
-    _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
+    _write(repo / "agent" / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
     _insert_after(repo / "profile.yml", "skills:", "  - skills/house-report")
     _insert_after(repo / "tiers" / "logbook.yml", "skills:", "  - skills/house-diag")
     _insert_before_config(
@@ -480,7 +490,7 @@ def test_init_names_the_facility_description_it_seeds_by_its_path(
     with preserved_environ():
         made = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert made.exit_code == 0, made.output
-    assert (repo / "rules" / "facility.md").is_file()
+    assert (repo / "agent" / "rules" / "facility.md").is_file()
     for rel in ("profile.yml", *(f"tiers/{p.name}" for p in _own_logins(repo))):
         rules = yaml.safe_load((repo / rel).read_text(encoding="utf-8")).get("rules") or []
         assert "facility" not in rules, rel
@@ -494,7 +504,7 @@ def test_init_names_the_facility_description_it_seeds_by_its_path(
     # A build carries it into the render: the session's build of a repo the
     # same init made.
     assert (built_demo.build_dir / ".claude" / "rules" / "facility.md").read_text("utf-8") == (
-        repo / "rules" / "facility.md"
+        repo / "agent" / "rules" / "facility.md"
     ).read_text("utf-8")
 
 
@@ -523,8 +533,8 @@ def host_hook(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Result]:
     """A host that wires a facility guard and a facility session hook; no list names either."""
     outside = tmp_path_factory.mktemp("host-hook")
     repo = build_exemplar_repo(outside / PROJECT)
-    _write(repo / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
-    _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
+    _write(repo / "agent" / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
+    _write(repo / "agent" / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
     _insert_before_config(
         repo / "profile.yml",
         "",
@@ -577,7 +587,7 @@ def host_mapped_guard(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, R
     """A host that wires its facility guard in the mapping spelling, with a matcher."""
     outside = tmp_path_factory.mktemp("host-mapped-guard")
     repo = build_exemplar_repo(outside / PROJECT)
-    _write(repo / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
+    _write(repo / "agent" / "hooks" / "house_guard.py", _HOOK).chmod(0o755)
     _insert_before_config(
         repo / "profile.yml",
         "",
@@ -611,7 +621,7 @@ def test_revalidate_keeps_a_host_session_hook_in_each_app_by_its_own_declaration
 ) -> None:
     """Before by-name selection an app inherited every host declaration; revalidate keeps it."""
     repo = spell_before_by_name(build_exemplar_repo(tmp_path / PROJECT))
-    _write(repo / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
+    _write(repo / "agent" / "hooks" / _NOTE_HOOK, _HOOK).chmod(0o755)
     _insert_before_config(
         repo / "profile.yml", "", f"  claude_code.hooks.SessionStart:\n    - hooks/{_NOTE_HOOK}\n"
     )
@@ -709,7 +719,10 @@ def _ship_writes_check(repo: Path) -> None:
     import osprey
 
     library = next(Path(osprey.__file__).parent.rglob(_WRITES_CHECK_FILE))
-    _write(repo / "hooks" / _WRITES_CHECK_FILE, library.read_text(encoding="utf-8") + _HOUSE_MARK)
+    _write(
+        repo / "agent" / "hooks" / _WRITES_CHECK_FILE,
+        library.read_text(encoding="utf-8") + _HOUSE_MARK,
+    )
 
 
 def _hook_wiring(render: Path) -> str:

@@ -78,7 +78,7 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         "README.md",
         ".gitignore",
         ".env.example",
-        "ci-extra.yml",
+        "ops/ci-extra.yml",
         f"{TIERS_DIRNAME}/readonly.yml",
         f"{TIERS_DIRNAME}/readwrite.yml",
         f"{TIERS_DIRNAME}/admin.yml",
@@ -87,8 +87,8 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         f"{TIERS_DIRNAME}/channel-finder.yml",
         "data/README.md",
         "data/facility/knowledge/index.md",
-        "web-terminal-context/alice/.gitkeep",
-        "web-terminal-context/bob/.gitkeep",
+        "agent/context/alice/.gitkeep",
+        "agent/context/bob/.gitkeep",
     ],
 )
 def test_source_zone_file_present(lifecycle_repo: Path, rel: str) -> None:
@@ -127,8 +127,8 @@ def test_secrets_zone_is_opt_in(lifecycle_repo_factory) -> None:
 def test_verify_script_is_executable(lifecycle_repo_factory, tmp_path: Path) -> None:
     repo = lifecycle_repo_factory(tmp_path / "with-ci", with_ci=True)
 
-    verify = repo / "scripts" / "verify.sh"
-    assert verify.stat().st_mode & 0o111, "scripts/verify.sh must be executable"
+    verify = repo / "ops" / "scripts" / "verify.sh"
+    assert verify.stat().st_mode & 0o111, "ops/scripts/verify.sh must be executable"
     assert verify.read_text().startswith("#!/usr/bin/env bash")
 
 
@@ -443,10 +443,10 @@ def test_ci_pipeline_follows_the_deploy_block(lifecycle_repo: Path) -> None:
     ``osprey init --preset demo`` can reproduce.
     """
     assert not (lifecycle_repo / ".gitlab-ci.yml").exists()
-    assert not (lifecycle_repo / "scripts").exists()
-    # ci-extra.yml is the facility's own file: created once, never regenerated,
-    # and never conditional on the pipeline existing.
-    assert (lifecycle_repo / "ci-extra.yml").is_file()
+    assert not (lifecycle_repo / "ops" / "scripts").exists()
+    # ops/ci-extra.yml is the facility's own file: created once, never
+    # regenerated, and never conditional on the pipeline existing.
+    assert (lifecycle_repo / "ops" / "ci-extra.yml").is_file()
 
     profile, _ = resolve_build_profile(lifecycle_repo / "profile.yml", None)
     assert profile.deploy is None

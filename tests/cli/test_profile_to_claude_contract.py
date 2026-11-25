@@ -1029,8 +1029,8 @@ def test_build_command_fails_on_violation(tmp_path, caplog):
     profile_dir = tmp_path / "broken-deployment"
     profile_dir.mkdir()
     (profile_dir / "data").mkdir()
-    agents_dir = profile_dir / "agents"
-    agents_dir.mkdir()
+    agents_dir = profile_dir / "agent" / "agents"
+    agents_dir.mkdir(parents=True)
     (agents_dir / "bogus.md").write_text(
         textwrap.dedent(
             """\

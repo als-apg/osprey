@@ -330,7 +330,7 @@ def test_excluding_a_shadow_keeps_the_built_in_selected(host: Path) -> None:
     still-selected built-in agent renders again. Dropping the list entry too
     would make the agent vanish altogether — the opposite of restoring it.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
@@ -369,7 +369,7 @@ def test_the_two_spellings_are_not_interchangeable(host: Path) -> None:
 
 def test_a_bare_non_library_name_records_a_file_omission(host: Path) -> None:
     """It cannot be a built-in selection, so the profile's own file is what it means."""
-    _write(host / "agents" / "orbit-writer.md", "facility agent\n")
+    _write(host / "agent" / "agents" / "orbit-writer.md", "facility agent\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [orbit-writer]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"agents/orbit-writer"})
@@ -410,7 +410,7 @@ def test_a_malformed_exclusion_is_rejected(host: Path, exclude: str, match: str)
 
 def test_a_convention_dir_with_no_list_field_can_be_excluded(host: Path) -> None:
     """``commands/`` has no profile list, so exclusion is the only way to drop one."""
-    _write(host / "commands" / "scan.md", "slash command\n")
+    _write(host / "agent" / "commands" / "scan.md", "slash command\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  commands: [scan]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"commands/scan"})
@@ -418,7 +418,7 @@ def test_a_convention_dir_with_no_list_field_can_be_excluded(host: Path) -> None
 
 def test_the_hyphenated_directory_is_reachable_by_its_field_spelling(host: Path) -> None:
     """A profile writes ``output_styles``; the directory is ``output-styles/``."""
-    _write(host / "output-styles" / "terse.md", "style\n")
+    _write(host / "agent" / "output-styles" / "terse.md", "style\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  output_styles: [terse]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"output-styles/terse"})
@@ -426,7 +426,7 @@ def test_the_hyphenated_directory_is_reachable_by_its_field_spelling(host: Path)
 
 def test_an_underscored_directory_is_not_rewritten(host: Path) -> None:
     """``mcp_servers/`` really does carry an underscore — it must survive intact."""
-    (host / "mcp_servers" / "facility").mkdir(parents=True)
+    (host / "agent" / "mcp_servers" / "facility").mkdir(parents=True)
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  mcp_servers: [facility]\n")
 
     assert load_profile_document(render).excluded_artifacts == frozenset({"mcp_servers/facility"})
@@ -436,7 +436,7 @@ def test_a_dict_shaped_declaration_is_dropped_with_its_files(host: Path) -> None
     """Omitting an MCP server's sources while keeping its declaration deploys a
     server whose code is not there — and there is no built-in one to fall back
     to, so both halves go together whichever spelling is used."""
-    (host / "mcp_servers" / "facility").mkdir(parents=True)
+    (host / "agent" / "mcp_servers" / "facility").mkdir(parents=True)
     _write(
         host / "profile.yml",
         _HOST + "mcp_servers:\n  facility:\n    command: run-it\n  other:\n    command: keep-me\n",
@@ -480,7 +480,7 @@ def test_the_hash_path_does_not_repeat_the_warning(host: Path, caplog) -> None:
 
 def test_a_matching_exclusion_is_not_warned_about(host: Path, caplog) -> None:
     """The warning must not cry wolf on the case it exists to contrast with."""
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(
         host, "reader", "name: Reader\nexclude:\n  agents: [agents/channel-finder]\n"
     )
@@ -500,7 +500,7 @@ def test_a_bare_exclusion_of_a_shadowed_name_is_warned_about(host: Path, caplog)
     file omission, ``_warn_unmatched_exclusions`` has nothing to look at either.
     Without this the author's intent fails in complete silence.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
@@ -524,7 +524,7 @@ def test_a_bare_exclusion_of_an_unshadowed_name_is_not_warned_about(host: Path, 
 
 def test_the_shadow_warning_is_suppressed_on_the_hash_path(host: Path, caplog) -> None:
     """Same reason as every other exclusion diagnostic: a build loads AND hashes."""
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     render = _excluding(host, "reader", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 
     with caplog.at_level("WARNING"):
@@ -535,7 +535,7 @@ def test_the_shadow_warning_is_suppressed_on_the_hash_path(host: Path, caplog) -
 
 def test_a_root_exclusion_reaches_its_renders(host: Path) -> None:
     """The root's own exclusions are part of what a render inherits."""
-    _write(host / "agents" / "orbit-writer.md", "facility agent\n")
+    _write(host / "agent" / "agents" / "orbit-writer.md", "facility agent\n")
     _write(host / "profile.yml", _HOST + "exclude:\n  agents: [agents/orbit-writer]\n")
     render = _render(host, "reader", "name: Reader\n")
 
@@ -576,7 +576,7 @@ def test_a_convention_only_exclusion_moves_the_hash(host: Path) -> None:
     folding that record, neither render would ever report itself stale against
     the other.
     """
-    _write(host / "commands" / "scan.md", "slash command\n")
+    _write(host / "agent" / "commands" / "scan.md", "slash command\n")
     plain = _excluding(host, "plain", "name: Reader\n")
     excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  commands: [scan]\n")
 
@@ -594,7 +594,7 @@ def test_a_shadowed_bare_exclusion_still_moves_the_hash(host: Path) -> None:
     failure the advisory exists to catch. An extra idempotent rebuild is cheap;
     a project that silently stops matching its source is not.
     """
-    _write(host / "agents" / "channel-finder.md", "facility override\n")
+    _write(host / "agent" / "agents" / "channel-finder.md", "facility override\n")
     plain = _excluding(host, "plain", "name: Reader\n")
     excluding = _excluding(host, "excl", "name: Reader\nexclude:\n  agents: [channel-finder]\n")
 

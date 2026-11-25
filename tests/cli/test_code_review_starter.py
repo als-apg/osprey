@@ -1,4 +1,4 @@
-"""The starter reviewer prompt every preset ships at ``data/code_review/reviewer.md``.
+"""The starter reviewer prompt every preset ships at ``agent/code_review/reviewer.md``.
 
 Parametrized over every bundled preset, because the starter is placed by the composition
 and no preset names it: a new preset must get it without doing anything.
@@ -18,6 +18,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.main import cli
 from osprey.cli.profile_cmd import _preset_data
 from osprey.cli.templates.manager import TemplateManager
+from osprey.cli.templates.preset_data import STARTER_PROMPT_PATH
 from osprey.services.code_review.contract import ReviewFailure, parse_verdict
 from osprey.services.code_review.settings import (
     DEFAULT_PROMPT,
@@ -25,8 +26,7 @@ from osprey.services.code_review.settings import (
     resolve_prompt,
 )
 
-STARTER_RELATIVE = "code_review/reviewer.md"
-STARTER_PATH = Path(TemplateManager().template_root) / STARTER_RELATIVE
+STARTER_PATH = Path(TemplateManager().template_root) / "code_review" / "reviewer.md"
 
 
 @pytest.fixture
@@ -52,7 +52,8 @@ def test_every_preset_is_covered() -> None:
 
 
 def test_the_starter_lands_where_the_settings_default_points() -> None:
-    assert f"data/{STARTER_RELATIVE}" == DEFAULT_PROMPT
+    assert DEFAULT_PROMPT == "agent/code_review/reviewer.md"
+    assert STARTER_PROMPT_PATH == DEFAULT_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +65,7 @@ def test_the_starter_lands_where_the_settings_default_points() -> None:
 def test_the_composition_places_the_starter(preset: str) -> None:
     placed = _preset_data(TemplateManager(), preset).placed_files()
 
-    assert placed[STARTER_RELATIVE] == STARTER_PATH
+    assert placed[DEFAULT_PROMPT] == STARTER_PATH
 
 
 @pytest.mark.parametrize("preset", list_presets())

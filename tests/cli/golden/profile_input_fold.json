@@ -9,15 +9,15 @@
       {
         "key": "data/",
         "label": "data",
-        "digest": "5fccbdc32521adcb545244e474345dc6f240ab5846b638a02662b2f57babfebf"
+        "digest": "24bf83dfd003c6f6cca54960b5c8a1f2109e37e45b69b8cce42a18ecac7a7902"
       },
       {
-        "key": "mcp_servers/",
+        "key": "agent/mcp_servers/",
         "label": "convention:mcp_servers",
-        "digest": "93aad50a01ce25a0d8308cbea0d55d5615d998bd434f4b39a3f99c9558645371"
+        "digest": "72e20c6d85aa37b14817615911be979a2940085c0371ca85be95914585709098"
       }
     ],
-    "profile_hash": "sha256:bdfc7b033004b8a8bc11bd8b57e257db1c904ef4cc859b84699b5c69cd8090ff",
+    "profile_hash": "sha256:f9954eee4160b73a3ba843487e0c99968e0583ed26b7a2a5831e38c071542a6b",
     "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
   },
   "demo": {
@@ -30,17 +30,17 @@
       {
         "key": "data/",
         "label": "data",
-        "digest": "071c87f1a95d98113d7c889dd62d4af44b7f4d0371dba16970c152c824d8eb2e"
+        "digest": "d0f39c6be2eae43e5ba6c1b8b06e0e777e95e6c4fa433ccae68640284f04b058"
       },
       {
-        "key": "rules/",
+        "key": "agent/rules/",
         "label": "convention:rules",
-        "digest": "ad8a9ee443ed55a2b94efb2fdbec2c11cb7a47b46fa32cd861bd52713dddffe1"
+        "digest": "b11d17d8e3695ec8c01472a8f0107cd2e869c6bbcce6c66db438aa5cd242d32d"
       },
       {
-        "key": "web-terminal-context/",
+        "key": "agent/context/",
         "label": "convention:web-terminal-context",
-        "digest": "021fe1ae4c346b8860cd5dafec6501887f162a4bc268d4b03ef4c2b16f1fab89"
+        "digest": "96d3dc668492f5d17e248c1cac65b61880d8dae2a349f491ef647dc2883d9f44"
       },
       {
         "key": "triggers.yml",
@@ -78,7 +78,7 @@
         "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
       }
     ],
-    "profile_hash": "sha256:1774b740dc62563ff2d980394e4a761d801808d9f2fca104f4a214469a98e4c6",
+    "profile_hash": "sha256:f17b438dfd57ae5a332581435cbd0550543c111867625af1bc38088445979dc1",
     "preset_hash": "sha256:922c1ef4698306f142b53635e4558198534879249174b8597ba1ff1b40667a4e"
   }
 }

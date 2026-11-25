@@ -88,7 +88,7 @@ def profile_dir(tmp_path: Path) -> Path:
     data_dir.mkdir()
     (data_dir / "channels.json").write_text('{"pvs": ["SR:DCCT"]}')
 
-    mcp_dir = tmp_path / "mcp_servers" / "test_server"
+    mcp_dir = tmp_path / "agent" / "mcp_servers" / "test_server"
     mcp_dir.mkdir(parents=True)
     (mcp_dir / "__init__.py").write_text("")
     (mcp_dir / "server.py").write_text("# test server")
@@ -404,8 +404,8 @@ class TestBuildHelpers:
         from osprey.cli.build_cmd import _apply_conventions
 
         profile_dir = tmp_path / "profile"
-        (profile_dir / "project" / "config").mkdir(parents=True)
-        (profile_dir / "project" / "config" / "data.json").write_text('{"key": "value"}')
+        (profile_dir / "ops" / "project" / "config").mkdir(parents=True)
+        (profile_dir / "ops" / "project" / "config" / "data.json").write_text('{"key": "value"}')
 
         project_path = tmp_path / "project"
         project_path.mkdir()
@@ -420,7 +420,7 @@ class TestBuildHelpers:
         from osprey.cli.build_cmd import _apply_conventions
 
         profile_dir = tmp_path / "profile"
-        src_dir = profile_dir / "mcp_servers" / "server_pkg"
+        src_dir = profile_dir / "agent" / "mcp_servers" / "server_pkg"
         src_dir.mkdir(parents=True)
         (src_dir / "__init__.py").write_text("")
         (src_dir / "main.py").write_text("# main")

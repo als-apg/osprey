@@ -689,8 +689,10 @@ def test_profile_md_files_registered_as_user_owned(tmp_path: Path) -> None:
     manifest, so a later `osprey build` treats them as the operator's
     and never overwrites them."""
     profile_dir = tmp_path / "repo"
-    (profile_dir / "rules").mkdir(parents=True)
-    (profile_dir / "rules" / "extra.md").write_text("# Custom rule\nuser-defined content\n")
+    (profile_dir / "agent" / "rules").mkdir(parents=True)
+    (profile_dir / "agent" / "rules" / "extra.md").write_text(
+        "# Custom rule\nuser-defined content\n"
+    )
     _facility_data(profile_dir)
     profile = profile_dir / "profile.yml"
     profile.write_text(
@@ -952,7 +954,7 @@ class TestMirroredLogbookSeedNotMutated:
         import json
 
         profile_dir = tmp_path / "repo"
-        (profile_dir / "project" / "data" / "logbook_seed").mkdir(parents=True)
+        (profile_dir / "ops" / "project" / "data" / "logbook_seed").mkdir(parents=True)
         seed = {
             "entries": [
                 {"id": "T-001", "when": {"days_ago": 7, "time": "08:15:00"}, "text": "older entry"},
@@ -965,9 +967,9 @@ class TestMirroredLogbookSeedNotMutated:
         }
         _facility_data(profile_dir)
         seed_text = json.dumps(seed)
-        (profile_dir / "project" / "data" / "logbook_seed" / "demo_logbook.json").write_text(
-            seed_text
-        )
+        (
+            profile_dir / "ops" / "project" / "data" / "logbook_seed" / "demo_logbook.json"
+        ).write_text(seed_text)
         profile = profile_dir / "profile.yml"
         profile.write_text(
             "extends: hello-world\nname: SeedVerbatim\nproject_name: repo\ndata: data\n"
@@ -1238,13 +1240,13 @@ def test_render_exclusion_keeps_the_artifact_out_of_the_built_project(tmp_path: 
     """
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
-    (root / "agents").mkdir()
-    (root / "commands" / "osprey").mkdir(parents=True)
+    (root / "agent" / "agents").mkdir(parents=True)
+    (root / "agent" / "commands" / "osprey").mkdir(parents=True)
     copy_bundle_data(root / "data", "hello_world")
-    (root / "agents" / "orbit-writer.md").write_text(
+    (root / "agent" / "agents" / "orbit-writer.md").write_text(
         "---\nname: orbit-writer\ndescription: profile-shipped agent\n---\n\nBody.\n"
     )
-    (root / "commands" / "osprey" / "scan.md").write_text(
+    (root / "agent" / "commands" / "osprey" / "scan.md").write_text(
         "---\ndescription: profile-shipped namespaced command\n---\n\nBody.\n"
     )
     (root / "profile.yml").write_text(
