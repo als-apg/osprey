@@ -439,6 +439,32 @@ def test_the_view_carries_a_triggerable_command(tmp_path: Path) -> None:
     assert [spec.name for spec in found.readables] == [status]
 
 
+def test_a_setpoint_started_by_a_command_is_a_positioner(tmp_path: Path) -> None:
+    from osprey.channel_roster import RosterResult, RosterSource, RosterSourceKind, channel_record
+    from osprey_connectors.command import CommandAct
+
+    command, status = "ES1:STAGE:MOVE:SP", "ES1:STAGE:STATUS:MOVE"
+    channels = [
+        {**_channel(command, "setpoint", status), "command": True, "timeout_s": 10.0},
+        {**_channel(status, "readback"), "idle": "DONE"},
+        {**_channel("ES1:STAGE:POS:SP", "setpoint", "ES1:STAGE:POS:RB"), "started_by": command},
+        _channel("ES1:STAGE:POS:RB", "readback"),
+    ]
+    inputs = _inputs(channels)
+
+    write_bluesky_view(tmp_path, inputs)
+
+    found = specs_from_file(tmp_path / BLUESKY_DEVICES_FILE)
+    (positioner,) = found.settables
+    source = RosterSource(kind=RosterSourceKind.FACILITY, path=tmp_path, spelled="facility")
+    records = [channel_record(c, source, inputs.records) for c in inputs.records.of_kind("channel")]
+    completion = RosterResult(records=tuple(records), source=source).completion(command)
+    assert completion is not None
+    assert positioner.name == "ES1:STAGE:POS:SP"
+    assert positioner.started_by == CommandAct(*completion)
+    assert found.triggerables == []
+
+
 def test_the_file_is_world_readable(tmp_path: Path) -> None:
     write_bluesky_view(tmp_path, _inputs([_channel("T:01", "readback")]))
 
@@ -537,8 +563,12 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     settables, readables = found.settables, found.readables
 
     # A command with a completion signal is a triggerable, not a settable;
-    # its status stays a readable.
-    assert sorted(spec.name for spec in (*settables, *found.triggerables)) == setpoints
+    # its status stays a readable. A command a positioner starts its move with
+    # is that positioner's, and no device.
+    started = {spec.started_by.command for spec in settables if spec.started_by is not None}
+    assert started == {"ES1:MOT:STAGE:01:MOVE:SP"}
+    devices = sorted(spec.name for spec in (*settables, *found.triggerables))
+    assert devices == sorted(set(setpoints) - started)
     assert found.triggerables
     assert {spec.status for spec in found.triggerables} <= set(readbacks)
     assert sorted(spec.name for spec in readables) == readbacks
