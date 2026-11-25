@@ -211,6 +211,27 @@ def test_a_render_with_a_state_mount_per_instance_is_not_shared(project: Path) -
     assert not render_shares_scenario_state(config, project)
 
 
+@pytest.mark.parametrize(
+    "services",
+    [
+        None,
+        {},
+        {"virtual_accelerator": {"port": 5064}, "live_standin": {"port": 5066}},
+        {"virtual_accelerator": None},
+        ["virtual_accelerator"],
+    ],
+    ids=["absent", "empty", "no-path", "null-block", "not-a-mapping"],
+)
+def test_a_config_that_declares_no_rendered_simulator_shares_nothing(
+    project: Path, services: object
+) -> None:
+    """Instances named without a template path have no compose file here to read."""
+    config = {**_config(None, *TWO), "services": services}
+    _render(project, STATE)
+
+    assert not render_shares_scenario_state(config, project)
+
+
 def test_a_render_that_mounts_one_state_into_both_instances_is_shared(project: Path) -> None:
     config = {**_config(None, *TWO), "services": SERVICES}
     _render(project, STATE)

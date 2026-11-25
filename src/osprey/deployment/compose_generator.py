@@ -5592,10 +5592,19 @@ def render_shares_scenario_state(config, repo_root):
 
     root = Path(repo_root).expanduser().absolute()
     own = target_state_dir(config, root, TARGET_STANDIN).expanduser().absolute()
+    # Only a service that declares where its template lives has a rendered
+    # compose file to read; a config that names the instances without one (a
+    # deployment that reaches simulators it does not render) shares nothing.
+    declared = config.get("services") if isinstance(config, Mapping) else None
+    rendered = [
+        name
+        for name in (VIRTUAL_ACCELERATOR, LIVE_STANDIN)
+        if isinstance(declared, Mapping)
+        and isinstance(declared.get(name), Mapping)
+        and isinstance(declared[name].get("path"), str)
+    ]
     compose_files = dict.fromkeys(
-        find_existing_compose_files(
-            config, [VIRTUAL_ACCELERATOR, LIVE_STANDIN], quiet=True, base=root
-        )
+        find_existing_compose_files(config, rendered, quiet=True, base=root)
     )
     for compose_file in compose_files:
         try:
