@@ -256,10 +256,10 @@ The config block
          entry under ``config:`` in ``profile.yml`` — and rebuild. A roster change
          made directly in the built ``build/config.yml`` deploys, but the next
          build overwrites it. Rebuilding also seeds an empty
-         ``web-terminal-context/<user>/`` slot for each new operator, which is
+         ``agent/context/<user>/`` slot for each new operator, which is
          where their per-user context goes.
 
-         Beside those slots sits ``web-terminal-context/base.md`` — the shared
+         Beside those slots sits ``agent/context/base.md`` — the shared
          baseline every seeded user's ``CLAUDE.md`` starts from. ``osprey init``
          materializes it from the preset so the text is visible and editable in
          your repo; edit it there and rebuild, and every terminal picks up the
@@ -468,7 +468,7 @@ A profile with no ``deploy:`` block sets it there.
 
 The scaffolded pipeline builds only the facility's own service images, not
 these, so the facility's pipeline must push them.
-Put that job in ``ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
+Put that job in ``ops/ci-extra.yml`` (see :doc:`../../deploy-a-facility`).
 Build each image from its rendered project, ``build/<project_name>-<render>``:
 the same render ``image_source: local`` builds as
 ``<project_name>-<render>:local``.

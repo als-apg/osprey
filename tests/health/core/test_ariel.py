@@ -157,16 +157,17 @@ async def test_status_ok_and_has_latency(tmp_path) -> None:
     assert row.latency_ms >= 0.0
 
 
-async def test_entries_value_formatted(tmp_path) -> None:
-    row = (await _probe(tmp_path))["ariel_entries"]
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        pytest.param("ariel_entries", "48,291 entries", id="entries_value_formatted"),
+        pytest.param("ariel_last_ingestion", "2 h ago", id="last_ingestion_reports_age"),
+    ],
+)
+async def test_row_value_is_formatted(tmp_path, name, value) -> None:
+    row = (await _probe(tmp_path))[name]
     assert row.status is Status.OK
-    assert row.value == "48,291 entries"
-
-
-async def test_last_ingestion_reports_age(tmp_path) -> None:
-    row = (await _probe(tmp_path))["ariel_last_ingestion"]
-    assert row.status is Status.OK
-    assert row.value == "2 h ago"
+    assert row.value == value
 
 
 async def test_module_rows_list_names(tmp_path) -> None:

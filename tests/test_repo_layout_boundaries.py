@@ -36,6 +36,8 @@ EXAMPLE_ROOT_ENTRIES: tuple[str, ...] = (
     "scripts/",
     "watchdogs/",
     ".osprey/",
+    "agent/",
+    "ops/",
     "rules/",
     "skills/",
     "agents/",
@@ -95,6 +97,8 @@ def test_executed_code_may_not_write_exactly_these_paths(deployment: Path) -> No
         "var/agent_record",
         "var/state",
         "var/archive",
+        # The certificates `osprey up` mints.
+        "var/runtime",
         # Source files and directories.
         "profile.yml",
         "providers.yml",
@@ -110,7 +114,10 @@ def test_executed_code_may_not_write_exactly_these_paths(deployment: Path) -> No
         "scripts",
         "watchdogs",
         ".osprey",
-        # Convention sources.
+        # The agent and ops groups whole, and the paths their entries moved
+        # from, which an unmigrated tree still holds.
+        "agent",
+        "ops",
         "rules",
         "skills",
         "agents",
@@ -206,7 +213,9 @@ def test_image_staging_leaves_out_exactly_these_root_entries(
         "scripts",
         "watchdogs",
         ".osprey",
-        # Convention sources.
+        # The agent and ops groups, and the paths their entries moved from.
+        "agent",
+        "ops",
         "rules",
         "skills",
         "agents",

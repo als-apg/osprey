@@ -1195,8 +1195,8 @@ def test_each_lane_holds_only_its_own_curve_material(stack: LaneStack) -> None:
     )
 
     certificate_dirs = {
-        LANE_VA: stack.repo / "data" / ".runtime" / "bluesky_curve",
-        LANE_LIVE: stack.repo / "data" / ".runtime" / "bluesky_live_curve",
+        LANE_VA: stack.repo / "var" / "runtime" / "bluesky_curve",
+        LANE_LIVE: stack.repo / "var" / "runtime" / "bluesky_live_curve",
     }
     for lane, directory in certificate_dirs.items():
         assert directory.is_dir(), f"lane {lane!r} got no document-plane certificate directory"

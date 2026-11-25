@@ -3,7 +3,7 @@
 Each adapter has its own suite for what is particular to it (its credentials, its wire
 format, its client). What is asserted here is the part that must read the same for all
 of them: the ``CoreConfig`` projection, the startup and boot requires, the mentions
-switch, and the ``ChannelOps`` signatures. One table row per adapter; an adapter that
+switch, and the ``ChannelOps`` conformance. One table row per adapter; an adapter that
 adds a startup variable adds it to its own suite's ``COMPLETE_ENV``, which this table
 reads.
 """
@@ -16,22 +16,30 @@ from typing import Any
 
 import pytest
 
-from osprey.bridges.core import ChannelOps, CoreConfig
+from osprey.bridges.core import ChannelOps, CoreConfig, RoomRoster
 from osprey.bridges.google_chat import GoogleChatBridgeConfig
+from osprey.bridges.google_chat import ops as google_chat_ops
 from osprey.bridges.google_chat import require_boot as google_chat_require_boot
 from osprey.bridges.google_chat.ops import GoogleChatOps
 from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
+from osprey.bridges.nextcloud_talk import ops as nextcloud_ops
 from osprey.bridges.nextcloud_talk.ops import NextcloudTalkOps
 from osprey.bridges.slack import SlackBridgeConfig
+from osprey.bridges.slack import ops as slack_ops
 from osprey.bridges.slack import require_boot as slack_require_boot
 from osprey.bridges.slack.ops import SlackOps
 from osprey.bridges.teams import TeamsBridgeConfig
+from osprey.bridges.teams import ops as teams_ops
 from osprey.bridges.teams import require_boot as teams_require_boot
 from osprey.bridges.teams.ops import TeamsOps
 from osprey.port_layout import default_port
 from tests.bridges.google_chat.test_config import COMPLETE_ENV as GOOGLE_CHAT_ENV
+from tests.bridges.google_chat.test_ops_conformance import make_ops as google_chat_make_ops
 from tests.bridges.nextcloud.test_config import COMPLETE_ENV as NEXTCLOUD_ENV
+from tests.bridges.nextcloud.test_ops_conformance import _ops as nextcloud_make_ops
+from tests.bridges.slack._posting import make_ops as slack_make_ops
 from tests.bridges.slack.test_config import COMPLETE_ENV as SLACK_ENV
+from tests.bridges.teams._posting import make_ops as teams_make_ops
 from tests.bridges.teams.test_config import COMPLETE_ENV as TEAMS_ENV
 from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
@@ -48,6 +56,13 @@ class Adapter:
     ops: type
     #: The adapter's boot check, when it renders bare ``${VAR}`` URLs in compose.
     require_boot: Callable[[Any], None] | None = None
+    #: A fully injected ops instance, built the way the adapter's own suite builds it.
+    build_ops: Callable[[], Any] = dataclasses.field(kw_only=True)
+    #: The adapter's ``ops`` module, which holds its ``_static_*`` type-check seams.
+    ops_module: Any = dataclasses.field(kw_only=True)
+    #: Whether the adapter's ``ops`` module spells its ``RoomRoster`` type-check seam
+    #: ``_static_room_conformance`` (slack's seam is ``_static_room_roster``, pinned in its own suite).
+    room_roster: bool = dataclasses.field(default=False, kw_only=True)
 
     def complete(self, **overrides: str) -> dict[str, str]:
         """A complete env with `overrides` applied (an empty value means "unset")."""
@@ -59,7 +74,15 @@ class Adapter:
 
 
 TEAMS = Adapter(
-    "teams", TeamsBridgeConfig, TEAMS_ENV, "TEAMS_MENTIONS", TeamsOps, teams_require_boot
+    "teams",
+    TeamsBridgeConfig,
+    TEAMS_ENV,
+    "TEAMS_MENTIONS",
+    TeamsOps,
+    teams_require_boot,
+    build_ops=lambda: teams_make_ops()[0],
+    ops_module=teams_ops,
+    room_roster=True,
 )
 GOOGLE_CHAT = Adapter(
     "google_chat",
@@ -68,16 +91,34 @@ GOOGLE_CHAT = Adapter(
     "GCHAT_MENTIONS",
     GoogleChatOps,
     google_chat_require_boot,
+    build_ops=lambda: google_chat_make_ops()[0],
+    ops_module=google_chat_ops,
+    room_roster=True,
 )
 NEXTCLOUD = Adapter(
-    "nextcloud", NextcloudBridgeConfig, NEXTCLOUD_ENV, "NEXTCLOUD_MENTIONS", NextcloudTalkOps
+    "nextcloud",
+    NextcloudBridgeConfig,
+    NEXTCLOUD_ENV,
+    "NEXTCLOUD_MENTIONS",
+    NextcloudTalkOps,
+    build_ops=nextcloud_make_ops,
+    ops_module=nextcloud_ops,
+    room_roster=True,
 )
 SLACK = Adapter(
-    "slack", SlackBridgeConfig, SLACK_ENV, "SLACK_MENTIONS", SlackOps, slack_require_boot
+    "slack",
+    SlackBridgeConfig,
+    SLACK_ENV,
+    "SLACK_MENTIONS",
+    SlackOps,
+    slack_require_boot,
+    build_ops=lambda: slack_make_ops()[0],
+    ops_module=slack_ops,
 )
 
 ADAPTERS = (TEAMS, GOOGLE_CHAT, NEXTCLOUD, SLACK)
 BOOTED = tuple(adapter for adapter in ADAPTERS if adapter.require_boot is not None)
+ROOM_ROSTERS = tuple(adapter for adapter in ADAPTERS if adapter.room_roster)
 
 # What require_boot checks on top of require_startup. Bare in compose, so an unset one
 # arrives as "" and no code default ever replaces it.
@@ -300,3 +341,31 @@ def test_every_member_signature_matches_the_protocol(adapter):
         expected = inspect.signature(getattr(ChannelOps, name))
         actual = inspect.signature(getattr(adapter.ops, name))
         assert list(actual.parameters) == list(expected.parameters), name
+
+
+@pytest.mark.parametrize("adapter", ADAPTERS, ids=adapter_id)
+def test_static_conformance_helper_is_the_type_check_seam(adapter):
+    """Present, and an identity — the assertion mypy makes is the point of it.
+
+    Guards against ``ops._static_conformance`` being deleted as apparently-unused code:
+    without it nothing would check the full signatures statically, since the runtime
+    protocol check does not.
+    """
+    ops = adapter.build_ops()
+    assert adapter.ops_module._static_conformance(ops) is ops
+
+
+# --- the optional RoomRoster seam -------------------------------------------
+
+
+@pytest.mark.parametrize("adapter", ROOM_ROSTERS, ids=adapter_id)
+def test_the_adapter_satisfies_the_room_roster_protocol(adapter):
+    # RoomRoster is @runtime_checkable: the engine detects the seam with isinstance.
+    assert isinstance(adapter.build_ops(), RoomRoster)
+
+
+@pytest.mark.parametrize("adapter", ROOM_ROSTERS, ids=adapter_id)
+def test_static_room_conformance_helper_is_the_type_check_seam(adapter):
+    """The same guard for the optional room-roster seam."""
+    ops = adapter.build_ops()
+    assert adapter.ops_module._static_room_conformance(ops) is ops

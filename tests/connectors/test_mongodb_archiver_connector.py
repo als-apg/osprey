@@ -1443,19 +1443,27 @@ class TestInNetworkAddressOverride:
 
         assert address_overrides() == (None, None)
 
-    def test_the_environment_is_read_as_host_and_typed_port(self, monkeypatch):
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "27017")
+    @pytest.mark.parametrize(
+        ("host", "port", "expected"),
+        [
+            pytest.param(
+                "archiver-mongodb",
+                "27017",
+                ("archiver-mongodb", 27017),
+                id="read-as-host-and-typed-port",
+            ),
+            # A compose file that renders an empty value must not point the reader
+            # at the empty string — it must leave the configured value alone.
+            pytest.param("   ", "  ", (None, None), id="whitespace-is-unset-not-an-address"),
+        ],
+    )
+    def test_the_environment_is_read_as_host_and_typed_port(
+        self, monkeypatch, host, port, expected
+    ):
+        monkeypatch.setenv(HOST_OVERRIDE_ENV, host)
+        monkeypatch.setenv(PORT_OVERRIDE_ENV, port)
 
-        assert address_overrides() == ("archiver-mongodb", 27017)
-
-    def test_whitespace_is_unset_not_an_address_of_nothing(self, monkeypatch):
-        """A compose file that renders an empty value must not point the reader
-        at the empty string — it must leave the configured value alone."""
-        monkeypatch.setenv(HOST_OVERRIDE_ENV, "   ")
-        monkeypatch.setenv(PORT_OVERRIDE_ENV, "  ")
-
-        assert address_overrides() == (None, None)
+        assert address_overrides() == expected
 
     def test_the_halves_are_independent(self, monkeypatch):
         monkeypatch.setenv(HOST_OVERRIDE_ENV, "archiver-mongodb")

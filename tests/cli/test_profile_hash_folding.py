@@ -3,7 +3,7 @@
 ``compute_profile_hash`` is what the drift check (``check_drift``) compares
 against, so anything a build consumes has to be inside it. Beyond the ``data:``
 tree and ``overlay:`` sources pinned in ``test_profile_material_hash.py``, that
-means the profile's convention directories (``rules/``, ``skills/`` and the rest
+means the profile's convention directories (``agent/rules/``, ``agent/skills/`` and the rest
 of the mapping table, including the ``project/`` verbatim mirror) and the
 trigger file its ``dispatch:`` block names — a rule the agent reads or a trigger
 a dispatcher fires on is as much build input as a channel database.
@@ -65,16 +65,16 @@ def render(profile):
 # category expects — the fold is shape-blind, but a realistic tree is the one
 # a facility will actually have.
 _CONVENTION_ARTIFACTS: dict[str, str] = {
-    "rules": "rules/safety.md",
-    "skills": "skills/orbit/SKILL.md",
-    "agents": "agents/orbit-writer.md",
-    "commands": "commands/scan.md",
-    "output-styles": "output-styles/terse.md",
-    "hooks": "hooks/facility_guard.py",
-    "web-terminal-context": "web-terminal-context/alice/notes.md",
-    "mcp_servers": "mcp_servers/facility/server.py",
-    "services": "services/archiver/compose.yml",
-    "project": "project/docs/runbook.md",
+    "rules": "agent/rules/safety.md",
+    "skills": "agent/skills/orbit/SKILL.md",
+    "agents": "agent/agents/orbit-writer.md",
+    "commands": "agent/commands/scan.md",
+    "output-styles": "agent/output-styles/terse.md",
+    "hooks": "agent/hooks/facility_guard.py",
+    "web-terminal-context": "agent/context/alice/notes.md",
+    "mcp_servers": "agent/mcp_servers/facility/server.py",
+    "services": "ops/services/archiver/compose.yml",
+    "project": "ops/project/docs/runbook.md",
 }
 
 
@@ -209,8 +209,9 @@ def test_unrelated_file_does_not_change_the_hash(profile):
 
 
 def test_hash_is_stable_across_repeated_calls(profile):
-    """Nothing in the fold depends on walk order or wall-clock state."""
-    _write(profile / "rules" / "safety.md", "no writes above 1 A\n")
+    """Nothing in the fold depends on walk order or wall-clock state: re-hashing
+    unchanged content must not manufacture drift on every deploy."""
+    _write(profile / "agent" / "rules" / "safety.md", "no writes above 1 A\n")
 
     assert compute_profile_hash(profile / "profile.yml") == compute_profile_hash(
         profile / "profile.yml"
@@ -352,10 +353,10 @@ def test_editing_the_root_data_tree_changes_the_render_hash(profile, render):
 
 def test_editing_a_root_convention_dir_changes_the_render_hash(profile, render):
     """Convention artifacts reach render projects through the same root."""
-    _write(profile / "rules" / "safety.md", "original\n")
+    _write(profile / "agent" / "rules" / "safety.md", "original\n")
     before = compute_profile_hash(render)
 
-    _write(profile / "rules" / "safety.md", "edited\n")
+    _write(profile / "agent" / "rules" / "safety.md", "edited\n")
 
     assert compute_profile_hash(render) != before
 

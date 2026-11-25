@@ -78,10 +78,6 @@ class TestPyatSpecialistAgentCatalog:
     def test_present_in_framework_agents(self):
         assert "pyat-specialist" in FRAMEWORK_AGENTS
 
-    def test_name_field(self):
-        adef = FRAMEWORK_AGENTS["pyat-specialist"]
-        assert adef.name == "pyat-specialist"
-
     def test_description_is_non_empty(self):
         adef = FRAMEWORK_AGENTS["pyat-specialist"]
         assert adef.description
@@ -110,18 +106,18 @@ class TestPyatSpecialistAgentCatalog:
         template = (Path(AGENT_TEMPLATE_ROOT) / "pyat-specialist.md.j2").read_text(encoding="utf-8")
         assert FRAMEWORK_AGENTS["pyat-specialist"].description in template
 
-    def test_server_dependency_is_python(self):
-        """pyat-specialist computes via mcp__python__execute — it needs the python server."""
-        adef = FRAMEWORK_AGENTS["pyat-specialist"]
-        assert adef.server_dependency == "python"
+    def test_catalog_fields(self):
+        """pyat-specialist computes via mcp__python__execute — it needs the python server.
 
-    def test_enabled_by_default(self):
+        It is enabled by default and not custom.
+        """
         adef = FRAMEWORK_AGENTS["pyat-specialist"]
-        assert adef.default_enabled is True
-
-    def test_is_not_custom(self):
-        adef = FRAMEWORK_AGENTS["pyat-specialist"]
-        assert adef.is_custom is False
+        assert (adef.name, adef.server_dependency, adef.default_enabled, adef.is_custom) == (
+            "pyat-specialist",
+            "python",
+            True,
+            False,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -104,7 +104,7 @@ is dropped.
 | AGENT RECORD | nothing external | top-level `agent_record:` block (`backend`, `retention_days`, `readers`) |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
 | OPERATOR SCREENS | control-room screens to port or build | `canopy` in `web_panels` and `default_panel`; skills `canopy-*`; the `canopy-payload` step under `lifecycle.pre_build`, which needs a prebuilt payload named by `OSPREY_CANOPY_PAYLOAD` — with none the build leaves the panel out and says so |
-| WATCHDOGS | a rule the facility wants every prompt judged against | top-level `watchdogs:` block (shipped `enabled: false`); `watchdogs/<name>/` instructions; `osprey watchdog replay` before relying on one |
+| WATCHDOGS | a rule the facility wants every prompt judged against | top-level `watchdogs:` block (shipped `enabled: false`); `agent/watchdogs/<name>/` instructions; `osprey watchdog replay` before relying on one |
 | APPLICATIONS | a physics tool the facility wants as a panel the agent can also drive | top-level `apps:` block, one `apps/<name>/` directory each; `osprey app new <name>`, `osprey app check`; none is on in the reference example |
 
 Read the component list from the preset each time — the table says where to look, the
@@ -224,7 +224,7 @@ a hello-world base. Run all seven steps, in order.
    - **Dropping a tier** is three deletions that go together: `tiers/<name>.yml`, every
      roster entry under `users:` whose `tier:` names it (and any
      `authorization.roles.<role>.tier` that does), and, once a build has seeded them,
-     those users' `web-terminal-context/<user>/` directories (step 7). `default_tier`
+     those users' `agent/context/<user>/` directories (step 7). `default_tier`
      must still name a surviving tier.
    - **Dropping a shared login** is three deletions too: `tiers/<name>.yml`, its name
      under `shared:`, and its seeded context directory. A `shared:` name with no file
@@ -254,9 +254,9 @@ a hello-world base. Run all seven steps, in order.
 7. `osprey validate`, then `osprey build`.
 
    The build writes into the SOURCE zone as well as `build/`: it seeds
-   `web-terminal-context/<roster user>/.gitkeep`, one directory per roster entry. Delete
+   `agent/context/<roster user>/.gitkeep`, one directory per roster entry. Delete
    a roster entry afterwards and its directory is left behind — remove it in the same
-   edit, or every later build warns that `web-terminal-context/` holds context for users
+   edit, or every later build warns that `agent/context/` holds context for users
    not on the roster. Each seeded directory is a ledger row (`built`, this facility).
 
 `tests/cli/test_setup_web_terminal_path.py` in the OSPREY repository drives this recipe
@@ -269,10 +269,10 @@ hello-world emits two demo items of its own. Both are ledger rows from the first
 the reference example, not what hello-world emitted; it does list the second, as the
 reference example's own copy — never pull it.
 
-- **`mcp_servers/example_server`**, the worked MCP example. `keep` leaves it as the
+- **`agent/mcp_servers/example_server`**, the worked MCP example. `keep` leaves it as the
   example the facility edits into its own first server; `remove` deletes the
   `example_server` entry under `mcp_servers:` in `profile.yml` and the
-  `mcp_servers/example_server/` directory together. One without the other costs every
+  `agent/mcp_servers/example_server/` directory together. One without the other costs every
   session a 20 second wait for a server that cannot start.
 - **`data/facility/limits.yaml`**, written already populated with three records for
   the demo facility's channels: two setpoints with `min_value` / `max_value` bounds and

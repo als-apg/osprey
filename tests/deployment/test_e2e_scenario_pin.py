@@ -39,6 +39,8 @@ EXEMPT = {
     # CLI tests drive `up` against a stubbed compose; nothing reads a scenario.
     "cli/test_lifecycle_phases.py": "stubbed up, no simulator runs",
     "cli/test_init_verb.py": "stubbed up, no simulator runs",
+    # Every `up` it names is refused on the retired layout before compose runs.
+    "cli/test_root_retired_refusal.py": "up is refused before compose, no simulator runs",
     # The tutorial stack pins its own start set (task 5.2 owns it).
     "docs/screenshots/test_tutorial_stack.py": "tutorial stack pins its own start set",
     # Deploys hello-world; demo appears only in prose.

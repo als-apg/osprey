@@ -120,7 +120,8 @@ class TestArielRegistrationImports:
         from osprey.registry import (
             ArielEnhancementModuleRegistration,
             ArielSearchModuleRegistration,
+            base,
         )
 
-        assert ArielSearchModuleRegistration is not None
-        assert ArielEnhancementModuleRegistration is not None
+        assert ArielSearchModuleRegistration is base.ArielSearchModuleRegistration
+        assert ArielEnhancementModuleRegistration is base.ArielEnhancementModuleRegistration

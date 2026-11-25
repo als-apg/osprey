@@ -25,6 +25,7 @@ LIBRARY = ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "ca
 EXAMPLE_CHANNELS = (
     ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "records" / "channels.yaml"
 )
+EXAMPLE_DEVICES = EXAMPLE_CHANNELS.with_name("devices.yaml")
 SCREEN = LIBRARY / "screens" / "br" / "overview.screen.json"
 DRAFT_ID = "br/overview"
 
@@ -119,14 +120,14 @@ def test_the_file_is_generated_canonical_ascii_json(doc: dict) -> None:
 
 def test_it_binds_the_ring_bpms_ramps_septa_kicker_and_dcct(doc: dict, channels: dict) -> None:
     pvs = screens.expanded_pvs(doc, DraftStore(LIBRARY), DRAFT_ID)
-    bpms = [f"BR:DIAG:BPM:{i:02d}:STATUS:VALID" for i in range(1, 9)]
+    bpms = [f"BR:DIAG:BPM:{i:02d}:STATUS:VALID" for i in range(1, 21)]
     assert sorted(pvs) == sorted([*bpms, *STATUS_LEDS, "BR:DIAG:DCCT:01:CURRENT:RB"])
     assert all(name in channels for name in pvs)
 
 
 def test_the_leds_in_device_order(nodes: list[dict]) -> None:
     leds = [n["props"]["pv"] for n in nodes if n["type"] == "pv-led"]
-    assert leds == [f"BR:DIAG:BPM:{i:02d}:STATUS:VALID" for i in range(1, 9)] + STATUS_LEDS
+    assert leds == [f"BR:DIAG:BPM:{i:02d}:STATUS:VALID" for i in range(1, 21)] + STATUS_LEDS
 
 
 def test_the_dcct_reads_with_its_unit(nodes: list[dict], channels: dict) -> None:
@@ -136,20 +137,19 @@ def test_the_dcct_reads_with_its_unit(nodes: list[dict], channels: dict) -> None
     assert channels["BR:DIAG:DCCT:01:CURRENT:RB"]["unit"] == "mA"
 
 
-def test_the_ring_sketch_draws_one_symbol_per_booster_magnet(
-    nodes: list[dict], channels: dict
-) -> None:
+def test_the_ring_sketch_draws_one_symbol_per_booster_magnet(nodes: list[dict]) -> None:
+    # The booster's magnets share their supplies, so no channel is named after
+    # one: the device records count them.
+    devices = yaml.safe_load(EXAMPLE_DEVICES.read_text(encoding="utf-8"))
     magnets = {
-        tuple(name.split(":")[2:4])
-        for name in channels
-        if re.match(r"BR:MAG:(DIPOLE|QF|QD):\d+:", name)
+        record["id"] for record in devices if re.fullmatch(r"BR/(DIPOLE|QF|QD)\d+", record["id"])
     }
     symbols = [
         n
         for n in nodes
         if n["type"] == "rectangle" and n["props"]["fillColor"]["$role"] in ("Dipole", "Quadrupole")
     ]
-    assert len(symbols) == len(magnets) == 16
+    assert len(symbols) == len(magnets) == 56
     assert len([n for n in nodes if n["type"] == "line"]) == 1
 
 

@@ -26,7 +26,7 @@
 #   crontab -e
 #   SHELL=/bin/sh
 #   HOME=/
-#   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
+#   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /srv/osprey/demo-facility/ops/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /srv/osprey/demo-facility/ops/scripts/osprey-boot-hook.sh ]; then exec /srv/osprey/demo-facility/ops/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /srv/osprey/demo-facility/ops/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
 #
 # None of them is optional, and the job is deliberately not a bare `@reboot`
 # with this script's path. cron changes into the crontab's HOME before it runs

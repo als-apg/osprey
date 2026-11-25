@@ -297,7 +297,7 @@ def test_code_with_no_marker_runs_exactly_as_before(
     result, spawned = launch(tmp_path, monkeypatch, {"approval": approval}, "print(1)\n")
 
     assert spawned
-    assert result.failure_kind is None or result.failure_kind != FAILURE_KIND_APPROVAL_MISSING
+    assert result.failure_kind is None
 
 
 @pytest.mark.usefixtures("stamps")

@@ -2868,43 +2868,43 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "profile_invalid__mirrored_facility_file": (
         _plain(),
         (
-            "facility: profile-invalid: path project/facility.json — the project/ mirror writes "
+            "facility: profile-invalid: path ops/project/facility.json — the ops/project/ mirror writes "
             "facility.json, which the build writes from data/facility/; fix: remove "
-            "project/facility.json and author the facility in data/facility/"
+            "ops/project/facility.json and author the facility in data/facility/"
         ),
     ),
     "profile_invalid__mirrored_simulator_view": (
         _plain(),
         (
-            "facility: profile-invalid: path project/data/simulator/x.json — the project/ "
+            "facility: profile-invalid: path ops/project/data/simulator/x.json — the ops/project/ "
             "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
-            "fix: remove project/data/simulator/x.json and author the facility in data/facility/"
+            "fix: remove ops/project/data/simulator/x.json and author the facility in data/facility/"
         ),
     ),
     "profile_invalid__mirrored_facts_view": (
         _plain(),
         (
-            "facility: profile-invalid: path project/data/facility_facts.json — the project/ "
+            "facility: profile-invalid: path ops/project/data/facility_facts.json — the ops/project/ "
             "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
-            "fix: remove project/data/facility_facts.json and author the facility in "
+            "fix: remove ops/project/data/facility_facts.json and author the facility in "
             "data/facility/"
         ),
     ),
     "profile_invalid__mirrored_channel_finder_view": (
         _plain(),
         (
-            "facility: profile-invalid: path project/data/channel_finder/in_context.json — the "
-            "project/ mirror writes data/channel_finder/in_context.json, which the build writes "
-            "from data/facility/; fix: remove project/data/channel_finder/in_context.json and "
+            "facility: profile-invalid: path ops/project/data/channel_finder/in_context.json — the "
+            "ops/project/ mirror writes data/channel_finder/in_context.json, which the build writes "
+            "from data/facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
             "author the facility in data/facility/"
         ),
     ),
     "profile_invalid__mirrored_graph_view": (
         _plain(),
         (
-            "facility: profile-invalid: path project/data/graph/facility.ttl — the "
-            "project/ mirror writes data/graph/facility.ttl, which the build writes "
-            "from data/facility/; fix: remove project/data/graph/facility.ttl and "
+            "facility: profile-invalid: path ops/project/data/graph/facility.ttl — the "
+            "ops/project/ mirror writes data/graph/facility.ttl, which the build writes "
+            "from data/facility/; fix: remove ops/project/data/graph/facility.ttl and "
             "author the facility in data/facility/"
         ),
     ),
@@ -2928,9 +2928,9 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
     "profile_invalid__mirrored_limits": (
         _plain(),
         (
-            "facility: profile-invalid: path project/data/channel_limits.json — the build "
+            "facility: profile-invalid: path ops/project/data/channel_limits.json — the build "
             "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
-            "limits into data/facility/limits.yaml and remove project/data/channel_limits.json"
+            "limits into data/facility/limits.yaml and remove ops/project/data/channel_limits.json"
         ),
     ),
     "profile_invalid__unknown_served_model": (
@@ -3402,7 +3402,7 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
     _clear_facility_records(repo / "data" / "facility")
     _write(repo / "data", case)
     for rel in MIRRORED.get(case, ()):
-        mirrored = repo / "project" / rel
+        mirrored = repo / "ops" / "project" / rel
         mirrored.parent.mkdir(parents=True, exist_ok=True)
         # The build refuses the mirror by its path, whatever it holds.
         mirrored.write_text(json.dumps({"schema": FACILITY_V4}) + "\n", encoding="utf-8")

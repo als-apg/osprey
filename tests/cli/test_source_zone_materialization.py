@@ -88,7 +88,7 @@ def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
         # Artifacts go in convention directories at the profile root instead.
         "overlays",
         # A profile without a web terminal module seeds no context.
-        "web-terminal-context",
+        "agent/context",
     ],
 )
 def test_a_new_profile_seeds_no_directory_nothing_reads(
@@ -293,7 +293,7 @@ def test_per_user_context_directories_are_seeded_from_the_roster(
 
     assert _new(runner, target, preset).exit_code == 0
 
-    context_dir = target / "web-terminal-context"
+    context_dir = target / "agent" / "context"
     assert sorted(p.name for p in context_dir.iterdir()) == sorted([*expected, "base.md"])
     for user in expected:
         assert (context_dir / user).is_dir()
@@ -308,7 +308,7 @@ def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path
 
     assert _new(runner, target, "demo").exit_code == 0
 
-    for user_dir in (target / "web-terminal-context").iterdir():
+    for user_dir in (target / "agent" / "context").iterdir():
         if user_dir.is_file():
             continue
         assert [p.name for p in user_dir.iterdir()] == [".gitkeep"]
@@ -325,8 +325,8 @@ def test_context_baseline_is_materialized_from_the_bundle(
     target = tmp_path / "my-facility"
     assert _new(runner, target, "demo").exit_code == 0
 
-    materialized = target / "web-terminal-context" / "base.md"
-    bundle = TemplateManager().template_root / "apps" / "demo" / "web-terminal-context" / "base.md"
+    materialized = target / "agent" / "context" / "base.md"
+    bundle = TemplateManager().template_root / "apps" / "demo" / "agent" / "context" / "base.md"
     assert materialized.read_bytes() == bundle.read_bytes()
 
 
@@ -692,7 +692,10 @@ def test_data_tree_is_byte_identical_to_the_bundle(
     composed = _preset_data(TemplateManager(), preset)
     source = composed.app_data
 
-    shared = {Path(rel): src for rel, src in composed.placed_files().items()}
+    placed = {PurePath(rel): src for rel, src in composed.placed_files().items()}
+    shared = {
+        Path(rel.relative_to("data")): src for rel, src in placed.items() if rel.parts[0] == "data"
+    }
 
     copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
     own = {
@@ -707,6 +710,8 @@ def test_data_tree_is_byte_identical_to_the_bundle(
         src, dst = shared.get(rel, source / rel), target / "data" / rel
         if src.is_file():
             assert src.read_bytes() == dst.read_bytes(), rel
+    for rel, src in placed.items():
+        assert (target / rel).read_bytes() == src.read_bytes(), rel
 
 
 def test_stray_j2_in_bundle_data_is_not_rendered(

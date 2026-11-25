@@ -597,10 +597,36 @@ class TestCellPreflight:
         assert calls[0][0] == "https://g/v1/messages"
         assert calls[0][2]["max_tokens"] <= 16
 
-    def test_a_400_for_an_unserved_model_is_refused_at_once(self):
-        reason, calls = self._check([(400, "Invalid model name passed in model=m")])
-        assert reason.startswith("400: Invalid model name")
-        assert len(calls) == 1
+    @pytest.mark.parametrize(
+        ("replies", "reason_prefix", "n_calls"),
+        [
+            pytest.param(
+                [(400, "Invalid model name passed in model=m")],
+                "400: Invalid model name",
+                1,
+                id="a-400-for-an-unserved-model-is-refused-at-once",
+            ),
+            pytest.param(
+                [(400, json.dumps({"error": {"message": "model_not_found: m does not exist"}}))],
+                "400: model_not_found",
+                1,
+                id="a-refusal-shaped-400-is-refused",
+            ),
+            pytest.param(
+                [(403, "Access denied: IP address not recognized")],
+                "403: Access denied",
+                1,
+                id="a-403-is-refused-at-once",
+            ),
+            pytest.param(
+                [(503, "down")], "503", 3, id="a-5xx-that-outlasts-the-retries-is-a-refusal"
+            ),
+        ],
+    )
+    def test_a_refusal_is_named_after_its_status(self, replies, reason_prefix, n_calls):
+        reason, calls = self._check(replies)
+        assert reason.startswith(reason_prefix)
+        assert len(calls) == n_calls
 
     def test_a_plain_400_is_not_a_refusal(self):
         """The shared rule (tests/e2e/refusals.py): a 400 that names no unserved model
@@ -608,12 +634,6 @@ class TestCellPreflight:
         body = json.dumps({"error": {"message": "prompt is too long: 210000 tokens > 200000"}})
         reason, calls = self._check([(400, body)])
         assert reason is None
-        assert len(calls) == 1
-
-    def test_a_refusal_shaped_400_is_refused(self):
-        body = json.dumps({"error": {"message": "model_not_found: m does not exist"}})
-        reason, calls = self._check([(400, body)])
-        assert reason.startswith("400: model_not_found")
         assert len(calls) == 1
 
     def test_the_preflight_decides_by_the_mid_session_rule(self):
@@ -634,20 +654,10 @@ class TestCellPreflight:
             expected = rule(status=status, text=text, model_turns=False)
             assert (reason is None) == (expected is None), (status, text)
 
-    def test_a_403_is_refused_at_once(self):
-        reason, calls = self._check([(403, "Access denied: IP address not recognized")])
-        assert reason.startswith("403: Access denied")
-        assert len(calls) == 1
-
     def test_a_rate_limit_is_retried_and_may_clear(self):
         reason, calls = self._check([(429, "slow"), (200, "")])
         assert reason is None
         assert len(calls) == 2
-
-    def test_a_5xx_that_outlasts_the_retries_is_a_refusal(self):
-        reason, calls = self._check([(503, "down")])
-        assert reason.startswith("503")
-        assert len(calls) == 3
 
     def test_no_response_is_named_unreachable(self):
         assert self._check([(None, "nodename not known")])[0].startswith("unreachable")

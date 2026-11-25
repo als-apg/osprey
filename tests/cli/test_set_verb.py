@@ -248,7 +248,7 @@ def test_an_unserved_agent_pin_is_written_with_a_note(runner, lifecycle_repo):
 
 
 def test_a_pin_the_deployment_agent_file_overrides_is_refused(runner, lifecycle_repo):
-    agents = lifecycle_repo / "agents"
+    agents = lifecycle_repo / "agent" / "agents"
     agents.mkdir(exist_ok=True)
     (agents / "site-helper.md").write_text(
         "---\nname: site-helper\ndescription: Site questions.\nmodel: claude-sonnet-5\n---\n",

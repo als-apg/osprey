@@ -52,7 +52,7 @@ from .profile_conventions import (
     context_baseline_slot,
     convention_source,
 )
-from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .repo_resolver import PROFILE_FILENAME, repo_option
 
 if TYPE_CHECKING:
     # Annotation only — the profile model is imported lazily inside the command
@@ -165,6 +165,8 @@ def card(as_json: bool, repo: Path | None) -> None:
     import json
     from contextlib import nullcontext
 
+    from osprey.repo_retired import deployment_root
+
     from .build_profile import resolve_build_profile
     from .main import lifecycle_reporter
     from .output import machine_mode
@@ -179,7 +181,7 @@ def card(as_json: bool, repo: Path | None) -> None:
         machine_mode() if as_json else nullcontext(),
         nullcontext() if as_json else lifecycle_reporter(),
     ):
-        repo_root = find_repo_root(repo)
+        repo_root = deployment_root(repo)
         resolved, _profile_dir = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
         deltas = read_layer_deltas(repo_root)
 
@@ -248,6 +250,8 @@ def panels(as_json: bool, html_path: Path | None, repo: Path | None) -> None:
     import json
     from contextlib import nullcontext
 
+    from osprey.repo_retired import deployment_root
+
     from .main import lifecycle_reporter
     from .output import machine_mode
     from .phase_reporter import current_reporter
@@ -259,7 +263,7 @@ def panels(as_json: bool, html_path: Path | None, repo: Path | None) -> None:
         machine_mode() if as_json else nullcontext(),
         nullcontext() if as_json else lifecycle_reporter(),
     ):
-        repo_root = find_repo_root(repo)
+        repo_root = deployment_root(repo)
         try:
             matrix = panel_matrix(repo_root)
         except BuildProfileError as e:
@@ -317,7 +321,7 @@ PROFILE_DEFAULTS_ENV_BANNER = "# ── Declared by this profile (env.defaults) 
 
 #: Source-zone entries a repo-root materialization owns, and therefore the exact
 #: set a re-materialization is allowed to replace. Everything else in a
-#: deployment repo — ``.git``, ``.env``, ``var/``, ``build/``, ``ci-extra.yml``,
+#: deployment repo — ``.git``, ``.env``, ``var/``, ``build/``, ``ops/ci-extra.yml``,
 #: the CI files — belongs to the operator or to another command, so re-running
 #: ``osprey init`` over an existing repo can never cost a secret, an agent's
 #: memory, or a hand-written CI job. The paths of the rows init replaces, in
@@ -1563,6 +1567,15 @@ def _cleanup(target: Path, seeded: tuple[str, ...] = ()) -> str:
             shutil.rmtree(entry, ignore_errors=True)
         else:
             entry.unlink(missing_ok=True)
+        # A nested entry's group directory (``agent/``) is the run's too once
+        # it holds nothing; an operator's file inside it keeps it.
+        for parent in entry.parents:
+            if parent == target or target not in parent.parents:
+                break
+            try:
+                parent.rmdir()
+            except OSError:
+                break
     remaining = [name for name in owned if (target / name).exists()]
     if remaining:
         return (
@@ -1576,7 +1589,7 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
     """The ``base.md`` text a new profile's context baseline starts from.
 
     Bundle first: an app template that ships its own
-    ``web-terminal-context/base.md`` (the demo does — its text
+    ``agent/context/base.md`` (the demo does — its text
     describes that family's renders) seeds the profile with it. Any other
     bundle falls back to the framework's generic baseline, the same file
     ``osprey build`` installs into every render — so the materialized slot
@@ -1762,7 +1775,7 @@ def _materialize_profile_directory(
             over both.
         seed_dirs: Write-once directories to copy out of the bundle, mapping a
             profile-root directory name to the bundle-relative tree it comes
-            from (e.g. ``{"mcp_servers": "mcp_servers"}``). Each is copied only
+            from (e.g. ``{"agent/mcp_servers": "agent/mcp_servers"}``). Each is copied only
             when the bundle ships it and the target does not already have it, so
             the copy happens on a repo's first init and never again — which is
             why these are NOT in :data:`MATERIALIZED_SOURCE_ENTRIES`: a later
@@ -1948,10 +1961,9 @@ def _materialize_profile_directory(
         # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
         # The facility, and any files this template shares with another one,
         # land beside the template's own, byte-identical, so the profile
-        # cannot tell them apart.
-        preset_data.copy_into(
-            target / _PROFILE_DATA_DIRNAME, ignore=_data_copy_ignore(preset_data.app_data)
-        )
+        # cannot tell them apart; the starter reviewer prompt lands in the code
+        # reviewer's directory.
+        preset_data.copy_into(target, ignore=_data_copy_ignore(preset_data.app_data))
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         # Every watchdog the block names, enabled or not, so the files travel with

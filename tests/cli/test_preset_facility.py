@@ -165,7 +165,7 @@ def test_the_composition_lands_the_facility_under_facility(tmp_path: Path) -> No
     composed = _preset_data(TemplateManager(), "demo")
     target = tmp_path / "data"
 
-    composed.copy_into(target)
+    composed.copy_into(tmp_path)
 
     assert (target / "facility" / "identity.yaml").read_bytes() == (
         FACILITIES / "example" / "identity.yaml"
@@ -187,7 +187,7 @@ def test_a_preset_naming_no_facility_composes_the_app_template_alone(tmp_path: P
     composed = compose_preset_data(root, "app", None)
 
     assert composed.facility_root is None
-    assert list(composed.placed_files()) == ["code_review/reviewer.md"]
+    assert list(composed.placed_files()) == ["agent/code_review/reviewer.md"]
 
 
 def _template_root(tmp_path: Path, *, app_ships_facility: bool) -> Path:
@@ -239,9 +239,9 @@ def test_an_app_template_shipping_a_prompt_at_the_starters_path_is_refused(
 ) -> None:
     """Landing the starter would silently overwrite the app template's file."""
     root = _template_root(tmp_path, app_ships_facility=False)
-    shipped = root / "apps" / "app" / "data" / "code_review" / "reviewer.md"
-    shipped.parent.mkdir()
+    shipped = root / "apps" / "app" / "agent" / "code_review" / "reviewer.md"
+    shipped.parent.mkdir(parents=True)
     shipped.write_text("The app's own.\n")
 
-    with pytest.raises(BuildProfileError, match="ships data/code_review/reviewer.md"):
+    with pytest.raises(BuildProfileError, match="ships agent/code_review/reviewer.md"):
         compose_preset_data(root, "app", None)

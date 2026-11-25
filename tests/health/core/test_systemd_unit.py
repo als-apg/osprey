@@ -19,10 +19,30 @@ import pytest
 from osprey.health.core import systemd_unit as mod
 from osprey.health.core.systemd_unit import systemd_unit
 from osprey.health.models import Status
+from osprey.repo_layout import former_locations
 from tests._scoped_stdlib import scoped
 from tests.health._fakes import FakeProc
 
 _UNIT = "osprey.service"
+
+
+@pytest.fixture(autouse=True)
+def _no_crontab(monkeypatch):
+    """No crontab entries unless a test plants some; ``_run_command`` stays systemctl's."""
+
+    async def _none():
+        return ()
+
+    monkeypatch.setattr(mod, "_crontab_lines", _none)
+
+
+def _crontab(monkeypatch, *lines: str) -> None:
+    """Plant the account's crontab entries."""
+
+    async def _lines():
+        return lines
+
+    monkeypatch.setattr(mod, "_crontab_lines", _lines)
 
 
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
@@ -43,7 +63,9 @@ def _have_systemctl(monkeypatch, present=True):
 
 def _repo_with_unit(tmp_path: Path) -> Path:
     """Create a deployment repo root holding a scaffolded unit file."""
-    (tmp_path / _UNIT).write_text("[Unit]\n")
+    unit = tmp_path.joinpath(*mod._UNIT_PATH.split("/"))
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text("[Unit]\n")
     return tmp_path
 
 
@@ -61,6 +83,120 @@ def _install_dir(monkeypatch, tmp_path: Path, *, installed: bool) -> Path:
 # --------------------------------------------------------------------------- #
 # state table
 # --------------------------------------------------------------------------- #
+
+
+class TestRetiredPaths:
+    """Boot wiring left naming the unit or the boot hook where the layout retired them."""
+
+    def test_the_retired_locations_come_from_the_layout(self):
+        assert mod._UNIT_PATH == "ops/osprey.service"
+        assert mod._UNIT_NAME == "osprey.service"
+        assert mod._BOOT_HOOK_PATH == "ops/scripts/osprey-boot-hook.sh"
+        assert former_locations(mod._UNIT_PATH) == ("osprey.service",)
+        assert former_locations(mod._BOOT_HOOK_PATH) == ("scripts/osprey-boot-hook.sh",)
+
+    async def test_a_unit_linked_to_its_retired_path_is_warning(self, monkeypatch, tmp_path):
+        _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        unit_dir = _install_dir(monkeypatch, tmp_path, installed=False)
+        (unit_dir / _UNIT).symlink_to(repo / "osprey.service")
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.WARNING
+        assert "retired path" in row.message
+        assert f"links to {repo / 'osprey.service'}" in row.details
+        assert str(repo / "ops" / "osprey.service") in row.details
+        assert "osprey scaffold systemd" in row.details
+
+    async def test_a_unit_linked_to_its_current_path_is_not_flagged(self, monkeypatch, tmp_path):
+        _stub_run(monkeypatch, returncode=0, stdout="loaded\n")
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        unit_dir = _install_dir(monkeypatch, tmp_path, installed=False)
+        (unit_dir / _UNIT).symlink_to(repo / "ops" / "osprey.service")
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.OK
+
+    async def test_an_installed_copy_naming_the_retired_hook_is_warning(
+        self, monkeypatch, tmp_path
+    ):
+        _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        unit_dir = _install_dir(monkeypatch, tmp_path, installed=False)
+        hook = repo / "scripts" / "osprey-boot-hook.sh"
+        (unit_dir / _UNIT).write_text(f"[Service]\nExecStartPre={hook}\n")
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.WARNING
+        assert f"names {hook}" in row.details
+
+    async def test_a_crontab_line_naming_the_retired_hook_is_warning(self, monkeypatch, tmp_path):
+        _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        _install_dir(monkeypatch, tmp_path, installed=True)
+        line = f"@reboot exec {repo / 'scripts' / 'osprey-boot-hook.sh'}"
+        _crontab(monkeypatch, "SHELL=/bin/sh", line)
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.WARNING
+        assert f"crontab: {line}" in row.details
+        assert "SHELL=/bin/sh" not in row.details
+        assert "crontab -e" in row.details
+
+    async def test_a_crontab_naming_the_current_hook_is_not_flagged(self, monkeypatch, tmp_path):
+        _stub_run(monkeypatch, returncode=0, stdout="loaded\n")
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        _install_dir(monkeypatch, tmp_path, installed=True)
+        _crontab(monkeypatch, f"@reboot exec {repo / 'ops' / 'scripts' / 'osprey-boot-hook.sh'}")
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.OK
+
+    async def test_a_repo_reached_through_a_symlink_matches_the_resolved_path(
+        self, monkeypatch, tmp_path
+    ):
+        _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo").resolve()
+        link = tmp_path / "link"
+        link.symlink_to(repo, target_is_directory=True)
+        _install_dir(monkeypatch, tmp_path, installed=True)
+        line = f"@reboot exec {repo / 'scripts' / 'osprey-boot-hook.sh'}"
+        _crontab(monkeypatch, line)
+        [row] = await systemd_unit({}, cwd=link)()
+        assert row.status == Status.WARNING
+        assert f"crontab: {line}" in row.details
+
+    async def test_a_relative_link_to_the_retired_unit_is_warning(self, monkeypatch, tmp_path):
+        _stub_run(monkeypatch, raises=AssertionError("must not run systemctl"))
+        _have_systemctl(monkeypatch)
+        repo = _repo_with_unit(tmp_path / "repo")
+        unit_dir = _install_dir(monkeypatch, tmp_path, installed=False)
+        (unit_dir / _UNIT).symlink_to(Path("../../../repo/./osprey.service"))
+        [row] = await systemd_unit({}, cwd=repo)()
+        assert row.status == Status.WARNING
+        assert "retired path" in row.message
+
+
+class TestCrontabLines:
+    """``crontab -l`` read through the module's subprocess helper."""
+
+    @pytest.fixture(autouse=True)
+    def _real_crontab(self, monkeypatch):
+        monkeypatch.undo()
+
+    async def test_entries_without_comments_or_blank_lines(self, monkeypatch):
+        _stub_run(monkeypatch, stdout="# m h dom\n\nSHELL=/bin/sh\n  # note\n@reboot x\n")
+        assert await mod._crontab_lines() == ("SHELL=/bin/sh", "@reboot x")
+
+    async def test_no_crontab_is_no_entries(self, monkeypatch):
+        _stub_run(monkeypatch, returncode=1, stderr="no crontab for user")
+        assert await mod._crontab_lines() == ()
+
+    @pytest.mark.parametrize("error", [FileNotFoundError("crontab"), TimeoutError()])
+    async def test_an_unrunnable_crontab_is_no_entries(self, monkeypatch, error):
+        _stub_run(monkeypatch, raises=error)
+        assert await mod._crontab_lines() == ()
 
 
 class TestStateTable:
@@ -142,23 +278,26 @@ class TestStateTable:
         assert results[0].status == Status.SKIP
         assert results[0].details
 
-    async def test_query_timeout_is_skip(self, monkeypatch, tmp_path):
-        _stub_run(monkeypatch, raises=TimeoutError())
+    @pytest.mark.parametrize(
+        ("raised", "needle"),
+        [
+            pytest.param(TimeoutError(), "timed out", id="query_timeout"),
+            # systemctl was on PATH for ``which`` but gone by the time it ran.
+            pytest.param(
+                FileNotFoundError(),
+                "systemctl not found",
+                id="systemctl_vanishing_between_which_and_exec",
+            ),
+        ],
+    )
+    async def test_a_failed_query_is_skip(self, monkeypatch, tmp_path, raised, needle):
+        _stub_run(monkeypatch, raises=raised)
         _have_systemctl(monkeypatch)
         repo = _repo_with_unit(tmp_path)
         _install_dir(monkeypatch, tmp_path, installed=True)
         results = await systemd_unit({}, cwd=repo)()
         assert results[0].status == Status.SKIP
-        assert "timed out" in results[0].message
-
-    async def test_systemctl_vanishing_between_which_and_exec_is_skip(self, monkeypatch, tmp_path):
-        _stub_run(monkeypatch, raises=FileNotFoundError())
-        _have_systemctl(monkeypatch)
-        repo = _repo_with_unit(tmp_path)
-        _install_dir(monkeypatch, tmp_path, installed=True)
-        results = await systemd_unit({}, cwd=repo)()
-        assert results[0].status == Status.SKIP
-        assert "systemctl not found" in results[0].message
+        assert needle in results[0].message
 
     async def test_empty_load_state_is_ok_unknown(self, monkeypatch, tmp_path):
         _stub_run(monkeypatch, returncode=0, stdout="   \n")

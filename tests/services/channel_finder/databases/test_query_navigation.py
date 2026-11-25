@@ -1,7 +1,7 @@
 """Tree navigation behaviour of the hierarchical query mixin.
 
 Drives a real :class:`HierarchicalChannelDatabase` -- never a mock -- through
-``get_options_at_level`` and the ``_navigate_to_node`` /
+``get_options_at_level`` and the ``_navigate_to_nodes`` /
 ``_extract_tree_options`` helpers it delegates to, all in
 ``osprey.services.channel_finder.databases._hierarchical_query``.
 
@@ -46,7 +46,7 @@ def _mixed_case_container_doc() -> dict:
 
     The conftest family always spells instance containers in upper case, which
     leaves the ``key.upper() == prev_level.upper()`` comparison in
-    ``_navigate_to_node`` indistinguishable from a plain ``key == level.upper()``
+    ``_navigate_to_nodes`` indistinguishable from a plain ``key == level.upper()``
     check. This shape separates the two: the level is named ``device`` and the
     container ``Device``, so navigation only reaches ``X`` if both sides are
     folded. ``_hierarchical_loading._find_level_container`` folds the same way,
@@ -79,7 +79,7 @@ def _mixed_case_container_doc() -> dict:
 
 
 class TestTreeDescent:
-    """``_navigate_to_node`` following ordinary ``tree``-level selections."""
+    """``_navigate_to_nodes`` following ordinary ``tree``-level selections."""
 
     def test_first_level_needs_no_selections(self, tree_only_db: HierarchicalChannelDatabase):
         """At the first level the loop breaks immediately and the root is used."""
@@ -103,13 +103,19 @@ class TestTreeDescent:
 
         assert options == [{"name": "Setpoint", "description": ""}]
 
-    def test_list_valued_selection_uses_its_first_entry(
+    def test_list_valued_selection_offers_the_options_under_every_entry(
         self, tree_only_db: HierarchicalChannelDatabase
     ):
-        """Selections may arrive as lists; navigation follows the first element."""
-        options = tree_only_db.get_options_at_level("device", {"system": ["SR", "BR"]})
+        """A level selected with several values offers what each of them holds, each once."""
+        options = tree_only_db.get_options_at_level(
+            "signal", {"system": "SR", "device": ["BPM", "QUAD", "BPM"]}
+        )
 
-        assert _names(options) == ["BPM", "QUAD"]
+        assert _names(options) == ["X", "Y", "Setpoint"]
+        assert options[0]["description"] == "Horizontal position"
+        assert _names(
+            tree_only_db.get_options_at_level("signal", {"system": "SR", "device": ["QUAD"]})
+        ) == ["Setpoint"]
 
 
 # ---------------------------------------------------------------------------
@@ -121,8 +127,8 @@ class TestInvalidPath:
     """A selection matching neither a child nor an expansion aborts the walk."""
 
     def test_unknown_selection_navigates_to_none(self, tree_only_db: HierarchicalChannelDatabase):
-        """No child ``NOPE`` and no ``_expansion`` to fall back on -> ``None``."""
-        assert tree_only_db._navigate_to_node("device", {"system": "NOPE"}) is None
+        """No child ``NOPE`` and no ``_expansion`` to fall back on -> no node."""
+        assert tree_only_db._navigate_to_nodes("device", {"system": "NOPE"}) == []
 
     def test_unknown_selection_is_refused(self, tree_only_db: HierarchicalChannelDatabase):
         """The public entry point names the selection that matches no node."""
@@ -292,12 +298,11 @@ class TestExpandedInstanceSelection:
     ):
         """The fallback is not anchored to the first instance of the range."""
         for instance in ("CH-1", "CH-2", "CH-3"):
-            node = hybrid_expansion_db._navigate_to_node(
+            nodes = hybrid_expansion_db._navigate_to_nodes(
                 "signal", {"system": "SR", "device": instance}
             )
 
-            assert node is not None
-            assert node["_description"] == "Corrector channels"
+            assert [node["_description"] for node in nodes] == ["Corrector channels"]
 
     def test_direct_child_selection_skips_the_fallback(
         self, hybrid_expansion_db: HierarchicalChannelDatabase
@@ -314,8 +319,8 @@ class TestExpandedInstanceSelection:
     ):
         """``CH-9`` looks like an instance but the expansion never generates it."""
         assert (
-            hybrid_expansion_db._navigate_to_node("signal", {"system": "SR", "device": "CH-9"})
-            is None
+            hybrid_expansion_db._navigate_to_nodes("signal", {"system": "SR", "device": "CH-9"})
+            == []
         )
         with pytest.raises(ValueError, match=r"'CH-9'"):
             hybrid_expansion_db.get_options_at_level("signal", {"system": "SR", "device": "CH-9"})

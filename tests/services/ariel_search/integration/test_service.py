@@ -108,9 +108,8 @@ class TestAgentIntegration:
         result = await service.search("beam current", max_results=5)
 
         assert isinstance(result, ARIELSearchResult)
-        assert hasattr(result, "entries")
-        assert hasattr(result, "answer")
-        assert hasattr(result, "search_modes_used")
+        assert f"{AGENT_PREFIX}001" in [e["entry_id"] for e in result.entries]
+        assert result.search_modes_used == ("keyword",)
 
         await pool.close()
 
@@ -218,9 +217,8 @@ class TestServiceSearchModes:
 
         result = await service.search("vacuum pump", mode="keyword")
 
-        # Should return result object
-        assert result is not None
-        assert hasattr(result, "entries")
+        assert f"{SEARCH_MODE_PREFIX}001" in [e["entry_id"] for e in result.entries]
+        assert result.search_modes_used == ("keyword",)
 
         await pool.close()
 

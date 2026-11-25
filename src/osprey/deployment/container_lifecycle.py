@@ -517,17 +517,16 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
 
     Relative to the project directory, and fixed by the read-only mounts the
     bluesky compose template declares
-    (``./data/.runtime/<lane>_curve/<side>`` -> ``/app/curve``) together with
+    (``./var/runtime/<lane>_curve/<side>`` -> ``/app/curve``) together with
     the certificate paths it hardcodes into each container's environment, so
     this function and that template are one contract: change either and the
     bridge refuses to bind its proxy.
 
-    Under ``data/.runtime/`` — the reserved runtime-output subpath
-    (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`) that the
-    build-drift fold never hashes and the build never stages. Certificates are
-    minted by ``osprey up`` itself, so anywhere else in ``data/`` every
-    successful start would mark its own build OUT OF DATE and the scaffolded
-    ``osprey up -d`` boot unit would refuse to start after a reboot (#716).
+    Under the state zone's ``runtime`` child
+    (:data:`~osprey.utils.workspace.RUNTIME_DIR_RELPATH`): ``osprey up`` mints
+    the certificates itself, and the state zone is never hashed, never staged
+    and never in an image, so a successful start never marks its own build out
+    of date and the private keys never leave the host.
 
     Per lane rather than shared, and that is the point: a single keypair would
     authenticate either lane's publisher to either lane's proxy, so a plan
@@ -540,12 +539,12 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     Returns:
         The lane's certificate directory, relative to the project directory.
     """
-    data_dir = Path(repo_layout.entry("data").path)
-    return repo_layout.child_path(data_dir, "data", "runtime") / f"{lane_key}_curve"
+    var_dir = Path(repo_layout.entry("var").path)
+    return repo_layout.child_path(var_dir, "var", "runtime") / f"{lane_key}_curve"
 
 
 def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
-    """Where releases before the ``data/.runtime/`` carve-out minted a lane's set.
+    """Where the oldest deployments minted a lane's set, directly under the data tree.
 
     Kept only so :func:`_migrate_legacy_curve_dir` can find and relocate
     existing material; nothing reads or writes this path otherwise.
@@ -554,7 +553,7 @@ def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
         lane_key: A lane's ``services.<lane>`` key.
 
     Returns:
-        The pre-#716 certificate directory, relative to the project directory.
+        The legacy certificate directory, relative to the project directory.
     """
     return Path(repo_layout.entry("data").path) / f"{lane_key}_curve"
 
@@ -1378,31 +1377,8 @@ def _bluesky_curve_paths(project_dir: Path, lane_key: str = _BLUESKY_LANE_ONE) -
     }
 
 
-def _ensure_runtime_output_dir(project_dir: Path) -> None:
-    """Create ``data/.runtime/`` with a self-ignoring ``.gitignore`` inside it.
-
-    The scaffolded project ``.gitignore`` carries ``/data/.runtime/``, but a
-    repo scaffolded before the carve-out only ignores the legacy certificate
-    spelling — after migration its key material would sit untracked, one
-    ``git add -A`` away from being committed. A ``.gitignore`` of ``*`` inside
-    the directory itself covers every repo without editing any file the
-    operator owns. It never touches the build fingerprint: the whole subtree
-    is what the fold skips.
-
-    Args:
-        project_dir: Project directory (the parent of the project ``.env``).
-    """
-    runtime_dir = repo_layout.child_path(
-        project_dir / repo_layout.entry("data").path, "data", "runtime"
-    )
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    gitignore = runtime_dir / ".gitignore"
-    if not gitignore.is_file():
-        gitignore.write_text("*\n", encoding="utf-8")
-
-
 def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
-    """Relocate a lane's pre-#716 certificate set into ``data/.runtime/``.
+    """Relocate a lane's legacy certificate set into the state zone's ``runtime`` child.
 
     A move, never a re-mint: the existing keys are what a running stack's
     bridge and queueserver have pinned, and rotation is exactly what
@@ -1426,13 +1402,13 @@ def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
     if not legacy.is_dir() or target.exists():
         return
 
+    target.parent.mkdir(parents=True, exist_ok=True)
     os.replace(legacy, target)
     logger.key_info(
         f"Relocated the bluesky document-plane CURVE certificates from {legacy} to "
         f"{target}: runtime-minted material lives under "
-        f"{repo_layout.child_display_path('data', 'runtime')}/, "
-        "which the build-drift check does not treat as build input. The keys "
-        "themselves are unchanged."
+        f"{repo_layout.child_display_path('var', 'runtime')}/, "
+        "which the build never hashes or stages. The keys themselves are unchanged."
     )
 
 
@@ -1508,7 +1484,6 @@ def _ensure_bluesky_lane_document_plane_certs(lane_key: str, project_dir: Path) 
     curve_dir = _bluesky_curve_dir(lane_key)
 
     try:
-        _ensure_runtime_output_dir(project_dir)
         _migrate_legacy_curve_dir(project_dir, lane_key)
     except OSError:
         logger.warning(
@@ -6690,7 +6665,7 @@ def _start_stack(
 
     # Provision the bluesky plan stack's 0MQ key material before compose mounts
     # it: the RE manager's control-socket keypair into .env, and the document
-    # plane's CURVE certificates into data/.runtime/<lane>_curve/. Both are no-ops
+    # plane's CURVE certificates into var/runtime/<lane>_curve/. Both are no-ops
     # without the bluesky service, and both are additive (existing material
     # always wins) so a redeploy never rotates keys under a running stack.
     # Neither is gated on the connector -- see

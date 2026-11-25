@@ -55,9 +55,23 @@ class TestSyntaxes:
         assert embed.path == "devices/figures/bpm.png"
         assert _spanned(body, embed) == "![The BPM][bpm]"
 
-    def test_reference_label_matches_case_and_whitespace_insensitively(self) -> None:
-        body = "![x][My  Label]\n\n[my label]: a.png\n"
-        assert _only(body).target == "a.png"
+    @pytest.mark.parametrize(
+        ("body", "target"),
+        [
+            pytest.param(
+                "![x][My  Label]\n\n[my label]: a.png\n",
+                "a.png",
+                id="reference-label-matches-case-and-whitespace-insensitively",
+            ),
+            pytest.param(
+                "![x][r]\n\n[r]: first.png\n[r]: second.png\n",
+                "first.png",
+                id="first-definition-wins",
+            ),
+        ],
+    )
+    def test_reference_definition_lookup(self, body: str, target: str) -> None:
+        assert _only(body).target == target
 
     def test_collapsed_reference_image(self) -> None:
         body = "![bpm][]\n\n[BPM]: figures/bpm.png\n"
@@ -70,10 +84,6 @@ class TestSyntaxes:
         embed = _only(body)
         assert embed.target == "figures/b p.png"
         assert _spanned(body, embed) == "![bpm]"
-
-    def test_first_definition_wins(self) -> None:
-        body = "![x][r]\n\n[r]: first.png\n[r]: second.png\n"
-        assert _only(body).target == "first.png"
 
     def test_raw_html_img(self) -> None:
         body = 'Text <IMG alt="The BPM" SRC="figures/bpm.png" width=200> more'
@@ -134,58 +144,63 @@ class TestMissingReference:
 
 
 class TestNotRendered:
-    def test_backtick_fence(self) -> None:
-        body = "Before\n\n```markdown\n![a](a.png)\n<img src=b.png>\n```\n\n![c](c.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_tilde_fence_needs_a_long_enough_closer(self) -> None:
-        body = "~~~~\n![a](a.png)\n~~~\n![b](b.png)\n~~~~\n![c](c.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_unclosed_fence_runs_to_the_end(self) -> None:
-        assert scan_image_embeds("```\n![a](a.png)\n", "") == []
-
-    def test_fence_interrupts_a_paragraph(self) -> None:
-        body = "Text\n```\n![a](a.png)\n```\n"
-        assert scan_image_embeds(body, "") == []
-
-    def test_indented_code_block(self) -> None:
-        body = "Text\n\n    ![a](a.png)\n\t<img src=b.png>\n\n![c](c.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_indented_line_continuing_a_paragraph_is_rendered(self) -> None:
-        body = "Text\n    ![a](a.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["a.png"]
-
-    def test_list_item_continuation_is_rendered(self) -> None:
-        body = "- item\n\n  ![a](a.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["a.png"]
-
-    def test_inline_code_span(self) -> None:
-        body = "Use `![a](a.png)` or ``<img src=b.png>`` but ![c](c.png)"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_backslash_escaped(self) -> None:
-        assert scan_image_embeds(r"\![a](a.png)", "") == []
-
-    def test_escaped_backslash_leaves_the_image(self) -> None:
-        body = r"\\![a](a.png)"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["a.png"]
-
-    def test_inline_html_comment(self) -> None:
-        body = "Text <!-- ![a](a.png) <img src=b.png> --> ![c](c.png)"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_block_html_comment_across_blank_lines(self) -> None:
-        body = "<!--\n![a](a.png)\n\n<img src=b.png>\n-->\n![c](c.png)\n"
-        assert [e.target for e in scan_image_embeds(body, "")] == ["c.png"]
-
-    def test_reference_definition_inside_code_is_not_a_definition(self) -> None:
-        body = "![x][r]\n\n```\n[r]: a.png\n```\n"
-        assert scan_image_embeds(body, "") == []
-
-    def test_image_does_not_cross_a_blank_line(self) -> None:
-        assert scan_image_embeds("![a\n\nb](a.png)", "") == []
+    @pytest.mark.parametrize(
+        ("body", "expected_targets"),
+        [
+            pytest.param(
+                "Before\n\n```markdown\n![a](a.png)\n<img src=b.png>\n```\n\n![c](c.png)\n",
+                ["c.png"],
+                id="backtick-fence",
+            ),
+            pytest.param(
+                "~~~~\n![a](a.png)\n~~~\n![b](b.png)\n~~~~\n![c](c.png)\n",
+                ["c.png"],
+                id="tilde-fence-needs-a-long-enough-closer",
+            ),
+            pytest.param("```\n![a](a.png)\n", [], id="unclosed-fence-runs-to-the-end"),
+            pytest.param("Text\n```\n![a](a.png)\n```\n", [], id="fence-interrupts-a-paragraph"),
+            pytest.param(
+                "Text\n\n    ![a](a.png)\n\t<img src=b.png>\n\n![c](c.png)\n",
+                ["c.png"],
+                id="indented-code-block",
+            ),
+            pytest.param(
+                "Text\n    ![a](a.png)\n",
+                ["a.png"],
+                id="indented-line-continuing-a-paragraph-is-rendered",
+            ),
+            pytest.param(
+                "- item\n\n  ![a](a.png)\n", ["a.png"], id="list-item-continuation-is-rendered"
+            ),
+            pytest.param(
+                "Use `![a](a.png)` or ``<img src=b.png>`` but ![c](c.png)",
+                ["c.png"],
+                id="inline-code-span",
+            ),
+            pytest.param(r"\![a](a.png)", [], id="backslash-escaped"),
+            pytest.param(r"\\![a](a.png)", ["a.png"], id="escaped-backslash-leaves-the-image"),
+            pytest.param(
+                "Text <!-- ![a](a.png) <img src=b.png> --> ![c](c.png)",
+                ["c.png"],
+                id="inline-html-comment",
+            ),
+            pytest.param(
+                "<!--\n![a](a.png)\n\n<img src=b.png>\n-->\n![c](c.png)\n",
+                ["c.png"],
+                id="block-html-comment-across-blank-lines",
+            ),
+            pytest.param(
+                "![x][r]\n\n```\n[r]: a.png\n```\n",
+                [],
+                id="reference-definition-inside-code-is-not-a-definition",
+            ),
+            pytest.param("![a\n\nb](a.png)", [], id="image-does-not-cross-a-blank-line"),
+        ],
+    )
+    def test_only_rendered_images_are_reported(
+        self, body: str, expected_targets: list[str]
+    ) -> None:
+        assert [e.target for e in scan_image_embeds(body, "")] == expected_targets
 
 
 class TestOutcomes:

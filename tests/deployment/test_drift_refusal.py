@@ -119,15 +119,15 @@ def test_data_tree_edit_is_drift(repo):
 
 
 def test_runtime_minted_material_is_not_drift(repo):
-    """#716: a successful start must not mark its own build OUT OF DATE.
+    """A successful start must not mark its own build OUT OF DATE.
 
-    ``osprey up`` mints CURVE key material under ``data/.runtime/`` after the
+    ``osprey up`` mints CURVE key material under ``var/runtime/`` after the
     manifest was stamped — exactly what happens on every deployment with a
     Bluesky lane. The scaffolded systemd unit runs a bare ``osprey up -d``, so
     if this reads as drift, the stack refuses to come back after a reboot.
     """
     _write(
-        repo / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
+        repo / "var" / "runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
         "minted-by-osprey-up\n",
     )
 
@@ -188,15 +188,15 @@ def test_layer_delta_edit_names_the_delta(repo):
 
 def test_convention_directory_edit_names_that_directory(repo):
     """Each convention directory is its own input, so each is its own name."""
-    _write(repo / "agents" / "beamline.md", "# beamline\n")
+    _write(repo / "agent" / "agents" / "beamline.md", "# beamline\n")
     _write_manifest(repo)
 
-    _write(repo / "agents" / "beamline.md", "# beamline ops\n")
+    _write(repo / "agent" / "agents" / "beamline.md", "# beamline ops\n")
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
-    assert report.changed_keys == ("agents/",)
+    assert report.changed_keys == ("agent/agents/",)
 
 
 def _name_triggers(repo: Path, triggers: str) -> None:

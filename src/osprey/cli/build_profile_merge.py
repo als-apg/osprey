@@ -23,7 +23,6 @@ from osprey.utils.workspace import (
     LAYER_DIR_KINDS,
     PROFILE_FILENAME,
     RETIRED_LAYER_DIRS,
-    RUNTIME_DATA_DIR_NAME,
 )
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
@@ -2008,7 +2007,6 @@ def _fold_source_tree(
     label: str,
     source: Path,
     *,
-    skip_runtime_output: bool = False,
     skip: Callable[[str], bool] | None = None,
 ) -> None:
     """Fold one file-or-directory build input into ``digest``, in place.
@@ -2018,14 +2016,6 @@ def _fold_source_tree(
     joined with the SHA-256 of its bytes. Entries are sorted by that relative
     path, and directories themselves contribute nothing — only their files —
     so the digest depends on content alone and not on filesystem walk order.
-
-    ``skip_runtime_output`` is passed for the ``data:`` tree only: the
-    top-level :data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`
-    subtree is where ``osprey up`` mints its own material (per-lane CURVE
-    certificates), and hashing it would make every successful start mark its
-    own build OUT OF DATE (#716). The subtree is skipped statically — by its
-    reserved name, not by a manifest — so the fold and the writer cannot fall
-    out of sync about which files a start is allowed to create.
 
     ``skip`` is passed for an application directory (:attr:`ProfileInput.build_output`):
     it is handed each file's relative path and answers whether that file is build
@@ -2064,7 +2054,6 @@ def _fold_source_tree(
     """
     import hashlib
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
     from osprey_facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
 
     # The machine input is listed only when mounted, so its tree folds as the
@@ -2084,8 +2073,6 @@ def _fold_source_tree(
             if machine_roots is not None and not is_machine_entry(machine_roots, relative):
                 continue
             rel = relative.as_posix()
-            if skip_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
-                continue
             if skip is not None and skip(rel):
                 continue
             entries.append((rel, path))
@@ -2153,13 +2140,7 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
-      so it resolves exactly where the build copies it from — minus the
-      reserved ``data/.runtime/`` subtree
-      (:data:`~osprey.utils.workspace.RUNTIME_DATA_DIR_NAME`), which is
-      runtime-minted material (the Bluesky lanes' CURVE certificates) and
-      never build input: fold it and every successful ``osprey up`` marks its
-      own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
-      the drift gate;
+      so it resolves exactly where the build copies it from;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted key order
@@ -2307,14 +2288,8 @@ class ProfileInput:
             digest,
             self.label,
             self.path,
-            skip_runtime_output=self.skips_runtime_output,
             skip=self.build_output,
         )
-
-    @property
-    def skips_runtime_output(self) -> bool:
-        """Whether the fold skips the runtime-minted subtree: the ``data:`` tree only."""
-        return self.label == "data"
 
     @property
     def build_output(self) -> Callable[[str], bool] | None:
@@ -2607,8 +2582,6 @@ def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
         except PermissionError:
             return
         for child in children:
-            if not prefix and entry.skips_runtime_output and child.name == RUNTIME_DATA_DIR_NAME:
-                continue
             rel = f"{prefix}{child.name}"
             if child.is_symlink() and not child.exists():
                 found.append(OutsideInput(entry, rel, unresolvable=True))

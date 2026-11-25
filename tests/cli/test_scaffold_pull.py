@@ -82,7 +82,7 @@ def test_preset_data_composes_the_app_template_and_its_facility(
     assert composed.app_data == composed.app_root / "data"
     assert composed.facility_root == Path(manager.template_root) / "facilities" / "example"
     assert not (composed.app_data / "facility").exists()
-    assert composed.placed_files()["facility/identity.yaml"] == (
+    assert composed.placed_files()["data/facility/identity.yaml"] == (
         composed.facility_root / "identity.yaml"
     )
 
@@ -96,8 +96,10 @@ def test_preset_data_composes_an_app_template_with_no_data_of_its_own(
     assert not composed.app_data.exists()
     assert composed.facility_root == Path(manager.template_root) / "facilities" / "hello_world"
     assert {
-        relative for relative in composed.placed_files() if not relative.startswith("facility/")
-    } == {"code_review/reviewer.md"}
+        relative
+        for relative in composed.placed_files()
+        if not relative.startswith("data/facility/")
+    } == {"agent/code_review/reviewer.md"}
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +126,8 @@ def test_resolve_preset_bundle_returns_the_name_and_its_app_template() -> None:
 
 def test_resolve_preset_bundle_normalizes_the_underscore_spelling() -> None:
     """Both CLI spellings of a preset resolve to the same answer."""
-    assert _resolve_preset_bundle("demo") == _resolve_preset_bundle("demo")
+    assert _resolve_preset_bundle("hello_world") == _resolve_preset_bundle("hello-world")
+    assert _resolve_preset_bundle("hello_world")[0] == "hello-world"
 
 
 def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:
@@ -149,6 +152,9 @@ def test_resolve_preset_bundle_rejects_an_unknown_preset() -> None:
 #: operator can pull — a bundle gaining or losing content, or the exclusions
 #: drifting — and is meant to be read before it is accepted.
 DEMO_PULLABLE = [
+    "agent/",
+    "agent/code_review/",
+    "agent/context/",
     "data/",
     "data/canopy/",
     "data/canopy/collections/",
@@ -163,7 +169,6 @@ DEMO_PULLABLE = [
     "data/canopy/library/screens/gtl/",
     "data/canopy/library/screens/sr/",
     "data/canopy/theme/",
-    "data/code_review/",
     "data/facility/",
     "data/facility/ariel/",
     "data/facility/benchmarks/",
@@ -189,7 +194,8 @@ DEMO_PULLABLE = [
     "data/facility/simulation/scenarios/rf-thermal/plots/",
     "data/facility/vocabulary/",
     "data/landing/",
-    "web-terminal-context/",
+    "agent/code_review/reviewer.md",
+    "agent/context/base.md",
     "data/README.md",
     "data/canopy/collections/demo.json",
     "data/canopy/library/LIBRARY-REPORT.json",
@@ -212,7 +218,6 @@ DEMO_PULLABLE = [
     "data/canopy/library/screens/sr/orbit-feedback.screen.json",
     *(f"data/canopy/library/screens/sr/sector-{n:02d}.screen.json" for n in range(1, 13)),
     "data/canopy/theme/osprey.json",
-    "data/code_review/reviewer.md",
     "data/facility/ariel/README.md",
     "data/facility/ariel/vocabulary.yml",
     "data/facility/benchmarks/channel_finder/in_context_queries.json",
@@ -250,9 +255,11 @@ DEMO_PULLABLE = [
     "data/facility/records/groups.yaml",
     "data/facility/records/places.yaml",
     "data/facility/records/relations.yaml",
+    "data/facility/simulation/decks/BR.json",
     "data/facility/simulation/decks/BTS.json",
     "data/facility/simulation/decks/LTB.json",
     "data/facility/simulation/decks/SR.json",
+    "data/facility/simulation/measurement/BR.yaml",
     "data/facility/simulation/measurement/BTS.yaml",
     "data/facility/simulation/measurement/LTB.yaml",
     "data/facility/simulation/measurement/SR.yaml",
@@ -271,7 +278,6 @@ DEMO_PULLABLE = [
     "data/facility/simulation/seeds.yaml",
     "data/facility/vocabulary/classes.yaml",
     "data/landing/working-safely.md",
-    "web-terminal-context/base.md",
 ]
 
 
@@ -284,7 +290,7 @@ def demo(manager: TemplateManager) -> PresetData:
 def packaged(source: PresetData, relative: str | Path) -> Path:
     """Where the template-relative *relative* is read from in the installation."""
     parts = PurePosixPath(Path(relative).as_posix()).parts
-    placed = source.placed_files().get("/".join(parts[1:])) if parts[0] == "data" else None
+    placed = source.placed_files().get("/".join(parts))
     if placed is not None:
         return placed
     if source.facility_root is not None and parts[:2] == ("data", "facility"):
@@ -314,7 +320,7 @@ def test_list_pullable_paths_offers_the_content_an_operator_edits(
     listed = list_pullable_paths(demo)
 
     assert "data/facility/knowledge/" in listed
-    assert "web-terminal-context/" in listed
+    assert "agent/context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
 
@@ -323,7 +329,7 @@ def test_list_pullable_paths_keeps_a_nested_package_marker(manager: TemplateMana
     """A bundled MCP server is content, so its own ``__init__.py`` survives."""
     listed = list_pullable_paths(_preset_data(manager, "hello-world"))
 
-    assert "mcp_servers/example_server/__init__.py" in listed
+    assert "agent/mcp_servers/example_server/__init__.py" in listed
     assert "__init__.py" not in listed
 
 
@@ -402,7 +408,7 @@ def test_list_pullable_paths_rejects_an_unknown_subtree(demo: PresetData) -> Non
     message = str(excinfo.value)
     assert "data/facility_knowlege" in message
     assert "data/" in message
-    assert "web-terminal-context/" in message
+    assert "agent/" in message
     assert ".j2" not in message
 
 
@@ -648,12 +654,12 @@ def test_plan_pull_keeps_a_nested_package_marker(manager: TemplateManager, tmp_p
     plan = plan_pull(
         _preset_data(manager, "hello-world"),
         tmp_path,
-        "mcp_servers/example_server",
+        "agent/mcp_servers/example_server",
         force=False,
         with_content=False,
     )
 
-    marker = tmp_path / "mcp_servers" / "example_server" / "__init__.py"
+    marker = tmp_path / "agent" / "mcp_servers" / "example_server" / "__init__.py"
     assert [action.action for action in plan if action.target == marker] == ["written"]
 
 
@@ -849,15 +855,15 @@ def test_apply_pull_writes_a_nested_package_marker(
     source = _preset_data(manager, "hello-world")
 
     plan = plan_pull(
-        source, tmp_path, "mcp_servers/example_server", force=False, with_content=False
+        source, tmp_path, "agent/mcp_servers/example_server", force=False, with_content=False
     )
     apply_pull(plan, repo_root=tmp_path, with_content=False)
 
-    marker = tmp_path / "mcp_servers" / "example_server" / "__init__.py"
+    marker = tmp_path / "agent" / "mcp_servers" / "example_server" / "__init__.py"
     assert marker.is_file()
     assert (
         marker.read_bytes()
-        == (source.app_root / "mcp_servers/example_server/__init__.py").read_bytes()
+        == (source.app_root / "agent/mcp_servers/example_server/__init__.py").read_bytes()
     )
 
 
@@ -940,7 +946,7 @@ def test_the_listing_names_the_content_and_not_the_machinery(runner: CliRunner, 
     listed = run(runner, repo, "demo", "--list").stdout.splitlines()
 
     assert "data/facility/knowledge/" in listed
-    assert "web-terminal-context/" in listed
+    assert "agent/context/" in listed
     assert [entry for entry in listed if entry.endswith(".j2")] == []
     assert "__init__.py" not in listed
 
@@ -999,10 +1005,10 @@ def test_pulling_one_knowledge_document_names_the_flag_that_brings_it(
 
 def test_pulling_a_bundled_server_keeps_its_package_marker(runner: CliRunner, repo: Path) -> None:
     """A bundled MCP server lands importable, marker and all."""
-    result = run(runner, repo, "hello-world:mcp_servers/example_server")
+    result = run(runner, repo, "hello-world:agent/mcp_servers/example_server")
 
     assert result.exit_code == 0, result.output
-    assert (repo / "mcp_servers" / "example_server" / "__init__.py").is_file()
+    assert (repo / "agent" / "mcp_servers" / "example_server" / "__init__.py").is_file()
 
 
 def test_an_existing_destination_stops_the_whole_pull(runner: CliRunner, repo: Path) -> None:
@@ -1085,7 +1091,7 @@ def test_an_unknown_path_lists_the_top_level_entries(runner: CliRunner, repo: Pa
 
     assert result.exit_code != 0
     assert "data/" in result.output
-    assert "web-terminal-context/" in result.output
+    assert "agent/" in result.output
     assert _markdown(repo) == []
 
 

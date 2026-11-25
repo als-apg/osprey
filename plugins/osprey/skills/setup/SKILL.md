@@ -159,7 +159,7 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
 - Agent model pins: every `claude_code.agent_models.<agent>` key in `profile.yml`'s
   `config:` block and in each `tiers/*.yml`, plus the `model:` line of each
-  `agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
+  `agent/agents/<name>.md`. `osprey profile card --json` does not carry them. They are the
   AGENT box's `models` line.
 - **Reference-facility material is recognized here.** A file whose content still
   describes the reference facility rather than this one — a demo document, the demo
@@ -301,8 +301,8 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
 
 ### 4. CLOSE
 
-**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `watchdogs/`,
-`web-terminal-context/`, `mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
+**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `agent/watchdogs/`,
+`agent/context/`, `agent/mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
 the LEDGER GATE panel from `references/cards.md`. Wrap-up is blocked while any path has
 no row, or any row reads `reference facility`. Each blocking row is resolved with the
 user as `localize`, `refresh`, `remove`, or `keep — <reason>`; nothing is resolved

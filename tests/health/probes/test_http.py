@@ -64,51 +64,33 @@ async def test_status_mismatch_is_error() -> None:
     assert result.latency_ms > 0
 
 
-async def test_latency_within_ceilings_is_ok() -> None:
+@pytest.mark.parametrize(
+    ("ceilings", "status", "needle"),
+    [
+        pytest.param(
+            {"warn_latency_ms": 1e9, "error_latency_ms": 1e9},
+            Status.OK,
+            None,
+            id="within_ceilings",
+        ),
+        # A zero ceiling is exceeded by any real elapsed time.
+        pytest.param({"warn_latency_ms": 0.0}, Status.WARNING, "warn ceiling", id="over_warn"),
+        pytest.param({"error_latency_ms": 0.0}, Status.ERROR, "error ceiling", id="over_error"),
+        pytest.param(
+            {"warn_latency_ms": 0.0, "error_latency_ms": 0.0},
+            Status.ERROR,
+            None,
+            id="error_takes_precedence_over_warn",
+        ),
+    ],
+)
+async def test_latency_is_classified_by_its_ceilings(ceilings, status, needle) -> None:
     transport = _transport(lambda req: httpx.Response(200))
-    result = await run(
-        {"url": "http://svc/", "warn_latency_ms": 1e9, "error_latency_ms": 1e9},
-        _ctx(),
-        transport=transport,
-    )
+    result = await run({"url": "http://svc/", **ceilings}, _ctx(), transport=transport)
 
-    assert result.status is Status.OK
-
-
-async def test_latency_over_warn_ceiling_is_warning() -> None:
-    # A zero warn ceiling is exceeded by any real elapsed time.
-    transport = _transport(lambda req: httpx.Response(200))
-    result = await run(
-        {"url": "http://svc/", "warn_latency_ms": 0.0},
-        _ctx(),
-        transport=transport,
-    )
-
-    assert result.status is Status.WARNING
-    assert "warn ceiling" in result.message
-
-
-async def test_latency_over_error_ceiling_is_error() -> None:
-    transport = _transport(lambda req: httpx.Response(200))
-    result = await run(
-        {"url": "http://svc/", "error_latency_ms": 0.0},
-        _ctx(),
-        transport=transport,
-    )
-
-    assert result.status is Status.ERROR
-    assert "error ceiling" in result.message
-
-
-async def test_error_ceiling_takes_precedence_over_warn() -> None:
-    transport = _transport(lambda req: httpx.Response(200))
-    result = await run(
-        {"url": "http://svc/", "warn_latency_ms": 0.0, "error_latency_ms": 0.0},
-        _ctx(),
-        transport=transport,
-    )
-
-    assert result.status is Status.ERROR
+    assert result.status is status
+    if needle is not None:
+        assert needle in result.message
 
 
 async def test_timeout_defaults_to_error() -> None:

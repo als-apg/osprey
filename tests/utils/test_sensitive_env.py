@@ -78,15 +78,20 @@ class TestIsSensitive:
     def test_unrelated_names_do_not_match(self, name: str) -> None:
         assert is_sensitive(name) is False
 
-    def test_matching_is_case_sensitive(self) -> None:
-        """Lower-case spellings are different variables and are left alone."""
-        assert is_sensitive("osprey_panel_token") is False
-        assert is_sensitive("bluesky_launch_token") is False
-
-    def test_prefix_match_is_not_enough(self) -> None:
-        """A name merely starting with a sensitive name is not itself sensitive."""
-        assert is_sensitive("OSPREY_PANEL_TOKEN_FILE") is False
-        assert is_sensitive("EVENT_DISPATCHER_TOKEN_PATH") is False
+    @pytest.mark.parametrize(
+        "name",
+        [
+            # Lower-case spellings are different variables and are left alone.
+            pytest.param("osprey_panel_token", id="lower-case-panel-token"),
+            pytest.param("bluesky_launch_token", id="lower-case-launch-token"),
+            # A name merely starting with a sensitive name is not itself sensitive.
+            pytest.param("OSPREY_PANEL_TOKEN_FILE", id="prefix-panel-token-file"),
+            pytest.param("EVENT_DISPATCHER_TOKEN_PATH", id="prefix-dispatcher-token-path"),
+        ],
+    )
+    def test_near_miss_names_do_not_match(self, name: str) -> None:
+        """Matching is case-sensitive, and a prefix match is not enough."""
+        assert is_sensitive(name) is False
 
     def test_suffix_must_be_at_the_end(self) -> None:
         assert is_sensitive("MY_LAUNCH_TOKEN_BACKUP") is False

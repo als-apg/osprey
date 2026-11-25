@@ -95,7 +95,7 @@ def test_defaults_are_off_and_block():
     settings = ReviewSettings()
     assert settings.enabled is False
     assert settings.level == "block"
-    assert settings.prompt == DEFAULT_PROMPT == "data/code_review/reviewer.md"
+    assert settings.prompt == DEFAULT_PROMPT == "agent/code_review/reviewer.md"
     assert settings.modes == frozenset({"readwrite"})
     assert settings.time_limit == DEFAULT_TIME_LIMIT_S == 60.0
     assert LEVELS == ("flag", "block")
@@ -351,8 +351,8 @@ def test_resolve_prompt_in_another_source_entry(repo):
 @pytest.mark.parametrize(
     ("prompt", "match"),
     [
-        pytest.param("data/code_review/absent.md", "data/code_review/absent.md", id="missing"),
-        pytest.param("data/code_review", "code_review.prompt", id="directory"),
+        pytest.param("agent/code_review/absent.md", "agent/code_review/absent.md", id="missing"),
+        pytest.param("agent/code_review", "code_review.prompt", id="directory"),
         pytest.param("data/a\0b.md", "code_review.prompt", id="nul-in-path"),
     ],
 )
@@ -363,17 +363,17 @@ def test_resolve_refuses_an_unusable_prompt_path(repo, prompt, match):
 
 @pytest.mark.parametrize("text", ["", "  \n\t\n"], ids=["empty", "whitespace"])
 def test_resolve_refuses_empty_prompt_as_it_refuses_a_missing_one(repo, text):
-    _write(repo, "data/code_review/empty.md", text)
+    _write(repo, "agent/code_review/empty.md", text)
     with pytest.raises(
         ReviewConfigError, match="is empty: a reviewer with no rules judges nothing"
     ):
-        resolve_prompt(ReviewSettings(prompt="data/code_review/empty.md"), repo, {})
+        resolve_prompt(ReviewSettings(prompt="agent/code_review/empty.md"), repo, {})
 
 
 def test_resolve_refuses_non_utf8_prompt(repo):
-    (repo / "data/latin1.md").write_bytes(b"caf\xe9")
-    with pytest.raises(ReviewConfigError, match="data/latin1.md"):
-        resolve_prompt(ReviewSettings(prompt="data/latin1.md"), repo, {})
+    (repo / "agent/code_review/latin1.md").write_bytes(b"caf\xe9")
+    with pytest.raises(ReviewConfigError, match="agent/code_review/latin1.md"):
+        resolve_prompt(ReviewSettings(prompt="agent/code_review/latin1.md"), repo, {})
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 file")
@@ -418,9 +418,9 @@ def test_resolve_refuses_absolute_prompt_outside_the_repo(repo, tmp_path):
 
 def test_resolve_refuses_symlink_out_of_the_source_zone(repo):
     _write(repo, "var/state/generated.md")
-    (repo / "data/link.md").symlink_to(repo / "var/state/generated.md")
+    (repo / "agent/code_review/link.md").symlink_to(repo / "var/state/generated.md")
     with pytest.raises(ReviewConfigError, match="source"):
-        resolve_prompt(ReviewSettings(prompt="data/link.md"), repo, {})
+        resolve_prompt(ReviewSettings(prompt="agent/code_review/link.md"), repo, {})
 
 
 def test_resolve_refuses_prompt_under_a_configured_agent_data_root(repo):

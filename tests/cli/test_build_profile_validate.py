@@ -152,10 +152,17 @@ def test_missing_name_is_rejected(tmp_path: Path) -> None:
     assert _errors(_profile(name=""), tmp_path) == ["Profile 'name' is required"]
 
 
-def test_non_boolean_deploy_services_is_rejected(tmp_path: Path) -> None:
-    """deploy_services must be a bool; the message names the offending type."""
-    profile = _profile(name="x", deploy_services=1)  # type: ignore[arg-type]
-    assert _errors(profile, tmp_path) == ["deploy_services must be a boolean (got int)"]
+@pytest.mark.parametrize(
+    ("value", "type_name"),
+    [pytest.param(1, "int", id="int"), pytest.param("yes", "str", id="str")],
+)
+def test_non_boolean_deploy_services_is_rejected(
+    tmp_path: Path, value: object, type_name: str
+) -> None:
+    """deploy_services must be a bool, not silently coerced; the message names the
+    offending type."""
+    profile = _profile(name="x", deploy_services=value)
+    assert _errors(profile, tmp_path) == [f"deploy_services must be a boolean (got {type_name})"]
 
 
 def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> None:
@@ -172,11 +179,6 @@ def test_a_profile_tier_key_stops_naming_the_in_context_tag(tmp_path: Path) -> N
     assert "`in_context` tag" in stop.value.format_message()
 
 
-def test_graph_mode_validates(tmp_path: Path) -> None:
-    """The graph paradigm validates beside the graph store it reads."""
-    _profile(name="x", channel_finder_mode="graph", config=dict(DEPLOYS_GRAPHDB)).validate(tmp_path)
-
-
 def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
     """A channel_finder_mode outside the known paradigms is a typo, not a mode."""
     profile = _profile(name="x", channel_finder_mode="in-context")
@@ -190,29 +192,38 @@ def test_unknown_channel_finder_mode_is_rejected(tmp_path: Path) -> None:
 
 def test_wellformed_convention_dirs_validate(tmp_path: Path) -> None:
     """A profile whose convention directories are well shaped passes."""
-    (tmp_path / "rules").mkdir()
-    (tmp_path / "rules" / "facility-ops.md").write_text("# ops", encoding="utf-8")
-    (tmp_path / "project" / "docs").mkdir(parents=True)
-    (tmp_path / "project" / "docs" / "runbook.md").write_text("# run", encoding="utf-8")
+    (tmp_path / "agent" / "rules").mkdir(parents=True)
+    (tmp_path / "agent" / "rules" / "facility-ops.md").write_text("# ops", encoding="utf-8")
+    (tmp_path / "ops" / "project" / "docs").mkdir(parents=True)
+    (tmp_path / "ops" / "project" / "docs" / "runbook.md").write_text("# run", encoding="utf-8")
     _profile(name="x").validate(tmp_path)
 
 
 def test_misshapen_convention_source_is_rejected(tmp_path: Path) -> None:
     """A loose file where a directory-shaped convention expects a directory."""
-    (tmp_path / "skills").mkdir()
-    (tmp_path / "skills" / "loose.md").write_text("hi", encoding="utf-8")
+    (tmp_path / "agent" / "skills").mkdir(parents=True)
+    (tmp_path / "agent" / "skills" / "loose.md").write_text("hi", encoding="utf-8")
     (error,) = _errors(_profile(name="x"), tmp_path)
     assert "skills/loose.md" in error
     assert "one directory per skill" in error
 
 
-def test_reserved_mirror_path_is_rejected_naming_its_channel(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("filename", "body", "channel"),
+    [
+        pytest.param(".mcp.json", "{}", "`mcp_servers:` block", id="mcp-json"),
+        pytest.param("config.yml", "facility: {}\n", "`config:` block", id="config-yml"),
+    ],
+)
+def test_reserved_mirror_path_is_rejected_naming_its_channel(
+    tmp_path: Path, filename: str, body: str, channel: str
+) -> None:
     """The project/ mirror may not write a path the build itself owns."""
-    (tmp_path / "project").mkdir()
-    (tmp_path / "project" / ".mcp.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "ops" / "project").mkdir(parents=True)
+    (tmp_path / "ops" / "project" / filename).write_text(body, encoding="utf-8")
     (error,) = _errors(_profile(name="x"), tmp_path)
-    assert "project/.mcp.json" in error
-    assert "`mcp_servers:`" in error
+    assert f"project/{filename}" in error
+    assert channel in error
 
 
 # --- mcp_servers ----------------------------------------------------------
@@ -456,6 +467,12 @@ def test_default_panel_declared_in_web_panels_is_known(tmp_path: Path) -> None:
     )
     profile.validate(tmp_path)
     assert profile._is_known_panel_id("ops") is True
+
+
+def test_default_panel_naming_a_selected_builtin_validates(tmp_path: Path) -> None:
+    """A built-in panel id is accepted as default_panel once web_panels selects
+    it — the selection is what shows the tab."""
+    _profile(name="x", web_panels=["ariel"], default_panel="ariel").validate(tmp_path)
 
 
 def test_is_known_panel_id_means_a_tab_this_render_shows() -> None:

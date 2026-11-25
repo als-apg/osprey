@@ -27,7 +27,7 @@ as the OSPREY agent and needs no setup of its own.
 Write your rules
 ================
 
-Every preset puts the reviewer's instructions at ``data/code_review/reviewer.md`` in your
+Every preset puts the reviewer's instructions at ``agent/code_review/reviewer.md`` in your
 project. It is deliberately short, and the reviewer judges only by what it says. It ships
 with one worked rule for the demo facility: a script that writes a storage-ring corrector
 must first read ``SR:BEAM:USER_MODE`` and stop if it is true. Replace that rule with your

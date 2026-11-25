@@ -109,27 +109,26 @@ class TestAgentDataBaseDir:
 class TestGetAgentDir:
     """``get_agent_dir`` resolves subdirectories under the workspace root."""
 
+    @pytest.mark.parametrize(
+        ("base_dir", "root_name"),
+        [
+            pytest.param(TEMPLATE_BASE_DIR, "_agent_data", id="template-base-dir"),
+            pytest.param("_agent_data", "_agent_data", id="bare-base-dir"),
+            # A custom base_dir relocates every subdirectory.
+            pytest.param("./scratch-data", "scratch-data", id="custom-base-dir"),
+        ],
+    )
     def test_resolves_under_project_root_and_agent_data_base_dir(
-        self, project: Path, monkeypatch
+        self, project: Path, monkeypatch, base_dir: str, root_name: str
     ) -> None:
         cfg = _write_config(
             project,
             f"project_root: {project}\n"
-            f'agent_data:\n  base_dir: "{TEMPLATE_BASE_DIR}"\n'
-            "file_paths:\n  api_calls_dir: api_calls\n",
+            f'agent_data:\n  base_dir: "{base_dir}"\n'
+            "file_paths:\n  api_calls_dir: logs/api\n",
         )
         monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        assert Path(get_agent_dir("api_calls_dir")) == project / "_agent_data" / "api_calls"
-
-    def test_custom_base_dir_relocates_every_subdirectory(self, project: Path, monkeypatch) -> None:
-        cfg = _write_config(
-            project,
-            f"project_root: {project}\n"
-            'agent_data:\n  base_dir: "./scratch-data"\n'
-            "file_paths:\n  api_calls_dir: api_calls\n",
-        )
-        monkeypatch.setenv("CONFIG_FILE", str(cfg))
-        assert Path(get_agent_dir("api_calls_dir")) == project / "scratch-data" / "api_calls"
+        assert Path(get_agent_dir("api_calls_dir")) == project / root_name / "logs" / "api"
 
     def test_retired_file_paths_key_does_not_move_the_root(
         self, project: Path, monkeypatch

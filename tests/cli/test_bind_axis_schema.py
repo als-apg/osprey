@@ -201,7 +201,7 @@ def test_a_declaration_on_a_bundled_service_is_refused(
 
 
 def test_a_declaration_on_a_claimed_bundled_service_validates(tmp_path: Path) -> None:
-    claimed = tmp_path / "services" / "archive"
+    claimed = tmp_path / "ops" / "services" / "archive"
     claimed.mkdir(parents=True)
     (claimed / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
     profile = _profile(

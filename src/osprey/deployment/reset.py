@@ -175,6 +175,7 @@ from osprey.utils.workspace import (
     ARCHIVE_DIR_RELPATH,
     PRE_UPGRADE_AUDIT_RELPATH,
     RECORD_DIR_RELPATH,
+    RUNTIME_DIR_RELPATH,
     SPOOL_DIR_RELPATH,
     STATE_DIR_NAME,
     STATE_DIR_RELPATH,
@@ -820,21 +821,22 @@ class ResetPlan:
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
         )
-        # Both spellings: data/.runtime/ is where `osprey up` mints today, and
-        # data/bluesky_curve/ is where a deployment that has not started since
-        # the #716 relocation still holds its keys.
+        # The certificates live in the state zone, which a reset keeps; a
+        # deployment that has not started since they moved out of the data tree
+        # still holds them at data/bluesky_curve/, which a reset never touches.
         data_dir = self.repo_root / repo_layout.entry("data").path
-        for curve_dir, shown in (
+        for curve_dir, shown, zone in (
+            (self.repo_root / RUNTIME_DIR_RELPATH, f"{RUNTIME_DIR_RELPATH}/", "state"),
             (
-                repo_layout.child_path(data_dir, "data", "runtime"),
-                f"{repo_layout.child_display_path('data', 'runtime')}/",
+                data_dir / "bluesky_curve",
+                f"{repo_layout.display_path('data', 'bluesky_curve')}/",
+                "source",
             ),
-            (data_dir / "bluesky_curve", f"{repo_layout.display_path('data', 'bluesky_curve')}/"),
         ):
             if curve_dir.is_dir():
                 kept.append(
                     f"    {shown}  the document-plane CURVE certificates, which live "
-                    "in the source zone. They are"
+                    f"in the {zone} zone. They are"
                 )
                 kept.append(
                     "      regenerated only when absent, so a reset leaves this deployment's "

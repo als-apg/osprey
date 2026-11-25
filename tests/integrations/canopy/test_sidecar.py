@@ -560,6 +560,27 @@ class TestCarriedReach:
 
 
 class TestEnvironments:
+    @pytest.fixture(
+        params=[
+            pytest.param((LIBRARY_SUBPATH, "CANOPY_LIBRARY_DIR", "screen library"), id="library"),
+            pytest.param(
+                (
+                    FACILITY_COLLECTIONS_SUBPATH,
+                    "CANOPY_FACILITY_COLLECTIONS_DIR",
+                    "facility collections",
+                ),
+                id="facility-collections",
+            ),
+        ]
+    )
+    def optional_store(self, request):
+        """``(subpath, env_name, log_word)`` of an optional deployment store under the root.
+
+        The screen library and the facility collections are both handed to front when they
+        are a directory and logged at INFO, naming the store, when they are not.
+        """
+        return request.param
+
     def test_the_rendered_names_are_the_exported_sets(self, deployment):
         sidecar = deployment.sidecar()
         sidecar.spawn()
@@ -623,68 +644,80 @@ class TestEnvironments:
         assert sidecar.data_env()["CANOPY_THEME_FILE"] == absolute
         assert sidecar.front_env()["CANOPY_THEME_FILE"] == absolute
 
-    def test_the_library_is_handed_over_when_it_exists(self, deployment):
-        library = deployment.root / LIBRARY_SUBPATH
-        library.mkdir(parents=True)
+    def test_an_optional_store_is_handed_over_when_it_exists(self, deployment, optional_store):
+        subpath, env_name, _ = optional_store
+        store = deployment.root / subpath
+        store.mkdir(parents=True)
         sidecar = deployment.sidecar()
         sidecar.spawn()
-        assert sidecar.front_env()["CANOPY_LIBRARY_DIR"] == str(library)
+        assert sidecar.front_env()[env_name] == str(store)
 
-    def test_without_a_library_no_library_dir_is_rendered(self, deployment, caplog):
+    def test_without_an_optional_store_its_dir_is_not_rendered(
+        self, deployment, caplog, optional_store
+    ):
+        subpath, env_name, log_word = optional_store
         caplog.set_level(logging.INFO, logger=sidecar_module.__name__)
         sidecar = deployment.sidecar()
         sidecar.spawn()
         caplog.clear()
-        assert "CANOPY_LIBRARY_DIR" not in sidecar.front_env()
-        reasons = [record for record in caplog.records if "screen library" in record.getMessage()]
+        assert env_name not in sidecar.front_env()
+        reasons = [record for record in caplog.records if log_word in record.getMessage()]
         assert len(reasons) == 1
         assert reasons[0].levelno == logging.INFO
-        assert str(deployment.root / LIBRARY_SUBPATH) in reasons[0].getMessage()
+        assert str(deployment.root / subpath) in reasons[0].getMessage()
 
-    def test_a_library_that_is_a_file_is_not_a_library(self, deployment):
-        library = deployment.root / LIBRARY_SUBPATH
-        library.parent.mkdir(parents=True)
-        library.write_text("", encoding="utf-8")
+    def test_an_optional_store_that_is_a_file_is_not_a_store(self, deployment, optional_store):
+        subpath, env_name, _ = optional_store
+        store = deployment.root / subpath
+        store.parent.mkdir(parents=True)
+        store.write_text("", encoding="utf-8")
         sidecar = deployment.sidecar()
         sidecar.spawn()
-        assert "CANOPY_LIBRARY_DIR" not in sidecar.front_env()
+        assert env_name not in sidecar.front_env()
 
-    def test_without_a_config_no_library_dir_is_rendered(self, deployment, monkeypatch, caplog):
-        (deployment.root / LIBRARY_SUBPATH).mkdir(parents=True)
+    def test_without_a_config_no_optional_store_dir_is_rendered(
+        self, deployment, monkeypatch, caplog, optional_store
+    ):
+        subpath, env_name, log_word = optional_store
+        (deployment.root / subpath).mkdir(parents=True)
         monkeypatch.delenv("OSPREY_CONFIG")
         caplog.set_level(logging.INFO, logger=sidecar_module.__name__)
         sidecar = deployment.sidecar()
         sidecar.spawn()
         caplog.clear()
-        assert "CANOPY_LIBRARY_DIR" not in sidecar.front_env()
+        assert env_name not in sidecar.front_env()
         reasons = [
             record
             for record in caplog.records
-            if "screen library" in record.getMessage() and "OSPREY_CONFIG" in record.getMessage()
+            if log_word in record.getMessage() and "OSPREY_CONFIG" in record.getMessage()
         ]
         assert len(reasons) == 1
         assert reasons[0].levelno == logging.INFO
 
-    def test_the_library_under_a_build_render_resolves_above_build(self, deployment, monkeypatch):
-        library = deployment.root / LIBRARY_SUBPATH
-        library.mkdir(parents=True)
+    def test_an_optional_store_under_a_build_render_resolves_above_build(
+        self, deployment, monkeypatch, optional_store
+    ):
+        subpath, env_name, _ = optional_store
+        store = deployment.root / subpath
+        store.mkdir(parents=True)
         render = deployment.root / "build"
         render.mkdir()
-        (render / LIBRARY_SUBPATH).mkdir(parents=True)
+        (render / subpath).mkdir(parents=True)
         config = render / "config.yml"
         config.write_text(yaml.safe_dump({}), encoding="utf-8")
         monkeypatch.setenv("OSPREY_CONFIG", str(config))
         sidecar = deployment.sidecar()
         sidecar.spawn()
-        assert sidecar.front_env()["CANOPY_LIBRARY_DIR"] == str(library)
+        assert sidecar.front_env()[env_name] == str(store)
 
-    def test_the_library_is_looked_for_at_each_render(self, deployment):
+    def test_an_optional_store_is_looked_for_at_each_render(self, deployment, optional_store):
+        subpath, env_name, _ = optional_store
         sidecar = deployment.sidecar()
         sidecar.spawn()
-        assert "CANOPY_LIBRARY_DIR" not in sidecar.front_env()
-        library = deployment.root / LIBRARY_SUBPATH
-        library.mkdir(parents=True)
-        assert sidecar.front_env()["CANOPY_LIBRARY_DIR"] == str(library)
+        assert env_name not in sidecar.front_env()
+        store = deployment.root / subpath
+        store.mkdir(parents=True)
+        assert sidecar.front_env()[env_name] == str(store)
 
     def test_the_home_screen_is_the_configured_screen_the_library_holds(self, deployment):
         write_screen(deployment.root / LIBRARY_SUBPATH, "facility/overview")
@@ -817,76 +850,6 @@ class TestEnvironments:
         sidecar = deployment.sidecar()
         sidecar.spawn()
         assert sidecar.front_env()["CANOPY_COLLECTIONS_DIR"] == str(sidecar.collections_dir)
-
-    def test_the_facility_collections_are_handed_over_when_they_exist(self, deployment):
-        store = deployment.root / FACILITY_COLLECTIONS_SUBPATH
-        store.mkdir(parents=True)
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        assert sidecar.front_env()["CANOPY_FACILITY_COLLECTIONS_DIR"] == str(store)
-
-    def test_without_facility_collections_no_facility_dir_is_rendered(self, deployment, caplog):
-        caplog.set_level(logging.INFO, logger=sidecar_module.__name__)
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        caplog.clear()
-        assert "CANOPY_FACILITY_COLLECTIONS_DIR" not in sidecar.front_env()
-        reasons = [
-            record for record in caplog.records if "facility collections" in record.getMessage()
-        ]
-        assert len(reasons) == 1
-        assert reasons[0].levelno == logging.INFO
-        assert str(deployment.root / FACILITY_COLLECTIONS_SUBPATH) in reasons[0].getMessage()
-
-    def test_facility_collections_that_are_a_file_are_not_a_store(self, deployment):
-        store = deployment.root / FACILITY_COLLECTIONS_SUBPATH
-        store.parent.mkdir(parents=True)
-        store.write_text("", encoding="utf-8")
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        assert "CANOPY_FACILITY_COLLECTIONS_DIR" not in sidecar.front_env()
-
-    def test_without_a_config_no_facility_collections_dir_is_rendered(
-        self, deployment, monkeypatch, caplog
-    ):
-        (deployment.root / FACILITY_COLLECTIONS_SUBPATH).mkdir(parents=True)
-        monkeypatch.delenv("OSPREY_CONFIG")
-        caplog.set_level(logging.INFO, logger=sidecar_module.__name__)
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        caplog.clear()
-        assert "CANOPY_FACILITY_COLLECTIONS_DIR" not in sidecar.front_env()
-        reasons = [
-            record
-            for record in caplog.records
-            if "facility collections" in record.getMessage()
-            and "OSPREY_CONFIG" in record.getMessage()
-        ]
-        assert len(reasons) == 1
-        assert reasons[0].levelno == logging.INFO
-
-    def test_the_facility_collections_under_a_build_render_resolve_above_build(
-        self, deployment, monkeypatch
-    ):
-        store = deployment.root / FACILITY_COLLECTIONS_SUBPATH
-        store.mkdir(parents=True)
-        render = deployment.root / "build"
-        render.mkdir()
-        (render / FACILITY_COLLECTIONS_SUBPATH).mkdir(parents=True)
-        config = render / "config.yml"
-        config.write_text(yaml.safe_dump({}), encoding="utf-8")
-        monkeypatch.setenv("OSPREY_CONFIG", str(config))
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        assert sidecar.front_env()["CANOPY_FACILITY_COLLECTIONS_DIR"] == str(store)
-
-    def test_the_facility_collections_are_looked_for_at_each_render(self, deployment):
-        sidecar = deployment.sidecar()
-        sidecar.spawn()
-        assert "CANOPY_FACILITY_COLLECTIONS_DIR" not in sidecar.front_env()
-        store = deployment.root / FACILITY_COLLECTIONS_SUBPATH
-        store.mkdir(parents=True)
-        assert sidecar.front_env()["CANOPY_FACILITY_COLLECTIONS_DIR"] == str(store)
 
     def test_the_personal_and_facility_collections_are_distinct(self, deployment):
         (deployment.root / FACILITY_COLLECTIONS_SUBPATH).mkdir(parents=True)
@@ -1435,17 +1398,20 @@ class TestPreflight:
         with pytest.raises(RuntimeError, match="OSPREY_CONFIG is not set"):
             deployment.sidecar().preflight()
 
-    def test_a_missing_viewer_is_named(self, deployment, monkeypatch):
+    @pytest.mark.parametrize(
+        ("missing", "match"),
+        [
+            pytest.param("index.html", "no built viewer under", id="viewer"),
+            # The widget catalog is the viewer's ir-map.json: without it there is no panel builder.
+            pytest.param(
+                "ir-map.json", "no widget catalog: .*ir-map.json does not exist", id="ir-map"
+            ),
+        ],
+    )
+    def test_a_missing_viewer_file_is_named(self, deployment, monkeypatch, missing, match):
         monkeypatch.setattr(sidecar_module.importlib.util, "find_spec", lambda name: object())
-        (deployment.payload / "viewer" / "index.html").unlink()
-        with pytest.raises(RuntimeError, match="no built viewer under"):
-            deployment.sidecar().preflight()
-
-    def test_a_viewer_without_its_ir_map_is_named(self, deployment, monkeypatch):
-        """The widget catalog is the viewer's ir-map.json: without it there is no panel builder."""
-        monkeypatch.setattr(sidecar_module.importlib.util, "find_spec", lambda name: object())
-        (deployment.payload / "viewer" / "ir-map.json").unlink()
-        with pytest.raises(RuntimeError, match="no widget catalog: .*ir-map.json does not exist"):
+        (deployment.payload / "viewer" / missing).unlink()
+        with pytest.raises(RuntimeError, match=match):
             deployment.sidecar().preflight()
 
     def test_a_payload_without_a_widgets_directory_passes(self, deployment, monkeypatch):
@@ -1466,3 +1432,31 @@ class TestPreflight:
     def test_the_payload_is_found_beside_the_config(self, deployment):
         sidecar = CanopySidecar(deployment.root, "", None)
         assert sidecar.payload_dir == deployment.payload
+
+    @staticmethod
+    def _payload_for(config: Path, monkeypatch) -> Path:
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text("{}\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_CONFIG", str(config))
+        return CanopySidecar(config.parent / "agent-data", "", None).payload_dir
+
+    def test_a_host_deployment_render_finds_the_payload_the_build_staged(
+        self, tmp_path, monkeypatch
+    ):
+        repo = tmp_path / "repo"
+        (repo / "build" / "canopy_payload").mkdir(parents=True)
+        (repo / "canopy_payload").mkdir()  # an older build's root copy loses
+        found = self._payload_for(repo / "build" / "config.yml", monkeypatch)
+        assert found == repo / "build" / "canopy_payload"
+
+    def test_a_host_tier_render_finds_the_deployments_payload(self, tmp_path, monkeypatch):
+        repo = tmp_path / "repo"
+        (repo / "build" / "canopy_payload").mkdir(parents=True)
+        found = self._payload_for(repo / "build" / "demo-readonly" / "config.yml", monkeypatch)
+        assert found == repo / "build" / "canopy_payload"
+
+    def test_an_image_finds_the_payload_at_its_context_root(self, tmp_path, monkeypatch):
+        image = tmp_path / "app" / "demo"
+        (image / "canopy_payload").mkdir(parents=True)
+        found = self._payload_for(image / "build" / "config.yml", monkeypatch)
+        assert found == image / "canopy_payload"

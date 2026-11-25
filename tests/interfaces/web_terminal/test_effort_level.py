@@ -43,14 +43,14 @@ class TestReadEffortLevel:
     def test_returns_none_without_a_config_file(self, tmp_path, path):
         assert _read_effort_level(tmp_path / path if path else None) is None
 
-    def test_returns_none_for_invalid_yaml(self, tmp_path):
+    @pytest.mark.parametrize(
+        "content",
+        [": invalid: yaml: {{{{", ""],
+        ids=["invalid-yaml", "empty-file"],
+    )
+    def test_returns_none_for_an_unreadable_config(self, tmp_path, content):
         config = tmp_path / "config.yml"
-        config.write_text(": invalid: yaml: {{{{")
-        assert _read_effort_level(config) is None
-
-    def test_returns_none_for_empty_file(self, tmp_path):
-        config = tmp_path / "config.yml"
-        config.write_text("")
+        config.write_text(content)
         assert _read_effort_level(config) is None
 
 

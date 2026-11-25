@@ -69,15 +69,12 @@ def _lint_rejection(tmp_path: Path, build_profile: str) -> str:
     return shape[0].message
 
 
-def test_deploy_rejection_links_the_install_page(tmp_path: Path):
-    message = _deploy_rejection(tmp_path, _LEGACY_VALUE)
-
-    assert SETUP_DOCS_URL in message
-    assert "/osprey:setup" not in message
-
-
-def test_lint_rejection_links_the_install_page(tmp_path: Path):
-    message = _lint_rejection(tmp_path, _LEGACY_VALUE)
+@pytest.mark.parametrize(
+    "reject",
+    [pytest.param(_deploy_rejection, id="deploy"), pytest.param(_lint_rejection, id="lint")],
+)
+def test_rejection_links_the_install_page(tmp_path: Path, reject):
+    message = reject(tmp_path, _LEGACY_VALUE)
 
     assert SETUP_DOCS_URL in message
     assert "/osprey:setup" not in message

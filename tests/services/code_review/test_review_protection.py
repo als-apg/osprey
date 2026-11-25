@@ -391,11 +391,11 @@ def test_table_family_reaches_the_protected_view():
 @pytest.mark.parametrize(
     "base_dir",
     [
-        lambda root: "data",
-        lambda root: "data/code_review",
-        lambda root: str(root / "data" / "code_review"),
+        lambda root: "agent",
+        lambda root: "agent/code_review",
+        lambda root: str(root / "agent" / "code_review"),
     ],
-    ids=["over-all-data", "over-the-prompt", "absolute"],
+    ids=["over-the-group", "over-the-prompt", "absolute"],
 )
 def test_prompt_under_the_agent_data_root_is_refused(base_dir, deployment):
     config = {"agent_data": {"base_dir": base_dir(deployment)}}

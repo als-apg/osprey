@@ -766,7 +766,7 @@ def test_a_claim_moves_the_artifact_from_the_build_zone_into_the_source_zone(
     result = runner.invoke(scaffold, ["claim", "rules/safety", "--repo", str(built_repo)])
 
     assert result.exit_code == 0, result.output
-    claimed = built_repo / "rules" / "safety.md"
+    claimed = built_repo / "agent" / "rules" / "safety.md"
     assert claimed.read_text(encoding="utf-8") == "# my safety rules\n"
     assert not rendered.exists()
     assert "osprey build" in result.output
@@ -784,7 +784,7 @@ def test_a_claim_needs_no_arguments_inside_the_repo(
     result = runner.invoke(scaffold, ["claim", "rules/safety"])
 
     assert result.exit_code == 0, result.output
-    assert (built_repo / "rules" / "safety.md").is_file()
+    assert (built_repo / "agent" / "rules" / "safety.md").is_file()
 
 
 @pytest.mark.parametrize(

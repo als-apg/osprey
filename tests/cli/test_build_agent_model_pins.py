@@ -32,7 +32,7 @@ def _init_repo(tmp_path: Path, *config_lines: str) -> Path:
 
 def _site_helper(repo: Path, model: str) -> None:
     """Ship the deployment's own agent file ``agents/site-helper.md``."""
-    agents = repo / "agents"
+    agents = repo / "agent" / "agents"
     agents.mkdir(exist_ok=True)
     (agents / "site-helper.md").write_text(
         "---\n"

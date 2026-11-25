@@ -185,17 +185,6 @@ class TestSupportsNativeStructuredOutput:
         mock_litellm.supports_response_schema.side_effect = Exception("lookup blew up")
         assert _supports_native_structured_output("openai/gpt-4o", "openai") is False
 
-    def test_openai_models_format(self):
-        """OpenAI models use direct model name (no prefix)."""
-        # OpenAI models don't need prefix in LiteLLM
-        result = _supports_native_structured_output("gpt-4o", "openai")
-        assert isinstance(result, bool)
-
-    def test_ollama_models_format(self):
-        """Ollama models use ollama/ prefix."""
-        result = _supports_native_structured_output("ollama/llama3.1:8b", "ollama")
-        assert isinstance(result, bool)
-
     def test_openai_compatible_providers_return_true(self):
         """OpenAI-compatible providers (CBORG, etc.) always support structured output."""
         # These providers proxy to models that support structured output.
@@ -1010,10 +999,53 @@ class TestAClassThatIsNotABaseProviderInTheHealthCheck:
 class TestCheckLitellmHealth:
     """Guard rails and litellm-exception mapping in check_litellm_health."""
 
-    def test_missing_api_key(self):
-        assert check_litellm_health(
-            provider="openai", api_key=None, base_url=None, model_id="gpt-4o"
-        ) == (False, "API key not set")
+    @pytest.mark.parametrize(
+        ("provider", "api_key", "base_url", "model_id", "expected"),
+        [
+            pytest.param(
+                "openai", None, None, "gpt-4o", (False, "API key not set"), id="missing_api_key"
+            ),
+            # A gateway provider with no endpoint is refused, not routed to OpenAI.
+            # ``als-apg`` is openai-compatible, so litellm routes it as
+            # ``openai/<model>`` and, with no ``api_base``, sends the call — carrying
+            # the gateway's key — to api.openai.com. That comes back as an
+            # authentication failure nowhere near its cause, so the endpoint is
+            # checked the same way the key is.
+            pytest.param(
+                "als-apg",
+                "sk-real",
+                None,
+                "claude-haiku-4-5-20251001",
+                (False, "Base URL required for als-apg"),
+                id="missing_base_url_on_a_provider_that_has_no_default",
+            ),
+            pytest.param(
+                "openai",
+                "sk-real",
+                None,
+                None,
+                (False, "Model ID required for health check"),
+                id="missing_model_id",
+            ),
+            pytest.param(
+                "anthropic",
+                None,
+                None,
+                "claude-haiku-4-5",
+                (False, "API key not set"),
+                id="a_key_requiring_adapter_still_fails_without_one",
+            ),
+        ],
+    )
+    def test_a_guard_rail_refuses_before_the_call(
+        self, provider, api_key, base_url, model_id, expected
+    ):
+        assert (
+            check_litellm_health(
+                provider=provider, api_key=api_key, base_url=base_url, model_id=model_id
+            )
+            == expected
+        )
 
     def test_placeholder_api_key_rejected(self):
         ok, msg = check_litellm_health(
@@ -1022,22 +1054,6 @@ class TestCheckLitellmHealth:
         assert ok is False
         assert "placeholder" in msg
 
-    def test_missing_base_url_on_a_provider_that_has_no_default(self):
-        """A gateway provider with no endpoint is refused, not routed to OpenAI.
-
-        ``als-apg`` is openai-compatible, so litellm routes it as
-        ``openai/<model>`` and, with no ``api_base``, sends the call — carrying
-        the gateway's key — to api.openai.com. That comes back as an
-        authentication failure nowhere near its cause, so the endpoint is
-        checked the same way the key is.
-        """
-        assert check_litellm_health(
-            provider="als-apg",
-            api_key="sk-real",
-            base_url=None,
-            model_id="claude-haiku-4-5-20251001",
-        ) == (False, "Base URL required for als-apg")
-
     def test_unknown_provider_without_base_url_still_reaches_the_call(self):
         """The guard reads the provider class, and an unknown name has none."""
         with patch("litellm.completion") as mock_completion:
@@ -1045,11 +1061,6 @@ class TestCheckLitellmHealth:
             assert check_litellm_health(
                 provider="not-a-provider", api_key="sk-real", base_url=None, model_id="m"
             ) == (True, "API accessible and authenticated")
-
-    def test_missing_model_id(self):
-        assert check_litellm_health(
-            provider="openai", api_key="sk-real", base_url=None, model_id=None
-        ) == (False, "Model ID required for health check")
 
     @patch("litellm.completion")
     def test_healthy_when_call_succeeds(self, mock_completion):
@@ -1148,11 +1159,6 @@ class TestCheckLitellmHealth:
                 provider="house-gateway", api_key="sk-real", base_url=None, model_id="m"
             )
         assert (ok, msg) == (True, "API accessible and authenticated")
-
-    def test_a_key_requiring_adapter_still_fails_without_one(self):
-        assert check_litellm_health(
-            provider="anthropic", api_key=None, base_url=None, model_id="claude-haiku-4-5"
-        ) == (False, "API key not set")
 
     @patch("litellm.completion")
     def test_authentication_error_is_unhealthy(self, mock_completion):

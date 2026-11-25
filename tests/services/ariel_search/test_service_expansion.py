@@ -432,17 +432,6 @@ class TestMatchingText:
         return expansion
 
     @pytest.mark.asyncio
-    async def test_field_filter_value_does_not_expand(self, tmp_path: Path) -> None:
-        """``author:ts bpm`` expands only ``bpm`` -- the filter value is not text."""
-        service = _service(tmp_path, vocabulary=_enabled())
-
-        expansion = await self._expansion_for(
-            service, "author:ts bpm", query_parser=parse_keyword_query
-        )
-
-        assert [group.original for group in expansion.groups] == ["bpm"]
-
-    @pytest.mark.asyncio
     async def test_pattern_body_does_not_expand(self, tmp_path: Path) -> None:
         """A ``/regex/`` body contributes nothing to the matching text."""
         service = _service(tmp_path, vocabulary=_enabled())
@@ -471,15 +460,28 @@ class TestMatchingText:
         assert "sr01c" in whole_expansion.flattened_text.lower()
 
     @pytest.mark.asyncio
-    async def test_quoted_phrase_is_part_of_the_matching_text(self, tmp_path: Path) -> None:
-        """A quoted phrase still triggers a concept."""
+    @pytest.mark.parametrize(
+        ("query", "expected_originals"),
+        [
+            # The filter value is not text: only ``bpm`` expands.
+            pytest.param("author:ts bpm", ["bpm"], id="field_filter_value_does_not_expand"),
+            # A quoted phrase still triggers a concept.
+            pytest.param(
+                '"beam position monitor" fault',
+                ["beam position monitor"],
+                id="quoted_phrase_is_part_of_the_matching_text",
+            ),
+        ],
+    )
+    async def test_keyword_matching_text_selects_the_groups(
+        self, tmp_path: Path, query: str, expected_originals: list[str]
+    ) -> None:
+        """The keyword parser decides which parts of the query are matching text."""
         service = _service(tmp_path, vocabulary=_enabled())
 
-        expansion = await self._expansion_for(
-            service, '"beam position monitor" fault', query_parser=parse_keyword_query
-        )
+        expansion = await self._expansion_for(service, query, query_parser=parse_keyword_query)
 
-        assert [group.original for group in expansion.groups] == ["beam position monitor"]
+        assert [group.original for group in expansion.groups] == expected_originals
 
 
 # --- boolean-operator queries -----------------------------------------------

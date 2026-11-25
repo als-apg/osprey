@@ -172,17 +172,18 @@ class TestALSLogbookAdapter:
         adapter = ALSLogbookAdapter(config)
         assert adapter.source_system_name == "ALS eLog"
 
-    def test_detect_file_source(self):
-        """File path is detected as file source."""
-        config = self._make_config("/path/to/file.jsonl")
+    @pytest.mark.parametrize(
+        ("source_url", "source_type"),
+        [
+            pytest.param("/path/to/file.jsonl", "file", id="file_path"),
+            pytest.param("https://elog.example.com/api", "http", id="http_url"),
+        ],
+    )
+    def test_detect_source_type(self, source_url, source_type):
+        """A file path is detected as a file source, an HTTP URL as an HTTP source."""
+        config = self._make_config(source_url)
         adapter = ALSLogbookAdapter(config)
-        assert adapter.source_type == "file"
-
-    def test_detect_http_source(self):
-        """HTTP URL is detected as HTTP source."""
-        config = self._make_config("https://elog.example.com/api")
-        adapter = ALSLogbookAdapter(config)
-        assert adapter.source_type == "http"
+        assert adapter.source_type == source_type
 
     @pytest.mark.asyncio
     async def test_fetch_entries_from_file(self):
@@ -1218,17 +1219,18 @@ class TestGenericJSONAdapterWrite:
             }
         )
 
-    def test_supports_write_local_file(self):
-        """Local file source supports write."""
-        config = self._make_config("/tmp/test.json")
+    @pytest.mark.parametrize(
+        ("source_url", "supports_write"),
+        [
+            pytest.param("/tmp/test.json", True, id="local_file"),
+            pytest.param("https://example.com/data.json", False, id="http_false"),
+        ],
+    )
+    def test_supports_write(self, source_url, supports_write):
+        """A local file source supports write; an HTTP source does not."""
+        config = self._make_config(source_url)
         adapter = GenericJSONAdapter(config)
-        assert adapter.supports_write is True
-
-    def test_supports_write_http_false(self):
-        """HTTP source does not support write."""
-        config = self._make_config("https://example.com/data.json")
-        adapter = GenericJSONAdapter(config)
-        assert adapter.supports_write is False
+        assert adapter.supports_write is supports_write
 
     def test_requires_write_auth_false(self):
         """Generic JSON is a no-auth logbook: it publishes without credentials.

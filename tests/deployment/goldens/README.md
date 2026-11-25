@@ -6,14 +6,14 @@ specification lives.
 
 `exemplar-profile/` is a build profile for a facility running the virtual
 accelerator with its archiver, and one facility-owned container
-(`services/facility-mcp/`, which carries a Dockerfile and therefore earns its own
+(`ops/services/facility-mcp/`, which carries a Dockerfile and therefore earns its own
 image-build job in the pipeline). It is the reference deployment the feature's
 own exemplar is not — it names a registry and builds an image, so it reaches the
 images stage and the registry credential that an `image_source: local` profile
 never does. Its `deploy:` block is the only input the CI template reads that a
 plain profile does not already provide.
 
-The starter `ci-extra.yml` is not here. It is written once, by `osprey init`,
+The starter `ops/ci-extra.yml` is not here. It is written once, by `osprey init`,
 and belongs to the deployment from then on — so its specification is the
 exemplar in `tests/fixtures/lifecycle_repo.py`, which
 `tests/cli/test_init_verb.py` holds the verb's output to byte for byte.

@@ -41,7 +41,7 @@ from osprey.utils.workspace import APPS_DIRNAME
 
 from .application_material import app_build_output
 from .output import fail, report
-from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .repo_resolver import PROFILE_FILENAME, repo_option
 
 _OSPREY_DIR = Path(__file__).resolve().parents[1]
 #: The scaffold ``osprey app new`` copies; every app-scoped identifier in it is the
@@ -134,6 +134,8 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     is refused, and so is the name of an application an installed package ships. Whatever
     exists at apps/NAME/ is left alone unless --force replaces it.
     """
+    from osprey.repo_retired import deployment_root
+
     from .build_profile import write_back_cli_overrides
 
     package = name.replace("-", "_")
@@ -151,7 +153,7 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     shadowing = shadows_installed([name], installed_apps())
     if shadowing:
         raise click.UsageError(shadowing[0].message)
-    root = find_repo_root(repo)
+    root = deployment_root(repo)
     profile_path = root / PROFILE_FILENAME
     listed = _listed_apps(profile_path)
     target = root / APPS_DIRNAME / name
@@ -237,9 +239,10 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     does not fail the check.
     """
     from osprey.apps.loader import check_deployment
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
 
-    root = find_repo_root(repo)
+    root = deployment_root(repo)
     try:
         deployment = check_deployment(root)
     except AppManifestError as error:

@@ -58,7 +58,7 @@ def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:
 
 
 def _viewer(profile_dir: Path, rel: str = "viewers/beam.js") -> str:
-    path = profile_dir / "project" / rel
+    path = profile_dir / "ops" / "project" / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("export default function render() {}\n")
     return rel
@@ -125,7 +125,7 @@ def test_bad_declarations_are_refused_naming_the_key(
 
 @pytest.mark.usefixtures("no_entry_points")
 def test_missing_viewer_is_refused(tmp_path: Path) -> None:
-    (tmp_path / "project").mkdir()
+    (tmp_path / "ops" / "project").mkdir(parents=True)
     errors = _errors(
         _profile(
             extension_types={
@@ -139,7 +139,7 @@ def test_missing_viewer_is_refused(tmp_path: Path) -> None:
 
 @pytest.mark.usefixtures("no_entry_points")
 def test_viewer_outside_project_dir_is_refused(tmp_path: Path) -> None:
-    (tmp_path / "project").mkdir()
+    (tmp_path / "ops" / "project").mkdir(parents=True)
     (tmp_path / "escape.js").write_text("export default 1;\n")
     errors = _errors(
         _profile(
@@ -157,7 +157,7 @@ def test_symlinked_viewer_leaving_the_tree_is_refused(tmp_path: Path) -> None:
     outside = tmp_path / "elsewhere" / "v.js"
     outside.parent.mkdir()
     outside.write_text("export default 1;\n")
-    link = tmp_path / "project" / "viewers" / "v.js"
+    link = tmp_path / "ops" / "project" / "viewers" / "v.js"
     link.parent.mkdir(parents=True)
     link.symlink_to(outside)
     errors = _errors(

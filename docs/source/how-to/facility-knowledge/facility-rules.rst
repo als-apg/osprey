@@ -106,7 +106,7 @@ There are two ways to edit a rule.
 ``build/.claude/rules/``, and ``build/`` is disposable, so edit the copy in
 your repo:
 
-* **The facility description is yours.** Edit ``rules/facility.md`` in your
+* **The facility description is yours.** Edit ``agent/rules/facility.md`` in your
   repo. ``osprey init`` writes it there and lists it as ``rules/facility``, so
   every build copies it into the render.
 * **The framework-generated rules are re-rendered.** ``osprey build`` writes

@@ -30,6 +30,7 @@ from typing import IO, Any
 
 from rich.text import Text
 
+from osprey.integrations.canopy.stage import STAGE_DIR_ENV
 from osprey_connectors.config import apply_env_chain
 from osprey_connectors.dotenv import chain_files
 from osprey_connectors.errors import BuildProfileError
@@ -260,7 +261,8 @@ def _run_lifecycle_phase(
         phase_name: Phase name for display (pre_build, post_build, validate).
         steps: List of LifecycleStep objects.
         default_cwd: Default working directory for steps without explicit cwd.
-        project_path: Project root path, substituted for `{project_root}` and the
+        project_path: Project root path, substituted for `{project_root}`,
+            exported to every step as ``OSPREY_BUILD_STAGE_DIR``, and the
             directory the JUnit results file is read from. A step's `run` may
             also name `{python}`, replaced with `sys.executable`; the
             replacement is plain text, so a step quotes it (`"{python}" -m ...`).
@@ -284,6 +286,10 @@ def _run_lifecycle_phase(
             len(applied),
             ", ".join(str(path) for path in env_files),
         )
+
+    # Every step learns the stage directory of the render being built, the one
+    # place a step may write into the render: the swap makes it `build/`.
+    sub_env[STAGE_DIR_ENV] = str(project_path)
 
     # The caller names the venv, and nothing here looks for one: with a venv
     # named, its `bin/` leads PATH so `python` is that venv's interpreter.

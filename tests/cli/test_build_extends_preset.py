@@ -33,7 +33,8 @@ def test_preset_exists_returns_path_for_bundled_preset() -> None:
 
 def test_preset_exists_normalizes_underscore_form() -> None:
     """`_preset_exists` honors the same _→- normalization as the loader."""
-    assert _preset_exists("hello_world") is not None
+    assert _preset_exists("hello-world") is not None
+    assert _preset_exists("hello_world") == _preset_exists("hello-world")
     assert _preset_exists("demo") is not None
 
 

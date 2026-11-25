@@ -343,7 +343,7 @@ Then delete the ones this deployment has no role for:
 Deleting a tier is three deletions that go together: `tiers/<name>.yml`, every
 roster entry under `modules.web_terminals.users` (and every
 `authorization.roles.<role>.tier`) that names it, and those users'
-`web-terminal-context/<user>/` once a build has seeded it. Deleting a shared login is
+`agent/context/<user>/` once a build has seeded it. Deleting a shared login is
 `tiers/<name>.yml`, its name under `modules.web_terminals.shared`, and its seeded
 context directory. Leave one behind and the next build either fails on the missing
 file or warns about context for a name not on the roster.
@@ -372,12 +372,12 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/facility/simulation/models.yaml`, `simulation/decks/`, `simulation/measurement/`, `simulation/scenarios/` nobody replaced | demo machine model |
 | `data/facility/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |
-| `web-terminal-context/base.md` | opens by naming the demo product |
+| `agent/context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |
 | `.env` keys `OSPREY_AUTH_PW_ALICE`, `_BOB`, `_CAROL` | demo passwords |
 | `tiers/*.yml` that no roster entry, `default_tier` or `shared:` names | orphaned login files |
 | `data/facility/limits.yaml` still holding hello-world's demo records | the base's own emitted demo records, §5 |
-| `web-terminal-context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
+| `agent/context/<name>/` for a name no roster entry has | seeded by an earlier build for a user since deleted |
 
 A row that survives on purpose is fine: `keep — <reason>` on the gate, and the
 reason in INTERVIEW.md so the next reader does not have to guess. Triggers are

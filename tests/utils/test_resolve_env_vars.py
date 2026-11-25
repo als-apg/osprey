@@ -96,15 +96,16 @@ class TestResolveEnvVars:
 class TestResolveEnvVarsWithEnviron:
     """resolve_env_vars(data, environ=...) expands against a supplied mapping."""
 
-    def test_resolves_brace_var_from_environ(self):
-        """${VAR} resolves from the passed mapping, not os.environ."""
-        result = resolve_env_vars("${ARGO_PROD_URL}", environ={"ARGO_PROD_URL": "https://argo"})
-        assert result == "https://argo"
-
-    def test_resolves_bare_dollar_var_from_environ(self):
-        """$VAR resolves from the passed mapping."""
-        result = resolve_env_vars("$ARGO", environ={"ARGO": "https://argo"})
-        assert result == "https://argo"
+    @pytest.mark.parametrize(
+        ("template", "environ"),
+        [
+            pytest.param("${ARGO_PROD_URL}", {"ARGO_PROD_URL": "https://argo"}, id="brace-var"),
+            pytest.param("$ARGO", {"ARGO": "https://argo"}, id="bare-dollar-var"),
+        ],
+    )
+    def test_resolves_var_from_environ(self, template, environ):
+        """${VAR} and $VAR resolve from the passed mapping, not os.environ."""
+        assert resolve_env_vars(template, environ=environ) == "https://argo"
 
     def test_resolves_nested_dict_from_environ(self):
         """Nested-dict ${VAR} keys resolve from the passed mapping."""

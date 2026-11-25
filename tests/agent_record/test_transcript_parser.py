@@ -180,7 +180,9 @@ def test_keys_do_not_depend_on_key_order():
 
 def test_the_same_line_parses_to_the_same_entries():
     obj = _assistant([{"type": "text", "text": "x"}])
-    assert _parse(obj) == _parse(obj)
+    first = _parse(obj)
+    assert first
+    assert first == _parse(obj)
 
 
 # ---------------------------------------------------------------------------

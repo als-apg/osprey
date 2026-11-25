@@ -319,7 +319,10 @@ def test_the_relay_settings_on_the_page_are_the_relays():
 def test_the_teams_env_blocks_are_split_from_commands():
     """A shell command and ``.env`` lines never share one block on the Teams page."""
     text = (PAGES / "microsoft-teams.rst").read_text(encoding="utf-8")
-    for block in code_blocks(text, "bash"):
+    blocks = code_blocks(text, "bash")
+    assert blocks, "the Teams page has no bash blocks"
+    assert _env_blocks(text), "the Teams page has no .env-only bash block"
+    for block in blocks:
         lines = [line for line in block.splitlines() if line.strip()]
         env_lines = [line for line in lines if _ENV_LINE.match(line) and "$(" not in line]
         assert not env_lines or len(env_lines) == len(lines), f"mixed block:\n{block}"

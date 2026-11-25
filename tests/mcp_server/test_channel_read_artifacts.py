@@ -221,18 +221,35 @@ async def test_rgb_frame_renders_from_the_trailing_colour_axis(tmp_path, monkeyp
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-async def test_reported_color_mode_places_the_colour_axis_first(tmp_path, monkeypatch):
-    """RGB1 means the colour components lead: (3, H, W), not (H, W, 3)."""
-    frame = np.zeros((3, 32, 40), dtype=np.uint8)
+@pytest.mark.parametrize(
+    ("shape", "color_mode", "png_size"),
+    [
+        # RGB1 means the colour components lead: (3, H, W), not (H, W, 3). Drawn as a
+        # 40x32 picture, not as a 32x40 one: the leading axis was colour.
+        pytest.param((3, 32, 40), "RGB1", (40, 32), id="named-rgb1"),
+        # areaDetector sends colorMode as an enum: 2 is RGB1, so (3, H, W). Both the
+        # leading and the trailing axis are 3, so inference alone would take the
+        # trailing one - only the reported code can pick the leading one. 3 wide by
+        # 800 high: the leading axis was colour, not the trailing one.
+        pytest.param((3, 800, 3), 2, (3, 800), id="integer-rgb1"),
+        # Enum 4 is RGB3: the same frame as the RGB1 case, drawn the other way. 800
+        # wide by 3 high - the trailing axis was colour this time.
+        pytest.param((3, 800, 3), 4, (800, 3), id="integer-rgb3"),
+    ],
+)
+async def test_reported_color_mode_places_the_colour_axis(
+    tmp_path, monkeypatch, shape, color_mode, png_size
+):
+    """A reported colorMode, named or as its enum code, decides which axis is colour."""
+    frame = np.zeros(shape, dtype=np.uint8)
     frame[1] = 255
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: "RGB1"})
+    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: color_mode})
 
     entry = data["summary"]["readings"][ADDRESS]
     assert "no_preview_reason" not in entry
 
     png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
-    # Drawn as a 40x32 picture, not as a 32x40 one: the leading axis was colour.
-    assert _png_size(png) == (40, 32)
+    assert _png_size(png) == png_size
 
 
 @pytest.mark.parametrize(
@@ -255,22 +272,6 @@ async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch, color_
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-async def test_integer_color_mode_rgb1_places_the_colour_axis_first(tmp_path, monkeypatch):
-    """areaDetector sends colorMode as an enum: 2 is RGB1, so (3, H, W)."""
-    # Both the leading and the trailing axis are 3, so inference alone would take
-    # the trailing one - only the reported code can pick the leading one.
-    frame = np.zeros((3, 800, 3), dtype=np.uint8)
-    frame[1] = 255
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: 2})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert "no_preview_reason" not in entry
-
-    png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
-    # 3 wide by 800 high: the leading axis was colour, not the trailing one.
-    assert _png_size(png) == (3, 800)
-
-
 async def test_integer_color_mode_rgb2_places_the_colour_axis_in_the_middle(tmp_path, monkeypatch):
     """Enum 3 is RGB2: the colour components are the row axis, (H, 3, W)."""
     frame = np.zeros((32, 3, 40), dtype=np.uint8)
@@ -282,20 +283,6 @@ async def test_integer_color_mode_rgb2_places_the_colour_axis_in_the_middle(tmp_
 
     png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
     assert _png_size(png) == (40, 32)
-
-
-async def test_integer_color_mode_rgb3_places_the_colour_axis_last(tmp_path, monkeypatch):
-    """Enum 4 is RGB3: the same frame as the RGB1 case, drawn the other way."""
-    frame = np.zeros((3, 800, 3), dtype=np.uint8)
-    frame[1] = 255
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: frame}, color_modes={ADDRESS: 4})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert "no_preview_reason" not in entry
-
-    png = (get_artifact_store().get_file_path(entry["artifact_id"])).read_bytes()
-    # 800 wide by 3 high - the trailing axis was colour this time.
-    assert _png_size(png) == (800, 3)
 
 
 async def test_unknown_integer_color_mode_falls_back_to_inference(tmp_path, monkeypatch):

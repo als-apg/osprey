@@ -384,8 +384,8 @@ The agents are the seven framework agents (``channel-finder``,
 ``data-visualizer``, ``facility-knowledge``, ``facility-knowledge-graph``,
 ``logbook-deep-research``, ``logbook-search`` and ``pyat-specialist``), plus any
 agent the deployment defines under ``claude_code.agents`` or ships in
-``agents/``. The build refuses a pin that names no agent. An agent the
-deployment ships as ``agents/<agent>.md`` runs that file's ``model:`` line, so
+``agent/agents/``. The build refuses a pin that names no agent. An agent the
+deployment ships as ``agent/agents/<agent>.md`` runs that file's ``model:`` line, so
 the build also refuses a pin naming a different model. ``osprey set`` writes a
 pin with the same checks it makes for ``model=``:
 

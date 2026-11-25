@@ -47,13 +47,15 @@ class TestShape:
 
 
 class TestEnds:
-    def test_an_object_only_difference_gives_two_ids(self):
-        other = _claim(object={"device": "SR01C:PS2", "port": "3"})
-        assert _id(other) != _id(_claim())
-
-    def test_a_port_difference_gives_two_ids(self):
-        other = _claim(object={"device": "SR01C:PS1", "port": "4"})
-        assert _id(other) != _id(_claim())
+    @pytest.mark.parametrize(
+        "object_",
+        [
+            pytest.param({"device": "SR01C:PS2", "port": "3"}, id="an_object_only_difference"),
+            pytest.param({"device": "SR01C:PS1", "port": "4"}, id="a_port_difference"),
+        ],
+    )
+    def test_gives_two_ids(self, object_):
+        assert _id(_claim(object=object_)) != _id(_claim())
 
     def test_the_unit_counts_as_part_of_the_object_end(self):
         base = _claim(type="located_in", subject={"device": "D1"}, object={"place": "SR/S01"})
@@ -125,8 +127,5 @@ class TestAttributes:
 
 
 class TestDuplicates:
-    def test_an_exact_duplicate_row_is_one_claim(self):
-        assert _id(_claim()) == _id(_claim())
-
     def test_an_unknown_type_still_gets_an_id(self):
         assert _id(_claim(type="no_such_type")).startswith("cables/no_such_type/")

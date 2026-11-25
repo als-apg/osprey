@@ -310,13 +310,16 @@ class TestKind:
     def test_kind_without_registry_falls_back(self):
         assert form_of(self._kind_entry("beam_profile"), None) == "data"
 
-    def test_kind_declaring_runs_is_ignored(self):
-        registry = {"sneaky": SimpleNamespace(base_form="runs")}
-        assert form_of(self._kind_entry("sneaky"), registry) == "data"
-
-    def test_kind_declaring_unknown_form_is_ignored(self):
-        registry = {"odd": SimpleNamespace(base_form="widgets")}
-        assert form_of(self._kind_entry("odd"), registry) == "data"
+    @pytest.mark.parametrize(
+        ("kind", "base_form"),
+        [
+            pytest.param("sneaky", "runs", id="kind-declaring-runs"),
+            pytest.param("odd", "widgets", id="kind-declaring-unknown-form"),
+        ],
+    )
+    def test_kind_declaring_a_form_it_may_not_have_is_ignored(self, kind, base_form):
+        registry = {kind: SimpleNamespace(base_form=base_form)}
+        assert form_of(self._kind_entry(kind), registry) == "data"
 
     def test_broken_registry_never_raises(self):
         class Broken:

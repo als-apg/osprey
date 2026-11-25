@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "watchdog"
 NAME = "guard-circumvention"
-PACKAGED = PRESET_DIR / "watchdogs" / NAME / "instructions.md"
+PACKAGED = PRESET_DIR / "agent" / "watchdogs" / NAME / "instructions.md"
 HEADER_KEYS = {"label", "prompt", "pair", "machine"}
 _ENABLE_INHERITED = ("watchdogs:", f"  {NAME}:", "    enabled: true")
 
@@ -81,7 +81,9 @@ def test_no_preset_defines_an_agent_watchdog() -> None:
 
 def test_init_materializes_the_watchdog_beside_its_block(tmp_path: Path) -> None:
     repo = _init(tmp_path / "repo")
-    assert (repo / "watchdogs" / NAME / "instructions.md").read_bytes() == PACKAGED.read_bytes()
+    assert (
+        repo / "agent" / "watchdogs" / NAME / "instructions.md"
+    ).read_bytes() == PACKAGED.read_bytes()
     profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
     assert profile["watchdogs"][NAME]["enabled"] is False
     assert [d.name for d in load_profile_watchdogs(repo)] == [NAME]
@@ -89,7 +91,7 @@ def test_init_materializes_the_watchdog_beside_its_block(tmp_path: Path) -> None
 
 def test_force_re_materializes_the_watchdog(tmp_path: Path) -> None:
     repo = _init(tmp_path / "repo")
-    directory = repo / "watchdogs" / NAME
+    directory = repo / "agent" / "watchdogs" / NAME
     (directory / "instructions.md").write_text("Edited.\n", encoding="utf-8")
     (directory / "stray.md").write_text("Stray.\n", encoding="utf-8")
     _init(repo, "--force")
@@ -99,14 +101,14 @@ def test_force_re_materializes_the_watchdog(tmp_path: Path) -> None:
 
 def test_a_preset_without_the_block_materializes_no_directory(tmp_path: Path) -> None:
     repo = _init(tmp_path / "repo", preset="hello-world")
-    assert not (repo / "watchdogs").exists()
+    assert not (repo / "agent" / "watchdogs").exists()
     _init(repo, "--force", preset="hello-world")
-    assert not (repo / "watchdogs").exists()
+    assert not (repo / "agent" / "watchdogs").exists()
 
 
 def test_the_source_zone_lists_the_watchdogs() -> None:
-    assert "watchdogs" in MATERIALIZED_SOURCE_ENTRIES
-    assert "`watchdogs/`" in _source_zone_prose()
+    assert "agent/watchdogs" in MATERIALIZED_SOURCE_ENTRIES
+    assert "`agent/watchdogs/`" in _source_zone_prose()
 
 
 def test_the_build_succeeds_disabled_and_enabled(
@@ -148,7 +150,7 @@ def test_a_child_enabling_the_inherited_watchdog_must_add_the_files(tmp_path: Pa
     assert "extends" in message
     assert "osprey init --force" not in message
 
-    directory = tmp_path / "watchdogs" / NAME
+    directory = tmp_path / "agent" / "watchdogs" / NAME
     directory.mkdir(parents=True)
     shutil.copy(PACKAGED, directory / "instructions.md")
     resolved, _directory = resolve_build_profile(profile, None)
@@ -179,7 +181,7 @@ def test_init_refuses_a_preset_whose_disabled_watchdog_has_no_files(
 
 
 def test_the_agent_twin_judges_with_the_packaged_instructions_byte_for_byte() -> None:
-    twin = FIXTURES / "agent-profile" / "watchdogs" / f"{NAME}-agent" / "instructions.md"
+    twin = FIXTURES / "agent-profile" / "agent" / "watchdogs" / f"{NAME}-agent" / "instructions.md"
     assert twin.read_bytes() == PACKAGED.read_bytes()
 
 

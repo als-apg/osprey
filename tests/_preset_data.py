@@ -61,10 +61,10 @@ def _composed(bundle: str) -> Path:
     from osprey.cli.profile_cmd import _data_copy_ignore
 
     source = preset_data(bundle)
-    destination = _scratch_root() / bundle / "data"
-    destination.parent.mkdir(parents=True)
-    source.copy_into(destination, ignore=_data_copy_ignore(source.app_data))
-    return destination
+    root = _scratch_root() / bundle
+    root.mkdir(parents=True)
+    source.copy_into(root, ignore=_data_copy_ignore(source.app_data))
+    return root / "data"
 
 
 def copy_bundle_data(destination: Path, bundle: str = "demo") -> Path:

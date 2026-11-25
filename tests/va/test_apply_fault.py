@@ -298,9 +298,6 @@ def composite(tmp_path: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch) 
 class TestStuckSetpointInTheComposite:
     """The fault, without a server."""
 
-    def test_a_write_to_the_stuck_setpoint_is_accepted(self, composite: Any) -> None:
-        composite.set({STUCK_SP: 7.25})
-
     def test_the_stuck_write_never_reaches_the_model(self, composite: Any) -> None:
         composite.set({STUCK_SP: 7.25})
 

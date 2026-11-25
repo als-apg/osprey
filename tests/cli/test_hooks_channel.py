@@ -151,7 +151,7 @@ def test_framework_hook_claims_into_the_profile_hooks_dir(tmp_path: Path, profil
 
     outcome = claim_into_profile(project, f"hooks/{FRAMEWORK_HOOK}")
 
-    assert outcome.profile_path == profile_dir / "hooks" / FRAMEWORK_HOOK
+    assert outcome.profile_path == profile_dir / "agent" / "hooks" / FRAMEWORK_HOOK
     assert outcome.profile_path.read_text(encoding="utf-8") == body
     # A claim MOVES: the project copy is gone until the next build puts it back.
     assert not rendered.exists()
@@ -164,7 +164,9 @@ def test_claimed_hook_shadows_the_framework_render_on_the_next_build(
     first = _render_project(tmp_path, "claim-then-build")
     _point_manifest_at(first, profile_dir / "profile.yml")
     claim_into_profile(first, f"hooks/{FRAMEWORK_HOOK}")
-    (profile_dir / "hooks" / FRAMEWORK_HOOK).write_text("# facility edit\n", encoding="utf-8")
+    (profile_dir / "agent" / "hooks" / FRAMEWORK_HOOK).write_text(
+        "# facility edit\n", encoding="utf-8"
+    )
 
     rebuilt = _render_project(tmp_path / "again", "claim-then-build")
     # Renderer migration (disposition row 35): the shadow notice stayed on the
@@ -191,7 +193,7 @@ def test_hook_ownership_name_keeps_its_suffix(profile_dir: Path, project_path: P
     ``settings.json`` wires each hook as ``.claude/hooks/<filename>``, so an
     ownership name without the suffix would name nothing the render can match.
     """
-    _write(profile_dir / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile_dir / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     applied = _apply_conventions(profile_dir, project_path)
 
@@ -210,8 +212,8 @@ def test_owned_hooks_survive_regen_and_prune(tmp_path: Path):
     """
     project = _render_project(tmp_path, "hook-regen")
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     applied = _apply_conventions(profile, project)
     _register_convention_artifacts(project, applied)
@@ -254,7 +256,7 @@ def test_shipping_hook_config_is_refused_before_it_can_freeze_write_safety(
     armed = json.loads(rendered.read_text(encoding="utf-8"))["write_tools"]
     assert armed, "the render should arm the write gate with real tools"
 
-    _write(profile_dir / "hooks" / "hook_config.json", '{"write_tools": []}\n')
+    _write(profile_dir / "agent" / "hooks" / "hook_config.json", '{"write_tools": []}\n')
 
     with pytest.raises(BuildProfileError) as excinfo:
         _apply_conventions(profile_dir, project)
@@ -277,7 +279,7 @@ def test_shipping_hook_config_is_refused_before_it_can_freeze_write_safety(
 def test_a_declared_hook_is_wired_into_the_settings_the_build_lands(tmp_path: Path):
     """The route the whole feature exists for, end to end."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     project = _build(
         tmp_path,
@@ -310,8 +312,8 @@ def test_a_shipped_hook_without_a_declaration_is_carried_but_never_wired(tmp_pat
     survives rebuilds, and runs never.
     """
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
-    _write(profile / "hooks" / "facility_notes.py", "print('notes')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_notes.py", "print('notes')\n")
 
     project = _build(
         tmp_path,
@@ -337,7 +339,7 @@ def test_declared_wiring_is_additive_and_leaves_the_framework_wiring_alone(tmp_p
     projects would differ there and not in the wiring.
     """
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     project = _build(tmp_path, "wiring", profile)
     plain = _settings(project)
@@ -376,7 +378,7 @@ def test_a_regex_matcher_survives_the_render_as_valid_json(tmp_path: Path):
     """
     matcher = r"mcp__controls__channel_write\.[a-z]+"
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     project = _build(
         tmp_path,
@@ -399,7 +401,7 @@ def test_a_declaration_on_stop_joins_the_framework_entry(tmp_path: Path):
     JSON whose framework half is silently dropped on parse.
     """
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     plain = _settings(_build(tmp_path, "no-stop", profile))
     framework = [c for c in _hook_commands(plain) if "osprey_turn_state.py" in c]
@@ -425,7 +427,7 @@ def test_a_declaration_on_stop_joins_the_framework_entry(tmp_path: Path):
 def test_declared_wiring_survives_a_force_rebuild_and_a_regen(tmp_path: Path):
     """Rebuilt from the resolved profile every time, never frozen in the project."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
     declarations = {"claude_code.hooks.PreToolUse": [{"hook": "facility_guard.py"}]}
 
     project = _build(tmp_path, "hook-regen-wiring", profile, declarations=declarations)
@@ -458,8 +460,8 @@ _TWO_EVENT_DECLARATION = {
 
 def _two_hook_profile(tmp_path: Path) -> Path:
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
-    _write(profile / "hooks" / "facility_banner.py", "print('banner')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_banner.py", "print('banner')\n")
     return profile
 
 
@@ -592,7 +594,7 @@ def test_a_render_can_unwire_every_event_at_once(tmp_path: Path):
 def test_wiring_is_refused(tmp_path: Path, shipped: str, reference: str, needles: tuple[str, ...]):
     """A declaration naming a hook the profile may not wire is refused, saying why."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / shipped, "print('guard')\n")
+    _write(profile / "agent" / "hooks" / shipped, "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
@@ -615,7 +617,7 @@ def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
     operator would never notice.
     """
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
@@ -644,7 +646,7 @@ def test_wiring_a_render_excluded_hook_is_refused(tmp_path: Path):
 def test_wiring_a_path_outside_the_hooks_channel_is_refused(tmp_path: Path, reference: str):
     """Only ``guard.py`` and ``hooks/guard.py`` address a hook — nothing else."""
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
@@ -659,7 +661,7 @@ def test_wiring_a_path_outside_the_hooks_channel_is_refused(tmp_path: Path, refe
 
 def test_an_unknown_hook_event_is_refused_with_the_real_vocabulary(tmp_path: Path):
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     with pytest.raises(BuildProfileError) as excinfo:
         _build(
@@ -684,8 +686,8 @@ def test_excluding_a_shadowed_hook_restores_the_framework_render(
     """A render that wants the stock hook back excludes the profile's file."""
     project = _render_project(tmp_path, "hook-exclude")
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
     framework_body = (project / ".claude" / "hooks" / FRAMEWORK_HOOK).read_text(encoding="utf-8")
 
     # DEBUG, not INFO: row 35 moved the notice down a level, and capturing above
@@ -744,7 +746,7 @@ def test_bare_exclusion_of_a_shadowed_hook_is_diagnosed(
     from osprey.cli.build_profile_merge import _warn_shadowed_bare_exclusions
 
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
+    _write(profile / "agent" / "hooks" / FRAMEWORK_HOOK, "# facility edit\n")
 
     with caplog.at_level(logging.WARNING):
         _warn_shadowed_bare_exclusions(profile, {"hooks/cf-feedback-capture"})
@@ -759,7 +761,7 @@ def test_bare_exclusion_without_a_shipped_file_is_quiet(
     from osprey.cli.build_profile_merge import _warn_shadowed_bare_exclusions
 
     profile = tmp_path / "profile"
-    _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
 
     with caplog.at_level(logging.WARNING):
         _warn_shadowed_bare_exclusions(profile, {"hooks/cf-feedback-capture"})
@@ -775,7 +777,7 @@ def test_editing_a_hook_moves_the_profile_hash(tmp_path: Path):
     from osprey.cli.build_profile_merge import compute_profile_hash
 
     profile = tmp_path / "profile"
-    hook = _write(profile / "hooks" / "facility_guard.py", "print('guard')\n")
+    hook = _write(profile / "agent" / "hooks" / "facility_guard.py", "print('guard')\n")
     profile_yml = _write(profile / "profile.yml", "name: Facility\n")
 
     def digest() -> str | None:

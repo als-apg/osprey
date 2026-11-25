@@ -452,8 +452,6 @@ def copy_template_data(
             "data_root=BuildProfile.resolved_data_root(profile_dir)."
         )
 
-    from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
-
     dst_data = project_dir / _RENDER_DATA_DIRNAME
 
     root = Path(data_root)
@@ -465,11 +463,7 @@ def copy_template_data(
     queries_holder = facility_dir.joinpath(*query_parts[:2])
 
     def _skip_unrendered(directory: str, names: list[str]) -> set[str]:
-        # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
-        # certificates) — private keys that must not be staged into
-        # build/ or into the images built from it. data/raw/ holds raw
-        # staging inputs no render reads. Both top level only, the
-        # same anchoring the fingerprint fold applies to the runtime name.
+        # data/raw/ holds raw staging inputs no render reads; top level only.
         # The benchmark query sources reach a render only through the
         # benchmarks view, so the entry leading to them is not copied, nor
         # the top-level directory above it when it holds nothing else.
@@ -478,7 +472,7 @@ def copy_template_data(
         vcs = {name for name in names if is_vcs_metadata(PurePosixPath(name))}
         here = Path(directory)
         if here == root:
-            return vcs | ({RUNTIME_DATA_DIR_NAME, "raw"} & set(names))
+            return vcs | ({"raw"} & set(names))
         if (
             here == benchmarks.parent
             and benchmarks.name in names

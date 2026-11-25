@@ -97,18 +97,18 @@ def _fixes(repo: Path, *entries: dict[str, Any]) -> None:
 #: What ``facility validate`` reports of the example's limits: its setpoints with
 #: no limits record, the first ten named. A report: the exit code stays 0.
 LIMITS_STDERR = [
-    "limits: 473 setpoints have no limits record; the target serves them writable with no range",
+    "limits: 460 setpoints have no limits record; the target serves them writable with no range",
     "  BR:DIAG:TV:01:PADDLE:SP",
     "  BR:DIAG:TV:02:PADDLE:SP",
     "  BR:DIAG:TV:03:PADDLE:SP",
     "  BR:DIAG:TV:04:PADDLE:SP",
     "  BR:DIAG:TV:05:PADDLE:SP",
+    "  BR:MAG:DIPOLE-RAMP:01:CURRENT:SP",
     "  BR:MAG:DIPOLE-RAMP:01:GAIN:SP",
     "  BR:MAG:DIPOLE-RAMP:01:OFFSET:SP",
-    "  BR:MAG:DIPOLE:01:CURRENT:SP",
-    "  BR:MAG:DIPOLE:02:CURRENT:SP",
-    "  BR:MAG:DIPOLE:03:CURRENT:SP",
-    "  and 463 more; --all-limits lists every one",
+    "  BR:MAG:KICKER:01:VOLTAGE:SP",
+    "  BR:MAG:QD-RAMP:01:CURRENT:SP",
+    "  and 450 more; --all-limits lists every one",
 ]
 
 
@@ -143,7 +143,7 @@ def test_all_limits_lists_every_open_setpoint(repo: Path) -> None:
     result = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo), "--all-limits"])
     assert result.exit_code == 0, result.output
     listed = [line for line in result.stderr.splitlines() if line.startswith("  ")]
-    assert len(listed) == 473
+    assert len(listed) == 460
     assert "more; --all-limits" not in result.stderr
 
 
@@ -262,7 +262,7 @@ def test_a_run_repairs_nothing_the_build_would(built: tuple[Path, Result]) -> No
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
     # A repo from before the rule moved into the profile: no source-zone copy,
     # and the library rule selected by its bare name.
-    (repo / "rules" / "facility.md").unlink()
+    (repo / "agent" / "rules" / "facility.md").unlink()
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8").replace("  - rules/facility ", "  - facility ")
     assert text.count("\n    users:\n") == 1
@@ -328,6 +328,8 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
             "data/facility_facts.json",
             "data/facility_facts.md",
             "data/graph/facility.ttl",
+            "data/pyaml/BR/configuration.yaml",
+            "data/pyaml/BR/lattice.json",
             "data/pyaml/BTS/configuration.yaml",
             "data/pyaml/LTB/configuration.yaml",
             "data/pyaml/SR/configuration.yaml",
@@ -335,6 +337,7 @@ def test_the_views_are_reached_only_through_render_facility_outputs(
             "data/pyaml/SR/lattice.json",
             "data/pyaml/SR/trm.json",
             "data/simulator/addresses.json",
+            "data/simulator/decks/BR.json",
             "data/simulator/decks/BTS.json",
             "data/simulator/decks/LTB.json",
             "data/simulator/decks/SR.json",

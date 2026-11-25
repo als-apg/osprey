@@ -66,11 +66,11 @@ def test_every_accessor_answers(demo_view: Path) -> None:
     assert view.code == variables["code"]
     assert [model.name for model in view.models()] == [m["name"] for m in variables["models"]]
     assert all(isinstance(model, Model) for model in view.models())
-    assert view.served() == ("BTS", "LTB", "SR", TEXTURE)
-    assert [model.name for model in view.physics_models()] == ["BTS", "LTB", "SR"]
+    assert view.served() == ("BR", "BTS", "LTB", "SR", TEXTURE)
+    assert [model.name for model in view.physics_models()] == ["BR", "BTS", "LTB", "SR"]
     assert view.channels() == tuple(addresses["channels"])
     assert dict(view.status_addresses()) == {
-        name: f"{view.code}:SIM:{name}:STATUS" for name in ("BTS", "LTB", "SR")
+        name: f"{view.code}:SIM:{name}:STATUS" for name in ("BR", "BTS", "LTB", "SR")
     }
     assert isinstance(view.status_addresses(), MappingProxyType)
 

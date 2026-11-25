@@ -146,7 +146,9 @@ osprey app check          # the scaffold passes as copied
 `new` copies the scaffold to `apps/<name>/`, renames the app and its Python
 package, lists it under `apps:` in `profile.yml` (listing turns it on) and
 git-ignores fetched panel files. A name an installed package already gives an
-application is refused. Read the copied files before changing them:
+application is refused. A repo that still holds a path of the retired
+layout is refused by both commands with the script that moves it; run that
+script first. Read the copied files before changing them:
 they are the reference implementation of every pattern below. The summary
 ends with the path of a larger worked example (several routes and tools, a
 panel that writes).

@@ -6,10 +6,11 @@ repository that is the deployment: one directory, four zones.
     my-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  tiers/  apps/  watchdogs/  web-terminal-context/  .osprey/
-    ├── rules/  mcp_servers/       (where the profile selects or the bundle ships them)
-    ├── .gitignore  .env.example  .env.shared  ci-extra.yml
-    ├── .gitlab-ci.yml  scripts/verify.sh   (with deploy coordinates)
+    ├── data/  tiers/  apps/  .osprey/
+    ├── agent/context/  agent/watchdogs/  agent/code_review/
+    ├── agent/rules/  agent/mcp_servers/   (where the profile selects or the bundle ships them)
+    ├── .gitignore  .env.example  .env.shared  ops/ci-extra.yml
+    ├── .gitlab-ci.yml  ops/scripts/verify.sh   (with deploy coordinates)
     │  ═ SECRETS — ignored, durable ══════════════════
     ├── .env                       (seeded from the shell, when it has keys)
     │  ═ OUTPUT — ignored, disposable ════════════════
@@ -36,7 +37,7 @@ import shutil
 import subprocess
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, TypeVar
 
 import click
@@ -343,7 +344,7 @@ git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
 
 ### Adding an MCP server of your own
 
-Put the server's Python package at `mcp_servers/<name>/`. `osprey build` copies
+Put the server's Python package at `agent/mcp_servers/<name>/`. `osprey build` copies
 it to `{BUILD_OUTPUT_DIR}/_mcp_servers/<name>/`, and an entry under `mcp_servers:`
 in `profile.yml` says how to start it:
 
@@ -982,7 +983,11 @@ def _reinstate_held_source_zone(target: Path) -> None:
             continue
         destination = target / name
         _clear_leftover(destination, aside_root=aside_root)
+        destination.parent.mkdir(parents=True, exist_ok=True)
         held.rename(destination)
+        # A nested entry was held under its group directory; once the entry is
+        # back, that group is an empty directory nobody can name as leftover.
+        _prune_emptied_groups(stash, name)
 
     unrecognized = sorted(entry.name for entry in stash.iterdir())
     if unrecognized:
@@ -1071,13 +1076,18 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
             f"then re-run."
         ) from e
 
-    for name in present:
-        (target / name).rename(stash / name)
-
+    # Inside the guard, not before it: a move that fails part-way has already
+    # held some entries aside, and those go back like any other failure's.
+    moved: list[str] = []
     try:
+        for name in present:
+            held = stash / name
+            held.parent.mkdir(parents=True, exist_ok=True)
+            (target / name).rename(held)
+            moved.append(name)
         yield
     except BaseException:
-        for name in present:
+        for name in moved:
             # The materializer removes what it wrote before it raises, but it
             # does so best-effort — anything it could not remove is in the way
             # of the entry that has to go back.
@@ -1086,9 +1096,15 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
                 shutil.rmtree(written, ignore_errors=True)
             else:
                 written.unlink(missing_ok=True)
+            written.parent.mkdir(parents=True, exist_ok=True)
             (stash / name).rename(written)
         shutil.rmtree(stash, ignore_errors=True)
         raise
+
+    # A nested entry the new zone did not bring back leaves its group directory
+    # standing empty in the repo; a group is only ever there to hold entries.
+    for name in present:
+        _prune_emptied_groups(target, name)
 
     # The replacement is complete, so a holding directory that will not go is
     # not worth failing over — it is a stale copy of files that are all present
@@ -1103,6 +1119,30 @@ def _replacing_source_zone(target: Path, *, active: bool) -> Iterator[None]:
             "is an older copy of what is now in the repo. Remove it before "
             "you commit.",
         )
+
+
+def _prune_emptied_groups(root: Path, name: str) -> None:
+    """Remove the directories between *root* and the entry *name* that are empty.
+
+    A nested entry (``agent/rules``) lives inside a group directory that exists
+    only to hold entries, so once the entry has moved out the group is removed
+    if nothing else is in it — deepest first, and never *root* itself.
+
+    Args:
+        root: The directory *name* is relative to.
+        name: A root-relative POSIX path, as a row declares it.
+    """
+    for group in PurePosixPath(name).parents:
+        if group == PurePosixPath("."):
+            return
+        try:
+            (root / group).rmdir()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            # Not empty, or not a directory: either way the groups above it
+            # hold something too.
+            return
 
 
 def _discard_created_root(target: Path, *, created: bool) -> None:
@@ -1500,6 +1540,14 @@ def init(
     # mid-replacement is a whole repo again, so the refusals below judge the
     # deployment the operator has rather than the wreck of one.
     _reinstate_held_source_zone(target)
+    # A run that replaces an existing deployment's source zone (`--force`, and
+    # `--reset`, which implies its file half) judges that deployment first: one
+    # holding anything at a retired path stops before the zone is held aside,
+    # so its operator content is never replaced from an unmigrated layout.
+    if (force or reset) and (target / "profile.yml").is_file():
+        from osprey.repo_retired import refuse_retired_layout
+
+        refuse_retired_layout(target)
     # Write-once is a promise about the REPO, not about one materialization, so
     # the question has to be asked here — before `_replacing_source_zone` moves
     # profile.yml aside. Inside the materializer a `--force` or `--reset` run
@@ -1551,7 +1599,7 @@ def init(
             name = materialized.profile_name
             # Read from the profile that was written rather than from the preset
             # name, and read through the same test `profile_cmd` seeds the
-            # directory on, so the README names `rules/` exactly where a repo has
+            # directory on, so the README names `agent/rules/` exactly where a repo has
             # one. Imported here, not at module scope: `osprey --help` must not
             # pull in the build pipeline (TR-2).
             from .build_persistence import selects_facility_rule
@@ -1934,6 +1982,7 @@ def _write_if_absent(path: Path, text: str) -> bool:
     """
     if path.exists():
         return False
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return True
 
@@ -1976,7 +2025,7 @@ def _missing_server_packages(
     """The servers this profile declares whose package is not in the repo.
 
     The entry and the package it starts are two halves of one thing, and only
-    one half is write-once: a repo whose ``mcp_servers/<module>/`` was deleted
+    one half is write-once: a repo whose ``agent/mcp_servers/<module>/`` was deleted
     still gets its ``profile.yml`` written again by ``--force``, live block and
     all. Nothing puts the package back, and the sessions that follow each wait
     out the client's start-up timeout on a command that cannot import anything.
@@ -2030,7 +2079,7 @@ def _report(
 
     Someone meets this layout for the first time here, so the report names only
     the entries they make decisions about. The plumbing they never open --
-    ``.gitignore``, ``.env.example``, ``ci-extra.yml``, ``build/`` -- is in the
+    ``.gitignore``, ``.env.example``, ``ops/ci-extra.yml``, ``build/`` -- is in the
     README, which the last row points at.
 
     Written through the reporter rather than with ``click.echo``: on a terminal

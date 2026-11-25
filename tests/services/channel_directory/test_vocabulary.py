@@ -59,26 +59,39 @@ def test_the_simulator_and_the_stand_in_are_epics_shaped(connector_type: str) ->
     assert connector_vocabulary(connector_type) == EPICS_WORDS
 
 
-def test_tango_names_attributes_and_device_servers() -> None:
-    assert connector_vocabulary("tango") == Vocabulary(
-        channel="attribute",
-        channels="attributes",
-        server="device server",
-        servers="device servers",
-        directory="Attributes",
-        servers_view="Device servers",
-    )
-
-
-def test_doocs_names_properties_and_servers() -> None:
-    assert connector_vocabulary("doocs") == Vocabulary(
-        channel="property",
-        channels="properties",
-        server="server",
-        servers="servers",
-        directory="Properties",
-        servers_view="Servers",
-    )
+@pytest.mark.parametrize(
+    ("connector_type", "words"),
+    [
+        pytest.param(
+            "tango",
+            Vocabulary(
+                channel="attribute",
+                channels="attributes",
+                server="device server",
+                servers="device servers",
+                directory="Attributes",
+                servers_view="Device servers",
+            ),
+            id="tango-attributes-and-device-servers",
+        ),
+        pytest.param(
+            "doocs",
+            Vocabulary(
+                channel="property",
+                channels="properties",
+                server="server",
+                servers="servers",
+                directory="Properties",
+                servers_view="Servers",
+            ),
+            id="doocs-properties-and-servers",
+        ),
+    ],
+)
+def test_a_non_epics_connector_names_its_own_channels_and_servers(
+    connector_type: str, words: Vocabulary
+) -> None:
+    assert connector_vocabulary(connector_type) == words
 
 
 def test_an_unknown_type_gets_the_neutral_words() -> None:

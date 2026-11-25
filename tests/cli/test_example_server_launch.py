@@ -41,7 +41,7 @@ from tests.integration._mcp_handshake import _STARTUP_TIMING, list_mcp_tools
 _ANNOUNCE_TIMEOUT = 60.0
 _ANNOUNCE_POLL = 0.1
 
-PACKAGE_DIR = Path("src/osprey/templates/apps/hello_world/mcp_servers/example_server")
+PACKAGE_DIR = Path("src/osprey/templates/apps/hello_world/agent/mcp_servers/example_server")
 PACKAGED_FILES = ("__init__.py", "server.py", "__main__.py")
 
 # The only comment lines the hello-world block may carry that the appendix does
@@ -50,7 +50,7 @@ PACKAGED_FILES = ("__init__.py", "server.py", "__main__.py")
 # one, and dropping either from the preset fails here rather than quietly costing
 # a reader the warning.
 _HELLO_WORLD_ONLY_COMMENTS: tuple[str, ...] = (
-    "# Delete this block and mcp_servers/example_server/ together: one without",
+    "# Delete this block and agent/mcp_servers/example_server/ together: one without",
     "# the other costs every session a 20 s wait for a server that cannot start.",
     "# Editing either is a source change, not a build tweak: rebuild afterwards,",
     "# since the directory enters the image context and the drift fingerprint.",

@@ -52,14 +52,14 @@ SECTION_UNUSABLE = (
 RULES_UNUSABLE_BLOCK = (
     "The rules file cannot be used ({reason}), so every review fails and the agent's "
     "Python and notebook code is blocked; restore {path} or point code_review.prompt "
-    "at a readable file under data/."
+    "at a readable file in the source zone."
 )
 
 #: The warning for an unusable rules file under ``level: flag``.
 RULES_UNUSABLE_FLAG = (
     "The rules file cannot be used ({reason}), so every review fails and the agent's "
     "code runs unreviewed; restore {path} or point code_review.prompt at a readable "
-    "file under data/."
+    "file in the source zone."
 )
 
 

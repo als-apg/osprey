@@ -203,15 +203,22 @@ class TestTokens:
     def test_a_token_no_binding_carries_matches_nothing(self, mixed_index: GraphIndex):
         assert mixed_index.search(tokens=["qf1", "sextupole"])["total"] == 0
 
-    def test_tokens_are_folded_before_they_are_matched(self, mixed_index: GraphIndex):
-        assert mixed_index.search(tokens=["QF1"])["total"] == 3
-        assert mixed_index.search(tokens=["ReadBack"])["total"] == 2
-
-    def test_a_token_matches_a_class_name_the_device_rolls_up_to(self, mixed_index: GraphIndex):
-        # Nothing is typed Magnet; every device rolls up to it, and the class
-        # names and alt labels are in the haystack the build wrote.
-        assert mixed_index.search(tokens=["magnet"])["total"] == 10
-        assert mixed_index.search(tokens=["focusing magnet"])["total"] == 10
+    @pytest.mark.parametrize(
+        ("tokens", "total"),
+        [
+            # Tokens are folded before they are matched.
+            pytest.param(["QF1"], 3, id="folded-QF1"),
+            pytest.param(["ReadBack"], 2, id="folded-ReadBack"),
+            # Nothing is typed Magnet; every device rolls up to it, and the class
+            # names and alt labels are in the haystack the build wrote.
+            pytest.param(["magnet"], 10, id="rolled-up-magnet"),
+            pytest.param(["focusing magnet"], 10, id="rolled-up-focusing-magnet"),
+        ],
+    )
+    def test_a_token_matches_folded_and_rolled_up_names(
+        self, mixed_index: GraphIndex, tokens: list[str], total: int
+    ):
+        assert mixed_index.search(tokens=tokens)["total"] == total
 
     def test_no_tokens_match_everything(self, mixed_index: GraphIndex):
         assert mixed_index.search(tokens=[])["total"] == 10
@@ -570,7 +577,7 @@ class TestDemoCorpusTiming:
             payload = index.search()
             elapsed = time.perf_counter() - started
 
-        assert payload["total"] == 4691
+        assert payload["total"] == 4765
         # Budgeted at 100 ms; asserted well above it, because a shared CI
         # machine is slower than a workstation by more than the margin.
         print(f"first search on the demo index: {elapsed * 1000:.1f} ms")

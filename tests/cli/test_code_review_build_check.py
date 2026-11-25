@@ -222,12 +222,12 @@ def test_a_prompt_outside_the_source_zone_is_refused(repo: Path, prompt: str) ->
 
 def test_a_prompt_linked_out_of_the_source_zone_is_refused(repo: Path) -> None:
     target = repo / _write(repo, "build/reviewer.md")
-    link = repo / "data" / "code_review" / "linked.md"
+    link = repo / "agent" / "code_review" / "linked.md"
     link.symlink_to(target)
 
     with pytest.raises(FacilityBuildError, match="source zone"):
         check_code_review(
-            {"code_review": {"enabled": True, "prompt": "data/code_review/linked.md"}},
+            {"code_review": {"enabled": True, "prompt": "agent/code_review/linked.md"}},
             BOTH_HOOKS,
             repo,
         )
@@ -302,8 +302,8 @@ def test_a_valid_enabled_profile_builds(project: Callable[..., Path]) -> None:
 def test_a_valid_disabled_profile_with_an_absent_prompt_builds(
     project: Callable[..., Path],
 ) -> None:
-    repo = project({"enabled": False, "prompt": "data/code_review/absent.md"}, select_hook=False)
-    assert not (repo / "data/code_review/absent.md").exists()
+    repo = project({"enabled": False, "prompt": "agent/code_review/absent.md"}, select_hook=False)
+    assert not (repo / "agent/code_review/absent.md").exists()
 
     result = invoke_build(repo)
 

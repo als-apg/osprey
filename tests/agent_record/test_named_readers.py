@@ -159,7 +159,8 @@ def test_one_readers_key_is_not_anothers(deployed: dict) -> None:
     pair = parse_dotenv_file(deployed["repo"] / cr.reader_file("ops"))[cr.LOGIN_ENV]
     _login, _, token = pair.partition(":")
     forged = RecordClient(deployed["url"], "reader.wide", token)
-    assert forged.entries(c.KIND_FEEDBACK).unavailable is not None
+    refused = forged.entries(c.KIND_FEEDBACK).unavailable
+    assert refused is not None and "refused the read (401)" in refused, refused
 
 
 def test_a_reader_login_cannot_name_a_viewer(deployed: dict) -> None:
@@ -167,7 +168,9 @@ def test_a_reader_login_cannot_name_a_viewer(deployed: dict) -> None:
     pair = parse_dotenv_file(deployed["repo"] / cr.reader_file("ops"))[cr.LOGIN_ENV]
     login, _, token = pair.partition(":")
     widened = RecordClient(deployed["url"], login, token, viewer=ids.reader_identity("wide"))
-    assert widened.entries(c.KIND_PROMPT).unavailable is not None
+    refused = widened.entries(c.KIND_PROMPT).unavailable
+    assert refused is not None and "refused the read (403)" in refused, refused
+    assert "may not name a viewer" in refused, refused
 
 
 def test_the_reader_scope_is_the_configured_one_and_no_wider() -> None:

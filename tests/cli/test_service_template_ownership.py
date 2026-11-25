@@ -361,7 +361,7 @@ class TestScaffoldCliDirectoryArtifacts:
         )
 
         assert result.exit_code == 0, result.output
-        moved = profile_path / "services" / "postgresql"
+        moved = profile_path / "ops" / "services" / "postgresql"
         assert moved.is_dir()
         assert (moved / "docker-compose.yml.j2").read_text(encoding="utf-8") == "# mine\n"
         # A service moves as a unit: everything below it comes too.

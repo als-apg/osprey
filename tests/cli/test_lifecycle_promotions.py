@@ -55,6 +55,7 @@ from osprey.deployment.web_terminals import (
     render_images,
     seeding,
 )
+from osprey.repo_layout import entry
 from osprey.simulation import apply
 from tests._preset_data import create_project_as_built
 from tests._renders import tier_render
@@ -875,8 +876,9 @@ class TestSubStepRowsOnTheMiscDeployPath:
         printed.open_phase("Rendering the configuration")
         project_path = _rendered_project(tmp_path, "mirror-step")
         profile_dir = tmp_path / "profile"
-        (profile_dir / PROJECT_MIRROR_DIR).mkdir(parents=True)
-        (profile_dir / PROJECT_MIRROR_DIR / "runbook.md").write_text("# ops\n", encoding="utf-8")
+        mirror_dir = profile_dir.joinpath(*entry(PROJECT_MIRROR_DIR).path.split("/"))
+        mirror_dir.mkdir(parents=True)
+        (mirror_dir / "runbook.md").write_text("# ops\n", encoding="utf-8")
 
         _apply_conventions(profile_dir, project_path, None)
 
@@ -1036,8 +1038,8 @@ class TestDemotedRowsOnTheMiscDeployPath:
         framework_rule.parent.mkdir(parents=True, exist_ok=True)
         framework_rule.write_text("# shipped\n", encoding="utf-8")
         profile_dir = tmp_path / "profile"
-        (profile_dir / "rules").mkdir(parents=True)
-        (profile_dir / "rules" / "safety.md").write_text("# facility\n", encoding="utf-8")
+        (profile_dir / "agent" / "rules").mkdir(parents=True)
+        (profile_dir / "agent" / "rules" / "safety.md").write_text("# facility\n", encoding="utf-8")
 
         with caplog.at_level(logging.DEBUG):
             _apply_conventions(profile_dir, project_path, None)
@@ -1796,7 +1798,7 @@ def _stub_the_sidecar_build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
 def _write_a_verify_script(project_root: Path) -> None:
     """The scaffolded post-up smoke check, exiting 0 as its convention says."""
-    scripts = project_root / "scripts"
+    scripts = project_root / "ops" / "scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "verify.sh").write_text("#!/usr/bin/env bash\necho ok\n", encoding="utf-8")
 

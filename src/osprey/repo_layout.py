@@ -20,6 +20,12 @@ A former location that is still read as an entry is a retired path of the live
 row (:attr:`RootEntry.retired_paths`), never a row of its own, so nothing about
 the successor is restated.
 
+A former location that is no longer read at all, only refused until its
+contents are moved, is a moved-from path of the live row or child
+(:attr:`RootEntry.moved_from`, :attr:`RootChild.moved_from`). Those paths are
+relative to the deployment root, whatever their successor is, and
+:func:`retired_moves` is the one table of them.
+
 Children are named paths inside a row (:data:`ROOT_CHILDREN`): the CI verifier
 inside ``scripts``, the facility tree inside ``data``. A child follows its
 parent wherever the parent resolves, and is in no zone table. A child's key
@@ -70,6 +76,7 @@ __all__ = [
     "InitRole",
     "RootChild",
     "RootEntry",
+    "RootMove",
     "Zone",
     "check_layout",
     "child",
@@ -78,11 +85,14 @@ __all__ = [
     "convention_rows",
     "display_path",
     "entry",
+    "former_locations",
     "image_excluded_rows",
     "layer_rows",
     "listing_name",
+    "moved_from_top_level_names",
     "non_convention_source_rows",
     "paths",
+    "retired_moves",
     "retired_paths",
     "rows_in_zone",
     "rows_with_init",
@@ -161,6 +171,9 @@ class RootEntry:
     layer_kind: str | None = None
     #: Former locations still read as this entry, relative to the root.
     retired_paths: tuple[str, ...] = ()
+    #: Former locations never read again, only refused until their contents
+    #: move to :attr:`path`. Relative to the root: POSIX, possibly nested.
+    moved_from: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,14 +187,29 @@ class RootChild:
     #: Location relative to the parent: POSIX, no leading or trailing slash.
     path: str
     purpose: str
+    #: Former locations never read again, only refused until their contents
+    #: move here. Relative to the deployment root, not to the parent.
+    moved_from: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RootMove:
+    """One former location and the live path its contents belong at now."""
+
+    #: The former location, relative to the deployment root.
+    old: str
+    #: The successor, relative to the deployment root.
+    new: str
+    #: The successor row's kind; a child declares none, so it is ``EITHER``.
+    kind: EntryKind
 
 
 _FILE = EntryKind.FILE
 _DIR = EntryKind.DIRECTORY
 
 #: Every entry a table of the deployment root names. Entries known only through
-#: an exemption rule (a dot prefix, a ``README``/``LICENSE`` prefix, ``docs``, the
-#: canopy payload) and entries a profile key names have no row.
+#: an exemption rule (a dot prefix, a ``README``/``LICENSE`` prefix, ``docs``) and
+#: entries a profile key names have no row.
 ROOT_ENTRIES: tuple[RootEntry, ...] = (
     RootEntry(
         "profile.yml",
@@ -243,61 +271,68 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
     ),
     RootEntry(
         "rules",
-        "rules",
+        "agent/rules",
         _DIR,
         "Agent behavior rules",
         zone=Zone.SOURCE,
         convention=True,
         init=InitRole.FACILITY_RULE,
+        moved_from=("rules",),
     ),
     RootEntry(
         "skills",
-        "skills",
+        "agent/skills",
         _DIR,
         "Agent skills (one directory per skill)",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("skills",),
     ),
     RootEntry(
         "agents",
-        "agents",
+        "agent/agents",
         _DIR,
         "Subagent definitions",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("agents",),
     ),
     RootEntry(
         "commands",
-        "commands",
+        "agent/commands",
         _DIR,
         "Slash commands",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("commands",),
     ),
     RootEntry(
         "output-styles",
-        "output-styles",
+        "agent/output-styles",
         _DIR,
         "Output styles",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("output-styles",),
     ),
     RootEntry(
         "hooks",
-        "hooks",
+        "agent/hooks",
         _DIR,
         "Claude Code hook scripts",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("hooks",),
     ),
     RootEntry(
         "web-terminal-context",
-        "web-terminal-context",
+        "agent/context",
         _DIR,
         "Per-user web-terminal context (one directory per user, plus a shared base.md)",
         zone=Zone.SOURCE,
         convention=True,
         init=InitRole.REPLACED,
+        moved_from=("web-terminal-context",),
     ),
     RootEntry(
         ".env.example",
@@ -309,36 +344,49 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
     ),
     RootEntry(
         "watchdogs",
-        "watchdogs",
+        "agent/watchdogs",
         _DIR,
         "The watchdogs' instructions and references, one directory per watchdog.",
         zone=Zone.SOURCE,
         init=InitRole.REPLACED,
+        moved_from=("watchdogs",),
+    ),
+    RootEntry(
+        "code_review",
+        "agent/code_review",
+        _DIR,
+        "The code reviewer's prompt and material.",
+        zone=Zone.SOURCE,
+        init=InitRole.REPLACED,
+        moved_from=("data/code_review",),
     ),
     RootEntry(
         "mcp_servers",
-        "mcp_servers",
+        "agent/mcp_servers",
         _DIR,
         "Facility MCP server sources (one directory per server)",
         zone=Zone.SOURCE,
         convention=True,
         init=InitRole.SEEDED,
+        moved_from=("mcp_servers",),
     ),
     RootEntry(
         "services",
-        "services",
+        "ops/services",
         _DIR,
         "Facility-owned compose services (one directory per service)",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("services",),
     ),
     RootEntry(
         "project",
-        "project",
+        "ops/project",
         _DIR,
         "Verbatim mirror onto the project root (escape hatch)",
         zone=Zone.SOURCE,
         convention=True,
+        moved_from=("project",),
     ),
     RootEntry(
         "profiles",
@@ -349,17 +397,19 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
     ),
     RootEntry(
         "scripts",
-        "scripts",
+        "ops/scripts",
         _DIR,
         "Scripts the scaffolding verbs emit, such as the CI verifier and the boot hook.",
         zone=Zone.SOURCE,
+        moved_from=("scripts",),
     ),
     RootEntry(
         "osprey.service",
-        "osprey.service",
+        "ops/osprey.service",
         _FILE,
         "The systemd boot unit the scaffolding verb emits.",
         zone=Zone.SOURCE,
+        moved_from=("osprey.service",),
     ),
     RootEntry(
         ".dockerignore",
@@ -391,11 +441,12 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
     ),
     RootEntry(
         "ci-extra.yml",
-        "ci-extra.yml",
+        "ops/ci-extra.yml",
         _FILE,
         "The deployment's own additions to the generated CI pipeline.",
         zone=Zone.SOURCE,
         init=InitRole.WRITE_ONCE,
+        moved_from=("ci-extra.yml",),
     ),
     RootEntry(
         ".gitlab-ci.yml",
@@ -477,7 +528,7 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
 
 #: Named paths inside a row. The ``data`` children resolve under wherever the
 #: data root resolves (the profile's ``data:`` key, whose default is the row's
-#: path).
+#: path); every other child resolves under its row's path at the repo root.
 ROOT_CHILDREN: tuple[RootChild, ...] = (
     RootChild(
         "scripts",
@@ -492,7 +543,6 @@ ROOT_CHILDREN: tuple[RootChild, ...] = (
         "The boot hook the systemd scaffolding emits.",
     ),
     RootChild("data", "facility", "facility", "The facility description."),
-    RootChild("data", "code-review", "code_review", "The code reviewer's prompt and material."),
     RootChild("data", "canopy-library", "canopy/library", "The facility's canopy panel library."),
     RootChild(
         "data",
@@ -501,10 +551,11 @@ ROOT_CHILDREN: tuple[RootChild, ...] = (
         "The facility's canopy collections.",
     ),
     RootChild(
-        "data",
+        "var",
         "runtime",
-        ".runtime",
-        "Runtime output the deployment writes under the data tree, never hashed or staged.",
+        "runtime",
+        "Material the deployment mints at start, such as certificates; never hashed or staged.",
+        moved_from=("data/.runtime",),
     ),
 )
 
@@ -584,6 +635,58 @@ def retired_paths(rows: Iterable[RootEntry]) -> tuple[str, ...]:
     return tuple(retired for row in rows for retired in row.retired_paths)
 
 
+def retired_moves() -> tuple[RootMove, ...]:
+    """Every moved-from path with its successor, rows first, each in declaration order.
+
+    A child's successor is its parent row's path joined with the child's own.
+    """
+    return _moves(ROOT_ENTRIES, ROOT_CHILDREN)
+
+
+def _moves(rows: Iterable[RootEntry], children: Iterable[RootChild]) -> tuple[RootMove, ...]:
+    """The moves *rows* and *children* declare; a child of no row in *rows* declares none."""
+    rows = tuple(rows)
+    parents = {row.key: row.path for row in rows}
+    return (
+        *(RootMove(old, row.path, row.kind) for row in rows for old in row.moved_from),
+        *(
+            RootMove(old, f"{parents[item.parent]}/{item.path}", EntryKind.EITHER)
+            for item in children
+            if item.parent in parents
+            for old in item.moved_from
+        ),
+    )
+
+
+def former_locations(path: str) -> tuple[str, ...]:
+    """Each moved-from path the repo-relative live *path* had, in :func:`retired_moves` order.
+
+    A move to *path* gives its own old path; a move to a directory holding
+    *path* gives the old directory joined with the rest of *path*.
+    """
+    return tuple(
+        move.old + path[len(move.new) :]
+        for move in retired_moves()
+        if path == move.new or path.startswith(f"{move.new}/")
+    )
+
+
+def moved_from_top_level_names(rows: Iterable[RootEntry]) -> tuple[str, ...]:
+    """The first segment of each row's moved-from paths, once each, in first-seen order.
+
+    What an unmigrated deployment still holds at its root for these rows, and
+    nothing else: a first segment a row of *rows* still occupies
+    (``data/code_review`` answers ``data``) is a live name, not a moved-from one.
+    """
+    rows = tuple(rows)
+    live = set(top_level_names(rows))
+    return tuple(
+        name
+        for name in dict.fromkeys(old.split("/", 1)[0] for row in rows for old in row.moved_from)
+        if name not in live
+    )
+
+
 def top_level_names(rows: Iterable[RootEntry]) -> tuple[str, ...]:
     """The first segment of each row's path, once each, in first-seen order.
 
@@ -656,12 +759,6 @@ def with_paths(new_paths: Mapping[str, str]) -> tuple[RootEntry, ...]:
     return rows
 
 
-#: The children read as one name at the top of their parent: the build skips the
-#: data tree's runtime output by comparing a single top-level name, so a nested
-#: path there would be hashed and staged instead of skipped.
-_SINGLE_SEGMENT_CHILDREN = frozenset({("data", "runtime")})
-
-
 def _relative_posix_problem(path: str) -> str | None:
     if not path:
         return "is empty"
@@ -692,8 +789,12 @@ def check_layout(rows: Iterable[RootEntry], children: Iterable[RootChild] = ()) 
     inside another, except one retired path inside another retired path; a
     convention or layer row is a source-zone directory; every child names a
     directory row as its parent, and a parent's children have unique keys and
-    unique paths, none inside another; an image-excluded row and the data tree's
-    runtime child are each a single segment.
+    unique paths, none inside another; an image-excluded row is a single
+    segment. A moved-from path is a relative
+    POSIX path declared once, is no live or retired path, holds no live path
+    (its successor included), lies inside no successor of its own, and lies
+    inside another live path only when that is a directory row that is neither
+    a convention nor a layer.
 
     Raises:
         ValueError: Naming every broken invariant, each overlapping pair once.
@@ -741,11 +842,6 @@ def check_layout(rows: Iterable[RootEntry], children: Iterable[RootChild] = ()) 
             problems.append(f"child {item.key!r} names {item.parent!r}, not a directory row")
         if (problem := _relative_posix_problem(item.path)) is not None:
             problems.append(f"child path {item.path!r} {problem}")
-        if (item.parent, item.key) in _SINGLE_SEGMENT_CHILDREN and "/" in item.path:
-            problems.append(
-                f"child {item.key!r} of {item.parent!r} is skipped as one top-level name of "
-                f"its parent, so its path {item.path!r} must be a single segment"
-            )
     if dup := _duplicates(f"{item.parent}:{item.key}" for item in children):
         problems.append(f"duplicate children {dup}")
     for parent in dict.fromkeys(item.parent for item in children):
@@ -757,5 +853,51 @@ def check_layout(rows: Iterable[RootEntry], children: Iterable[RootChild] = ()) 
             for inner, outer in _nested_pairs(own)
         )
 
+    problems.extend(_moved_problems(rows, children))
+
     if problems:
         raise ValueError("inconsistent deployment-root layout: " + "; ".join(problems))
+
+
+def _moved_problems(rows: tuple[RootEntry, ...], children: tuple[RootChild, ...]) -> list[str]:
+    """What is wrong with the moved-from paths of *rows* and *children*."""
+    row_paths = {row.key: row.path for row in rows}
+    moves = [(move.old, move.new) for move in _moves(rows, children)]
+    # Every live path at the root, mapped to whether an old path may lie inside it.
+    holders = {
+        row.path: row.kind is EntryKind.DIRECTORY and not row.convention and row.layer_kind is None
+        for row in rows
+    }
+    for item in children:
+        if item.parent in row_paths:
+            holders.setdefault(f"{row_paths[item.parent]}/{item.path}", False)
+    retired = {path for row in rows for path in row.retired_paths}
+
+    problems: list[str] = []
+    if dup := sorted(old for old, count in Counter(old for old, _ in moves).items() if count > 1):
+        problems.append(f"moved-from paths declared twice {dup}")
+    for old, new in dict.fromkeys(moves):
+        if (problem := _relative_posix_problem(old)) is not None:
+            problems.append(f"moved-from path {old!r} {problem}")
+            continue
+        if old in holders:
+            problems.append(f"moved-from path {old!r} is a live path")
+            continue
+        if old in retired:
+            problems.append(f"moved-from path {old!r} is also a retired path")
+        here = PurePosixPath(old)
+        if here in PurePosixPath(new).parents:
+            problems.append(f"moved-from path {old!r} holds its successor {new!r}")
+        elif PurePosixPath(new) in here.parents:
+            problems.append(f"moved-from path {old!r} lies inside its successor {new!r}")
+        for live, may_hold in holders.items():
+            if live == new:
+                continue
+            if here in PurePosixPath(live).parents:
+                problems.append(f"moved-from path {old!r} holds the live path {live!r}")
+            elif PurePosixPath(live) in here.parents and not may_hold:
+                problems.append(
+                    f"moved-from path {old!r} lies inside {live!r}, "
+                    "which is not a plain directory row"
+                )
+    return problems

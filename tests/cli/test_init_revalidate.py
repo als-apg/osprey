@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.build_profile_document import (
     RETIRED_CATALOG_KEY,
     RETIRED_DEFAULT_TIER_KEY,
@@ -95,13 +96,39 @@ def _facility_spelling(rel: str, *, retired: bool) -> str:
     return rel
 
 
+def _root_spelling(rel: str) -> str:
+    """*rel* at the root path its entry moved from, when its entry moved."""
+    for move in repo_layout.retired_moves():
+        if rel == move.new or rel.startswith(f"{move.new}/"):
+            return move.old + rel[len(move.new) :]
+    return rel
+
+
+#: The hand steps a root move leaves: the previous release keeps its convention
+#: directories and its CI extra at the root, a moved tree is rebuilt on the
+#: host, and the moved CI extra's own paths are checked by hand.
+_ROOT_MOVE_HOST_STEPS = [
+    "# Host steps, once the files moved:",
+    "# osprey build",
+    "# Check by hand; the paths inside these are not rewritten:",
+    f"# {repo_layout.entry('ci-extra.yml').path}",
+]
+
+
+def _only_host_steps_left(output: str) -> bool:
+    """Nothing is left by hand but the host steps of the root moves."""
+    _, found, tail = output.partition("Left for you to do by hand:\n")
+    left = [" ".join(line.split()) for line in tail.splitlines() if line.strip()]
+    return not found or left == _ROOT_MOVE_HOST_STEPS
+
+
 def _previous_release_repo(dest: Path, *, git: bool = False) -> Path:
     """Lay the previous release's repo at *dest* (see the module docstring)."""
     dest.mkdir(parents=True, exist_ok=True)
     for rel, text in exemplar_source_files().items():
         if rel.startswith(_MIGRATED):
             continue
-        path = dest / _facility_spelling(rel, retired=True)
+        path = dest / _root_spelling(_facility_spelling(rel, retired=True))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     for source in FIXTURE.rglob("*"):
@@ -408,7 +435,7 @@ def test_the_diff_is_printed(tmp_path: Path) -> None:
     assert "+++ b/tiers/logbook.yml" in output
     assert "+++ b/tiers/readonly.yml" in output
     assert "-requires_osprey_version: '>=2026.9.0'" in output
-    assert "Left for you to do by hand" not in output
+    assert _only_host_steps_left(output)
 
 
 def test_retired_layer_dir_is_moved_with_git_mv(tmp_path: Path) -> None:
@@ -443,7 +470,7 @@ def test_web_terminal_context_of_moved_cards_is_removed(tmp_path: Path) -> None:
 
     _revalidate(root)
 
-    slots = sorted(p.name for p in (root / "web-terminal-context").iterdir())
+    slots = sorted(p.name for p in (root / "agent" / "context").iterdir())
     assert slots == ["alice", "bob", "carol"]
 
 
@@ -698,7 +725,7 @@ def test_a_run_stopped_after_the_app_was_written_is_finished_by_the_next(tmp_pat
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert "Left for you to do by hand" not in result.output
+    assert _only_host_steps_left(result.output)
     _assert_is_the_new_exemplar(root)
 
 
@@ -810,7 +837,7 @@ def test_a_catalog_entry_built_from_another_file_renames_that_file(tmp_path: Pat
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert "Left for you to do by hand" not in result.output
+    assert _only_host_steps_left(result.output)
     _assert_is_the_new_exemplar(root)
 
 
@@ -873,7 +900,7 @@ def test_a_logbook_retired_tier_under_another_name_becomes_the_logbook_login(
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert "Left for you to do by hand" not in result.output
+    assert _only_host_steps_left(result.output)
     _assert_is_the_new_exemplar(root)
 
 
@@ -916,7 +943,7 @@ def test_an_unrelated_mention_of_a_migrated_login_is_not_reported(tmp_path: Path
 
     result = _revalidate(root)
 
-    assert "Left for you to do by hand" not in result.output
+    assert _only_host_steps_left(result.output)
 
 
 def test_dropping_the_catalog_keeps_a_flow_list_before_it_on_one_line(tmp_path: Path) -> None:

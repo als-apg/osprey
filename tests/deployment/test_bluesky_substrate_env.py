@@ -157,18 +157,6 @@ class TestControlPlaneKeys:
         assert secret.decode() not in message
         assert other_public.decode() not in message
 
-    def test_matched_operator_pair_passes_the_check(self, env_path):
-        """The pairing check must not reject a pair that genuinely matches."""
-
-        public, secret = _curve_keypair()
-        env_path.write_text(
-            f"BLUESKY_QSERVER_ZMQ_PRIVATE_KEY={secret.decode()}\n"
-            f"BLUESKY_QSERVER_ZMQ_PUBLIC_KEY={public.decode()}\n",
-            encoding="utf-8",
-        )
-
-        _ensure_bluesky_control_plane_keys({"deployed_services": ["bluesky"]}, env_path=env_path)
-
     def test_malformed_private_key_in_a_pair_warns_rather_than_raising(self, env_path, caplog):
         """Nothing can be verified against a key that will not parse."""
 
@@ -409,26 +397,25 @@ class TestDocumentPlaneCerts:
 
         The template sets ``BLUESKY_ZMQ_CURVE_SECRET_KEY=/app/curve/proxy.key_secret``
         and ``BLUESKY_ZMQ_CURVE_CLIENT_PUBLIC_KEYS=/app/curve/clients`` on the
-        bridge (mount source ``data/.runtime/bluesky_curve/bridge``), and
+        bridge (mount source ``var/runtime/bluesky_curve/bridge``), and
         ``/app/curve/publisher.key_secret`` + ``/app/curve/proxy.key`` on the
-        queueserver (mount source ``data/.runtime/bluesky_curve/queueserver``).
+        queueserver (mount source ``var/runtime/bluesky_curve/queueserver``).
 
-        ``.runtime/`` is the reserved runtime-output subpath the build-drift
-        fold skips (#716); the spelling is pinned literally because the writer,
-        the fold, and the compose template must agree on these exact bytes.
+        ``var/runtime/`` lies in the state zone, which no build hashes or
+        stages; the spelling is pinned literally because the writer and the
+        compose template must agree on these exact bytes.
         """
         paths = _bluesky_curve_paths(env_path.parent)
         rel = {k: v.relative_to(env_path.parent).as_posix() for k, v in paths.items()}
 
-        assert rel["bridge"] == "data/.runtime/bluesky_curve/bridge"
-        assert rel["queueserver"] == "data/.runtime/bluesky_curve/queueserver"
-        assert rel["proxy_secret"] == "data/.runtime/bluesky_curve/bridge/proxy.key_secret"
-        assert rel["publisher_public"] == "data/.runtime/bluesky_curve/bridge/clients/publisher.key"
+        assert rel["bridge"] == "var/runtime/bluesky_curve/bridge"
+        assert rel["queueserver"] == "var/runtime/bluesky_curve/queueserver"
+        assert rel["proxy_secret"] == "var/runtime/bluesky_curve/bridge/proxy.key_secret"
+        assert rel["publisher_public"] == "var/runtime/bluesky_curve/bridge/clients/publisher.key"
         assert (
-            rel["publisher_secret"]
-            == "data/.runtime/bluesky_curve/queueserver/publisher.key_secret"
+            rel["publisher_secret"] == "var/runtime/bluesky_curve/queueserver/publisher.key_secret"
         )
-        assert rel["proxy_public"] == "data/.runtime/bluesky_curve/queueserver/proxy.key"
+        assert rel["proxy_public"] == "var/runtime/bluesky_curve/queueserver/proxy.key"
 
     def test_certificates_are_a_usable_pair(self, env_path):
         """Loading each secret yields the public half its peer was given."""
@@ -474,7 +461,7 @@ class TestDocumentPlaneCerts:
             {"deployed_services": ["postgresql"]}, env_path=env_path
         )
 
-        assert not (env_path.parent / "data" / ".runtime" / "bluesky_curve").exists()
+        assert not (env_path.parent / "var" / "runtime" / "bluesky_curve").exists()
 
     def test_complete_set_is_never_rotated(self, env_path):
         """Redeploying must not pull keys out from under a running stack."""
@@ -523,7 +510,7 @@ class TestDocumentPlaneCerts:
         """Certificates are staged in a temp dir; nothing of it survives."""
         _ensure_bluesky_document_plane_certs({"deployed_services": ["bluesky"]}, env_path=env_path)
 
-        base = env_path.parent / "data" / ".runtime" / "bluesky_curve"
+        base = env_path.parent / "var" / "runtime" / "bluesky_curve"
         assert {p.name for p in base.iterdir()} == {"bridge", "queueserver"}
 
     def test_no_key_material_is_logged(self, env_path, caplog):
@@ -547,11 +534,10 @@ class TestDocumentPlaneCerts:
 
 
 class TestLegacyCurveDirMigration:
-    """Certificates minted at the pre-#716 path relocate into ``data/.runtime/``.
+    """Certificates minted directly under the data tree relocate into ``var/runtime/``.
 
-    Releases before the reserved runtime-output subpath wrote each lane's set
-    to ``data/<lane>_curve/`` — inside the folded build input, which is the bug.
-    The writer relocates that material on the next ``up`` rather than leaving
+    The oldest deployments wrote each lane's set to ``data/<lane>_curve/`` —
+    inside the folded build input. The writer relocates that material on the next ``up`` rather than leaving
     readers to check two paths: a move preserves the keys (rotation would break
     a running stack's pinned pairs), and afterwards exactly one spelling exists.
     """
@@ -581,7 +567,7 @@ class TestLegacyCurveDirMigration:
 
         _ensure_bluesky_document_plane_certs({"deployed_services": ["bluesky"]}, env_path=env_path)
 
-        base = env_path.parent / "data" / ".runtime" / "bluesky_curve"
+        base = env_path.parent / "var" / "runtime" / "bluesky_curve"
         for rel, body in written.items():
             assert base.joinpath(*rel.split("/")).read_bytes() == body, rel
         assert not legacy.exists()
@@ -609,39 +595,9 @@ class TestLegacyCurveDirMigration:
 
         assert _bluesky_curve_paths(env_path.parent)["proxy_secret"].is_file()
         assert not (env_path.parent / "data" / "bluesky_curve").exists()
-
-    def test_runtime_dir_ignores_itself_for_legacy_repos(self, env_path):
-        """A repo scaffolded before #716 has no ``/data/.runtime/`` ignore entry.
-
-        Its gitignore covers only the legacy path, so after relocation the key
-        material would show up as untracked — one ``git add -A`` away from
-        committing secrets. The writer therefore drops a self-ignoring
-        ``.gitignore`` inside ``data/.runtime/``, which needs no edit to any
-        file the operator owns.
-        """
-        import subprocess
-
-        repo = env_path.parent
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True, timeout=60)
-        # The pre-#716 scaffold ignored only the legacy spelling.
-        (repo / ".gitignore").write_text("/data/bluesky_curve/\n", encoding="utf-8")
-        self._write_legacy_set(repo)
-
-        _ensure_bluesky_document_plane_certs({"deployed_services": ["bluesky"]}, env_path=env_path)
-
-        ignored = subprocess.run(
-            [
-                "git",
-                "check-ignore",
-                "-q",
-                "--no-index",
-                "data/.runtime/bluesky_curve/bridge/proxy.key_secret",
-            ],
-            cwd=repo,
-            capture_output=True,
-            timeout=60,
-        )
-        assert ignored.returncode == 0, "relocated key material must stay out of version control"
+        # The repo .gitignore ignores the state zone whole; the writer plants no
+        # ignore file of its own.
+        assert not (env_path.parent / "var" / "runtime" / ".gitignore").exists()
 
 
 class TestComposeTemplateContract:
@@ -721,8 +677,8 @@ class TestComposeTemplateContract:
         """The bind sources are the directories this module writes."""
         text = self._template_text()
 
-        assert "./data/.runtime/bluesky_curve/bridge:/app/curve:ro" in text
-        assert "./data/.runtime/bluesky_curve/queueserver:/app/curve:ro" in text
+        assert "./var/runtime/bluesky_curve/bridge:/app/curve:ro" in text
+        assert "./var/runtime/bluesky_curve/queueserver:/app/curve:ro" in text
 
     def test_device_file_env_and_mount_are_the_staged_pair(self):
         """The worker's device variable names exactly what the bind carries.
@@ -782,7 +738,7 @@ class TestComposeTemplateContract:
 
 
 class TestGeneratedProjectGitignore:
-    """The scaffolded project must actually ignore the certificate directory.
+    """The deployment repo must actually ignore the certificate directory.
 
     Asserted through ``git check-ignore`` rather than by reading the file,
     because the thing that matters is git's behavior, not the text.
@@ -790,17 +746,13 @@ class TestGeneratedProjectGitignore:
 
     @staticmethod
     def _repo_with_template_gitignore(tmp_path):
-        """A git repo whose .gitignore is the project scaffolding template."""
+        """A git repo whose .gitignore is the one ``osprey init`` writes at the repo root."""
         import subprocess
 
-        import osprey.templates
+        from osprey.cli.init_cmd import _repo_gitignore
 
-        # Resolved off the templates package root, the same way scaffolding.py
-        # reaches it — `osprey.templates.project` is a plain data directory,
-        # not an importable module with a __file__.
-        template = Path(osprey.templates.__file__).parent / "project" / "gitignore"
         subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, timeout=60)
-        (tmp_path / ".gitignore").write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / ".gitignore").write_text(_repo_gitignore(), encoding="utf-8")
         return tmp_path
 
     @staticmethod
@@ -821,7 +773,7 @@ class TestGeneratedProjectGitignore:
         repo = self._repo_with_template_gitignore(tmp_path)
 
         for role in ("bridge/proxy.key_secret", "queueserver/publisher.key_secret"):
-            assert self._is_ignored(repo, Path("data/.runtime/bluesky_curve") / role), role
+            assert self._is_ignored(repo, Path("var/runtime/bluesky_curve") / role), role
 
     def test_channel_limits_stays_tracked(self, tmp_path):
         """The entry must not swallow the rest of data/ — channel_limits.json is committed."""
@@ -838,7 +790,7 @@ class TestGeneratedProjectGitignore:
         """
         repo = self._repo_with_template_gitignore(tmp_path)
 
-        assert not self._is_ignored(repo, Path("src/data/.runtime/bluesky_curve/proxy.key_secret"))
+        assert not self._is_ignored(repo, Path("src/var/runtime/bluesky_curve/proxy.key_secret"))
         assert not self._is_ignored(repo, Path("tests/fixtures/.runtime/proxy.key_secret"))
 
 
@@ -895,7 +847,7 @@ def test_default_env_path_is_cwd_relative(tmp_path, monkeypatch):
 
     assert (tmp_path / ".env").is_file()
     assert (
-        tmp_path / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret"
+        tmp_path / "var" / "runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret"
     ).is_file()
     assert os.environ.get("BLUESKY_QSERVER_ZMQ_PRIVATE_KEY") is None  # never exported
 

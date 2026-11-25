@@ -41,13 +41,16 @@ class TestResolveEnvValue:
         monkeypatch.delenv("MISSING_VAR", raising=False)
         assert _resolve_env_value(template) == expected
 
-    def test_var_with_default_present(self):
-        with patch.dict(os.environ, {"MY_VAR": "real_value"}):
-            assert _resolve_env_value("${MY_VAR:-fallback}") == "real_value"
-
-    def test_var_without_default_present(self):
-        with patch.dict(os.environ, {"MY_VAR": "value"}):
-            assert _resolve_env_value("${MY_VAR}") == "value"
+    @pytest.mark.parametrize(
+        ("template", "value"),
+        [
+            pytest.param("${MY_VAR:-fallback}", "real_value", id="var-with-default"),
+            pytest.param("${MY_VAR}", "value", id="var-without-default"),
+        ],
+    )
+    def test_present_var_resolves_to_its_value(self, template, value):
+        with patch.dict(os.environ, {"MY_VAR": value}):
+            assert _resolve_env_value(template) == value
 
     def test_multiple_vars(self):
         with patch.dict(os.environ, {"A": "1", "B": "2"}):

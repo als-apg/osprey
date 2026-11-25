@@ -265,19 +265,17 @@ class TestParseResponse:
         assert result is not None
         assert result.keywords == ["vacuum"]
 
-    def test_parse_invalid_json(self):
-        """Returns None for invalid JSON."""
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param("This is not JSON", id="invalid-json"),
+            pytest.param('{"keywords": ["test"]}', id="missing-summary-field"),
+        ],
+    )
+    def test_unparseable_response_returns_none(self, response):
+        """Returns None for invalid JSON or when a required field is missing."""
         module = SemanticProcessorModule()
-        response = "This is not JSON"
-        result = module._parse_response(response)
-        assert result is None
-
-    def test_parse_missing_field(self):
-        """Returns None if required field missing."""
-        module = SemanticProcessorModule()
-        response = '{"keywords": ["test"]}'  # Missing summary
-        result = module._parse_response(response)
-        assert result is None
+        assert module._parse_response(response) is None
 
 
 class TestGetEnhancementModuleConfig:
@@ -364,29 +362,7 @@ class TestBaseEnhancementModuleAbstract:
 
     def test_concrete_module_implements_name(self):
         """Concrete modules implement name property."""
-        module = TextEmbeddingModule()
-        assert hasattr(module, "name")
-        assert isinstance(module.name, str)
-
-
-class TestEnhancementExports:
-    """Tests for enhancement module exports."""
-
-    def test_base_enhancement_module_exported(self):
-        """BaseEnhancementModule is exported from enhancement package."""
-        from osprey.services.ariel_search.enhancement import BaseEnhancementModule
-
-        assert BaseEnhancementModule is not None
-
-    def test_factory_functions_exported(self):
-        """Factory functions are exported from enhancement package."""
-        from osprey.services.ariel_search.enhancement import (
-            create_enhancers_from_config,
-            get_enhancer_names,
-        )
-
-        assert callable(create_enhancers_from_config)
-        assert callable(get_enhancer_names)
+        assert TextEmbeddingModule().name == "text_embedding"
 
 
 class TestSemanticProcessorModuleConfig:
@@ -409,10 +385,12 @@ class TestTextEmbeddingModuleConfig:
     """Tests for TextEmbeddingModule configure method."""
 
     def test_configure_empty_dict(self):
-        """Configure with empty dict uses defaults."""
+        """Configure with empty dict uses defaults: no models, the local Ollama server."""
         module = TextEmbeddingModule()
         module.configure({})
-        # Should not raise
+        assert module._models == []
+        assert module._resolved is not None
+        assert module._resolved.base_url == "http://localhost:11434"
 
     def test_configure_with_models(self):
         """Configure sets models."""
@@ -465,36 +443,6 @@ class TestTextEmbeddingModuleHealthCheck:
         # Without embedder configured, should be unhealthy
         assert isinstance(result.reachable, bool)
         assert isinstance(result.message, str)
-
-
-class TestSemanticProcessorEnhanceEmptyEntry:
-    """Tests for SemanticProcessorModule enhance method edge cases."""
-
-    @pytest.mark.asyncio
-    async def test_enhance_empty_text(self):
-        """Enhance skips entries with empty text."""
-        from unittest.mock import AsyncMock, MagicMock
-
-        module = SemanticProcessorModule()
-
-        # Create entry with empty text
-        entry = {
-            "entry_id": "test-empty",
-            "source_system": "test",
-            "raw_text": "",  # Empty text
-            "timestamp": None,
-            "author": "test",
-            "attachments": [],
-            "metadata": {},
-        }
-
-        # Mock repository
-        repo = MagicMock()
-        repo.upsert_entry = AsyncMock()
-
-        # Should handle gracefully
-        await module.enhance(entry, repo)
-        # Result depends on implementation - may skip or process
 
 
 class TestSemanticProcessorParseResponseEdgeCases:
@@ -709,6 +657,17 @@ class TestTextEmbeddingModuleEnhance:
             # Should NOT raise — partial success is acceptable
             await module.enhance(sample_entry, mock_conn)
 
+        from osprey.services.ariel_search.database.migrations import model_to_table_name
+
+        inserts = [
+            str(call.args[0])
+            for call in mock_conn.execute.await_args_list
+            if "INSERT" in str(call.args[0])
+        ]
+        assert len(inserts) == 1
+        assert model_to_table_name("model-a") in inserts[0]
+        assert model_to_table_name("model-b") not in inserts[0]
+
     @pytest.mark.asyncio
     async def test_enhance_empty_embedding_result_counted_as_error(self, module, sample_entry):
         """Empty embedding result is counted as an error."""
@@ -746,8 +705,8 @@ class TestSemanticProcessorEnhanceWithLLM:
 
     @pytest.mark.asyncio
     async def test_enhance_empty_text(self, module):
-        """Enhance handles empty text."""
-        from unittest.mock import AsyncMock, MagicMock
+        """Enhance skips an entry with empty text: no model call, nothing stored."""
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         mock_conn = MagicMock()
         mock_conn.execute = AsyncMock()
@@ -757,8 +716,12 @@ class TestSemanticProcessorEnhanceWithLLM:
             "raw_text": "",
         }
 
-        # Should handle gracefully
-        await module.enhance(entry, mock_conn)
+        # ``enhance`` swallows processing errors, so only the mocks show the skip.
+        with patch.object(module, "_process_text", new=AsyncMock()) as process_text:
+            await module.enhance(entry, mock_conn)
+
+        process_text.assert_not_awaited()
+        mock_conn.execute.assert_not_awaited()
 
 
 class TestGetEnhancementModuleConfigDetails:

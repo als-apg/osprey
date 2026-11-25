@@ -8,7 +8,8 @@ imports the consumers and reports what they computed and did on a deployment
 root in ``tmp_path`` laid out that way. Nothing in the repository moves.
 
 Expected: every location follows the move, and nothing keyed by identity does.
-The known-root set and the write boundary name the new paths; a rule's copy,
+The known-root set and the write boundary name the new top-level names, and the
+boundary keeps every old name the live layout declares as moved from; a rule's copy,
 artifact name, selection and claim are unchanged but for its profile path;
 messages name the new paths; watchdogs are read from their new source and from
 the unchanged render; fold labels, convention keys, render directories and the
@@ -25,6 +26,8 @@ from typing import Any
 
 import pytest
 
+from osprey import repo_layout
+
 #: Each moved deployment-root entry, by key, and where it sits in the moved layout.
 _MOVED: dict[str, str] = {
     "rules": "agent/rules",
@@ -36,6 +39,13 @@ _MOVED: dict[str, str] = {
 
 #: The names the moved entries occupied at the root before the move.
 _OLD_NAMES = frozenset(_MOVED)
+
+#: The old names the live layout already declares as moved-from paths: an
+#: unmigrated tree may still hold them, so the write boundary keeps them.
+_DECLARED_OLD = _OLD_NAMES & {move.old for move in repo_layout.retired_moves()}
+
+#: What each moved entry occupies at the root in the moved layout.
+_NEW_TOP_LEVEL = frozenset(path.split("/", 1)[0] for path in _MOVED.values())
 
 #: The text of the authored watchdog, and of its render, so a read names its side.
 _SOURCE_INSTRUCTIONS = "Watch from the authored source.\n"
@@ -320,8 +330,9 @@ def test_the_known_root_set_gains_the_first_segments_and_loses_the_moved_names(
 ) -> None:
     known = set(probe["tables"]["KNOWN_ROOT_ENTRIES"])
     before = set(baseline["KNOWN_ROOT_ENTRIES"])
-    assert known - before == {"agent", "ops"}
-    assert before - known == set(_OLD_NAMES)
+    assert known - before == _NEW_TOP_LEVEL - before
+    assert _NEW_TOP_LEVEL <= known
+    assert before - known == _OLD_NAMES - _DECLARED_OLD
 
 
 def test_the_source_zone_table_names_the_first_segment_of_the_moved_scripts(
@@ -347,15 +358,17 @@ def test_the_write_boundary_protects_the_moved_paths_and_still_protects_data(
     probe: dict[str, Any],
 ) -> None:
     protected = set(probe["protected"])
-    assert set(_MOVED.values()) <= protected
+    assert _NEW_TOP_LEVEL <= protected
     assert "data" in protected
-    assert set(_OLD_NAMES).isdisjoint(protected)
+    assert _DECLARED_OLD <= protected
+    assert (_OLD_NAMES - _DECLARED_OLD).isdisjoint(protected)
 
 
 def test_the_protected_source_table_lists_the_moved_paths(probe: dict[str, Any]) -> None:
     entries = probe["tables"]["PROFILE_SOURCE_ENTRIES"]
-    assert set(_MOVED.values()) <= set(entries)
-    assert set(_OLD_NAMES).isdisjoint(entries)
+    assert _NEW_TOP_LEVEL <= set(entries)
+    assert _DECLARED_OLD <= set(entries)
+    assert (_OLD_NAMES - _DECLARED_OLD).isdisjoint(entries)
 
 
 # --- the convention table: location moves, identity and render do not -------------------
@@ -454,7 +467,12 @@ def test_the_init_keys_stay_keys_and_the_init_paths_follow(probe: dict[str, Any]
     assert tables["MCP_SERVER_SOURCE_DIR"] == "mcp_servers"
     assert tables["FACILITY_RULE_DIR"] == "rules"
     assert set(tables["WRITE_ONCE_DIRS"]) == {"agent/mcp_servers"}
-    assert tables["WRITE_ONCE_FILES"] == [".gitignore", ".env.shared", "README.md", "ci-extra.yml"]
+    assert tables["WRITE_ONCE_FILES"] == [
+        ".gitignore",
+        ".env.shared",
+        "README.md",
+        "ops/ci-extra.yml",
+    ]
 
 
 # --- watchdogs: source moves, render stays -----------------------------------------------

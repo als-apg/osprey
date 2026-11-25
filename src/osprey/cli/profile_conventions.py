@@ -248,7 +248,7 @@ def context_baseline_slot(root: Path) -> Path:
 
     Args:
         root: A per-user context directory — a profile's
-            ``web-terminal-context/``, the framework's template copy of it, or
+            ``agent/context/``, the framework's template copy of it, or
             an app bundle's.
 
     Returns:
@@ -356,9 +356,7 @@ KNOWN_ROOT_ENTRIES: frozenset[str] = frozenset(
 
 #: Name prefixes exempt from the unknown-root-entry warning. Dot-prefixed
 #: entries (``.git/``, ``.DS_Store``) and ``docs/`` are exempt too — a profile
-#: is a directory someone keeps in version control and documents. What the
-#: CANOPY ``pre_build`` step puts in the repo root is exempt as well; see
-#: :func:`_root_warning_exempt_prefixes`.
+#: is a directory someone keeps in version control and documents.
 _ROOT_WARNING_EXEMPT_PREFIXES = ("README", "LICENSE")
 _ROOT_WARNING_EXEMPT_NAMES = frozenset({"docs"})
 
@@ -836,7 +834,7 @@ def is_reserved_write(project_rel: str) -> str | None:
     :func:`reserved_path_channel`, and the two must not be conflated:
 
     * :func:`reserved_path_channel` asks *which build channel owns this path*,
-      so that the profile's ``project/`` mirror cannot become a second writer on
+      so that the profile's ``ops/project/`` mirror cannot become a second writer on
       an artifact some convention directory already produces. It covers every
       ``.claude/`` subtree that has a channel.
     * This function asks *may a running agent rewrite this*. It is narrower
@@ -1244,7 +1242,7 @@ def convention_slot_for(dest_rel: str) -> str | None:
         dest_rel: Project-relative posix path.
 
     Returns:
-        ``hooks/custom.py`` for ``.claude/hooks/custom.py``, as a message names
+        ``agent/hooks/custom.py`` for ``.claude/hooks/custom.py``, as a message names
         it (:func:`~osprey.repo_layout.display_path`), or ``None`` when no
         convention directory owns that destination.
     """
@@ -1370,11 +1368,11 @@ def facility_mirror_violation(
     Files are visited in sorted order, so the answer is the same on every run.
 
     Args:
-        mirror_dir: The profile's ``project/`` directory (missing is fine).
+        mirror_dir: The profile's ``ops/project/`` directory (missing is fine).
         authoring_route: The tree the facility is authored in, as the remedy
             names it. ``None`` names :data:`FACILITY_AUTHORING_ROUTE`; a
             deployment that mounts a machine root passes ``<machine>/``. The
-            guard itself always checks the deployment's ``project/``.
+            guard itself always checks the deployment's ``ops/project/``.
 
     Returns:
         A ``profile-invalid`` error naming the first mirror file matching
@@ -2160,26 +2158,11 @@ def unselected_convention_artifacts(profile_dir: Path, selected: Collection[str]
     return sorted(names - set(selected))
 
 
-def _root_warning_exempt_prefixes() -> tuple[str, ...]:
-    """:data:`_ROOT_WARNING_EXEMPT_PREFIXES` plus what the CANOPY stage step writes.
-
-    The step (:mod:`osprey.integrations.canopy.stage`) puts the two wheels the
-    image installs and the payload directory in the repo root; their names are
-    read from that module so the two cannot drift.
-    """
-    from osprey.integrations.canopy import PAYLOAD_DIRNAME
-    from osprey.integrations.canopy.stage import WHEEL_PREFIXES
-
-    return (*_ROOT_WARNING_EXEMPT_PREFIXES, *WHEEL_PREFIXES, PAYLOAD_DIRNAME)
-
-
 def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Return profile-root entries that are neither known nor exempt.
 
     Exempt: dot-prefixed entries, ``README*``, ``LICENSE*``, and ``docs/`` — a
-    profile is a directory someone keeps in version control and documents —
-    and the staged CANOPY payload (``canopy-*``, ``pydmconverter-*``,
-    ``canopy_payload``).
+    profile is a directory someone keeps in version control and documents.
 
     Args:
         profile_dir: The profile root directory.
@@ -2196,14 +2179,14 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
         if entry.name not in known
         and not entry.name.startswith(".")
         and entry.name not in _ROOT_WARNING_EXEMPT_NAMES
-        and not entry.name.startswith(_root_warning_exempt_prefixes())
+        and not entry.name.startswith(_ROOT_WARNING_EXEMPT_PREFIXES)
     )
 
 
 def warn_unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Warn about unrecognized repo-root entries and return their names.
 
-    A misspelled convention directory (``rule/`` for ``rules/``) is otherwise
+    A misspelled root directory (``tier/`` for ``tiers/``) is otherwise
     silent: nothing reads it, so nothing complains, and the artifacts simply
     never reach the build.
 

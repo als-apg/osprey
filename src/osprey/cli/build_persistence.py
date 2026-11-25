@@ -75,7 +75,7 @@ def selects_facility_rule(rules: Iterable[str]) -> bool:
 
     The bare name selects OSPREY's rule, the path the profile's own copy; ``osprey
     init`` seeds that copy for a preset selecting the first and names it by the
-    second, so both mean a repo that has ``rules/`` for it.
+    second, so both mean a repo that has ``agent/rules/`` for it.
     """
     return any(entry in (FACILITY_RULE_NAME, FACILITY_RULE_PATH_ENTRY) for entry in rules)
 
@@ -91,7 +91,7 @@ def ensure_profile_facility_rule(
     expected to rewrite in its own words, so the only copy of it must not live
     in ``build/`` — that tree is output, and ``rm -rf build`` is a supported
     thing to do to a repo. ``osprey init`` renders the framework template into
-    the profile's ``rules/`` convention directory, and the profile names it
+    the profile's ``agent/rules/`` convention directory, and the profile names it
     ``rules/facility``, from which every build copies it into the render.
 
     Does nothing when the profile already has the file.

@@ -291,7 +291,7 @@ class TemplateManager:
         # 6a'. Install the web-terminal context baseline. This base.md is the
         # framework FALLBACK: seeding hard-requires one for any project that
         # seeds a user, so every bundle gets a generic copy — and a profile
-        # that ships its own `web-terminal-context/base.md` overrides it when
+        # that ships its own `agent/context/base.md` overrides it when
         # the convention copies apply after this render. Per-user
         # extra.md/skills stay user-authored under the same tree.
         context_src = self.template_root / "claude_code" / "web-terminal-context"

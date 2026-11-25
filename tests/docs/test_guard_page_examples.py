@@ -115,7 +115,7 @@ def _fixture_block():
 
 
 def _write_fixture(root: Path, text: str) -> Path:
-    tests = root / "watchdogs" / "guard-circumvention" / "tests"
+    tests = root / "agent" / "watchdogs" / "guard-circumvention" / "tests"
     tests.mkdir(parents=True)
     (tests / "edit-hook.jsonl").write_text(text + "\n", encoding="utf-8")
     return tests
@@ -214,7 +214,9 @@ def _build_tree(root: Path, *, skip: str | None = None) -> Path:
             target.write_text(
                 profile if target.name == "profile.yml" else "Judge it.\n", encoding="utf-8"
             )
-    references = root / "my-facility" / "watchdogs" / "lattice-review" / REFERENCES_DIRNAME
+    references = (
+        root / "my-facility" / "agent" / "watchdogs" / "lattice-review" / REFERENCES_DIRNAME
+    )
     (references / "lattice.md").write_text("The lattice.\n", encoding="utf-8")
     return root / "my-facility"
 
@@ -233,7 +235,9 @@ def test_profile_tree_holds_the_names_the_loader_reads(tmp_path: Path) -> None:
 
 
 def test_profile_tree_without_its_required_instructions_is_refused(tmp_path: Path) -> None:
-    root = _build_tree(tmp_path, skip=f"my-facility/watchdogs/shielding/{INSTRUCTIONS_FILENAME}")
+    root = _build_tree(
+        tmp_path, skip=f"my-facility/agent/watchdogs/shielding/{INSTRUCTIONS_FILENAME}"
+    )
     with pytest.raises(BuildProfileError):
         load_profile_watchdogs(root)
 

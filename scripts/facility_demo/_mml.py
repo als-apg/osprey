@@ -1,10 +1,10 @@
 """The injector's beam order, read from the MML lattice files.
 
-MML describes the injector in two AT lattice scripts of its machine folder:
-``GTB/gtblattice.m`` (gun, linac and the booster transfer line) and
-``BTS/btslattice.m`` (booster to storage ring). This module reads them without
-MATLAB and returns, per demo section, every element of that section's lattice
-arrays in beam order:
+MML describes the injector in three AT lattice scripts of its machine folder:
+``GTB/gtblattice.m`` (gun, linac and the booster transfer line),
+``Booster/boosterlattice.m`` (the booster ring) and ``BTS/btslattice.m``
+(booster to storage ring). This module reads them without MATLAB and returns,
+per demo section, every element of that section's lattice arrays in beam order:
 
 ``GTL``
     ``gtblattice.m`` GUN.
@@ -12,6 +12,8 @@ arrays in beam order:
     ``gtblattice.m`` LINAC.
 ``LTB``
     ``gtblattice.m`` LTB1 followed by LTB2.
+``BR``
+    ``boosterlattice.m`` BOOSTER.
 ``BTS``
     ``btslattice.m`` BTS.
 
@@ -28,9 +30,13 @@ name defined twice (the files redefine ``HCM``/``VCM`` per section with a
 different length) means its latest definition at the point an array is built.
 It understands numeric expressions over earlier scalars, ``pi`` and
 ``getbrho``; the AT constructors ``marker``, ``drift``, ``corrector``,
-``quadrupole``, ``rbend``, ``sbend`` and ``aperture``; and arrays of element and
-array names. Any other statement (control flow, ``buildlat``, the magnet
-measurement tables) is skipped, and a name it leaves unbound is an error
+``quadrupole``, ``rbend``, ``sbend``, ``sextupole``, ``rfcavity`` and
+``aperture``; and arrays of element and array names. A cavity carries its
+voltage (V), frequency (Hz) and harmonic number. Any other statement (control
+flow, ``buildlat``, the magnet measurement tables) is skipped, so every branch
+of an ``if`` runs and the last one binds: the booster file's bend, written in
+three alternative branches, is the one of its ``else``, which is the branch
+MATLAB runs. A name a skipped statement leaves unbound is an error
 wherever it is used. An array token with no definition, an unknown section and
 a missing array are errors too, raised as ``ValueError``.
 
@@ -63,6 +69,7 @@ LATTICES: dict[str, tuple[str, tuple[str, ...]]] = {
     "LN": ("GTB/gtblattice.m", ("LINAC",)),
     "LTB": ("GTB/gtblattice.m", ("LTB1", "LTB2")),
     "BTS": ("BTS/btslattice.m", ("BTS",)),
+    "BR": ("Booster/boosterlattice.m", ("BOOSTER",)),
 }
 
 #: The counted element kinds, by AT constructor; a ``BPM`` marker is a ``monitor``.
@@ -95,6 +102,8 @@ _CONSTRUCTORS: dict[str, dict[str, int]] = {
     "quadrupole": {"length": 1, "k": 2},
     "rbend": {"length": 1, "angle": 2, "entrance_angle": 3, "exit_angle": 4, "k": 5},
     "sbend": {"length": 1, "angle": 2, "entrance_angle": 3, "exit_angle": 4, "k": 5},
+    "sextupole": {"length": 1, "k": 2},
+    "rfcavity": {"length": 1, "voltage": 2, "frequency": 3, "harmonic": 4},
 }
 
 _ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*=(?!=)\s*(.*?)\s*$", re.DOTALL)
@@ -114,6 +123,9 @@ class Definition:
     angle: float = 0.0
     entrance_angle: float = 0.0
     exit_angle: float = 0.0
+    voltage: float = 0.0
+    frequency: float = 0.0
+    harmonic: float = 0.0
 
     @property
     def kind(self) -> str | None:

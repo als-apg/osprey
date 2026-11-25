@@ -91,8 +91,11 @@ def _build_zone(repo: Path | None) -> Path:
 
     Raises:
         RepoNotFoundError: If no deployment repo encloses the search path.
+        RetiredRootRefused: If the repo holds something at a retired path.
     """
-    return find_repo_root(repo) / BUILD_OUTPUT_DIR
+    from osprey.repo_retired import deployment_root
+
+    return deployment_root(repo) / BUILD_OUTPUT_DIR
 
 
 def _load_config(project_dir: Path) -> dict[str, Any]:
@@ -827,7 +830,7 @@ def ci(repo: Path | None, force: bool) -> None:
     """Emit this repo's CI pipeline and health check.
 
     Renders two files from the profile's 'deploy:' block: the CI pipeline at
-    the repo root, and the post-deploy health check at scripts/verify.sh. Run
+    the repo root, and the post-deploy health check, verify.sh. Run
     it again whenever the block changes. Each emitted file says in its own
     header when it runs and what it needs.
 
@@ -843,6 +846,8 @@ def ci(repo: Path | None, force: bool) -> None:
       $ osprey scaffold ci --repo ~/deployments/als-exemplar
       $ osprey scaffold ci --force
     """
+    from osprey.repo_retired import deployment_root
+
     # Imported here rather than at module scope: it pulls the whole
     # build-profile chain in behind it, and every other verb in this group
     # runs without any of it.
@@ -850,7 +855,7 @@ def ci(repo: Path | None, force: bool) -> None:
 
     # Resolved before anything is emitted: standing outside a repo is a mistake
     # about where the command was run, not a scaffolding failure.
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
 
     try:
         emitted = scaffold_deploy_files(repo_root, force=force)
@@ -874,6 +879,8 @@ def ci(repo: Path | None, force: bool) -> None:
 
 def _scaffold_layer_files(repo: Path | None, from_preset: str | None, force: bool) -> None:
     """The body of ``scaffold tiers``."""
+    from osprey.repo_retired import deployment_root
+
     # Imported here rather than at module scope: these pull the whole
     # build-profile chain in behind them, and every other verb in this group
     # runs without any of it.
@@ -885,7 +892,7 @@ def _scaffold_layer_files(repo: Path | None, from_preset: str | None, force: boo
     word = "login"
     # Resolved before anything is emitted: standing outside a repo is a mistake
     # about where the command was run, not a scaffolding failure.
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
 
     try:
         profile, _profile_dir = resolve_build_profile(repo_root / PROFILE_FILENAME, None)
@@ -1036,8 +1043,8 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     \b
       $ osprey scaffold pull demo --list
       $ osprey scaffold pull demo:data/facility/knowledge
-      $ osprey scaffold pull demo:web-terminal-context
-      $ osprey scaffold pull hello-world:mcp_servers/example_server --force
+      $ osprey scaffold pull demo:agent/context
+      $ osprey scaffold pull hello-world:agent/mcp_servers/example_server --force
     """
     # Imported here for the same reason `ci` and `tiers` do it: the
     # build-profile chain behind a preset is not loaded for any of the
@@ -1128,8 +1135,8 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
 def systemd(repo: Path | None, force: bool) -> None:
     """Emit a systemd unit that starts this deployment at boot.
 
-    Writes two files and prints how to install them: osprey.service at the repo
-    root, and scripts/osprey-boot-hook.sh beside it. The unit runs
+    Writes two files into the repo and prints how to install them: the unit,
+    osprey.service, and the boot hook, osprey-boot-hook.sh. The unit runs
     'osprey up -d' from this repo and 'osprey down' on stop; both the repo and
     the osprey program are written into it as full paths, because systemd
     starts a unit with no working directory and a short PATH. The hook is for
@@ -1149,6 +1156,8 @@ def systemd(repo: Path | None, force: bool) -> None:
       $ osprey scaffold systemd --repo ~/deployments/als-exemplar
       $ osprey scaffold systemd --force
     """
+    from osprey.repo_retired import deployment_root
+
     # Imported here for the same reason `ci` does it: the build-profile chain
     # behind these two verbs is not loaded for any of the ownership ones.
     from .deploy_scaffold import detect_network_home, scaffold_systemd_unit
@@ -1158,7 +1167,7 @@ def systemd(repo: Path | None, force: bool) -> None:
         SYSTEMD_UNIT_NAME,
     )
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
 
     try:
         emitted = scaffold_systemd_unit(repo_root, force=force)
@@ -1430,8 +1439,8 @@ def claim(name, repo):
     """Move an artifact from the build zone to the profile.
 
     The profile is the source of truth, so claiming an artifact means putting it
-    where the profile keeps that kind of artifact — rules/safety.md,
-    skills/orbit-check/, services/postgresql/. A file moves as a file;
+    where the profile keeps that kind of artifact — agent/rules/safety.md,
+    agent/skills/orbit-check/, services/postgresql/. A file moves as a file;
     skills and services move as whole directories. The next build copies it back
     into the build zone and registers it as user-owned, so a rebuild never
     overwrites it and prune never unlinks it.
@@ -1780,11 +1789,13 @@ def web_terminals_lint(repo, config_path):
       osprey scaffold web-terminals lint
       osprey scaffold web-terminals lint --repo ~/deployments/demo
     """
+    from osprey.repo_retired import deployment_root
+
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.lint import lint_web_terminals
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
     # The repo root, not the working directory: a catalog entry's
     # `project_path` is relative to the deployment repo — the same anchor
@@ -1850,12 +1861,14 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
       osprey scaffold web-terminals render -o deploy/
       osprey scaffold web-terminals render --repo ~/deployments/demo -o deploy/
     """
+    from osprey.repo_retired import deployment_root
+
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
     from osprey.deployment.web_terminals.roster import login_titles_in, render_stop_grace
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
 
     if not no_lint:

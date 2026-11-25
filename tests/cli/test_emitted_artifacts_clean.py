@@ -34,6 +34,7 @@ import yaml
 from osprey.cli.build_profile_deploy import DeployConfig, parse_deploy_block
 from osprey.cli.deploy_scaffold_templates import (
     CI_TEMPLATES,
+    VERIFY_PATH,
     VERIFY_TEMPLATE,
     build_ci_context,
     build_verify_context,
@@ -112,9 +113,7 @@ def rendered(profile: dict[str, Any], deploy: DeployConfig, exemplar_repo: Path)
             CI_TEMPLATES[deploy.ci],
             build_ci_context(profile, deploy, exemplar_repo, exemplar_repo.name, VERSION_SENTINEL),
         ),
-        "scripts/verify.sh": render(
-            VERIFY_TEMPLATE, build_verify_context(profile, VERSION_SENTINEL)
-        ),
+        VERIFY_PATH: render(VERIFY_TEMPLATE, build_verify_context(profile, VERSION_SENTINEL)),
     }
 
 
@@ -131,13 +130,13 @@ def test_the_retired_verb_list_is_not_empty() -> None:
     assert RETIRED_VERB_STRINGS
 
 
-@pytest.mark.parametrize("name", (".gitlab-ci.yml", "scripts/verify.sh"))
+@pytest.mark.parametrize("name", (".gitlab-ci.yml", VERIFY_PATH))
 def test_no_emitted_deploy_file_names_a_retired_verb(rendered: dict[str, str], name: str) -> None:
     """SC-8, for the two files ``init`` does not write and its sweep cannot see."""
     assert [verb for verb in RETIRED_VERB_STRINGS if verb in rendered[name]] == []
 
 
-@pytest.mark.parametrize("name", (".gitlab-ci.yml", "scripts/verify.sh"))
+@pytest.mark.parametrize("name", (".gitlab-ci.yml", VERIFY_PATH))
 def test_no_emitted_deploy_file_assumes_the_sibling_project_layout(
     rendered: dict[str, str], name: str
 ) -> None:
@@ -205,7 +204,7 @@ def test_the_pipeline_is_valid_yaml_gitlab_would_read(rendered: dict[str, str]) 
 
 @pytest.mark.parametrize(
     ("name", "specification"),
-    [(".gitlab-ci.yml", GITLAB_CI_YML), ("scripts/verify.sh", VERIFY_SH)],
+    [(".gitlab-ci.yml", GITLAB_CI_YML), (VERIFY_PATH, VERIFY_SH)],
 )
 def test_the_emitted_pair_reproduces_the_exemplar_byte_for_byte(
     rendered: dict[str, str], name: str, specification: str
@@ -247,7 +246,7 @@ def test_health_check_exits_non_zero_only_under_strict_or_a_bad_argument(
     The only non-zero exits are ``--strict``'s, and the refusal of an argument
     the script does not have, which is not a verification result.
     """
-    verify = rendered["scripts/verify.sh"]
+    verify = rendered[VERIFY_PATH]
     assert verify.rstrip().endswith("exit 0")
     assert not re.search(r"^set -e", verify, re.MULTILINE)
     assert _nonzero_exits(verify) == [
@@ -263,7 +262,7 @@ def test_probe_group_filter_is_not_named_groups(rendered: dict[str, str]) -> Non
     would leave every ``wants`` call false. The script exits 0 either way, and a
     health check that runs no probes reports perfect health.
     """
-    verify = rendered["scripts/verify.sh"]
+    verify = rendered[VERIFY_PATH]
     assert re.search(r'^PROBE_GROUPS="\$\{SELECTED:-([a-z ]+)\}"$', verify, re.MULTILINE)
     assert not re.search(r"^\s*GROUPS=", verify, re.MULTILINE)
     assert not re.search(r"\$\{?GROUPS\b", verify)
@@ -282,7 +281,7 @@ def test_the_health_check_probes_the_dispatcher(rendered: dict[str, str]) -> Non
     """
     assert (
         f"probe_http 'dispatcher health' http://localhost:{default_port('dispatcher')}/health"
-        in (rendered["scripts/verify.sh"])
+        in (rendered[VERIFY_PATH])
     )
 
 
@@ -305,7 +304,7 @@ def test_the_web_probes_split_the_perimeter_from_the_application(
     terminal back on ``/`` can pass.
     """
     web = re.search(
-        r"^if wants web; then$(.*?)^fi$", rendered["scripts/verify.sh"], re.MULTILINE | re.DOTALL
+        r"^if wants web; then$(.*?)^fi$", rendered[VERIFY_PATH], re.MULTILINE | re.DOTALL
     )
     assert web, "the exemplar enables the web tier, so it must emit a web probe group"
 
@@ -333,7 +332,7 @@ def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
     A script carrying it with nothing to probe holds dead text an operator has
     to read past.
     """
-    assert ("probe_tcp" in rendered["scripts/verify.sh"]) is True
+    assert ("probe_tcp" in rendered[VERIFY_PATH]) is True
     assert build_verify_context(profile).has_tcp_probe
 
     http_only = {key: value for key, value in profile.items() if key != "virtual_accelerator"}
@@ -342,14 +341,16 @@ def test_the_tcp_helper_is_emitted_only_where_a_probe_uses_it(
 
 
 def test_the_usage_example_names_a_group_the_script_has(rendered: dict[str, str]) -> None:
-    """``./scripts/verify.sh <group>`` in the header must select something.
+    """``./ops/scripts/verify.sh <group>`` in the header must select something.
 
     The header is the only documentation the script has, and an example naming
     a group the ``wants`` filter never matches runs no probes and still exits 0
     — a health check reporting perfect health by doing nothing.
     """
-    verify = rendered["scripts/verify.sh"]
-    example = re.search(r"^#   \./scripts/verify\.sh (\S+)\s+# one group$", verify, re.MULTILINE)
+    verify = rendered[VERIFY_PATH]
+    example = re.search(
+        rf"^#   \./{re.escape(VERIFY_PATH)} (\S+)\s+# one group$", verify, re.MULTILINE
+    )
     assert example, "the header must show a one-group example"
 
     default = re.search(r'^PROBE_GROUPS="\$\{SELECTED:-([a-z ]+)\}"$', verify, re.MULTILINE)
@@ -421,7 +422,7 @@ def test_the_exemplar_ships_both_files_and_nothing_else_new(exemplar_repo: Path)
     provenance stamp, and a fixture that stopped expanding it would leave a
     literal ``@OSPREY_VERSION@`` in a file an operator reads.
     """
-    for relative in (".gitlab-ci.yml", "scripts/verify.sh"):
+    for relative in (".gitlab-ci.yml", VERIFY_PATH):
         text = exemplar_repo.joinpath(relative).read_text(encoding="utf-8")
         assert VERSION_SENTINEL not in text
         assert text.startswith(expand_sentinels(text[: text.index("\n")]))

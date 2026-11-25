@@ -87,9 +87,17 @@ def test_resume_probe_passes_the_recorded_request(authored) -> None:
     assert probe.verdict(body, "", *authored) == []
 
 
-def test_resume_probe_fails_when_no_request_arrives(authored) -> None:
-    [failure] = probe.verdict(None, "", *authored)
-    assert "no /v1/messages request" in failure
+@pytest.mark.parametrize(
+    ("body", "needle"),
+    [
+        pytest.param(None, "no /v1/messages request", id="no-request-arrives"),
+        pytest.param(b'{"messages": [', "not JSON", id="body-does-not-parse"),
+        pytest.param(b'{"model": "x"}', "no messages list", id="body-without-messages"),
+    ],
+)
+def test_resume_probe_fails_on_a_bad_capture(authored, body, needle) -> None:
+    [failure] = probe.verdict(body, "", *authored)
+    assert needle in failure
 
 
 def test_resume_probe_fails_when_the_build_finds_no_conversation(authored) -> None:
@@ -100,16 +108,6 @@ def test_resume_probe_fails_when_the_build_finds_no_conversation(authored) -> No
 def test_resume_probe_no_conversation_wins_over_a_captured_body(authored) -> None:
     body = json.dumps(_recorded()).encode()
     assert probe.verdict(body, _NOT_FOUND, *authored)
-
-
-def test_resume_probe_fails_on_a_body_that_does_not_parse(authored) -> None:
-    [failure] = probe.verdict(b'{"messages": [', "", *authored)
-    assert "not JSON" in failure
-
-
-def test_resume_probe_fails_on_a_body_without_messages(authored) -> None:
-    [failure] = probe.verdict(b'{"model": "x"}', "", *authored)
-    assert "no messages list" in failure
 
 
 def _without_prompt(messages: list[dict], prompt: str) -> list[dict]:

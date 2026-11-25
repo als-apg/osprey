@@ -131,18 +131,14 @@ def test_result_none_returns_fail() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_budget_subtype_without_error_flag_returns_fail() -> None:
+@pytest.mark.parametrize("subtype", ["error_max_budget_usd", "error_max_turns"])
+def test_budget_subtype_without_error_flag_returns_fail(subtype: str) -> None:
     """The _BUDGET_SUBTYPES branch (defense-in-depth) must fail even when
     is_error is NOT set — the only input shape that actually reaches it, since
     the is_error gate short-circuits first. Pins the documented contract that
-    is robust to future SDK changes."""
-    wf = _workflow(_ok_result("error_max_budget_usd"), ["controls"])
-    assert evaluate_verdict(wf, {"controls"}) == EXIT_VERDICT_FAIL
-
-
-def test_turn_subtype_without_error_flag_returns_fail() -> None:
-    """error_max_turns with is_error=False also fails via the subtype branch."""
-    wf = _workflow(_ok_result("error_max_turns"), ["controls"])
+    is robust to future SDK changes. Covers error_max_budget_usd and
+    error_max_turns."""
+    wf = _workflow(_ok_result(subtype), ["controls"])
     assert evaluate_verdict(wf, {"controls"}) == EXIT_VERDICT_FAIL
 
 

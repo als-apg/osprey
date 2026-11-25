@@ -485,8 +485,9 @@ per pulsed magnet, naming its ``element`` and stating ``plane`` and optionally
 ``value_type: waveform`` with ``shape: [<trigger_sample + turns>]``. Each
 ``arm`` and the chain's ``request`` are marked ``command`` by their engines. The build
 stops ``engine-invalid`` on a malformed block, a turn record on a ring
-without one, a record of the wrong value type or shape, and a monitor record
-whose element is not a monitor. The settings, their defaults and what a shot
+without one, a record of the wrong value type or shape, a monitor record
+whose element is not a monitor, and a turn record that states a
+``calibration``. The settings, their defaults and what a shot
 does are in :ref:`va-turn-by-turn`.
 
 How the composite serves the models over Channel Access and PVAccess is in

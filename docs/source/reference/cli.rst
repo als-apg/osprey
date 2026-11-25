@@ -132,12 +132,12 @@ handy for a second stack beside one already on the default 10000 block).
 
 ``--force`` — Re-materialize the source zone of an existing deployment
 repository, discarding edits to ``profile.yml``, ``data/``, ``tiers/``,
-``apps/``, ``triggers.yml``, ``web-terminal-context/``, ``.env.example``, and
-``watchdogs/``, and rewriting ``.osprey/``. In ``providers.yml`` the entries OSPREY ships are reset to the
+``apps/``, ``triggers.yml``, ``agent/context/``, ``.env.example``,
+``agent/watchdogs/``, and ``agent/code_review/``, and rewriting ``.osprey/``. In ``providers.yml`` the entries OSPREY ships are reset to the
 packaged values and the ones you added are kept. Never touches ``.env``,
 ``.git``, ``var/``, ``build/``, ``.gitignore``, ``.env.shared``, ``README.md``,
-``ci-extra.yml``, the CI file, ``scripts/verify.sh``, ``mcp_servers/``, or
-``rules/``.
+``ops/ci-extra.yml``, the CI file, ``ops/scripts/verify.sh``, ``agent/mcp_servers/``,
+or ``agent/rules/``.
 
 ``--reset`` — Start over on a name used before. Deleting a deployment's
 directory leaves its containers and data volumes behind, because they are keyed
@@ -186,6 +186,11 @@ output. Retired write keys are rewritten to the tier key
 ``control_system.writes`` in every layer (:ref:`write-safety-upgrade`), and
 retired per-tool policies for switch-governed tools are removed. Prints
 a diff to review and commit.
+
+Every root entry at a retired path is moved under ``agent/`` or ``ops/``
+(``git mv`` where tracked), the profile values, pipeline lines and
+``.dockerignore`` lines that name one are rewritten, and the host steps and the
+files to check by hand are printed (:ref:`profile-root-migration`).
 
 Each facility tree the profile and its variants build from is moved off its
 retired paths, relative to ``data/facility/`` (``git mv`` where tracked):
@@ -618,6 +623,8 @@ What survives, the plan lists before you confirm:
 - ``var/archive/`` — the archive: the record's daily exports, with the artifact
   and Bluesky copies beside them;
 - ``var/state/`` — each identity's locks, leases and markers;
+- ``var/runtime/`` — the Bluesky document-plane certificates ``osprey up``
+  minted, which the next start keeps rather than rotating;
 - everything in ``.env`` that a deploy did not mint — your provider keys.
 
 The source zone is never touched: ``profile.yml``, ``data/``, ``tiers/``,
@@ -1749,18 +1756,18 @@ All subcommands accept a common flag:
 ``osprey scaffold ci [--force]``
    Emit this repository's CI pipeline and health check from the profile's
    ``deploy:`` block: the pipeline at the repository root and the post-deploy
-   health check at ``scripts/verify.sh``. Run it again whenever the block
+   health check at ``ops/scripts/verify.sh``. Run it again whenever the block
    changes. Re-running is safe — a file whose content already matches is left
    untouched, stamp included, so an OSPREY upgrade alone produces no diff. A
    file the scaffolder did not write is reported and left alone unless
-   ``--force`` is given. ``ci-extra.yml`` is never touched: it is yours, and the
+   ``--force`` is given. ``ops/ci-extra.yml`` is never touched: it is yours, and the
    pipeline includes it. The health check exits 0 unless run with ``--strict``,
    which exits 1 when a container or a probe is flagged.
 
 ``osprey scaffold systemd [--force]``
    Emit the files that start this deployment at boot: a systemd user unit,
-   ``osprey.service`` at the repository root, and a boot hook,
-   ``scripts/osprey-boot-hook.sh``, plus the commands to install the unit. The unit runs
+   ``ops/osprey.service``, and a boot hook, ``ops/scripts/osprey-boot-hook.sh``,
+   plus the commands to install the unit. The unit runs
    ``osprey up -d`` from this repository and ``osprey down`` on stop, with both
    the repository and the ``osprey`` program written in as full paths — systemd
    starts a unit with no working directory and a short ``PATH``. Run it on the

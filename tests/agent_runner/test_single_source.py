@@ -9,6 +9,8 @@ if anyone reintroduces a local copy in either consumer module.
 
 import inspect
 
+import pytest
+
 import osprey.services.channel_finder.benchmarks.sdk as bench
 import tests.e2e.sdk_helpers as helpers
 from osprey.agent_runner import (
@@ -26,41 +28,25 @@ from osprey.agent_runner import (
 # ---------------------------------------------------------------------------
 
 
-def test_sdk_workflow_result_identity_helpers():
-    assert helpers.SDKWorkflowResult is canonical_workflow_result, (
-        "tests/e2e/sdk_helpers.SDKWorkflowResult is not the canonical class; "
+@pytest.mark.parametrize(
+    ("module", "attr", "canonical"),
+    [
+        pytest.param(
+            helpers, "SDKWorkflowResult", canonical_workflow_result, id="helpers-SDKWorkflowResult"
+        ),
+        pytest.param(
+            bench, "SDKWorkflowResult", canonical_workflow_result, id="bench-SDKWorkflowResult"
+        ),
+        pytest.param(helpers, "ToolTrace", canonical_tool_trace, id="helpers-ToolTrace"),
+        pytest.param(bench, "ToolTrace", canonical_tool_trace, id="bench-ToolTrace"),
+        pytest.param(helpers, "sdk_env", canonical_sdk_env, id="helpers-sdk_env"),
+        pytest.param(bench, "sdk_env", canonical_sdk_env, id="bench-sdk_env"),
+    ],
+)
+def test_consumer_reexports_the_canonical_object(module, attr, canonical):
+    assert getattr(module, attr) is canonical, (
+        f"{module.__name__}.{attr} is not the canonical object; "
         "it was re-defined instead of imported from osprey.agent_runner"
-    )
-
-
-def test_sdk_workflow_result_identity_bench():
-    assert bench.SDKWorkflowResult is canonical_workflow_result, (
-        "osprey.services.channel_finder.benchmarks.sdk.SDKWorkflowResult is not "
-        "the canonical class; it was re-defined instead of imported from osprey.agent_runner"
-    )
-
-
-def test_tool_trace_identity_helpers():
-    assert helpers.ToolTrace is canonical_tool_trace, (
-        "tests/e2e/sdk_helpers.ToolTrace is not the canonical class"
-    )
-
-
-def test_tool_trace_identity_bench():
-    assert bench.ToolTrace is canonical_tool_trace, (
-        "osprey.services.channel_finder.benchmarks.sdk.ToolTrace is not the canonical class"
-    )
-
-
-def test_sdk_env_identity_helpers():
-    assert helpers.sdk_env is canonical_sdk_env, (
-        "tests/e2e/sdk_helpers.sdk_env is not the canonical function"
-    )
-
-
-def test_sdk_env_identity_bench():
-    assert bench.sdk_env is canonical_sdk_env, (
-        "osprey.services.channel_finder.benchmarks.sdk.sdk_env is not the canonical function"
     )
 
 

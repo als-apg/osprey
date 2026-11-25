@@ -117,7 +117,7 @@ def test_a_bridge_mode_render_is_byte_for_byte_unchanged(tmp_path: Path) -> None
 
 
 def test_a_claimed_service_is_left_to_its_author(tmp_path: Path) -> None:
-    (tmp_path / "profile" / "services" / "archive").mkdir(parents=True)
+    (tmp_path / "profile" / "ops" / "services" / "archive").mkdir(parents=True)
     project = _project(tmp_path, {"archive": {"path": "./services/archive", "network": "host"}})
 
     _declare_bundled_host_bindings(
@@ -146,7 +146,7 @@ def test_a_service_claimed_in_the_profile_keeps_only_its_authors_declaration(
     as ``scaffold.user_owned``, so the render holds no ownership list yet.
     """
     profile_dir = tmp_path / "profile"
-    claimed = profile_dir / "services" / "archive"
+    claimed = profile_dir / "ops" / "services" / "archive"
     claimed.mkdir(parents=True)
     (claimed / "docker-compose.yml.j2").write_text("services: {}\n", encoding="utf-8")
     project = _project(tmp_path, {})

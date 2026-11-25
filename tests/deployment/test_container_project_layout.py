@@ -211,8 +211,8 @@ def test_the_container_context_leaves_out_the_repos_own_claude_code_files(
     (repo / PROFILE_FILENAME).write_text("name: facility\n", encoding="utf-8")
     _write_repo_claude_code_files(repo)
     nested = {
-        Path("project") / "notes" / "CLAUDE.md": "# mirrored notes\n",
-        Path("project") / ".claude" / "commands" / "ops.md": "# ops command\n",
+        Path("ops") / "project" / "notes" / "CLAUDE.md": "# mirrored notes\n",
+        Path("ops") / "project" / ".claude" / "commands" / "ops.md": "# ops command\n",
         Path("data") / "notes" / "CLAUDE.md": "# data notes\n",
     }
     for relpath, text in nested.items():
@@ -256,8 +256,8 @@ def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) 
         Path("data") / "channels.yml": "channels: []\n",
         Path("rules") / "safety.md": "# safety\n",
         Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
-        Path("project") / "notes" / "CLAUDE.md": "# mirrored notes\n",
-        Path("project") / ".claude" / "commands" / "ops.md": "# ops command\n",
+        Path("ops") / "project" / "notes" / "CLAUDE.md": "# mirrored notes\n",
+        Path("ops") / "project" / ".claude" / "commands" / "ops.md": "# ops command\n",
     }
     for relpath, text in sources.items():
         (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
@@ -277,7 +277,9 @@ def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) 
     staged = profile_fingerprint(image_root / PROFILE_FILENAME)
     assert staged is not None and staged.profile_hash == before
 
-    (image_root / "project" / "notes" / "CLAUDE.md").write_text("# edited\n", encoding="utf-8")
+    (image_root / "ops" / "project" / "notes" / "CLAUDE.md").write_text(
+        "# edited\n", encoding="utf-8"
+    )
     edited = profile_fingerprint(image_root / PROFILE_FILENAME)
     assert edited is not None and edited.profile_hash != before
 
@@ -855,3 +857,42 @@ def test_a_repos_own_dockerignore_leaves_the_stamp_equal_to_the_repos_fingerprin
         assert not (context / "x.h5").exists(), name
         manifest = json.loads(build_manifest_path(context).read_text(encoding="utf-8"))
         assert manifest["creation"]["preset_hash"] == fingerprint.profile_hash, name
+
+
+@pytest.mark.slow
+def test_no_produced_context_carries_the_runtime_certificates(tmp_path: Path) -> None:
+    """The certificates ``osprey up`` minted stay on the host: no image context holds them.
+
+    A real build of a repo that has started before, so its state zone carries a
+    lane's certificate set; neither the files nor their bytes reach a context.
+    """
+    from osprey.utils.workspace import RUNTIME_DIR_RELPATH
+    from tests.fixtures.lifecycle_repo import (
+        EXEMPLAR_DIRNAME,
+        build_exemplar_repo,
+        preserved_environ,
+    )
+
+    repo = build_exemplar_repo(tmp_path / EXEMPLAR_DIRNAME, seed_env=True)
+    curve = repo / RUNTIME_DIR_RELPATH / "bluesky_curve"
+    minted = {
+        curve / "bridge" / "proxy.key_secret": b"runtime-minted proxy secret\n",
+        curve / "bridge" / "clients" / "publisher.key": b"runtime-minted publisher public\n",
+        curve / "queueserver" / "publisher.key_secret": b"runtime-minted publisher secret\n",
+        curve / "queueserver" / "proxy.key": b"runtime-minted proxy public\n",
+    }
+    for path, body in minted.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+    with contextlib.chdir(repo), preserved_environ():
+        result = CliRunner().invoke(build_command, ["--skip-deps", "--skip-lifecycle"])
+    assert result.exit_code == 0, result.output
+
+    contexts = _contexts(repo)
+    assert contexts, "the build produced no image context to check"
+    bodies = set(minted.values())
+    for name, context in contexts.items():
+        files = [path for path in context.rglob("*") if path.is_file()]
+        assert not [p for p in files if "_curve" in p.relative_to(context).as_posix()], name
+        assert not [p for p in files if p.read_bytes() in bodies], name
+    assert all(path.read_bytes() == body for path, body in minted.items())

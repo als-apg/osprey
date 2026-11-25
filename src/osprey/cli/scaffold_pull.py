@@ -110,14 +110,11 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
     visit(app_root)
     # The facility and the files the template takes from another one, listed
     # where they land.
-    data = repo_layout.entry("data").path
     for relative in source.placed_files():
-        files.append(f"{data}/{relative}")
+        files.append(relative)
         for parent in PurePosixPath(relative).parents:
-            if parent.name and f"{data}/{parent.as_posix()}/" not in directories:
-                directories.append(f"{data}/{parent.as_posix()}/")
-    if any(entry.startswith(f"{data}/") for entry in files) and f"{data}/" not in directories:
-        directories.append(f"{data}/")
+            if parent.name and f"{parent.as_posix()}/" not in directories:
+                directories.append(f"{parent.as_posix()}/")
     directories.sort()
     files.sort()
 
@@ -233,10 +230,12 @@ def plan_pull(
         ValueError: If ``rel_path`` names nothing pullable in this template,
             propagated from :func:`list_pullable_paths` with its list of
             top-level entries.
+        RetiredRootRefused: If the deployment holds anything at a retired
+            root path, whatever ``rel_path`` names.
         RetiredLayoutRefused: If the deployment's facility tree holds a source
             at a retired path, whatever ``rel_path`` names.
     """
-    refuse_retired_facility(repo_root)
+    refuse_retired_layouts(repo_root)
     candidates = [
         entry for entry in list_pullable_paths(source, rel_path) if not entry.endswith("/")
     ]
@@ -244,8 +243,7 @@ def plan_pull(
     # no-op for the entire command, so it is reported as a refusal instead.
     only_one = len(candidates) == 1
 
-    data = repo_layout.entry("data").path
-    placed = {f"{data}/{relative}": path for relative, path in source.placed_files().items()}
+    placed = source.placed_files()
     actions: list[PullAction] = []
     for relative in candidates:
         origin = placed.get(relative, source.app_root / relative)
@@ -333,23 +331,27 @@ def _target_refusal(repo_root: Path, target: Path) -> str | None:
     return None
 
 
-def refuse_retired_facility(repo_root: Path) -> None:
-    """Stop when the deployment's facility tree holds a source at a retired path.
+def refuse_retired_layouts(repo_root: Path) -> None:
+    """Stop when the deployment, or its facility tree, holds anything at a retired path.
 
-    The roots are the ones the build reads, resolved from the profile. A
-    profile that does not resolve leaves the tree a pull writes into,
+    The root is checked first, before the profile is read. The facility roots
+    are then the ones the build reads, resolved from the profile; a profile
+    that does not resolve leaves the tree a pull writes into,
     ``data/facility/``, as the one checked.
 
     Raises:
-        RetiredLayoutRefused: If a checked root holds a source at a retired
-            path.
+        RetiredRootRefused: If the repo holds something at a retired root path.
+        RetiredLayoutRefused: If a checked facility root holds a source at a
+            retired path.
     """
+    from osprey.repo_retired import refuse_retired_layout
     from osprey_connectors.errors import BuildProfileError
     from osprey_facility.errors import FacilityBuildError
     from osprey_facility.retired import refuse_retired
 
     from .facility_cmd import _facility_roots, _main_profile
 
+    refuse_retired_layout(repo_root)
     try:
         _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, FacilityBuildError, OSError, ValueError, RuntimeError):

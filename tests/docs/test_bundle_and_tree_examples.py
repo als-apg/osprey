@@ -51,6 +51,7 @@ import yaml
 from osprey.cli.profile_conventions import (
     PROJECT_MIRROR_DIR,
     convention_for,
+    convention_source,
     plan_convention_copies,
     validate_convention_sources,
 )
@@ -80,7 +81,9 @@ _SCANNER = _REPO_ROOT / "scripts" / "docs" / "snippet_coverage.py"
 _TEMPLATES = _REPO_ROOT / "src" / "osprey" / "templates"
 _EXAMPLE_FACILITY = _TEMPLATES / "facilities" / "example"
 _EXAMPLE_BUNDLE = _EXAMPLE_FACILITY / KNOWLEDGE_DIR
-_HELLO_WORLD_SERVER = _TEMPLATES / "apps" / "hello_world" / "mcp_servers" / "example_server"
+_HELLO_WORLD_SERVER = (
+    _TEMPLATES / "apps" / "hello_world" / "agent" / "mcp_servers" / "example_server"
+)
 
 OKF_PAGE = "how-to/facility-knowledge/okf-bundle.rst"
 BUILD_PROFILES_PAGE = "how-to/build-profiles.rst"
@@ -544,7 +547,8 @@ def _profile_tree(page: str, needle: str) -> list[str]:
 
 def test_project_mirror_dockerfile_is_copied_onto_the_render_root(tmp_path: Path) -> None:
     paths = _profile_tree(PROJECT_IMAGE_PAGE, "copied verbatim onto the render")
-    assert paths == [f"{PROJECT_MIRROR_DIR}/", f"{PROJECT_MIRROR_DIR}/Dockerfile"]
+    mirror = convention_source(PROJECT_MIRROR_DIR)
+    assert paths == ["ops/", f"{mirror}/", f"{mirror}/Dockerfile"]
     _materialize(tmp_path, paths)
     validate_convention_sources(tmp_path)
     copies = [(c.category, c.destination, c.is_directory) for c in plan_convention_copies(tmp_path)]
@@ -555,7 +559,7 @@ def test_mcp_server_tree_is_the_scaffold_layout_and_lands_in_build(tmp_path: Pat
     paths = _profile_tree(PROFILE_PAGE, "my_server/")
     convention = convention_for("mcp_servers")
     assert convention is not None
-    assert paths[:2] == [f"{convention.source}/", f"{convention.source}/my_server/"]
+    assert paths[:3] == ["agent/", f"{convention.source}/", f"{convention.source}/my_server/"]
     package = f"{convention.source}/my_server/"
     files = {Path(rel).name for rel in paths if rel.startswith(package) and rel != package}
     shipped = {path.name for path in _HELLO_WORLD_SERVER.iterdir() if path.suffix == ".py"}
@@ -563,5 +567,5 @@ def test_mcp_server_tree_is_the_scaffold_layout_and_lands_in_build(tmp_path: Pat
     assert "build/_mcp_servers/" in " ".join(_page_text(PROFILE_PAGE).split())
     _materialize(tmp_path, paths)
     copies = [(c.category, c.destination, c.is_directory) for c in plan_convention_copies(tmp_path)]
-    assert copies == [(convention.source, f"{convention.destination}/my_server", True)]
+    assert copies == [("mcp_servers", f"{convention.destination}/my_server", True)]
     assert convention.destination == "_mcp_servers"

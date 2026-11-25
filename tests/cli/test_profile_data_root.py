@@ -142,8 +142,8 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
     (profile_dir / QUERIES_SOURCE).write_text(PROFILE_QUERIES)
     # The mirror and the profile's flat DB differ, so only the mirror landing
     # last can pass.
-    (profile_dir / "project" / FLAT_DB).parent.mkdir(parents=True)
-    (profile_dir / "project" / FLAT_DB).write_text(MIRROR_BODY)
+    (profile_dir / "ops" / "project" / FLAT_DB).parent.mkdir(parents=True)
+    (profile_dir / "ops" / "project" / FLAT_DB).write_text(MIRROR_BODY)
     (profile_dir / FLAT_DB).parent.mkdir(parents=True, exist_ok=True)
     (profile_dir / FLAT_DB).write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
     return profile_dir, _build(profile_path)
@@ -229,42 +229,6 @@ class TestFullReplacement:
         )
         assert not (project_dir / "data" / "from_bundle.txt").exists(), (
             "bundle data leaked past the data_root bypass"
-        )
-
-    def test_runtime_subpath_is_never_copied_into_the_project(self, tmp_path: Path) -> None:
-        """#716: ``data/.runtime/`` is runtime output, so the build must not stage it.
-
-        ``osprey up`` mints CURVE secrets there; copying them into the render
-        would put private keys into ``build/`` and from there into every image
-        built from the staged project. The fold already refuses to hash the
-        subpath, and the copy refuses to carry it — the two halves of the same
-        contract.
-        """
-        template_root = tmp_path / "templates"
-        (template_root / "apps" / "demo").mkdir(parents=True)
-
-        data_root = tmp_path / "facility_data"
-        (data_root / ".runtime" / "bluesky_curve" / "bridge").mkdir(parents=True)
-        (data_root / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret").write_text(
-            "secret\n"
-        )
-        (data_root / "authored.txt").write_text("authored\n")
-
-        project_dir = tmp_path / "project"
-
-        copy_template_data(
-            template_root,
-            project_dir,
-            "demo_pkg",
-            "demo",
-            {},
-            jinja_env=Environment(loader=FileSystemLoader(str(template_root))),
-            data_root=data_root,
-        )
-
-        assert (project_dir / "data" / "authored.txt").read_text() == "authored\n"
-        assert not (project_dir / "data" / ".runtime").exists(), (
-            "runtime-minted secrets were staged into the build"
         )
 
 

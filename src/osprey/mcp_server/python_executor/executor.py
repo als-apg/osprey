@@ -50,7 +50,13 @@ from osprey.mcp_server.sandbox_env import (
     configured_child_env_passthrough,
     scrub_sandbox_child_env,
 )
-from osprey.repo_layout import Zone, paths, retired_paths, rows_in_zone
+from osprey.repo_layout import (
+    Zone,
+    moved_from_top_level_names,
+    retired_paths,
+    rows_in_zone,
+    top_level_names,
+)
 from osprey.stores.artifact_manifest import (
     MAX_COLLECTED_ENTRIES,
     MAX_COLLECTED_TOTAL_BYTES,
@@ -82,16 +88,19 @@ logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
 _PERIMETER_OPEN_VALUE = "open"
 
 #: The profile SOURCE zone, as repo-root-relative paths: ``profile.yml`` and
-#: everything a build reads to produce a project — the convention directories
-#: (``rules/``, ``skills/``, the ``project/`` verbatim mirror, ...), the layer
+#: everything a build reads to produce a project — the ``agent/`` group of
+#: convention directories, the ``project/`` verbatim mirror, the layer
 #: and application directories, the saved preset copy under ``.osprey/``, and
 #: the source files beside them. Executed code may not write into any of it, in
 #: any execution mode: rewriting the profile is how a run changes what the
 #: *next* run is allowed to do, which is a different boundary from the
 #: control-system one and is not something readwrite approval buys.
 #:
-#: The path, and every retired path, of each source-zone row of
-#: :mod:`osprey.repo_layout`, in declaration order. The build's convention table
+#: The top-level name each source-zone row of :mod:`osprey.repo_layout` occupies
+#: at the deployment root, then every retired path, then the top-level name of
+#: every path a row has moved from, in declaration order. A group such as
+#: ``agent`` is protected whole; a moved-from name stays protected while an
+#: unmigrated tree may still hold it. The build's convention table
 #: and its source-zone table are views of the same rows, so an entry added to
 #: the source zone there is protected here without an edit. The declaration is
 #: a leaf below ``osprey.cli`` and is read directly: importing the CLI would run
@@ -100,8 +109,9 @@ _PERIMETER_OPEN_VALUE = "open"
 #: a decision; it only picks which root a static refusal names when a relative
 #: path matches two of them.
 PROFILE_SOURCE_ENTRIES: tuple[str, ...] = (
-    *paths(rows_in_zone(Zone.SOURCE)),
+    *top_level_names(rows_in_zone(Zone.SOURCE)),
     *retired_paths(rows_in_zone(Zone.SOURCE)),
+    *moved_from_top_level_names(rows_in_zone(Zone.SOURCE)),
 )
 
 #: The target stamp carried into the sandbox. These two names are the routing
@@ -348,7 +358,7 @@ def resolve_protected_roots(
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
-    Four groups, all anchored on the deployment repo root:
+    Five groups, all anchored on the deployment repo root:
 
     * The **render zone** (``build/``). Every ``osprey build`` re-creates it
       wholesale, so a write there is either lost at the next build or, worse,
@@ -368,6 +378,10 @@ def resolve_protected_roots(
       trail, holding the same facts as the record. Each is written by OSPREY
       processes and never by executed code, which could otherwise forge or
       erase entries.
+    * The **runtime-minted material**
+      (:data:`~osprey.utils.workspace.RUNTIME_DIR_RELPATH`): the certificates
+      ``osprey up`` mints for the containers it starts. Executed code that could
+      replace them could swap the keys a running stack trusts.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -390,6 +404,7 @@ def resolve_protected_roots(
         ARCHIVE_DIR_RELPATH,
         PRE_UPGRADE_AUDIT_RELPATH,
         RECORD_DIR_RELPATH,
+        RUNTIME_DIR_RELPATH,
         SPOOL_DIR_RELPATH,
         STATE_DIR_RELPATH,
     )
@@ -405,6 +420,7 @@ def resolve_protected_roots(
         root / RECORD_DIR_RELPATH,
         root / STATE_DIR_RELPATH,
         root / ARCHIVE_DIR_RELPATH,
+        root / RUNTIME_DIR_RELPATH,
     ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
     return tuple(dict.fromkeys(path.resolve() for path in candidates))

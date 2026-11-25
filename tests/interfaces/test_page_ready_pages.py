@@ -113,8 +113,10 @@ def test_the_walk_finds_the_pages_it_must() -> None:
 
 def test_a_page_beside_a_served_page_that_takes_no_route_fails(tmp_path: Path) -> None:
     where = tmp_path / "static" / "x.html"
-    assert route_problem("", where) is not None
-    assert route_problem("<!DOCTYPE html><html><body></body></html>", where) is not None
+    for page in ("", "<!DOCTYPE html><html><body></body></html>"):
+        problem = route_problem(page, where)
+        assert problem is not None
+        assert problem.startswith("takes no route to the page-ready mark: ")
 
 
 def test_each_route_is_read_from_the_markup_and_the_scripts_it_loads() -> None:

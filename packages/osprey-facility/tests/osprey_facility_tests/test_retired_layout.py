@@ -11,7 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from osprey_facility.retired import Clash, DeckEdit, Move, RetiredLayout, find_retired
+from osprey_facility.retired import (
+    Clash,
+    LineEdit,
+    Move,
+    RetiredLayout,
+    find_retired,
+    place_moves,
+)
 from osprey_facility_tests._harness import REPO_ROOT
 
 BUNDLED_EXAMPLE = REPO_ROOT / "src/osprey/templates/facilities/example"
@@ -211,9 +218,9 @@ def test_deck_values_under_the_retired_prefix_are_edited_at_the_new_models_path(
 
     new_file = tmp_path / "simulation/models.yaml"
     assert found.deck_edits == (
-        DeckEdit(file=new_file, line=4, old="decks/BTS.json", new="simulation/decks/BTS.json"),
-        DeckEdit(file=new_file, line=5, old="decks/LTB.json", new="simulation/decks/LTB.json"),
-        DeckEdit(file=new_file, line=7, old="decks/SR.json", new="simulation/decks/SR.json"),
+        LineEdit(file=new_file, line=4, old="decks/BTS.json", new="simulation/decks/BTS.json"),
+        LineEdit(file=new_file, line=5, old="decks/LTB.json", new="simulation/decks/LTB.json"),
+        LineEdit(file=new_file, line=7, old="decks/SR.json", new="simulation/decks/SR.json"),
     )
     assert found.moves == (
         Move(
@@ -232,7 +239,7 @@ def test_deck_values_are_found_in_an_already_moved_models_file(tmp_path: Path) -
     found = find_retired(tmp_path)
 
     assert found.deck_edits == (
-        DeckEdit(
+        LineEdit(
             file=tmp_path / "simulation/models.yaml",
             line=2,
             old="decks/SR.json",
@@ -302,3 +309,121 @@ def test_the_result_is_frozen(tmp_path: Path) -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         found.moves = ()  # type: ignore[misc]
+
+
+# --- placing moves under any root ---------------------------------------------------------
+
+
+def test_placement_moves_a_path_whole_when_its_successor_is_absent(tmp_path: Path) -> None:
+    _write(tmp_path, "old/a.txt")
+    _write(tmp_path, "single.txt")
+
+    moves, clashes = place_moves(tmp_path, [("old", "group/new"), ("single.txt", "group/one")])
+
+    assert moves == [
+        Move(root=tmp_path, old="old", new="group/new", is_dir=True, merge=False),
+        Move(root=tmp_path, old="single.txt", new="group/one", is_dir=False, merge=False),
+    ]
+    assert clashes == []
+
+
+def test_placement_merges_per_file_and_clashes_on_overlap(tmp_path: Path) -> None:
+    _write(tmp_path, "old/a.txt")
+    _write(tmp_path, "old/sub/b.txt")
+    _write(tmp_path, "new/a.txt")
+
+    moves, clashes = place_moves(tmp_path, [("old", "new")])
+
+    assert moves == [
+        Move(root=tmp_path, old="old/sub/b.txt", new="new/sub/b.txt", is_dir=False, merge=True),
+    ]
+    assert clashes == [Clash(old=tmp_path / "old/a.txt", new=tmp_path / "new/a.txt")]
+
+
+def test_placement_ignores_a_path_holding_no_source(tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+    _write(tmp_path, "hidden/.keep")
+
+    assert place_moves(tmp_path, [("empty", "e"), ("hidden", "h"), ("absent", "a")]) == ([], [])
+
+
+def test_placement_counts_an_explicitly_listed_dot_named_path(tmp_path: Path) -> None:
+    _write(tmp_path, ".runtime/state.json")
+    _write(tmp_path, ".env")
+
+    moves, clashes = place_moves(tmp_path, [(".runtime", "var/runtime"), (".env", "config/env")])
+
+    assert moves == [
+        Move(root=tmp_path, old=".runtime", new="var/runtime", is_dir=True, merge=False),
+        Move(root=tmp_path, old=".env", new="config/env", is_dir=False, merge=False),
+    ]
+    assert clashes == []
+
+
+def test_placement_skips_dot_names_below_the_path_unless_hidden_ones_count(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "old/a.txt")
+    _write(tmp_path, "old/.gitkeep")
+    _write(tmp_path, "old/.hooks/pre")
+    (tmp_path / "new").mkdir()
+
+    plain, _ = place_moves(tmp_path, [("old", "new")])
+    hidden, _ = place_moves(tmp_path, [("old", "new")], hidden=True)
+
+    assert [move.old for move in plain] == ["old/a.txt"]
+    assert [move.old for move in hidden] == ["old/.gitkeep", "old/.hooks/pre", "old/a.txt"]
+
+
+def test_placement_counts_a_directory_holding_only_dot_files_when_hidden_ones_count(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "old/.gitkeep")
+
+    moves, _ = place_moves(tmp_path, [("old", "new")], hidden=True)
+
+    assert moves == [Move(root=tmp_path, old="old", new="new", is_dir=True, merge=False)]
+
+
+def test_a_file_onto_an_existing_path_is_a_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "old.txt")
+    (tmp_path / "new").mkdir()
+
+    moves, clashes = place_moves(tmp_path, [("old.txt", "new")])
+
+    assert moves == []
+    assert clashes == [Clash(old=tmp_path / "old.txt", new=tmp_path / "new")]
+
+
+def test_a_directory_onto_a_file_is_a_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "old/a.txt")
+    _write(tmp_path, "new")
+
+    moves, clashes = place_moves(tmp_path, [("old", "new")])
+
+    assert moves == []
+    assert clashes == [Clash(old=tmp_path / "old", new=tmp_path / "new")]
+
+
+def test_a_file_where_a_successor_parent_is_expected_is_a_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "old/a.txt")
+    _write(tmp_path, "group")
+
+    moves, clashes = place_moves(tmp_path, [("old", "group/new")])
+
+    assert moves == []
+    assert clashes == [Clash(old=tmp_path / "old", new=tmp_path / "group")]
+
+
+def test_a_file_where_a_merged_directory_is_expected_is_one_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "old/sub/a.txt")
+    _write(tmp_path, "old/sub/deeper/b.txt")
+    _write(tmp_path, "old/c.txt")
+    _write(tmp_path, "new/sub")
+
+    moves, clashes = place_moves(tmp_path, [("old", "new")])
+
+    assert moves == [
+        Move(root=tmp_path, old="old/c.txt", new="new/c.txt", is_dir=False, merge=True),
+    ]
+    assert clashes == [Clash(old=tmp_path / "old/sub", new=tmp_path / "new/sub")]

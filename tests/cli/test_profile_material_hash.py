@@ -53,40 +53,28 @@ def test_data_tree_addition_moves_the_hash(data_profile):
     assert compute_profile_hash(data_profile) != before
 
 
-def test_unchanged_data_tree_hashes_the_same(data_profile):
-    """Re-hashing an untouched tree must not manufacture drift on every deploy."""
-    assert compute_profile_hash(data_profile) == compute_profile_hash(data_profile)
-
-
 def test_runtime_minted_material_does_not_move_the_hash(data_profile):
-    """#716: material ``osprey up`` mints under ``data/.runtime/`` is not build input.
+    """Material ``osprey up`` mints lies in the state zone, which is not build input.
 
-    The start itself writes CURVE keypairs into the data tree, so folding them
-    would make every successful start mark its own build OUT OF DATE — a
-    scaffolded boot unit then refuses to start after any of them. The reserved
-    ``.runtime/`` subpath is spelled literally here, not through the constant,
-    because the spelling IS the contract: the fold and the writer must agree on
-    these exact bytes.
+    The start itself writes CURVE keypairs, so folding them would make every
+    successful start mark its own build OUT OF DATE — a scaffolded boot unit
+    then refuses to start after any of them.
     """
     before = compute_profile_hash(data_profile)
 
     _write(
-        data_profile.parent / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
+        data_profile.parent / "var" / "runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
         "minted-by-osprey-up\n",
     )
 
     assert compute_profile_hash(data_profile) == before
 
 
-def test_authored_data_still_moves_the_hash_when_runtime_material_exists(data_profile):
-    """The carve-out is surgical: authored ``data/`` edits beside it still count."""
-    _write(
-        data_profile.parent / "data" / ".runtime" / "bluesky_curve" / "bridge" / "proxy.key_secret",
-        "minted-by-osprey-up\n",
-    )
+def test_the_data_tree_carries_no_runtime_carve_out(data_profile):
+    """Every file under ``data/`` is build input, a dot-named directory included."""
     before = compute_profile_hash(data_profile)
 
-    _write(data_profile.parent / "data" / "docs" / "notes.md", "edited\n")
+    _write(data_profile.parent / "data" / ".runtime" / "minted.key", "runtime\n")
 
     assert compute_profile_hash(data_profile) != before
 
@@ -174,7 +162,6 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
 
     root = tmp_path / "facility"
     _write(root / "data" / "channels.json", "{}\n")
-    _write(root / "data" / ".runtime" / "minted.key", "runtime\n")
     _write(root / "rules" / "safety.md", "rule\n")
     _write(root / "skills" / "scan" / "SKILL.md", "skill\n")
     _write(root / "triggers.yml", "triggers: []\n")
@@ -211,7 +198,6 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
             expected,
             entry.label,
             entry.path,
-            skip_runtime_output=entry.label == "data",
             skip=entry.build_output,
         )
     actual = hashlib.sha256()

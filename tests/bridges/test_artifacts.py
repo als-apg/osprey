@@ -80,10 +80,22 @@ class TestFetchArtifact:
         assert fetch_artifact(_http({"a": (CSV, "image/png")}), CFG, "R1", "a").is_png is False
         assert fetch_artifact(_http({"a": (PNG, "text/csv")}), CFG, "R1", "a").is_png is True
 
-    def test_content_type_parameters_are_stripped(self):
-        # Starlette appends "; charset=utf-8" to any text/* media type.
-        fetched = fetch_artifact(_http({"a": (CSV, "text/csv; charset=utf-8")}), CFG, "R1", "a")
-        assert fetched.content_type == "text/csv"
+    @pytest.mark.parametrize(
+        ("data", "served", "expected"),
+        [
+            # Starlette appends "; charset=utf-8" to any text/* media type.
+            pytest.param(CSV, "text/csv; charset=utf-8", "text/csv", id="parameters-are-stripped"),
+            # Compared against bare literals like "image/png" downstream, so a
+            # worker (or proxy) that upper-cases the header must not change routing.
+            pytest.param(PNG, "Image/PNG", "image/png", id="case-is-folded"),
+            pytest.param(
+                PNG, "  image/png ; charset=utf-8", "image/png", id="whitespace-is-trimmed"
+            ),
+        ],
+    )
+    def test_the_served_type_is_normalized(self, data, served, expected):
+        fetched = fetch_artifact(_http({"a": (data, served)}), CFG, "R1", "a")
+        assert fetched.content_type == expected
 
     def test_a_missing_content_type_is_none_not_a_guess(self):
         assert fetch_artifact(_http({"a": PDF}), CFG, "R1", "a").content_type is None
@@ -103,16 +115,6 @@ class TestFetchArtifact:
         http = _http({"a": (PNG, "image/png")})
         assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG)).data == PNG
         assert fetch_artifact(http, CFG, "R1", "a", max_bytes=len(PNG) - 1) is None
-
-    def test_served_type_case_is_folded(self):
-        # Compared against bare literals like "image/png" downstream, so a
-        # worker (or proxy) that upper-cases the header must not change routing.
-        fetched = fetch_artifact(_http({"a": (PNG, "Image/PNG")}), CFG, "R1", "a")
-        assert fetched.content_type == "image/png"
-
-    def test_served_type_whitespace_is_trimmed(self):
-        fetched = fetch_artifact(_http({"a": (PNG, "  image/png ; charset=utf-8")}), CFG, "R1", "a")
-        assert fetched.content_type == "image/png"
 
     def test_empty_or_parameters_only_served_type_becomes_none(self):
         # An absent type is reported as absent, never guessed — a header that

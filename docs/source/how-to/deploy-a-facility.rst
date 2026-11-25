@@ -47,14 +47,14 @@ scaffolding that goes with it:
    ├── profile.yml                       the manifest you own — edit this
    ├── data/                             channel databases, knowledge, lattice
    ├── tiers/                            one file per login, shared cards included
-   ├── services/facility-mcp/            the facility's own container
-   ├── scripts/verify.sh                 the post-deploy health check
+   ├── ops/services/facility-mcp/        the facility's own container
+   ├── ops/scripts/verify.sh             the post-deploy health check
+   ├── ops/ci-extra.yml                  your own CI jobs; never regenerated
    ├── .env                              the deployment's secrets
    ├── .env.agent-record.*               agent record credentials, one file per login
    ├── build/                            render target, kept out of git
    ├── var/                              agent memory and audit log, kept out of git
    ├── .gitlab-ci.yml                    emitted from the profile's deploy: block
-   ├── ci-extra.yml                      your own CI jobs; never regenerated
    └── .gitignore
 
 Four services run:
@@ -320,7 +320,7 @@ line and the commented ``mcp_servers:`` example with:
 
    services:
      facility-mcp:
-       template: services/facility-mcp
+       template: ops/services/facility-mcp
        config:
          port: 10900
          http: true
@@ -347,7 +347,7 @@ first port of the facility band, the hundred ports the framework publishes
 nothing in so that a facility's own services can claim them without ever
 colliding — see :ref:`reference-ports-facility`.
 
-Now create ``services/facility-mcp/`` with four files.
+Now create ``ops/services/facility-mcp/`` with four files.
 
 ``requirements.txt``:
 
@@ -600,8 +600,8 @@ Two files appear:
    it authenticates the deploy job and is never part of the deployment's own
    environment, which is why it is not in ``env.required``.
 
-``scripts/verify.sh``
-   The post-deploy health check, at the repository root: every container of the
+``ops/scripts/verify.sh``
+   The post-deploy health check, under ``ops/``: every container of the
    deployment, then the endpoints it can probe.
 
 Re-run ``osprey scaffold ci`` whenever the ``deploy:`` block changes. It is
@@ -609,7 +609,7 @@ safe to re-run: a file whose content already matches is left untouched, and a
 file the scaffolder did not write is reported and left alone unless you pass
 ``--force``.
 
-``ci-extra.yml``, which ``osprey init`` created in Step 1, is the
+``ops/ci-extra.yml``, which ``osprey init`` created in Step 1, is the
 facility's own include point. A job you add there runs beside the scaffolded
 ones; reusing a scaffolded job's name merges the two and the scaffolded
 pipeline's own keys win, so give a job of your own its own name. Nothing ever
@@ -682,7 +682,7 @@ Step 9 — Deploy and check
 The first run is slow: the virtual accelerator and the facility's own image are
 both built locally. When the containers are up, ``osprey up`` prints a summary
 of the published endpoints and, on a deployment with the web tier, runs
-``scripts/verify.sh`` itself; without the web tier, nothing runs it for you.
+``ops/scripts/verify.sh`` itself; without the web tier, nothing runs it for you.
 
 .. code-block:: bash
 
@@ -697,9 +697,9 @@ before you trust it:
 
 .. code-block:: bash
 
-   ./scripts/verify.sh              # every group
-   ./scripts/verify.sh containers   # one group
-   ./scripts/verify.sh --strict     # exit 1 if anything is flagged
+   ./ops/scripts/verify.sh              # every group
+   ./ops/scripts/verify.sh containers   # one group
+   ./ops/scripts/verify.sh --strict     # exit 1 if anything is flagged
 
 It checks the deployment ``osprey up`` recorded in ``var/deployment.json``;
 before the first ``osprey up`` it says nothing has been deployed.
@@ -834,13 +834,13 @@ systemd user unit that does it for you.
 
    osprey scaffold systemd
 
-It writes ``osprey.service`` at the repository root — and, beside it,
-``scripts/osprey-boot-hook.sh``, covered below — and prints the commands that
+It writes ``ops/osprey.service`` — and, beside it,
+``ops/scripts/osprey-boot-hook.sh``, covered below — and prints the commands that
 install the unit on this machine:
 
 .. code-block:: bash
 
-   cp /path/to/repo/osprey.service ~/.config/systemd/user/
+   cp /path/to/repo/ops/osprey.service ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now osprey.service
 
@@ -918,7 +918,7 @@ order against, so the manager starts exactly as before. ``findmnt`` reports
 apart — check ``systemctl list-units -t mount,automount`` for your home to know
 which you have. For a daemon-managed home, and for any host where nobody with
 root is available, the same run has already written the other route:
-``scripts/osprey-boot-hook.sh``, beside the unit. It waits for the home, the
+``ops/scripts/osprey-boot-hook.sh``, beside the unit. It waits for the home, the
 deployment and the user manager to appear, then reloads the unit files and
 starts the unit — the script an affected site otherwise ends up writing by
 hand. Wire it into the account's own crontab with the lines the command
@@ -929,7 +929,7 @@ prints, all of them, pasted whole:
    crontab -e
    SHELL=/bin/sh
    HOME=/
-   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /path/to/repo/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
+   @reboot d=/tmp/osprey-boot-hook.$(id -u); mkdir -m 700 "$d" 2>/dev/null; if [ -d "$d" ] && [ ! -L "$d" ] && [ -O "$d" ]; then log=/tmp/osprey-boot-hook.$(id -u)/boot.log; else log=/dev/null; fi; echo "$(date) osprey-boot-hook: cron fired" >> "$log"; n=0; until [ -x /path/to/repo/ops/scripts/osprey-boot-hook.sh ] || [ $n -ge 120 ]; do sleep 5; n=$((n+1)); done; if [ -x /path/to/repo/ops/scripts/osprey-boot-hook.sh ]; then exec /path/to/repo/ops/scripts/osprey-boot-hook.sh; fi; echo "$(date) osprey-boot-hook: gave up, /path/to/repo/ops/scripts/osprey-boot-hook.sh never appeared" | tee -a "$log"
 
 The job is deliberately not a bare ``@reboot`` with the script's path, because
 two things happen before a cron job's command runs and each one kills the job
@@ -985,7 +985,7 @@ hand and correctly, everything ``osprey up`` assembles around compose:
   container, the drift check that refuses when ``build/`` no longer
   matches ``profile.yml``, minting any missing service credentials into
   ``.env``, the second compose invocation a multi-user deployment needs for its
-  web tier, and ``scripts/verify.sh`` afterwards.
+  web tier, and ``ops/scripts/verify.sh`` afterwards.
 
 Wrapping the verb keeps all of that in one place: the unit is two commands, and
 a boot does exactly what you do by hand.

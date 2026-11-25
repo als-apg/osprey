@@ -109,6 +109,11 @@ def _facility(repo: Path) -> Path:
     return repo / FACILITY
 
 
+def _deck_lines(models: Path) -> int:
+    """How many lines of *models* name a deck at its current path: one edit each."""
+    return sum(DECK_NOW in line for line in models.read_text(encoding="utf-8").splitlines())
+
+
 def _retire_decks(models: Path) -> None:
     """Point every authored ``deck:`` value in *models* at the retired decks directory."""
     text = models.read_text(encoding="utf-8")
@@ -244,7 +249,7 @@ def test_build_refuses_the_old_layout_with_every_move(revalidated: Migrated) -> 
     for old, new in moved:
         assert f"git mv {FACILITY}/{old} {FACILITY}/{new}" in output, (old, output)
     edits = [line for line in output if line.startswith("perl -pi -e 's{decks/}")]
-    assert len(edits) == 3, output
+    assert len(edits) == _deck_lines(facility / "simulation" / "models.yaml") > 0, output
 
 
 def test_the_revalidated_build_renders_what_a_fresh_demo_does(
@@ -264,6 +269,7 @@ def test_the_revalidated_build_renders_what_a_fresh_demo_does(
 def test_stale_deck_values_alone_are_refused_with_the_edit(tmp_path: Path) -> None:
     repo = init_project(tmp_path, "demo", PROJECT)
     models = _facility(repo) / "simulation" / "models.yaml"
+    decks = _deck_lines(models)
     _retire_decks(models)
 
     result = run_build(repo)
@@ -271,7 +277,7 @@ def test_stale_deck_values_alone_are_refused_with_the_edit(tmp_path: Path) -> No
     _assert_refused(repo, result.output, result.exit_code)
     block = _refusal_block(result.output)
     edits = [line for line in block.splitlines() if line.startswith("perl -pi -e ")]
-    assert len(edits) == 3, block
+    assert len(edits) == decks > 0, block
     assert all(line.endswith(" simulation/models.yaml") for line in edits), block
     assert not [line for line in block.splitlines() if " mv " in f" {line}"], block
 

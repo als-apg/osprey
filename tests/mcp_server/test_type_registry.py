@@ -72,20 +72,18 @@ class TestSerializerCoverage:
 
 
 class TestPublicAPI:
-    def test_get_artifact_types_returns_copy(self):
-        a = get_artifact_types()
-        a["bogus"] = None  # mutate
-        assert "bogus" not in ARTIFACT_TYPES
-
-    def test_get_tool_types_returns_copy(self):
-        t = get_tool_types()
-        t["bogus"] = None
-        assert "bogus" not in TOOL_TYPES
-
-    def test_get_categories_returns_copy(self):
-        c = get_categories()
-        c["bogus"] = None
-        assert "bogus" not in CATEGORIES
+    @pytest.mark.parametrize(
+        ("getter", "registry"),
+        [
+            pytest.param(get_artifact_types, ARTIFACT_TYPES, id="artifact_types"),
+            pytest.param(get_tool_types, TOOL_TYPES, id="tool_types"),
+            pytest.param(get_categories, CATEGORIES, id="categories"),
+        ],
+    )
+    def test_getter_returns_copy(self, getter, registry):
+        copy = getter()
+        copy["bogus"] = None  # mutate
+        assert "bogus" not in registry
 
 
 class TestRegistryToAPIDict:

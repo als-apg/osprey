@@ -388,7 +388,7 @@ _MCP_SERVERS_APPENDIX: tuple[str, str] = (
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 # Tool names under permissions are bare — `allow` runs them unprompted, `ask`
 # prompts the operator on every call.
-# A Python server's package lives at mcp_servers/<package>/ beside this file;
+# A Python server's package lives at agent/mcp_servers/<package>/ beside this file;
 # the build copies it to __BUILD__/_mcp_servers/<package>/ for `-m <package>`.""".replace(
         "__BUILD__", BUILD_OUTPUT_DIR
     ),
@@ -623,8 +623,8 @@ _COMMENTED_TEMPLATES: dict[str, tuple[str, str]] = {
 # --- Watchdogs ---------------------------------------------------------------
 # Independent judges of each prompt in a session. A watchdog reads the session
 # and answers a verdict; it never acts on the machine. Declare any number, under
-# any names, in any mix of engines. Each one's instructions live beside this
-# file in watchdogs/<name>/instructions.md, with optional watchdogs/<name>/references/.
+# any names, in any mix of engines. Each one's instructions live in
+# agent/watchdogs/<name>/instructions.md, with optional agent/watchdogs/<name>/references/.
 #
 # A decision watchdog chooses among your options and flags when the flag options'
 # summed probability reaches `threshold`; it needs at least one flag option and

@@ -52,8 +52,10 @@ def _labelled_set(root: Path) -> Path:
 
 
 def _decision_profile(root: Path, *, enabled: str = "false") -> Path:
-    (root / "watchdogs" / "stub").mkdir(parents=True)
-    (root / "watchdogs" / "stub" / "instructions.md").write_text("Flag it.\n", encoding="utf-8")
+    (root / "agent" / "watchdogs" / "stub").mkdir(parents=True)
+    (root / "agent" / "watchdogs" / "stub" / "instructions.md").write_text(
+        "Flag it.\n", encoding="utf-8"
+    )
     (root / "profile.yml").write_text(
         "name: Replay\nprovider: anthropic\nmodel: m\nwatchdogs:\n  stub:\n"
         f"    engine: decision\n    enabled: {enabled}\n    threshold: 0.5\n    options:\n"
@@ -179,7 +181,9 @@ class TestReport:
         directory = tmp_path / "preset"
         if not directory.exists():
             directory.mkdir()
-            shutil.copytree(PRESET_DIR / "watchdogs" / TWIN, directory / "watchdogs" / TWIN)
+            shutil.copytree(
+                PRESET_DIR / "agent" / "watchdogs" / TWIN, directory / "agent" / "watchdogs" / TWIN
+            )
             (directory / "profile.yml").write_text(
                 (PRESET_DIR / "demo.yml").read_text(encoding="utf-8"),
                 encoding="utf-8",

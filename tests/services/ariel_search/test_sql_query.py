@@ -636,17 +636,20 @@ class TestSqlQueryExecution:
 
         assert pool.sql == [BEGIN_SQL, TIMEOUT_SQL, self.QUERY, ROLLBACK_SQL]
 
-    async def test_logs_the_effective_max_rows(self, fake_pool, caplog):
+    @pytest.mark.parametrize(
+        ("max_rows", "expected_fragment"),
+        [
+            pytest.param(50, "sql_query: executing query (max_rows=50)", id="as_asked"),
+            pytest.param(1000, f"max_rows={MAX_ROWS}", id="reflects_the_cap"),
+        ],
+    )
+    async def test_logs_the_effective_max_rows(
+        self, fake_pool, caplog, max_rows, expected_fragment
+    ):
         with caplog.at_level(logging.INFO, logger="ariel"):
-            await sql_query(fake_pool, self.QUERY, max_rows=50)
+            await sql_query(fake_pool, self.QUERY, max_rows=max_rows)
 
-        assert "sql_query: executing query (max_rows=50)" in caplog.text
-
-    async def test_logged_max_rows_reflects_the_cap(self, fake_pool, caplog):
-        with caplog.at_level(logging.INFO, logger="ariel"):
-            await sql_query(fake_pool, self.QUERY, max_rows=1000)
-
-        assert f"max_rows={MAX_ROWS}" in caplog.text
+        assert expected_fragment in caplog.text
 
 
 class TestFormatSqlResult:

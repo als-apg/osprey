@@ -8,7 +8,7 @@ What "reproduce" can mean is deliberately scoped, because the exemplar pins two
 different kinds of thing:
 
 * The files ``init`` AUTHORS — the anchored three-zone ``.gitignore``, the
-  README explaining the zones, the ``ci-extra.yml`` include point — are
+  README explaining the zones, the ``ops/ci-extra.yml`` include point — are
   compared BYTE FOR BYTE. Those are the repo's own shell, and the exemplar is
   their specification.
 * The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
@@ -60,6 +60,7 @@ from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter
 from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests._scoped_stdlib import scoped
 from tests.cli._reporters import installed
@@ -78,7 +79,7 @@ EXEMPLAR_NAME = "Als Exemplar"
 
 #: Files ``init`` authors itself, and therefore the ones the exemplar specifies
 #: down to the byte.
-AUTHORED_FILES = (".gitignore", "README.md", "ci-extra.yml")
+AUTHORED_FILES = (".gitignore", "README.md", "ops/ci-extra.yml")
 
 
 pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
@@ -708,7 +709,7 @@ def _seed_survivor(repo: Path, entry: str) -> Path:
         relative = ".git/sentinel.txt"
     if entry.rstrip("/") in WRITE_ONCE_DIRS:
         relative = f"{entry.rstrip('/')}/sentinel/sentinel.txt"
-    if entry.rstrip("/") == FACILITY_RULE_DIR:
+    if entry.rstrip("/") == display_path(FACILITY_RULE_DIR):
         relative = f"{entry.rstrip('/')}/sentinel.md"
     survivor = repo / relative
     survivor.parent.mkdir(parents=True, exist_ok=True)
@@ -746,7 +747,11 @@ def test_every_file_a_rendered_repo_ships_is_in_a_named_category(
         # this command writes, so neither is a category's to claim.
         if relative.parts[0] in {".git", "var"}:
             continue
-        if relative.parts[0] in top_level or relative.as_posix() in CI_EMITTED_PATHS:
+        if relative.as_posix() in CI_EMITTED_PATHS or any(
+            relative.as_posix() == entry.rstrip("/")
+            or relative.as_posix().startswith(entry.rstrip("/") + "/")
+            for entry in top_level
+        ):
             continue
         uncategorised.append(relative.as_posix())
 
@@ -857,11 +862,15 @@ def test_the_settings_row_lists_the_source_entries_in_table_order() -> None:
     """The README's "Your settings" cell: the replaced source entries but OSPREY's record."""
     assert _settings_row() == (
         "`profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, "
-        "`web-terminal-context/`, `watchdogs/`"
+        "`agent/context/`, `agent/watchdogs/`, `agent/code_review/`"
     )
-    assert _settings_row(("mcp_servers",), True).endswith("`watchdogs/`, `mcp_servers/`, `rules/`")
-    assert _settings_row((), True, frozenset({"tiers/", "apps/", "watchdogs/"})) == (
-        "`profile.yml`, `providers.yml`, `data/`, `triggers.yml`, `web-terminal-context/`, `rules/`"
+    assert _settings_row(("agent/mcp_servers",), True).endswith(
+        "`agent/code_review/`, `agent/mcp_servers/`, `agent/rules/`"
+    )
+    assert _settings_row(
+        (), True, frozenset({"tiers/", "apps/", "agent/watchdogs/", "agent/code_review/"})
+    ) == (
+        "`profile.yml`, `providers.yml`, `data/`, `triggers.yml`, `agent/context/`, `agent/rules/`"
     )
 
 
@@ -903,7 +912,8 @@ def test_the_readme_names_only_entries_the_repo_has(
 def test_the_already_a_repo_message_lists_the_replaced_entries_in_table_order() -> None:
     assert (
         "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
-        "web-terminal-context/, .env.example and watchdogs/, losing any edit to them, "
+        "agent/context/, .env.example, agent/watchdogs/ and agent/code_review/, losing any "
+        "edit to them, "
         "and rewrites .osprey/. In providers.yml the entries OSPREY ships are reset"
     ) in _ALREADY_A_REPO
 
@@ -914,8 +924,8 @@ def test_the_force_help_lists_the_replaced_entries_in_table_order() -> None:
     }
     assert option_help["force"].startswith(
         "Re-materialize the source zone of an existing deployment repo, discarding edits to "
-        "profile.yml, data/, tiers/, apps/, triggers.yml, web-terminal-context/, "
-        ".env.example, and watchdogs/, and rewriting .osprey/. In providers.yml the entries "
+        "profile.yml, data/, tiers/, apps/, triggers.yml, agent/context/, "
+        ".env.example, agent/watchdogs/, and agent/code_review/, and rewriting .osprey/. In providers.yml the entries "
         "OSPREY ships are reset"
     )
 
@@ -1184,7 +1194,7 @@ def test_ci_pipeline_and_health_check_are_emitted_together(
 
     assert result.exit_code == 0, result.output
     assert (target / ".gitlab-ci.yml").is_file()
-    verify = target / "scripts" / "verify.sh"
+    verify = target / "ops" / "scripts" / "verify.sh"
     assert verify.is_file()
     assert stat.S_IMODE(verify.stat().st_mode) & stat.S_IXUSR
     assert unknown_root_entries(target) == []
@@ -1193,7 +1203,7 @@ def test_ci_pipeline_and_health_check_are_emitted_together(
 def test_no_deploy_block_emits_no_pipeline(exemplar_repo: Path) -> None:
     """Presets ship the deploy block commented out; a repo from one is complete without it."""
     assert not (exemplar_repo / ".gitlab-ci.yml").exists()
-    assert not (exemplar_repo / "scripts").exists()
+    assert not (exemplar_repo / "ops" / "scripts").exists()
 
 
 # ---------------------------------------------------------------------------

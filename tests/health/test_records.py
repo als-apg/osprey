@@ -448,16 +448,16 @@ class TestBuildRecords:
     def test_systemd_unit_is_assembled_and_anchored_on_the_repo_root(self, tmp_path, monkeypatch):
         """The boot unit is looked for beside the profile, not under the render.
 
-        ``osprey scaffold systemd`` writes ``osprey.service`` into the tracked
-        source zone at the repo root. The category's trigger is that repo copy:
+        ``osprey scaffold systemd`` writes ``ops/osprey.service`` into the
+        tracked source zone of the repo. The category's trigger is that repo copy:
         no repo unit means the operator never asked for the systemd boot path
         and the row skips. Anchored on ``render_path`` instead, the unit would
         be invisible on every deployment that HAS one, and the category would
         skip permanently — silently, since a skip is what a deployment without
         a unit is supposed to produce.
 
-        Written as the discriminating case: the unit exists ONLY at the repo
-        root, so a render anchor cannot find it.
+        Written as the discriminating case: the unit exists ONLY in the repo,
+        so a render anchor cannot find it.
         """
         import asyncio
 
@@ -469,8 +469,9 @@ class TestBuildRecords:
         repo = tmp_path / "repo"
         build = repo / "build"
         config_path = _write_config(build, _VALID_CONFIG)
-        (repo / "osprey.service").write_text("[Unit]\n")
-        assert not (build / "osprey.service").exists()
+        (repo / "ops").mkdir(parents=True)
+        (repo / "ops" / "osprey.service").write_text("[Unit]\n")
+        assert not (build / "ops" / "osprey.service").exists()
 
         state, expanded, settings, config_ok = load_config(config_path, repo)
         records, _ = build_records(
@@ -484,7 +485,7 @@ class TestBuildRecords:
         assert "systemd_unit" in by_name
         assert by_name["systemd_unit"].cost is Cost.POLL
 
-        no_unit_message = "no scaffolded osprey.service in this deployment"
+        no_unit_message = "no scaffolded ops/osprey.service in this deployment"
         rows = asyncio.run(by_name["systemd_unit"].func())
         assert len(rows) == 1
         assert rows[0].name == "systemd_unit"

@@ -43,7 +43,7 @@ def _agent(**keys: Any) -> dict[str, Any]:
 
 def _files(base: Path, *names: str) -> Path:
     for name in names:
-        directory = base / "watchdogs" / name
+        directory = base / "agent" / "watchdogs" / name
         directory.mkdir(parents=True)
         (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
     return base
@@ -111,7 +111,7 @@ def test_stated_values_are_kept_and_the_key_is_the_name(tmp_path: Path) -> None:
 
 def test_references_are_derived_from_the_watchdog_directory(tmp_path: Path) -> None:
     _files(tmp_path, "a", "b")
-    references = tmp_path / "watchdogs" / "a" / "references"
+    references = tmp_path / "agent" / "watchdogs" / "a" / "references"
     (references / "deep").mkdir(parents=True)
     (references / "z.md").write_text("z")
     (references / "deep" / "y.md").write_text("y")
@@ -172,7 +172,7 @@ def test_a_malformed_enabled_is_still_held_to_the_files(tmp_path: Path) -> None:
 
 def test_empty_instructions_are_refused(tmp_path: Path) -> None:
     _files(tmp_path, "a")
-    (tmp_path / "watchdogs" / "a" / "instructions.md").write_text("  \n")
+    (tmp_path / "agent" / "watchdogs" / "a" / "instructions.md").write_text("  \n")
     [error] = _errors({"a": _agent(enabled=True)}, tmp_path)
     assert "empty" in error
 
@@ -651,13 +651,15 @@ def test_watchdogs_and_jev_config_keys_are_protected(key: str) -> None:
 
 
 def test_watchdogs_directory_is_a_source_entry() -> None:
-    assert "watchdogs" in KNOWN_ROOT_ENTRIES
+    """The ``agent/`` group holds it; an unmigrated repo's top-level copy stays protected."""
+    assert "agent" in KNOWN_ROOT_ENTRIES
+    assert "agent" in PROFILE_SOURCE_ENTRIES
     assert "watchdogs" in PROFILE_SOURCE_ENTRIES
 
 
 def test_watchdogs_directory_is_a_protected_root(tmp_path: Path) -> None:
     protected = resolve_protected_roots(tmp_path)
-    assert (tmp_path / "watchdogs").resolve() in protected
+    assert (tmp_path / "agent").resolve() in protected
 
 
 @pytest.mark.parametrize("mode", ["readonly", "readwrite"])
@@ -665,6 +667,8 @@ def test_an_executed_write_to_the_watchdogs_directory_is_refused(
     project: _Project,  # noqa: F811
     mode: str,
 ) -> None:
-    (project.root / "watchdogs" / "guard").mkdir(parents=True)
-    out = project.probe("open('watchdogs/guard/instructions.md', 'w').close()", execution_mode=mode)
+    (project.root / "agent" / "watchdogs" / "guard").mkdir(parents=True)
+    out = project.probe(
+        "open('agent/watchdogs/guard/instructions.md', 'w').close()", execution_mode=mode
+    )
     assert out.startswith("REFUSED:"), out

@@ -672,7 +672,7 @@ def test_a_demo_leaf_takes_its_channel_s_description(
         ]
         return address
 
-    for group_id in ("SR/SF", "BR/DIPOLE"):
+    for group_id in ("SR/SF", "BTS/HCM"):
         address = setpoint(group_id)
         description = _leaf_of(document, address)["_description"]
         assert description == channels[address]["description"], group_id

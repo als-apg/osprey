@@ -434,8 +434,8 @@ def test_run_verify_script_skips_silently_when_absent(monkeypatch, tmp_path):
 
 
 def test_run_verify_script_runs_via_bash_with_cwd_and_env(monkeypatch, tmp_path):
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir()
+    scripts_dir = tmp_path / "ops" / "scripts"
+    scripts_dir.mkdir(parents=True)
     verify_path = scripts_dir / "verify.sh"
     verify_path.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
 
@@ -458,8 +458,8 @@ def test_run_verify_script_runs_via_bash_with_cwd_and_env(monkeypatch, tmp_path)
 
 
 def test_run_verify_script_nonzero_exit_does_not_raise(monkeypatch, tmp_path):
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir()
+    scripts_dir = tmp_path / "ops" / "scripts"
+    scripts_dir.mkdir(parents=True)
     (scripts_dir / "verify.sh").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
 
     scoped(
@@ -473,8 +473,8 @@ def test_run_verify_script_nonzero_exit_does_not_raise(monkeypatch, tmp_path):
 
 
 def test_run_verify_script_oserror_does_not_raise(monkeypatch, tmp_path):
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir()
+    scripts_dir = tmp_path / "ops" / "scripts"
+    scripts_dir.mkdir(parents=True)
     (scripts_dir / "verify.sh").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
 
     def _raise(*a, **k):

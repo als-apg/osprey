@@ -44,7 +44,7 @@ def _build(repo: Path) -> None:
 
 
 def _source_rule(repo: Path) -> Path:
-    return repo / "rules" / "facility.md"
+    return repo / "agent" / "rules" / "facility.md"
 
 
 def _built_rule(repo: Path) -> Path:
