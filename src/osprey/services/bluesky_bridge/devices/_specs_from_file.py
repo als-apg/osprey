@@ -22,6 +22,14 @@ line naming the document and its version::
       - name: SR:C01:QD:1
         setpoint: SR:C01:QD:1:SP
         motion_band: 0.011         # optional; the readback's simulated motion
+      - name: ES1:STAGE:POS:SP     # a positioner: the move starts on a command
+        setpoint: ES1:STAGE:POS:SP
+        readback: ES1:STAGE:POS:RB
+        started_by:                # optional; the command that starts the move
+          command: ES1:STAGE:MOVE  # the channel a move writes 1 to
+          status: ES1:STAGE:STATUS # the channel that reports the move
+          idle: Done               # what the status reads while no move runs
+          timeout_s: 10.0          # the longest one move may take
     triggerables:
       - name: ES1:MCA01:ACQ        # device name; its status is recorded under it
         command: ES1:MCA01:ACQ     # the channel a trigger writes 1 to
@@ -63,6 +71,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from osprey_connectors.command import CommandAct
 
 from .specs import DeviceSpecs, ReadableSpec, SettableSpec, TriggerableSpec
 
@@ -125,6 +135,23 @@ seconds > 0."""
 _TRIGGERABLE_REQUIRED = ("name", "command", "status")
 _TRIGGERABLE_SCALARS = (IDLE_KEY,)
 _TRIGGERABLE_POSITIVES = (TIMEOUT_KEY,)
+STARTED_BY_KEY = "started_by"
+"""Optional settable key: the command that starts the setpoint's move.
+
+A mapping of exactly ``command`` and ``status`` (non-empty addresses), ``idle``
+(a non-null scalar) and ``timeout_s`` (a finite number of seconds > 0): the
+command a move writes, the status that reports the move, what the status reads
+while no move runs and the longest one move may take."""
+COMMAND_KEY = "command"
+"""A start act's key: the command a move writes."""
+STATUS_KEY = "status"
+"""A start act's key: the status that reports the move."""
+_START_ACT_KEYS = (COMMAND_KEY, STATUS_KEY, IDLE_KEY, TIMEOUT_KEY)
+_SETTABLE_ACT_OPTIONAL = (STARTED_BY_KEY,)
+_START_ACT_TEXT = (
+    "'command' and 'status' (non-empty strings), 'idle' (a non-null scalar) "
+    "and 'timeout_s' (a finite number > 0)"
+)
 
 
 def _clean(value: Any) -> str | None:
@@ -205,6 +232,24 @@ def _positive_seconds(value: Any) -> float | None:
     return number if math.isfinite(number) and number > 0 else None
 
 
+def _start_act(value: Any) -> CommandAct | None:
+    """Return a ``started_by`` block as a :class:`CommandAct`, or ``None`` if malformed.
+
+    The block is a mapping of exactly the four act keys, its addresses
+    non-empty strings, its ``idle`` a non-null scalar and its ``timeout_s`` a
+    finite number > 0.
+    """
+    if not isinstance(value, dict) or set(value) != set(_START_ACT_KEYS):
+        return None
+    command = _clean(value[COMMAND_KEY])
+    status = _clean(value[STATUS_KEY])
+    idle = _scalar(value[IDLE_KEY])
+    timeout_s = _positive_seconds(value[TIMEOUT_KEY])
+    if command is None or status is None or idle is None or timeout_s is None:
+        return None
+    return CommandAct(command, status, idle, timeout_s)
+
+
 def _settle(value: Any) -> tuple[float | None, float | None] | None:
     """Return a ``settle_tolerance`` as ``(absolute, relative)``, or ``None`` if malformed.
 
@@ -265,7 +310,9 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     number >= 0 or ``{relative: <number >= 0>}``, or a ``motion_band`` that is
     not a number >= 0, is a malformed entry. ``unit`` and ``setpoint_unit`` are
     optional strings: absent or null declares no unit; present but not a
-    non-empty string is a malformed entry.
+    non-empty string is a malformed entry. ``started_by`` is optional: absent
+    or null leaves the setpoint moving on its own write; present but not a
+    well-formed act (see ``_start_act``) is a malformed entry.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -323,6 +370,19 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
         if units is None:
             continue
 
+        started_by: CommandAct | None = None
+        if entry.get(STARTED_BY_KEY) is not None:
+            started_by = _start_act(entry[STARTED_BY_KEY])
+            if started_by is None:
+                logger.warning(
+                    "skipping %s (%r): %r is present but not a mapping of %s",
+                    where,
+                    name,
+                    STARTED_BY_KEY,
+                    _START_ACT_TEXT,
+                )
+                continue
+
         specs.append(
             SettableSpec(
                 name=name,
@@ -333,6 +393,7 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 motion_band=band,
                 unit=units[UNIT_KEY],
                 setpoint_unit=units[SETPOINT_UNIT_KEY],
+                started_by=started_by,
             )
         )
     return specs
@@ -514,6 +575,7 @@ def _validate_section(
     shapes: tuple[str, ...] = (),
     scalars: tuple[str, ...] = (),
     positives: tuple[str, ...] = (),
+    acts: tuple[str, ...] = (),
 ) -> list[str]:
     """Return the problems in one device section (empty list ⇒ none).
 
@@ -521,7 +583,8 @@ def _validate_section(
     >= 0 when present; ``tolerances`` keys are numbers >= 0 or ``{relative:
     <number >= 0>}`` when present; ``shapes`` keys are lists of one int >= 1
     when present. ``scalars`` keys are required non-null scalars, and
-    ``positives`` keys required finite numbers > 0.
+    ``positives`` keys required finite numbers > 0. ``acts`` keys are start
+    acts (see ``_start_act``) when present.
     """
     if section is None:
         return []
@@ -536,6 +599,7 @@ def _validate_section(
         | set(shapes)
         | set(scalars)
         | set(positives)
+        | set(acts)
     )
     problems: list[str] = []
     for index, entry in enumerate(section):
@@ -577,6 +641,11 @@ def _validate_section(
             f"{where}: {field!r} must be a finite number > 0"
             for field in positives
             if _positive_seconds(entry.get(field)) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a mapping of {_START_ACT_TEXT} when present"
+            for field in acts
+            if entry.get(field) is not None and _start_act(entry[field]) is None
         )
         unknown = [name for name in entry if name not in known]
         if unknown:
@@ -647,6 +716,7 @@ def validate_device_document(doc: Any) -> list[str]:
         _SETTABLE_OPTIONAL,
         _SETTABLE_NUMERIC_OPTIONAL,
         _SETTABLE_TOLERANCE_OPTIONAL,
+        acts=_SETTABLE_ACT_OPTIONAL,
     )
     problems += _validate_section(
         doc.get(TRIGGERABLES_KEY),
