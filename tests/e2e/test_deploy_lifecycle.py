@@ -13,8 +13,8 @@ throwaway.
 Each fixture below is a three-zone deployment repo: ``profile.yml`` at the root
 marks it, ``.env`` beside it is its secret store, ``var/`` holds durable state,
 and ``build/`` holds the render the start verbs read. That render is the
-committed fixture config rather than a build's output, stamped with the
-provenance the drift gate expects — see :func:`_seed_repo`.
+committed fixture config rather than a build's output, given the protected-path
+list and the provenance stamp the start gate expects — see :func:`_seed_repo`.
 
 It proves LIFECYCLE MECHANICS (containers/volumes get created, reconciled,
 seeded, retained/purged/archived, pruned, and torn down correctly) — not the
@@ -90,6 +90,7 @@ from osprey.services.qmd.client import QMDClient
 from osprey.utils import config_writer
 from tests._container_support import RuntimeContainer, wait_until_ready
 from tests._renders import tier_render
+from tests.cli._lifecycle_build import with_protected_paths
 from tests.e2e._deploy_support import (
     RUNTIME,
     container_id,
@@ -408,7 +409,10 @@ def _seed_repo(
     """
     build_dir = dest / BUILD_DIRNAME
     build_dir.mkdir(parents=True)
-    (build_dir / "config.yml").write_text(config_text, encoding="utf-8")
+    # Every build writes the protected-path list into the config it renders,
+    # and `osprey up` refuses a render without one. The fixture profile names
+    # no path, so the list a hand-placed config carries is the empty one.
+    (build_dir / "config.yml").write_text(with_protected_paths(config_text), encoding="utf-8")
 
     # The per-user overlay tree seeding.py reads is build output, so it sits
     # under build/ (seeding._context_dir).

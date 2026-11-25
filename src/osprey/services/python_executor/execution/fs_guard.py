@@ -67,6 +67,20 @@ Bytes are a path, though — ``fsdecode`` normalizes them before the comparison,
 because ``os.fsencode``, ``os.listdir(b'.')`` and C extensions all produce them
 in ordinary code that never meant to spell a path unusually.
 
+A name given relative to a directory descriptor (``dir_fd=``, ``src_dir_fd=``,
+``dst_dir_fd=``) is judged where the operating system will act on it: joined to
+the directory the descriptor names, read from ``/proc/self/fd`` on Linux and
+from ``fcntl``'s ``F_GETPATH`` on macOS — never joined to the working
+directory, which would refuse a ``shutil.rmtree`` of the agent's own tree for
+holding a file named like a protected one, and let a write through a
+descriptor of ``build/`` pass. Only on a platform with neither mechanism is
+such a call let through unjudged.
+
+The calls that remove or relocate what a path names — the deletes, both sides
+of a rename, replace or move, and a link's destination — are also refused when
+that path *contains* a protected root: removing the parent removes the entry,
+and moving a prepared directory onto a missing parent plants one.
+
 What this guard *is* for is the honestly-spelled-around path: the concatenated,
 computed or ``os.path``-assembled target that the static pre-execution walker
 cannot see, and the ordinary accident where analysis code writes its output one
@@ -90,45 +104,59 @@ _WRITE_MODE_CHARS = "wax+"
 # How each patchable entry point names the paths it may write.
 #   "open"     -> (file, mode=...) — write-ness comes from the mode string
 #   "os_open"  -> (path, flags)    — write-ness comes from the O_* flags
-#   otherwise  -> always a write; the tuple gives (position, keyword aliases)
-#                 for every argument naming a path the call may create,
-#                 overwrite, or delete. Copy *sources* are reads and are not
-#                 listed; ``move``/``rename``/``replace`` list both sides
-#                 because they remove the original too. ``symlink``/``link``
-#                 list ``dst`` only: the link entry being created is the write,
-#                 while the source it points at is neither read nor touched.
-_PATH_ARGS: dict[str, tuple[tuple[int, tuple[str, ...]], ...]] = {
-    "os.truncate": ((0, ("path",)),),
-    "os.remove": ((0, ("path",)),),
-    "os.unlink": ((0, ("path",)),),
-    "os.makedirs": ((0, ("name",)),),
-    "os.mkdir": ((0, ("path",)),),
-    "os.rmdir": ((0, ("path",)),),
-    "os.removedirs": ((0, ("name",)),),
-    "os.symlink": ((1, ("dst",)),),
-    "os.link": ((1, ("dst",)),),
-    "shutil.rmtree": ((0, ("path",)),),
-    "os.rename": ((0, ("src",)), (1, ("dst",))),
-    "os.replace": ((0, ("src",)), (1, ("dst",))),
-    "shutil.move": ((0, ("src",)), (1, ("dst",))),
-    "shutil.copy": ((1, ("dst",)),),
-    "shutil.copy2": ((1, ("dst",)),),
-    "shutil.copyfile": ((1, ("dst",)),),
+#   otherwise  -> always a write; one row per argument naming a path the call
+#                 may create, overwrite, or delete. Copy *sources* are reads and
+#                 are not listed; ``move``/``rename``/``replace`` list both
+#                 sides because they remove the original too. ``symlink``/
+#                 ``link`` list ``dst`` only: the link entry being created is
+#                 the write, while the source it points at is neither read nor
+#                 touched.
+#
+# A row is ``(position, keyword aliases, contains, descriptor keyword)``:
+#
+# * ``contains`` — the call removes or relocates whatever the path names, so
+#   it is refused when that path *contains* a protected root as well as when
+#   it lies inside one: deleting or renaming ``plans/`` takes a protected
+#   ``plans/seed.ttl`` with it, and renaming or linking a prepared directory
+#   onto a protected entry's missing parent plants that entry. Creating a
+#   parent, opening a file and a copy destination stay prefix-based — they
+#   add to a tree and take nothing out of one.
+# * ``descriptor keyword`` — the keyword naming the directory descriptor a
+#   relative path argument is resolved against (``dir_fd``, or the
+#   ``src_dir_fd``/``dst_dir_fd`` pair), or ``None`` when the call takes none.
+_PathArg = tuple[int, tuple[str, ...], bool, str | None]
+_PATH_ARGS: dict[str, tuple[_PathArg, ...]] = {
+    "os.truncate": ((0, ("path",), False, None),),
+    "os.remove": ((0, ("path",), True, "dir_fd"),),
+    "os.unlink": ((0, ("path",), True, "dir_fd"),),
+    "os.makedirs": ((0, ("name",), False, None),),
+    "os.mkdir": ((0, ("path",), False, "dir_fd"),),
+    "os.rmdir": ((0, ("path",), True, "dir_fd"),),
+    "os.removedirs": ((0, ("name",), True, None),),
+    "os.symlink": ((1, ("dst",), True, "dir_fd"),),
+    "os.link": ((1, ("dst",), True, "dst_dir_fd"),),
+    "shutil.rmtree": ((0, ("path",), True, "dir_fd"),),
+    "os.rename": ((0, ("src",), True, "src_dir_fd"), (1, ("dst",), True, "dst_dir_fd")),
+    "os.replace": ((0, ("src",), True, "src_dir_fd"), (1, ("dst",), True, "dst_dir_fd")),
+    "shutil.move": ((0, ("src",), True, None), (1, ("dst",), True, None)),
+    "shutil.copy": ((1, ("dst",), False, None),),
+    "shutil.copy2": ((1, ("dst",), False, None),),
+    "shutil.copyfile": ((1, ("dst",), False, None),),
     # ``os`` re-exports these from ``posix`` at import time, so ``os.remove``
     # and ``posix.remove`` are two module-dict entries pointing at one C
     # function. Rebinding one does not reach the other, which makes the
     # private module an unpatched route to every primitive above it.
     # ``makedirs``/``removedirs`` have no twin here: they are pure Python in
     # ``os`` and reach the filesystem through ``mkdir``/``rmdir``.
-    "posix.truncate": ((0, ("path",)),),
-    "posix.remove": ((0, ("path",)),),
-    "posix.unlink": ((0, ("path",)),),
-    "posix.mkdir": ((0, ("path",)),),
-    "posix.rmdir": ((0, ("path",)),),
-    "posix.symlink": ((1, ("dst",)),),
-    "posix.link": ((1, ("dst",)),),
-    "posix.rename": ((0, ("src",)), (1, ("dst",))),
-    "posix.replace": ((0, ("src",)), (1, ("dst",))),
+    "posix.truncate": ((0, ("path",), False, None),),
+    "posix.remove": ((0, ("path",), True, "dir_fd"),),
+    "posix.unlink": ((0, ("path",), True, "dir_fd"),),
+    "posix.mkdir": ((0, ("path",), False, "dir_fd"),),
+    "posix.rmdir": ((0, ("path",), True, "dir_fd"),),
+    "posix.symlink": ((1, ("dst",), True, "dir_fd"),),
+    "posix.link": ((1, ("dst",), True, "dst_dir_fd"),),
+    "posix.rename": ((0, ("src",), True, "src_dir_fd"), (1, ("dst",), True, "dst_dir_fd")),
+    "posix.replace": ((0, ("src",), True, "src_dir_fd"), (1, ("dst",), True, "dst_dir_fd")),
 }
 
 # Entry points whose write-ness is decided by an argument rather than by being
@@ -311,7 +339,7 @@ def render_fs_guard(
 
     # (dotted, kind, path-arg spec, write-modes-only) — one row per rebound
     # name, consumed by a single loop in the emitted code.
-    table: list[tuple[str, str, tuple[tuple[int, tuple[str, ...]], ...], bool]] = []
+    table: list[tuple[str, str, tuple[_PathArg, ...], bool]] = []
     for dotted in (*patch_targets, *write_modes_only_targets):
         write_only = dotted in write_modes_only_targets
         if dotted in _MODE_BEARING_TARGETS:
@@ -347,6 +375,10 @@ def render_fs_guard(
             import posix as _osprey_posix
         except ImportError:
             _osprey_posix = None
+        try:
+            import fcntl as _osprey_fcntl
+        except ImportError:
+            _osprey_fcntl = None
 
         _OSPREY_FS_DEFAULT_DENY = {default_deny!r}
         _OSPREY_FS_PERMITTED = {_root_tuple(permitted_roots)!r}
@@ -370,6 +402,17 @@ def render_fs_guard(
             | _osprey_os.O_APPEND
             | _osprey_os.O_TRUNC
         )
+
+        # How a directory descriptor is turned back into the directory it
+        # names: the proc filesystem's per-descriptor link on Linux, the
+        # file-control path query on macOS. Where neither exists, a name given
+        # relative to a descriptor cannot be judged and the call is let
+        # through, as a bare integer descriptor is.
+        _OSPREY_FS_PROC_FD = "/proc/self/fd"
+        _OSPREY_FS_HAS_PROC_FD = _osprey_os.path.isdir(_OSPREY_FS_PROC_FD)
+        _OSPREY_FS_F_GETPATH = getattr(_osprey_fcntl, "F_GETPATH", None)
+        # The buffer the file-control query writes the path into: MAXPATHLEN.
+        _OSPREY_FS_F_GETPATH_SIZE = 1024
 
         # Originals, captured BEFORE the corresponding name is rebound. This is
         # also the restore table: a name absent here was never patched.
@@ -395,6 +438,59 @@ def render_fs_guard(
                 except ValueError:
                     continue
             return False
+
+
+        def _osprey_fs_contains(path, roots):
+            """The first of *roots* that lies inside *path* (or is it), else None."""
+            for _root in roots:
+                try:
+                    _OspreyGuardPath(_root).relative_to(path)
+                    return _root
+                except ValueError:
+                    continue
+            return None
+
+
+        def _osprey_fs_descriptor_dir(dir_fd):
+            """The directory *dir_fd* names, or None where no mechanism can say."""
+            _fd = dir_fd.__index__()
+            if _OSPREY_FS_HAS_PROC_FD:
+                return _osprey_os.readlink(f"{{_OSPREY_FS_PROC_FD}}/{{_fd}}")
+            if _OSPREY_FS_F_GETPATH is not None:
+                _raw = _osprey_fcntl.fcntl(
+                    _fd, _OSPREY_FS_F_GETPATH, bytes(_OSPREY_FS_F_GETPATH_SIZE)
+                )
+                return _osprey_os.fsdecode(_raw.split(b"\\0", 1)[0])
+            return None
+
+
+        def _osprey_fs_anchor(candidate, dir_fd):
+            """The path to judge for *candidate*, which may be relative to *dir_fd*.
+
+            The candidate itself when no descriptor applies (none given, an
+            integer descriptor as the path, or an absolute path, which the
+            operating system resolves without the descriptor). The name joined
+            to the descriptor's directory when one does. ``None`` when this
+            platform cannot say which directory a descriptor names.
+            """
+            if dir_fd is None or isinstance(candidate, int):
+                return candidate
+            try:
+                _text = _osprey_os.fsdecode(candidate)
+            except (TypeError, ValueError):
+                return candidate
+            if _osprey_os.path.isabs(_text):
+                return candidate
+            try:
+                _base = _osprey_fs_descriptor_dir(dir_fd)
+            except (AttributeError, TypeError, ValueError, OSError):
+                # Not a live descriptor, so the real call fails on it anyway.
+                # Judged against the working directory meanwhile, which can
+                # only refuse more, never less.
+                return candidate
+            if _base is None:
+                return None
+            return _osprey_os.path.join(_base, _text)
 
 
         def _osprey_fs_is_secret(path):
@@ -433,8 +529,17 @@ def render_fs_guard(
                 )
 
 
-        def _osprey_fs_check(candidate, is_write):
-            """Refuse *candidate* or return quietly. The whole policy is here."""
+        def _osprey_fs_check(candidate, is_write, contains=False, dir_fd=None):
+            """Refuse *candidate* or return quietly. The whole policy is here.
+
+            *contains* marks a call that removes or relocates what the path
+            names, refused also when the path holds a protected root. *dir_fd*
+            is the directory descriptor a relative *candidate* is resolved
+            against, never the working directory.
+            """
+            candidate = _osprey_fs_anchor(candidate, dir_fd)
+            if candidate is None:
+                return
             # First, so no bypass marker or permitted root reopens a secret file.
             _osprey_fs_secret_check(candidate, is_write)
             if isinstance(candidate, int):
@@ -473,10 +578,18 @@ def render_fs_guard(
                     f"{{_OSPREY_FS_PREFIX}} access denied for '{{path}}'. "
                     f"{{_OSPREY_FS_ACCESS_DETAIL}}"
                 )
-            if is_write and _osprey_fs_under(path, _OSPREY_FS_PROTECTED):
+            if not is_write:
+                return
+            if _osprey_fs_under(path, _OSPREY_FS_PROTECTED):
                 raise PermissionError(
                     f"{{_OSPREY_FS_PREFIX}} write denied for '{{path}}'. "
                     f"{{_OSPREY_FS_WRITE_DETAIL}}"
+                )
+            _held = _osprey_fs_contains(path, _OSPREY_FS_PROTECTED) if contains else None
+            if _held is not None:
+                raise PermissionError(
+                    f"{{_OSPREY_FS_PREFIX}} write denied for '{{path}}': it contains the "
+                    f"protected location '{{_held}}'. {{_OSPREY_FS_WRITE_DETAIL}}"
                 )
 
 
@@ -505,7 +618,11 @@ def render_fs_guard(
             _original = _osprey_fs_capture(dotted)
 
             def _osprey_guarded_os_open(path, flags, *args, **kwargs):
-                _osprey_fs_check(path, bool(flags & _OSPREY_FS_OS_WRITE_FLAGS))
+                _osprey_fs_check(
+                    path,
+                    bool(flags & _OSPREY_FS_OS_WRITE_FLAGS),
+                    dir_fd=kwargs.get("dir_fd"),
+                )
                 return _original(path, flags, *args, **kwargs)
 
             return _osprey_guarded_os_open
@@ -515,13 +632,14 @@ def render_fs_guard(
             _original = _osprey_fs_capture(dotted)
 
             def _osprey_guarded_paths(*args, **kwargs):
-                for _position, _names in spec:
+                for _position, _names, _contains, _fd_keyword in spec:
+                    _dir_fd = kwargs.get(_fd_keyword) if _fd_keyword else None
                     if len(args) > _position:
-                        _osprey_fs_check(args[_position], True)
+                        _osprey_fs_check(args[_position], True, _contains, _dir_fd)
                         continue
                     for _name in _names:
                         if _name in kwargs:
-                            _osprey_fs_check(kwargs[_name], True)
+                            _osprey_fs_check(kwargs[_name], True, _contains, _dir_fd)
                             break
                 return _original(*args, **kwargs)
 

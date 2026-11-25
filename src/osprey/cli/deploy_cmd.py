@@ -237,6 +237,9 @@ def gate_start_from_build(
     * ``NO_BUILD`` — refuse. ``--as-built`` is NOT an escape here and saying so
       is the point: there is no build to start as-built. ``--build`` is, because
       it makes one.
+    * ``NO_PROTECTED_PATHS`` — refuse, naming ``osprey build``; ``--as-built``
+      starts the stack anyway, and the warning says the python executor
+      refuses agent code until the next build.
 
     Version skew warns on every outcome and blocks none: a framework upgrade
     must not stand between an operator and the stack they already have.
@@ -257,6 +260,7 @@ def gate_start_from_build(
         click.UsageError: When both flags were passed.
     """
     from osprey.deployment.staleness import DriftState, check_drift
+    from osprey.utils.workspace import NO_PROTECTED_PATHS_CONSEQUENCE
 
     if chain_build and as_built:
         raise click.UsageError(
@@ -296,13 +300,19 @@ def gate_start_from_build(
         # is established, and saying so is the warning. On UNRESOLVABLE nothing
         # is known either way — the build may match the profile perfectly — and
         # claiming a mismatch there would be inventing a finding out of a failed
-        # comparison.
-        consequence = (
-            "The running stack will not match profile.yml until the next `osprey build`."
-            if report.state is DriftState.DRIFT
-            else "Whether the running stack matches profile.yml is unknown, and stays "
-            "unknown until the comparison can be made."
-        )
+        # comparison. A render without the protected-path list starts, and its
+        # message already names what that costs; the rest of the stack is fine.
+        if report.state is DriftState.DRIFT:
+            consequence = (
+                "The running stack will not match profile.yml until the next `osprey build`."
+            )
+        elif report.state is DriftState.NO_PROTECTED_PATHS:
+            consequence = "Every other service starts as rendered."
+        else:
+            consequence = (
+                "Whether the running stack matches profile.yml is unknown, and stays "
+                "unknown until the comparison can be made."
+            )
         output.warn(
             "Starting build/ as it was rendered (--as-built)", f"{report.message} {consequence}"
         )
@@ -312,11 +322,14 @@ def gate_start_from_build(
     # and they are not interchangeable. Naming one of them as *the* remedy
     # would be a recommendation this verb cannot honestly make, so both are
     # spelled in the cause as an aligned block and the operator picks.
+    if report.state is DriftState.NO_PROTECTED_PATHS:
+        as_built_line = f"start build/ as it was rendered; {NO_PROTECTED_PATHS_CONSEQUENCE}"
+    else:
+        as_built_line = "start build/ as it was rendered, leaving the change unbuilt"
     _abort(
         report.message,
         f"osprey {verb} --build      re-render build/ from profile.yml, then start it\n"
-        f"osprey {verb} --as-built   start build/ as it was rendered, leaving the "
-        f"change unbuilt\n"
+        f"osprey {verb} --as-built   {as_built_line}\n"
         "Nothing was started.",
     )
 
