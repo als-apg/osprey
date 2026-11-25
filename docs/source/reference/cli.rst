@@ -1437,10 +1437,14 @@ the current directory is used.
    follows on its own indented line when it has one. ``nominal`` is always in
    the active set. Each simulator instance has an active set of its own:
    ``--target`` names whose is marked, ``va`` or ``standin`` (the live
-   stand-in), and defaults to the deployment's own target when that is one of
-   the two, else ``va``. When ``--target`` is given, or the deployment runs
-   both instances, a first line ``active set of <target>:`` names it.
-   ``--target standin`` on a deployment that runs no stand-in exits 1.
+   stand-in), and defaults to the deployment's own target when the deployment
+   runs that instance, else ``va``. When ``--target`` is given, or the
+   deployment runs both instances, a first line ``active set of <target>:``
+   names it. ``--target standin`` on a deployment that runs no stand-in exits
+   1. On a render made before instances had sets of their own, both follow the
+   ``va`` set until ``osprey build`` and ``osprey up`` are run: the first line
+   is ``active set of both simulator instances:``, and ``--target standin``
+   exits 1 naming the two commands.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
@@ -1457,7 +1461,8 @@ the current directory is used.
    is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
    through that target's connector. On a deployment that runs both simulator
    instances, a line ``active scenarios on <target>: <names>`` comes first
-   when the target is one of them.
+   when the target is one of them (``on both simulator instances`` while the
+   render still shares one set between them).
 
 ``osprey sim apply NAMES... [--target <va|standin>] [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
    Make ``NAMES`` the active scenario set, with ``nominal`` always included,
@@ -1476,7 +1481,12 @@ the current directory is used.
    ``--target`` names the simulator instance whose set is replaced, with the
    default ``osprey sim list`` has; the other instance keeps its set. The
    stored data follows the ``va`` set: on ``standin`` the command changes
-   telemetry only, seeds nothing whatever the flags, and says so.
+   telemetry only, seeds nothing whatever the flags, and says so. That is
+   also what the command does without ``--target`` on a deployment whose own
+   target is the stand-in; ``--target va`` changes the set the stored data
+   follows. While the render still shares one set between both instances,
+   the command changes that set, says both follow it, and refuses
+   ``--target standin``.
 
 .. code-block:: bash
 

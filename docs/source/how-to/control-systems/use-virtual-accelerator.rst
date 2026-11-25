@@ -203,7 +203,7 @@ all.
 
 The two simulated machines run one image over one simulator view, so both
 serve the same channels and the same models. Each holds an active scenario set
-of its own (below). The two machines are told apart by a write to
+of its own. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
 the banner reads ``Rehearsal — nothing moves`` and the Web Terminal's header
@@ -218,7 +218,8 @@ correct with on one side, the machine that disagrees with it on the other.
 
 - ``osprey sim apply --target standin <names>`` replaces the stand-in's set,
   ``--target va`` the simulator's. Without ``--target`` the command acts on
-  the deployment's own target, and its output names the instance.
+  the deployment's own target when the deployment runs that instance, else on
+  ``va``, and its output names the instance.
 - ``osprey sim list --target standin`` marks the stand-in's active set, and
   ``osprey sim status`` prints the active set of the target it reports on.
 - A scenario file states where it starts: ``start: true`` on every instance,
@@ -226,15 +227,23 @@ correct with on one side, the machine that disagrees with it on the other.
   (:ref:`reference-scenario-files`).
 - The logbook, the stored archive and the example sessions follow the ``va``
   set. A set applied to the stand-in changes its telemetry and nothing stored.
+  On a deployment whose own target is the stand-in, that is what a plain
+  ``osprey sim apply`` does; ``--target va`` changes the set the stored data
+  follows.
 
 Switching targets changes neither set.
 
 .. note::
 
    Until instances had sets of their own, both containers read the one
-   scenario file. The first ``osprey up`` after the upgrade gives a running
-   stand-in its own start set, copies nothing, and prints one line that names
-   the set it followed and the command that puts it back.
+   scenario file, and a deployment rendered then still mounts it into both.
+   The split takes effect when the deployment is built again: run
+   ``osprey build``, then ``osprey up``. That ``osprey up`` gives a stand-in
+   that was already running its own start set, copies nothing, and prints one
+   line that names the set it followed and the command that puts it back.
+   Until the build, both instances follow the ``va`` set: ``osprey up`` and
+   ``osprey sim apply`` say so, and ``--target standin`` is refused with the
+   two commands to run.
 
 **The archive belongs to the machine.** The store this deployment seeds and
 records is the simulator's, with or without a stand-in. The recorder samples
