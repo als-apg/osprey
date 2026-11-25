@@ -177,6 +177,15 @@ mounts that file unchanged.
        readback: SR:MAG:HCM:01:CURRENT:RB
        unit: A
        setpoint_unit: A
+     - name: ES1:MOT:STAGE:01:POSITION:SP
+       setpoint: ES1:MOT:STAGE:01:POSITION:SP
+       readback: ES1:MOT:STAGE:01:POSITION:RB
+       started_by:
+         command: ES1:MOT:STAGE:01:MOVE:SP
+         status: ES1:MOT:STAGE:01:STATUS:MOVE
+         idle: DONE
+         timeout_s: 10.0
+       unit: mm
    triggerables:
      - name: ES1:DET:MCA:01:ACQUIRE:SP
        command: ES1:DET:MCA:01:ACQUIRE:SP
@@ -197,6 +206,14 @@ The file has three lists:
   channel of the facility file. A settable is written to that channel and read
   back from the channel it is paired with. A setpoint the facility pairs with
   no readback reads its own setpoint.
+- **Positioners** are settables too. A setpoint the facility starts with a
+  command (``started_by``) is a positioner: a move writes the target, writes 1
+  to the command and waits until its status leaves ``idle`` and comes back
+  within the command's ``timeout_s``; then its readback settles. When the
+  status never leaves ``idle`` and the readback already sits at the target,
+  the move is done. When the readback is elsewhere, or the positioner has no
+  separate readback, the move fails: the start had no effect. The command is
+  no device of its own.
 - **Triggerables** are commands a plan fires and waits for. There is one per
   command whose status states ``idle`` and which states ``timeout_s``; such a
   command is no settable. A plan triggers it and never sets it, and it records
@@ -252,6 +269,10 @@ difference, and the bound is never tighter. If the readback is not inside its
 bound after ``bluesky.settle_timeout_s`` (default 5.0 seconds), the move fails
 and the plan aborts. pyAML measurement steps wait for their readbacks by the
 same rule, without the floor.
+
+Pausing or aborting a run cancels a positioner's unfinished move: nothing more
+is written to it. A stage already moving finishes the move by itself. A run
+paused mid-move fails when resumed.
 
 The build warns:
 
@@ -315,7 +336,8 @@ used to surface mid-plan, as a connection error out of the first read, with
 setpoints already applied. The worker now asks that question one message
 earlier. Before the plan is constructed, the worker probes every address the
 run's declared devices touch: each setpoint, each readback, each recorded
-channel. It probes on that lane's own connector, and refuses the run if any
+channel, and each command a plan fires or a positioner starts with, with its
+status. It probes on that lane's own connector, and refuses the run if any
 address does not answer.
 
 .. code-block:: text
