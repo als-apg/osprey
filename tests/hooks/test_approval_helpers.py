@@ -520,6 +520,32 @@ def test_the_writes_list_is_empty_when_nothing_is_written(approval, preview):
     assert approval._writes_lines(preview) == []
 
 
+def test_the_stop_list_names_what_a_run_may_write_if_it_stops_mid_move(approval):
+    preview = _walk(
+        [_entry("ES:STAGE:POS:SP", 3, device="stage"), _entry("ES:STAGE:MOVE", 3, value=1)],
+        6,
+        stop_writes=[{"channel": "ES:STAGE:STOP", "device": "stage", "value": 1}],
+    )
+
+    assert approval._stop_writes_lines(preview) == [
+        "May be written if the run stops mid-move:",
+        "  ES:STAGE:STOP (device stage) — 1",
+    ]
+    lines = approval._preview_lines(preview)
+    assert lines.index("May be written if the run stops mid-move:") > lines.index(
+        "Writes, per channel:"
+    )
+
+
+@pytest.mark.parametrize(
+    "preview",
+    [None, _walk([], 0), _walk([_entry("X:SP", 1)], 1), _walk([], 0, stop_writes=[])],
+    ids=["unreachable", "zero", "absent", "empty"],
+)
+def test_the_stop_list_is_empty_when_no_stop_may_write(approval, preview):
+    assert approval._stop_writes_lines(preview) == []
+
+
 # --------------------------------------------------------------------------
 # _describe_pause_job / _describe_cancel_job: which optimizer job a stop ends
 # --------------------------------------------------------------------------

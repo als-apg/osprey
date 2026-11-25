@@ -171,6 +171,7 @@ def _summary(**overrides: Any) -> dict[str, Any]:
             {"channel": "SR:COR2:SP", "device": "COR2", "value": 1.5, "count": 1},
         ],
         "total_writes": 2,
+        "stop_writes": [{"channel": "SR:COR1:STOP", "device": "COR1", "value": 1}],
         **overrides,
     }
 
@@ -243,6 +244,7 @@ def _preview(client: TestClient, name: str = "grid_scan", params: Any = _PARAMS)
         "move_cap",
         "writes",
         "total_writes",
+        "stop_writes",
         "reason",
         "detail",
         "retryable",
@@ -295,6 +297,7 @@ def test_a_summary_relays_the_writes_list_and_its_total(bridge) -> None:
         {"channel": "SR:COR2:SP", "device": "COR2", "value": 1.5, "count": 1},
     ]
     assert body["total_writes"] == 2
+    assert body["stop_writes"] == [{"channel": "SR:COR1:STOP", "device": "COR1", "value": 1}]
 
 
 def test_a_flat_declaration_is_read_the_same_way(bridge) -> None:
@@ -634,6 +637,7 @@ def test_a_summary_missing_its_moves_is_a_reason(bridge, payload: dict[str, Any]
     "overrides",
     [
         {"writes": None},
+        {"stop_writes": None},
         {"total_writes": None},
         {"total_writes": "lots"},
         # `bool` is an `int` subclass, and the one that is never a count.
@@ -664,6 +668,7 @@ def test_an_unavailable_answer_states_no_write_total(bridge, summary: Any) -> No
     assert body["ok"] is False
     assert body["writes"] == []
     assert body["total_writes"] is None
+    assert body["stop_writes"] == []
 
 
 def test_a_plan_that_does_not_build_carries_the_workers_own_reason(bridge) -> None:

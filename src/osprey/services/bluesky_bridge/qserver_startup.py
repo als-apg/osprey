@@ -643,7 +643,7 @@ def _preview_channel(obj: Any) -> str:
 
 def walk_launch(
     messages: Any, *, cap: int = PREVIEW_MOVE_CAP
-) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int, list[dict[str, Any]], int, list[dict[str, Any]]]:
     """Walk a plan's message stream read-only, collecting the moves and writes it would make.
 
     Pure iteration, and that is the whole safety argument: a bluesky plan is a
@@ -657,7 +657,10 @@ def walk_launch(
     channel write a message makes as its device states it
     (:func:`~osprey.services.bluesky_bridge.plan_writes.message_writes`),
     tallied per channel address; a device's ``set`` may write more than its
-    setpoint, and a ``trigger`` may write too.
+    setpoint, and a ``trigger`` may write too. What a stop of a moved device
+    may write if the run stops mid-move
+    (:func:`~osprey.services.bluesky_bridge.plan_writes.message_may_writes`)
+    is listed apart, once per channel, and is never counted as a write.
 
     Iteration continues past ``cap``: the plan's contract is an exact total, so
     the walk always runs the generator to exhaustion and only stops *collecting*
@@ -672,11 +675,13 @@ def walk_launch(
         cap: Most moves to collect into the returned list.
 
     Returns:
-        ``(moves, total_moves, writes, total_writes)`` — the collected
-        ``{"channel", "target"}`` mappings in the order the plan would make
-        them, the exact count of moves the whole stream carried, one
+        ``(moves, total_moves, writes, total_writes, stop_writes)`` — the
+        collected ``{"channel", "target"}`` mappings in the order the plan
+        would make them, the exact count of moves the whole stream carried, one
         ``{"channel", "device", "value", "count"}`` entry per channel written
-        in first-write order, and the exact count of writes.
+        in first-write order, the exact count of writes, and one
+        ``{"channel", "device", "value"}`` entry per channel a stop may write,
+        in first-move order.
 
     Raises:
         UnstatedWriteError: A device that can write does not state its writes.
@@ -685,15 +690,26 @@ def walk_launch(
     from osprey.services.bluesky_bridge.plan_writes import (
         WritesTally,
         _json_safe,
+        message_may_writes,
         message_writes,
     )
 
     moves: list[dict[str, Any]] = []
     total = 0
     tally = WritesTally()
+    stops: dict[str, dict[str, Any]] = {}
     for message in messages:
         obj = getattr(message, "obj", None)
         tally.add(_preview_channel(obj), message_writes(message))
+        for write in message_may_writes(message):
+            stops.setdefault(
+                write.address,
+                {
+                    "channel": write.address,
+                    "device": _preview_channel(obj),
+                    "value": _json_safe(write.value),
+                },
+            )
         if getattr(message, "command", None) != "set":
             continue
         total += 1
@@ -706,7 +722,7 @@ def walk_launch(
                 "target": _json_safe(args[0]) if args else None,
             }
         )
-    return moves, total, tally.entries(), tally.total()
+    return moves, total, tally.entries(), tally.total(), list(stops.values())
 
 
 def preview_plan_in_namespace(
@@ -736,6 +752,7 @@ def preview_plan_in_namespace(
         exact total of a complete walk) rather than two. ``writes`` is empty
         and ``total_writes`` is ``None`` on failure, never 0: 0 states that a
         walked launch writes nothing, which a failed walk cannot say.
+        ``stop_writes`` is empty on failure.
     """
     result: dict[str, Any] = {
         "ok": True,
@@ -746,6 +763,7 @@ def preview_plan_in_namespace(
         "move_cap": cap,
         "writes": [],
         "total_writes": None,
+        "stop_writes": [],
     }
 
     plan_function = namespace.get(name) if isinstance(name, str) else None
@@ -763,7 +781,7 @@ def preview_plan_in_namespace(
     plan = None
     try:
         plan = plan_function(**dict(kwargs or {}))
-        moves, total, writes, total_writes = walk_launch(plan, cap=cap)
+        moves, total, writes, total_writes, stop_writes = walk_launch(plan, cap=cap)
     except Exception as exc:  # every failure is reported, never raised
         result["ok"] = False
         result["error"] = f"{type(exc).__name__}: {exc}"[:PREVIEW_ERROR_CHARS]
@@ -781,6 +799,7 @@ def preview_plan_in_namespace(
     result["truncated"] = total > len(moves)
     result["writes"] = writes
     result["total_writes"] = total_writes
+    result["stop_writes"] = stop_writes
     return result
 
 
@@ -812,7 +831,9 @@ def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, A
              "total_moves": 42, "truncated": False,
              "writes": [{"channel": "SR:C01:COR:SP", "device": "corrector_01",
                          "value": None, "count": 42}],
-             "total_writes": 42}
+             "total_writes": 42,
+             "stop_writes": [{"channel": "ES1:STAGE:STOP", "device": "ES1:STAGE:SP",
+                              "value": 1}]}
 
         ``moves`` is in the order the run would make them and holds at most
         ``move_cap`` entries; ``total_moves`` is the exact count regardless, and
@@ -820,7 +841,10 @@ def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, A
         ``writes`` holds one entry per channel address the launch writes, in
         first-write order, with ``value`` the value every write carried when
         they all carried an equal one (else ``None``); ``total_writes`` is the
-        exact number of writes. On failure — an unknown plan, kwargs the params
+        exact number of writes. ``stop_writes`` holds what may be written if
+        the run stops a positioner mid-move, one entry per channel with the
+        value, apart from ``writes`` and never counted in ``total_writes``. On
+        failure — an unknown plan, kwargs the params
         schema rejects, a device this worker never built, a write the plan
         does not declare, or anything the plan raises while building — the
         same shape with ``ok`` False, an ``error`` string naming the failure,
