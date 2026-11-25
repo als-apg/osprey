@@ -20,7 +20,7 @@ from __future__ import annotations
 import functools
 import re
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -42,19 +42,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: The declaration, the one file that spells the deployment root's paths.
 DECLARATION = "src/osprey/repo_layout.py"
 
-#: The root paths a later layout moves that are not ordinary words, and the
-#: display paths of the declared children.
+#: The root paths a later layout moves that are not ordinary words, the display
+#: paths of the declared children, and the moved-from paths no reader falls back to,
+#: each beside the path it moved to.
 GUARDED = (
     "web-terminal-context",
-    "output-styles",
+    "agent/context",
+    "agent/output-styles",
     "ci-extra.yml",
+    "ops/ci-extra.yml",
     "osprey.service",
+    "ops/osprey.service",
     "data/facility",
     "data/code_review",
+    "agent/code_review",
     "data/canopy",
     "data/.runtime",
-    "scripts/verify.sh",
-    "scripts/osprey-boot-hook.sh",
+    "var/runtime",
+    "ops/scripts/verify.sh",
+    "ops/scripts/osprey-boot-hook.sh",
 )
 
 
@@ -92,20 +98,9 @@ ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
     # source layout.
     ("src/osprey/facility/settings.py", "data/facility"): (1, EQUAL_TO_SOURCE),
     (_CONVENTIONS, "data/facility"): (1, EQUAL_TO_SOURCE),
-    # Claude Code's own output-styles directory under the render's .claude/,
-    # and the artifact names keyed by the convention.
-    (_CATALOG, "output-styles/control-operator"): (1, EQUAL_TO_SOURCE),
-    (_CATALOG, ".claude/output-styles/control-operator.md"): (1, EQUAL_TO_SOURCE),
-    (_CONVENTIONS, ".claude/output-styles"): (1, EQUAL_TO_SOURCE),
-    (
-        "src/osprey/cli/build_profile_emit.py",
-        "Output styles installed into .claude/output-styles/.",
-    ): (1, EQUAL_TO_SOURCE),
-    ("src/osprey/cli/templates/manifest.py", "output-styles/"): (1, EQUAL_TO_SOURCE),
-    (_CLAUDE_CODE_FILES, "output-styles"): (1, EQUAL_TO_SOURCE),
-    (_CLAUDE_CODE_FILES, "output-styles/"): (1, EQUAL_TO_SOURCE),
-    (_GALLERY, "output-styles"): (2, EQUAL_TO_SOURCE),
-    # The render's per-user context tree.
+    # The render's per-user context tree. It is named by the convention key a
+    # profile spells (``exclude: {web-terminal-context: ...}``), which is not a
+    # path and did not move; the source tree it renders from is agent/context.
     (_CONVENTIONS, "docker/web-terminal-context"): (1, EQUAL_TO_SOURCE),
     (_CONVENTIONS, "docker/web-terminal-context/base.md"): (1, EQUAL_TO_SOURCE),
     (_TEMPLATE_MANAGER, "docker/web-terminal-context"): (1, EQUAL_TO_SOURCE),
@@ -114,8 +109,6 @@ ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
         EQUAL_TO_SOURCE,
     ),
     # The framework's own template trees, not laid out as a deployment.
-    (_CATALOG, "claude/output-styles/control-operator.md.j2"): (1, TEMPLATE_TREE),
-    ("src/osprey/cli/templates/artifact_library.py", "output-styles"): (1, TEMPLATE_TREE),
     (_TEMPLATE_MANAGER, "claude_code/web-terminal-context"): (1, TEMPLATE_TREE),
     ("src/osprey/cli/profile_cmd.py", "web-terminal-context"): (1, TEMPLATE_TREE),
     (
@@ -156,14 +149,29 @@ def test_every_allowed_site_has_a_category() -> None:
 
 
 def test_every_guarded_spelling_is_a_declared_path() -> None:
-    """Each spelling is a row's path or a child's display path."""
-    declared = {row.path for row in repo_layout.ROOT_ENTRIES} | {
-        repo_layout.child_display_path(item.parent, item.key) for item in repo_layout.ROOT_CHILDREN
-    }
+    """Each spelling is a row's path, a child's display path or a moved-from path."""
+    declared = (
+        {row.path for row in repo_layout.ROOT_ENTRIES}
+        | {
+            repo_layout.child_display_path(item.parent, item.key)
+            for item in repo_layout.ROOT_CHILDREN
+        }
+        | {move.old for move in repo_layout.retired_moves()}
+    )
     for spelling in GUARDED:
         assert spelling in declared or any(path.startswith(f"{spelling}/") for path in declared), (
             spelling
         )
+
+
+def test_every_guarded_moved_from_path_has_its_successor_guarded() -> None:
+    """A moved-from path is guarded beside the path it moved to, so neither is spelt."""
+    missing = [
+        move.new
+        for move in repo_layout.retired_moves()
+        if move.old in GUARDED and move.new not in GUARDED
+    ]
+    assert missing == []
 
 
 # --- the scanner finds every form a spelling takes ---------------------------------------
@@ -172,20 +180,20 @@ _PLANTED = '''
 """A docstring naming ci-extra.yml is prose, not code."""
 LITERAL = "osprey.service"
 JOINED = Path("data") / "facility"
-NESTED = root / "scripts" / "verify.sh"
+NESTED = root / "ops" / "scripts" / "verify.sh"
 SENTENCE = "Edit the reviewer under data/code_review and build again."
 FORMATTED = f"data/.runtime/{lane}_curve"
-STYLES = ".claude/output-styles"
+STYLES = "build/agent/output-styles"
 '''
 
 #: The six forms, each with the line it is planted on.
 _FORMS = {
     "a literal": (3, "osprey.service"),
     "a joined path": (4, "data/facility"),
-    "a join through a variable": (5, "scripts/verify.sh"),
+    "a join through a variable": (5, "ops/scripts/verify.sh"),
     "a prose sentence": (6, "data/code_review"),
     "an f-string": (7, "data/.runtime"),
-    "a spelling inside a render path": (8, "output-styles"),
+    "a spelling inside a longer path": (8, "agent/output-styles"),
 }
 
 
@@ -235,9 +243,11 @@ def test_the_facility_packages_display_prefix_equals_the_declared_child() -> Non
 
 def test_the_bluesky_template_mounts_and_ignores_the_derived_curve_directory() -> None:
     """Compose mounts, and git ignores, the directory the certificates are minted in."""
+    from osprey.cli.init_cmd import _repo_gitignore
     from osprey.deployment.container_lifecycle import _bluesky_curve_dir
+    from osprey.utils.workspace import STATE_DIR_NAME
 
-    runtime = repo_layout.child_display_path("data", "runtime")
+    runtime = repo_layout.child_display_path("var", "runtime")
     assert _bluesky_curve_dir("lane").as_posix() == f"{runtime}/lane_curve"
 
     compose = (REPO_ROOT / "src/osprey/templates/services/bluesky/docker-compose.yml.j2").read_text(
@@ -247,13 +257,19 @@ def test_the_bluesky_template_mounts_and_ignores_the_derived_curve_directory() -
     assert sorted(side for _parent, side in mounts) == ["bridge", "queueserver"]
     assert {parent for parent, _side in mounts} == {runtime}
 
-    gitignore = (REPO_ROOT / "src/osprey/templates/project/gitignore").read_text(encoding="utf-8")
-    rules = [line for line in gitignore.splitlines() if line and not line.startswith("#")]
-    assert f"/{runtime}/" in rules
+    # The certificates lie in the state zone, which the repo .gitignore ignores
+    # whole and anchored at the root.
+    assert PurePosixPath(runtime).parts[0] == STATE_DIR_NAME
+    rules = [line for line in _repo_gitignore().splitlines() if line and not line.startswith("#")]
+    assert f"/{STATE_DIR_NAME}/" in rules
 
 
 def test_the_code_review_prompt_default_is_where_init_puts_the_starter() -> None:
     from osprey.cli.templates.preset_data import STARTER_PROMPT_PATH
     from osprey.services.code_review.settings import DEFAULT_PROMPT
 
-    assert DEFAULT_PROMPT == f"{repo_layout.entry('data').path}/{STARTER_PROMPT_PATH}"
+    assert (
+        DEFAULT_PROMPT
+        == STARTER_PROMPT_PATH
+        == repo_layout.display_path("code_review", "reviewer.md")
+    )
