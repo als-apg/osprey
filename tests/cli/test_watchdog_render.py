@@ -76,7 +76,7 @@ def _repo(tmp_path: Path, block: dict[str, Any], *, hooks: list[str] | None = No
     repo.mkdir()
     copy_bundle_data(repo / "data", "hello_world")
     for name in block:
-        directory = repo / "watchdogs" / name
+        directory = repo / "agent" / "watchdogs" / name
         (directory / "references").mkdir(parents=True)
         (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
         (directory / "references" / "note.md").write_text("A reference.\n", encoding="utf-8")

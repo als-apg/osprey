@@ -262,7 +262,7 @@ def test_a_run_repairs_nothing_the_build_would(built: tuple[Path, Result]) -> No
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
     # A repo from before the rule moved into the profile: no source-zone copy,
     # and the library rule selected by its bare name.
-    (repo / "rules" / "facility.md").unlink()
+    (repo / "agent" / "rules" / "facility.md").unlink()
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8").replace("  - rules/facility ", "  - facility ")
     assert text.count("\n    users:\n") == 1

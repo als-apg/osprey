@@ -130,12 +130,12 @@ class TestResolveClaimTarget:
     @pytest.mark.parametrize(
         ("name", "project_rel", "profile_rel"),
         [
-            ("rules/safety", ".claude/rules/safety.md", "rules/safety.md"),
+            ("rules/safety", ".claude/rules/safety.md", "agent/rules/safety.md"),
             # A hook is known by its filename: ``settings.json`` wires it by name.
             (
                 "hooks/osprey_cf_feedback_capture.py",
                 ".claude/hooks/osprey_cf_feedback_capture.py",
-                "hooks/osprey_cf_feedback_capture.py",
+                "agent/hooks/osprey_cf_feedback_capture.py",
             ),
         ],
         ids=["markdown-artifact", "hook-by-filename-not-by-stem"],
@@ -152,13 +152,13 @@ class TestResolveClaimTarget:
         """A nested command is `commands/osprey/scan`, never the basename."""
         target = resolve_claim_target("commands/osprey/scan")
         assert target.project_rel == ".claude/commands/osprey/scan.md"
-        assert target.profile_rel == "commands/osprey/scan.md"
+        assert target.profile_rel == "agent/commands/osprey/scan.md"
 
     @pytest.mark.parametrize(
         ("name", "project_rel", "profile_rel"),
         [
-            ("skills/orbit-check", ".claude/skills/orbit-check", "skills/orbit-check"),
-            ("services/postgresql", "services/postgresql", "services/postgresql"),
+            ("skills/orbit-check", ".claude/skills/orbit-check", "agent/skills/orbit-check"),
+            ("services/postgresql", "services/postgresql", "ops/services/postgresql"),
         ],
         ids=["skill", "service"],
     )
@@ -285,12 +285,17 @@ class TestResolveClaimTarget:
         registered under a name nothing recognizes — and for a hook, under a
         filename ``settings.json`` does not invoke.
         """
+        from osprey import repo_layout
         from osprey.cli.build_persistence import ownership_canonical
         from osprey.cli.profile_conventions import ConventionCopy
 
         target = resolve_claim_target(name)
         copy = ConventionCopy(
-            category=target.profile_rel.split("/", 1)[0],
+            category=next(
+                row.key
+                for row in repo_layout.ROOT_ENTRIES
+                if target.profile_rel == row.path or target.profile_rel.startswith(f"{row.path}/")
+            ),
             source=Path("/unused"),
             destination=target.project_rel,
             is_directory=target.is_directory,
@@ -310,9 +315,9 @@ class TestPublishedResolution:
         """Answers for an artifact that exists in neither place, and moves nothing."""
         slot = profile_slot_for(pair.project, "rules/safety")
 
-        assert slot == pair.profile / "rules" / "safety.md"
+        assert slot == pair.profile / "agent" / "rules" / "safety.md"
         assert not slot.exists()
-        assert not (pair.profile / "rules").exists()
+        assert not (pair.profile / "agent" / "rules").exists()
 
     def test_slot_follows_a_claimed_artifact(self, pair):
         """The gallery's case: after a claim, the profile copy is the live one."""
@@ -324,7 +329,7 @@ class TestPublishedResolution:
 
     def test_slot_accepts_either_hook_spelling(self, pair):
         assert profile_slot_for(pair.project, "hooks/cf-feedback-capture") == (
-            pair.profile / "hooks" / "osprey_cf_feedback_capture.py"
+            pair.profile / "agent" / "hooks" / "osprey_cf_feedback_capture.py"
         )
 
     def test_slot_is_none_without_a_profile(self, pair):
@@ -362,7 +367,7 @@ class TestClaimIntoProfile:
 
         outcome = claim_into_profile(pair.project, "rules/safety")
 
-        assert outcome.profile_path == pair.profile / "rules" / "safety.md"
+        assert outcome.profile_path == pair.profile / "agent" / "rules" / "safety.md"
         assert outcome.profile_path.read_text(encoding="utf-8") == "# custom safety\n"
         assert not (pair.project / ".claude" / "rules" / "safety.md").exists()
 
@@ -371,7 +376,7 @@ class TestClaimIntoProfile:
 
         outcome = claim_into_profile(pair.project, "commands/osprey/scan")
 
-        assert outcome.profile_path == pair.profile / "commands" / "osprey" / "scan.md"
+        assert outcome.profile_path == pair.profile / "agent" / "commands" / "osprey" / "scan.md"
         assert outcome.profile_path.is_file()
 
     def test_skill_moves_as_a_whole_directory(self, pair):
@@ -381,7 +386,7 @@ class TestClaimIntoProfile:
 
         outcome = claim_into_profile(pair.project, "skills/orbit-check")
 
-        moved = pair.profile / "skills" / "orbit-check"
+        moved = pair.profile / "agent" / "skills" / "orbit-check"
         assert outcome.profile_path == moved
         assert outcome.target.is_directory
         assert (moved / "SKILL.md").read_text(encoding="utf-8") == "# orbit check\n"
@@ -421,7 +426,7 @@ class TestClaimIntoProfile:
 
         assert outcome.is_layer
         assert outcome.profile_root == pair.profile
-        assert outcome.profile_path == pair.profile / "rules" / "safety.md"
+        assert outcome.profile_path == pair.profile / "agent" / "rules" / "safety.md"
 
 
 class TestClaimRefusals:
@@ -431,7 +436,7 @@ class TestClaimRefusals:
         with pytest.raises(ScaffoldClaimError) as exc:
             claim_into_profile(pair.project, "rules/safety")
         assert "Nothing to claim" in str(exc.value)
-        assert not (pair.profile / "rules").exists()
+        assert not (pair.profile / "agent" / "rules").exists()
 
     def test_nonexistent_but_catalog_known_artifact_says_so(self, pair):
         with pytest.raises(ScaffoldClaimError) as exc:
@@ -440,8 +445,8 @@ class TestClaimRefusals:
 
     def test_already_in_the_profile(self, pair):
         pair.artifact(".claude/rules/safety.md", "# same\n")
-        (pair.profile / "rules").mkdir()
-        (pair.profile / "rules" / "safety.md").write_text("# same\n", encoding="utf-8")
+        (pair.profile / "agent" / "rules").mkdir(parents=True)
+        (pair.profile / "agent" / "rules" / "safety.md").write_text("# same\n", encoding="utf-8")
 
         with pytest.raises(ScaffoldClaimError) as exc:
             claim_into_profile(pair.project, "rules/safety")
@@ -449,24 +454,28 @@ class TestClaimRefusals:
         assert "already in the profile" in str(exc.value)
         # Neither copy was disturbed.
         assert (pair.project / ".claude" / "rules" / "safety.md").is_file()
-        assert (pair.profile / "rules" / "safety.md").read_text(encoding="utf-8") == "# same\n"
+        assert (pair.profile / "agent" / "rules" / "safety.md").read_text(
+            encoding="utf-8"
+        ) == "# same\n"
 
     def test_destination_collision_reports_the_difference(self, pair):
         pair.artifact(".claude/rules/safety.md", "# project version\n")
-        (pair.profile / "rules").mkdir()
-        (pair.profile / "rules" / "safety.md").write_text("# profile version\n", encoding="utf-8")
+        (pair.profile / "agent" / "rules").mkdir(parents=True)
+        (pair.profile / "agent" / "rules" / "safety.md").write_text(
+            "# profile version\n", encoding="utf-8"
+        )
 
         with pytest.raises(ScaffoldClaimError) as exc:
             claim_into_profile(pair.project, "rules/safety")
 
         assert "differs" in str(exc.value)
-        assert (pair.profile / "rules" / "safety.md").read_text(
+        assert (pair.profile / "agent" / "rules" / "safety.md").read_text(
             encoding="utf-8"
         ) == "# profile version\n"
 
     def test_directory_collision_is_refused(self, pair):
         pair.artifact(".claude/skills/orbit-check/SKILL.md", "# project\n")
-        existing = pair.profile / "skills" / "orbit-check"
+        existing = pair.profile / "agent" / "skills" / "orbit-check"
         existing.mkdir(parents=True)
         (existing / "SKILL.md").write_text("# profile\n", encoding="utf-8")
 
@@ -546,13 +555,14 @@ class TestClaimRefusals:
         """
         pair.artifact(".claude/rules/safety.md", "# irreplaceable\n")
         # `rules` is a FILE in the profile, so the slot's parent cannot be made.
-        (pair.profile / "rules").write_text("not a directory\n", encoding="utf-8")
+        (pair.profile / "agent").mkdir(exist_ok=True)
+        (pair.profile / "agent" / "rules").write_text("not a directory\n", encoding="utf-8")
 
         with pytest.raises(ScaffoldClaimError) as exc:
             claim_into_profile(pair.project, "rules/safety")
 
         message = str(exc.value)
-        assert str(pair.profile / "rules") in message
+        assert str(pair.profile / "agent" / "rules") in message
         assert "Nothing was moved" in message
         assert (pair.project / ".claude" / "rules" / "safety.md").read_text(
             encoding="utf-8"
@@ -561,7 +571,8 @@ class TestClaimRefusals:
     def test_unwritable_destination_reports_through_the_cli(self, pair):
         """The CLI must print the reason, not exit silently on a traceback."""
         pair.artifact(".claude/rules/safety.md", "# irreplaceable\n")
-        (pair.profile / "rules").write_text("not a directory\n", encoding="utf-8")
+        (pair.profile / "agent").mkdir(exist_ok=True)
+        (pair.profile / "agent" / "rules").write_text("not a directory\n", encoding="utf-8")
 
         result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(pair.repo)])
 
@@ -588,7 +599,7 @@ class TestClaimRefusals:
 
         assert "symlink" in str(exc.value)
         assert (rules / "safety.md").is_symlink()
-        assert not (pair.profile / "rules" / "safety.md").exists()
+        assert not (pair.profile / "agent" / "rules" / "safety.md").exists()
 
     def test_a_skill_containing_an_escaping_symlink_is_refused(self, pair, tmp_path):
         outside = tmp_path / "shared-reference.md"
@@ -601,7 +612,7 @@ class TestClaimRefusals:
 
         assert "reference.md" in str(exc.value)
         assert (pair.project / ".claude" / "skills" / "orbit-check").is_dir()
-        assert not (pair.profile / "skills" / "orbit-check").exists()
+        assert not (pair.profile / "agent" / "skills" / "orbit-check").exists()
 
     def test_a_skills_internal_symlink_is_left_alone(self, pair):
         """The build permits a link resolving inside the profile, so a claim must too."""
@@ -615,8 +626,8 @@ class TestClaimRefusals:
     def test_a_broken_symlink_in_the_slot_counts_as_occupied(self, pair, tmp_path):
         """`exists()` follows links, so a broken one must not read as a free slot."""
         pair.artifact(".claude/rules/safety.md", "# project\n")
-        (pair.profile / "rules").mkdir()
-        (pair.profile / "rules" / "safety.md").symlink_to(tmp_path / "gone")
+        (pair.profile / "agent" / "rules").mkdir(parents=True)
+        (pair.profile / "agent" / "rules" / "safety.md").symlink_to(tmp_path / "gone")
 
         with pytest.raises(ScaffoldClaimError) as exc:
             claim_into_profile(pair.project, "rules/safety")
@@ -638,7 +649,7 @@ class TestClaimCommand:
 
         assert result.exit_code == 0, result.output
         assert "Moved" in result.output
-        assert (pair.profile / "rules" / "safety.md").is_file()
+        assert (pair.profile / "agent" / "rules" / "safety.md").is_file()
 
     def test_no_profile_exits_non_zero(self, pair):
         _write_manifest(pair.project, {"source": "preset"})
@@ -664,7 +675,7 @@ class TestClaimCommand:
         result = CliRunner().invoke(scaffold, ["claim", "rules/safety", "--repo", str(repo_dir)])
 
         assert result.exit_code == 0, result.output
-        assert (profile_root / "rules" / "safety.md").is_file()
+        assert (profile_root / "agent" / "rules" / "safety.md").is_file()
         assert not (project_dir / ".claude" / "rules" / "safety.md").exists()
         # No YAML edit: ownership comes back from the build's convention scan.
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
@@ -718,7 +729,7 @@ class TestPromptsList:
         rows at the terminal width, so any assertion on a longer phrase would be
         a coin toss. The row's content is pinned on ``_owned_row`` below.
         """
-        skill = pair.profile / "skills" / "orbit-check"
+        skill = pair.profile / "agent" / "skills" / "orbit-check"
         skill.mkdir(parents=True)
         (skill / "SKILL.md").write_text("# orbit\n", encoding="utf-8")
         update_config_add_user_owned(pair.project, "skills/orbit-check")
@@ -734,8 +745,10 @@ class TestOwnedRow:
     """What ``list`` says about one user-owned name."""
 
     def test_profile_supplied_ownership(self, pair):
-        (pair.profile / "rules").mkdir()
-        (pair.profile / "rules" / "facility-ops.md").write_text("# ops\n", encoding="utf-8")
+        (pair.profile / "agent" / "rules").mkdir(parents=True)
+        (pair.profile / "agent" / "rules" / "facility-ops.md").write_text(
+            "# ops\n", encoding="utf-8"
+        )
 
         name, project_rel, origin = _owned_row(pair.profile, "rules/facility-ops")
 
@@ -849,8 +862,10 @@ class TestPromptsUnclaim:
 
     def test_unclaim_says_when_the_profile_still_supplies_it(self, pair):
         """Releasing config ownership does not stop the profile re-registering it."""
-        (pair.profile / "rules").mkdir()
-        (pair.profile / "rules" / "safety.md").write_text("# from profile\n", encoding="utf-8")
+        (pair.profile / "agent" / "rules").mkdir(parents=True)
+        (pair.profile / "agent" / "rules" / "safety.md").write_text(
+            "# from profile\n", encoding="utf-8"
+        )
         update_config_add_user_owned(pair.project, "rules/safety")
 
         result = CliRunner().invoke(scaffold, ["unclaim", "rules/safety", "--repo", str(pair.repo)])

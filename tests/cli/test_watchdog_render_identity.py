@@ -13,7 +13,7 @@ profile.
 Volatile content, left out of the comparison:
 
 - The image context's copy of the repo's source zone, ``.image/<project>/profile.yml``
-  and ``.image/<project>/watchdogs/``: the operator's own files, verbatim, which
+  and ``.image/<project>/agent/watchdogs/``: the operator's own files, verbatim, which
   differ between a repo with a block and one without because the repo itself does.
   The image's ``build/`` is outside this and compared like the rest.
 - In ``.osprey-manifest.json``: the render's timestamp, the profile fingerprint and
@@ -57,7 +57,7 @@ PORT_RENDER_PATHS = (
     "src/osprey/profiles/config_key_manifest.yml",
 )
 
-SOURCE_ZONE_COPIES = (".image/w/profile.yml", ".image/w/watchdogs/")
+SOURCE_ZONE_COPIES = (".image/w/profile.yml", ".image/w/agent/watchdogs/")
 MANIFEST_NAME = ".osprey-manifest.json"
 VOLATILE_MANIFEST_KEYS = frozenset({"timestamp", "preset_hash", "watchdogs"})
 
@@ -173,12 +173,12 @@ def _apply_port(base: str, worktree: Path, root: Path = ROOT) -> None:
 
 def _write_repo(repo: Path, block: dict[str, Any] | None) -> None:
     """Point *repo* at the profile with *block*, with the source each entry names."""
-    shutil.rmtree(repo / "watchdogs", ignore_errors=True)
+    shutil.rmtree(repo / "agent" / "watchdogs", ignore_errors=True)
     profile = dict(PROFILE)
     if block is not None:
         profile["watchdogs"] = block
         for name in block:
-            directory = repo / "watchdogs" / name
+            directory = repo / "agent" / "watchdogs" / name
             directory.mkdir(parents=True)
             (directory / "instructions.md").write_text(f"Judge as {name}.\n", encoding="utf-8")
     (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")

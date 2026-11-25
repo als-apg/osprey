@@ -100,7 +100,7 @@ HOST_WEB_PANELS = ["channel-finder", "okf"]
 BUNDLE_PATH = "data/facility/knowledge"
 
 #: Directory ``osprey build`` seeds in the *source* zone, one per roster entry.
-CONTEXT_DIRNAME = "web-terminal-context"
+CONTEXT_DIRNAME = "agent/context"
 
 
 def invoke(runner: CliRunner, *args: str) -> Result:
