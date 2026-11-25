@@ -15,7 +15,7 @@ The test mutates a freshly initialized demo repo's SOURCE zone
 *before* ``osprey build``, so the render carries three things that a
 hollow/degraded worker could not satisfy:
 
-  * an OVERLAY SKILL (``skills/facility-marker`` -> rendered to
+  * an OVERLAY SKILL (``agent/skills/facility-marker`` -> rendered to
     ``build/.claude/skills/facility-marker``) that is NOT an OSPREY built-in,
     whose instructions produce an observable marker token;
   * ``data/overlay_visibility.json``, a small fixture carrying a distinctive
@@ -60,6 +60,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey.port_layout import default_port
@@ -241,7 +242,7 @@ def _mutate_source(repo: Path) -> None:
     *between* ``osprey init`` and ``osprey build``, because the build is what
     renders every one of the three into the places the deploy reads them:
 
-      * ``skills/<name>/`` -> ``build/.claude/skills/<name>/``, named by
+      * ``agent/skills/<name>/`` -> ``build/.claude/skills/<name>/``, named by
         ``skills/<name>`` in the profile's ``skills:`` list;
       * ``data/<DATA_FILE>`` -> ``build/data/<DATA_FILE>``;
       * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
@@ -254,7 +255,7 @@ def _mutate_source(repo: Path) -> None:
     None of the three are OSPREY built-ins, so a config-only / hollow worker
     could not satisfy the resulting assertions.
     """
-    skill_path = repo / "skills" / "facility-marker" / "SKILL.md"
+    skill_path = repo / repo_layout.display_path("skills", "facility-marker", "SKILL.md")
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text(_OVERLAY_SKILL_MD, encoding="utf-8")
     # A deployment's own skill renders only where a list names its path; the
