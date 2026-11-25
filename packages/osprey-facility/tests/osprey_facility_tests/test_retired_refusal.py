@@ -19,7 +19,15 @@ import pytest
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityError, RetiredLayoutRefused
 from osprey_facility.layers.list import import_list
-from osprey_facility.retired import find_retired, move_script, refuse_retired, repository_root
+from osprey_facility.retired import (
+    LineEdit,
+    find_retired,
+    move_script,
+    place_moves,
+    refuse_retired,
+    render_script,
+    repository_root,
+)
 from osprey_facility.sources import load_sources
 from osprey_facility.validate import run_stages
 from osprey_facility_tests._harness import REPO_ROOT
@@ -352,3 +360,56 @@ def test_running_the_printed_script_moves_a_mounted_second_repository(tmp_path: 
         deployment, "status", "--porcelain"
     )
     build_facility(machine, project_name="demo", content_dir=content, extra_checks=())
+
+
+# --- the script for any tree --------------------------------------------------------------
+
+
+def test_the_rendered_script_moves_edits_and_deletes_in_one_block(tmp_path: Path) -> None:
+    root = _repository(tmp_path / "repo", commit=False)
+    _write(root, "old/a.txt")
+    _write(root, "conf.yaml", "first\nkeep: old/a.txt\n")
+    _write(root, "stale/x.txt")
+    _write(root, "gone/deep/y.txt")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "seed")
+    moves, _ = place_moves(root, [("old", "group/new")])
+    edit = LineEdit(file=root / "conf.yaml", line=2, old="old/a.txt", new="group/new/a.txt")
+
+    script = render_script(moves, [(root, edit)], [(root, "stale"), (root, "gone/deep")])
+
+    assert script == [
+        f"cd {root.resolve()}",
+        "mkdir -p group",
+        "git mv old group/new",
+        "perl -pi -e 's{old/a\\.txt}{group/new/a.txt} if $. == 2' conf.yaml",
+        "git rm -r -q -- stale",
+        "git rm -r -q -- gone/deep",
+        "rmdir gone 2>/dev/null || true",
+    ]
+    _run("\n".join(script) + "\n", tmp_path / "elsewhere")
+    assert (root / "group/new/a.txt").is_file()
+    assert (root / "conf.yaml").read_text(encoding="utf-8") == "first\nkeep: group/new/a.txt\n"
+    assert not (root / "stale").exists()
+    assert not (root / "gone").exists()
+
+
+def test_a_rendered_line_edit_takes_its_text_literally(tmp_path: Path) -> None:
+    _write(tmp_path, "f.txt", "a.b x $HOME @x {y}\naxb\n")
+    edit = LineEdit(file=tmp_path / "f.txt", line=1, old="a.b x $HOME @x {y}", new="$v @w {z}\\")
+
+    _run("\n".join(render_script((), [(tmp_path, edit)], ())) + "\n", tmp_path / "elsewhere")
+
+    assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "$v @w {z}\\\naxb\n"
+
+
+def test_untracked_deletes_outside_a_repository_use_rm(tmp_path: Path) -> None:
+    _write(tmp_path, "tree/stale.txt")
+
+    script = render_script((), (), [(tmp_path / "tree", "stale.txt")])
+
+    assert script == [f"cd {(tmp_path / 'tree').resolve()}", "rm -r -- stale.txt"]
+
+
+def test_nothing_to_render_is_an_empty_script() -> None:
+    assert render_script((), (), ()) == []

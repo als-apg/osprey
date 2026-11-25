@@ -56,6 +56,10 @@ readers. `osprey_facility.schema.published_schema()` returns the shipped JSON
 Schema: the current one, or `published_schema(4)` for a format version's floor.
 `osprey_facility.__version__` is the installed distribution's version, or
 `0.0.0+unbuilt` in a source tree with no install.
+`osprey_facility.retired` finds and refuses a facility tree still laid out at
+retired paths, and its move machinery assumes nothing about the facility tree:
+`place_moves` reports how `(old, new)` paths under any root move or clash, and
+`render_script` renders `Move`s, `LineEdit`s and deletions as a shell script.
 
 | Module | Consumer |
 |---|---|
@@ -78,7 +82,7 @@ Schema: the current one, or `published_schema(4)` for a format version's floor.
 | `osprey_facility.records` | framework job: `osprey.apps.sdk`, `osprey.channel_roster`, `osprey.cli`, `osprey.facility.settings`, `osprey.facility.views`, `osprey.interfaces`, `osprey.mcp_server`, `osprey.runtime`, `osprey.services.ariel_search` |
 | `osprey_facility.references` | framework job: `osprey.interfaces.ariel`, `osprey.interfaces.okf_panel`, `osprey.mcp_server.ariel`, `osprey.services.ariel_search` |
 | `osprey_facility.relations` | framework job: `osprey.cli.facility_cmd`, `osprey.facility.views` |
-| `osprey_facility.retired` | framework job: `osprey.cli` |
+| `osprey_facility.retired` | framework job: `osprey.cli`, `osprey.repo_retired` |
 | `osprey_facility.render` | framework job: `osprey.apps.sdk`, `osprey.cli.build_cmd`, `osprey.cli.facility_cmd`, `osprey.facility.views` |
 | `osprey_facility.roots` | framework job: `osprey.cli`, `osprey.facility.bundled` |
 | `osprey_facility.scenarios` | framework job: `osprey.facility.views`, `osprey.simulation.apply` |
