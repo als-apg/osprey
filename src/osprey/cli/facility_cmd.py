@@ -94,7 +94,7 @@ import click
 
 from .output import fail, report
 from .phase_reporter import current_reporter
-from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .repo_resolver import PROFILE_FILENAME, repo_option
 
 if TYPE_CHECKING:
     from osprey.facility.bundled import Classification
@@ -229,6 +229,7 @@ def _build_in_memory(
     import tempfile
 
     from osprey.registry.scenario_servers import check_scenario_servers
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
     from osprey_facility.build import LATER_STAGES
     from osprey_facility.layers.mml.response_check import check_responses
@@ -257,7 +258,7 @@ def _build_in_memory(
     )
     from .templates.manager import TemplateManager
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
     # The mirror guard checks the deployment's project/ before anything is
@@ -695,15 +696,16 @@ def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
     Raises:
         FacilityBuildError: When a stated ``machine:`` root is missing or
             overlaps the data root.
+        RetiredRootRefused: When the repo holds something at a retired path.
         RetiredLayoutRefused: When either root holds a source at a retired
             path.
     """
-    from osprey_facility.retired import refuse_retired
+    from osprey.repo_retired import refuse_retired_layout
 
     roots = resolved.profile.resolved_facility_roots(repo_root)
     if roots is None:
         raise RuntimeError("a resolved profile names no data root")
-    refuse_retired(roots.machine, roots.content)
+    refuse_retired_layout(repo_root, roots)
     return roots
 
 
@@ -994,12 +996,13 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
     from osprey_facility.errors import FacilityUsageError, MappingProblems
     from osprey_facility.layers.mml.importer import import_mml as run_import
     from osprey_facility.layers.mml.mapping import MAPPING_FILE, MappingError
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     try:
         roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
@@ -1062,12 +1065,13 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     device, when the header names an unknown column, or while the profile does
     not resolve.
     """
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
     from osprey_facility.layers.list import import_list as run_import
 
     from .facility_report import report_lines
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     try:
         roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
@@ -1133,10 +1137,11 @@ def import_relations(
     name is refused, when any table has a row the layer refuses, or while the
     profile does not resolve.
     """
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
     from osprey_facility.layers.relations import import_relations as run_import
 
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     try:
         roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:

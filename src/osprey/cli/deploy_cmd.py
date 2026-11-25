@@ -681,12 +681,14 @@ def up_verb(
       $ osprey up --build --dev
     """
     from osprey.cli.main import lifecycle_reporter
-    from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
     from osprey.deployment.container_lifecycle import up_as_built
     from osprey.deployment.container_ownership import ForeignCheckoutError
+    from osprey.repo_retired import deployment_root
 
-    repo_root = find_repo_root(repo)
+    # Before anything starts, stops, renders or mints: a repo holding anything
+    # at a retired path is refused at the verb's entry, `--as-built` included.
+    repo_root = deployment_root(repo)
     # Asked before the reporter is installed, so a start chained from `init --up`
     # leaves the card to the verb that owns the run (see `owns_summary_card`).
     owns_card = owns_summary_card()
@@ -936,12 +938,13 @@ def restart_verb(
       $ osprey restart --as-built -d
     """
     from osprey.cli.main import lifecycle_reporter
-    from osprey.cli.repo_resolver import find_repo_root
     from osprey.cli.summary_card import owns_summary_card, print_summary_card
     from osprey.deployment.container_lifecycle import restart_deployment
     from osprey.deployment.container_ownership import ForeignCheckoutError
+    from osprey.repo_retired import deployment_root
 
-    repo_root = find_repo_root(repo)
+    # Before anything stops, renders or mints, as `osprey up` refuses.
+    repo_root = deployment_root(repo)
     owns_card = owns_summary_card()
     with lifecycle_reporter() as reporter:
         gate_start_from_build(

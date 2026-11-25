@@ -78,7 +78,6 @@ from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from osprey_facility.errors import FacilityBuildWarning, FacilityError
-from osprey_facility.retired import refuse_retired
 
 from .build_environment import (
     _create_project_venv,
@@ -1581,6 +1580,14 @@ class _SharedRenderInputs(NamedTuple):
     chosen, the second logs it at DEBUG. ``None`` says it every time.
     """
 
+    staging_runs: bool = True
+    """Whether this build runs its ``pre_build`` steps, which stage CANOPY.
+
+    ``False`` under ``--skip-lifecycle``: nothing is staged, so the CANOPY
+    panel leaves the deployment's render and every layer's alike
+    (:func:`~osprey.cli.build_profile_canopy.without_unstaged_panel`).
+    """
+
 
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
@@ -2420,7 +2427,7 @@ def _render_project(
             not identify it — the deployment's container copy renders with it
             set too).
         repair: Whether the render may write into the profile: seed a
-            ``web-terminal-context/<user>/`` directory for each roster user
+            ``agent/context/<user>/`` directory for each roster user
             without one. ``False`` renders from the profile as it stands and
             writes nothing outside ``output_dir``.
 
@@ -3220,7 +3227,9 @@ def _layer_render(
     # Not a dataclass field, so `replace` does not carry it: set it here.
     profile.inherited_preset = host_profile.inherited_preset
     resolved = replace(resolved, profile=profile)
-    canopy_kept = without_unstaged_panel(resolved.profile, shared.repo_root)
+    canopy_kept = without_unstaged_panel(
+        resolved.profile, shared.repo_root, staging_runs=shared.staging_runs
+    )
     if canopy_kept is not resolved.profile:
         resolved = replace(resolved, profile=canopy_kept)
     return project, resolved
@@ -3893,6 +3902,7 @@ def _render_container_project(
         shutil.copytree(
             zones.stage / DEPLOYMENT_PACKAGES_DIRNAME, image_root / DEPLOYMENT_PACKAGES_DIRNAME
         )
+    _stage_canopy_into_image(zones.stage, image_root)
     _strip_secrets(image_root)
     # Written, then applied to the tree, and only then is the manifest stamped:
     # the fingerprint has to be taken over the tree the image will actually
@@ -3904,6 +3914,36 @@ def _render_container_project(
         profile_path.relative_to(shared.repo_root).as_posix(),
     )
     return image_root
+
+
+def _stage_canopy_into_image(stage_dir: Path, image_root: Path) -> None:
+    """Give an image context what ``pre_build`` staged for CANOPY, and nothing else.
+
+    The staging step (:mod:`osprey.integrations.canopy.stage`) writes the two
+    wheels and ``canopy_payload/`` into the render being built. The image gets
+    the wheels at its context root, where the Dockerfile's wheel-drop layer
+    installs every ``*.whl``, and the payload at ``canopy_payload/``, where the
+    in-image sidecar and the deployment push read it. Copies of either left at
+    the repo root by an older build arrived with the source zone and are
+    removed first: the image installs exactly the staged pair. Other wheels (the
+    ``osprey up --dev`` framework wheel) are not CANOPY's and are left alone.
+    """
+    from osprey.integrations.canopy import PAYLOAD_DIRNAME
+    from osprey.integrations.canopy.stage import staged_wheels
+
+    stale_payload = image_root / PAYLOAD_DIRNAME
+    if stale_payload.is_dir() and not stale_payload.is_symlink():
+        shutil.rmtree(stale_payload)
+    elif stale_payload.exists() or stale_payload.is_symlink():
+        stale_payload.unlink()
+    for stale in staged_wheels(image_root):
+        stale.unlink()
+
+    payload = stage_dir / PAYLOAD_DIRNAME
+    if payload.is_dir():
+        shutil.copytree(payload, image_root / PAYLOAD_DIRNAME)
+    for wheel in staged_wheels(stage_dir):
+        shutil.copy2(wheel, image_root / wheel.name)
 
 
 def _render_container_projects(
@@ -4075,7 +4115,11 @@ def _build_repo(
     from osprey.deployment.subprocess_capture import diagnose_captured_failure
 
     from .build_profile import resolve_build_document
-    from .build_profile_canopy import repo_home_screen_errors, without_unstaged_panel
+    from .build_profile_canopy import (
+        repo_home_screen_errors,
+        unstaged_panel_error,
+        without_unstaged_panel,
+    )
     from .build_profile_deploy import (
         deploy_aware_config_errors,
         deploy_aware_config_warnings,
@@ -4102,6 +4146,12 @@ def _build_repo(
     profile_path = repo_root / PROFILE_FILENAME
 
     logger.debug("Building %s", repo_root)
+
+    # A repo holding anything at a retired path stops before the first write
+    # and before the profile is read.
+    from osprey.repo_retired import refuse_retired_layout
+
+    refuse_retired_layout(repo_root)
 
     # The durable zone first: a fresh clone carries no git-ignored directory,
     # and the render below records paths into it.
@@ -4138,17 +4188,22 @@ def _build_repo(
         profile_overlays: tuple[Path, ...] = (variant.path,) if variant.path is not None else ()
 
         resolved = resolve_build_document(profile_path, None, profile_overlays)
-        # No CANOPY payload named: the panel leaves this render and every layer's
-        # (`_resolve_layer`), said once here.
-        canopy_kept = without_unstaged_panel(resolved.profile, repo_root)
+        # No CANOPY payload named, or no pre_build step to stage it: the panel
+        # leaves this render and every layer's (`_layer_render`), said once here.
+        canopy_kept = without_unstaged_panel(
+            resolved.profile, repo_root, staging_runs=not skip_lifecycle
+        )
         if canopy_kept is not resolved.profile:
             from dataclasses import replace
 
-            from osprey.integrations.canopy.stage import PANEL_OFF_NOTICE
+            from osprey.integrations.canopy.stage import (
+                PANEL_OFF_NOTICE,
+                PANEL_OFF_SKIPPED_NOTICE,
+            )
 
             from . import output
 
-            output.note(PANEL_OFF_NOTICE)
+            output.note(PANEL_OFF_SKIPPED_NOTICE if skip_lifecycle else PANEL_OFF_NOTICE)
             resolved = replace(resolved, profile=canopy_kept)
         build_profile = resolved.profile
 
@@ -4159,7 +4214,7 @@ def _build_repo(
         # any output directory exists or a lifecycle step runs.
         facility_roots = build_profile.resolved_facility_roots(repo_root)
         if facility_roots is not None:
-            refuse_retired(facility_roots.machine, facility_roots.content)
+            refuse_retired_layout(repo_root, facility_roots)
 
         # The deployment's name is the profile's: every host-visible name — the
         # compose project, volumes, image tags, each render — derives
@@ -4321,6 +4376,11 @@ def _build_repo(
                 repo_root=repo_root,
                 stream=stream,
             )
+        # A panel kept for a payload that pre_build then did not stage would
+        # ship with no CANOPY behind it.
+        unstaged = unstaged_panel_error(build_profile, repo_root, zones.stage)
+        if unstaged is not None:
+            raise BuildProfileError(unstaged)
 
         # The facility file, before the venv and every render: a facility stop
         # is the author's to fix, and nothing is installed or rendered first.
@@ -4441,6 +4501,7 @@ def _build_repo(
             deployment_packages=deployment_packages,
             image_platform=image_platform,
             host_identity_said=set(),
+            staging_runs=not skip_lifecycle,
         )
 
         # One reported phase over every render pass this build makes — the
