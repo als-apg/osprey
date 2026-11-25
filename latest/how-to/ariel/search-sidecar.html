@@ -706,7 +706,7 @@ the <code class="docutils literal notranslate"><span class="pre">qmd</span></cod
 are found by keyword search only.</p>
 </section>
 <section id="add-a-corpus">
-<h2>Add a corpus<a class="headerlink" href="#add-a-corpus" title="Link to this heading">#</a></h2>
+<span id="qmd-add-a-corpus"></span><h2>Add a corpus<a class="headerlink" href="#add-a-corpus" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">corpora</span></code> adds corpora beyond those two, each served by its own sidecar at
 <code class="docutils literal notranslate"><span class="pre">port</span></code> + 2 onwards, in list order; the family has room for eight.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
@@ -742,6 +742,9 @@ after the corpus.</p>
 <p>A relative <code class="docutils literal notranslate"><span class="pre">source</span></code> or <code class="docutils literal notranslate"><span class="pre">index_dir</span></code> resolves against the deployment repo.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> refuses a declared corpus whose path holds nothing to index or
 serve, before anything is built.</p>
+<p>An application’s backend reads and searches a corpus declared here by listing
+its name under <code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.corpora</span></code> in <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>
+(<a class="reference internal" href="../apps/build-your-own-app.html#how-to-apps-corpora"><span class="std std-ref">Read a document corpus</span></a>).</p>
 </section>
 <section id="sharing-the-knowledge-bundle">
 <h2>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h2>
