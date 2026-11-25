@@ -23,6 +23,8 @@ import pytest
 
 from osprey.services.bluesky_bridge.devices import connector as connector_module
 from osprey.services.bluesky_bridge.devices.connector import (
+    PRESS_VALUE,
+    ConnectorPositioner,
     ConnectorReadable,
     ConnectorSettable,
     ConnectorTriggerable,
@@ -34,7 +36,7 @@ from osprey.services.bluesky_bridge.devices.specs import (
     TriggerableSpec,
 )
 from osprey.services.bluesky_bridge.plan_writes import ChannelWrite
-from osprey_connectors.command import CommandBusyError, CommandNoEffectError
+from osprey_connectors.command import CommandAct, CommandBusyError, CommandNoEffectError
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from tests.services.bluesky_bridge._fake_connector import (
     FakeChannelValue,
@@ -959,3 +961,18 @@ async def test_build_devices_builds_a_triggerable_from_its_spec() -> None:
 
     assert isinstance(devices["mca"], ConnectorTriggerable)
     assert devices["mca"].trigger_writes() == (ChannelWrite(_COMMAND, 1),)
+
+
+async def test_build_devices_builds_a_positioner_for_a_started_spec() -> None:
+    act = CommandAct(_COMMAND, _STATUS, 0, 5.0)
+    started = SettableSpec("stage", "STAGE:SP", "STAGE:RB", started_by=act)
+    plain = SettableSpec("quad", "QUAD:SP")
+
+    devices = await build_devices([started, plain], connector=FakeConnector())
+
+    assert isinstance(devices["stage"], ConnectorPositioner)
+    assert type(devices["quad"]) is ConnectorSettable
+    assert devices["stage"].set_writes(2.0) == (
+        ChannelWrite("STAGE:SP", 2.0),
+        ChannelWrite(_COMMAND, PRESS_VALUE),
+    )

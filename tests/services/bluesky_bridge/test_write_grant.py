@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict
 from osprey.services.bluesky_bridge import qserver_startup, session_upload, write_grant
 from osprey.services.bluesky_bridge.devices.connector import (
     PRESS_VALUE,
+    ConnectorPositioner,
     ConnectorSettable,
     ConnectorTriggerable,
 )
@@ -44,6 +45,7 @@ from osprey.services.bluesky_bridge.plan_writes import (
 from osprey.services.bluesky_bridge.queue_backend import LANE_ENV
 from osprey_connectors import session_hold
 from osprey_connectors import write_authorization as wa
+from osprey_connectors.command import CommandAct
 from osprey_connectors.control_system._base import (
     ChannelWriteResult,
     ControlSystemConnector,
@@ -755,6 +757,29 @@ def test_the_request_lists_every_write_the_approval_view_lists(person: _Person) 
     [request] = person.seen
     assert set(request.channels) == {entry["channel"] for entry in writes}
     assert request.steps == total_writes
+
+
+def test_a_positioner_run_is_surveyed_with_its_start_writes_and_asks_once(
+    person: _Person,
+) -> None:
+    connector = _CommandConnector()
+    positioner = ConnectorPositioner(
+        connector, CHANNEL, started_by=CommandAct(COMMAND, STATUS, 0, 5.0), name=DEVICE
+    )
+
+    _run_device(_scan, positioner)
+
+    points = _Params().points
+    [request] = person.seen  # neither refused nor replaced for its start writes
+    assert request.channels == {
+        CHANNEL: wa.ChannelRange(1.0, 3.0),
+        COMMAND: wa.ChannelRange(1.0, 1.0),
+    }
+    assert request.steps == 2 * len(points)
+    assert "if stopped mid-move" not in request.label
+    assert connector.sent == [
+        write for point in points for write in ((CHANNEL, point), (COMMAND, PRESS_VALUE))
+    ]
 
 
 class _StoppingSettable(ConnectorSettable):
