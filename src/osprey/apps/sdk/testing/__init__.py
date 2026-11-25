@@ -5,6 +5,7 @@ OSPREY's own test tree.
 """
 
 from osprey.apps.sdk.testing._build import invoke_build
+from osprey.apps.sdk.testing._corpus import corpus_stand_in
 from osprey.apps.sdk.testing._deployment import (
     Deployment,
     RenderedTree,
@@ -48,6 +49,7 @@ __all__ = [
     "RenderedTree",
     "ServedTree",
     "calibrated_setting",
+    "corpus_stand_in",
     "deck_tree",
     "invoke_build",
     "line_deck",

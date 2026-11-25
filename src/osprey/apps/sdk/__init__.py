@@ -23,6 +23,7 @@ from osprey.apps.sdk._approval import (
     input_digest,
 )
 from osprey.apps.sdk._bridges import bridges_for_target
+from osprey.apps.sdk._corpus import Corpus, CorpusHit, CorpusUnavailable, corpus
 from osprey.apps.sdk._facts import facility_file, read_facts, tool_keys
 from osprey.apps.sdk._model import ResponseMatrix, model_response_matrix
 from osprey.apps.sdk._serve import serve_tools
@@ -71,6 +72,9 @@ __all__ = [
     "ActionContext",
     "ApprovalRefused",
     "BoundState",
+    "Corpus",
+    "CorpusHit",
+    "CorpusUnavailable",
     "GuardedRunDirError",
     "OspreyRunBusy",
     "OspreyWriteRefused",
@@ -87,6 +91,7 @@ __all__ = [
     "check_approved_call",
     "command_write",
     "configure_app",
+    "corpus",
     "current_tool_use_id",
     "facility_file",
     "guarded_run_dir",
