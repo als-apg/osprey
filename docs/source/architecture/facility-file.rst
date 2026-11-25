@@ -244,7 +244,9 @@ derived keys where a stated value is not refused.
      - be a channel of the facility file
    * - ``simulation.default_scenarios``
      - the key
-     - the scenarios marked ``start: true``
+     - the scenarios marked ``start: true``, as a list; with a ``start_on``
+       mark, the names each simulator instance starts in, as ``{va: [...],
+       standin: [...]}``
      - name only scenarios the facility serves (its own and the built-in
        ``still``), and be absent beside a mark or a mounted machine
    * - ``ariel.vocabulary.enabled``

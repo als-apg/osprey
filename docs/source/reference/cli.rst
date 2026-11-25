@@ -1429,13 +1429,18 @@ a build with no simulator view, exits 1 with ``run 'osprey build' first``.
 take ``--repo DIRECTORY``; without it, the nearest ``profile.yml`` at or above
 the current directory is used.
 
-``osprey sim list [--repo DIRECTORY]``
+``osprey sim list [--target <va|standin>] [--repo DIRECTORY]``
    Print one line per scenario of the view, sorted by name:
    ``<marker> <name>  (logbook: yes|no)``, where the marker is ``*`` for a
    scenario in the active set and a space otherwise, and ``logbook`` says
    whether the scenario narrates logbook entries. The scenario's description
    follows on its own indented line when it has one. ``nominal`` is always in
-   the active set.
+   the active set. Each simulator instance has an active set of its own:
+   ``--target`` names whose is marked, ``va`` or ``standin`` (the live
+   stand-in), and defaults to the deployment's own target when that is one of
+   the two, else ``va``. When ``--target`` is given, or the deployment runs
+   both instances, a first line ``active set of <target>:`` names it.
+   ``--target standin`` on a deployment that runs no stand-in exits 1.
 
 ``osprey sim status [--target <live|va|standin>] [--repo DIRECTORY]``
    Print one ``<model>: <status>`` line per served physics model, sorted by
@@ -1450,9 +1455,11 @@ the current directory is used.
    deployment does not configure exits 1. With the simulator served in process
    the status comes from the composite this process holds; on any other target it
    is read from the model's status channel, ``<code>:SIM:<model>:STATUS``,
-   through that target's connector.
+   through that target's connector. On a deployment that runs both simulator
+   instances, a line ``active scenarios on <target>: <names>`` comes first
+   when the target is one of them.
 
-``osprey sim apply NAMES... [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
+``osprey sim apply NAMES... [--target <va|standin>] [--no-seed] [--no-seed-logbook] [--no-seed-archiver] [--yes] [--now ISO8601] [--repo DIRECTORY]``
    Make ``NAMES`` the active scenario set, with ``nominal`` always included,
    and seed their stored data: the ARIEL logbook is purged and reseeded from
    the set's logbook entries, and the affected windows of the stored archive
@@ -1466,11 +1473,16 @@ the current directory is used.
    dates are reproducible; a naive value takes the facility timezone, and the
    ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
    It never adds or removes the scenario sessions a first deploy laid down.
+   ``--target`` names the simulator instance whose set is replaced, with the
+   default ``osprey sim list`` has; the other instance keeps its set. The
+   stored data follows the ``va`` set: on ``standin`` the command changes
+   telemetry only, seeds nothing whatever the flags, and says so.
 
 .. code-block:: bash
 
    osprey sim list
    osprey sim apply rf-thermal demo-history
+   osprey sim apply --target standin rf-thermal
    osprey sim status
 
 osprey ariel

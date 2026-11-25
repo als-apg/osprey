@@ -70,11 +70,15 @@ the dotted form; the reason is under "Configuration overrides" in
        logbook, and only while no set has been chosen. Absent, the build
        derives it from the scenarios marked ``start: true``; with no mark,
        absent, ``null`` or ``[]`` starts in
-       ``nominal`` alone, which is the default. The demo preset sets
+       ``nominal`` alone, which is the default. A list is the start set of
+       every simulator instance. A mapping, ``{va: [...], standin: [...]}``,
+       gives the simulator and the live stand-in each its own; an instance
+       it leaves out starts in ``nominal`` alone. The build derives the
+       mapping when a scenario is marked ``start_on``. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
-       presets leave it out. A value that is not a list of non-empty
-       names, or a name that is not a scenario the facility serves (its own or
+       presets leave it out. A value that is neither a list of non-empty
+       names nor such a mapping, or a name that is not a scenario the facility serves (its own or
        the built-in ``still``), stops the
        build with a ``profile-invalid`` line naming the key (see
        :ref:`architecture-facility-settings`).
