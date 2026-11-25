@@ -111,7 +111,7 @@ REFUSAL_CLOSES = "# or run: osprey init --revalidate"
 
 #: What revalidate's passes that are not about the layout write, so the only
 #: files the printed block alone leaves different from revalidate.
-NON_LAYOUT_PREFIXES = (".osprey/preset-base/", "personas/", "tiers/")
+NON_LAYOUT_PREFIXES = (".osprey/preset-base/", "personas/", "tiers/")  # retired-spelling
 NON_LAYOUT_FILES = ("profile.yml",)
 
 #: What a build writes beside its own render that a migration never touches,
@@ -480,8 +480,9 @@ def test_the_printed_block_ends_where_revalidate_does(
         for rel in blocked.keys() | revalidated.sources.keys()
         if blocked.get(rel) != revalidated.sources.get(rel)
     )
-    # What only the non-layout passes write: the preset base, the tier and
-    # persona files, the profile they upgrade, and empty per-tier context dirs.
+    # What only the non-layout passes write: the preset base, the tier files in
+    # their current and retired directories, the profile they upgrade, and
+    # empty per-tier context dirs.
     assert all(_written_by_non_layout_passes(rel) for rel in differ), differ
     profile = blocked["profile.yml"].decode("utf-8")
     assert MIGRATED_PROFILE_VALUE in profile

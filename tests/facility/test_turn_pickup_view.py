@@ -22,6 +22,7 @@ import yaml
 from osprey.facility.views.outputs import render_facility_outputs
 from osprey.simulation.engines import pyat as engine
 from osprey_connectors.simulation.composite import Composite
+from osprey_facility import source_tree
 from osprey_facility.build import build_facility
 from osprey_facility.errors import FacilityBuildError
 from tests._builds import FRAMEWORK_CHECKS
@@ -61,11 +62,17 @@ def _statement(table: str, **more: Any) -> dict[str, Any]:
 def _tree(root: Path, **block: Any) -> Path:
     facility_dir = root / "data" / "facility"
     shutil.copytree(FIXTURE, facility_dir)
-    models = yaml.safe_load((facility_dir / "models.yaml").read_text())
+    models_file = facility_dir / source_tree.path("models")
+    models = yaml.safe_load(models_file.read_text())
     (ring,) = [model for model in models if model["name"] == RING]
     ring["settings"]["pyat"]["turn_by_turn"].update(block)
-    (facility_dir / "models.yaml").write_text(yaml.safe_dump(models, sort_keys=False))
+    models_file.write_text(yaml.safe_dump(models, sort_keys=False))
     return facility_dir
+
+
+def _tables(facility_dir: Path) -> Path:
+    """The directory :data:`FLAT` and :data:`OTHER` reach from the deck's directory."""
+    return (facility_dir / source_tree.path("decks")).parent / "tables"
 
 
 def _render(root: Path, facility_dir: Path) -> Path:
@@ -89,14 +96,14 @@ def _turn_block(view: Path) -> dict[str, Any]:
 
 def test_the_view_carries_the_table_beside_the_deck_and_names_the_copy(tmp_path: Path) -> None:
     facility_dir = _tree(tmp_path, pickup=_statement(FLAT))
-    stated = _table(facility_dir / "tables" / "flat.json", 60.0)
+    stated = _table(_tables(facility_dir) / "flat.json", 60.0)
 
     view = _render(tmp_path, facility_dir)
 
     assert (view / "decks" / f"{RING}.flat.json").read_bytes() == stated
     assert _turn_block(view)["pickup"] == _statement(f"{RING}.flat.json")
     # The facility file itself still names the table where the author put it.
-    authored = yaml.safe_load((facility_dir / "models.yaml").read_text())
+    authored = yaml.safe_load((facility_dir / source_tree.path("models")).read_text())
     (ring,) = [model for model in authored if model["name"] == RING]
     assert ring["settings"]["pyat"]["turn_by_turn"]["pickup"]["table"] == FLAT
 
@@ -104,7 +111,7 @@ def test_the_view_carries_the_table_beside_the_deck_and_names_the_copy(tmp_path:
 def test_the_view_opens_without_the_tree_it_was_rendered_from(tmp_path: Path) -> None:
     """Moved away from its facility tree, the view still serves a shot through the table."""
     facility_dir = _tree(tmp_path, pickup=_statement(FLAT))
-    _table(facility_dir / "tables" / "flat.json", 60.0)
+    _table(_tables(facility_dir) / "flat.json", 60.0)
     view = tmp_path / "elsewhere" / "simulator"
     shutil.copytree(_render(tmp_path, facility_dir), view)
     shutil.rmtree(facility_dir)
@@ -131,8 +138,8 @@ def test_two_tables_of_one_name_are_carried_apart(tmp_path: Path) -> None:
         {"elements": [MONITORS[2]], **_statement(FLAT, interpolation="bicubic")},
     ]
     facility_dir = _tree(tmp_path, pickups=pickups)
-    first = _table(facility_dir / "tables" / "flat.json", 60.0)
-    second = _table(facility_dir / "tables" / "other" / "flat.json", 40.0)
+    first = _table(_tables(facility_dir) / "flat.json", 60.0)
+    second = _table(_tables(facility_dir) / "other" / "flat.json", 40.0)
 
     view = _render(tmp_path, facility_dir)
 

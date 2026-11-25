@@ -128,6 +128,10 @@ LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
         "``decks/<model>.json``",
     ): "the simulator view's deck copy, not the facility source",
     (
+        "docs/source/how-to/control-systems/use-virtual-accelerator.rst",
+        "``decks/<model>.<file name>``",
+    ): "the simulator view's copy of a pickup table, not the facility source",
+    (
         "src/osprey/simulation/apply.py",
         "view's copies under ``scenarios/<name>/``",
     ): "the simulator view's scenario copies, not the facility source",
