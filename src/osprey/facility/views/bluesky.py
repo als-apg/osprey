@@ -9,7 +9,8 @@ Written to ``<render>/data/bluesky_devices.yml``::
          unit: <pair's unit>, setpoint_unit: <setpoint's unit>}
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, motion_band: <band>}
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>,
-         started_by: {command: <command>, status: <its pair>, idle: <idle>, timeout_s: <bound>}}
+         started_by: {command: <command>, status: <its pair>, idle: <idle>, timeout_s: <bound>},
+         stopped_by: <stop command>}
     triggerables:
       - {name: <command>, command: <command>, status: <pair>, idle: <idle>, timeout_s: <bound>}
     readables:
@@ -22,8 +23,8 @@ readback channel, paired or not; a channel whose role is ``none`` is no device.
 A command whose status states ``idle`` and which states ``timeout_s`` is one
 triggerable, a plan fires it and waits for its act, and it is no settable; its
 status stays a readable.
-A setpoint stating ``started_by`` carries its start act; the start command is
-no device.
+A setpoint stating ``started_by`` carries its start act and its ``stopped_by``;
+neither command is a device.
 A settable carries ``settle_tolerance`` when its setpoint declares a
 ``tolerance``, a further address of a wiring record (under ``also``) its
 record's: the number of an absolute one, ``{relative: <f>}`` of a relative

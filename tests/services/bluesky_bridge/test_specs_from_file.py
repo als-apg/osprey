@@ -898,3 +898,37 @@ def test_a_malformed_start_act_is_refused_by_the_build_and_skipped_by_the_loader
     assert "'bad'" in caplog.text
     (problem,) = validate_device_document(doc)
     assert problem.startswith("settables[0]: 'started_by' must be a mapping of")
+
+
+def test_a_settable_reads_its_stop_channel(tmp_path: Path) -> None:
+    stopping = {**_POSITIONER, "stopped_by": "ES1:STAGE:STOP"}
+    path = _write(tmp_path, {"settables": [stopping, {"name": "m", "setpoint": "A:SP"}]})
+
+    positioner, plain = specs_from_file(path).settables
+
+    assert positioner.stopped_by == "ES1:STAGE:STOP"
+    assert plain.stopped_by is None
+    assert validate_device_document(yaml.safe_load(path.read_text())) == []
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"name": "bad", "setpoint": "A:SP", "stopped_by": "ES1:STAGE:STOP"},
+        {**_POSITIONER, "name": "bad", "stopped_by": ""},
+    ],
+    ids=["without-a-start-act", "empty-address"],
+)
+def test_a_stop_without_a_start_act_is_refused_by_the_build_and_skipped_by_the_loader(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, entry: dict[str, Any]
+) -> None:
+    doc = {"settables": [entry, _POSITIONER]}
+    path = _write(tmp_path, doc)
+
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(path)
+
+    assert [spec.name for spec in found.settables] == ["ES1:STAGE:POS:SP"]
+    assert "'bad'" in caplog.text
+    (problem,) = validate_device_document(doc)
+    assert problem.startswith("settables[0]: 'stopped_by' ")

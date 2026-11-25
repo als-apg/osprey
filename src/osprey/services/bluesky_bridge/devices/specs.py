@@ -37,7 +37,9 @@ class SettableSpec:
     ``started_by`` is the command that starts the move, its status, the
     status's idle value and the act's bound, for a setpoint the facility moves
     only once that command is written; ``None`` for a setpoint that moves on
-    its own write.
+    its own write. ``stopped_by`` is the command a run writes to stop that
+    move while it is unfinished; ``None`` for a positioner without one and for
+    every other setpoint.
     """
 
     name: str
@@ -49,6 +51,7 @@ class SettableSpec:
     unit: str | None = None
     setpoint_unit: str | None = None
     started_by: CommandAct | None = None
+    stopped_by: str | None = None
 
 
 @dataclass(frozen=True)
