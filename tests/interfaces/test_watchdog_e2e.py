@@ -307,7 +307,9 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Path:
     profile["watchdogs"][WATCHDOG]["enabled"] = True
     profile["watchdogs"][SECOND_WATCHDOG] = dict(profile["watchdogs"][WATCHDOG])
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-    shutil.copytree(repo / "watchdogs" / WATCHDOG, repo / "watchdogs" / SECOND_WATCHDOG)
+    shutil.copytree(
+        repo / "agent" / "watchdogs" / WATCHDOG, repo / "agent" / "watchdogs" / SECOND_WATCHDOG
+    )
     enable_writes_in_project(repo)
     _serve_safety_channels(repo, root / "served")
     _point_at_safety_limits_db(repo)

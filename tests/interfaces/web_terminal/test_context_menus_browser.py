@@ -96,6 +96,10 @@ _RECORD_PREVENTED_JS = """() => {
 # --- helpers ------------------------------------------------------------------
 
 
+#: How many times :func:`_focus` gives the focus before a lost one is a failure.
+_FOCUS_ATTEMPTS = 5
+
+
 def _labels(menu: Locator) -> list[str]:
     labels = menu.locator(".rail-context-label, .osprey-context-label")
     return [t.strip() for t in labels.all_inner_texts()]
@@ -107,9 +111,20 @@ def _focus(target: Locator) -> Locator:
 
     Resolved by locator, never through a handle: a tree redraw replaces a row by
     an equal one, and a handle taken before it (as ``Locator.evaluate`` takes
-    one, then runs) focuses the detached old row, which takes no focus."""
+    one, then runs) focuses the detached old row, which takes no focus.
+
+    A redraw that lands just after the focus (the rail still settling after load)
+    drops it with the row it replaced, as it would for a user, who tabs again; so
+    the focus is given again, a bounded number of times, until it holds."""
     own = target.evaluate("(el) => el.matches('button, a[href], input, textarea, [tabindex]')")
     focused = target if own else target.locator("button, a[href], [tabindex]").first
+    for _ in range(_FOCUS_ATTEMPTS - 1):
+        focused.focus(timeout=5_000)
+        try:
+            expect(focused).to_be_focused(timeout=1_000)
+        except AssertionError:
+            continue
+        return focused
     focused.focus(timeout=5_000)
     expect(focused, "the place takes no focus").to_be_focused(timeout=5_000)
     return focused

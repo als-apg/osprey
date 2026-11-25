@@ -28,7 +28,7 @@ KNOWLEDGE_ROOT = "data/facility/knowledge"
 
 FACILITY_DATA_DIRNAME = "facility"
 
-CODE_REVIEW_DEFAULT_PROMPT = "data/code_review/reviewer.md"
+CODE_REVIEW_DEFAULT_PROMPT = "agent/code_review/reviewer.md"
 
 
 def test_the_benchmark_query_sources_directory() -> None:
