@@ -28,6 +28,12 @@ from typing import TYPE_CHECKING, Any, SupportsFloat, SupportsIndex, TypeVar
 
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
+from osprey.simulation.targets import (
+    HISTORY_TARGET,
+    SIMULATOR_TARGETS,
+    require_simulator_target,
+    target_state_dir,
+)
 from osprey_connectors.archiver import field_name
 from osprey_connectors.config import get_facility_timezone, load_config
 from osprey_connectors.logger import get_logger
@@ -41,7 +47,6 @@ from osprey_connectors.simulation.state import (
     write_active_state,
 )
 from osprey_connectors.types import MONGODB_ARCHIVER, resolve_archiver_type
-from osprey_connectors.workspace import resolve_simulation_state_dir
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterator, Sequence
@@ -102,6 +107,11 @@ class ApplyResult:
     purged: bool
     archiver: ArchiverSeedResult | None = None
     """What the archive rewrite did, or ``None`` when it was skipped."""
+    target: str = "va"
+    """The simulator target whose set was activated."""
+    telemetry_only: bool = False
+    """The target is not the one the deployment's stored data follows, so the
+    logbook and the stored archive were left as they were, whatever was asked."""
 
 
 @dataclass
@@ -165,22 +175,29 @@ def apply_scenarios(
     project_dir: Path | str,
     names: Sequence[str],
     *,
+    target: str | None = None,
     seed_logbook: bool = True,
     seed_archive: bool = True,
     now: datetime | None = None,
     store_deadline_s: float | None = None,
 ) -> ApplyResult:
-    """Compose and activate scenarios for a built project; optionally seed its logbook.
+    """Compose and activate scenarios on one simulator target; optionally seed its logbook.
 
     The set is judged against the scenarios of the render's simulator view and
-    written to the scenario state file (see
-    :func:`~osprey_connectors.simulation.state.write_active_state`).
+    written to the target's scenario state file (see
+    :func:`~osprey_connectors.simulation.state.write_active_state`). Each
+    simulator instance has a set of its own, and the stores a deployment holds
+    once follow one target's set (:data:`~osprey.simulation.targets.HISTORY_TARGET`):
+    on any other target the set changes telemetry only and nothing stored is
+    touched.
 
     Args:
         project_dir: The deployment repo root — it anchors the scenario state
             under ``var/agent_data/simulation/``, and its render supplies
             ``config.yml`` (see :func:`_config_file`) and the simulator view.
         names: Scenario names to activate (``nominal`` is always implicit).
+        target: The simulator target, ``va`` or ``standin``; ``None`` for the
+            one the stored data follows.
         seed_logbook: When True (and the project has an ``ariel`` config),
             purge and reseed the ARIEL logbook from the active scenarios'
             ``logbook`` blocks in the simulator view, so the narrative matches
@@ -203,12 +220,16 @@ def apply_scenarios(
             unknown, the requested set does not compose (channel collision), or
             a requested scenario stops an IOC of a model the render does not
             serve, or one the osprey-connectors it was built with cannot stop
-            (its ``inactive_servers``).
+            (its ``inactive_servers``), or ``target`` is not a simulator target.
     """
     from osprey_connectors.simulation.view import SCENARIOS_DIR, SimulatorView
 
     project_dir = Path(project_dir)
     config = load_config(str(_config_file(project_dir)))
+    target = require_simulator_target(HISTORY_TARGET if target is None else target)
+    telemetry_only = target != HISTORY_TARGET
+    if telemetry_only:
+        seed_logbook = seed_archive = False
 
     view = SimulatorView.find(project_dir)
     if view is None:
@@ -233,7 +254,7 @@ def apply_scenarios(
     # reseed closes with a step naming the same scenarios. The anchor is
     # internal -- the reseed reuses the persisted one precisely so nothing slides.
     active = write_active_state(
-        resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME,
+        target_state_dir(config, project_dir, target) / ACTIVE_SCENARIOS_FILENAME,
         {name: scenario_targets(scenario) for name, scenario in scenarios.items()},
         names,
         anchor=t0,
@@ -267,8 +288,18 @@ def apply_scenarios(
         archiver = seed_archiver(project_dir, config, list(names), t0)
 
     return ApplyResult(
-        active=tuple(active), logbook_seeded=seeded, purged=purged, archiver=archiver
+        active=tuple(active),
+        logbook_seeded=seeded,
+        purged=purged,
+        archiver=archiver,
+        target=target,
+        telemetry_only=telemetry_only,
     )
+
+
+def active_scenarios(config: Mapping[str, Any], project_dir: Path, target: str) -> list[str]:
+    """The names a simulator target's state file records; empty when it has none."""
+    return read_active_state(target_state_dir(config, project_dir, target))[0]
 
 
 # ---------------------------------------------------------------------------
@@ -374,50 +405,78 @@ def require_view_scenarios(project_dir: Path) -> dict[str, Any]:
 
 
 def _active_state(config: dict, project_dir: Path) -> tuple[list[str], float | None]:
-    """The scenario names and anchor the project's state file records."""
-    return read_active_state(resolve_simulation_state_dir(config, project_dir))
+    """The scenario names and anchor the state file of the history target records."""
+    return read_active_state(target_state_dir(config, project_dir, HISTORY_TARGET))
 
 
-def resolve_default_scenarios(config: Mapping[str, Any]) -> tuple[str, ...]:
+def resolve_default_scenarios(
+    config: Mapping[str, Any], target: str | None = None
+) -> tuple[str, ...]:
     """The scenario names ``simulation.default_scenarios`` states, in order, once each.
 
-    Absent, null or empty states none. The names are resolved when the set is
-    activated, exactly as ``osprey sim apply`` resolves its arguments, not here.
+    The key holds a list, the start set of every simulator instance, or a
+    mapping of simulator target to list, each instance's own; a target the
+    mapping leaves out starts none. Absent, null or empty states none. The
+    names are resolved when the set is activated, exactly as ``osprey sim
+    apply`` resolves its arguments, not here.
+
+    Args:
+        config: The loaded config, or a profile's expanded ``config:`` block.
+        target: The simulator target whose start set is asked for; ``None`` for
+            every name any target starts.
 
     Raises:
-        ValueError: If the value is not a list of non-empty scenario names.
+        ValueError: If the value is not a list of non-empty scenario names, or
+            a mapping of ``va`` and ``standin`` to such lists.
     """
     raw = (config.get("simulation") or {}).get("default_scenarios")
     if raw is None:
         return ()
-    if not isinstance(raw, list) or not all(isinstance(name, str) and name for name in raw):
-        raise ValueError(f"{DEFAULT_SCENARIOS_KEY} must be a list of scenario names, got {raw!r}")
-    return tuple(dict.fromkeys(raw))
+
+    def _names(value: object, shape: str) -> list[str]:
+        if not isinstance(value, list) or not all(isinstance(n, str) and n for n in value):
+            raise ValueError(f"{DEFAULT_SCENARIOS_KEY} must be {shape}, got {raw!r}")
+        return value
+
+    if isinstance(raw, Mapping):
+        shape = f"a list of scenario names for each of {' and '.join(SIMULATOR_TARGETS)}"
+        if not set(raw) <= set(SIMULATOR_TARGETS):
+            raise ValueError(f"{DEFAULT_SCENARIOS_KEY} must be {shape}, got {raw!r}")
+        sets = {key: _names(value, shape) for key, value in raw.items()}
+        targets = SIMULATOR_TARGETS if target is None else (target,)
+        return tuple(dict.fromkeys(name for key in targets for name in sets.get(key, [])))
+    return tuple(dict.fromkeys(_names(raw, "a list of scenario names")))
 
 
 def activate_default_scenarios(
-    config: dict, project_dir: Path | str, *, store_deadline_s: float | None = None
+    config: dict,
+    project_dir: Path | str,
+    *,
+    target: str | None = None,
+    store_deadline_s: float | None = None,
 ) -> tuple[str, ...]:
-    """Activate ``simulation.default_scenarios`` on a deployment that never chose a set.
+    """Activate ``simulation.default_scenarios`` on a simulator target that never chose a set.
 
-    A deployment with no scenario state has never been told which world to run,
-    and its profile names the one it should start in. That set is activated
-    exactly as ``osprey sim apply`` would, anchor included, but without
+    A target with no scenario state has never been told which world to run,
+    and the deployment's profile names the one it should start in. That set is
+    activated exactly as ``osprey sim apply`` would, anchor included, but without
     seeding: the deploy seeds the archive and the logbook in their
     own stages, each of which reads the set written here. Once any set has been
-    activated -- by this, or by ``osprey sim apply`` naming any set at all --
-    the state file exists and this does nothing again.
+    activated on the target -- by this, or by ``osprey sim apply`` naming any
+    set at all -- its state file exists and this does nothing again.
 
     Args:
         config: The project's loaded ``config.yml``.
         project_dir: The deployment repo root.
+        target: The simulator target, ``va`` or ``standin``; ``None`` for the
+            one the stored data follows.
         store_deadline_s: Seconds the caller gives ARIEL's store to answer,
             handed to :func:`apply_scenarios` like every other caller's.
 
     Returns:
         The activated set (``nominal`` first), or ``()`` when nothing was
         activated: the render carries no simulator view, a set is already
-        active, or the config names no defaults.
+        active, or the config names no defaults for the target.
 
     Raises:
         ValueError: If the key is malformed, a default names a scenario the
@@ -425,21 +484,25 @@ def activate_default_scenarios(
             refusals ``osprey sim apply`` gives the same set.
     """
     project_dir = Path(project_dir)
+    target = require_simulator_target(HISTORY_TARGET if target is None else target)
     if view_scenarios(project_dir) is None:
         return ()
-    if (resolve_simulation_state_dir(config, project_dir) / ACTIVE_SCENARIOS_FILENAME).is_file():
+    state_dir = target_state_dir(config, project_dir, target)
+    if (state_dir / ACTIVE_SCENARIOS_FILENAME).is_file():
         return ()
-    defaults = resolve_default_scenarios(config)
+    defaults = resolve_default_scenarios(config, target)
     if not defaults:
         return ()
     result = apply_scenarios(
         project_dir,
         defaults,
+        target=target,
         seed_logbook=False,
         seed_archive=False,
         store_deadline_s=store_deadline_s,
     )
-    _seed_scenario_sessions(config, project_dir, result.active)
+    if target == HISTORY_TARGET:
+        _seed_scenario_sessions(config, project_dir, result.active)
     return result.active
 
 
