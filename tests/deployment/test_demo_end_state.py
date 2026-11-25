@@ -60,6 +60,7 @@ from osprey.deployment.web_terminals.roster import (
 )
 from tests._builds import copy_build
 from tests.cli.test_tier_app_presets import _build_layered_stack
+from tests.fixtures.lifecycle_repo import LISTED_APP
 
 #: Each fixture reads a real build of the flagship preset — seconds, not
 #: milliseconds — because the end state is a property of what a build writes.
@@ -408,18 +409,18 @@ def test_no_retired_key(stack: Path, config: dict, served: dict[str, roster.Serv
         assert RETIRED_KEYS.isdisjoint(_keys(document)), where
 
 
-# --- the bundled example application ----------------------------------------------------------
+# --- an application on the preset --------------------------------------------------------------
 #
-# The preset turns no application on; these read the build with orbit bump
-# turned on at init (``tests/_builds.py``).
+# The preset turns no application on; these read the build with the scaffold
+# application added by ``osprey app new`` (``tests/_builds.py``).
 
-APP = "orbit-bump"
-WRITE_TOOL = f"mcp__{APP}__apply_bump"
+APP = LISTED_APP
+WRITE_TOOL = f"mcp__{APP}__set_channel"
 
 
 @pytest.fixture(scope="module")
-def app_stack(built_demo_orbit_bump) -> Path:
-    return built_demo_orbit_bump.repo
+def app_stack(built_demo_app) -> Path:
+    return built_demo_app.repo
 
 
 @pytest.fixture(scope="module")
@@ -450,7 +451,7 @@ def test_the_example_runs_on_the_bridge_against_the_simulator(
     assert environment["EPICS_CA_NAME_SERVERS"].startswith("virtual-accelerator:")
     assert environment["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
     assert "writes_enabled" not in environment
-    assert environment["OSPREY_APP_STATE_DIRS"].endswith("var/orbit-bump")
+    assert environment["OSPREY_APP_STATE_DIRS"].endswith(f"var/{APP}")
 
 
 def test_the_example_judges_a_write_by_the_staged_login_map(

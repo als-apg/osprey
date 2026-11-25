@@ -147,9 +147,7 @@ osprey app check          # the scaffold passes as copied
 package, lists it under `apps:` in `profile.yml` (listing turns it on) and
 git-ignores fetched panel files. A name an installed package already gives an
 application is refused. Read the copied files before changing them:
-they are the reference implementation of every pattern below. The summary
-ends with the path of a larger worked example (several routes and tools, a
-panel that writes).
+they are the reference implementation of every pattern below.
 
 Give it its config:
 

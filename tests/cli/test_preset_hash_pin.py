@@ -53,9 +53,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
 # application name -> the digest ``osprey init`` records for its copy in the
 # application's ``.provenance``. An application is deploy-visible source as a
 # preset is: moving its digest reports every copy in a deployment as drifted.
-PINNED_APP_TREE_DIGESTS: dict[str, str] = {
-    "orbit-bump": ("sha256:16252d7985ac14b8f7668c9296a517057ce925f661afb8d7d3bb374b4da4e779"),
-}
+# No preset ships one today.
+PINNED_APP_TREE_DIGESTS: dict[str, str] = {}
 
 
 def test_bundled_preset_set_is_pinned():
@@ -81,7 +80,8 @@ def test_every_bundled_preset_hash_is_unchanged():
 
 def test_every_bundled_application_tree_is_pinned_and_unchanged():
     """Every application the presets ship is classified here, at its pinned digest."""
-    actual = {path.name: app_tree_digest(path) for path in PRESET_APPS_DIR.iterdir()}
+    shipped = PRESET_APPS_DIR.iterdir() if PRESET_APPS_DIR.is_dir() else ()
+    actual = {path.name: app_tree_digest(path) for path in shipped}
     assert actual == PINNED_APP_TREE_DIGESTS
 
 

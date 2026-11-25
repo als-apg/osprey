@@ -1,180 +1,141 @@
 control_system.writes: asked
 web.panels:
-  orbit-bump:
-    label: Orbit bump
+  corrector-trim:
+    label: Scaffold
     url: http://127.0.0.1:10900
     path: /
     health_endpoint: /health
-    app: orbit-bump
+    app: corrector-trim
     agent_routes:
     - method: GET
       path: /api/state
-    - method: GET
-      path: /api/approval
     - method: POST
-      path: /api/recompute
-    - method: POST
-      path: /api/discard
-    - method: POST
-      path: /api/compute
-    - method: POST
-      path: /api/apply
-    launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
-    read_timeout_s: 90
+      path: /api/write
+    launch_token_env: CORRECTOR_TRIM_LAUNCH_TOKEN
     enabled: true
 claude_code.servers:
-  orbit-bump:
+  corrector-trim:
     command: '{current_python_env}'
     args:
     - -m
-    - orbit_bump.tools
+    - corrector_trim.tools
     env:
-      OSPREY_APP_NAME: orbit-bump
+      OSPREY_APP_NAME: corrector-trim
       OSPREY_CONFIG: '{project_root}/build/config.yml'
       CONFIG_FILE: '{project_root}/build/config.yml'
     permissions:
       allow:
-      - bump_state
-      - plan_bump
-      - discard_bump
-      - recompute_orm
+      - read_channel
     writes:
-    - apply_bump
-    app: orbit-bump
+    - set_channel
+    app: corrector-trim
 apps:
-  orbit-bump:
+  corrector-trim:
     approval:
-      apply_bump:
-        prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).
-        panel_id: orbit-bump
-        state_path: /api/approval
-        display_lines_key: display_lines
+      set_channel:
+        prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
+        panel_id: corrector-trim
+        state_path: /api/state
+        display_lines_key: null
         bind:
           state_fields:
-          - field: approved_plan_id
-            key: plan_id
-          - field: approved_setpoints
-            key: setpoint_digest
+          - field: approved_readback
+            key: readback
           input_digests: []
         require:
           all_of:
           - approved_target
-          - approved_plan_id
-          - approved_setpoints
+          - approved_readback
           one_of: []
         errors:
-          unreachable: The orbit bump panel's backend is not answering; check its container with osprey
-            health.
-          refused: The bump was not applied. Compute it again and ask for a new approval.
+          unreachable: The panel's backend is not answering; check its container with osprey health.
+          refused: The value was not written. Read the channel again and ask for a new approval.
     tools:
       read:
-      - bump_state
-      - plan_bump
-      - discard_bump
-      - recompute_orm
+      - read_channel
       errors:
-        unreachable: The orbit bump panel's backend is not answering; check its container with osprey
-          health.
-        refused: The bump was not applied. Compute it again and ask for a new approval.
+        unreachable: The panel's backend is not answering; check its container with osprey health.
+        refused: The value was not written. Read the channel again and ask for a new approval.
 dispatch.denied_app_tools:
-- mcp__orbit-bump__bump_state
-- mcp__orbit-bump__plan_bump
-- mcp__orbit-bump__discard_bump
-- mcp__orbit-bump__recompute_orm
-- mcp__orbit-bump__apply_bump
+- mcp__corrector-trim__set_channel
 settings.json:
   hooks:
     PreToolUse:
-    - matcher: mcp__orbit-bump__apply_bump
+    - matcher: mcp__corrector-trim__set_channel
       hooks:
       - run: .claude/hooks/osprey_writes_check.py
         timeout: 5
       - run: .claude/hooks/osprey_approval.py --budget 30
         timeout: 30
     PostToolUse:
-    - matcher: mcp__orbit-bump__.*
+    - matcher: mcp__corrector-trim__.*
       hooks:
       - run: .claude/hooks/osprey_error_guidance.py
         timeout: 5
-    - matcher: mcp__orbit-bump__apply_bump
+    - matcher: mcp__corrector-trim__set_channel
       hooks:
       - run: .claude/hooks/osprey_approval.py
         timeout: 5
     PostToolUseFailure:
-    - matcher: mcp__orbit-bump__apply_bump
+    - matcher: mcp__corrector-trim__set_channel
       hooks:
       - run: .claude/hooks/osprey_approval.py
         timeout: 5
   permissions:
     allow:
-    - mcp__orbit-bump__bump_state
-    - mcp__orbit-bump__plan_bump
-    - mcp__orbit-bump__discard_bump
-    - mcp__orbit-bump__recompute_orm
+    - mcp__corrector-trim__read_channel
 hook_config.json:
   server_prefixes:
-  - mcp__orbit-bump__
+  - mcp__corrector-trim__
   approval_prefixes:
-  - mcp__orbit-bump__
+  - mcp__corrector-trim__
   write_tools:
-  - mcp__orbit-bump__apply_bump
+  - mcp__corrector-trim__set_channel
   facility_write_tools:
-  - mcp__orbit-bump__apply_bump
+  - mcp__corrector-trim__set_channel
   governed_tools:
-  - mcp__orbit-bump__apply_bump
+  - mcp__corrector-trim__set_channel
   app_approvals:
-    mcp__orbit-bump__apply_bump:
-      app: orbit-bump
+    mcp__corrector-trim__set_channel:
+      app: corrector-trim
       bind:
         input_digests: []
         state_fields:
-        - field: approved_plan_id
-          key: plan_id
-        - field: approved_setpoints
-          key: setpoint_digest
-      display_lines_key: display_lines
+        - field: approved_readback
+          key: readback
+      display_lines_key: null
       errors:
-        refused: The bump was not applied. Compute it again and ask for a new approval.
-        unreachable: The orbit bump panel's backend is not answering; check its container with osprey
-          health.
-      panel_id: orbit-bump
-      prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).
+        refused: The value was not written. Read the channel again and ask for a new approval.
+        unreachable: The panel's backend is not answering; check its container with osprey health.
+      panel_id: corrector-trim
+      prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
       require:
         all_of:
         - approved_target
-        - approved_plan_id
-        - approved_setpoints
+        - approved_readback
         one_of: []
-      state_path: /api/approval
+      state_path: /api/state
   app_error_types:
-    orbit-bump.refused:
+    corrector-trim.refused:
       class: Safety
-      text: The bump was not applied. Compute it again and ask for a new approval.
-    orbit-bump.unreachable:
+      text: The value was not written. Read the channel again and ask for a new approval.
+    corrector-trim.unreachable:
       class: Connection
-      text: The orbit bump panel's backend is not answering; check its container with osprey health.
+      text: The panel's backend is not answering; check its container with osprey health.
   plan_mode_denied_tools:
-  - mcp__orbit-bump__apply_bump
+  - mcp__corrector-trim__set_channel
 panel_token_routes:
 - - GET
-  - /panel/orbit-bump/api/approval
-- - GET
-  - /panel/orbit-bump/api/state
+  - /panel/corrector-trim/api/state
 - - POST
-  - /panel/orbit-bump/api/apply
-- - POST
-  - /panel/orbit-bump/api/compute
-- - POST
-  - /panel/orbit-bump/api/discard
-- - POST
-  - /panel/orbit-bump/api/recompute
+  - /panel/corrector-trim/api/write
 reach:
   consumers:
-  - name: The orbit-bump panel
+  - name: The corrector-trim panel
     'on': true
     resolves: true
     dial:
     - 127.0.0.1
     - 10900
   credentials_held:
-  - ORBIT_BUMP_LAUNCH_TOKEN
+  - CORRECTOR_TRIM_LAUNCH_TOKEN

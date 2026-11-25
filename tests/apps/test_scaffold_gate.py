@@ -1,4 +1,6 @@
-"""The orbit-bump backend is first-party, so it runs the interfaces gate on its own routes.
+"""An application backend is first-party, so it runs the interfaces gate on its own routes.
+
+Read off the scaffold `osprey app new` copies.
 
 The gate is driven with raw ASGI scopes: a test client could carry a credential that turns
 a refusal into an admission.
@@ -8,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -16,9 +18,8 @@ import pytest
 import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from orbit_bump import APP_NAME
-from orbit_bump.server import create_app
 
+import osprey.apps
 from osprey.apps.sdk import LAUNCH_TOKEN_HEADER, OWNER_STATE_KEY, launch_token_env
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
@@ -34,21 +35,35 @@ from tests.interfaces._asgi import (
 )
 from tests.interfaces.web_terminal._proxy_fakes import panel_app
 
-#: The agent's two routes: the ones the tool server reaches through the terminal.
-COMPUTE_ROUTE = "/api/compute"
-APPLY_ROUTE = "/api/apply"
-AGENT_ROUTES = (("POST", COMPUTE_ROUTE), ("POST", APPLY_ROUTE))
+TEMPLATE = Path(osprey.apps.__file__).resolve().parent / "scaffold-app"
+APP_NAME = "scaffold-app"
 
-JSON_BODY = b'{"plan_id": "p-1", "setpoint_digest": "00"}'
+#: The agent's routes: the ones the tool server reaches through the terminal.
+STATE_ROUTE = "/api/state"
+WRITE_ROUTE = "/api/write"
+AGENT_ROUTES = (("GET", STATE_ROUTE), ("POST", WRITE_ROUTE))
+
+JSON_BODY = b'{"value": 1.0, "target": "simulation", "readback": 0.0}'
 HOST = "localhost:8080"
 
 
-#: The two gates an apply passes: the terminal's, which the tool server meets with the panel
+#: The two gates a write passes: the terminal's, which the tool server meets with the panel
 #: token, and the backend's own, which the terminal's proxy meets with the operator secret.
 HOPS = {
-    "terminal": (f"/panel/{APP_NAME}{APPLY_ROUTE}", {"authorization": f"Bearer {PANEL_TOKEN}"}),
-    "backend": (APPLY_ROUTE, {OPERATOR_SECRET_HEADER: OPERATOR_SECRET}),
+    "terminal": (f"/panel/{APP_NAME}{WRITE_ROUTE}", {"authorization": f"Bearer {PANEL_TOKEN}"}),
+    "backend": (WRITE_ROUTE, {OPERATOR_SECRET_HEADER: OPERATOR_SECRET}),
 }
+
+
+@pytest.fixture
+def scaffold(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """The template's package, imported from its source tree."""
+    monkeypatch.syspath_prepend(str(TEMPLATE))
+    import scaffold_app
+
+    assert scaffold_app.APP_NAME == APP_NAME
+    assert (scaffold_app.STATE_ROUTE, scaffold_app.WRITE_ROUTE) == (STATE_ROUTE, WRITE_ROUTE)
+    return scaffold_app
 
 
 @pytest.fixture
@@ -76,7 +91,10 @@ def _post(app_stub, hop: str, content_type: str, body: bytes, **headers: str):
     return status_of(sent), downstream
 
 
+@pytest.mark.usefixtures("scaffold")
 def test_the_backend_installs_the_gate() -> None:
+    from scaffold_app.server import create_app
+
     assert WebAuthMiddleware in {entry.cls for entry in create_app().user_middleware}
 
 
@@ -84,7 +102,7 @@ def test_the_launch_token_is_read_from_the_apps_own_variable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OSPREY_APP_NAME", APP_NAME)
-    assert launch_token_env() == "ORBIT_BUMP_LAUNCH_TOKEN"
+    assert launch_token_env() == "SCAFFOLD_APP_LAUNCH_TOKEN"
 
 
 BACKEND = "http://127.0.0.1:9300"
@@ -98,7 +116,7 @@ def terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAP
     render.write_text(yaml.safe_dump({"control_system": {"writes": "allowed"}}), encoding="utf-8")
     panel = {
         "id": APP_NAME,
-        "label": "Orbit bump",
+        "label": "Scaffold",
         "url": BACKEND,
         "configDefined": True,
         "app": APP_NAME,
@@ -113,21 +131,21 @@ def terminal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[FastAP
 
 
 @pytest.mark.no_auth_seam
-def test_a_json_apply_with_the_panel_token_reaches_the_backend_on_the_operator_secret(
+def test_a_json_write_with_the_panel_token_reaches_the_backend_on_the_operator_secret(
     terminal: FastAPI,
 ) -> None:
-    upstream = AsyncMock(return_value=httpx.Response(200, json={"status": "applied"}))
+    upstream = AsyncMock(return_value=httpx.Response(200, json={"status": "written"}))
     terminal.state.proxy_client.request = upstream
 
     answer = TestClient(terminal, client=("127.0.0.1", 54321)).post(
-        f"/panel/{APP_NAME}{APPLY_ROUTE}",
+        f"/panel/{APP_NAME}{WRITE_ROUTE}",
         content=JSON_BODY,
         headers={"content-type": "application/json", "authorization": f"Bearer {PANEL_TOKEN}"},
     )
 
     assert answer.status_code == 200
     sent = upstream.await_args.kwargs
-    assert (sent["method"], sent["url"]) == ("POST", f"{BACKEND}{APPLY_ROUTE}")
+    assert (sent["method"], sent["url"]) == ("POST", f"{BACKEND}{WRITE_ROUTE}")
     headers = {name.lower(): value for name, value in sent["headers"].items()}
     assert headers[OPERATOR_SECRET_HEADER] == OPERATOR_SECRET
     assert "authorization" not in headers
@@ -175,7 +193,7 @@ def test_the_panel_token_does_not_open_the_backend_directly(app_stub) -> None:
     downstream = RecordingApp()
     gate = WebAuthMiddleware(downstream, cookie_name="osprey_terminal_session_8080")
     scope = http_scope(
-        APPLY_ROUTE,
+        WRITE_ROUTE,
         "POST",
         {
             "host": HOST,

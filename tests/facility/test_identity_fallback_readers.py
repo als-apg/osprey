@@ -99,15 +99,6 @@ def test_the_sdk_read_facts_refuses_a_v3_facility_file_as_a_value_error(v3_rende
     assert str(raised.value) == _expected(path)
 
 
-def test_the_closed_orbit_models_refuse_a_v3_facility_file_as_a_value_error(v3_render) -> None:
-    root, path = v3_render
-
-    with pytest.raises(ValueError) as raised:
-        sdk.closed_orbit_models(root)
-
-    assert str(raised.value) == _expected(path)
-
-
 def test_the_dispatch_build_step_refuses_a_v3_facility_file(tmp_path: Path) -> None:
     from ruamel.yaml import YAML
 

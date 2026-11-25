@@ -369,19 +369,21 @@ def _flatten(node: object, prefix: str = "") -> list[tuple[str, object]]:
     return out
 
 
+def _shipped_apps() -> set[str]:
+    """The applications that ship beside the presets; the folder is absent when there are none."""
+    apps_dir = PRESETS_DIR / "apps"
+    return {path.name for path in apps_dir.iterdir()} if apps_dir.is_dir() else set()
+
+
 def test_every_listed_application_ships_beside_the_preset() -> None:
     """A preset's ``apps:`` block names only applications the package carries.
 
-    Orbit bump ships with OSPREY and no preset turns it on.
+    OSPREY ships none beside its presets, and no preset turns one on.
     """
-    apps_dir = PRESETS_DIR / "apps"
-    shipped = {path.name for path in apps_dir.iterdir()}
+    shipped = _shipped_apps()
     listed = {name for preset in _all_presets() for name in preset_apps(preset)}
-    assert shipped == {"orbit-bump"}
+    assert shipped == set()
     assert listed == set()
-    for name in shipped:
-        assert (apps_dir / name / "app.yml").is_file()
-        assert (apps_dir / name / "pyproject.toml").is_file()
 
 
 @pytest.mark.parametrize("layer", _all_layers())
@@ -389,4 +391,5 @@ def test_no_login_spells_the_arming_of_an_application(layer: str) -> None:
     """A login arms an application by its tier; its file spells no arming and no policy."""
     document = _load_preset_raw(layer)[0]
     assert not (document.get("apps") or {})
-    assert not [key for key, _ in _flatten(document) if "mcp__orbit-bump__" in key]
+    spelled = [f"mcp__{name}__" for name in _shipped_apps()]
+    assert not [key for key, _ in _flatten(document) if any(tool in key for tool in spelled)]

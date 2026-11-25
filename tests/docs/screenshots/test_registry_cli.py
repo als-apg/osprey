@@ -81,7 +81,7 @@ def test_empty_registry_is_valid():
             id="agentic-prompt",
         ),
         pytest.param(
-            [_standalone(init_sets=("apps.orbit-bump={}",))],
+            [_standalone(init_sets=("apps.corrector-trim={}",))],
             "init_sets",
             id="init-sets-need-tutorial-stack",
         ),
@@ -122,8 +122,8 @@ def test_element_mode_with_selector_ok():
 
 def test_init_sets_are_key_value_pairs():
     with pytest.raises(ValueError, match="KEY=VALUE"):
-        validate_registry([_stack_static(init_sets=("apps.orbit-bump",))])
-    validate_registry([_stack_static(init_sets=("apps.orbit-bump={}",))])
+        validate_registry([_stack_static(init_sets=("apps.corrector-trim",))])
+    validate_registry([_stack_static(init_sets=("apps.corrector-trim={}",))])
 
 
 def _probe_stage(monkeypatch) -> None:
