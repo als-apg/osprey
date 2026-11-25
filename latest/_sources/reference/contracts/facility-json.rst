@@ -252,8 +252,6 @@ holds this table equal to it.
      - refuse
    * - ``osprey_facility.records.FacilityRecords.from_file``
      - refuse
-   * - ``osprey.apps.sdk._model.model_members``
-     - refuse
    * - ``osprey.services.ariel_search.ingestion.facility_references.load_facility_records``
      - degrade-absent
    * - ``osprey.interfaces.okf_panel.app._load_facility_records``
@@ -291,8 +289,6 @@ holds this table equal to it.
    * - ``osprey.mcp_server.python_executor.tools._pyaml_measure_args._facts``
      - refuse
    * - ``osprey.cli.templates.claude_code.config_derived_context``
-     - refuse
-   * - ``osprey.apps.sdk._model.closed_orbit_models``
      - refuse
    * - ``osprey.apps.sdk._facts.read_facts``
      - refuse

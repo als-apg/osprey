@@ -770,10 +770,10 @@ value has moved. The approval was for a write <em>over</em> a known state; a sta
 that changed since is a new decision.</p>
 <p>Reading the machine is <code class="docutils literal notranslate"><span class="pre">read_channel</span></code> on the connector. For more than one
 channel, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>. The facility description — which elements
-exist, their channels, a model’s BPMs and correctors — comes from the SDK
-(<code class="docutils literal notranslate"><span class="pre">facility_file</span></code>, <code class="docutils literal notranslate"><span class="pre">read_facts</span></code>, <code class="docutils literal notranslate"><span class="pre">model_members</span></code>,
-<code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code>), so the app carries no facility knowledge of its
-own and moves to another facility with the deployment. The Bluesky bridges the
+exist, their channels, a model’s response to its correctors — comes from the SDK
+(<code class="docutils literal notranslate"><span class="pre">facility_file</span></code>, <code class="docutils literal notranslate"><span class="pre">read_facts</span></code>, <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code>), so the app
+carries no facility knowledge of its own and moves to another facility with the
+deployment. The Bluesky bridges the
 deployment runs for a target come from <code class="docutils literal notranslate"><span class="pre">bridges_for_target(target)</span></code>: lane
 name to bridge URL, empty when none.</p>
 <p>A backend that writes its own audit records files them under
