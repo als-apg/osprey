@@ -565,3 +565,61 @@ def test_a_positioner_probes_its_stop_channel() -> None:
         RunEngine(context_managers=[])(plan())
 
     assert connector.write_calls == []
+
+
+def test_stop_unfinished_moves_names_each_refused_stop() -> None:
+    from types import SimpleNamespace
+
+    from osprey.services.bluesky_bridge.devices.connector import StopOutcome
+    from osprey.services.bluesky_bridge.preflight import (
+        PositionerStopError,
+        stop_unfinished_moves,
+    )
+
+    def refused(setpoint: str) -> StopOutcome:
+        return StopOutcome(setpoint, f"{setpoint}:STOP", "refused", "writes are off")
+
+    moving = SimpleNamespace(move_unfinished=True, stop_outcome=None)
+    stopped = SimpleNamespace(move_unfinished=False, stop_outcome=refused("B:SP"))
+    failed = SimpleNamespace(
+        move_unfinished=False, stop_outcome=StopOutcome("C:SP", "C:STOP", "failed", "no answer")
+    )
+    written = SimpleNamespace(
+        move_unfinished=False, stop_outcome=StopOutcome("D:SP", "D:STOP", "written")
+    )
+    declared = {"a": moving, "b": stopped, "c": failed, "d": written, "e": object()}
+
+    plan = stop_unfinished_moves("stage_scan", declared)
+    message = next(plan)
+    assert (message.command, message.obj) == ("stop", moving)
+    moving.move_unfinished, moving.stop_outcome = False, refused("A:SP")
+
+    with pytest.raises(PositionerStopError) as error:
+        plan.send(None)
+
+    assert str(error.value) == (
+        "A:SP may still be moving: its stop A:SP:STOP was refused: writes are off; "
+        "B:SP may still be moving: its stop B:SP:STOP was refused: writes are off; "
+        "C:SP may still be moving: its stop C:STOP failed: no answer"
+    )
+
+
+def test_stopping_unfinished_moves_reports_only_the_stops_of_this_run() -> None:
+    from types import SimpleNamespace
+
+    from osprey.services.bluesky_bridge.devices.connector import StopOutcome
+    from osprey.services.bluesky_bridge.preflight import stopping_unfinished_moves
+
+    earlier = StopOutcome("A:SP", "A:STOP", "refused", "writes are off")
+    stage = SimpleNamespace(move_unfinished=False, stop_outcome=earlier)
+
+    def plan():
+        yield "read"
+        return "done"
+
+    run = stopping_unfinished_moves("stage_scan", {"stage": stage}, plan())
+
+    assert next(run) == "read"
+    with pytest.raises(StopIteration) as finished:
+        run.send(None)
+    assert finished.value.value == "done"

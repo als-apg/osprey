@@ -6,7 +6,8 @@ build the same connector-mediated devices in the same worker process, and have
 the same things to say about a run: whether the channels it declares are alive,
 whether a device it triggers is declared as one, what this worker actually
 holds when a declared name does not resolve, whose switch refused a write the
-run tried to make, and which unfinished triggers an abort cancels. One copy of each lives
+run tried to make, which unfinished triggers an abort cancels, and which
+positioner a refused or failed stop left moving. One copy of each lives
 here so the two wrappers cannot answer an operator differently.
 
 The reachability half: ask the connector, before anything moves.
@@ -72,7 +73,7 @@ import hashlib
 import logging
 import math
 import os
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -541,6 +542,86 @@ def cancel_unfinished_triggers(declared: Mapping[str, Any]) -> None:
             cancel()
         except Exception:
             logger.warning("could not cancel the trigger of %r", name, exc_info=True)
+
+
+class PositionerStopError(RuntimeError):
+    """A run stopped a positioner mid-move and its stop was refused or failed.
+
+    The message holds one sentence per such positioner, each naming its
+    setpoint and its stop command; the positioner may still be moving.
+    """
+
+
+def _stop_outcomes(declared: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: getattr(device, "stop_outcome", None) for name, device in declared.items()}
+
+
+def stop_unfinished_moves(
+    plan_name: str, declared: Mapping[str, Any], *, earlier: Mapping[str, Any] | None = None
+) -> Generator[Any, Any, None]:
+    """Stop every declared device's unfinished move; raise for each stop not written.
+
+    Yields ``Msg("stop", device)`` for each declared device whose
+    ``move_unfinished`` is true, then raises :class:`PositionerStopError` when
+    a declared device's ``stop_outcome`` states a sentence, one clause per
+    device in declared order. An outcome that is ``earlier``'s for that name
+    was kept from before this run and is not reported.
+
+    Raises:
+        PositionerStopError: A stop was refused or failed.
+    """
+    from bluesky.utils import Msg
+
+    stopping: dict[int, Any] = {}
+    for device in declared.values():
+        if getattr(device, "move_unfinished", False) is True:
+            stopping.setdefault(id(device), device)
+    for device in stopping.values():
+        yield Msg("stop", device)
+    before = earlier or {}
+    sentences: list[str] = []
+    reported: set[int] = set()
+    for name, device in declared.items():
+        outcome = getattr(device, "stop_outcome", None)
+        if outcome is None or outcome is before.get(name) or id(outcome) in reported:
+            continue
+        reported.add(id(outcome))
+        sentence = getattr(outcome, "sentence", None)
+        if sentence:
+            sentences.append(sentence)
+    if sentences:
+        logger.warning("plan %r left a positioner moving: %s", plan_name, "; ".join(sentences))
+        raise PositionerStopError("; ".join(sentences))
+
+
+def stopping_unfinished_moves(
+    plan_name: str, declared: Mapping[str, Any], plan: Generator[Any, Any, Any]
+) -> Generator[Any, Any, Any]:
+    """Run ``plan``, then stop every unfinished move of its declared devices.
+
+    Both worker wrappers hand this to ``write_grant.run_under_grant`` as the
+    plan the RunEngine runs, so a stop is written while the run's write
+    authorization still stands. When ``plan`` returns, its unfinished moves
+    are stopped (:func:`stop_unfinished_moves`) and its value is returned.
+    When it raises an ``Exception``, the same stops are made first; a
+    :class:`PositionerStopError` they raise is raised from the original
+    exception, and otherwise the original travels on untouched. A closed
+    generator yields nothing more: ``GeneratorExit`` is not caught.
+
+    Only the stops of this run are reported: an outcome a device kept from an
+    earlier run is left out.
+    """
+    earlier = _stop_outcomes(declared)
+    try:
+        result = yield from plan
+    except Exception as failure:
+        try:
+            yield from stop_unfinished_moves(plan_name, declared, earlier=earlier)
+        except PositionerStopError as stop:
+            raise stop from failure
+        raise
+    yield from stop_unfinished_moves(plan_name, declared, earlier=earlier)
+    return result
 
 
 def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator[Any]:
