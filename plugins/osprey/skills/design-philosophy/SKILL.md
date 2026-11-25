@@ -79,6 +79,12 @@ fast-moving field, tight coupling to a volatile dependency is technical risk, no
   refuse an SDK import anywhere else in `src/` or `packages/`. There is no harness-swap layer; Claude Code
   is the harness OSPREY ships. New code reaches the agent through `osprey.agent_runner`, and a
   Claude-specific need goes into the adapter, not inline.
+- A part with its own consumers is a package under `packages/`. `osprey-connectors` (control-system
+  and archiver access) and `osprey-facility` (the facility description and the build of
+  `facility.json`) import no framework code and are published on their own tags. `osprey-optimizer`
+  (the optimization service) and `pyaml-cs-osprey` (the pyAML backend over the connector) are
+  published with the framework. `osprey-panels` (the screen generator) is not published: a release
+  is a compatibility promise, made only once a package's scope is settled.
 
 ## 5. A user-facing feature isn't done until it's discoverable
 
