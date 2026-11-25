@@ -340,7 +340,9 @@ def _declared_addresses(declared: Mapping[str, Any]) -> list[str]:
     ``channel_addresses()``: a settable both halves (a plan that drives a
     setpoint also reads the readback to settle each move, so an unreachable
     readback fails a run exactly as an unreachable setpoint does), a readable
-    its one channel, a triggerable its command and its status. Asked by method
+    its one channel, a triggerable its command and its status, a positioner
+    its setpoint, its readback, its start command and that command's status.
+    Asked by method
     name rather than by importing the device classes, which would pull
     ophyd-async into the import path of every module that wants a pre-flight.
     Duplicates and blanks are left for the probe to drop.
