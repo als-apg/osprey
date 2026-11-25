@@ -608,7 +608,9 @@ to the shipped plans.</p></li>
 <p>Facility plans are trusted at <strong>facility</strong> tier. They need no
 per-session validation, and they are available in every deployment
 built from the profile. They are listed in BLUESKY’s Plans view and the
-agent’s catalog like the shipped plans.</p>
+agent’s catalog like the shipped plans. Agent code run through the
+python executor may not write into the plan directory; see
+<a class="reference internal" href="../../architecture/python-executor.html#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>.</p>
 <p>To <em>remove</em> a plan from the catalog, shipped or otherwise, list it
 under <code class="docutils literal notranslate"><span class="pre">excluded_plans</span></code> in the same block. The plan becomes invisible
 and non-runnable everywhere.</p>

@@ -475,7 +475,8 @@ enforcement. It is a process boundary on the host, not a sandbox or container.
 The code runs with an allowlisted copy of the executor’s environment, not the
 executor’s own (see <a class="reference internal" href="#python-executor-secrets-zone"><span class="std std-ref">The secrets zone</span></a>). It does not run
 inside an isolated machine. Code it runs can write anywhere the executor
-process can, apart from the deployment’s own sources and render.
+process can, apart from the deployment’s own sources and render and the
+paths its profile names under the keys the build protects.
 <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a> covers those, and also says plainly how
 far that protection goes.
 The OSPREY agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
@@ -600,7 +601,8 @@ patterns such as dynamic code evaluation, dynamic imports, and
 <code class="docutils literal notranslate"><span class="pre">subprocess</span></code> calls before execution begins.</p></li>
 <li><p><strong>Protected-path policy</strong> (<code class="docutils literal notranslate"><span class="pre">path_policy_issues</span></code>)—reads the submitted
 source and refuses code that aims a write at the deployment’s own
-sources or render. Applied in <strong>every</strong> execution mode; see
+sources or render, or at a path a protected profile key names. Applied in <strong>every</strong>
+execution mode; see
 <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>.</p></li>
 <li><p><strong>Readonly import denylist</strong> (<code class="docutils literal notranslate"><span class="pre">check_readonly_imports</span></code>)—a
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run may not import control-system client libraries
@@ -921,9 +923,13 @@ audit record:</p>
 </section>
 <section id="what-executed-code-may-not-change">
 <span id="python-executor-protected-paths"></span><h3>What executed code may not change<a class="headerlink" href="#what-executed-code-may-not-change" title="Link to this heading">#</a></h3>
-<p>Refusing control-system writes is one boundary; this is a different one. Whatever
-mode a run is submitted in, it may not rewrite the deployment that runs it.
-Four locations are protected:</p>
+<p>Refusing control-system writes is one boundary; this is a different one. It
+applies to code run through the python-executor tools (<code class="docutils literal notranslate"><span class="pre">execute</span></code>,
+<code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, <code class="docutils literal notranslate"><span class="pre">pyaml_measure</span></code> and <code class="docutils literal notranslate"><span class="pre">model_response_matrix</span></code>). Whatever
+mode a run is submitted in, it may not rewrite the deployment that runs it.</p>
+<p>Two lists make up what it may not change: a fixed list of names at the
+deployment root, and the paths the profile names.</p>
+<p><strong>The fixed list.</strong> These names are protected in every deployment:</p>
 <ul class="simple">
 <li><p><strong>The render zone</strong> (<code class="docutils literal notranslate"><span class="pre">build/</span></code>) — rebuilt wholesale by every
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, and the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> inside it is where the next
@@ -931,10 +937,12 @@ run reads its own permissions from. A write here is either lost at the next
 build or, worse, survives as a rendered setting nobody wrote.</p></li>
 <li><p><strong>The profile sources</strong> — what the build reads to produce that render:</p>
 <ul>
-<li><p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code> and
-<code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> beside it</p></li>
-<li><p>the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code> and <code class="docutils literal notranslate"><span class="pre">scripts/</span></code>
-directories</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.service</span></code> and <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> beside it</p></li>
+<li><p>the <code class="docutils literal notranslate"><span class="pre">tiers/</span></code>, <code class="docutils literal notranslate"><span class="pre">apps/</span></code>, <code class="docutils literal notranslate"><span class="pre">profiles/</span></code>, <code class="docutils literal notranslate"><span class="pre">data/</span></code>, <code class="docutils literal notranslate"><span class="pre">scripts/</span></code> and
+<code class="docutils literal notranslate"><span class="pre">watchdogs/</span></code> directories, and the directory under the retired spelling
+of <code class="docutils literal notranslate"><span class="pre">tiers/</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">.osprey/</span></code>, which holds the saved copy of what the presets produced</p></li>
 <li><p>the convention directories (<code class="docutils literal notranslate"><span class="pre">rules/</span></code>, <code class="docutils literal notranslate"><span class="pre">skills/</span></code>, <code class="docutils literal notranslate"><span class="pre">agents/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">commands/</span></code>, <code class="docutils literal notranslate"><span class="pre">output-styles/</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks/</span></code>, <code class="docutils literal notranslate"><span class="pre">web-terminal-context/</span></code>,
 <code class="docutils literal notranslate"><span class="pre">mcp_servers/</span></code>, <code class="docutils literal notranslate"><span class="pre">services/</span></code>)</p></li>
@@ -946,20 +954,52 @@ directories</p></li>
 the record itself, the services’ own state and the daily archive. Together
 they hold the record of what was refused. A run that could rewrite them
 could erase or forge the evidence of its own refusal.</p></li>
-<li><p><strong>The pre-upgrade audit files</strong> — the files a deployment kept before the
-agent record. Nothing writes them, and they stay protected for the
-same reason.</p></li>
+<li><p><strong>The pre-upgrade audit files</strong> — the files a deployment
+kept before the agent record. Nothing writes them, and they stay protected
+for the same reason.</p></li>
 </ul>
-<p>A protected entry that does not exist yet is protected all the same: in a repo
-with no <code class="docutils literal notranslate"><span class="pre">apps/</span></code> directory, creating one is exactly the write to refuse.</p>
-<p>This boundary is about <em>zones</em> — whole trees, wherever inside them a path lands.
-A companion boundary, <a class="reference internal" href="../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>, closes
+<p><strong>The paths the profile names.</strong> A profile can name locations outside those
+names that the build or a service reads: a plan directory, a CA bundle, a
+registry module, a search corpus, a panel file. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the
+resolved profile — the <code class="docutils literal notranslate"><span class="pre">extends</span></code> chain, the selected host variant and every
+login file — and writes those paths as one list, <code class="docutils literal notranslate"><span class="pre">protected_paths</span></code>, into
+every configuration file it renders. That list in <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code> is the
+exact set for a deployment. Keys that name where a run writes its output, such
+as screen captures and plots, are left out, as are <code class="docutils literal notranslate"><span class="pre">extra_mounts</span></code> in a login
+file, <code class="docutils literal notranslate"><span class="pre">apps.&lt;name&gt;.config</span></code> and <code class="docutils literal notranslate"><span class="pre">modules.shared_disk.host_path</span></code>.</p>
+<p><strong>What an entry covers.</strong> A directory entry protects its whole tree; a file
+entry protects that file only. Removing, renaming or moving a directory that
+contains a protected location is refused. A protected location that does not
+exist yet is protected all the same: in a repo with no <code class="docutils literal notranslate"><span class="pre">apps/</span></code> directory,
+creating one is exactly the write to refuse.</p>
+<p><strong>A deployment without the list.</strong> The list reaches the executor only through
+the build output. When the rendered <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> lacks it — a build made
+before the list existed, for example — the python-executor tools run no agent
+code and say: run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. The refusal is audited with its own reason,
+<code class="docutils literal notranslate"><span class="pre">no_protected_paths</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code> refuse to start
+such a build; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--as-built</span></code> starts it with a warning. The executor
+reads the list once per run, so a rebuild takes effect at the next run without
+a restart.</p>
+<p><strong>Limits.</strong> These are known and not covered:</p>
+<ul class="simple">
+<li><p>Notebook cells run in a kernel, not through the executor, and the
+executor’s file refusals do not bind it
+(<a class="reference internal" href="safety-chain.html#architecture-safety-chain-residual"><span class="std std-ref">What the switch does not close</span></a>).</p></li>
+<li><p>An absolute host path is protected at that path. Code running inside a
+container sees the host location under the container’s own path, and the
+entry does not follow it there.</p></li>
+<li><p>A path stated under a configuration key the build has not decided is only
+warned about at build, naming the key; it is not protected.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">environment.python</span></code> and <code class="docutils literal notranslate"><span class="pre">python_env</span></code> protect the interpreter file, not
+its library tree.</p></li>
+</ul>
+<p>This boundary is about locations, wherever inside them a path lands. A
+companion boundary, <a class="reference internal" href="../reference/configuration/config.html#config-protected-set"><span class="std std-ref">the protected set</span></a>, closes
 named files and config keys to every agent-side writer (the settings panels,
 the galleries, the <code class="docutils literal notranslate"><span class="pre">setup_patch</span></code> tool) rather than to executed code.</p>
 <p>The agent’s own data zone (<code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code>) and the run’s execution folder
 are carved back out. As a result, analysis output, figures and saved
-artifacts keep working normally, as does everything else on disk the executor
-process can reach.</p>
+artifacts keep working normally.</p>
 <p><strong>Both modes, same answer.</strong> <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> buys a run human approval to move a
 magnet; it buys no approval to rewrite <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. Only the wording of the
 refusal changes — a <code class="docutils literal notranslate"><span class="pre">readonly</span></code> run is told the mode, a <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> run is
@@ -973,8 +1013,10 @@ of these, edit the profile source yourself and run <code class="docutils literal
 <code class="docutils literal notranslate"><span class="pre">open()</span></code> in a write mode, <code class="docutils literal notranslate"><span class="pre">Path.write_text</span></code>/<code class="docutils literal notranslate"><span class="pre">Path.open</span></code>, the
 <code class="docutils literal notranslate"><span class="pre">shutil</span></code> copy/move/remove family, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>/<code class="docutils literal notranslate"><span class="pre">rename</span></code>/<code class="docutils literal notranslate"><span class="pre">mkdir</span></code> and
 friends. Any call whose path is written out as a literal landing inside a
-protected location is refused before anything is spawned. That way the
-agent gets a readable message instead of a traceback. A path the code computes at
+protected location, or containing one for a remove or a move, is refused
+before anything is spawned. A relative literal is resolved against the
+run’s working directory, the deployment root. That way the agent gets a
+readable message instead of a traceback. A path the code computes at
 runtime is deliberately <em>not</em> guessed at here; it is left to layer 2.
 The same pass refuses code that names the runtime guard’s own internals,
 which is the one thing that guard cannot police for itself.</p></li>
@@ -982,12 +1024,14 @@ which is the one thing that guard cannot police for itself.</p></li>
 submitted code. It intercepts the filesystem entry points (<code class="docutils literal notranslate"><span class="pre">open</span></code>,
 <code class="docutils literal notranslate"><span class="pre">io.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.open</span></code>, <code class="docutils literal notranslate"><span class="pre">os.truncate</span></code>, <code class="docutils literal notranslate"><span class="pre">os.remove</span></code>, <code class="docutils literal notranslate"><span class="pre">os.unlink</span></code>,
 <code class="docutils literal notranslate"><span class="pre">os.rmdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.removedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.rename</span></code>, <code class="docutils literal notranslate"><span class="pre">os.replace</span></code>,
-<code class="docutils literal notranslate"><span class="pre">os.makedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.mkdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.symlink</span></code>, <code class="docutils literal notranslate"><span class="pre">os.link</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code>, <code class="docutils literal notranslate"><span class="pre">copy2</span></code>, <code class="docutils literal notranslate"><span class="pre">copyfile</span></code>, <code class="docutils literal notranslate"><span class="pre">move</span></code> and <code class="docutils literal notranslate"><span class="pre">rmtree</span></code>). It
-raises <code class="docutils literal notranslate"><span class="pre">PermissionError</span></code> for a write landing in a protected location,
-however the path was assembled. The protected locations are resolved by
-the parent process and baked into the guard as fixed strings; the
-subprocess never works them out for itself.</p></li>
+<code class="docutils literal notranslate"><span class="pre">os.makedirs</span></code>, <code class="docutils literal notranslate"><span class="pre">os.mkdir</span></code>, <code class="docutils literal notranslate"><span class="pre">os.symlink</span></code>, <code class="docutils literal notranslate"><span class="pre">os.link</span></code>, their
+<code class="docutils literal notranslate"><span class="pre">posix</span></code> counterparts, and <code class="docutils literal notranslate"><span class="pre">shutil.copy</span></code>, <code class="docutils literal notranslate"><span class="pre">copy2</span></code>, <code class="docutils literal notranslate"><span class="pre">copyfile</span></code>,
+<code class="docutils literal notranslate"><span class="pre">move</span></code> and <code class="docutils literal notranslate"><span class="pre">rmtree</span></code>). It raises <code class="docutils literal notranslate"><span class="pre">PermissionError</span></code> for a write landing
+in a protected location, however the path was assembled. A name given
+relative to a directory descriptor is judged against that descriptor’s
+directory, where the platform can name it (Linux and macOS). The protected
+locations are resolved by the parent process and baked into the guard as
+fixed strings; the subprocess never works them out for itself.</p></li>
 </ol>
 <div class="admonition warning">
 <p class="admonition-title">Warning</p>
