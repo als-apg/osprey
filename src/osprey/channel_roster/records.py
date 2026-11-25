@@ -230,6 +230,9 @@ class ChannelRecord:
         started_by: On a setpoint whose move a command starts, that command's
             address; the wiring record's for a further address; ``None``
             otherwise.
+        stopped_by: On a setpoint that states ``started_by``, the command that
+            stops its move, the wiring record's for a further address;
+            ``None`` otherwise.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -251,6 +254,7 @@ class ChannelRecord:
     timeout_s: float | None = None
     idle: str | int | float | None = None
     started_by: str | None = None
+    stopped_by: str | None = None
 
     def __post_init__(self) -> None:
         if not self.address:
