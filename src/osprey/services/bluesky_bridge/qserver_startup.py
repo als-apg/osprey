@@ -456,7 +456,10 @@ def _make_plan_function(
     RunEngine sees it, a device that can write but states nothing refuses the
     launch, and a plan whose metadata does not say ``writes: true`` is refused
     at its first write, before that write is sent. A plan with no authoring
-    metadata is held only to every write being stated.
+    metadata is held only to every write being stated. The run's write
+    authorization is surveyed from the same statements, after the declaration
+    check (``write_grant.run_under_grant``), so a launch refused for a write
+    asks nobody.
 
     **No trigger writes after the run ends.** Every end of the generator other
     than the plan's own return -- an abort, a stop, a close, an exception --
@@ -467,7 +470,6 @@ def _make_plan_function(
     # Absolute, not relative — see the module docstring. Imported at wrapper
     # build time rather than inside the generator so a missing pre-flight is a
     # startup failure, not a surprise on the first run.
-    from osprey.services.bluesky_bridge.plan_writes import held_to_declaration
     from osprey.services.bluesky_bridge.preflight import (
         available_devices_phrase,
         cancel_unfinished_triggers,
@@ -504,10 +506,8 @@ def _make_plan_function(
             try:
                 try:
                     return (
-                        yield from held_to_declaration(
-                            spec.name,
-                            declares_writes,
-                            run_under_grant(spec.name, lambda: spec.plan(declared, params), plan),
+                        yield from run_under_grant(
+                            spec.name, declares_writes, lambda: spec.plan(declared, params), plan
                         )
                     )
                 except Exception as exc:
