@@ -1826,6 +1826,7 @@ class Channel(ConfiguredBaseModel):
     command: Optional[bool] = Field(default=None, description="""Computed; true on a command, a setpoint fired rather than set: its vocabulary signal is a command word or a model's engine marks its wiring record command. Absent on every other channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     timeout_s: Optional[float] = Field(default=None, description="""On a command whose status states `idle`: the longest one act may take, in seconds.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     started_by: Optional[str] = Field(default=None, description="""On a setpoint whose move a command starts: the command's address. The command's status states `idle`, the command states `timeout_s`, and no other setpoint names it.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    stopped_by: Optional[str] = Field(default=None, description="""On a setpoint that states `started_by`: the address of the command that stops its move; several setpoints may name one.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place',
                        'Device',
                        'Channel',
