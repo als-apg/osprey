@@ -741,8 +741,9 @@ def _config(project: Path, defaults: list[str]) -> dict[str, Any]:
 def test_a_default_scenario_seeds_element_errors_at_boot(
     built_demo: Any, demo: dict[str, Any], tmp_path: Path
 ) -> None:
-    from osprey.simulation.apply import activate_default_scenarios, resolve_simulation_state_dir
+    from osprey.simulation.apply import activate_default_scenarios
     from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.workspace import resolve_simulation_state_dir
 
     seeded = {"faults": {MODEL: {"writes": {f"{demo['quad']}/dx": 1.0e-4}}}}
     broken = {"faults": {MODEL: {"writes": {f"{demo['quad']}/dB1": 50.0}}}}

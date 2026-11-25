@@ -57,7 +57,9 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   never the single file:** `sim apply` atomic-renames a new `active_scenarios`
   into place, and a directory mount lets that inode swap through, so the
   composite sees the change on its next pass with no restart. With
-  `VA_STATE_DIR` unset the IOC serves `nominal` alone.
+  `VA_STATE_DIR` unset the IOC serves `nominal` alone. The live stand-in has
+  a scenario set of its own: mount `var/agent_data/simulation/standin/` for
+  it, at the same container path.
 - **Bind-mount the repo's `var/simulator/`** read-write to `/var/simulator`
   for the virtual accelerator, or `var/simulator/standin/` for the live
   stand-in. It is the one directory the IOC writes: the composite appends each

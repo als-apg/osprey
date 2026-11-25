@@ -5,6 +5,10 @@ names of the marked scenarios, nothing when none is marked. A profile that
 states a start set beside a mark is refused, so the marks are the one producer;
 a dotted ``null`` cancels a value a preset gives. The mark is a fact for the
 build alone: ``scenarios.json`` never carries it.
+
+``start: true`` is every simulator instance. ``start_on`` names the instances
+a scenario starts on, and one such mark makes the derived value a mapping of
+instance to its own sorted names.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 from osprey.facility.settings import fill_facility_settings
 from osprey.facility.views.simulator import _scenarios_document
@@ -22,6 +27,7 @@ from osprey_facility.errors import FacilityBuildError
 from osprey_facility.records import FacilityRecords
 from osprey_facility.schema._generated.core import Scenario
 from osprey_facility.sources import slot_names
+from osprey_facility.start import start_error, start_targets
 
 CHANNELS: list[dict[str, Any]] = [{"id": "B:SP", "role": "setpoint"}, {"id": "A:RB"}]
 
@@ -85,6 +91,103 @@ def test_only_a_true_mark_counts(tmp_path: Path) -> None:
     assert _fill(tmp_path, {}, document)[DEFAULT_SCENARIOS_KEY] == ["warm"]
 
 
+# --- marks that name instances ------------------------------------------------------
+
+
+def test_a_mark_that_names_an_instance_derives_the_set_of_each(tmp_path: Path) -> None:
+    document = _document(
+        {"name": "warm", "start": True},
+        {"name": "errors", "start_on": ["standin"]},
+        {"name": "clean", "start_on": ["va"]},
+        {"name": "both", "start_on": ["standin", "va"]},
+        {"name": "cold"},
+    )
+
+    assert _fill(tmp_path, {}, document)[DEFAULT_SCENARIOS_KEY] == {
+        "va": ["both", "clean", "warm"],
+        "standin": ["both", "errors", "warm"],
+    }
+
+
+def test_marks_that_are_all_true_derive_the_plain_list(tmp_path: Path) -> None:
+    """The form every render had before instances were named is what it still gets."""
+    assert _fill(tmp_path, {}, MARKED)[DEFAULT_SCENARIOS_KEY] == ["beam", "warm"]
+
+
+def test_a_standin_mark_alone_leaves_va_starting_none(tmp_path: Path) -> None:
+    document = _document({"name": "errors", "start_on": ["standin"]}, {"name": "cold"})
+
+    assert _fill(tmp_path, {}, document)[DEFAULT_SCENARIOS_KEY] == {
+        "va": [],
+        "standin": ["errors"],
+    }
+
+
+def test_a_stated_value_beside_a_named_mark_is_refused(tmp_path: Path) -> None:
+    document = _document({"name": "errors", "start_on": ["standin"]})
+
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(tmp_path, {DEFAULT_SCENARIOS_KEY: {"standin": ["errors"]}}, document)
+
+    assert stop.value.record_id == DEFAULT_SCENARIOS_KEY
+    assert "`errors`" in stop.value.detail
+    assert "start_on" in stop.value.detail
+
+
+def test_without_a_mark_a_stated_mapping_is_checked_per_instance(tmp_path: Path) -> None:
+    document = _document({"name": "warm"}, {"name": "cold"})
+    stated = {DEFAULT_SCENARIOS_KEY: {"va": ["warm"], "standin": ["cold"]}}
+
+    assert _fill(tmp_path, stated, document) == {}
+    with pytest.raises(FacilityBuildError) as stop:
+        _fill(tmp_path, {DEFAULT_SCENARIOS_KEY: {"standin": ["hot"]}}, document)
+    assert "`hot`" in stop.value.detail
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        ({}, ()),
+        ({"start": False}, ()),
+        ({"start": True}, ("va", "standin")),
+        ({"start_on": ["standin"]}, ("standin",)),
+        ({"start_on": ["va"]}, ("va",)),
+        ({"start_on": ["standin", "va"]}, ("va", "standin")),
+    ],
+)
+def test_the_instances_a_scenario_starts_on(
+    scenario: dict[str, Any], expected: tuple[str, ...]
+) -> None:
+    assert start_error(scenario) is None
+    assert start_targets(scenario) == expected
+
+
+@pytest.mark.parametrize(
+    ("scenario", "problem"),
+    [
+        ({"start": "standin"}, "neither true nor false"),
+        ({"start": ["standin"]}, "neither true nor false"),
+        ({"start_on": []}, "not a list of simulator targets"),
+        ({"start_on": "standin"}, "not a list of simulator targets"),
+        ({"start_on": ["live"]}, "'live', which is no simulator target"),
+        ({"start_on": ["va", "va"]}, "names a simulator target twice"),
+        ({"start": True, "start_on": ["standin"]}, "`start: true` is stated beside `start_on`"),
+        ({"start": False, "start_on": ["standin"]}, "`start: false` is stated beside `start_on`"),
+    ],
+)
+def test_a_malformed_mark_is_refused_and_starts_nowhere(
+    scenario: dict[str, Any], problem: str
+) -> None:
+    assert problem in (start_error(scenario) or "")
+    assert start_targets(scenario) == ()
+
+
+def test_start_on_is_a_scenario_slot_of_the_schema_and_the_model() -> None:
+    assert "start_on" in slot_names("Scenario")
+    assert Scenario(name="errors", start_on=["standin"]).start_on == ["standin"]
+    assert Scenario(name="errors").start_on is None
+
+
 # --- a stated value without a mark ------------------------------------------------
 
 
@@ -146,11 +249,58 @@ def test_scenarios_json_carries_no_start_key() -> None:
     document = _document(
         {"name": "warm", "description": "Warm.", "start": True},
         {"name": "cold", "start": False},
+        {"name": "errors", "start_on": ["standin"]},
     )
     inputs = SimpleNamespace(records=FacilityRecords(document), served=[])
     scenarios = _scenarios_document(inputs)["scenarios"]  # type: ignore[arg-type]
 
     assert {entry["name"] for entry in scenarios} >= {"warm", "cold"}
-    assert all("start" not in entry for entry in scenarios)
+    assert all("start" not in entry and "start_on" not in entry for entry in scenarios)
     warm = next(entry for entry in scenarios if entry["name"] == "warm")
     assert warm["description"] == "Warm."
+
+
+# --- the validator ------------------------------------------------------------------
+
+
+def _validated(tmp_path: Path, scenario: dict[str, Any]):
+    from osprey_facility.validate import run_stages
+    from tests._builds import FRAMEWORK_CHECKS
+
+    root = tmp_path / "facility"
+    for rel, data in {
+        "records/channels.yaml": [{"id": "A:RB"}],
+        "scenarios/errors.yaml": scenario,
+    }.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return run_stages(root, project_name="proj", extra_checks=FRAMEWORK_CHECKS)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [{"start": True}, {"start_on": ["standin"]}, {"start_on": ["va", "standin"]}],
+)
+def test_a_valid_mark_validates(tmp_path: Path, scenario: dict[str, Any]) -> None:
+    assert _validated(tmp_path, scenario).ok
+
+
+@pytest.mark.parametrize(
+    ("scenario", "problem"),
+    [
+        ({"start_on": ["live"]}, "no simulator target"),
+        ({"start": True, "start_on": ["standin"]}, "stated beside `start_on`"),
+        ({"start_on": ["va", "va"]}, "twice"),
+    ],
+)
+def test_the_validator_refuses_a_malformed_mark(
+    tmp_path: Path, scenario: dict[str, Any], problem: str
+) -> None:
+    report = _validated(tmp_path, scenario)
+
+    assert not report.ok
+    errors = [error for error in report.errors if error.record_id == "errors"]
+    assert [(error.kind, error.record_kind) for error in errors] == [("value-invalid", "scenario")]
+    assert problem in errors[0].detail
+    assert "start_on: [standin]" in errors[0].remedy

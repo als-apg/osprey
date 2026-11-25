@@ -58,12 +58,16 @@ VA_TEMPLATE = "virtual_accelerator/docker-compose.yml.j2"
 
 GOLDEN_DIR = Path(__file__).parent / "goldens" / "va_single_instance"
 
-#: The finished scenario-state bind source ``_inject_project_metadata``
-#: computes for a project on the default agent-data root. Spelled here as the
-#: string the template consumes rather than derived, for the same reason
-#: ``test_lane_compose``'s limits mount is: the generator resolves it host-side
-#: and the template only ever sees the answer.
+#: The finished scenario-state bind sources ``_inject_project_metadata``
+#: computes for a project on the default agent-data root, one per instance.
+#: Spelled here as the strings the template consumes rather than derived, for
+#: the same reason ``test_lane_compose``'s limits mount is: the generator
+#: resolves them host-side and the template only ever sees the answer.
 STATE_MOUNT_SOURCE = "./var/agent_data/simulation"
+STATE_MOUNT_SOURCES = {
+    "virtual_accelerator": STATE_MOUNT_SOURCE,
+    "live_standin": f"{STATE_MOUNT_SOURCE}/standin",
+}
 
 
 def _image_defaults(project_name: str) -> dict[str, str]:
@@ -111,7 +115,7 @@ def _context(
 ) -> dict[str, Any]:
     """Mirror ``compose_generator.render_template``'s context contract.
 
-    ``osprey_state_mount_source`` is computed by the generator rather than
+    ``osprey_state_mount_sources`` is computed by the generator rather than
     configured, and is typed here for the reason every such key is: a
     production render always carries it, so a context that omits one pins a
     render no deploy can reach.
@@ -136,7 +140,7 @@ def _context(
         "deployment": {},
         "deployed_services": deployed_services,
         "services": dict(instances),
-        "osprey_state_mount_source": STATE_MOUNT_SOURCE,
+        "osprey_state_mount_sources": dict(STATE_MOUNT_SOURCES),
         "osprey_simulator_log_sources": simulator_log_mount_sources(),
         "va_tick_s": 1.0,
         "va_fast_tick_s": 0.1,
@@ -494,23 +498,63 @@ def test_va_compose_gives_every_instance_an_image(two_instances: dict[str, Any])
         assert service["image"]
 
 
-def test_va_compose_instances_share_the_view_and_split_the_logs(
+def test_va_compose_instances_share_the_view_and_split_state_and_logs(
     two_instances: dict[str, Any],
 ) -> None:
-    """One view and one active-scenario state, read by both; a log dir each.
+    """One view, read by both; an active-scenario state and a log dir each.
 
-    A scenario applied on the host is meant to be observable on both machines
-    at once, so the read-only mounts are shared. The model logs are the one
-    directory each instance writes, and the stand-in's sits apart so a record's
-    directory names the machine that wrote it.
+    The view is one build, so both instances serve the same channels. The
+    active scenarios are a set per instance, so each one mounts its own state
+    directory at the same path inside, and a set applied to one leaves the
+    other alone. The model logs are the one directory each instance writes,
+    and the stand-in's sits apart so a record's directory names the machine
+    that wrote it.
     """
     baseline = two_instances["services"]["virtual-accelerator"]["volumes"]
     standin = two_instances["services"]["live-standin"]["volumes"]
-    shared = ["./build/data:/data:ro", f"{STATE_MOUNT_SOURCE}:/state/simulation:ro"]
-    assert baseline[:2] == shared
-    assert standin[:2] == shared
-    assert baseline[2:] == ["./var/simulator:/var/simulator"]
-    assert standin[2:] == ["./var/simulator/standin:/var/simulator"]
+    assert baseline == [
+        "./build/data:/data:ro",
+        f"{STATE_MOUNT_SOURCE}:/state/simulation:ro",
+        "./var/simulator:/var/simulator",
+    ]
+    assert standin == [
+        "./build/data:/data:ro",
+        f"{STATE_MOUNT_SOURCE}/standin:/state/simulation:ro",
+        "./var/simulator/standin:/var/simulator",
+    ]
+
+
+def test_the_rendered_state_mounts_are_read_back_as_one_per_instance(tmp_path: Path) -> None:
+    """What `osprey up` and `osprey sim` read off a render to learn whose set a container holds.
+
+    The render of this template is one per instance. The same render with the
+    stand-in on the first instance's directory, as the template rendered it
+    before instances had sets of their own, is read as shared.
+    """
+    from osprey.deployment.compose_generator import render_shares_scenario_state
+
+    config = {
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+        "services": {"virtual_accelerator": {"path": "services/virtual_accelerator"}},
+    }
+    text = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    compose = tmp_path / "build" / "services" / "virtual_accelerator" / "docker-compose.yml"
+    compose.parent.mkdir(parents=True)
+
+    compose.write_text(text, encoding="utf-8")
+    assert not render_shares_scenario_state(config, tmp_path)
+
+    own = f"{STATE_MOUNT_SOURCE}/standin:/state/simulation:ro"
+    assert text.count(own) == 1
+    compose.write_text(
+        text.replace(own, f"{STATE_MOUNT_SOURCE}:/state/simulation:ro"), encoding="utf-8"
+    )
+    assert render_shares_scenario_state(config, tmp_path)
 
 
 def test_va_compose_header_announces_the_second_instance() -> None:

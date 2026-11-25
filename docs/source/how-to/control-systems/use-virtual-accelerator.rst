@@ -201,19 +201,49 @@ runs beside it. ``control_target_set standin`` moves the deployment onto the sta
 ``control_target_set live`` from there walks the real go-live path, gates and
 all.
 
-The two simulated machines run one image over one simulator view. The
-stand-in carries no errors of its own: it exists to rehearse the live safety
-posture, not different physics. The two machines are told apart by a write to
+The two simulated machines run one image over one simulator view, so both
+serve the same channels and the same models. Each holds an active scenario set
+of its own. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
 the banner reads ``Rehearsal — nothing moves`` and the Web Terminal's header
 chip reads *Rehearsal*.
 :doc:`switch-control-target` has the ritual itself.
 
-**Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
-and both containers poll it, so a scenario changes the world rather than one
-lane. There is no scenario that applies to the simulator but not to the stand-in,
-and switching targets does not undo one.
+**Each machine has its own scenarios.** The simulator is the ``va`` instance
+and the stand-in the ``standin`` instance, and each polls a scenario file of
+its own. So the stand-in can run a set of errors while the simulator runs the
+clean model, which is what a commissioning rehearsal needs: the model you
+correct with on one side, the machine that disagrees with it on the other.
+
+- ``osprey sim apply --target standin <names>`` replaces the stand-in's set,
+  ``--target va`` the simulator's. Without ``--target`` the command acts on
+  the deployment's own target when the deployment runs that instance, else on
+  ``va``, and its output names the instance.
+- ``osprey sim list --target standin`` marks the stand-in's active set, and
+  ``osprey sim status`` prints the active set of the target it reports on.
+- A scenario file states where it starts: ``start: true`` on every instance,
+  ``start_on: [standin]`` on the stand-in alone
+  (:ref:`reference-scenario-files`).
+- The logbook, the stored archive and the example sessions follow the ``va``
+  set. A set applied to the stand-in changes its telemetry and nothing stored.
+  On a deployment whose own target is the stand-in, that is what a plain
+  ``osprey sim apply`` does; ``--target va`` changes the set the stored data
+  follows.
+
+Switching targets changes neither set.
+
+.. note::
+
+   Until instances had sets of their own, both containers read the one
+   scenario file, and a deployment rendered then still mounts it into both.
+   The split takes effect when the deployment is built again: run
+   ``osprey build``, then ``osprey up``. That ``osprey up`` gives a stand-in
+   that was already running its own start set, copies nothing, and prints one
+   line that names the set it followed and the command that puts it back.
+   Until the build, both instances follow the ``va`` set: ``osprey up`` and
+   ``osprey sim apply`` say so, and ``--target standin`` is refused with the
+   two commands to run.
 
 **The archive belongs to the machine.** The store this deployment seeds and
 records is the simulator's, with or without a stand-in. The recorder samples
@@ -459,7 +489,8 @@ What a switch does to the running simulator
 -------------------------------------------
 
 ``osprey sim apply <scenario>`` works the same in both venues (`Two venues`_).
-It writes the project's ``var/agent_data/simulation/active_scenarios`` file,
+It writes the project's ``var/agent_data/simulation/active_scenarios`` file
+(``var/agent_data/simulation/standin/active_scenarios`` for the stand-in's set),
 and the simulator re-reads the file on its next pass (``simulation.tick_s``,
 1 s by default). The machine then starts again at the new set's start state:
 setpoints written during the session are dropped, served and in process alike.
@@ -469,7 +500,8 @@ The served simulator's container mounts two directories:
 - the render's data root, ``build/data``: read-only, holding the simulator view
   the build writes, rebuilt on every ``osprey build``;
 - the scenario state directory, ``var/agent_data/simulation``: written by
-  ``osprey sim apply`` while the system runs.
+  ``osprey sim apply`` while the system runs. The stand-in's container mounts
+  its own, the ``standin/`` directory inside it.
 
 Both mounts are automatic for the deployed service.
 

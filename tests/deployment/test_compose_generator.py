@@ -1122,6 +1122,39 @@ def test_va_state_mount_matches_the_scenario_state_dir(
     assert (tmp_path / source).resolve() == resolve_simulation_state_dir(config, tmp_path).resolve()
 
 
+@pytest.mark.parametrize(
+    "relocation",
+    [
+        pytest.param({}, id="default"),
+        pytest.param({"agent_data": {"base_dir": "./scratch-data"}}, id="relocated-agent-data"),
+        pytest.param({"simulation": {"state_dir": "run/scenarios"}}, id="explicit-state-dir"),
+    ],
+)
+def test_each_va_instance_mounts_the_state_dir_its_own_set_is_written_to(
+    tmp_path: Path, relocation: dict[str, Any]
+) -> None:
+    """Two instances, two mounts, each the directory ``sim apply`` writes for its target."""
+    from osprey.simulation.targets import target_state_dir
+
+    config: dict[str, Any] = {
+        "project_root": str(tmp_path),
+        "services": {
+            "virtual_accelerator": {"port": 5064},
+            "live_standin": {"path": "./services/virtual_accelerator", "port": 5074},
+        },
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+        **relocation,
+    }
+    rendered = _render_va_template(config)
+    sources = re.findall(r"- (\S+):/state/simulation:ro", rendered)
+
+    assert [(tmp_path / source).resolve() for source in sources] == [
+        target_state_dir(config, tmp_path, "va").resolve(),
+        target_state_dir(config, tmp_path, "standin").resolve(),
+    ]
+    assert sources[0] != sources[1]
+
+
 # The worker process reads OSPREY config directly (get_facility_timezone while
 # building the agent system prompt) with CWD=/app (the image WORKDIR), so without
 # CONFIG_FILE it falls back to /app/config.yml and every dispatch errors with
@@ -3260,6 +3293,12 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "deployed_services": [],
         "control_system": {},
         "osprey_simulator_log_sources": simulator_log_mount_sources(),
+        # Computed per config by the generator; spelled here as the default
+        # layout's answer, one source per simulator instance.
+        "osprey_state_mount_sources": {
+            "virtual_accelerator": f"./{DEFAULT_AGENT_DATA_BASE_DIR}/simulation",
+            "live_standin": f"./{DEFAULT_AGENT_DATA_BASE_DIR}/simulation/standin",
+        },
         "osprey_guarded_run_mount": {
             "source": f"./{guarded_run_relpath()}",
             "target": f"/app/{project_name}/{guarded_run_relpath()}",

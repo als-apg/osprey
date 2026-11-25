@@ -327,9 +327,10 @@ virtual_accelerator:
   # running a stand-in exactly as on one that is not — the build writes no key
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
-  # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The stand-in is never recorded: it reads the facility's archive,
-  # and the store holds the simulator's past.
+  # Each machine has an active scenario set of its own: `osprey sim apply
+  # --target standin` moves the stand-in, `--target va` the simulator. The
+  # stand-in is never recorded: it reads the facility's archive, and the store
+  # holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -1390,6 +1391,8 @@ config:
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # demo-history also seeds the sidebar's example sessions on first deploy.
   # Absent or [] starts in nominal alone; a stated set is checked at build.
+  # A list starts every simulator instance in the set; {va: [...],
+  # standin: [...]} gives the simulator and the stand-in each its own.
   simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
