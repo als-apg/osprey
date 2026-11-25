@@ -1,0 +1,1 @@
+A plan moves a setpoint that states `started_by`: it writes the target, fires the start command and waits for the command's status; pausing or aborting the run cancels an unfinished move. The start command is no plan device of its own.
