@@ -54,8 +54,8 @@ comments — but the general destinations are:
   `osprey set key=value` into the live profile.
 - Custom code and assets (rules, skills, agents, MCP servers, services,
   arbitrary project files) → the matching convention directory
-  (`rules/`, `skills/`, `agents/`, `mcp_servers/`, `services/`,
-  `project/`, …) — the directory name is the declaration.
+  (`agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/mcp_servers/`,
+  `ops/services/`, `ops/project/`, …) — the directory name is the declaration.
 - Environment variable NAMES → the profile's `env:` block (`required`
   vs `defaults`). NEVER copy values — even from a committed file; the
   user may not realize a token is in there. Flag `*_TOKEN`, `*_KEY`,

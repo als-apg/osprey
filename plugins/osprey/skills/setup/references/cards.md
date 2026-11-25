@@ -299,7 +299,7 @@ Where each line comes from:
 
 - The header's provider is the profile's `provider:`. Its model is `model:`, else that
   entry's `default_model` in `providers.yml` beside the profile.
-- The AGENTS names are the profile's `agents:` list plus the `agents/` directory.
+- The AGENTS names are the profile's `agents:` list plus the `agent/agents/` directory.
   `<purpose>` is the agent's line in `osprey profile artifacts`, or a deployment file's
   `description:`. The model is `main model`, a `claude_code.agent_models.<agent>` value,
   or a deployment file's `model:` line. The `⚠` continuation marks a pinned id the

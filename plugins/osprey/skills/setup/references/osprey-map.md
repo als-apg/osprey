@@ -54,11 +54,11 @@ feature port). It refuses to re-materialize an existing repo's source zone unles
 | Path | What it is |
 | --- | --- |
 | `profile.yml` | SOURCE. The manifest: everything the preset configures, written out explicitly |
-| `data/`, `tiers/`, `apps/`, `watchdogs/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit. `tiers/` holds every login file, `apps/<name>/` one application per directory, `watchdogs/<name>/` one watchdog's instructions |
+| `data/`, `tiers/`, `apps/`, `agent/watchdogs/`, `triggers.yml`, `agent/context/`, `agent/code_review/` | SOURCE. The material the manifest names — yours to edit. `tiers/` holds every login file, `apps/<name>/` one application per directory, `agent/watchdogs/<name>/` one watchdog's instructions, `agent/code_review/reviewer.md` the code reviewer's rules |
 | `profiles/` | SOURCE. One `<name>.yml` host-variant overlay per variant the deployment has. Which one this host builds is the single line `OSPREY_PROFILE_VARIANT=<name>` in the git-ignored `.env.variant`; with none set, the tracked `profile.yml` builds |
-| `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`, `mcp_servers/`, `services/`, `project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `project/` is the catch-all mirrored onto the built project's root |
-| `.gitlab-ci.yml`, `scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
-| `ci-extra.yml` | SOURCE. The facility's own CI jobs; written once, never rewritten |
+| `agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/commands/`, `agent/output-styles/`, `agent/hooks/`, `agent/mcp_servers/`, `ops/services/`, `ops/project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `ops/project/` is the catch-all mirrored onto the built project's root |
+| `.gitlab-ci.yml`, `ops/scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
+| `ops/ci-extra.yml` | SOURCE. The facility's own CI jobs; written once, never rewritten |
 | `.env` | SECRETS. Provider keys, plus the service tokens `osprey up` mints. Git-ignored, durable. `osprey init` always writes `.env.example` and `.env.shared`; it seeds `.env` only from what it already has — a key the shell exports, the preset's `env.defaults` — so a bare hello-world has no `.env` on disk until you create one from the example |
 | `build/` | OUTPUT. Rendered by `osprey build`; git-ignored, 100% disposable |
 | `var/` | STATE. Agent memory, sessions, audit log; git-ignored, durable. No build touches it |
@@ -93,11 +93,11 @@ in the defaults above.
 Build from the edited profile: `osprey build`
 
 `osprey build` renders `build/`, and it also writes one thing back into the SOURCE zone:
-`web-terminal-context/<roster user>/.gitkeep`, one directory per entry in
+`agent/context/<roster user>/.gitkeep`, one directory per entry in
 `modules.web_terminals.users`, so per-user context has a home in version control. It
 reports them as `seeded N empty context dir(s) in the profile`. They are yours from then
 on — nothing removes them, so a roster entry deleted later leaves its directory behind and
-every later build warns that `web-terminal-context/` holds context for users not on the
+every later build warns that `agent/context/` holds context for users not on the
 roster.
 
 ## Read the source of truth
@@ -109,7 +109,7 @@ roster.
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `src/osprey/profiles/providers.yml` — the packaged catalog `osprey init` copies into the repo as `providers.yml`; `provider:` names one of its entries |
 | Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |
-| Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `mcp_servers/`, `web-terminal-context/` only; the config a preset ships is in the preset file, not here |
+| Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `agent/mcp_servers/`, `agent/context/` only; the config a preset ships is in the preset file, not here |
 | The framework config template | `src/osprey/templates/project/config.yml.j2` — derived keys only (project layout, ports, `providers.yml`, profile fields) |
 | Control-system connectors | `packages/osprey-connectors/src/osprey_connectors/` |
 

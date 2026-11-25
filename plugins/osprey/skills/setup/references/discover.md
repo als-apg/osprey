@@ -129,26 +129,27 @@ that is no such key is `osprey-native`. Read every file under `tiers/` too, and 
 profile's `apps:` block lists — either can
 declare servers the host profile does not, and the card row shows the host profile only. The
 deployment's own servers split by how they start: `command:` is command-launched, and a
-Python one keeps its package at `mcp_servers/<key>/` while a third-party one launched by
+Python one keeps its package at `agent/mcp_servers/<key>/` while a third-party one launched by
 `uvx` or `npx` has no directory at all; `url:` or `port:` is a remote server, also with no
 directory.
 
 **Agent model pins** are not on the card JSON. Read every
 `claude_code.agent_models.<agent>` key, dotted or nested, from `profile.yml`'s `config:`
 block and from each file under `tiers/`, plus the `model:` line of each
-`agents/<name>.md`. An agent with no pin runs the main model. The AGENT box's `models`
+`agent/agents/<name>.md`. An agent with no pin runs the main model. The AGENT box's `models`
 line lists the main model and each pin, or `none pinned`.
 
 **Shadowing.** A file under a convention directory carrying a native artifact's name
-(`rules/facility.md`, `agents/channel-finder.md`, `skills/diagnose/`) replaces the native
+(`agent/rules/facility.md`, `agent/agents/channel-finder.md`, `agent/skills/diagnose/`) replaces the native
 one in the build. The list keeps selecting that name and the repo's file is what renders, so
 report it as `custom (shadows <name>)` — one artifact, not two.
 
 **Convention directories** are declared by their own existence, so list them and count
-entries: `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`,
-`web-terminal-context/`, `mcp_servers/`, `services/`, `project/`. A root directory that is
-none of those and none of `profile.yml`, `providers.yml`, `triggers.yml`, `data/`, `tiers/`,
-`apps/`, `watchdogs/`, `profiles/`, `scripts/`, `ci-extra.yml`, `osprey.service`, `build/`, `var/`, `docs/`, `README*`,
+entries: `agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/commands/`,
+`agent/output-styles/`, `agent/hooks/`, `agent/context/`, `agent/mcp_servers/`,
+`ops/services/`, `ops/project/`. A root directory that is none of `agent/`, `ops/`,
+`profile.yml`, `providers.yml`, `triggers.yml`, `data/`, `tiers/`, `apps/`, `profiles/`,
+`build/`, `var/`, `docs/`, `README*`,
 `LICENSE*` or a dot-entry
 is not a zone: nothing reads it, and `osprey build` names it in its unrecognized-root-entry
 warning. `overlays/` in a current-generation repo is exactly that. Give it an `unknown` row
@@ -158,7 +159,7 @@ and one question: what reads this?
 imported layers under `data/facility/imported/` (`osprey facility show` prints the
 counts), `data/facility/limits.yaml` records, documents under the facility-knowledge
 bundle, decks, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count
-`tiers/` (tiers and shared logins apart), `apps/`, `watchdogs/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
+`tiers/` (tiers and shared logins apart), `apps/`, `agent/watchdogs/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
 and that is the whole channel-store fact in every mode: the finder reads what the
 build writes from the facility file, so there is no channel store of its own to
 count.
@@ -168,7 +169,7 @@ count.
 `.env.shared` then `.env`.
 Any other `.env*` file in the repo may supply NAMES only. Never read a value out of one.
 
-**Custom code** is anything under `mcp_servers/`, `services/`, `hooks/` or `project/`
+**Custom code** is anything under `agent/mcp_servers/`, `ops/services/`, `agent/hooks/` or `ops/project/`
 that no framework artifact matches. Read each README or module docstring. When the
 purpose is still unclear after reading, it is a `?` row on the card with the path and
 what is unclear, and it becomes an `unknown` element in MAP.
