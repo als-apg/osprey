@@ -325,6 +325,7 @@ _STATED: dict[str, Any] = {
     "timeout_s": 2.0,
     "idle": 0,
     "started_by": "QF:SP",
+    "stopped_by": "QF:SP",
 }
 
 

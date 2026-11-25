@@ -556,6 +556,10 @@ classes:
           On a setpoint whose move a command starts: the command's address. The
           command's status states `idle`, the command states `timeout_s`, and no
           other setpoint names it.
+      stopped_by:
+        description: >-
+          On a setpoint that states `started_by`: the address of the command
+          that stops its move; several setpoints may name one.
       provenance:
         range: Provenance
         inlined: true
