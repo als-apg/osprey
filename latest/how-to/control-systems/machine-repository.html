@@ -561,8 +561,8 @@ my-deployment/                a deployment
 </pre></div>
 </div>
 <p>The machine repository holds every machine fact, including its start set: the
-scenarios marked <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code>, which the simulator activates when it first
-comes up. The deployment keeps only what it writes about its own use of the
+scenarios marked <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> or <code class="docutils literal notranslate"><span class="pre">start_on</span></code>, which the simulator
+activates when it first comes up. The deployment keeps only what it writes about its own use of the
 machine: <code class="docutils literal notranslate"><span class="pre">knowledge/</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel/</span></code> and <code class="docutils literal notranslate"><span class="pre">benchmarks/</span></code>
 (<a class="reference internal" href="../describe-your-facility.html"><span class="doc">Describe your facility</span></a>).</p>
 </section>
@@ -636,8 +636,8 @@ repository top instead of its <code class="docutils literal notranslate"><span c
 remove the deployment’s copy.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">profile-invalid</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">machine:</span></code> and <code class="docutils literal notranslate"><span class="pre">data:</span></code> overlap; a login file states <code class="docutils literal notranslate"><span class="pre">machine:</span></code>; or the
-profile states <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> beside <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> marks
-or a mounted machine. <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">null</span></code> cancels a
+profile states <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code> beside <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> or
+<code class="docutils literal notranslate"><span class="pre">start_on</span></code> marks or a mounted machine. <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios:</span> <span class="pre">null</span></code> cancels a
 preset’s value.</p>
 </dd>
 </dl>

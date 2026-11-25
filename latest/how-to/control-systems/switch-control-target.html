@@ -1334,8 +1334,14 @@ the same way);</p></li>
 accelerator’s: the recorder samples the simulator, and the history seeded on
 the first deploy is the simulator’s own. So a trend read on the stand-in and
 one read on the live machine come from one archive, the way a rehearsal
-should. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> reaches both machines: a scenario changes the
-world, not one lane.</p>
+should.</p>
+<p><strong>Each machine has its own scenarios.</strong> The simulator and the stand-in each
+hold an active scenario set, so the stand-in can run a set of errors while the
+simulator runs the clean model. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">--target</span> <span class="pre">standin</span> <span class="pre">&lt;names&gt;</span></code>
+replaces the stand-in’s set and <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">va</span></code> the simulator’s; without
+<code class="docutils literal notranslate"><span class="pre">--target</span></code> the command acts on the deployment’s own target. The logbook and
+the stored archive follow the simulator’s set, so a set applied to the
+stand-in changes its telemetry and nothing stored.</p>
 <p>On a laptop the second container is a real cost: a second simulator runs for
 the life of the deployment. Delete the line when the rehearsal is over.</p>
 <div class="admonition seealso">

@@ -554,6 +554,17 @@ sigma that is a fraction of the reading.</p></td>
 readings serve without drift, couplings or noise; readout faults
 still apply.</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">start</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> puts the scenario in the start set of every simulator
+instance the deployment runs: the set an instance that has never
+been given one starts in.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">start_on</span></code></p></td>
+<td><p>The simulator instances whose start set holds the scenario, a list of
+<code class="docutils literal notranslate"><span class="pre">va</span></code> and <code class="docutils literal notranslate"><span class="pre">standin</span></code>: <code class="docutils literal notranslate"><span class="pre">start_on:</span> <span class="pre">[standin]</span></code> starts it on the live
+stand-in alone. A scenario states <code class="docutils literal notranslate"><span class="pre">start</span></code> or <code class="docutils literal notranslate"><span class="pre">start_on</span></code>, not both.
+An instance the deployment does not run is no error.</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">sessions</span></code></p></td>
 <td><p>Past agent sessions, <code class="docutils literal notranslate"><span class="pre">[{slug,</span> <span class="pre">title,</span> <span class="pre">when,</span> <span class="pre">parts}]</span></code>. Each part has
 a <code class="docutils literal notranslate"><span class="pre">title</span></code> and <code class="docutils literal notranslate"><span class="pre">turns</span></code>; a <code class="docutils literal notranslate"><span class="pre">/clear</span></code> starts the next part. A turn

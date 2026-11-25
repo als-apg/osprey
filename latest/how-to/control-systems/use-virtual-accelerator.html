@@ -726,18 +726,48 @@ facility wrote there — so <code class="docutils literal notranslate"><span cla
 runs beside it. <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">standin</span></code> moves the deployment onto the stand-in;
 <code class="docutils literal notranslate"><span class="pre">control_target_set</span> <span class="pre">live</span></code> from there walks the real go-live path, gates and
 all.</p>
-<p>The two simulated machines run one image over one simulator view. The
-stand-in carries no errors of its own: it exists to rehearse the live safety
-posture, not different physics. The two machines are told apart by a write to
+<p>The two simulated machines run one image over one simulator view, so both
+serve the same channels and the same models. Each holds an active scenario set
+of its own. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (<code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> or <code class="docutils literal notranslate"><span class="pre">live_standin</span></code>). The label stays honest:
 the banner reads <code class="docutils literal notranslate"><span class="pre">Rehearsal</span> <span class="pre">—</span> <span class="pre">nothing</span> <span class="pre">moves</span></code> and the Web Terminal’s header
 chip reads <em>Rehearsal</em>.
 <a class="reference internal" href="switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> has the ritual itself.</p>
-<p><strong>Scenarios reach both machines.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> writes one scenario file
-and both containers poll it, so a scenario changes the world rather than one
-lane. There is no scenario that applies to the simulator but not to the stand-in,
-and switching targets does not undo one.</p>
+<p><strong>Each machine has its own scenarios.</strong> The simulator is the <code class="docutils literal notranslate"><span class="pre">va</span></code> instance
+and the stand-in the <code class="docutils literal notranslate"><span class="pre">standin</span></code> instance, and each polls a scenario file of
+its own. So the stand-in can run a set of errors while the simulator runs the
+clean model, which is what a commissioning rehearsal needs: the model you
+correct with on one side, the machine that disagrees with it on the other.</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">--target</span> <span class="pre">standin</span> <span class="pre">&lt;names&gt;</span></code> replaces the stand-in’s set,
+<code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">va</span></code> the simulator’s. Without <code class="docutils literal notranslate"><span class="pre">--target</span></code> the command acts on
+the deployment’s own target when the deployment runs that instance, else on
+<code class="docutils literal notranslate"><span class="pre">va</span></code>, and its output names the instance.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span> <span class="pre">--target</span> <span class="pre">standin</span></code> marks the stand-in’s active set, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span></code> prints the active set of the target it reports on.</p></li>
+<li><p>A scenario file states where it starts: <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> on every instance,
+<code class="docutils literal notranslate"><span class="pre">start_on:</span> <span class="pre">[standin]</span></code> on the stand-in alone
+(<a class="reference internal" href="../../reference/configuration/scenario-files.html#reference-scenario-files"><span class="std std-ref">Scenario files</span></a>).</p></li>
+<li><p>The logbook, the stored archive and the example sessions follow the <code class="docutils literal notranslate"><span class="pre">va</span></code>
+set. A set applied to the stand-in changes its telemetry and nothing stored.
+On a deployment whose own target is the stand-in, that is what a plain
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> does; <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">va</span></code> changes the set the stored data
+follows.</p></li>
+</ul>
+<p>Switching targets changes neither set.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Until instances had sets of their own, both containers read the one
+scenario file, and a deployment rendered then still mounts it into both.
+The split takes effect when the deployment is built again: run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, then <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. That <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> gives a stand-in
+that was already running its own start set, copies nothing, and prints one
+line that names the set it followed and the command that puts it back.
+Until the build, both instances follow the <code class="docutils literal notranslate"><span class="pre">va</span></code> set: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> say so, and <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">standin</span></code> is refused with the
+two commands to run.</p>
+</div>
 <p><strong>The archive belongs to the machine.</strong> The store this deployment seeds and
 records is the simulator’s, with or without a stand-in. The recorder samples
 the virtual accelerator, and the seeded past is the simulator’s own history.
@@ -979,7 +1009,8 @@ are not a target: events of several scenarios on one channel combine, so
 <section id="what-a-switch-does-to-the-running-simulator">
 <h3>What a switch does to the running simulator<a class="headerlink" href="#what-a-switch-does-to-the-running-simulator" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">&lt;scenario&gt;</span></code> works the same in both venues (<a class="reference internal" href="#two-venues">Two venues</a>).
-It writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file,
+It writes the project’s <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/active_scenarios</span></code> file
+(<code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation/standin/active_scenarios</span></code> for the stand-in’s set),
 and the simulator re-reads the file on its next pass (<code class="docutils literal notranslate"><span class="pre">simulation.tick_s</span></code>,
 1 s by default). The machine then starts again at the new set’s start state:
 setpoints written during the session are dropped, served and in process alike.</p>
@@ -988,7 +1019,8 @@ setpoints written during the session are dropped, served and in process alike.</
 <li><p>the render’s data root, <code class="docutils literal notranslate"><span class="pre">build/data</span></code>: read-only, holding the simulator view
 the build writes, rebuilt on every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>;</p></li>
 <li><p>the scenario state directory, <code class="docutils literal notranslate"><span class="pre">var/agent_data/simulation</span></code>: written by
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system runs.</p></li>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> while the system runs. The stand-in’s container mounts
+its own, the <code class="docutils literal notranslate"><span class="pre">standin/</span></code> directory inside it.</p></li>
 </ul>
 <p>Both mounts are automatic for the deployed service.</p>
 </section>

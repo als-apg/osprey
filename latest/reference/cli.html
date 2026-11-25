@@ -1759,12 +1759,21 @@ a build with no simulator view, exits 1 with <code class="docutils literal notra
 take <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code>; without it, the nearest <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> at or above
 the current directory is used.</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print one line per scenario of the view, sorted by name:
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span> <span class="pre">[--target</span> <span class="pre">&lt;va|standin&gt;]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print one line per scenario of the view, sorted by name:
 <code class="docutils literal notranslate"><span class="pre">&lt;marker&gt;</span> <span class="pre">&lt;name&gt;</span>&#160; <span class="pre">(logbook:</span> <span class="pre">yes|no)</span></code>, where the marker is <code class="docutils literal notranslate"><span class="pre">*</span></code> for a
 scenario in the active set and a space otherwise, and <code class="docutils literal notranslate"><span class="pre">logbook</span></code> says
 whether the scenario narrates logbook entries. The scenario’s description
 follows on its own indented line when it has one. <code class="docutils literal notranslate"><span class="pre">nominal</span></code> is always in
-the active set.</p>
+the active set. Each simulator instance has an active set of its own:
+<code class="docutils literal notranslate"><span class="pre">--target</span></code> names whose is marked, <code class="docutils literal notranslate"><span class="pre">va</span></code> or <code class="docutils literal notranslate"><span class="pre">standin</span></code> (the live
+stand-in), and defaults to the deployment’s own target when the deployment
+runs that instance, else <code class="docutils literal notranslate"><span class="pre">va</span></code>. When <code class="docutils literal notranslate"><span class="pre">--target</span></code> is given, or the
+deployment runs both instances, a first line <code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">set</span> <span class="pre">of</span> <span class="pre">&lt;target&gt;:</span></code>
+names it. <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">standin</span></code> on a deployment that runs no stand-in exits
+1. On a render made before instances had sets of their own, both follow the
+<code class="docutils literal notranslate"><span class="pre">va</span></code> set until <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> are run: the first line
+is <code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">set</span> <span class="pre">of</span> <span class="pre">both</span> <span class="pre">simulator</span> <span class="pre">instances:</span></code>, and <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">standin</span></code>
+exits 1 naming the two commands.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">status</span> <span class="pre">[--target</span> <span class="pre">&lt;live|va|standin&gt;]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Print one <code class="docutils literal notranslate"><span class="pre">&lt;model&gt;:</span> <span class="pre">&lt;status&gt;</span></code> line per served physics model, sorted by
 name, where the status is <code class="docutils literal notranslate"><span class="pre">ok</span></code>, <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">deck</span></code> for a model that names no deck
@@ -1778,9 +1787,12 @@ target to report on and defaults to the deployment’s own; a target the
 deployment does not configure exits 1. With the simulator served in process
 the status comes from the composite this process holds; on any other target it
 is read from the model’s status channel, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>,
-through that target’s connector.</p>
+through that target’s connector. On a deployment that runs both simulator
+instances, a line <code class="docutils literal notranslate"><span class="pre">active</span> <span class="pre">scenarios</span> <span class="pre">on</span> <span class="pre">&lt;target&gt;:</span> <span class="pre">&lt;names&gt;</span></code> comes first
+when the target is one of them (<code class="docutils literal notranslate"><span class="pre">on</span> <span class="pre">both</span> <span class="pre">simulator</span> <span class="pre">instances</span></code> while the
+render still shares one set between them).</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">NAMES...</span> <span class="pre">[--no-seed]</span> <span class="pre">[--no-seed-logbook]</span> <span class="pre">[--no-seed-archiver]</span> <span class="pre">[--yes]</span> <span class="pre">[--now</span> <span class="pre">ISO8601]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Make <code class="docutils literal notranslate"><span class="pre">NAMES</span></code> the active scenario set, with <code class="docutils literal notranslate"><span class="pre">nominal</span></code> always included,
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">NAMES...</span> <span class="pre">[--target</span> <span class="pre">&lt;va|standin&gt;]</span> <span class="pre">[--no-seed]</span> <span class="pre">[--no-seed-logbook]</span> <span class="pre">[--no-seed-archiver]</span> <span class="pre">[--yes]</span> <span class="pre">[--now</span> <span class="pre">ISO8601]</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Make <code class="docutils literal notranslate"><span class="pre">NAMES</span></code> the active scenario set, with <code class="docutils literal notranslate"><span class="pre">nominal</span></code> always included,
 and seed their stored data: the ARIEL logbook is purged and reseeded from
 the set’s logbook entries, and the affected windows of the stored archive
 are rewritten from the set’s archiver events. The set is judged on the
@@ -1792,11 +1804,21 @@ confirmation prompts before the purge and the archive rewrite. <code class="docu
 freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
 dates are reproducible; a naive value takes the facility timezone, and the
 <code class="docutils literal notranslate"><span class="pre">OSPREY_SIM_NOW</span></code> environment variable is read when the option is absent.
-It never adds or removes the scenario sessions a first deploy laid down.</p>
+It never adds or removes the scenario sessions a first deploy laid down.
+<code class="docutils literal notranslate"><span class="pre">--target</span></code> names the simulator instance whose set is replaced, with the
+default <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">list</span></code> has; the other instance keeps its set. The
+stored data follows the <code class="docutils literal notranslate"><span class="pre">va</span></code> set: on <code class="docutils literal notranslate"><span class="pre">standin</span></code> the command changes
+telemetry only, seeds nothing whatever the flags, and says so. That is
+also what the command does without <code class="docutils literal notranslate"><span class="pre">--target</span></code> on a deployment whose own
+target is the stand-in; <code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">va</span></code> changes the set the stored data
+follows. While the render still shares one set between both instances,
+the command changes that set, says both follow it, and refuses
+<code class="docutils literal notranslate"><span class="pre">--target</span> <span class="pre">standin</span></code>.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>sim<span class="w"> </span>list
 osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>rf-thermal<span class="w"> </span>demo-history
+osprey<span class="w"> </span>sim<span class="w"> </span>apply<span class="w"> </span>--target<span class="w"> </span>standin<span class="w"> </span>rf-thermal
 osprey<span class="w"> </span>sim<span class="w"> </span>status
 </pre></div>
 </div>
