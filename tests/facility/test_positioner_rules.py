@@ -205,3 +205,132 @@ def test_two_setpoints_naming_one_start_command_stop_the_build(tmp_path: Path) -
         "Q1:TRIM name too; fix: each start command starts one setpoint; give Q1:VERNIER its own "
         "command",
     ]
+
+
+# --- the command that stops a positioner's move ------------------------------
+
+
+def _stopping(**changes: dict[str, Any]) -> dict[str, Any]:
+    """The positioner tree with ``POSITION`` stopped by ``STOP``; ``changes`` edit by address."""
+    return _tree(**{POSITION: {"started_by": GO, "stopped_by": STOP}, **changes})
+
+
+def test_a_positioner_and_its_stop_command_build(tmp_path: Path) -> None:
+    channels = {channel["id"]: channel for channel in _build(tmp_path, _stopping())["channels"]}
+
+    assert channels[POSITION]["stopped_by"] == STOP
+    assert channels[STOP]["command"] is True
+
+
+def test_a_stopped_by_naming_no_channel_is_reference_missing(tmp_path: Path) -> None:
+    tree = _stopping(**{POSITION: {"started_by": GO, "stopped_by": "Q1:NOWHERE"}})
+
+    assert _stop(tmp_path, tree) == (
+        "facility: reference-missing: channel Q1:SP — records/channels.yaml `stopped_by` names "
+        "channel Q1:NOWHERE, which does not exist; fix: add channel Q1:NOWHERE or correct "
+        "`stopped_by`"
+    )
+
+
+def _on_the_tree(**changes: dict[str, Any]) -> Any:
+    def build(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> str:
+        return _stop(tmp_path, _stopping(**changes))
+
+    return build
+
+
+def _on_the_further_tree(address: str, **stated: Any) -> Any:
+    """The tree of a bounded command ``SETPOINT`` also served as ``FURTHER``, with
+    ``address`` a positioner that ``SETPOINT`` starts, stating ``stated``."""
+
+    def build(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+        tree = _further_tree(monkeypatch)
+        (channel,) = [c for c in tree["records/channels.yaml"] if c["id"] == address]
+        channel.update(stated)
+        return _further_stop(tmp_path, tree)
+
+    return build
+
+
+_POSITIONER = "QF:SP"
+
+#: One case per rule: how the tree is built and stopped, and the message the build stops with.
+_STOP_RULES: dict[str, tuple[Any, str]] = {
+    "a-no-start-command": (
+        _on_the_tree(**{POSITION: {"started_by": None, "stopped_by": STOP}}),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` on a channel that states no "
+        "`started_by`; fix: state `started_by`, or remove `stopped_by`; only a positioner names "
+        "a stop",
+    ),
+    "b-on-a-further-address": (
+        _on_the_further_tree(FURTHER, stopped_by=_POSITIONER),
+        f"facility: command-invalid: channel {FURTHER} — `stopped_by` on {FURTHER}, which "
+        f"wiring record SR/QD:SP states under `also`; fix: state `stopped_by` on {SETPOINT} "
+        "only; it holds under each of its addresses",
+    ),
+    "c-itself": (
+        _on_the_tree(**{POSITION: {"started_by": GO, "stopped_by": POSITION}}),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` names Q1:SP, the setpoint "
+        "itself; fix: name the command that stops Q1:SP's move",
+    ),
+    "c-its-pair": (
+        _on_the_tree(**{POSITION: {"started_by": GO, "stopped_by": READBACK}}),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` names Q1:RB, the setpoint's "
+        "own pair; fix: name the command that stops Q1:SP's move",
+    ),
+    "c-its-start-command": (
+        _on_the_tree(**{POSITION: {"started_by": GO, "stopped_by": GO}}),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` names Q1:GO, the command that "
+        "starts its move; fix: name the command that stops Q1:SP's move",
+    ),
+    "d-no-command": (
+        _on_the_tree(**{POSITION: {"started_by": GO, "stopped_by": "BPM1:X"}}),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` names BPM1:X, which is no "
+        "command; fix: name a command; give BPM1:X a command signal",
+    ),
+    "e-a-further-address": (
+        _on_the_further_tree(_POSITIONER, started_by=SETPOINT, stopped_by=FURTHER),
+        f"facility: command-invalid: channel {_POSITIONER} — `stopped_by` names {FURTHER}, "
+        f"which wiring record SR/QD:SP states under `also`; fix: name {SETPOINT}",
+    ),
+    "f-a-labelled-command": (
+        _on_the_tree(
+            **{STOP: {"value_type": "enum", "options": ["HOLD", "STOP", "ABORT"]}},
+        ),
+        "facility: command-invalid: channel Q1:SP — `stopped_by` names enum channel Q1:STOP; "
+        "fix: name a bool, int or float command; a stop writes it 1",
+    ),
+}
+
+
+@pytest.mark.parametrize("rule", sorted(_STOP_RULES))
+def test_stopped_by_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rule: str) -> None:
+    stopped, message = _STOP_RULES[rule]
+
+    assert stopped(tmp_path, monkeypatch) == message
+
+
+def test_two_positioners_may_share_one_stop_channel(tmp_path: Path) -> None:
+    tree = _stopping()
+    tree["records/channels.yaml"] += [
+        {
+            "id": "Q1:TRIM:GO",
+            "role": "setpoint",
+            "signal": "move_command",
+            "value_type": "bool",
+            "pair": MOVING,
+            "timeout_s": 5.0,
+            "on": {"device": "SR/Q1"},
+        },
+        {
+            "id": "Q1:TRIM",
+            "role": "setpoint",
+            "on": {"device": "SR/Q1"},
+            "started_by": "Q1:TRIM:GO",
+            "stopped_by": STOP,
+        },
+    ]
+
+    channels = {channel["id"]: channel for channel in _build(tmp_path, tree)["channels"]}
+
+    assert channels[POSITION]["stopped_by"] == channels["Q1:TRIM"]["stopped_by"] == STOP

@@ -27,7 +27,7 @@ engine marks ``command``, under each address its record names. A channel whose s
 engine describes without the mark stops (``engine-invalid``). Whatever fires or
 judges a command reads this mark and no rule of its own. With every command
 marked, each command's ``timeout_s`` and its status's ``idle``, and each
-setpoint's ``started_by``, are held to the command rules
+setpoint's ``started_by`` and ``stopped_by``, are held to the command rules
 (:func:`osprey_facility.validate.check_commands`), which stop with
 ``command-invalid``.
 """
