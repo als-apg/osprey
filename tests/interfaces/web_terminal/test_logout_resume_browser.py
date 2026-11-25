@@ -71,11 +71,13 @@ def _put_last_active(base_url: str, key: str) -> None:
     assert response.status_code == 200, response.text
 
 
-def _stored_pointer(page, pointer_key: str) -> str:
-    """The session key the page has stored, once it has stored one."""
+def _stored_pointer(page, pointer_key: str, other_than: str | None = None) -> str:
+    """The session key the page has stored, once it has stored one other than *other_than*."""
     # The page stores its pointer after its connect, which the page-ready mark does not attest. The wait has no budget of its own (0; the per-test timeout is the hang breaker).
     return page.wait_for_function(
-        "(k) => localStorage.getItem(k)", arg=pointer_key, timeout=0
+        "([k, other]) => { const v = localStorage.getItem(k); return v && v !== other ? v : null; }",
+        arg=[pointer_key, other_than],
+        timeout=0,
     ).json_value()
 
 
@@ -174,7 +176,7 @@ def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
         # --- A later login: the server's last-active is resumed ---
         # The server holds the key the cut load minted, so that load's
         # debounced write has landed and cannot overwrite ours.
-        minted = _stored_pointer(page, pointer_key)
+        minted = _stored_pointer(page, pointer_key, other_than=stored_id)
         wait_for_last_active(page, minted)
         _put_last_active(base_url, stored_id)
         with page.expect_websocket() as return_ws:
