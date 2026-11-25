@@ -12,7 +12,7 @@ executor's own (see :ref:`python-executor-secrets-zone`). It does not run
 inside an isolated machine. Code it runs can write anywhere the executor
 process can, apart from the deployment's own sources and render and the
 paths its profile names under the keys the build protects.
-:ref:`python-executor-protected-paths` lists those, and also says plainly how
+:ref:`python-executor-protected-paths` covers those, and also says plainly how
 far that protection goes.
 The OSPREY agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
@@ -476,8 +476,7 @@ applies to code run through the python-executor tools (``execute``,
 mode a run is submitted in, it may not rewrite the deployment that runs it.
 
 Two lists make up what it may not change: a fixed list of names at the
-deployment root, and the paths the protected rows of the build's key table
-name.
+deployment root, and the paths the profile names.
 
 **The fixed list.** These names are protected in every deployment:
 
@@ -509,124 +508,41 @@ name.
 
 **The paths the profile names.** A profile can name locations outside those
 names that the build or a service reads: a plan directory, a CA bundle, a
-registry module, a search corpus, a panel file. Each path-valued key is a row
-of a key table kept with the build, and every row is either protected or
-exempt with a stated reason. ``osprey build`` reads the resolved profile ---
-the ``extends`` chain, the selected host variant and every login file ---
-and writes the paths the protected rows name as one list, ``protected_paths``,
-into every configuration file it renders. The protected rows are:
+registry module, a search corpus, a panel file. ``osprey build`` reads the
+resolved profile --- the ``extends`` chain, the selected host variant and every
+login file --- and writes those paths as one list, ``protected_paths``, into
+every configuration file it renders. That list in ``build/config.yml`` is the
+exact set for a deployment. Keys that name where a run writes its output, such
+as screen captures and plots, are left out, as are ``extra_mounts`` in a login
+file, ``apps.<name>.config`` and ``modules.shared_disk.host_path``.
 
-- the profile's own inputs: ``extends`` files, ``data``, ``machine``,
-  ``dispatch.triggers``, ``services.<name>.template`` and local-path
-  ``dependencies``
-- ``environment.python`` and ``python_env`` (the interpreter file)
-- ``lifecycle.pre_build[].cwd``
-- ``bluesky.plan_dir``, ``bluesky.plan_dirs``, ``bluesky.plan_module`` and
-  ``bluesky.external.parameter_schemas``
-- ``optimizer.environments_dir``
-- ``deploy.host.project_path``, when the deploy host is this host
-- the service settings ``services.<name>.path``, ``services.qmd.models_dir``,
-  ``services.qmd.corpora`` (``source`` and ``index_dir``),
-  ``services.graphdb.ttl_path``, ``services.bluesky.plan_dir``,
-  ``services.bluesky.external.parameter_schema_mounts``,
-  ``services.optimizer.environments_dir`` and
-  ``services.event_dispatcher.additional_dirs``
-- ``registry_path`` (or ``application.registry_path``) and the ``.py``
-  entries of ``health.plugins``
-- ``facility_knowledge.bundle_path``, ``ariel.vocabulary.path``,
-  ``ariel.ingestion.source_url`` when it is a file path, and the qmd export
-  ``mirror_path`` in either spelling
-- ``channel_directory.alarm_state.replay_file`` (other than ``demo:<name>``),
-  the ``phoebus.panels`` files, ``web.panels.canopy.theme_file`` and
-  ``modules.web_terminals.landing.notices``
-- the TLS files: ``images.site_ca``, the ``tls.ca_bundle`` of
-  ``archiver.epics_archiver``, ``archiver.mongodb_archiver``,
-  ``channel_directory.settings`` and
-  ``channel_directory.alarm_state.settings``, ``ariel.ingestion.ca_bundle``
-  and ``modules.web_terminals.tls.host_cert_dir``
-
-A ``services.<name>.path`` or ``services.graphdb.ttl_path`` value that stays
-inside ``build/`` is already covered by the render zone. Besides keys that are
-not paths, are derived by the build, are already confined, or name where a run writes its output
-(screen captures, Phoebus snapshots and plots, simulation state) or a file
-inside another container (the web-terminal TLS cert and key), three keys are
-exempt by decision: ``extra_mounts`` in a login file (the operator states each mount's
-mode and the container enforces it), ``apps.<name>.config`` (its schema belongs
-to the application, so OSPREY does not guess which members are paths) and
-``modules.shared_disk.host_path`` (a shared data disk that is meant to be
-written). Agent code may write anywhere the protected rows and the fixed list
-do not reach.
-
-**What an entry covers.** A directory entry protects its whole tree. A file
-entry protects that file only; its neighbours stay writable. Removing, renaming
-or moving a directory that contains a protected location is refused, as is
-moving or linking a prepared directory onto the missing parent of one. Creating
-that parent is allowed. A protected location that does not exist yet is
-protected all the same: in a repo with no ``apps/`` directory, creating one is
-exactly the write to refuse. An entry keeps the profile's spelling; ``~`` and
-``${VAR}`` placeholders are expanded in the executor's environment when a run
-starts.
+**What an entry covers.** A directory entry protects its whole tree; a file
+entry protects that file only. Removing, renaming or moving a directory that
+contains a protected location is refused. A protected location that does not
+exist yet is protected all the same: in a repo with no ``apps/`` directory,
+creating one is exactly the write to refuse.
 
 **A deployment without the list.** The list reaches the executor only through
-the build output. A deployment whose rendered ``config.yml`` lacks the list,
-carries it malformed, or cannot be read --- a build made before the list
-existed, for example --- cannot have its profile-named paths protected. The
-python-executor tools then run no agent code at all and say: run
-``osprey build``. This refusal is not a refused write: it is audited with its
-own reason, ``no_protected_paths``, and raises its own alert. ``osprey up``
-and ``osprey restart`` refuse to start such a build and name ``osprey build``;
-``osprey up --as-built`` starts it anyway, with the warning that the python
-executor refuses agent code until ``osprey build``. ``osprey status``,
-``osprey chat`` and ``osprey query`` report the same state. The executor reads
-the list once per run, from the configuration file rather than a cache, so a
-rebuild takes effect at the next run without a restart. Outside a deployment
-(a project root with no ``profile.yml``) a missing list is not refused: the
-loaded configuration's list is used when it carries a well-formed one, and the
-fixed list applies as everywhere.
-
-**How a new key is decided.** A test walks the profile schema --- the profile
-fields, the top-level profile keys and the keys a login file may state --- and
-fails when a field that can hold a string is neither in one of the build's
-path tables nor exempt with a reason. A check on the configuration key
-manifest fails when a key whose name or default looks like a path carries no
-``path: protect`` or ``path: exempt`` decision, or when the keys marked
-``protect`` differ from the build's table. At build time, a path-shaped value
-stated under a configuration key no table decides produces a warning naming
-the key; the build continues and that path is not protected. Two gaps remain:
-members of free-form mappings the schema test does not walk, and a path stated
-under an undecided key in a form that does not look like a path, which
-produces no warning.
+the build output. When the rendered ``config.yml`` lacks it --- a build made
+before the list existed, for example --- the python-executor tools run no agent
+code and say: run ``osprey build``. The refusal is audited with its own reason,
+``no_protected_paths``. ``osprey up`` and ``osprey restart`` refuse to start
+such a build; ``osprey up --as-built`` starts it with a warning. The executor
+reads the list once per run, so a rebuild takes effect at the next run without
+a restart.
 
 **Limits.** These are known and not covered:
 
-- ``environment.python`` and ``python_env`` protect the interpreter file, not
-  its library tree.
-- ``ariel.ingestion.source_url`` protects the file only, not the
-  ``attachments/`` directory beside it.
-- Application settings (``apps.<name>.config``) are not read for paths. A
-  service setting no row names is not protected; a path-shaped value there
-  gets the same build warning as any undecided key.
-- ``health.plugins`` entries that are not ``.py`` paths (dotted module names)
-  are not protected.
-- A registry module chosen through ``REGISTRY_PATH``, or a Bluesky plan module
-  chosen through an environment variable, is not covered; only the
-  profile-stated value is.
-- An entry naming the deployment root or one of its ancestors is never
-  protected as a tree: a local package there contributes its
-  ``pyproject.toml`` only, a working directory there contributes nothing, and
-  ``osprey build`` prints a note naming the key.
-- An absolute host path is protected at that path. Code running inside a
-  container sees the host location only where it is mounted, under the
-  container's own path, and the entry does not follow it there.
-- An entry whose placeholder is unset when the run starts, or that lands inside
-  the agent data zone, protects nothing; the executor logs a warning once per
-  entry. A protected path the profile states inside the agent data zone is
-  refused at build, naming the key and the path.
-- An undecided path-shaped value is only warned about at build; it is not
-  protected.
 - Notebook cells run in a kernel, not through the executor, and the
   executor's file refusals do not bind it
   (:ref:`architecture-safety-chain-residual`).
+- An absolute host path is protected at that path. Code running inside a
+  container sees the host location under the container's own path, and the
+  entry does not follow it there.
+- A path stated under a configuration key the build has not decided is only
+  warned about at build, naming the key; it is not protected.
+- ``environment.python`` and ``python_env`` protect the interpreter file, not
+  its library tree.
 
 This boundary is about locations, wherever inside them a path lands. A
 companion boundary, :ref:`the protected set <config-protected-set>`, closes
