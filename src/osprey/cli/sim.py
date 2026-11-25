@@ -13,7 +13,9 @@ are genuinely different files:
   ``data/simulator/`` that every command reads;
 - the repo root anchors ``var/agent_data/simulation/``, where the mutable
   active-scenario state lives, because a scenario switch has to survive
-  ``osprey build`` wiping the render;
+  ``osprey build`` wiping the render; each simulator instance holds a set of
+  its own there, and ``--target`` names whose (see
+  :mod:`osprey.simulation.targets`);
 - the repo root also holds the ``.env`` the stored archive's password is read
   from.
 """
@@ -29,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from osprey.cli import output
+from osprey.simulation.targets import SIMULATOR_TARGETS
 from osprey_connectors.config import load_config
 from osprey_connectors.logger import get_logger
 from osprey_connectors.types import CONTROL_TARGETS
@@ -112,6 +115,50 @@ def _resolve_deployment(repo: Path | None) -> tuple[Path, dict]:
         raise SystemExit(1)
     click.get_current_context().with_resource(config_anchored_at(config_path))
     return repo_root, load_config(str(config_path))
+
+
+#: ``--target`` of the commands that read or write a scenario set.
+_target_option = click.option(
+    "--target",
+    type=click.Choice(SIMULATOR_TARGETS),
+    default=None,
+    help=(
+        "The simulator instance whose scenario set is meant: va, or standin for the "
+        "live stand-in. Defaults to the deployment's own target when that is one of "
+        "the two, else va."
+    ),
+)
+
+
+def _resolve_sim_target(config: dict, target: str | None) -> tuple[str, bool]:
+    """The simulator target a command acts on, and whether its lines name it.
+
+    A command that names none acts on the deployment's own target. The lines
+    name the target when the caller did, or when the deployment runs more than
+    one simulator instance; a deployment with one prints what it always did.
+
+    Exits with the fix when the target is ``standin`` on a deployment that runs
+    no stand-in: a set written there would be read by nothing.
+    """
+    from osprey.simulation.targets import (
+        SIMULATOR_SERVICES,
+        default_simulator_target,
+        deployed_simulator_targets,
+    )
+    from osprey_connectors.types import TARGET_STANDIN, TARGET_VA
+
+    deployed = deployed_simulator_targets(config)
+    resolved = default_simulator_target(config) if target is None else target
+    if resolved == TARGET_STANDIN and TARGET_STANDIN not in deployed:
+        output.fail(
+            "This deployment runs no live stand-in",
+            f"`{SIMULATOR_SERVICES[TARGET_STANDIN]}` is not one of its deployed services, "
+            "so no simulator instance reads that scenario set.",
+            f"use --target {TARGET_VA}, or state `virtual_accelerator.live_standin: true` in "
+            "the profile and run 'osprey build'",
+        )
+        raise SystemExit(1)
+    return resolved, target is not None or len(deployed) > 1
 
 
 def _require_simulator_view(repo_root: Path) -> SimulatorView:
@@ -217,15 +264,22 @@ def sim_group() -> None:
 
 @sim_group.command("list")
 @repo_option
-def list_command(repo: Path | None) -> None:
-    """List available scenarios (the active set is marked with *)."""
-    from osprey_connectors.simulation.state import read_active_state, resolve_active_scenarios
-    from osprey_connectors.workspace import resolve_simulation_state_dir
+@_target_option
+def list_command(repo: Path | None, target: str | None) -> None:
+    """List available scenarios (the active set is marked with *).
+
+    Each simulator instance has an active set of its own; --target names whose
+    is marked.
+    """
+    from osprey.simulation.apply import active_scenarios
+    from osprey_connectors.simulation.state import resolve_active_scenarios
 
     repo_root, config = _resolve_deployment(repo)
     view = _require_simulator_view(repo_root)
-    names, _ = read_active_state(resolve_simulation_state_dir(config, repo_root))
-    active = set(resolve_active_scenarios(names))
+    target, named = _resolve_sim_target(config, target)
+    active = set(resolve_active_scenarios(active_scenarios(config, repo_root, target)))
+    if named:
+        output.report(f"active set of {target}:")
     for scenario in view.scenarios():
         name = str(scenario["name"])
         marker = "*" if name in active else " "
@@ -280,6 +334,7 @@ def status_command(repo: Path | None, target: str | None) -> None:
         else dict(view.status_addresses())
     )
     statuses = asyncio.run(target_model_statuses(section, target, models, addresses))
+    _report_active_set(config, repo_root, connector_type)
     failed: list[str] = []
     for model in models:
         output.report(f"{model}: {format_model_status(statuses[model])}")
@@ -293,6 +348,23 @@ def status_command(repo: Path | None, target: str | None) -> None:
         _report_logs(logs, models, connector_type in STANDIN_TYPES)
     if failed:
         raise SystemExit(1)
+
+
+def _report_active_set(config: dict, repo_root: Path, connector_type: str) -> None:
+    """Print the active scenario set of the simulator instance a connector type reaches.
+
+    Nothing is printed for a target that is no simulator instance, or on a
+    deployment that runs one instance and so has one set to speak of.
+    """
+    from osprey.simulation.apply import active_scenarios
+    from osprey.simulation.targets import SIMULATOR_SERVICES, deployed_simulator_targets
+    from osprey_connectors.simulation.state import resolve_active_scenarios
+
+    target = next((t for t, service in SIMULATOR_SERVICES.items() if service == connector_type), "")
+    if not target or len(deployed_simulator_targets(config)) < 2:
+        return
+    active = resolve_active_scenarios(active_scenarios(config, repo_root, target))
+    output.report(f"active scenarios on {target}: {', '.join(active)}")
 
 
 def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
@@ -318,6 +390,7 @@ def _report_logs(logs: Path, models: list[str], standin: bool) -> None:
 @click.option("--no-seed-logbook", is_flag=True, help="Leave the logbook database untouched.")
 @click.option("--no-seed-archiver", is_flag=True, help="Leave the stored archive untouched.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompts.")
+@_target_option
 @click.option(
     "--now",
     "now_iso",
@@ -338,6 +411,7 @@ def apply_command(
     no_seed_logbook: bool,
     no_seed_archiver: bool,
     yes: bool,
+    target: str | None,
     now_iso: str | None,
 ) -> None:
     """Activate scenarios NAMES and seed their stored data.
@@ -347,22 +421,31 @@ def apply_command(
     archive, so the narrative and the history both match the active telemetry.
     Use --no-seed-logbook or --no-seed-archiver to leave one of them alone, or
     --no-seed for both.
+
+    Each simulator instance has an active set of its own, and --target names
+    whose is replaced. The stored data follows the va instance: a set applied
+    to the stand-in changes its telemetry and nothing stored.
     """
     from osprey.simulation.apply import (
         apply_scenarios,
         preflight_archive_rewrite,
         require_view_scenarios,
     )
+    from osprey.simulation.targets import HISTORY_TARGET
     from osprey_connectors.simulation.state import (
         resolve_active_scenarios,
         scenario_targets,
         validate_composition,
     )
 
-    seed_logbook = not (no_seed or no_seed_logbook)
-    seed_archive = not (no_seed or no_seed_archiver)
     repo_root, config = _resolve_deployment(repo)
     _require_simulator_view(repo_root)
+    target, named = _resolve_sim_target(config, target)
+    # The stored data follows one instance's set, so a set applied to the
+    # other is never seeded, whatever the flags say.
+    telemetry_only = target != HISTORY_TARGET
+    seed_logbook = not (no_seed or no_seed_logbook or telemetry_only)
+    seed_archive = not (no_seed or no_seed_archiver or telemetry_only)
     # After the deployment resolves, never before: a naive --now is stamped with
     # the facility timezone, and that zone is only knowable once this repo's
     # render is the config being read.
@@ -423,6 +506,7 @@ def apply_command(
         result = apply_scenarios(
             repo_root,
             list(names),
+            target=target,
             seed_logbook=seed_logbook,
             seed_archive=seed_archive,
             now=now,
@@ -449,7 +533,14 @@ def apply_command(
             raise SystemExit(1) from None
         raise
 
-    output.report("✓ Active scenarios: " + ", ".join(result.active))
+    on = f" on {target}" if named else ""
+    output.report(f"✓ Active scenarios{on}: " + ", ".join(result.active))
+    if telemetry_only:
+        output.note(
+            f"(telemetry only: the logbook and the stored archive follow {HISTORY_TARGET} "
+            "and were not touched)"
+        )
+        return
     if not seed_logbook:
         output.note("(logbook unchanged)")
     elif result.logbook_seeded:
