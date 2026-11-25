@@ -9,9 +9,11 @@ a response nor revives one that ended.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import json
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -321,10 +323,44 @@ EDGE_FOR_S = 0.3
 EDGE_CEILING_S = 20 * EDGE_TICK_S
 
 
+class WallClock:
+    """The real clock, which :meth:`held_still` stops while a write runs.
+
+    A write starts its response, journals itself (an fsync) and only then
+    tells its subscribers; on a stalled runner the fsync alone can outlast
+    ``EDGE_FOR_S`` and end the response before the rising edge is looked for.
+    """
+
+    def __init__(self) -> None:
+        self.still: float | None = None
+
+    def __call__(self) -> float:
+        return time.time() if self.still is None else self.still
+
+    @contextlib.contextmanager
+    def held_still(self) -> Iterator[None]:
+        self.still = time.time()
+        try:
+            yield
+        finally:
+            self.still = None
+
+
+@pytest.fixture
+def wall_clock(monkeypatch: pytest.MonkeyPatch) -> WallClock:
+    """The one clock every connector's simulator is built with, the real one."""
+    injected = WallClock()
+    monkeypatch.setattr(
+        composite_module, "Composite", functools.partial(composite_module.Composite, clock=injected)
+    )
+    return injected
+
+
 @pytest.fixture
 async def ticking(
     tmp_path: Path,
     writes_on: None,  # noqa: ARG001 - a fixture, used for its effect
+    wall_clock: WallClock,  # noqa: ARG001 - built with it
 ) -> Any:
     """A connector on the real clock, ticking every ``EDGE_TICK_S``."""
     connector = VAInProcessConnector()
@@ -338,9 +374,13 @@ async def ticking(
     await connector.disconnect()
 
 
-async def _edges(connector: VAInProcessConnector) -> tuple[list[object], list[float], float]:
+async def _edges(
+    connector: VAInProcessConnector, clock: WallClock
+) -> tuple[list[object], list[float], float]:
     """Subscribe to the status, write its command, wait for the falling edge.
 
+    The clock stands still from the write to the rising edge's check, so the
+    response cannot end inside the write; the falling edge comes on a tick.
     Returns the values the subscriber saw, when each arrived, and when the
     write began, in ``time.monotonic`` seconds.
     """
@@ -357,24 +397,27 @@ async def _edges(connector: VAInProcessConnector) -> tuple[list[object], list[fl
     await connector.subscribe(STATUS, callback)
     assert seen == [DONE], "the current value, sent on subscribing"
     written = time.monotonic()
-    await connector.write_channel(MOVE, 1, confirm=False)
-    assert seen == [DONE, MOVING], "the rising edge, sent with the write"
+    with clock.held_still():
+        await connector.write_channel(MOVE, 1, confirm=False)
+        assert seen == [DONE, MOVING], "the rising edge, sent with the write"
     await asyncio.wait_for(done.wait(), timeout=EDGE_FOR_S + EDGE_TICK_S + EDGE_CEILING_S)
     return seen, arrived, written
 
 
 @pytest.mark.wallclock
 async def test_a_subscriber_sees_the_idle_then_the_non_idle_then_the_idle_edge(
-    ticking: VAInProcessConnector,
+    ticking: VAInProcessConnector, wall_clock: WallClock
 ) -> None:
-    seen, arrived, written = await _edges(ticking)
+    seen, arrived, written = await _edges(ticking, wall_clock)
 
     assert seen == [DONE, MOVING, DONE]
     assert EDGE_FOR_S <= arrived[2] - written <= EDGE_FOR_S + EDGE_TICK_S + EDGE_CEILING_S
 
 
 @pytest.mark.wallclock
-async def test_a_read_agrees_with_the_last_edge(ticking: VAInProcessConnector) -> None:
-    seen, _arrived, _written = await _edges(ticking)
+async def test_a_read_agrees_with_the_last_edge(
+    ticking: VAInProcessConnector, wall_clock: WallClock
+) -> None:
+    seen, _arrived, _written = await _edges(ticking, wall_clock)
 
     assert await _read(ticking, STATUS) == seen[-1] == DONE
