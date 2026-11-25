@@ -968,11 +968,12 @@ class _References:
                 yield from self._missing(
                     "channel", address, files, "pair", "channel", channel["pair"]
                 )
-            if "started_by" in channel:
-                files = stating_files(channel, "started_by")
-                yield from self._missing(
-                    "channel", address, files, "started_by", "channel", channel["started_by"]
-                )
+            for slot in ("started_by", "stopped_by"):
+                if slot in channel:
+                    files = stating_files(channel, slot)
+                    yield from self._missing(
+                        "channel", address, files, slot, "channel", channel[slot]
+                    )
             for device in channel.get("endpoint_of") or []:
                 files = stating_files(channel, "endpoint_of")
                 yield from self._missing("channel", address, files, "endpoint_of", "device", device)
@@ -1268,7 +1269,11 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     A setpoint that states ``started_by`` names, by its record's address, a
     bool, int or float command other than itself and its pair, which states
     ``timeout_s``, whose status states ``idle``, and which no other setpoint
-    names; these stop with ``command-invalid``. Runs once commands are marked.
+    names; these stop with ``command-invalid``. A setpoint that states
+    ``started_by`` may state ``stopped_by``: by its record's address, a bool,
+    int or float command other than itself, its pair and its start command;
+    several setpoints may name one. ``stopped_by`` without ``started_by``
+    stops with ``command-invalid`` too. Runs once commands are marked.
 
     Args:
         document: The combined document, its commands marked ``command: true``.
@@ -1336,6 +1341,7 @@ class _Records:
             if isinstance(seed, dict) and isinstance(seed.get("responds"), dict):
                 yield from self._responds(address, channel, status_of, idle_refused=idle_refused)
         yield from self._started_by(status_of)
+        yield from self._stopped_by(status_of)
         for record in self.index.limits:
             address = str(record.get("address"))
             own = further[address][1] if address in further else address
@@ -1550,6 +1556,57 @@ class _Records:
                     f"`started_by` names {command}, which {', '.join(others)} "
                     f"{'names' if len(others) == 1 else 'name'} too",
                     f"each start command starts one setpoint; give {address} its own command",
+                )
+
+    def _stopped_by(self, status_of: Mapping[str, str]) -> Iterator[FacilityBuildError]:
+        """A positioner's ``stopped_by`` names a command that stops its move.
+
+        Only a setpoint that states ``started_by`` states it. The command is
+        named by its record's address, is a bool, int or float channel, and is
+        neither the setpoint, its pair nor its start command; several setpoints
+        may name one. A further address states no ``stopped_by``;
+        :func:`check_records` stops one that does.
+        """
+        for address, channel in sorted(self.index.channels.items()):
+            if "stopped_by" not in channel or address in self._further:
+                continue
+            command = str(channel["stopped_by"])
+            files = stating_files(channel, "stopped_by")
+
+            def stop(
+                detail: str, remedy: str, address: str = address, files: list[str] = files
+            ) -> FacilityBuildError:
+                return self._error("command-invalid", "channel", address, files, detail, remedy)
+
+            own_move = f"name the command that stops {address}'s move"
+            if "started_by" not in channel:
+                yield stop(
+                    "`stopped_by` on a channel that states no `started_by`",
+                    "state `started_by`, or remove `stopped_by`; only a positioner names a stop",
+                )
+            elif command == address:
+                yield stop(f"`stopped_by` names {command}, the setpoint itself", own_move)
+            elif command == channel.get("pair"):
+                yield stop(f"`stopped_by` names {command}, the setpoint's own pair", own_move)
+            elif command == str(channel["started_by"]):
+                yield stop(
+                    f"`stopped_by` names {command}, the command that starts its move", own_move
+                )
+            elif command in self._further:
+                wid, own = self._further[command]
+                yield stop(
+                    f"`stopped_by` names {command}, which wiring record {wid} states under `also`",
+                    f"name {own}",
+                )
+            elif command not in status_of:
+                yield stop(
+                    f"`stopped_by` names {command}, which is no command",
+                    f"name a command; give {command} a command signal",
+                )
+            elif (value_type := self._type(command)) not in _START_TYPES:
+                yield stop(
+                    f"`stopped_by` names {value_type} channel {command}",
+                    "name a bool, int or float command; a stop writes it 1",
                 )
 
     def _idle(
