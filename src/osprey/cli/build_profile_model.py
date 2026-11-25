@@ -564,7 +564,7 @@ class BuildProfile:
     """The deployment's watchdogs (``watchdogs:``), as the author spelled them.
 
     A name-keyed map, empty for a profile that declares none. Each watchdog's
-    files live in ``watchdogs/<name>/`` beside the profile; the block's rules are
+    files live in ``agent/watchdogs/<name>/``; the block's rules are
     :func:`~osprey.services.watchdog.config.watchdog_errors`'.
     """
     provenance: ProfileProvenance | None = None

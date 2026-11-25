@@ -22,13 +22,13 @@ from pathlib import Path
 
 import yaml
 
-from osprey.repo_layout import child_display_path
+from osprey.repo_layout import display_path
 from osprey.utils.workspace import STATE_DIR_NAME
 from osprey_connectors.workspace import resolve_config_path
 
 #: The reviewer's prompt file, relative to the repo root: inside the code
-#: reviewer's directory of the deployment's data tree.
-DEFAULT_PROMPT = child_display_path("data", "code-review", "reviewer.md")
+#: reviewer's directory.
+DEFAULT_PROMPT = display_path("code_review", "reviewer.md")
 
 #: Seconds one review may take, on either surface.
 DEFAULT_TIME_LIMIT_S = 60.0

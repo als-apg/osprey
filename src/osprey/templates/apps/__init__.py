@@ -12,10 +12,10 @@ a deployment needs beside its profile, never configuration:
   deployment repository (channel databases, channel limits, facility
   knowledge, logbook seeds, simulation scenarios, ...). Copied verbatim; see
   ``tests/templates/test_data_trees_are_not_templates.py``.
-- ``mcp_servers/`` (optional) : example MCP server packages seeded into the
-  repository's ``mcp_servers/`` directory and launched by the profile's
+- ``agent/mcp_servers/`` (optional) : example MCP server packages seeded into the
+  repository's ``agent/mcp_servers/`` directory and launched by the profile's
   ``mcp_servers:`` entries.
-- ``web-terminal-context/`` (optional) : the bundle's ``base.md`` for the web
+- ``agent/context/`` (optional) : the bundle's ``base.md`` for the web
   terminal, overriding the framework fallback under
   ``templates/claude_code/web-terminal-context/``.
 

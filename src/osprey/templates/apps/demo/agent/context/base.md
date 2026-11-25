@@ -2,7 +2,7 @@
 
 You are the OSPREY control-room assistant for this facility. This context is
 seeded into every web-terminal user's session; per-user additions live in
-`web-terminal-context/<user>/extra.md` in the deployment repository.
+`agent/context/<user>/extra.md` in the deployment repository.
 
 ## Ground rules
 

@@ -2203,7 +2203,7 @@ def _framework_hook_filenames() -> frozenset[str]:
 def _declared_hook_filename(ref: str, event: str) -> str:
     """Validate one declared hook reference and return the bare filename.
 
-    A declaration names a file the profile ships through its ``hooks/`` channel,
+    A declaration names a file the profile ships through its ``agent/hooks/`` channel,
     so the only two accepted spellings are the filename itself
     (``facility_guard.py``) and the channel-qualified form the exclusion and
     ownership vocabularies already use (``hooks/facility_guard.py``). Anything
@@ -2216,13 +2216,13 @@ def _declared_hook_filename(ref: str, event: str) -> str:
     if not text:
         raise BuildProfileError(
             f"claude_code.hooks.{event} contains an empty hook reference. Name the "
-            f"file the profile ships in its hooks/ directory, e.g.:\n{_DECLARED_HOOK_EXAMPLE}"
+            f"file the profile ships in its agent/hooks/ directory, e.g.:\n{_DECLARED_HOOK_EXAMPLE}"
         )
 
     def _refuse(reason: str) -> BuildProfileError:
         return BuildProfileError(
             f"claude_code.hooks.{event} declares {text!r}: {reason}. A declaration may "
-            "only name a hook the profile ships through its hooks/ channel, as "
+            "only name a hook the profile ships through its agent/hooks/ channel, as "
             "'facility_guard.py' or 'hooks/facility_guard.py'."
         )
 
@@ -2247,7 +2247,7 @@ def _declared_hook_filename(ref: str, event: str) -> str:
 def _build_declared_hook_rules(config: dict, project_dir: Path) -> dict[str, list[dict]]:
     """Resolve the profile's declared custom-hook wiring into settings.json rules.
 
-    Shipping a hook through the ``hooks/`` channel copies it into
+    Shipping a hook through the ``agent/hooks/`` channel copies it into
     ``.claude/hooks/``; it does not make Claude Code run it. ``claude_code.hooks``
     is the declaration that does — a config key, so it resolves through the same
     pipeline as ``claude_code.servers`` and ``claude_code.permissions``: render
@@ -2397,7 +2397,7 @@ def _vet_declared_hook(
     if name not in shipped:
         raise BuildProfileError(
             f"claude_code.hooks.{event} declares {name!r}, which the resolved "
-            "profile does not ship. Either add it to the profile's hooks/ "
+            "profile does not ship. Either add it to the profile's agent/hooks/ "
             f"directory, or — if a render excludes 'hooks/{name}' — unwire it "
             "in that same delta by adding this line to the render's `config:`:"
             f"\n    claude_code.hooks.{event}: null\n"
@@ -2913,7 +2913,7 @@ def create_claude_code_integration(
     # Create-only, and auto-registered as user-owned, so a re-render never
     # overwrites what an operator wrote. This is the path for a render with no
     # profile behind it: a deployment's facility description lives in the
-    # profile's own `rules/` convention directory, and the build says so with
+    # profile's own `agent/rules/` convention directory, and the build says so with
     # `profile_owns_facility_rule` — rendering a second copy here would leave
     # the operator two files and no way to tell which one the agent reads.
     facility_md = project_dir / ".claude" / "rules" / "facility.md"

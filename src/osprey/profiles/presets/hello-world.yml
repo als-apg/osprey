@@ -84,7 +84,7 @@ web_panels: []   # Extra tabs in the web workspace, beside the terminal
 # or just port to derive http://localhost:<port>/mcp). transport defaults to
 # "http"; "sse" is the legacy event-stream wire and needs an explicit url.
 mcp_servers:
-  # A Python server's package lives at mcp_servers/<package>/ beside this file;
+  # A Python server's package lives at agent/mcp_servers/<package>/ beside this file;
   # the build copies it to build/_mcp_servers/<package>/ for `-m <package>`.
   example_server:
     command: "{current_python_env}"
@@ -96,7 +96,7 @@ mcp_servers:
     # prompts the operator on every call.
     permissions:
       allow: [example_status]
-  # Delete this block and mcp_servers/example_server/ together: one without
+  # Delete this block and agent/mcp_servers/example_server/ together: one without
   # the other costs every session a 20 s wait for a server that cannot start.
   # Editing either is a source change, not a build tweak: rebuild afterwards,
   # since the directory enters the image context and the drift fingerprint.

@@ -1,4 +1,4 @@
-"""The packaged data files a preset materializes into a profile's ``data/``.
+"""The packaged files a preset materializes into a profile's ``data/`` and beside it.
 
 A preset names two packaged sources: an app template (``app_template:``,
 ``templates/apps/<name>/``) and a bundled facility (``facility:``,
@@ -6,8 +6,8 @@ A preset names two packaged sources: an app template (``app_template:``,
 no preset; it lands in the profile at ``data/facility/``, beside the app
 template's own ``data/`` tree, so the operator's layout is the same whichever
 preset produced it. The starter reviewer prompt (``templates/code_review/``) is
-owned by no preset either: every composition lands it at
-``data/code_review/reviewer.md``, and no preset names it.
+owned by no preset either: every composition lands it in the code reviewer's
+directory (``agent/code_review/reviewer.md``), and no preset names it.
 
 :class:`PresetData` is that one composition. Everything that reads a preset's
 packaged data — ``osprey init`` materializing a profile, ``osprey scaffold
@@ -36,12 +36,11 @@ FACILITY_DATA_DIRNAME = repo_layout.child("data", "facility").path
 #: The starter reviewer prompt under the template root.
 _STARTER_PROMPT_TEMPLATE = "code_review/reviewer.md"
 
-#: Where the starter reviewer prompt lands inside ``data/``: the code reviewer's
-#: directory there. ``osprey.services.code_review.settings.DEFAULT_PROMPT``
-#: points at the same file from the repo root.
-STARTER_PROMPT_PATH = (
-    f"{repo_layout.child('data', 'code-review').path}/"
-    f"{PurePosixPath(_STARTER_PROMPT_TEMPLATE).name}"
+#: Where the starter reviewer prompt lands, relative to the repo root: the code
+#: reviewer's directory. ``osprey.services.code_review.settings.DEFAULT_PROMPT``
+#: names the same file.
+STARTER_PROMPT_PATH = repo_layout.display_path(
+    "code_review", PurePosixPath(_STARTER_PROMPT_TEMPLATE).name
 )
 
 
@@ -50,9 +49,14 @@ def _data_dir(root: Path) -> Path:
     return root / repo_layout.entry("data").path
 
 
+def _data_path(relative: str) -> str:
+    """*relative*, a path inside the data tree, as the repo root names it."""
+    return repo_layout.display_path("data", relative)
+
+
 @dataclass(frozen=True)
 class PresetData:
-    """One preset's packaged data: an app template's ``data/`` plus its facility.
+    """One preset's packaged data: an app template's ``data/``, its facility, the starter prompt.
 
     Attributes:
         app_root: The app template directory (``templates/apps/<name>``). Its
@@ -61,8 +65,8 @@ class PresetData:
             (``templates/facilities/<name>``), landed at ``data/facility/``;
             ``None`` when the preset names no facility.
         starter_prompt: The packaged starter reviewer prompt, landed at
-            :data:`STARTER_PROMPT_PATH` inside ``data/``; ``None`` for a bare
-            tree that was not composed from a preset.
+            :data:`STARTER_PROMPT_PATH`; ``None`` for a bare tree that was not
+            composed from a preset.
     """
 
     app_root: Path
@@ -75,13 +79,13 @@ class PresetData:
         return _data_dir(self.app_root)
 
     def placed_files(self) -> dict[str, Path]:
-        """The files that land in ``data/`` from outside the app template's ``data/``.
+        """The files that land in the repo from outside the app template's ``data/``.
 
-        The facility's files, at ``facility/<path>``, and the starter reviewer
-        prompt at :data:`STARTER_PROMPT_PATH`.
+        The facility's files, at ``data/facility/<path>``, and the starter
+        reviewer prompt at :data:`STARTER_PROMPT_PATH`.
 
         Returns:
-            Data-relative POSIX path -> the packaged file it is copied from,
+            Repo-relative POSIX path -> the packaged file it is copied from,
             sorted by path.
         """
         files: dict[str, Path] = {}
@@ -89,29 +93,31 @@ class PresetData:
             for path in sorted(self.facility_root.rglob("*")):
                 if path.is_file():
                     relative = path.relative_to(self.facility_root).as_posix()
-                    files[f"{FACILITY_DATA_DIRNAME}/{relative}"] = path
+                    files[_data_path(f"{FACILITY_DATA_DIRNAME}/{relative}")] = path
         if self.starter_prompt is not None:
             files[STARTER_PROMPT_PATH] = self.starter_prompt
         return dict(sorted(files.items()))
 
     def copy_into(
         self,
-        destination: Path,
+        repo_root: Path,
         ignore: Callable[[str, list[str]], set[str]] | None = None,
     ) -> None:
-        """Write the composed ``data/`` tree at *destination*, which must not exist.
+        """Write the composition into *repo_root*, whose ``data/`` must not exist.
 
         The app template's ``data/`` is copied as it stands (filtered by
         *ignore*, a :func:`shutil.copytree` ignore callable), then every
-        :meth:`placed_files` entry lands beside it, byte-identical.
+        :meth:`placed_files` entry lands at its repo-relative path,
+        byte-identical.
         """
         placed = self.placed_files()
+        destination = _data_dir(repo_root)
         if self.app_data.is_dir():
             shutil.copytree(self.app_data, destination, ignore=ignore)
         else:
             destination.mkdir(parents=True)
         for relative, source in placed.items():
-            target = destination / relative
+            target = repo_root.joinpath(*relative.split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
 
@@ -184,10 +190,9 @@ def compose_preset_data(template_root: Path, app_template: str, facility: str | 
     """
     app_root = app_template_root(template_root, app_template)
     starter = starter_prompt_path(template_root)
-    if (_data_dir(app_root) / STARTER_PROMPT_PATH).exists():
+    if app_root.joinpath(*STARTER_PROMPT_PATH.split("/")).exists():
         raise BuildProfileError(
-            f"App template {app_template!r} ships "
-            f"{repo_layout.display_path('data', STARTER_PROMPT_PATH)}, where every "
+            f"App template {app_template!r} ships {STARTER_PROMPT_PATH}, where every "
             f"preset lands the starter reviewer prompt: remove the app template's copy."
         )
     if facility is None:

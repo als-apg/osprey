@@ -244,7 +244,7 @@ keys:
   # Read uncached from the rendered file by osprey.services.code_review.settings.
   code_review.enabled: {rendered: false, evidence: 'code_review\.enabled must be', default: false}
   code_review.level: {rendered: false, evidence: 'code_review\.level must be', default: block}
-  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: data/code_review/reviewer.md}
+  code_review.prompt: {rendered: false, evidence: 'code_review\.prompt must be', default: agent/code_review/reviewer.md}
   code_review.modes: {rendered: false, evidence: 'code_review\.modes must be', default: [readwrite]}
   code_review.time_limit: {rendered: false, evidence: 'code_review\.time_limit must be', default: 60.0}
   deployment.port_base:
@@ -2273,9 +2273,9 @@ keys:
       framework's channel-finder, data-visualizer, facility-knowledge,
       facility-knowledge-graph, logbook-deep-research, logbook-search and
       pyat-specialist, plus any agent the deployment defines under
-      claude_code.agents or ships in agents/, so the leaves are data. The build
-      refuses a key that names no agent, and a pin on an agent whose own
-      agents/<name>.md names another model.
+      claude_code.agents or ships in agent/agents/, so the leaves are data. The
+      build refuses a key that names no agent, and a pin on an agent whose own
+      agent/agents/<name>.md names another model.
     default: derived
     default_note: every agent runs the deployment's main model
   claude_code.servers:

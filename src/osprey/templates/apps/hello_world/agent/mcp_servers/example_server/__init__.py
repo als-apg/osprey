@@ -1,6 +1,6 @@
 """The hello-world preset's worked example of a facility MCP server.
 
-This package is seeded into a deployment repository's ``mcp_servers/`` directory
+This package is seeded into a deployment repository's ``agent/mcp_servers/`` directory
 the first time ``osprey init`` runs with the hello-world preset. From there
 ``osprey build`` copies it to ``build/_mcp_servers/example_server/``, and the
 profile's ``mcp_servers:`` entry launches it as ``python -m example_server`` with

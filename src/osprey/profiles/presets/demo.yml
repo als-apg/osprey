@@ -201,7 +201,7 @@ agent_record:
 # ── Watchdogs ────────────────────────────────────────────────────────────────
 # Independent judges of each prompt, off until you turn them on. This one sends
 # the session to an outside model, so read the how-to before setting `enabled`.
-# Its instructions are in watchdogs/guard-circumvention/instructions.md.
+# Its instructions are in agent/watchdogs/guard-circumvention/instructions.md.
 watchdogs:
   guard-circumvention:
     engine: decision
