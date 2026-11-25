@@ -14,10 +14,10 @@
       {
         "key": "agent/mcp_servers/",
         "label": "convention:mcp_servers",
-        "digest": "72e20c6d85aa37b14817615911be979a2940085c0371ca85be95914585709098"
+        "digest": "b114bd3f0234a577c3fee6dedef252d098e4dc7b0b75f945e65a41670dd2ce8d"
       }
     ],
-    "profile_hash": "sha256:f9954eee4160b73a3ba843487e0c99968e0583ed26b7a2a5831e38c071542a6b",
+    "profile_hash": "sha256:c72b4343b3405b9feab58c0907f7bae4c155db485344da6833d402fc292f2aa7",
     "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
   },
   "demo": {
