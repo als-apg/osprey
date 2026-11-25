@@ -35,9 +35,10 @@ module gives each plan run its own, the way an optimizer run holds one:
    *replacement* request: the steps still unspent plus more, and every range
    widened to the value in hand. A person approves the whole scope going
    forward, never a bare increment. The new grant is named for the next write;
-   the old one is no longer renewed, so its lease lapses. At most
-   :data:`MAX_EXTENSIONS` replacements per run; past that the write goes to the
-   connector and is refused.
+   the old one is no longer renewed, so its lease lapses. A person is asked
+   for at most :data:`MAX_EXTENSIONS` replacements per run; past that a
+   replacement is still issued while the switch is at ``allowed``, where it
+   asks nobody, and otherwise the write goes to the connector and is refused.
 
 A denial, an expiry of the wait, or a run aborted while it waits ends the
 plan with :class:`WriteAuthorizationError` and leaves the machine where it
@@ -82,7 +83,7 @@ POLL_S = 2.0
 LEASE_S = 60.0
 #: How long a grant stands from its issue. An extension issues a fresh one.
 EXPIRES_S = 2 * 3600.0
-#: Replacement requests one run may file.
+#: Replacement requests one run may put to a person. Self-issued ones do not count.
 MAX_EXTENSIONS = 3
 #: The fewest steps an extension for an exhausted budget asks for.
 EXTRA_STEPS_FLOOR = 10
@@ -279,6 +280,7 @@ class PlanAuthorization:
         self.target: str | None = None
         self.grant: Any = None
         self.spent = 0
+        #: Replacements a person was asked for.
         self.extensions = 0
         #: ``True`` once the run was found to need no authorization (switch off).
         self.ungoverned = False
@@ -290,11 +292,13 @@ class PlanAuthorization:
     # -- acquiring ------------------------------------------------------------
 
     def acquire(
-        self, ranges: dict[str, list[float]], steps: int, *, label: str
-    ) -> Generator[Any, Any, None]:
+        self, ranges: dict[str, list[float]], steps: int, *, label: str, ask: bool = True
+    ) -> Generator[Any, Any, bool]:
         """Hold a grant for *ranges* and *steps*: self-issued at ``allowed``, asked for below.
 
         At ``off`` nothing is issued or asked and :attr:`ungoverned` is set.
+        With *ask* false, at ``asked`` nothing is filed and the grant held
+        stays. Returns whether a request was filed for a person.
         """
         from osprey_connectors import write_authorization as wa
 
@@ -324,11 +328,16 @@ class PlanAuthorization:
         except wa.AuthorizationRefused as refused:
             if refused.reason == "switch_off":
                 self.ungoverned = True
-                return
+                return False
             if refused.reason != "auth_revoked":
                 raise WriteAuthorizationError(refused.reason, str(refused)) from refused
+            if not ask:
+                return False
             grant = yield from self._ask(channels, steps, expires_at_ns, label)
+            self._hold(grant)
+            return True
         self._hold(grant)
+        return False
 
     def _ask(
         self,
@@ -505,18 +514,7 @@ class PlanAuthorization:
                 return
         reason = _shortfall(self.grant, self.spent, address, number)
         if reason is not None:
-            if self.extensions >= MAX_EXTENSIONS:
-                logger.warning(
-                    "Plan %s: write authorization %s refuses %s (%s) and the run has used its "
-                    "%d extensions",
-                    self.plan_name,
-                    self.grant.id,
-                    address,
-                    reason,
-                    MAX_EXTENSIONS,
-                )
-            else:
-                yield from self._extend(address, number, reason)
+            yield from self._extend(address, number, reason)
         self.spent += 1
 
     def _extend(self, address: str, value: float, reason: str) -> Generator[Any, Any, None]:
@@ -530,12 +528,24 @@ class PlanAuthorization:
         # the steps still unspent.
         unspent = max(old.steps - self.spent, 0)
         steps = unspent + max(EXTRA_STEPS_FLOOR, old.steps // 2)
-        self.extensions += 1
         label = (
             f"bluesky {self.plan_name}: extends {old.id[:8]} ({reason}; {self.spent} of "
             f"{old.steps} spent; {address} = {value:g})"
         )
-        yield from self.acquire(ranges, steps, label=label)
+        may_ask = self.extensions < MAX_EXTENSIONS
+        asked = yield from self.acquire(ranges, steps, label=label, ask=may_ask)
+        if asked:
+            self.extensions += 1
+        elif not may_ask and self.grant is old and not self.ungoverned:
+            logger.warning(
+                "Plan %s: write authorization %s refuses %s (%s) and the run has asked for its "
+                "%d replacements",
+                self.plan_name,
+                old.id,
+                address,
+                reason,
+                MAX_EXTENSIONS,
+            )
 
     # -- the end --------------------------------------------------------------
 

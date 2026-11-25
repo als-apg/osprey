@@ -442,6 +442,52 @@ def test_turning_writes_to_allowed_while_a_run_waits_issues_its_own_grant(
     assert grant.approver.surface == wa.SELF_ISSUE_SURFACE
 
 
+# --- the cap on replacements binds only what a person is asked ---------------
+
+
+def _creeping(devices: Any, params: Any) -> Iterator[Any]:
+    """Step through the points, then keep going one past wherever the quad reads."""
+    quad = devices[params.quad]
+    yield from _scan(devices, params)
+    for _ in range(write_grant.MAX_EXTENSIONS + 2):
+        reading = yield Msg("read", quad)
+        if reading is None:
+            return
+        yield from bps.mv(quad, reading[quad.name]["value"] + 1.0)
+
+
+def test_at_asked_a_run_stops_asking_after_its_last_replacement(person: _Person) -> None:
+    connector = _Connector()
+
+    with pytest.raises(FailedStatus):
+        _run(_creeping, connector)
+
+    # Nothing moves during the survey, so its reads say 0.0 and it sees only
+    # 1.0 past the scan. For real the quad reads 3.0 and creeps to 4.0, 5.0
+    # and 6.0, one replacement each; 7.0 is refused by the connector.
+    assert connector.writes == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    assert len(person.seen) == 1 + write_grant.MAX_EXTENSIONS
+
+
+def test_at_allowed_a_run_replaces_its_own_grant_past_the_cap(
+    ledger: Path, tmp_path: Path, person: _Person
+) -> None:
+    write_control_context(tmp_path / "root", target=TARGET, switch={TARGET: "allowed"})
+    connector = _Connector()
+
+    _run(_creeping, connector)
+
+    assert connector.writes == [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    assert person.seen == []
+    grants = [
+        wa._parse_grant(path.read_text())
+        for path in ledger.glob("*.json")
+        if not path.name.endswith(".ledger.json")
+    ]
+    assert len(grants) == 1 + write_grant.MAX_EXTENSIONS + 2
+    assert {grant.approver.surface for grant in grants} == {wa.SELF_ISSUE_SURFACE}
+
+
 # --- a boolean is the 0/1 it stands for --------------------------------------
 
 
