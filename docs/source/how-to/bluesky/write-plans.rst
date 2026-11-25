@@ -187,6 +187,7 @@ mounts that file unchanged.
          status: ES1:MOT:STAGE:01:STATUS:MOVE
          idle: DONE
          timeout_s: 10.0
+       stopped_by: ES1:MOT:STAGE:01:STOP:SP
        unit: mm
    triggerables:
      - name: ES1:DET:MCA:01:ACQUIRE:SP
@@ -215,7 +216,8 @@ The file has three lists:
   status never leaves ``idle`` and the readback already sits at the target,
   the move is done. When the readback is elsewhere, or the positioner has no
   separate readback, the move fails: the start had no effect. The command is
-  no device of its own.
+  no device of its own, and neither is the command it names as
+  ``stopped_by``.
 - **Triggerables** are commands a plan fires and waits for. There is one per
   command whose status states ``idle`` and which states ``timeout_s``; such a
   command is no settable. A plan triggers it and never sets it, and it records
@@ -273,8 +275,10 @@ and the plan aborts. pyAML measurement steps wait for their readbacks by the
 same rule, without the floor.
 
 Pausing or aborting a run cancels a positioner's unfinished move: nothing more
-is written to it. A stage already moving finishes the move by itself. A run
-paused mid-move fails when resumed.
+of the move is written to it. A positioner that states ``stopped_by`` has it
+written; when the stop is refused or fails the run ends with an error naming
+the positioner, which may still be moving. A stage without one finishes the
+move by itself. A run paused mid-move fails when resumed.
 
 The build warns:
 
@@ -338,8 +342,8 @@ used to surface mid-plan, as a connection error out of the first read, with
 setpoints already applied. The worker now asks that question one message
 earlier. Before the plan is constructed, the worker probes every address the
 run's declared devices touch: each setpoint, each readback, each recorded
-channel, and each command a plan fires or a positioner starts with, with its
-status. It probes on that lane's own connector, and refuses the run if any
+channel, and each command a plan fires or a positioner starts or stops with,
+with its status. It probes on that lane's own connector, and refuses the run if any
 address does not answer.
 
 .. code-block:: text
@@ -426,8 +430,10 @@ says it once, and everything reads the same answer.
 **What the approval prompt states.** The hazard line is this launch's own
 walk, with the parameters about to be queued: how many values it writes to how
 many channels, or that it writes nothing. Every write is listed per channel
-with its value and its count, and the trajectory lists the moves. A plan that
-branches on its readings is walked with no readings.
+with its value and its count, and the trajectory lists the moves. A second
+list, **May be written if the run stops mid-move**, names each positioner's
+stop command and its value. A plan that branches on its readings is walked with
+no readings.
 
 .. raw:: html
    :file: ../../_diagrams/plan-parameter-marking.html

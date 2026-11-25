@@ -185,6 +185,12 @@ command starts, such as a stage's target and its GO, names the command as
        ``idle``, and no other setpoint names it. In the simulation the
        setpoint's readback moves when the command is written; on a setpoint a
        served model wires the build stops.
+   * - ``stopped_by``
+     - On a setpoint that states ``started_by``: the command that stops its
+       move. A run that stops while the move is unfinished writes it 1, as the
+       run's owner, through the same checks as every write; several setpoints
+       may share one. A stop that resets itself states ``confirm: false`` on
+       its limits record.
    * - ``on``
      - The one device or place the channel belongs to, ``{device: <id>}`` or
        ``{place: <id>}``. Absent, the channel belongs to nothing.
