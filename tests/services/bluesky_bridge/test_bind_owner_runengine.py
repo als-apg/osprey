@@ -32,12 +32,13 @@ than the account the process runs as.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-from bluesky import RunEngine
+from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
 from bluesky.utils import FailedStatus
@@ -45,12 +46,15 @@ from pydantic import BaseModel, ConfigDict
 
 from osprey.services.bluesky_bridge import qserver_startup
 from osprey.services.bluesky_bridge.devices.connector import (
+    PRESS_VALUE,
+    ConnectorPositioner,
     ConnectorSettable,
     ConnectorTriggerable,
 )
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.command import CommandAct
 from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.posture_store import (
     NO_OWNER,
@@ -435,3 +439,86 @@ def test_a_trigger_write_is_decided_for_the_bound_owner(
     assert [(address, value) for address, value, _kwargs in connector.write_calls] == [
         (_COMMAND, 1)
     ]
+
+
+# --- a positioner's stop, for the owner of the move -------------------------
+
+_MOVE = "ES1:STAGE:MOVE"
+_MOVE_STATUS = "ES1:STAGE:MOVE_STATUS"
+_STOP = "ES1:STAGE:STOP"
+
+
+class _StageConnector(_GatedConnector):
+    """The gated connector with a stage: its start command's status leaves idle
+    and never returns, so a move stays unfinished until it is stopped."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.readbacks[_MOVE_STATUS] = 0
+        self.responses[_MOVE] = (_MOVE_STATUS, [1])
+        self.started = asyncio.Event()
+
+    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
+        result = await super().write_channel_checked(channel_address, value, **kwargs)
+        if channel_address == _MOVE:
+            self.started.set()
+        return result
+
+
+def _stage(connector: _StageConnector) -> ConnectorPositioner:
+    return ConnectorPositioner(
+        connector,
+        _CHANNEL,
+        started_by=CommandAct(_MOVE, _MOVE_STATUS, 0, 30.0),
+        stopped_by=_STOP,
+        name=_DEVICE_NAME,
+    )
+
+
+def _a_move_left_unfinished(
+    positioner: ConnectorPositioner, connector: _StageConnector, then: Callable[[], None]
+) -> Iterator[Any]:
+    """Start a move as the owner, call ``then`` once its start is written, and end the plan.
+
+    The binding is reset when the plan ends, before the RunEngine stops what
+    the run moved.
+    """
+    with posture_store.bind_owner({RESERVED_OWNER_KWARG: _OWNER}):
+        yield from bps.abs_set(positioner, _SETPOINT)
+        yield Msg("wait_for", None, [connector.started.wait])
+        then()
+
+
+def test_the_stop_is_written_as_the_owner_of_the_move(control_context_tree: Path) -> None:
+    record_for(control_context_tree, _OWNER, on=True)
+    connector = _StageConnector()
+    positioner = _stage(connector)
+
+    RunEngine(context_managers=[])(_a_move_left_unfinished(positioner, connector, lambda: None))
+
+    assert current_owner() is NO_OWNER
+    assert connector.write_owners == [_OWNER, _OWNER, _OWNER]
+    assert connector.write_calls[-1] == (_STOP, PRESS_VALUE, {})
+    assert positioner.stop_outcome is not None
+    assert positioner.stop_outcome.state == "written"
+
+
+def test_a_stop_refused_by_the_owners_switch_is_kept_as_the_outcome(
+    control_context_tree: Path,
+) -> None:
+    record_for(control_context_tree, _OWNER, on=True)
+    connector = _StageConnector()
+    positioner = _stage(connector)
+
+    RunEngine(context_managers=[])(
+        _a_move_left_unfinished(
+            positioner, connector, lambda: turn_off_for(control_context_tree, _OWNER)
+        )
+    )
+
+    assert connector.write_owners == [_OWNER, _OWNER, _OWNER]
+    assert [address for address, _value, _kwargs in connector.write_calls] == [_CHANNEL, _MOVE]
+    outcome = positioner.stop_outcome
+    assert outcome is not None
+    assert outcome.state == "refused"
+    assert outcome.reason is not None and "switch_off" in outcome.reason
