@@ -14,7 +14,7 @@
 # makes re-emission safe, so a file without it is treated as hand-written and
 # left alone unless you pass --force.
 #
-# Facility-specific jobs go in ci-extra.yml, which this pipeline includes. That
+# Facility-specific jobs go in {{ ci_extra_path }}, which this pipeline includes. That
 # file is yours — the scaffolder creates it once and never writes it again.
 #
 # Project-level CI/CD variables this pipeline reads (Settings -> CI/CD ->
@@ -50,10 +50,10 @@ include:
   # Facility-owned jobs. They run beside everything below and lose on every key
   # this file sets. Guarded by `exists` so a repo that deleted the file still
   # has a valid pipeline.
-  - local: ci-extra.yml
+  - local: {{ ci_extra_path }}
     rules:
       - exists:
-          - ci-extra.yml
+          - {{ ci_extra_path }}
 
 stages:
   - validate
@@ -122,7 +122,7 @@ render-build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
-    - docker build {% if ctx.image_platform %}--platform {{ ctx.image_platform }} {% endif %}{% if ctx.base_registry %}--build-arg OSPREY_BASE_REGISTRY={{ ctx.base_registry }} {% endif %}-t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "services/$SERVICE"
+    - docker build {% if ctx.image_platform %}--platform {{ ctx.image_platform }} {% endif %}{% if ctx.base_registry %}--build-arg OSPREY_BASE_REGISTRY={{ ctx.base_registry }} {% endif %}-t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "{{ services_dir }}/$SERVICE"
     - docker push "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA"
     # :latest is what the deploy host pulls, so it moves only on the default
     # branch — a feature branch can build and push an image without any

@@ -20,12 +20,12 @@ full. The executable is resolved through a helper that reads the machine, so
 every test here freezes it: a unit whose contents depend on the developer's
 PATH is a unit nobody can pin.
 
-*The instruction.* The unit is written to the repo root and takes effect from
+*The instruction.* The unit is written to the repo's ``ops/`` and takes effect from
 ``~/.config/systemd/user/``, so the verb's output is the only thing standing
 between "emitted" and "installed".
 
 *The pair.* The verb emits two files with independent histories — the unit, and
-the boot hook under ``scripts/`` — and the printing has to keep them apart. A
+the boot hook under ``ops/scripts/`` — and the printing has to keep them apart. A
 hand-written hook is a refusal, but it is not a reason to stop telling an
 operator how to install the unit they did just get.
 """
@@ -97,13 +97,13 @@ def hook_of(repo: Path) -> Path:
 # ── What it writes, and where ────────────────────────────────────────────────
 
 
-def test_the_unit_lands_at_the_repo_root(runner: CliRunner, repo: Path) -> None:
+def test_the_unit_lands_under_ops(runner: CliRunner, repo: Path) -> None:
     result = emit(runner, repo)
 
     assert result.exit_code == 0, result.output
     unit = unit_of(repo)
     assert unit.is_file()
-    assert unit.name == "osprey.service"
+    assert unit == repo / "ops" / "osprey.service"
     assert f"osprey-scaffold: {SYSTEMD_MARKER}" in unit.read_text(encoding="utf-8")
 
 
@@ -143,13 +143,13 @@ def test_no_temporary_file_is_left_behind(runner: CliRunner, repo: Path) -> None
 
 
 def test_the_hook_lands_under_scripts(runner: CliRunner, repo: Path) -> None:
-    """One run, two files: the unit at the root and the hook beside it."""
+    """One run, two files: the unit under ops/ and the hook in ops/scripts/."""
     result = emit(runner, repo)
 
     assert result.exit_code == 0, result.output
     hook = hook_of(repo)
     assert hook.is_file()
-    assert hook.parent == repo / "scripts"
+    assert hook.parent == repo / "ops" / "scripts"
     assert hook.name == "osprey-boot-hook.sh"
     assert f"osprey-scaffold: {BOOT_HOOK_MARKER}" in hook.read_text(encoding="utf-8")
 

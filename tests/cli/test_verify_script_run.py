@@ -1,6 +1,6 @@
 """The emitted health check, run.
 
-``test_emitted_artifacts_clean`` holds ``scripts/verify.sh`` to its
+``test_emitted_artifacts_clean`` holds ``ops/scripts/verify.sh`` to its
 hand-authored specification byte for byte, which pins what the script says. A
 byte comparison cannot say what the script does when it runs: that it lists
 the compose project the deployment record names, with the runtime the record
@@ -97,7 +97,7 @@ def _record(script: Path, runtime: str = "docker", project: str | None = None) -
     ``project`` defaults to the name the repo's directory resolves to. Returns
     the recorded project.
     """
-    repo = script.parents[1]
+    repo = script.parents[VERIFY_PATH.count("/")]
     project = project or resolve_project_name({"project_root": str(repo)})
     write_deployment_record(repo, DeploymentRecord(runtime, project))
     return project
@@ -154,7 +154,7 @@ def _run(
     and on a loaded host each spawn can take a second.
     """
     assert _BASH, "bash must be on PATH"
-    log = script.parents[1].parent / "stub.log"
+    log = script.parents[VERIFY_PATH.count("/")].parent / "stub.log"
     log.write_text("", encoding="utf-8")
     result = subprocess.run(
         [_BASH, str(script), *args],
@@ -164,7 +164,7 @@ def _run(
             "STUB_PS": str(listing),
             **env,
         },
-        cwd=script.parents[1],
+        cwd=script.parents[VERIFY_PATH.count("/")],
         capture_output=True,
         text=True,
         timeout=300,
@@ -330,7 +330,7 @@ def test_an_unreadable_record_is_named_and_is_not_called_undeployed(
     tmp_path: Path, script: Path, document: str
 ) -> None:
     """A record that is there but cannot be read is its own finding, and nothing is probed."""
-    path = script.parents[1] / DEPLOYMENT_RECORD_RELPATH
+    path = script.parents[VERIFY_PATH.count("/")] / DEPLOYMENT_RECORD_RELPATH
     path.parent.mkdir(parents=True)
     path.write_text(document, encoding="utf-8")
 

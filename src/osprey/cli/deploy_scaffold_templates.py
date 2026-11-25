@@ -24,7 +24,7 @@ one is passed in at emission time rather than guessed at here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -81,11 +81,15 @@ VERIFY_MARKER: str = "deploy/verify"
 SYSTEMD_MARKER: str = "deploy/systemd"
 BOOT_HOOK_MARKER: str = "deploy/boot-hook"
 
-#: What the emitted unit is called. Fixed rather than chosen at emission time:
-#: the unit's own header tells the operator which file to copy and which name to
-#: pass ``systemctl``, and a name the caller could change is a name that header
-#: could get wrong.
-SYSTEMD_UNIT_NAME: str = entry("osprey.service").path
+#: Where the emitted unit is written, relative to the repo root, and what it is
+#: called. Two values because they answer two questions: the unit's header
+#: tells the operator which FILE to copy (the row's path, wherever it sits in
+#: the repo) and which NAME to pass ``systemctl`` (the file's own name, which is
+#: all systemd knows it by once it is copied into the user unit directory).
+#: Fixed rather than chosen at emission time: a name the caller could change is
+#: a name that header could get wrong.
+SYSTEMD_UNIT_PATH: str = entry("osprey.service").path
+SYSTEMD_UNIT_NAME: str = PurePosixPath(SYSTEMD_UNIT_PATH).name
 
 #: What the emitted boot hook is called, fixed for the same reason the unit's
 #: name is: the script's own header tells the operator the ``@reboot`` line to
@@ -161,6 +165,12 @@ VERIFY_PATH: str = child_display_path("scripts", "verify-script")
 #: first, because a container that is down explains the endpoint failures below it.
 CONTAINERS_GROUP_ID: str = "containers"
 BOOT_HOOK_PATH: str = child_display_path("scripts", "boot-hook")
+#: The facility's own CI file the pipeline includes, and the directory whose
+#: ``<name>/Dockerfile`` subdirectories get an image-build job. Read from the
+#: rows, like every other path above, so the pipeline names the files where
+#: the repo actually keeps them.
+CI_EXTRA_PATH: str = entry("ci-extra.yml").path
+SERVICES_DIR_PATH: str = entry("services").path
 
 #: What ``osprey users env --output`` writes on the deploy host, at the repo
 #: root where compose reads it. Aliased from the writer's own constant rather
@@ -262,7 +272,7 @@ class CIContext:
             for the runner's own.
         runs_verify_on_up: Whether ``osprey up`` runs the health check itself.
             True only with the web tier enabled — the post-up hook that runs
-            ``scripts/verify.sh`` sits on the deploy's web-terminal branch, so
+            ``ops/scripts/verify.sh`` sits on the deploy's web-terminal branch, so
             a backend-only deployment gets no health report unless one is run.
             The pipeline says which of the two it is, and ships no verify job
             either way.
@@ -513,6 +523,9 @@ def render(
         boot_hook_log_dir=BOOT_HOOK_LOG_DIR,
         users_env_name=USERS_ENV_NAME,
         unit_name=SYSTEMD_UNIT_NAME,
+        unit_path=SYSTEMD_UNIT_PATH,
+        ci_extra_path=CI_EXTRA_PATH,
+        services_dir=SERVICES_DIR_PATH,
         docs_url=DEPLOY_DOCS_URL,
         deployment_record=DEPLOYMENT_RECORD_RELPATH.as_posix(),
         record_runtime_key=RUNTIME_KEY,

@@ -188,10 +188,9 @@ def test_profile_owned_service_gets_an_image_job(rendered_ci: str) -> None:
     """The facility's own Dockerfile-carrying service earns a build job."""
     assert "image:facility-mcp:" in rendered_ci
     assert "extends: .service-image" in rendered_ci
-    # The build context is the source zone's own services/, at the repo root —
-    # not a copy under build/, which the render would have to succeed first to
-    # produce.
-    assert '"services/$SERVICE"' in rendered_ci
+    # The build context is the source zone's own ops/services/ — not a copy
+    # under build/, which the render would have to succeed first to produce.
+    assert '"ops/services/$SERVICE"' in rendered_ci
 
 
 def test_packaged_service_directory_gets_no_image_job(
@@ -205,10 +204,11 @@ def test_packaged_service_directory_gets_no_image_job(
     facility's to build.
     """
     profile_dir = tmp_path / "profile"
-    (profile_dir / "services" / "facility-mcp").mkdir(parents=True)
-    (profile_dir / "services" / "facility-mcp" / "Dockerfile").write_text("FROM scratch\n")
-    (profile_dir / "services" / "virtual_accelerator").mkdir(parents=True)
-    (profile_dir / "services" / "virtual_accelerator" / "Dockerfile").write_text("FROM scratch\n")
+    services = profile_dir / "ops" / "services"
+    (services / "facility-mcp").mkdir(parents=True)
+    (services / "facility-mcp" / "Dockerfile").write_text("FROM scratch\n")
+    (services / "virtual_accelerator").mkdir(parents=True)
+    (services / "virtual_accelerator" / "Dockerfile").write_text("FROM scratch\n")
 
     assert service_image_names(exemplar, profile_dir) == ["facility-mcp"]
     rendered = render_ci(exemplar, exemplar_deploy, profile_dir=profile_dir)
@@ -242,7 +242,7 @@ def test_ci_extra_include_is_guarded_by_exists(rendered_ci: str) -> None:
     """The facility's own jobs are included, but a deleted file is not fatal."""
     pipeline = yaml.safe_load(rendered_ci)
     assert pipeline["include"] == [
-        {"local": "ci-extra.yml", "rules": [{"exists": ["ci-extra.yml"]}]}
+        {"local": "ops/ci-extra.yml", "rules": [{"exists": ["ops/ci-extra.yml"]}]}
     ]
 
 
@@ -382,7 +382,7 @@ def test_health_check_drops_the_web_group_when_there_are_no_terminals(
     assert 'PROBE_GROUPS="${SELECTED:-containers services}"' in rendered
     assert "Web terminals" not in rendered
     assert "nginx" not in rendered
-    assert "./scripts/verify.sh containers" in rendered
+    assert "./ops/scripts/verify.sh containers" in rendered
 
 
 def test_health_check_is_advisory(rendered_verify: str) -> None:
@@ -496,7 +496,7 @@ def test_the_exemplar_facility_recipe_pulls_its_base_through_the_base_registry()
     """The facility recipe follows the rule every shipped recipe follows."""
     from tests.deployment.test_service_dockerfiles import _base_registry_violations
 
-    recipe = EXEMPLAR_DIR / "services" / "facility-mcp" / "Dockerfile"
+    recipe = EXEMPLAR_DIR / "ops" / "services" / "facility-mcp" / "Dockerfile"
     assert _base_registry_violations(recipe.read_text(encoding="utf-8")) == []
 
 
@@ -517,7 +517,7 @@ def test_the_exemplar_facility_fragment_hands_its_recipe_the_site_args(
 
     for name in SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
-    source = EXEMPLAR_DIR / "services" / "facility-mcp"
+    source = EXEMPLAR_DIR / "ops" / "services" / "facility-mcp"
     services = tmp_path / "services"
     (services / "facility-mcp").mkdir(parents=True)
     shared = Path(osprey.__file__).parent / "templates" / "services" / "_site_image_args.j2"
