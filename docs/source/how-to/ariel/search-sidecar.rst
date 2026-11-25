@@ -180,6 +180,8 @@ chunks fail on every retry. ``osprey health`` shows each sidecar as one row of
 the ``qmd`` category, with a warning when documents still have no vectors and
 are found by keyword search only.
 
+.. _qmd-add-a-corpus:
+
 Add a corpus
 ------------
 
@@ -221,6 +223,10 @@ A corpus's index comes to exist in one of two ways:
 A relative ``source`` or ``index_dir`` resolves against the deployment repo.
 ``osprey up`` refuses a declared corpus whose path holds nothing to index or
 serve, before anything is built.
+
+An application's backend reads and searches a corpus declared here by listing
+its name under ``containers.<key>.corpora`` in ``app.yml``
+(:ref:`how-to-apps-corpora`).
 
 Sharing the knowledge bundle
 ----------------------------

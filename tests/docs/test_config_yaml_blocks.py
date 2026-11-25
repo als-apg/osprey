@@ -169,6 +169,9 @@ _NOT_CONFIG: dict[tuple[str, str], str] = {
     ("how-to/deploy-project/networking.rst", "services/site_api/docker-compose.yml.j2"): (
         "a compose template with no Jinja markup, rendered by the build"
     ),
+    ("how-to/apps/build-your-own-app.rst", "apps/procedures/app.yml"): (
+        "an application manifest, closed by its own schema"
+    ),
 }
 
 #: Keys a block spells that no manifest entry can declare, keyed by
