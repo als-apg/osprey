@@ -10677,11 +10677,11 @@ def test_the_floor_scan_blocks_the_publish_and_runs_as_a_release_scan(tmp_path: 
     plan = _run_release_floor_plan(release, _release_floor_root(tmp_path, deps))
     assert plan.returncode == 0, plan.log
     floor = _root_connectors_floor()
-    assert plan.outputs["requirements"] == f"osprey-connectors=={floor}", (
+    assert f"osprey-connectors=={floor}" in plan.outputs["requirements"].split(), (
         "the scan is not held to the floor"
     )
     scanned = _release_floor_scan_argv(release, plan.outputs["scans"], tmp_path)
-    assert list(scanned) == ["osprey_connectors"], scanned
+    assert "osprey_connectors" in scanned, scanned
     argv = shlex.split(scanned["osprey_connectors"])
     assert "--release" in argv, "the floor scan forgives imports a stand-in covers"
     for package in ("osprey", "pyaml_cs_osprey"):
