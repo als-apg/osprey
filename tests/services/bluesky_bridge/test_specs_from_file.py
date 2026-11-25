@@ -25,6 +25,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     validate_device_document,
 )
 from osprey.services.bluesky_bridge.devices.specs import DeviceSpecs, TriggerableSpec
+from osprey_connectors.command import CommandAct
 
 _NO_DEVICES = DeviceSpecs([], [], [])
 
@@ -846,3 +847,54 @@ def test_a_triggerable_name_claimed_by_a_settable_is_dropped(tmp_path: Path) -> 
     assert [spec.name for spec in found.settables] == ["ES1:MCA01:ACQ"]
     assert found.triggerables == [] and found.readables == []
     assert len([p for p in validate_device_document(doc) if "already claimed" in p]) == 2
+
+
+# --- a settable's start act --------------------------------------------------
+
+_START_ACT = {
+    "command": "ES1:STAGE:MOVE",
+    "status": "ES1:STAGE:STATUS",
+    "idle": "Done",
+    "timeout_s": 10.0,
+}
+_POSITIONER = {
+    "name": "ES1:STAGE:POS:SP",
+    "setpoint": "ES1:STAGE:POS:SP",
+    "readback": "ES1:STAGE:POS:RB",
+    "started_by": _START_ACT,
+}
+
+
+def test_a_settable_reads_its_start_act(tmp_path: Path) -> None:
+    path = _write(tmp_path, {"settables": [_POSITIONER, {"name": "m", "setpoint": "A:SP"}]})
+
+    positioner, plain = specs_from_file(path).settables
+
+    assert positioner.started_by == CommandAct("ES1:STAGE:MOVE", "ES1:STAGE:STATUS", "Done", 10.0)
+    assert plain.started_by is None
+    assert validate_device_document(yaml.safe_load(path.read_text())) == []
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "ES1:STAGE:MOVE",
+        {key: value for key, value in _START_ACT.items() if key != "status"},
+        {**_START_ACT, "command": ""},
+        {**_START_ACT, "timeout_s": 0},
+    ],
+    ids=["not-a-mapping", "missing-subkey", "empty-address", "non-positive-bound"],
+)
+def test_a_malformed_start_act_is_refused_by_the_build_and_skipped_by_the_loader(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, bad: Any
+) -> None:
+    doc = {"settables": [{**_POSITIONER, "name": "bad", "started_by": bad}, _POSITIONER]}
+    path = _write(tmp_path, doc)
+
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(path)
+
+    assert [spec.name for spec in found.settables] == ["ES1:STAGE:POS:SP"]
+    assert "'bad'" in caplog.text
+    (problem,) = validate_device_document(doc)
+    assert problem.startswith("settables[0]: 'started_by' must be a mapping of")

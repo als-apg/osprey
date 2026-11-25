@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from osprey_connectors.command import CommandAct
+
 
 @dataclass(frozen=True)
 class SettableSpec:
@@ -31,6 +33,11 @@ class SettableSpec:
     (its readback, or its setpoint when it reads that back); ``setpoint_unit``
     is the unit of its setpoint channel when that is a separate channel. Each
     is ``None`` when the facility states none.
+
+    ``started_by`` is the command that starts the move, its status, the
+    status's idle value and the act's bound, for a setpoint the facility moves
+    only once that command is written; ``None`` for a setpoint that moves on
+    its own write.
     """
 
     name: str
@@ -41,6 +48,7 @@ class SettableSpec:
     motion_band: float | None = None
     unit: str | None = None
     setpoint_unit: str | None = None
+    started_by: CommandAct | None = None
 
 
 @dataclass(frozen=True)
