@@ -1,0 +1,1 @@
+A queued plan asks for approval of every write its devices make, a triggered command or a command a move fires as well as a setpoint, so a plan that only triggers waits for approval like one that sets. A plan that does not declare `writes: true` and would write is refused before anybody is asked to approve it (#2892, #2893).
