@@ -26,9 +26,9 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
    cd osprey
 
    # The package versions come from the upstream release tags: the framework's
-   # v* and each component's own osprey-connectors-v*, osprey-facility-v* and
-   # osprey-panels-v* tags. A fork or mirror that lacks them builds those
-   # packages as 0.0.postN.
+   # v* and each component's own osprey-connectors-v* and osprey-facility-v*
+   # tags. A fork or mirror that lacks them builds those packages as
+   # 0.0.postN.
    git remote add upstream https://github.com/als-apg/osprey.git
    git fetch --tags upstream
 

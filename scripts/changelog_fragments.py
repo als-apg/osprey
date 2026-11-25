@@ -88,7 +88,7 @@ Trees
 -----
 The repository keeps one changelog per tag stream it releases on. The
 framework's is ``CHANGELOG.md`` with ``changelog.d/`` at the root, released on
-``v*`` tags. ``osprey-connectors``, ``osprey-facility`` and ``osprey-panels``
+``v*`` tags. ``osprey-connectors`` and ``osprey-facility``
 each keep their own beside their code (``packages/<package>/CHANGELOG.md`` with
 ``packages/<package>/changelog.d/``), released on their own
 ``<package>-v*`` tags. Each pair is a *tree* (``TREES``), and every rule
@@ -182,13 +182,10 @@ FACILITY_TREE = Tree(
     gated=("src/", "pyproject.toml", "README.md"),
     tag_prefix="osprey-facility-v",
 )
-#: What goes into the panels wheel, gated as the connectors' is.
-PANELS_TREE = Tree(
-    root="packages/osprey-panels",
-    gated=("src/", "pyproject.toml", "README.md"),
-    tag_prefix="osprey-panels-v",
-)
-TREES = (FRAMEWORK_TREE, CONNECTORS_TREE, FACILITY_TREE, PANELS_TREE)
+#: ``packages/osprey-panels`` is not published, so it has no tree of its own:
+#: its paths fall under the framework's ``packages/`` prefix like any other
+#: workspace member's.
+TREES = (FRAMEWORK_TREE, CONNECTORS_TREE, FACILITY_TREE)
 
 
 def tree_paths(tree: Tree, paths: Iterable[str], trees: Sequence[Tree] = TREES) -> list[str]:

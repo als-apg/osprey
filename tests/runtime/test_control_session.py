@@ -841,7 +841,7 @@ class TestMoved:
         write_record(epics_gateways, target="va", generation=3, switch={"va": "asked"})
         session = await _opened()
 
-        assert session.connector._selected_role == "write_access"
+        assert session.connector.selected_gateway_role == "write_access"
         assert session.connector._role_refusal("SR:SP", 1.0) is None
         assert session.moved() is False
         await session.close()

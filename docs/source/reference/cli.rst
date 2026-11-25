@@ -1252,7 +1252,8 @@ osprey facility
 Check and show the facility description under ``data/facility/`` and import
 an export into it. See :doc:`/how-to/import-mml-export` for the import end to end.
 The operator screens drawn from the built facility are written by
-``osprey-panels``, a command of its own: see :ref:`reference-osprey-panels`.
+``osprey-panels``, a command of its own that is installed from a checkout: see
+:ref:`reference-osprey-panels`.
 
 ``osprey facility validate [--repo DIRECTORY] [--all-limits]``
    Run every check ``osprey build`` makes of ``data/facility/`` and render the

@@ -1199,10 +1199,10 @@ def _wallclock_unit_command(
     return [kit.bounded(check.bound_s, argv)]
 
 
-#: The component wheels' import walk, called with a stream key of
-#: scripts/ci/release_streams.py. Shared with release-package.yml and ci.yml's
-#: ``osprey-panels-standalone`` job, so the wheel a tag publishes passes the
-#: check every pull request runs. Run with ``-I`` by the bare venv's
+#: The component wheels' import walk, called with a package key of
+#: scripts/ci/release_streams.py. Shared with release-package.yml, so the wheel
+#: a tag publishes passes the check every pull request runs, and with ci.yml's
+#: ``osprey-panels-standalone`` job, which walks the unpublished panels wheel. Run with ``-I`` by the bare venv's
 #: interpreter: neither the checkout nor ``PYTHONPATH`` can lend it a module the
 #: wheel does not ship.
 LEAN_IMPORT_WALK = "scripts/ci/lean_import_walk.py"

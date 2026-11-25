@@ -2389,7 +2389,6 @@ PANELS = "packages/osprey-panels"
 PACKAGE_TREES = [
     pytest.param(cf.CONNECTORS_TREE, "src/osprey_connectors/b.py", id="connectors"),
     pytest.param(cf.FACILITY_TREE, "src/osprey_facility/c.py", id="facility"),
-    pytest.param(cf.PANELS_TREE, "src/osprey_panels/d.py", id="panels"),
 ]
 
 
@@ -2401,10 +2400,20 @@ class TestTrees:
             "src/osprey/a.py",
             f"{CONNECTORS}/src/osprey_connectors/b.py",
             f"{FACILITY}/src/osprey_facility/c.py",
-            f"{PANELS}/src/osprey_panels/d.py",
             "packages/x/d.py",
         ]
         assert cf.tree_paths(cf.FRAMEWORK_TREE, paths) == ["src/osprey/a.py", "packages/x/d.py"]
+
+    def test_the_unpublished_panels_package_is_gated_by_the_framework_tree(self):
+        """osprey-panels releases on no tag stream, so it has no tree: a change
+        to it needs a root fragment, as any other workspace member's does."""
+        own = f"{PANELS}/src/osprey_panels/d.py"
+        assert cf.tree_paths(cf.FRAMEWORK_TREE, [own]) == [own]
+        assert cf.needs_fragment([own], cf.FRAMEWORK_TREE.gated)
+        for tree in cf.TREES[1:]:
+            assert cf.tree_paths(tree, [own]) == []
+        assert not (cf.REPO_ROOT / PANELS / cf.FRAGMENT_DIR).exists()
+        assert not (cf.REPO_ROOT / PANELS / cf.CHANGELOG).exists()
 
     @pytest.mark.parametrize(("tree", "own"), PACKAGE_TREES)
     def test_a_package_tree_sees_its_paths_and_not_its_siblings(self, tree, own):
@@ -2426,12 +2435,11 @@ class TestTrees:
         assert not cf.needs_fragment([f"tests/{package}_tests/test_x.py"], gated)
         assert not cf.needs_fragment(["CHANGELOG.md", "changelog.d/x.fixed.md"], gated)
 
-    def test_the_trees_are_the_four_release_streams(self):
+    def test_the_trees_are_the_three_release_streams(self):
         assert [(t.root, t.tag_prefix) for t in cf.TREES] == [
             ("", "v"),
             (CONNECTORS, "osprey-connectors-v"),
             (FACILITY, "osprey-facility-v"),
-            (PANELS, "osprey-panels-v"),
         ]
 
     @pytest.mark.parametrize("package", [CONNECTORS, FACILITY, PANELS])
@@ -2441,7 +2449,9 @@ class TestTrees:
         pyproject = cf.REPO_ROOT / package / "pyproject.toml"
         hatch = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"]["hatch"]
         exclude = hatch["build"]["targets"]["sdist"]["exclude"]
-        assert cf.FRAGMENT_DIR in exclude
+        # Only a package with a tree has fragments to keep out.
+        has_tree = package in [tree.root for tree in cf.TREES]
+        assert (cf.FRAGMENT_DIR in exclude) is has_tree
         assert "repo_checks.py" in exclude
 
     @pytest.mark.parametrize(
@@ -2449,7 +2459,6 @@ class TestTrees:
         [
             pytest.param(cf.CONNECTORS_TREE, "osprey-connectors-v2026.10.0", id="connectors"),
             pytest.param(cf.FACILITY_TREE, "osprey-facility-v2026.10.0", id="facility"),
-            pytest.param(cf.PANELS_TREE, "osprey-panels-v2026.10.0", id="panels"),
         ],
     )
     def test_a_package_tag_probe_asks_for_the_package_tag(self, tree, tag):
@@ -2457,7 +2466,7 @@ class TestTrees:
         with pytest.raises(cf.ProbeError, match=f"refs/tags/{tag}"):
             cf.tag_probe(git, tree.tag_prefix)("2026.10.0")
 
-    @pytest.mark.parametrize("package", [FACILITY, PANELS])
+    @pytest.mark.parametrize("package", [CONNECTORS, FACILITY])
     def test_the_package_ships_its_tree(self, package):
         """The live package carries the changelog pair its tree names."""
         root = cf.REPO_ROOT / package
@@ -2470,7 +2479,7 @@ class TestTrees:
 
     @staticmethod
     def repo(tmp_path: Path, monkeypatch) -> Path:
-        for root in ("", CONNECTORS, FACILITY, PANELS):
+        for root in ("", CONNECTORS, FACILITY):
             base = tmp_path / root
             write(base / "changelog.d", "README.md", "how to write one\n")
             (base / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
@@ -2481,7 +2490,7 @@ class TestTrees:
     def table(diff: str, untracked: str | None = None) -> dict:
         """:func:`git_table`, with each package tree's base changelog shown as well."""
         table = git_table(diff=diff, untracked=untracked)
-        for package in (CONNECTORS, FACILITY, PANELS):
+        for package in (CONNECTORS, FACILITY):
             table[("git", "show", f"{MERGE_BASE}:{package}/CHANGELOG.md")] = completed(CHANGELOG)
         return table
 
@@ -2546,9 +2555,8 @@ class TestTrees:
         assert capsys.readouterr().out.splitlines() == [
             "✓ changelog.d: 0 fragment(s) valid",
             f"✓ {CONNECTORS}/changelog.d: 1 fragment(s) valid",
-            # The untouched facility and panels trees are validated, never diffed.
+            # The untouched facility tree is validated, never diffed.
             f"✓ {FACILITY}/changelog.d: 0 fragment(s) valid",
-            f"✓ {PANELS}/changelog.d: 0 fragment(s) valid",
             "✓ changelog gate: no src/ or packages/ or plugins/ changes — no fragment required",
             "✓ [Unreleased]: untouched",
             f"{CONNECTORS}/ (its own CHANGELOG.md, osprey-connectors-v* tags):",

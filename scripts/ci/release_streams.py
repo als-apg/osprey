@@ -1,10 +1,14 @@
-"""The component release streams: one record per independently released package.
+"""The component packages: one record per package the framework release does not build.
 
-Every component package (osprey-connectors, osprey-facility, osprey-panels)
-releases on its own calendar tag stream, ``<tag_prefix><version>``. The release
+osprey-connectors and osprey-facility each release on their own calendar tag
+stream, ``<tag_prefix><version>``: they are the ``STREAMS``. The release
 workflow, the lean import walk and the compatibility lanes read what differs
 between the streams from this table rather than from per-package literals, so a
-fourth stream is one record here.
+third stream is one record here.
+
+osprey-panels is a package of the repository that is not published. It has no
+tag, no environment and no changelog, so it is no stream: ``UNRELEASED`` holds
+only what the lean import walk reads of it. ``PACKAGES`` is both tables.
 
 Commands, each taking ``<ref>`` as the full ``GITHUB_REF``
 (``refs/tags/osprey-facility-v2026.12.0``; a bare tag is refused):
@@ -16,10 +20,11 @@ Commands, each taking ``<ref>`` as the full ``GITHUB_REF``
     The stream's required CI lanes as ``<job id>=<rendered name prefix>`` lines,
     the form ``require_green_lanes.py --lanes`` reads.
 ``dists [--joined]``
-    The wheel/sdist file prefix of every stream, one per line, or on one
-    space-separated line with ``--joined`` (for a job output).
+    The wheel/sdist file prefix of every component package, published or not,
+    one per line, or on one space-separated line with ``--joined`` (for a job
+    output): the files a framework release must not carry.
 
-A ref outside the three tag globs, and a version not spelled in canonical
+A ref outside the two tag globs, and a version not spelled in canonical
 PEP 440 form, exit non-zero. A non-canonical spelling is refused rather than
 normalised, so this stdlib-only table never names a version the built wheel
 does not carry.
@@ -39,7 +44,7 @@ from dataclasses import dataclass
 
 TAG_REF_PREFIX = "refs/tags/"
 
-#: The agent and web stack a lean wheel must never load, whatever the stream.
+#: The agent and web stack a lean wheel must never load, whatever the package.
 _AGENT_STACK = ("litellm", "openai", "anthropic", "fastapi", "playwright")
 
 #: Canonical PEP 440 release: ``X.Y.Z``, optionally ``aN``/``bN``/``rcN`` and
@@ -54,55 +59,61 @@ _COMMON_LANES = (("test", "Test Python"), ("lint", "Lint and Code Quality"))
 
 
 @dataclass(frozen=True)
-class Stream:
-    """One component release stream.
+class Package:
+    """One component package, as the lean import walk reads it.
 
     Attributes:
-        key: Short stream name (``connectors``, ``facility``, ``panels``).
-        dist: The distribution name on PyPI.
+        key: Short package name (``connectors``, ``facility``, ``panels``).
+        dist: The distribution name.
         import_name: The top-level import package.
         package_dir: The package directory, relative to the repository root.
-        tag_prefix: The release tag is ``<tag_prefix><version>``.
-        environment: The GitHub environment the publish job runs in.
-        changelog: The package changelog, relative to the repository root.
-        required_lanes: (ci.yml job id, rendered name prefix) pairs that must be
-            green on the tagged commit.
         lean_forbidden: Top-level modules the installed wheel must never load.
-        lean_extras: Extras installed for the lean walk.
         typed: Whether the wheel ships ``py.typed``.
-        floor_consumers: Import names of the framework trees that consume this
-            stream; its floor scan reads them.
         lean_entry_modules: Modules the lean walk must find loaded.
-        smoke: The command verify-install runs, relative to the bare venv's
-            ``bin/`` parent; empty for none.
-        compat: Whether the stream has compatibility lanes.
     """
 
     key: str
     dist: str
     import_name: str
     package_dir: str
+    lean_forbidden: frozenset[str]
+    typed: bool
+    lean_entry_modules: tuple[str, ...]
+
+    @property
+    def dist_prefix(self) -> str:
+        """The wheel/sdist file-name prefix (``osprey_connectors-``)."""
+        return f"{self.dist.replace('-', '_')}-"
+
+
+@dataclass(frozen=True)
+class Stream(Package):
+    """A component package that publishes: its release stream.
+
+    Attributes:
+        tag_prefix: The release tag is ``<tag_prefix><version>``.
+        environment: The GitHub environment the publish job runs in.
+        changelog: The package changelog, relative to the repository root.
+        required_lanes: (ci.yml job id, rendered name prefix) pairs that must be
+            green on the tagged commit.
+        lean_extras: Extras installed for the lean walk.
+        floor_consumers: Import names of the framework trees that consume this
+            stream; its floor scan reads them.
+        compat: Whether the stream has compatibility lanes.
+    """
+
     tag_prefix: str
     environment: str
     changelog: str
     required_lanes: tuple[tuple[str, str], ...]
-    lean_forbidden: frozenset[str]
     lean_extras: tuple[str, ...]
-    typed: bool
     floor_consumers: tuple[str, ...]
-    lean_entry_modules: tuple[str, ...]
-    smoke: str
     compat: bool
 
     @property
     def tag_glob(self) -> str:
         """The release-tag glob, calendar versions only (``<tag_prefix>2*``)."""
         return f"{self.tag_prefix}2*"
-
-    @property
-    def dist_prefix(self) -> str:
-        """The wheel/sdist file-name prefix (``osprey_connectors-``)."""
-        return f"{self.dist.replace('-', '_')}-"
 
 
 STREAMS: tuple[Stream, ...] = (
@@ -134,7 +145,6 @@ STREAMS: tuple[Stream, ...] = (
             "osprey_connectors.logger",
             "osprey_connectors.simulation",
         ),
-        smoke="",
         compat=True,
     ),
     Stream(
@@ -159,34 +169,28 @@ STREAMS: tuple[Stream, ...] = (
         typed=False,
         floor_consumers=("osprey",),
         lean_entry_modules=("osprey_facility",),
-        smoke="",
         compat=True,
     ),
-    Stream(
+)
+
+#: Walked, never released: no tag resolves to one of these.
+UNRELEASED: tuple[Package, ...] = (
+    Package(
         key="panels",
         dist="osprey-panels",
         import_name="osprey_panels",
         package_dir="packages/osprey-panels",
-        tag_prefix="osprey-panels-v",
-        environment="pypi-panels",
-        changelog="packages/osprey-panels/CHANGELOG.md",
-        # `package` does not build the panels wheel; the standalone lane does,
-        # and runs the walk against it.
-        required_lanes=(
-            *_COMMON_LANES,
-            ("osprey-panels-standalone", "Panels Standalone Tests"),
-        ),
         # Panels reads the facility document as JSON; it imports neither the
         # framework nor the other component packages.
         lean_forbidden=frozenset({*_AGENT_STACK, "osprey", "osprey_facility", "osprey_connectors"}),
-        lean_extras=(),
         typed=False,
-        floor_consumers=(),
         lean_entry_modules=("osprey_panels", "osprey_panels.cli"),
-        smoke="bin/osprey-panels --help",
-        compat=False,
     ),
 )
+
+#: Every component package: what the lean walk takes a key of, and what a
+#: framework release builds none of.
+PACKAGES: tuple[Package, ...] = (*STREAMS, *UNRELEASED)
 
 
 class StreamError(ValueError):
@@ -232,7 +236,6 @@ def resolve_outputs(ref: str) -> list[tuple[str, str]]:
         ("changelog", stream.changelog),
         ("tag_prefix", stream.tag_prefix),
         ("lean_extras", ",".join(stream.lean_extras)),
-        ("smoke", stream.smoke),
         ("version", version),
         ("prerelease", prerelease),
     ]
@@ -249,8 +252,8 @@ def lane_lines(ref: str) -> list[str]:
 
 
 def dist_prefixes() -> list[str]:
-    """The wheel/sdist file prefix of every stream."""
-    return [stream.dist_prefix for stream in STREAMS]
+    """The wheel/sdist file prefix of every component package, published or not."""
+    return [package.dist_prefix for package in PACKAGES]
 
 
 def _write_outputs(lines: Sequence[str]) -> None:
@@ -269,7 +272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     resolve.add_argument("ref")
     lanes = commands.add_parser("lanes", help="print the stream's required lanes")
     lanes.add_argument("ref")
-    dists = commands.add_parser("dists", help="print every stream's wheel prefix")
+    dists = commands.add_parser("dists", help="print every component package's wheel prefix")
     dists.add_argument("--joined", action="store_true", help="on one line")
     args = parser.parse_args(argv)
 

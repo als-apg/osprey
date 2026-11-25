@@ -11201,14 +11201,14 @@ def test_every_publishing_job_runs_only_upstream__mutation_adds_a_pushing_job_to
 
 
 # ---------------------------------------------------------------------------
-# Every component package releases from its own tags, through one workflow
+# Every published component package releases from its own tags, through one workflow
 # ---------------------------------------------------------------------------
 #
-# osprey-connectors, osprey-facility and osprey-panels each have their own
-# calendar stream on `<dist>-v2*` tags, and all three publish from the one
-# parameterised release-package.yml: a `resolve` job turns the tag into the
+# osprey-connectors and osprey-facility each have their own calendar stream on
+# `<dist>-v2*` tags, and both publish from the one parameterised
+# release-package.yml (osprey-panels is not published and has no stream): a `resolve` job turns the tag into the
 # stream's record in scripts/ci/release_streams.py, and every later job reads
-# its outputs. What is pinned, for every stream: the workflow fires on the three
+# its outputs. What is pinned, for every stream: the workflow fires on the two
 # tag globs and nothing else (no dispatch, never a framework `v*` tag); every
 # job is guarded fail-closed on the repository and those refs; the gate requires
 # the stream's own lanes; a stream's tag builds, checks, installs and publishes
@@ -11246,21 +11246,17 @@ RELEASE_STREAMS_PATH = REPO_ROOT / "scripts" / "ci" / "release_streams.py"
 TAGGED = "2026.12.0"
 
 #: Independent pins (not read from STREAMS).
-PACKAGE_TAG_GLOBS = ("osprey-connectors-v2*", "osprey-facility-v2*", "osprey-panels-v2*")
+PACKAGE_TAG_GLOBS = ("osprey-connectors-v2*", "osprey-facility-v2*")
 PACKAGE_ENVIRONMENTS = {
     "connectors": "pypi-connectors",
     "facility": "pypi-facility",
-    "panels": "pypi-panels",
 }
 PACKAGE_DISTS = {
     "connectors": "osprey-connectors",
     "facility": "osprey-facility",
-    "panels": "osprey-panels",
 }
 #: What verify-install adds to the wheel: the extras the lean walk imports under.
 PACKAGE_INSTALL_EXTRAS = {"facility": "osprey-facility[mml]"}
-#: What verify-install runs after the version probe, from the bare venv.
-PACKAGE_SMOKE = {"panels": [f"{LEAN_CHECK_VENV}/bin/osprey-panels", "--help"]}
 #: The lanes each stream's gate requires: the always-on lanes that prove the
 #: package and, for a stream with a compatibility contract, its compat lane and
 #: the framework at its floor. Facility also requires the framework at the
@@ -11287,7 +11283,6 @@ PACKAGE_LANES = {
             "framework-at-connectors-floor",
         }
     ),
-    "panels": frozenset({"test", "lint", "osprey-panels-standalone"}),
 }
 
 
@@ -11366,7 +11361,7 @@ def _python3_on_path(tmp_path: Path) -> str:
 
 
 def _package_tag_guard() -> str:
-    """``repo && (A || B || C)``: one tag-ref prefix per stream, from STREAMS."""
+    """``repo && (A || B)``: one tag-ref prefix per stream, from STREAMS."""
     table = _stream_table()
     arms = " || ".join(
         f"startsWith(github.ref, '{table.TAG_REF_PREFIX}{s.tag_glob.removesuffix('*')}')"
@@ -11445,9 +11440,9 @@ def _assert_fires(tag: str, stream: str | None, framework: bool, release: dict[s
             ("osprey-connectors-v0.1.0", None, False),  # retired; PyPI carries 0.1.0
             ("osprey-facility-v2026.12.0", "facility", False),
             ("osprey-facility-v2026.12.0rc1", "facility", False),
-            ("osprey-panels-v2026.12.0", "panels", False),
-            ("osprey-panels-v2027.2.1b2", "panels", False),
-            ("osprey-panels-v1.0.0", None, False),
+            # osprey-panels is not published: its tag fires nothing.
+            ("osprey-panels-v2026.12.0", None, False),
+            ("osprey-panels-v2027.2.1b2", None, False),
             ("v2026.10.0", None, True),
             ("v2026.9.0b3", None, True),
             ("checkpoint-2026-10-01", None, False),
@@ -11489,7 +11484,7 @@ def test_the_package_release_has_no_other_trigger__mutation_dispatch() -> None:
 def test_every_package_release_job_runs_only_on_a_stream_tag(
     release: dict[str, Any] | None = None,
 ) -> None:
-    """``repo && (A || B || C)``: the repository is a top-level conjunct, so the
+    """``repo && (A || B)``: the repository is a top-level conjunct, so the
     guard fails closed, and the tag arms are the streams' prefixes."""
     release = release if release is not None else _load_package_release()
     guard = _package_tag_guard()
@@ -11522,7 +11517,9 @@ def test_every_package_release_job__mutation_drops_the_parentheses() -> None:
 def test_every_package_release_job__mutation_drops_a_stream() -> None:
     mutated = _load_package_release()
     job = mutated["jobs"]["verify-install"]
-    job["if"] = job["if"].replace(" || startsWith(github.ref, 'refs/tags/osprey-panels-v2')", "")
+    dropped = job["if"].replace(" || startsWith(github.ref, 'refs/tags/osprey-facility-v2')", "")
+    assert dropped != job["if"], "the facility arm moved; this mutation is stale"
+    job["if"] = dropped
     with pytest.raises(AssertionError, match="verify-install is not guarded on the repository"):
         test_every_package_release_job_runs_only_on_a_stream_tag(mutated)
 
@@ -11556,7 +11553,7 @@ def test_the_resolve_job__mutation_a_reader_skips_resolve() -> None:
 
 def test_the_resolve_job__mutation_drops_an_output() -> None:
     mutated = _load_package_release()
-    del mutated["jobs"][RESOLVE_JOB]["outputs"]["smoke"]
+    del mutated["jobs"][RESOLVE_JOB]["outputs"]["lean_extras"]
     with pytest.raises(AssertionError, match="resolve does not forward"):
         test_the_resolve_job_hands_every_stream_output_on(mutated)
 
@@ -11590,7 +11587,7 @@ def test_the_resolve_job_refuses_a_non_canonical_tag(
 ) -> None:
     """``-rc1`` fires the trigger but is not the version the wheel carries, so
     the run stops at ``resolve``, before anything is built."""
-    code, written = _run_resolve(tmp_path, "refs/tags/osprey-panels-v2026.12.0-rc1", release)
+    code, written = _run_resolve(tmp_path, "refs/tags/osprey-facility-v2026.12.0-rc1", release)
     assert code != 0 and written == "", f"resolve accepted a non-canonical tag (exit {code})"
     for key in PACKAGE_STREAMS:
         code, written = _run_resolve(tmp_path, _ref(key), release)
@@ -11740,7 +11737,7 @@ def test_the_package_gate_fails_when_the_table_refuses_the_ref(
 ) -> None:
     """The lanes are assigned before the gate runs, under ``set -e``, so a ref
     the table refuses fails the step and never reaches the gate."""
-    code, args = _run_gate(tmp_path, "refs/tags/osprey-panels-v2026.12.0-rc1", release)
+    code, args = _run_gate(tmp_path, "refs/tags/osprey-facility-v2026.12.0-rc1", release)
     assert code != 0 and args is None, f"a refused ref reached the gate with {args}"
 
 
@@ -11896,8 +11893,6 @@ def _run_install_check(
         (tools / "uv", ""),
         (venv / "bin" / "python", 'case "$*" in *__version__*) echo "$FAKE_VERSION";; esac\n'),
     ]
-    if outputs["smoke"]:
-        recorders.append((venv / outputs["smoke"].split()[0], ""))
     for path, extra in recorders:
         path.write_text(_RECORDER + extra)
         path.chmod(0o755)
@@ -11925,12 +11920,12 @@ def _run_install_check(
 
 
 @pytest.mark.parametrize("key", PACKAGE_STREAMS)
-def test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+def test_the_package_install_check_walks_and_probes_the_wheel(
     key: str, tmp_path: Path, release: dict[str, Any] | None = None, installed: str | None = None
 ) -> None:
     """The stream's wheel (with its extras as a separate requirement) goes into
-    the bare venv, the shared walk runs on the stream's key, the installed
-    ``__version__`` must be the tag's, and the smoke command runs venv-qualified."""
+    the bare venv, the shared walk runs on the stream's key, and the installed
+    ``__version__`` must be the tag's."""
     done, calls = _run_install_check(tmp_path, key, release, installed)
     assert done.returncode == 0, f"the {key} install check failed: {done.stdout}{done.stderr}"
     venv_python = f"{LEAN_CHECK_VENV}/bin/python"
@@ -11950,20 +11945,7 @@ def test_the_package_install_check_walks_probes_and_smokes_the_wheel(
         [venv_python, "-I", LEAN_WALK_SCRIPT, key],
         [venv_python, "-I", "-c", f"import {module}; print({module}.__version__)"],
     ]
-    if key in PACKAGE_SMOKE:
-        expected.append(PACKAGE_SMOKE[key])
     assert calls == expected, f"the {key} install check runs {calls}"
-
-
-def test_the_package_install_check__mutation_unqualified_smoke(tmp_path: Path) -> None:
-    """``bin/osprey-panels`` from the checkout is not the installed entry point."""
-    mutated = _load_package_release()
-    step = _named_step(mutated, PACKAGE_INSTALL_JOB, PACKAGE_INSTALL_STEP)
-    step["run"] = step["run"].replace(f'"{LEAN_CHECK_VENV}/${{smoke[0]}}"', '"${smoke[0]}"')
-    with pytest.raises(AssertionError, match="the panels install check"):
-        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
-            "panels", tmp_path, mutated
-        )
 
 
 def test_the_package_install_check__mutation_drops_the_extras(tmp_path: Path) -> None:
@@ -11973,14 +11955,12 @@ def test_the_package_install_check__mutation_drops_the_extras(tmp_path: Path) ->
     step["run"] = run.replace('install+=("${DIST}[${LEAN_EXTRAS}]")', ":")
     assert step["run"] != run, "the extras moved; this mutation is stale"
     with pytest.raises(AssertionError, match="the facility install check runs"):
-        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
-            "facility", tmp_path, mutated
-        )
+        test_the_package_install_check_walks_and_probes_the_wheel("facility", tmp_path, mutated)
 
 
 def test_the_package_install_check__mutation_installed_version_differs(tmp_path: Path) -> None:
     with pytest.raises(AssertionError, match="the connectors install check failed"):
-        test_the_package_install_check_walks_probes_and_smokes_the_wheel(
+        test_the_package_install_check_walks_and_probes_the_wheel(
             "connectors", tmp_path, installed="2026.11.0.post4"
         )
 
@@ -12011,7 +11991,7 @@ def test_both_lean_wheel_checks_run_the_shared_walk(
         "dist/osprey_connectors-*.whl",
     ) in steps
     # The release half: one walk, on the resolved stream key, from the bare venv
-    # the wheel went into. test_the_package_install_check_walks_probes_and_smokes_the_wheel
+    # the wheel went into. test_the_package_install_check_walks_and_probes_the_wheel
     # runs it per stream.
     install = _load_package_release()["jobs"][PACKAGE_INSTALL_JOB]
     runs = _lean_walk_invocations(install["steps"])
@@ -12125,7 +12105,7 @@ def _panels_lane_runs(workflow: dict[str, Any] | None = None) -> str:
 
 
 def _panels_lean_wheel_missing(runs: str) -> list[str]:
-    """What the panels lane's release-path checks lack (empty = all present, in order)."""
+    """What the panels lane's wheel checks lack (empty = all present, in order)."""
     wanted = (
         "uv build --package osprey-panels --out-dir dist/",
         '[ "${#wheels[@]}" -eq 1 ]',
@@ -12148,7 +12128,7 @@ def _panels_lean_wheel_missing(runs: str) -> list[str]:
 
 def test_the_panels_lane_lean_wheel_walks_the_wheel_it_builds() -> None:
     """Panels is not built by the package check; its standalone lane builds the
-    sdist and the wheel from it, as release-package.yml will, has twine judge
+    sdist and the wheel from it, has twine judge
     exactly one of each, and walks that wheel from a bare venv. The walk refuses
     the framework and the other component packages."""
     assert _panels_lean_wheel_missing(_panels_lane_runs()) == []
@@ -12272,7 +12252,7 @@ def test_the_package_release_notes__mutation_becomes_latest() -> None:
         if str(step.get("uses", "")).startswith("softprops/"):
             step["with"]["make_latest"] = True
     with pytest.raises(AssertionError, match="must not become Latest"):
-        test_the_package_release_notes_come_from_its_own_changelog("panels", mutated)
+        test_the_package_release_notes_come_from_its_own_changelog("facility", mutated)
 
 
 @pytest.mark.parametrize("key", PACKAGE_STREAMS)
@@ -12319,17 +12299,17 @@ def _framework_build_commands(release: dict[str, Any]) -> list[str]:
 def test_the_framework_release_builds_its_lockstep_members_only(
     release: dict[str, Any] | None = None,
 ) -> None:
-    """Every workspace member but the STREAMS packages (osprey-connectors,
-    osprey-facility and osprey-panels, each released from its own tags by
-    release-package.yml) rides the v-tag; a member added later fails here until
-    the release builds it."""
+    """Every workspace member but the component packages (osprey-connectors
+    and osprey-facility, each released from its own tags by
+    release-package.yml, and osprey-panels, which is not published) rides the
+    v-tag; a member added later fails here until the release builds it."""
     release = release if release is not None else _load_release()
     members = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["uv"]["workspace"][
         "members"
     ]
-    own_streams = {s.dist for s in _stream_table().STREAMS}
-    assert {"osprey-connectors", "osprey-facility", "osprey-panels"} <= own_streams
-    lockstep = sorted(Path(m).name for m in members if Path(m).name not in own_streams)
+    components = {p.dist for p in _stream_table().PACKAGES}
+    assert {"osprey-connectors", "osprey-facility", "osprey-panels"} <= components
+    lockstep = sorted(Path(m).name for m in members if Path(m).name not in components)
     expected = ["uv build", *(f"uv build --package {m}" for m in lockstep)]
     assert _framework_build_commands(release) == expected, (
         f"the framework release builds {_framework_build_commands(release)}"
@@ -12347,7 +12327,7 @@ def test_the_framework_release_builds__mutation_all_packages() -> None:
 
 
 def _component_dists() -> str:
-    """What build's `List the component streams` step exports as `component_dists`."""
+    """What build's `List the component packages` step exports as `component_dists`."""
     release = _load_release()
     step = next(s for s in release["jobs"]["build"]["steps"] if s.get("id") == "streams")
     assert "release_streams.py dists --joined" in step["run"]
@@ -12364,15 +12344,16 @@ def _component_dists() -> str:
 
 
 def test_the_framework_version_check_refuses_a_connectors_artifact(tmp_path: Path) -> None:
-    """The refusal is derived from STREAMS: a wheel of any component stream in
-    dist/ fails the check, and an empty stream list fails it rather than
-    checking nothing."""
+    """The refusal is derived from PACKAGES: a wheel of any component package
+    in dist/, published or not, fails the check, and an empty list fails it
+    rather than checking nothing."""
     step = next(
         s for s in _load_release()["jobs"]["build"]["steps"] if s.get("name") == VERSION_STEP
     )
     assert step["env"]["COMPONENT_DISTS"] == "${{ steps.streams.outputs.component_dists }}"
     dists = _component_dists()
-    assert dists.split() == [s.dist_prefix for s in _stream_table().STREAMS]
+    assert dists.split() == [p.dist_prefix for p in _stream_table().PACKAGES]
+    assert "osprey_panels-" in dists.split(), "an unpublished panels wheel is not refused"
     dist = tmp_path / "dist"
     dist.mkdir()
 
@@ -14197,9 +14178,9 @@ def _staged_siblings(release: dict[str, Any], tmp_path: Path) -> list[str]:
 
 
 def _assert_release_stages_every_member_wheel(release: dict[str, Any], tmp_path: Path) -> None:
-    # Every component stream's wheel is absent even from a dist/ that holds it:
-    # each releases on its own tags, so the framework's floor on it must resolve
-    # from PyPI.
+    # Every component package's wheel is absent even from a dist/ that holds it:
+    # a stream releases on its own tags, so the framework's floor on it must
+    # resolve from PyPI, and osprey-panels is not published.
     assert _staged_siblings(release, tmp_path) == [
         "osprey_optimizer-2026.9.1-py3-none-any.whl",
         "pyaml_cs_osprey-2026.9.1-py3-none-any.whl",
@@ -14250,7 +14231,7 @@ def test_the_release_resolves_osprey_facility_from_pypi_only(
     builds no wheel of it and the PyPI gate never installs it from the
     checkout: a framework that needs it publishes only once PyPI has it. The
     gate's staging excludes its wheel by name through the refusal derived from
-    STREAMS (build's `component_dists`), not by a literal in the step, and
+    PACKAGES (build's `component_dists`), not by a literal in the step, and
     gets no checkout to build one from."""
     release = release if release is not None else _load_release()
     names = ("osprey-facility", "osprey_facility")

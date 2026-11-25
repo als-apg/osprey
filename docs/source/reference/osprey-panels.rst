@@ -7,23 +7,20 @@ osprey-panels
 The command of osprey-panels, the panel engine: it writes the operator
 screens of a facility from a built ``facility.json`` and the facility's panel
 rule tables, as Canopy Screen-IR documents with an index. The package carries
-none of the framework and depends on jsonschema only. ``pip install
-osprey-panels`` installs it and its ``osprey-panels`` command;
-``python -m osprey_panels`` runs the same command.
+none of the framework and depends on jsonschema only. The package is in the
+repository and is not published on PyPI: ``pip install
+./packages/osprey-panels`` from a checkout installs it and its
+``osprey-panels`` command; ``python -m osprey_panels`` runs the same command.
 
 **Experimental.** The commands, the rule tables under ``panels/``, the
-``draw.json`` settings and the screens they write may change in any release,
+``draw.json`` settings and the screens they write may change with any commit,
 without a compatibility path.
 
-How the package versions, and which ``facility.json`` versions and Screen-IR
-version each release reads and writes, is in the Stability section of the
-package's
+Which ``facility.json`` versions and Screen-IR version the package reads and
+writes is in the Stability section of the package's
 `README <https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/README.md>`_.
 This page is built from the same tree as the rest of this site, so it can
-describe a release newer or older than the one you have installed; the
-package's
-`changelog <https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/CHANGELOG.md>`_
-says which release added what.
+describe a checkout newer or older than the one you have installed.
 
 Every input is named on the command line; nothing is read from a profile or a
 checkout. Reports go to stdout, warnings and errors to stderr. The command
