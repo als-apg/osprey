@@ -2018,9 +2018,8 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     # every render.
     # The three per-argument needles pin the COMMAND paths (catalog.db,
     # files, duckdb target). A single bare "/data/" check would be shorter
-    # but now false-positives on the CURVE certificate bind sources
-    # ("./data/.runtime/bluesky_curve/..."), which have nothing to do with
-    # Tiled.
+    # but false-positives on any bind source under the repo's data tree
+    # ("./data/..."), which has nothing to do with Tiled.
     # Bare "/data" isn't usable anywhere here: it also false-positives on
     # "duckdb:////storage/data.duckdb", whose filename legitimately
     # contains "data" as a substring of "storage".

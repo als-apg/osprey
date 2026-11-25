@@ -13,7 +13,7 @@
 # The repository is the deployment. One directory, four zones:
 #
 #   SOURCE   tracked, yours to edit — profile.yml, providers.yml, data/,
-#            tiers/, web-terminal-context/, services/, the CI files
+#            tiers/, agent/context/, ops/services/, the CI files
 #   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
 #            service tokens `osprey up` mints
 #   OUTPUT   build/ — git-ignored, 100% disposable. Every `osprey build`
@@ -149,14 +149,14 @@ va_archiver:
   # from the facility file; a stated line is an override checked against it.
 
 # ── Facility-owned compose services ──────────────────────────────────────────
-# One entry per directory under `services/`. `template:` is profile-relative
+# One entry per directory under `ops/services/`. `template:` is profile-relative
 # (or `osprey.<name>` for a packaged one); everything under `config:` is
 # written into the built project's `services.<name>` block. Declaring a
 # service here also appends it to `deployed_services`, and any entry whose
 # directory carries a Dockerfile gets its own image-build job in the pipeline.
 services:
   facility-mcp:
-    template: services/facility-mcp
+    template: ops/services/facility-mcp
     config:
       # The facility band is the last hundred ports of the deployment's block
       # (`deployment.port_base` + 900 .. + 999) and nothing the framework
