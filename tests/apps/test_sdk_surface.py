@@ -58,6 +58,10 @@ SDK_NAMES = {
     "caller_from_header",
     "caller_kind",
     "launch_token_env",
+    "corpus",
+    "Corpus",
+    "CorpusHit",
+    "CorpusUnavailable",
 }
 
 

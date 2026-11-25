@@ -394,6 +394,37 @@ def test_fragment_is_for_image_containers_only() -> None:
     assert err.field == "containers.knob-demo.fragment"
 
 
+def test_a_runtime_container_lists_the_corpora_it_reads() -> None:
+    m = parse_manifest(
+        _with("containers.knob-demo.corpora", ["procedures", "ops_notes"]), app="knob-demo"
+    )
+    assert m.containers["knob-demo"].corpora == ["procedures", "ops_notes"]
+    assert (
+        parse_manifest(copy.deepcopy(FULL), app="knob-demo").containers["knob-demo"].corpora == []
+    )
+
+
+def test_corpora_on_an_image_container_names_the_fragment() -> None:
+    err = _refusal(_with("containers.knob-cache.corpora", ["procedures"]))
+    assert err.field == "containers.knob-cache.corpora"
+    assert err.rule == "runtime_only"
+    assert "runtime: osprey" in err.message
+    assert "compose/knob-cache/docker-compose.yml.j2" in err.message
+
+
+@pytest.mark.parametrize("name", ["Procedures", "ops-notes", "1st", "", "a" * 33])
+def test_a_corpus_name_is_a_qmd_corpus_name(name: str) -> None:
+    err = _refusal(_with("containers.knob-demo.corpora", [name]))
+    assert err.field == "containers.knob-demo.corpora.0"
+
+
+def test_a_corpus_is_named_once() -> None:
+    err = _refusal(_with("containers.knob-demo.corpora", ["procedures", "procedures"]))
+    assert err.field == "containers.knob-demo.corpora"
+    assert err.rule == "corpora_distinct"
+    assert "procedures" in err.message
+
+
 @pytest.mark.parametrize("port", [0, 70000])
 def test_port_is_a_tcp_port(port: int) -> None:
     assert _refusal(_with("containers.knob-demo.port", port)).field == "containers.knob-demo.port"
