@@ -41,7 +41,7 @@ import pytest
 from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
 from bluesky import plans as bp
-from bluesky.utils import FailedStatus
+from bluesky.utils import FailedStatus, RunEngineInterrupted
 from pydantic import BaseModel, ConfigDict
 
 from osprey.services.bluesky_bridge import qserver_startup
@@ -52,6 +52,7 @@ from osprey.services.bluesky_bridge.devices.connector import (
     ConnectorTriggerable,
 )
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
+from osprey.services.bluesky_bridge.preflight import PositionerStopError
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.command import CommandAct
@@ -522,3 +523,48 @@ def test_a_stop_refused_by_the_owners_switch_is_kept_as_the_outcome(
     assert outcome is not None
     assert outcome.state == "refused"
     assert outcome.reason is not None and "switch_off" in outcome.reason
+
+
+def test_an_abort_with_a_refused_stop_ends_the_run_naming_it(control_context_tree: Path) -> None:
+    """OSPREY aborts a run by pausing it, then aborting the paused run.
+
+    The pause stops the positioner mid-move and its stop is refused, the
+    owner's switch being off by then; the abort ends the run with the error
+    that names the positioner and its stop.
+    """
+    record_for(control_context_tree, _OWNER, on=True)
+    connector = _StageConnector()
+    positioner = _stage(connector)
+
+    def move_then_pause(devices: Any, params: Any) -> Iterator[Any]:
+        yield from bps.abs_set(devices[params.motor], params.setpoint)
+        yield Msg("wait_for", None, [connector.started.wait])
+        turn_off_for(control_context_tree, _OWNER)
+        yield Msg("pause")
+
+    spec = type(
+        "_Spec",
+        (),
+        {
+            "name": _PLAN_NAME,
+            "schema": _Params,
+            "plan": staticmethod(move_then_pause),
+            "description": "A stub plan that pauses mid-move.",
+            "metadata": None,
+        },
+    )()
+    plan_function = qserver_startup._make_plan_function(spec, devices={_DEVICE_NAME: positioner})
+    run_engine = RunEngine(context_managers=[])
+    with pytest.raises(RunEngineInterrupted):
+        run_engine(plan_function(**{RESERVED_OWNER_KWARG: _OWNER}))
+    assert run_engine.state == "paused"
+
+    with pytest.raises(PositionerStopError) as error:
+        run_engine.abort()
+
+    assert run_engine.state == "idle"
+    assert str(error.value).startswith(
+        f"{_CHANNEL} may still be moving: its stop {_STOP} was refused: "
+    )
+    assert "switch_off" in str(error.value)
+    assert [address for address, _value, _kwargs in connector.write_calls] == [_CHANNEL, _MOVE]

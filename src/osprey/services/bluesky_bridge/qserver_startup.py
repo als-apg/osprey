@@ -466,15 +466,25 @@ def _make_plan_function(
     cancels every declared device's unfinished trigger before it travels on
     (``preflight.cancel_unfinished_triggers``). The plan's own return cancels
     nothing.
+
+    **No move is left unstopped while the run may still write.** The plan the
+    grant runs is the plan inside ``preflight.stopping_unfinished_moves``: when
+    it returns or raises, every declared positioner with an unfinished move is
+    stopped while the run's write authorization still stands, and a stop that
+    was refused or failed ends the run with ``preflight.PositionerStopError``
+    naming the positioner, raised from what ended the plan. A refusal that
+    ended the plan is still logged as the refusal it is.
     """
     # Absolute, not relative — see the module docstring. Imported at wrapper
     # build time rather than inside the generator so a missing pre-flight is a
     # startup failure, not a surprise on the first run.
     from osprey.services.bluesky_bridge.preflight import (
+        PositionerStopError,
         available_devices_phrase,
         cancel_unfinished_triggers,
         probe_before_motion,
         refuse_misdeclared_triggers,
+        stopping_unfinished_moves,
         warn_if_write_refused,
     )
     from osprey.services.bluesky_bridge.write_grant import run_under_grant
@@ -507,7 +517,10 @@ def _make_plan_function(
                 try:
                     return (
                         yield from run_under_grant(
-                            spec.name, declares_writes, lambda: spec.plan(declared, params), plan
+                            spec.name,
+                            declares_writes,
+                            lambda: spec.plan(declared, params),
+                            stopping_unfinished_moves(spec.name, declared, plan),
                         )
                     )
                 except Exception as exc:
@@ -518,7 +531,10 @@ def _make_plan_function(
                     # rather than the event. The owner is asked as the ladder
                     # answers it, which is the owner the verdict was decided for.
                     # Nothing is handled: whatever this is travels on untouched.
-                    warn_if_write_refused(logger, spec.name, current_owner(), exc)
+                    cause = exc.__cause__
+                    stopped = isinstance(exc, PositionerStopError) and cause is not None
+                    refusal = cause if stopped and cause is not None else exc
+                    warn_if_write_refused(logger, spec.name, current_owner(), refusal)
                     raise
             except BaseException:
                 # Every end of the run but the plan's own return: an abort, a

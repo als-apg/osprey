@@ -62,10 +62,12 @@ from osprey_connectors.posture_store import bind_owner, current_owner
 from .plan_fields import declared_channels
 from .plan_validation import declares_writes, hash_plan_body
 from .preflight import (
+    PositionerStopError,
     available_devices_phrase,
     cancel_unfinished_triggers,
     probe_before_motion,
     refuse_misdeclared_triggers,
+    stopping_unfinished_moves,
     warn_if_write_refused,
 )
 from .queue_backend import REASON_SESSION_PLAN_NOT_IN_NAMESPACE, REASON_SESSION_PLAN_UNVALIDATED
@@ -234,7 +236,10 @@ def install_session_plan(
     trigger is cancelled on every exit but the plan's own return, through the
     same two seams the catalog wrapper calls
     (``preflight.refuse_misdeclared_triggers``,
-    ``preflight.cancel_unfinished_triggers``).
+    ``preflight.cancel_unfinished_triggers``). Every unfinished positioner move
+    is stopped inside the run's write authorization, and a stop that was
+    refused or failed ends the run naming the positioner, through the seam the
+    catalog wrapper calls (``preflight.stopping_unfinished_moves``).
 
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
@@ -308,7 +313,10 @@ def install_session_plan(
                 try:
                     return (
                         yield from run_under_grant(
-                            name, declares, lambda: build_plan(declared, params), plan
+                            name,
+                            declares,
+                            lambda: build_plan(declared, params),
+                            stopping_unfinished_moves(name, declared, plan),
                         )
                     )
                 except Exception as exc:
@@ -318,7 +326,10 @@ def install_session_plan(
                     # failure rather than as itself.
                     # `qserver_startup._make_plan_function` does the same thing the
                     # same way, for the same reason.
-                    warn_if_write_refused(logger, name, current_owner(), exc)
+                    cause = exc.__cause__
+                    stopped = isinstance(exc, PositionerStopError) and cause is not None
+                    refusal = cause if stopped and cause is not None else exc
+                    warn_if_write_refused(logger, name, current_owner(), refusal)
                     raise
             except BaseException:
                 # Every end of the run but the plan's own return; the catalog

@@ -58,11 +58,15 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from osprey.audit.posture import POSTURE_ENV_VAR
 from osprey.services.bluesky_bridge import qserver_startup, session_upload
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
+from osprey.services.bluesky_bridge.devices.connector import (
+    ConnectorPositioner,
+    ConnectorSettable,
+)
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel
 from osprey.services.bluesky_bridge.plan_writes import UndeclaredWriteError
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import posture_store
+from osprey_connectors.command import CommandAct
 from osprey_connectors.errors import ChannelWriteBlockedError, ChannelWriteFailedError
 from osprey_connectors.posture_store import (
     NO_OWNER,
@@ -899,3 +903,79 @@ def test_a_refusal_reported_under_another_bound_still_earns_its_line(
     assert _CHANNEL in line
     assert _OWNER in line
     assert _SWITCH_OFF_PHRASE in line
+
+
+# --- a positioner left moving is stopped before the failure travels on -------
+
+_MOVE, _MOVE_STATUS, _STOP = "SR:BEND:MOVE", "SR:BEND:MOVE_STATUS", "SR:BEND:STOP"
+_PLAN_FAILURE = "the plan failed after its move started"
+
+
+class _LeftMoving(ConnectorPositioner):
+    """A positioner whose move started and has not ended."""
+
+    @property
+    def move_unfinished(self) -> bool:
+        return True
+
+
+def _move_then_fail(devices: Any, params: Any) -> Any:
+    """Start a move, then fail before it ends."""
+    yield from bps.abs_set(devices[params.motor], params.setpoint)
+    raise RuntimeError(_PLAN_FAILURE)
+
+
+_MOVE_THEN_FAIL_SOURCE = f'''PLAN_METADATA = {{"name": {_PLAN_NAME!r}, "writes": True}}
+
+from bluesky import plan_stubs as bps
+from pydantic import BaseModel, ConfigDict
+
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+
+
+class PARAMS(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    motor: MovableChannel = {_DEVICE_NAME!r}
+    setpoint: float = {_SETPOINT!r}
+
+
+def build_plan(devices, params):
+    """Start a move, then fail before it ends."""
+    yield from bps.abs_set(devices[params.motor], params.setpoint)
+    raise RuntimeError({_PLAN_FAILURE!r})
+'''
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_both_wrappers_stop_unfinished_moves_before_they_re_raise(kind: str) -> None:
+    positioner = _LeftMoving(
+        FakeConnector(readbacks={_CHANNEL: 0.0, _MOVE_STATUS: 0}),
+        _CHANNEL,
+        started_by=CommandAct(_MOVE, _MOVE_STATUS, 0, 5.0),
+        stopped_by=_STOP,
+        name=_DEVICE_NAME,
+    )
+    if kind == "catalog":
+        spec = SimpleNamespace(
+            name=_PLAN_NAME,
+            schema=_DeviceParams,
+            plan=_move_then_fail,
+            description="A stub plan that fails mid-move.",
+            metadata=None,
+        )
+        plan_function = qserver_startup._make_plan_function(
+            spec, devices={_DEVICE_NAME: positioner}
+        )
+    else:
+        namespace: dict[str, Any] = {"__name__": "__main__", _DEVICE_NAME: positioner}
+        plan_function = install_session_plan(namespace, _PLAN_NAME, _MOVE_THEN_FAIL_SOURCE)
+    run = plan_function(**{RESERVED_OWNER_KWARG: _OWNER})
+
+    move = next(run)
+    stop = run.send(None)
+
+    assert (move.command, move.obj) == ("set", positioner)
+    assert (stop.command, stop.obj) == ("stop", positioner)
+    with pytest.raises(RuntimeError, match=_PLAN_FAILURE):
+        run.send(None)

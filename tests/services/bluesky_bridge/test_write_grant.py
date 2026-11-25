@@ -12,6 +12,7 @@ it approves (or does not) whatever request the run files.
 from __future__ import annotations
 
 import itertools
+import json
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -42,6 +43,7 @@ from osprey.services.bluesky_bridge.plan_writes import (
     message_may_writes,
     message_writes,
 )
+from osprey.services.bluesky_bridge.preflight import PositionerStopError
 from osprey.services.bluesky_bridge.queue_backend import LANE_ENV
 from osprey_connectors import session_hold
 from osprey_connectors import write_authorization as wa
@@ -1036,3 +1038,68 @@ def test_every_shipped_plan_device_class_is_surveyed_with_all_its_stated_writes(
     if cls is MockReadable:
         assert survey.ranges == {}
         assert survey.steps == 0
+
+
+# --- a positioner left moving is stopped under the run's grant ---------------
+
+#: The act's bound of the stuck stage: how long its move waits for the status to return.
+STUCK_TIMEOUT_S = 0.2
+
+
+class _StuckStage(_CommandConnector):
+    """A stage whose start command moves the status off idle, and never back."""
+
+    async def write_channel(self, channel_address, value, timeout=None, confirm=None):  # noqa: ARG002 - interface signature
+        self.sent.append((channel_address, value))
+        self.writes.append(value)
+        result = ChannelWriteResult(
+            channel_address=channel_address, value_written=value, outcome=WriteOutcome.CONFIRMED
+        )
+        if channel_address == COMMAND:
+            self.status = 1
+            for address, callback in list(self.subscribers.values()):
+                if address == STATUS:
+                    callback(SimpleNamespace(value=1))
+        return result
+
+
+def _stuck_positioner(connector: _StuckStage) -> ConnectorPositioner:
+    return ConnectorPositioner(
+        connector,
+        CHANNEL,
+        started_by=CommandAct(COMMAND, STATUS, 0, STUCK_TIMEOUT_S),
+        stopped_by=STOP,
+        name=DEVICE,
+    )
+
+
+def _stopped_under_one_grant(ledger: Path, person: _Person, connector: _StuckStage) -> None:
+    """One request, and the stop spent a step of its grant: it went out before the release."""
+    [request] = person.seen  # nobody is asked again for the stop
+    assert request.channels[STOP] == wa.ChannelRange(1.0, 1.0)
+    assert "+ 1 if stopped mid-move" in request.label
+    assert connector.sent == [(CHANNEL, 1.0), (COMMAND, PRESS_VALUE), (STOP, PRESS_VALUE)]
+    spent = wa._parse_ledger(json.loads((ledger / f"{request.id}.ledger.json").read_text()))
+    assert [step.channels for step in spent.steps] == [(CHANNEL,), (COMMAND,), (STOP,)]
+
+
+def test_a_failed_move_is_stopped_under_the_runs_grant(ledger: Path, person: _Person) -> None:
+    connector = _StuckStage()
+
+    with pytest.raises(FailedStatus) as failure:
+        _run_device(_scan, _stuck_positioner(connector))
+
+    assert not isinstance(failure.value, PositionerStopError)
+    _stopped_under_one_grant(ledger, person, connector)
+
+
+@pytest.mark.parametrize("kind", ["catalog", "session"])
+def test_both_wrappers_stop_an_unfinished_move_before_the_grant_is_released(
+    ledger: Path, person: _Person, kind: str
+) -> None:
+    connector = _StuckStage()
+
+    with pytest.raises(FailedStatus):
+        _launch(_wrapped(kind, _SCAN, _stuck_positioner(connector), writes=True))
+
+    _stopped_under_one_grant(ledger, person, connector)
