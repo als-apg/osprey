@@ -181,6 +181,13 @@ route the tools call must be in `panel.agent_routes`; a tool must be under
   connector under the owner. Pass the connector's refusal sentence on.
 - Facility knowledge (elements, channels, model members, response matrices)
   comes from the SDK, not from files the app carries.
+- Documents the app reads or searches are a qmd corpus the profile declares
+  (`services.qmd.corpora`, with a `source`), listed under the container's
+  `corpora`. `corpus(name)` from the SDK gives the bound directory (`.path`,
+  read-only) and its ranked search (`.search(query, limit=...)`). Catch
+  `CorpusUnavailable` and answer without ranking: the sidecar may be down or
+  still indexing while the files read fine. Tests use `corpus_stand_in` from
+  `osprey.apps.sdk.testing`.
 - `create_app(connector_for=..., config=...)` takes a fake connector and a
   config, so routes are testable without a machine.
 
@@ -313,6 +320,7 @@ containers:                   # optional; a panel and armed write tools need one
     health: /health
     drives_target: true       # the container reaches the control system
     state: var/<name>         # kept across restarts
+    corpora: [<corpus>]       # optional; qmd corpora bound read-only, runtime: osprey only
 panel:
   label: <sidebar text>
   icon: <glyph>               # optional, from the icon set; so are description: (tooltip) and help: (page)
