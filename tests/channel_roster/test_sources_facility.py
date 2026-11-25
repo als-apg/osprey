@@ -261,6 +261,16 @@ class TestTheRecords:
         assert records[POSITION].started_by == GO
         assert records[GO].started_by is None
 
+    def test_a_positioner_carries_its_stop_channel(self, tmp_path: Path) -> None:
+        from tests.facility.test_positioner_rules import GO, POSITION, STOP, _stopping
+
+        write_facility_file(tmp_path, _stopping())
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert (records[POSITION].started_by, records[POSITION].stopped_by) == (GO, STOP)
+        assert records[STOP].stopped_by is None
+
     def test_a_models_status_channels_are_never_listed(self, tmp_path: Path) -> None:
         tree = deck_tree()
         write_facility_file(tmp_path, tree)
