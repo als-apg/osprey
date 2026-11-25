@@ -2571,6 +2571,7 @@
   tolerance:
     absolute: 0.01
   started_by: ES1:MOT:STAGE:01:MOVE:SP
+  stopped_by: ES1:MOT:STAGE:01:STOP:SP
   'on':
     device: ES1/STAGE01
   signal: position_setpoint

@@ -563,12 +563,14 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     settables, readables = found.settables, found.readables
 
     # A command with a completion signal is a triggerable, not a settable;
-    # its status stays a readable. A command a positioner starts its move with
-    # is that positioner's, and no device.
+    # its status stays a readable. A command a positioner starts or stops its
+    # move with is that positioner's, and no device.
     started = {spec.started_by.command for spec in settables if spec.started_by is not None}
+    stopped = {spec.stopped_by for spec in settables if spec.stopped_by is not None}
     assert started == {"ES1:MOT:STAGE:01:MOVE:SP"}
+    assert stopped == {"ES1:MOT:STAGE:01:STOP:SP"}
     devices = sorted(spec.name for spec in (*settables, *found.triggerables))
-    assert devices == sorted(set(setpoints) - started)
+    assert devices == sorted(set(setpoints) - started - stopped)
     assert found.triggerables
     assert {spec.status for spec in found.triggerables} <= set(readbacks)
     assert sorted(spec.name for spec in readables) == readbacks
