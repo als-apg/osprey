@@ -1,0 +1,1 @@
+A run that stops while a positioner is still moving writes the positioner's `stopped_by` channel, as the run's owner and through the usual write checks; a refused or failed stop ends the run with an error naming the positioner.
