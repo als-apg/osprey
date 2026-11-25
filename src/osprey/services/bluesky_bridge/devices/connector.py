@@ -483,8 +483,8 @@ class ConnectorPositioner(ConnectorSettable):
     write.
 
     The device is named, read and recorded as the settable it is: the start
-    command and its status are probed before a run (:meth:`channel_addresses`)
-    and never recorded.
+    command, its status and the stop command are probed before a run
+    (:meth:`channel_addresses`) and never recorded.
     """
 
     def __init__(
@@ -528,8 +528,10 @@ class ConnectorPositioner(ConnectorSettable):
 
     def channel_addresses(self) -> tuple[str, ...]:
         """The addresses a run of this device touches: the setpoint, the
-        readback, the start command and its status."""
-        return (*super().channel_addresses(), self._started_by.command, self._started_by.status)
+        readback, the start command, its status and the stop command, if any."""
+        stop = () if self._stopped_by is None else (self._stopped_by,)
+        act = self._started_by
+        return (*super().channel_addresses(), act.command, act.status, *stop)
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
