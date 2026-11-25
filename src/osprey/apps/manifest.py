@@ -3,7 +3,9 @@
 Every level refuses unknown keys. A container key that belongs to compose (its
 binds, volumes, network, ...) is refused with a message naming where it lives
 instead: the application's compose fragment, or for ``network`` the profile's
-``apps.<name>.services.<key>.network``.
+``apps.<name>.services.<key>.network``. ``corpora`` is the one bind OSPREY makes
+for a ``runtime: osprey`` container, so on an ``image:`` container it is refused
+the same way.
 """
 
 from __future__ import annotations
@@ -68,6 +70,8 @@ SINGLE_USER_ALIAS_RETIRED = (
 Slug = Annotated[str, StringConstraints(pattern=APP_NAME_PATTERN)]
 NonEmpty = Annotated[str, StringConstraints(min_length=1)]
 EnvName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")]
+#: A qmd corpus name, the alphabet ``services.qmd.corpora`` holds a ``name`` to.
+CorpusName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,31}$")]
 ModuleName = Annotated[
     str,
     StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$"),
@@ -159,6 +163,9 @@ class Container(_Strict):
     drives_target: StrictBool = False
     control_identity: StrictBool = False
     state: NonEmpty | None = None
+    #: The qmd corpora the container reads and searches, each a ``name`` the
+    #: profile declares under ``services.qmd.corpora``; ``runtime: osprey`` only.
+    corpora: list[CorpusName] = Field(default_factory=list)
     env: list[EnvName] = Field(default_factory=list)
 
     @field_validator("env", mode="before")
@@ -169,6 +176,18 @@ class Container(_Strict):
                 "env_names",
                 "container env is a list of host variable names (the service env axis), "
                 "not a mapping; set values on the host",
+            )
+        return value
+
+    @field_validator("corpora", mode="after")
+    @classmethod
+    def _corpora_are_distinct(cls, value: list[str]) -> list[str]:
+        repeated = sorted({name for name in value if value.count(name) > 1})
+        if repeated:
+            raise PydanticCustomError(
+                "corpora_distinct",
+                "corpora names each corpus once; repeated: {names}",
+                {"names": ", ".join(repeated)},
             )
         return value
 
@@ -465,6 +484,13 @@ class AppManifest(_Strict):
                     compose_key == "command" and "image" in raw and "runtime" not in raw
                 ):
                     home = f"the application's fragment {fragment}"
+                elif compose_key == "corpora" and "image" in raw and "runtime" not in raw:
+                    raise PydanticCustomError(
+                        "runtime_only",
+                        "corpora is for runtime: osprey containers only: an image: container "
+                        f"binds the corpus source in the application's fragment {fragment}",
+                        {"at": f"containers.{key}.corpora"},
+                    )
                 else:
                     continue
                 raise PydanticCustomError(
