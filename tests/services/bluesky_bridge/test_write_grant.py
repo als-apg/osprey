@@ -11,9 +11,10 @@ it approves (or does not) whatever request the run files.
 
 from __future__ import annotations
 
+import itertools
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -22,11 +23,24 @@ import pytest
 from bluesky import Msg, RunEngine
 from bluesky import plan_stubs as bps
 from bluesky.utils import FailedStatus
+from ophyd_async.core import AsyncStatus
 from pydantic import BaseModel, ConfigDict
 
 from osprey.services.bluesky_bridge import qserver_startup, write_grant
-from osprey.services.bluesky_bridge.devices.connector import ConnectorSettable
-from osprey.services.bluesky_bridge.plan_fields import MovableChannel
+from osprey.services.bluesky_bridge.devices.connector import (
+    PRESS_VALUE,
+    ConnectorSettable,
+    ConnectorTriggerable,
+)
+from osprey.services.bluesky_bridge.devices.mock import MockReadable
+from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
+from osprey.services.bluesky_bridge.plan_writes import (
+    ChannelWrite,
+    UnstatedWriteError,
+    message_may_writes,
+    message_writes,
+)
+from osprey.services.bluesky_bridge.queue_backend import LANE_ENV
 from osprey_connectors import session_hold
 from osprey_connectors import write_authorization as wa
 from osprey_connectors.control_system._base import (
@@ -38,6 +52,7 @@ from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 from osprey_connectors_tests._harness._control_context_fixtures import FIXTURE_IDENTITY
 from osprey_connectors_tests._write_fakes import config_reader
+from tests.services.bluesky_bridge._plan_devices import ONE_OF_EACH, shipped_plan_device_classes
 
 ME = FIXTURE_IDENTITY
 TARGET = "va"
@@ -123,11 +138,11 @@ def _read_only(devices: Any, params: Any) -> Iterator[Any]:
     yield Msg("read", devices[params.quad])
 
 
-def _plan_function(plan: Any, device: ConnectorSettable) -> Any:
+def _plan_function(plan: Any, device: Any, *, schema: type[BaseModel] = _Params) -> Any:
     spec = SimpleNamespace(
-        name="quad_scan", schema=_Params, plan=plan, description="", metadata=None
+        name="quad_scan", schema=schema, plan=plan, description="", metadata=None
     )
-    return qserver_startup._make_plan_function(spec, devices={DEVICE: device})
+    return qserver_startup._make_plan_function(spec, devices={device.name: device})
 
 
 class _Person(threading.Thread):
@@ -160,7 +175,14 @@ def ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for name in (wa.AUTHORIZATION_ENV_VAR, "OSPREY_SESSION_ID"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv(session_hold.HOLD_DIR_ENV_VAR, raising=False)
-    monkeypatch.setattr("osprey_connectors.config.get_config_value", config_reader(SECTION))
+    monkeypatch.delenv(LANE_ENV, raising=False)
+    section = config_reader(SECTION)
+
+    def get_config_value(key: str, default: Any = None) -> Any:
+        # The lane's declared target: the one its worker's connector is stamped with.
+        return TARGET if key == "services.bluesky.target" else section(key, default)
+
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", get_config_value)
     write_control_context(root, target=TARGET, switch={TARGET: "asked"})
     directory = tmp_path / "ledger"
     directory.mkdir()
@@ -179,8 +201,13 @@ def person(ledger: Path) -> Iterator[_Person]:
 
 
 def _run(plan: Any, connector: _Connector) -> None:
-    device = ConnectorSettable(connector, CHANNEL, name=DEVICE)
-    RunEngine(context_managers=[])(_plan_function(plan, device)(**{RESERVED_OWNER_KWARG: ME}))
+    _run_device(plan, ConnectorSettable(connector, CHANNEL, name=DEVICE))
+
+
+def _run_device(plan: Any, device: Any, *, schema: type[BaseModel] = _Params) -> None:
+    RunEngine(context_managers=[])(
+        _plan_function(plan, device, schema=schema)(**{RESERVED_OWNER_KWARG: ME})
+    )
 
 
 def _grants() -> list[wa.Grant]:
@@ -594,3 +621,277 @@ def test_the_bridge_reports_the_newest_request_of_its_worker(
 
     assert reported is not None
     assert reported["id"] == newer.id
+
+
+# --- the grant names the target the lane declares ----------------------------
+
+
+def test_the_grant_names_the_target_the_lane_declares(person: _Person) -> None:
+    connector = _Connector()
+    connector._control_target = None  # no stamp on the device's connector to read
+
+    # Approved, the writes still end at the connector's own guard: it refuses
+    # a write from an unstamped connector whatever the grant says.
+    with pytest.raises(FailedStatus):
+        _run(_scan, connector)
+
+    [request] = person.seen
+    assert request.target == TARGET
+    assert connector.writes == []
+
+
+# --- every write a device states is under the grant --------------------------
+
+COMMAND = "SR:DET:ACQUIRE"
+STATUS = "SR:DET:STATUS"
+START = "SR:QF:START"
+STOP = "SR:QF:STOP"
+DETECTOR = "detector"
+
+
+class _CommandConnector(_Connector):
+    """A machine with a command: a write to it moves the status off idle and back."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.status = 0
+        self.sent: list[tuple[str, Any]] = []
+        self.subscribers: dict[str, tuple[str, Callable[[Any], None]]] = {}
+
+    async def read_channel(self, channel_address: str, timeout: float | None = None):
+        if channel_address == STATUS:
+            return SimpleNamespace(value=self.status)
+        return await super().read_channel(channel_address, timeout)
+
+    async def subscribe(self, channel_address, callback, *, on_connection=None):  # noqa: ARG002 - interface signature
+        subscription = f"sub-{len(self.subscribers)}"
+        self.subscribers[subscription] = (channel_address, callback)
+        return subscription
+
+    async def unsubscribe(self, subscription_id):
+        self.subscribers.pop(subscription_id, None)
+
+    async def write_channel(self, channel_address, value, timeout=None, confirm=None):  # noqa: ARG002 - interface signature
+        # Not through super(): every subclass's write_channel is guarded, and
+        # a second guard would judge (and spend) the one write twice.
+        self.sent.append((channel_address, value))
+        self.writes.append(value)
+        result = ChannelWriteResult(
+            channel_address=channel_address, value_written=value, outcome=WriteOutcome.CONFIRMED
+        )
+        if channel_address == COMMAND:
+            for status in (1, 0):
+                self.status = status
+                for address, callback in list(self.subscribers.values()):
+                    if address == STATUS:
+                        callback(SimpleNamespace(value=status))
+        return result
+
+
+class _TriggerParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    detector: TriggeredChannel = DETECTOR
+
+
+def _three_triggers(devices: Any, params: Any) -> Iterator[Any]:
+    for _ in range(3):
+        yield from bps.trigger(devices[params.detector], wait=True)
+
+
+def _detector(connector: _Connector) -> ConnectorTriggerable:
+    return ConnectorTriggerable(connector, COMMAND, STATUS, idle=0, timeout_s=5.0, name=DETECTOR)
+
+
+def test_a_plan_that_only_triggers_writes_only_once_a_person_approves_its_triggers(
+    person: _Person,
+) -> None:
+    connector = _CommandConnector()
+
+    _run_device(_three_triggers, _detector(connector), schema=_TriggerParams)
+
+    [request] = person.seen
+    assert request.steps == 3
+    assert request.channels == {COMMAND: wa.ChannelRange(1.0, 1.0)}
+    assert connector.sent == [(COMMAND, PRESS_VALUE)] * 3
+
+
+class _StartingSettable(ConnectorSettable):
+    """A setpoint a move writes, then a start command: two writes per ``set``."""
+
+    def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
+        return (ChannelWrite(CHANNEL, value), ChannelWrite(START, PRESS_VALUE))
+
+    @AsyncStatus.wrap
+    async def set(self, value: float) -> None:
+        for write in self.set_writes(value):
+            await self._osprey_connector.write_channel_checked(write.address, write.value)
+
+
+def test_a_set_that_states_two_writes_spends_two_steps(person: _Person) -> None:
+    connector = _Connector()
+
+    _run_device(_scan, _StartingSettable(connector, CHANNEL, name=DEVICE))
+
+    points = _Params().points
+    [request] = person.seen  # no replacement
+    assert request.steps == 2 * len(points)
+    assert request.channels == {
+        CHANNEL: wa.ChannelRange(1.0, 3.0),
+        START: wa.ChannelRange(1.0, 1.0),
+    }
+    assert connector.writes == [1.0, 1, 2.0, 1, 3.0, 1]
+
+
+def test_the_request_lists_every_write_the_approval_view_lists(person: _Person) -> None:
+    device = _StartingSettable(_Connector(), CHANNEL, name=DEVICE)
+    _moves, _total_moves, writes, total_writes = qserver_startup.walk_launch(
+        _scan({DEVICE: device}, _Params())
+    )
+
+    _run_device(_scan, device)
+
+    [request] = person.seen
+    assert set(request.channels) == {entry["channel"] for entry in writes}
+    assert request.steps == total_writes
+
+
+class _StoppingSettable(ConnectorSettable):
+    """A setpoint whose ``stop()`` writes a stop command while a move is unfinished."""
+
+    def __init__(self, connector: Any) -> None:
+        super().__init__(connector, CHANNEL, name=DEVICE)
+        self.moved = False
+
+    def set(self, value: float) -> Any:
+        self.moved = True
+        return super().set(value)
+
+    def stop_writes(self) -> tuple[ChannelWrite, ...]:
+        return (ChannelWrite(STOP, PRESS_VALUE),)
+
+    async def stop(self, *, success: bool = False) -> None:  # noqa: ARG002 - the bluesky verb signature
+        if self.moved:
+            self.moved = False
+            await self._osprey_connector.write_channel_checked(STOP, PRESS_VALUE)
+
+
+def _scan_then_stop(devices: Any, params: Any) -> Iterator[Any]:
+    yield from _scan(devices, params)
+    yield Msg("stop", devices[params.quad])
+
+
+def test_a_stop_a_device_states_is_in_the_grant_and_held_back_from_its_moves(
+    person: _Person,
+) -> None:
+    connector = _Connector()
+
+    _run_device(_scan_then_stop, _StoppingSettable(connector))
+
+    [request] = person.seen  # the stop is written under the grant; nobody is asked again
+    assert request.channels == {
+        CHANNEL: wa.ChannelRange(1.0, 3.0),
+        STOP: wa.ChannelRange(1.0, 1.0),
+    }
+    assert request.steps == 3 + 1
+    assert "+ 1 if stopped mid-move" in request.label
+    assert connector.writes == [1.0, 2.0, 3.0, PRESS_VALUE]
+
+
+def test_a_write_past_the_survey_extends_rather_than_spend_the_stop_reserve(
+    person: _Person,
+) -> None:
+    builds = itertools.count()
+
+    def moves(devices: Any, params: Any, *, one_more: bool) -> Iterator[Any]:
+        yield from _scan(devices, params)
+        if one_more:
+            yield from bps.mv(devices[params.quad], 2.0)
+        yield Msg("stop", devices[params.quad])
+
+    def one_more_move_for_real(devices: Any, params: Any) -> Iterator[Any]:
+        # The wrapper builds the run's plan first and the survey's copy second.
+        return moves(devices, params, one_more=next(builds) == 0)
+
+    connector = _Connector()
+
+    _run_device(one_more_move_for_real, _StoppingSettable(connector))
+
+    first, second = person.seen
+    assert first.steps == 3 + 1
+    # The fourth move finds every step spent or held back: the replacement
+    # carries the held-back stop step forward, and the stop goes out under it.
+    assert "auth_exhausted" in second.label
+    assert second.steps == 1 + write_grant.EXTRA_STEPS_FLOOR
+    assert STOP in second.channels
+    assert connector.writes == [1.0, 2.0, 3.0, 2.0, PRESS_VALUE]
+
+
+def test_a_device_that_can_stop_but_states_no_stop_writes_is_refused_before_anybody_is_asked(
+    person: _Person,
+) -> None:
+    class _SilentStop(ConnectorSettable):
+        async def stop(self, *, success: bool = False) -> None:  # noqa: ARG002 - the bluesky verb signature
+            raise AssertionError("the launch is refused before anything moves")
+
+    connector = _Connector()
+
+    with pytest.raises(UnstatedWriteError, match="does not state the channels its stop writes"):
+        _run_device(_scan, _SilentStop(connector, CHANNEL, name=DEVICE))
+
+    assert person.seen == []
+    assert connector.writes == []
+
+
+@pytest.mark.parametrize("word", ["GO", True])
+def test_a_command_write_of_a_value_that_is_no_number_ends_the_run_before_it_asks(
+    person: _Person, word: Any
+) -> None:
+    class _WordCommand(ConnectorTriggerable):
+        def trigger_writes(self) -> tuple[ChannelWrite, ...]:
+            return (ChannelWrite(COMMAND, word),)
+
+    connector = _CommandConnector()
+    detector = _WordCommand(connector, COMMAND, STATUS, idle=0, timeout_s=5.0, name=DETECTOR)
+
+    with pytest.raises(write_grant.WriteAuthorizationError, match="finite numbers only"):
+        _run_device(_three_triggers, detector, schema=_TriggerParams)
+
+    assert person.seen == []
+    assert connector.sent == []
+
+
+# --- every shipped plan device class, surveyed -------------------------------
+
+
+def test_every_shipped_plan_device_class_has_a_builder() -> None:
+    assert set(ONE_OF_EACH) == set(shipped_plan_device_classes())
+
+
+def _surveyed(messages: list[Any]) -> write_grant.WriteSurvey:
+    survey = write_grant.survey_writes(lambda: iter(messages))
+    with pytest.raises(StopIteration) as done:
+        next(survey)  # nothing in these plans asks the RunEngine for an answer
+    return done.value.value
+
+
+@pytest.mark.parametrize("cls", list(ONE_OF_EACH), ids=lambda cls: cls.__name__)
+def test_every_shipped_plan_device_class_is_surveyed_with_all_its_stated_writes(
+    cls: type,
+) -> None:
+    device = ONE_OF_EACH[cls](_Connector())
+    verbs = (("set", (1.0,)), ("trigger", ()), ("stop", ()))
+    messages = [
+        Msg(verb, device, *args) for verb, args in verbs if callable(getattr(device, verb, None))
+    ]
+    will = [write for msg in messages for write in message_writes(msg)]
+    may = [write for msg in messages for write in message_may_writes(msg)]
+
+    survey = _surveyed(messages)
+
+    assert set(survey.ranges) == {write.address for write in will + may}
+    assert survey.steps == len(will)
+    assert survey.reserve == len(may)
+    if cls is MockReadable:
+        assert survey.ranges == {}
+        assert survey.steps == 0

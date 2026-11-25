@@ -7,8 +7,11 @@ process names one (``OSPREY_WRITE_AUTHORIZATION``, read on every write). This
 module gives each plan run its own, the way an optimizer run holds one:
 
 1. **Survey.** The plan is built a second time and stepped beside the real
-   one (:func:`survey_writes`): every ``set`` message it yields is one write
-   call, so the survey counts the steps and the range of values per channel.
+   one (:func:`survey_writes`): every write its devices state for a message
+   (``plan_writes.message_writes``) is one write call, so the survey counts
+   the steps and the range of values per channel. What a moved device states
+   its stop may write (``plan_writes.message_may_writes``) is a reserve: its
+   channels are in the ranges, and its steps are held back from the moves.
    Its ``read`` and ``locate`` messages go to the RunEngine and get the real
    answer, which moves nothing, so a plan that writes relative to where a
    device sits (an ORM sweep about each working point) is surveyed at the
@@ -28,9 +31,13 @@ module gives each plan run its own, the way an optimizer run holds one:
    machine (the connector honours a grant at ``off``: it is the stop that
    ends one). Turned to ``allowed``, the worker issues the grant itself and
    stops waiting.
-3. **Extend.** Before each ``set`` the worker checks the grant it holds against
-   that write (:func:`_shortfall`), without asking the verdict: the connector
-   still judges every write. When the survey fell short — no step left, a value outside its range, a
+3. **Extend.** Before every write its devices state for a message (a
+   setpoint, a start command a ``set`` fires, a command a ``trigger`` fires)
+   the worker checks the grant it holds against that write
+   (:func:`_shortfall`), the reserve held back, without asking the verdict:
+   the connector still judges every write. A ``stop`` message is never
+   judged or held for a person: a run that is stopping does not wait, and the
+   reserve covers it. When the survey fell short — no step left, a value outside its range, a
    channel it never saw, or the grant expired — the worker files a
    *replacement* request: the steps still unspent plus more, and every range
    widened to the value in hand. A person approves the whole scope going
@@ -44,9 +51,11 @@ A denial, an expiry of the wait, or a run aborted while it waits ends the
 plan with :class:`WriteAuthorizationError` and leaves the machine where it
 is: nothing is restored on the run's behalf.
 
-A grant covers finite numbers. A boolean (an enum screen moved with ``True``)
-is surveyed, judged and written as the ``0``/``1`` it stands for; any other
-value that is not a finite number ends the run before it asks anybody.
+A grant covers finite numbers. A boolean a plan sets (an enum screen moved
+with ``True``) is surveyed, judged and written as the ``0``/``1`` it stands
+for. A write a device states for a channel of its own is judged as stated: a
+boolean there, like any other value that is not a finite number, ends the run
+before it asks anybody.
 
 A worker that dies while it waits leaves its request behind. The next worker
 of the same holder withdraws every request of that holder when its
@@ -68,6 +77,14 @@ import time
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from .plan_writes import (
+    ChannelWrite,
+    UndeclaredWriteError,
+    UnstatedWriteError,
+    message_may_writes,
+    message_writes,
+)
 
 if TYPE_CHECKING:
     from osprey_connectors.write_authorization import Grant
@@ -114,16 +131,18 @@ class WriteSurvey:
     """What a plan writes, as far as stepping it without a RunEngine shows.
 
     Attributes:
-        ranges: ``{address: [min, max]}`` of the values each channel is set to.
-        steps: The ``set`` messages seen, one write call each.
+        ranges: ``{address: [min, max]}`` of the values each channel is written.
+        steps: The writes the plan's devices state, one write call each.
         complete: The plan ran to its end; ``False`` when it stopped early.
-        target: The control target of the connector the writes go to.
+        reserve: The writes a stop of the moved devices may make, held back.
+        stoppers: The ``id`` of each moved device whose stop is reserved.
     """
 
     ranges: dict[str, list[float]] = field(default_factory=dict)
     steps: int = 0
     complete: bool = True
-    target: str | None = None
+    reserve: int = 0
+    stoppers: set[int] = field(default_factory=set)
 
     def add(self, address: str, value: float) -> None:
         bounds = self.ranges.setdefault(address, [value, value])
@@ -138,39 +157,30 @@ def enabled() -> bool:
     return bool((os.environ.get(LEDGER_DIR_ENV_VAR) or "").strip())
 
 
-def _write_of(msg: Any) -> tuple[str, Any, str | None] | None:
-    """``(address, value, target)`` of a ``set`` message to a connector device, else ``None``."""
-    if getattr(msg, "command", None) != "set" or not msg.args:
-        return None
-    address = getattr(msg.obj, "_setpoint_pv", None)
-    if not isinstance(address, str):
-        return None
-    connector = getattr(msg.obj, "_osprey_connector", None)
-    target = getattr(connector, "_control_target", None)
-    return address, msg.args[0], target if isinstance(target, str) else None
-
-
 def _is_boolean(value: Any) -> bool:
     """A Python or NumPy boolean: a value a grant judges as the ``0``/``1`` it stands for."""
     return isinstance(value, bool) or type(value).__name__ == "bool_"
 
 
 def _numeric(msg: Any) -> Any:
-    """*msg* with a boolean value replaced by its ``0``/``1``, else *msg* itself.
+    """A ``set`` *msg* with a boolean value replaced by its ``0``/``1``, else *msg* itself.
 
     A grant's ranges refuse a boolean, so a governed run sends the integer an
     enum channel takes anyway: the same write, in the form the grant judges.
     """
-    if not msg.args or not _is_boolean(msg.args[0]):
+    if getattr(msg, "command", None) != "set" or not msg.args or not _is_boolean(msg.args[0]):
         return msg
     return msg._replace(args=(int(msg.args[0]), *msg.args[1:]))
 
 
 def _number(address: str, value: Any) -> float:
-    """*value* as a finite float, or the error a write authorization would refuse it with."""
-    if _is_boolean(value):
-        return float(int(value))
-    if not isinstance(value, numbers.Real) or not math.isfinite(value):
+    """*value* as a finite float, or the error a write authorization would refuse it with.
+
+    A boolean is refused: one a plan sets is swapped for its ``0``/``1`` before
+    it is read (:func:`_numeric`), so a boolean here is one a device states for
+    a channel of its own, and the device sends it as it is.
+    """
+    if _is_boolean(value) or not isinstance(value, numbers.Real) or not math.isfinite(value):
         raise WriteAuthorizationError(
             "auth_range",
             f"The plan sets {address} to {value!r}; a write authorization covers "
@@ -187,7 +197,9 @@ def survey_writes(build: Callable[[], Iterable[Any]]) -> Generator[Any, Any, Wri
     moves anything, and a write computed from where a device sits is then the
     write the run will make. Every other message is answered ``None`` and
     never carried out — no ``set``, ``trigger`` or ``sleep`` of the surveyed
-    copy reaches the RunEngine. The survey is marked incomplete when the plan
+    copy reaches the RunEngine. Every write a device states for a message is
+    one step; what a stop of a moved device may write is added to the ranges
+    and to :attr:`WriteSurvey.reserve`, once per device. The survey is marked incomplete when the plan
     reads (it may branch on readings that change once it moves), when it
     raises or ends early on a ``None`` it could not use, and past
     :data:`SURVEY_MESSAGE_CAP` messages. What it saw up to there is kept.
@@ -206,7 +218,8 @@ def survey_writes(build: Callable[[], Iterable[Any]]) -> Generator[Any, Any, Wri
                 msg = plan.send(reply) if hasattr(plan, "send") else next(plan)
             except StopIteration:
                 return survey
-            except WriteAuthorizationError:
+            except (WriteAuthorizationError, UnstatedWriteError, UndeclaredWriteError):
+                # A refusal of the surveyed copy is the launch's refusal.
                 raise
             except Exception:  # the plan needed an answer the survey cannot give
                 logger.debug("write survey stopped early", exc_info=True)
@@ -219,13 +232,15 @@ def survey_writes(build: Callable[[], Iterable[Any]]) -> Generator[Any, Any, Wri
                 # abort, a read that failed) is the run's, and goes on up.
                 reply = yield msg
                 continue
-            write = _write_of(msg)
-            if write is None:
-                continue
-            address, value, target = write
-            survey.add(address, _number(address, value))
-            survey.steps += 1
-            survey.target = survey.target or target
+            msg = _numeric(msg)
+            for write in message_writes(msg):
+                survey.add(write.address, _number(write.address, write.value))
+                survey.steps += 1
+            if msg.command == "set" and id(msg.obj) not in survey.stoppers:
+                survey.stoppers.add(id(msg.obj))
+                for write in message_may_writes(msg):
+                    survey.add(write.address, _number(write.address, write.value))
+                    survey.reserve += 1
         survey.complete = False
         return survey
     finally:
@@ -274,12 +289,16 @@ def _shortfall(grant: Grant, spent: int, address: str, value: float) -> str | No
 class PlanAuthorization:
     """One plan run's write authorization: acquired, extended, released."""
 
-    def __init__(self, plan_name: str, owner: str) -> None:
+    def __init__(self, plan_name: str, owner: str, target: str) -> None:
         self.plan_name = plan_name
         self.owner = owner
-        self.target: str | None = None
+        self.target = target
         self.grant: Any = None
         self.spent = 0
+        #: Steps held back for what a stop of the moved devices may write.
+        self.reserved = 0
+        #: The ``id`` of each moved device whose stop is reserved.
+        self.stoppers: set[int] = set()
         #: Replacements a person was asked for.
         self.extensions = 0
         #: ``True`` once the run was found to need no authorization (switch off).
@@ -302,10 +321,6 @@ class PlanAuthorization:
         """
         from osprey_connectors import write_authorization as wa
 
-        if self.target is None:
-            raise WriteAuthorizationError(
-                "target_unknown", f"Plan {self.plan_name!r} writes to no stamped control target."
-            )
         if steps > wa.MAX_STEPS:
             raise WriteAuthorizationError(
                 "auth_exhausted",
@@ -351,7 +366,6 @@ class PlanAuthorization:
 
         from osprey_connectors import write_authorization as wa
 
-        assert self.target is not None  # acquire() refuses an unstamped target first
         try:
             request = wa.write_request(
                 self.target,
@@ -424,7 +438,6 @@ class PlanAuthorization:
         """
         from osprey_connectors import write_authorization as wa
 
-        assert self.target is not None
         try:
             return wa.self_issue(
                 _section(),
@@ -496,15 +509,18 @@ class PlanAuthorization:
     # -- each write ---------------------------------------------------------
 
     def before_write(
-        self, address: str, value: Any, target: str | None
+        self, address: str, value: Any, *, reserve: bool = False
     ) -> Generator[Any, Any, None]:
-        """Make sure the grant covers this write, extending it when it falls short."""
+        """Make sure the grant covers this write, extending it when it falls short.
+
+        With *reserve*, the write is one a stop may make: it is judged the
+        same way and then held back rather than spent.
+        """
         if self.ungoverned:
             return
         number = _number(address, value)
         if self.grant is None:
             # The survey saw no write: the first one opens the grant.
-            self.target = self.target or target
             yield from self.acquire(
                 {address: [number, number]},
                 EXTRA_STEPS_FLOOR,
@@ -512,10 +528,13 @@ class PlanAuthorization:
             )
             if self.ungoverned:
                 return
-        reason = _shortfall(self.grant, self.spent, address, number)
+        reason = _shortfall(self.grant, self.spent + self.reserved, address, number)
         if reason is not None:
             yield from self._extend(address, number, reason)
-        self.spent += 1
+        if reserve:
+            self.reserved += 1
+        else:
+            self.spent += 1
 
     def _extend(self, address: str, value: float, reason: str) -> Generator[Any, Any, None]:
         """Ask for a grant replacing the current one, wide enough for this write."""
@@ -525,9 +544,9 @@ class PlanAuthorization:
         ranges[address] = [min(low, value), max(high, value)]
         # The plan has gone where the survey did not: whatever the reason, the
         # rest of it is unknown, so the replacement carries headroom as well as
-        # the steps still unspent.
-        unspent = max(old.steps - self.spent, 0)
-        steps = unspent + max(EXTRA_STEPS_FLOOR, old.steps // 2)
+        # the steps still unspent and the reserve held back for a stop.
+        unspent = max(old.steps - self.spent - self.reserved, 0)
+        steps = unspent + self.reserved + max(EXTRA_STEPS_FLOOR, old.steps // 2)
         label = (
             f"bluesky {self.plan_name}: extends {old.id[:8]} ({reason}; {self.spent} of "
             f"{old.steps} spent; {address} = {value:g})"
@@ -660,42 +679,60 @@ def run_under_grant(
 
     *build* makes a fresh copy of the same plan for the survey; *plan* is the
     one the RunEngine runs. Must be entered inside the wrapper's
-    ``bind_owner``, so the owner is the queue item's.
+    ``bind_owner``, so the owner is the queue item's. The grant names the
+    control target this worker's lane declares, the target its connector is
+    stamped with.
     """
     from bluesky.preprocessors import plan_mutator, single_gen
 
+    from osprey.services.bluesky_bridge.queue_backend import resolve_lane_identity
     from osprey_connectors.posture_store import NO_OWNER, current_owner
 
     owner = current_owner()
     if not enabled() or owner is NO_OWNER or not isinstance(owner, str):
         return (yield from plan)
     survey = yield from survey_writes(build)
-    if survey.complete and survey.steps == 0:
+    if survey.complete and survey.steps == 0 and survey.reserve == 0:
         return (yield from plan)
-    authorization = PlanAuthorization(plan_name, owner)
-    authorization.target = survey.target
+    authorization = PlanAuthorization(plan_name, owner, resolve_lane_identity()[1])
+    authorization.reserved = survey.reserve
+    authorization.stoppers = set(survey.stoppers)
     try:
-        if survey.steps:
+        if survey.steps or survey.reserve:
             headroom = 0 if survey.complete else EXTRA_STEPS_FLOOR
             yield from authorization.acquire(
                 survey.ranges,
-                survey.steps + headroom,
+                survey.steps + headroom + survey.reserve,
                 label=f"bluesky {plan_name}: {survey.steps} write(s) seen"
-                + (f" + {headroom} headroom" if headroom else ""),
+                + (f" + {headroom} headroom" if headroom else "")
+                + (f" + {survey.reserve} if stopped mid-move" if survey.reserve else ""),
             )
 
         def check(msg: Any) -> tuple[Any, None]:
-            write = _write_of(msg)
-            if write is None or authorization.ungoverned:
+            if authorization.ungoverned:
                 return None, None
             numeric = _numeric(msg)
             if numeric is not msg:
                 # Only swapped: the mutator sees the new message as one of
                 # its own and brings it back here, where it is judged once.
                 return single_gen(numeric), None
+            # Read here, in the mutator itself, so a statement's refusal is
+            # raised out of the run and never thrown into the plan.
+            writes = message_writes(msg)
+            moved = id(msg.obj)
+            stop: tuple[ChannelWrite, ...] = ()
+            if msg.command == "set" and moved not in authorization.stoppers:
+                stop = message_may_writes(msg)
+            if not writes and not stop:
+                return None, None
 
             def head() -> Generator[Any, Any, Any]:
-                yield from authorization.before_write(*write)
+                if stop:
+                    authorization.stoppers.add(moved)
+                for write in stop:
+                    yield from authorization.before_write(write.address, write.value, reserve=True)
+                for write in writes:
+                    yield from authorization.before_write(write.address, write.value)
                 return (yield from single_gen(msg))
 
             return head(), None
