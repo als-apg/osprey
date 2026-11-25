@@ -24,6 +24,7 @@ from osprey.repo_layout import (
     InitRole,
     RootChild,
     RootEntry,
+    RootMove,
     Zone,
     check_layout,
     child_display_path,
@@ -36,6 +37,7 @@ from osprey.repo_layout import (
     listing_name,
     non_convention_source_rows,
     paths,
+    retired_moves,
     retired_paths,
     rows_in_zone,
     rows_with_init,
@@ -80,8 +82,11 @@ def test_keys_and_paths_are_unique_and_relative_posix() -> None:
         assert "\\" not in path and ".." not in path.split("/"), path
 
 
-def test_every_key_equals_its_path() -> None:
-    assert all(row.key == row.path for row in repo_layout.ROOT_ENTRIES)
+def test_every_key_equals_its_path_its_name_or_the_path_it_moved_from() -> None:
+    assert all(
+        row.key in (row.path, row.path.rsplit("/", 1)[-1]) or row.key in row.moved_from
+        for row in repo_layout.ROOT_ENTRIES
+    )
 
 
 def test_no_retired_path_is_a_live_path() -> None:
@@ -101,7 +106,7 @@ def test_every_row_states_its_purpose() -> None:
 
 def test_a_convention_purpose_is_the_convention_description() -> None:
     """The convention directory's description is the row's purpose, stated nowhere else."""
-    assert {row.key: row.purpose for row in convention_rows()} == {
+    assert {row.path: row.purpose for row in convention_rows()} == {
         pin["source"]: pin["description"] for pin in table_pins._CONVENTION_DIR_ROWS
     }
 
@@ -122,6 +127,7 @@ _DIRECTORY_KEYS = frozenset(
         "hooks",
         "web-terminal-context",
         "watchdogs",
+        "code_review",
         "mcp_servers",
         "services",
         "project",
@@ -146,10 +152,9 @@ def test_child_keys_name_roles() -> None:
         ("scripts", "verify-script"),
         ("scripts", "boot-hook"),
         ("data", "facility"),
-        ("data", "code-review"),
         ("data", "canopy-library"),
         ("data", "canopy-collections"),
-        ("data", "runtime"),
+        ("var", "runtime"),
     }
     for _, key in keys:
         assert key == key.lower() and "_" not in key and "/" not in key and "." not in key, key
@@ -180,10 +185,10 @@ def test_child_keys_name_roles() -> None:
         ),
         (
             lambda rows: tuple(
-                replace(row, retired_paths=("rules/old",)) if row.key == "tiers" else row
+                replace(row, retired_paths=("agent/rules/old",)) if row.key == "tiers" else row
                 for row in rows
             ),
-            "'rules/old' lies inside 'rules'",
+            "'agent/rules/old' lies inside 'agent/rules'",
         ),
         (
             lambda rows: (
@@ -254,16 +259,6 @@ def test_a_misplaced_convention_file_is_reported_for_its_kind_alone() -> None:
     assert "outside the source zone" not in str(caught.value)
 
 
-def test_the_runtime_child_must_be_one_segment() -> None:
-    children = tuple(
-        replace(item, path="out/.runtime") if item.key == "runtime" else item
-        for item in repo_layout.ROOT_CHILDREN
-    )
-    with pytest.raises(ValueError) as caught:
-        check_layout(repo_layout.ROOT_ENTRIES, children)
-    assert "'out/.runtime' must be a single segment" in str(caught.value)
-
-
 def test_an_image_excluded_row_must_be_one_segment() -> None:
     rows = tuple(
         replace(row, path="state/var") if row.key == "var" else row
@@ -310,6 +305,251 @@ def test_children_of_different_parents_may_share_a_path() -> None:
     )
 
 
+# --- moved paths -----------------------------------------------------------------
+
+
+#: Planted ``moved_from`` declarations over :data:`NESTED_PATHS`, beside the live
+#: ones, so the projection and its invariants are exercised on a wider layout.
+PLANTED_MOVES: dict[str, tuple[str, ...]] = {
+    "rules": ("rules",),
+    "web-terminal-context": ("web-terminal-context", "context"),
+    "scripts": ("scripts",),
+}
+
+
+def _planted_rows(
+    moves: dict[str, tuple[str, ...]] = PLANTED_MOVES,
+    new_paths: dict[str, str] = NESTED_PATHS,
+) -> tuple[RootEntry, ...]:
+    return tuple(
+        replace(row, moved_from=moves[row.key]) if row.key in moves else row
+        for row in with_paths(new_paths)
+    )
+
+
+def _planted_children() -> tuple[RootChild, ...]:
+    """The live children, whose runtime child moved out of ``data`` to ``var/runtime``."""
+    return repo_layout.ROOT_CHILDREN
+
+
+def _move_row(rows: tuple[RootEntry, ...], key: str, *old: str) -> tuple[RootEntry, ...]:
+    return tuple(replace(row, moved_from=old) if row.key == key else row for row in rows)
+
+
+#: What the agent is made of, grouped under ``agent/`` at the root: each row's
+#: moved-from path and its successor, in declaration order.
+AGENT_MOVES = (
+    ("rules", "agent/rules"),
+    ("skills", "agent/skills"),
+    ("agents", "agent/agents"),
+    ("commands", "agent/commands"),
+    ("output-styles", "agent/output-styles"),
+    ("hooks", "agent/hooks"),
+    ("web-terminal-context", "agent/context"),
+    ("watchdogs", "agent/watchdogs"),
+    ("data/code_review", "agent/code_review"),
+    ("mcp_servers", "agent/mcp_servers"),
+)
+
+#: The top-level names an unmigrated repo holds for those rows: ``data`` is still
+#: a live name, so ``data/code_review`` contributes none.
+AGENT_GROUP = (
+    "rules",
+    "skills",
+    "agents",
+    "commands",
+    "output-styles",
+    "hooks",
+    "web-terminal-context",
+    "watchdogs",
+    "mcp_servers",
+)
+
+#: What runs the deployment, grouped under ``ops/`` at the root: each row's
+#: moved-from path, its successor and its kind, in declaration order.
+OPS_MOVES = (
+    ("services", "ops/services", EntryKind.DIRECTORY),
+    ("project", "ops/project", EntryKind.DIRECTORY),
+    ("scripts", "ops/scripts", EntryKind.DIRECTORY),
+    ("osprey.service", "ops/osprey.service", EntryKind.FILE),
+    ("ci-extra.yml", "ops/ci-extra.yml", EntryKind.FILE),
+)
+
+#: The top-level names an unmigrated repo holds for the ``ops/`` rows.
+OPS_GROUP = tuple(old for old, _new, _kind in OPS_MOVES)
+
+
+def test_the_live_moves_group_the_agent_and_ops_trees_and_the_runtime_child() -> None:
+    assert retired_moves() == (
+        *(RootMove(old, new, EntryKind.DIRECTORY) for old, new in AGENT_MOVES),
+        *(RootMove(old, new, kind) for old, new, kind in OPS_MOVES),
+        RootMove("data/.runtime", "var/runtime", EntryKind.EITHER),
+    )
+    assert [(item.parent, item.key) for item in repo_layout.ROOT_CHILDREN if item.moved_from] == [
+        ("var", "runtime")
+    ]
+
+
+def test_the_moved_from_top_level_names_are_the_first_segments_once_each() -> None:
+    assert repo_layout.moved_from_top_level_names(repo_layout.ROOT_ENTRIES) == (
+        *AGENT_GROUP,
+        *OPS_GROUP,
+    )
+    rows = _move_row(repo_layout.ROOT_ENTRIES, "watchdogs", "old/watchdogs", "old/more")
+    assert repo_layout.moved_from_top_level_names(rows) == (
+        *AGENT_GROUP[:-2],
+        "old",
+        "mcp_servers",
+        *OPS_GROUP,
+    )
+
+
+def test_a_moved_from_first_segment_that_is_still_live_is_no_moved_from_name() -> None:
+    assert "data" in top_level_names(repo_layout.ROOT_ENTRIES)
+    assert "data" not in repo_layout.moved_from_top_level_names(repo_layout.ROOT_ENTRIES)
+
+
+def test_the_retired_moves_project_planted_rows_in_declaration_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = _planted_rows()
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", rows)
+    monkeypatch.setattr(repo_layout, "ROOT_CHILDREN", _planted_children())
+    expected_rows = [RootMove(old, row.path, row.kind) for row in rows for old in row.moved_from]
+    assert retired_moves() == (
+        *expected_rows,
+        RootMove("data/.runtime", "var/runtime", EntryKind.EITHER),
+    )
+    assert RootMove("rules", "agent/rules", EntryKind.DIRECTORY) in expected_rows
+    old_order = [move.old for move in expected_rows]
+    assert old_order.index("context") == old_order.index("web-terminal-context") + 1
+
+
+def test_the_retired_moves_leave_the_retired_paths_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    declared = retired_paths(repo_layout.ROOT_ENTRIES)
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", _planted_rows())
+    assert retired_paths(repo_layout.ROOT_ENTRIES) == declared == ("personas",)  # retired-spelling
+    assert "personas" not in {move.old for move in retired_moves()}  # retired-spelling
+
+
+def test_a_planted_moved_layout_passes_the_invariants() -> None:
+    check_layout(_planted_rows(), _planted_children())
+
+
+def test_a_moved_path_may_lie_inside_a_plain_directory_row() -> None:
+    """``data`` is a directory row that is no convention and no layer."""
+    assert entry("code_review").moved_from == ("data/code_review",)
+    check_layout(_planted_rows(), _planted_children())
+
+
+def test_a_data_child_old_path_is_refused_while_the_child_lives() -> None:
+    children = (*_planted_children(), RootChild("data", "code-review", "code_review", "x."))
+    with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
+        check_layout(_planted_rows(), children)
+    assert "moved-from path 'data/code_review' is a live path" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (
+            lambda rows: _move_row(rows, "rules", "profile.yml"),
+            "moved-from path 'profile.yml' is a live path",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "agent/watchdogs"),
+            "moved-from path 'agent/watchdogs' is a live path",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "data/facility"),
+            "moved-from path 'data/facility' is a live path",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "agent"),
+            "moved-from path 'agent' holds its successor 'agent/rules'",
+        ),
+        (
+            lambda rows: _move_row(rows, "scripts", "agent"),
+            "moved-from path 'agent' holds the live path 'agent/rules'",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "agent/rules/old"),
+            "moved-from path 'agent/rules/old' lies inside its successor 'agent/rules'",
+        ),
+        (
+            lambda rows: _move_row(rows, "skills", "rules"),
+            "moved-from paths declared twice ['rules']",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "rules", "rules"),
+            "moved-from paths declared twice ['rules']",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "personas"),  # retired-spelling
+            "moved-from path 'personas' is also a retired path",  # retired-spelling
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "tiers/rules"),
+            "moved-from path 'tiers/rules' lies inside 'tiers'",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "profile.yml/rules"),
+            "moved-from path 'profile.yml/rules' lies inside 'profile.yml'",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "data/facility/rules"),
+            "moved-from path 'data/facility/rules' lies inside 'data/facility'",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "/rules"),
+            "moved-from path '/rules' has a leading or trailing slash",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "a/../rules"),
+            "moved-from path 'a/../rules' has an empty, '.' or '..' segment",
+        ),
+    ],
+)
+def test_a_broken_moved_path_is_refused(
+    change: Callable[[tuple[RootEntry, ...]], tuple[RootEntry, ...]], message: str
+) -> None:
+    with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
+        check_layout(change(_planted_rows()), _planted_children())
+    assert message in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("moved_from", "message"),
+    [
+        (("var",), "moved-from path 'var' is a live path"),
+        (("var/runtime/old",), "moved-from path 'var/runtime/old' lies inside its successor"),
+        (("rules",), "moved-from paths declared twice ['rules']"),
+        (("data/canopy/library",), "moved-from path 'data/canopy/library' is a live path"),
+        (("data/.runtime/x/../y",), "has an empty, '.' or '..' segment"),
+    ],
+)
+def test_a_broken_moved_child_is_refused(moved_from: tuple[str, ...], message: str) -> None:
+    children = tuple(
+        replace(item, moved_from=moved_from) if item.key == "runtime" else item
+        for item in _planted_children()
+    )
+    with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
+        check_layout(_planted_rows(), children)
+    assert message in str(caught.value)
+
+
+def test_a_child_old_path_holding_its_successor_is_refused() -> None:
+    children = (
+        *_planted_children(),
+        RootChild("data", "deep", "x/y", "x.", moved_from=("data/x",)),
+    )
+    with pytest.raises(ValueError) as caught:
+        check_layout(_planted_rows(), children)
+    assert "moved-from path 'data/x' holds its successor 'data/x/y'" in str(caught.value)
+
+
 # --- lookup and accessors --------------------------------------------------------
 
 
@@ -320,16 +560,16 @@ def test_entry_returns_the_row_and_refuses_an_unknown_key() -> None:
 
 
 def test_accessors_join_the_declared_paths(tmp_path: Path) -> None:
-    assert display_path("rules") == "rules"
-    assert display_path("rules", "x.md") == "rules/x.md"
-    assert child_display_path("scripts", "verify-script") == "scripts/verify.sh"
-    assert child_display_path("scripts", "boot-hook") == "scripts/osprey-boot-hook.sh"
+    assert display_path("rules") == "agent/rules"
+    assert display_path("rules", "x.md") == "agent/rules/x.md"
+    assert child_display_path("scripts", "verify-script") == "ops/scripts/verify.sh"
+    assert child_display_path("scripts", "boot-hook") == "ops/scripts/osprey-boot-hook.sh"
     assert child_display_path("data", "facility") == "data/facility"
-    assert child_display_path("data", "code-review") == "data/code_review"
     assert child_display_path("data", "canopy-library") == "data/canopy/library"
     assert child_display_path("data", "canopy-collections") == "data/canopy/collections"
-    assert child_display_path("data", "runtime") == "data/.runtime"
-    assert watchdogs_source_dir(tmp_path) == tmp_path / "watchdogs"
+    assert child_display_path("var", "runtime") == "var/runtime"
+    assert display_path("code_review", "reviewer.md") == "agent/code_review/reviewer.md"
+    assert watchdogs_source_dir(tmp_path) == tmp_path / "agent" / "watchdogs"
 
 
 def test_a_data_child_joins_wherever_the_data_root_resolves(tmp_path: Path) -> None:
@@ -341,7 +581,7 @@ def test_a_data_child_joins_wherever_the_data_root_resolves(tmp_path: Path) -> N
 
 
 def test_listing_name_marks_only_directories() -> None:
-    assert listing_name(entry("rules")) == "rules/"
+    assert listing_name(entry("rules")) == "agent/rules/"
     assert listing_name(entry("profile.yml")) == "profile.yml"
     assert listing_name(entry(".git")) == ".git"
 
@@ -350,37 +590,37 @@ def test_selection_follows_declaration_order() -> None:
     assert paths(rows_with_init(InitRole.UNTOUCHED)) == (".env", ".git", "var", "build")
     assert paths(rows_in_zone(Zone.GENERATED)) == ("var", "build")
     assert paths(layer_rows()) == ("tiers",)
-    assert top_level_names(convention_rows())[:2] == ("rules", "skills")
+    assert top_level_names(convention_rows())[:2] == ("agent", "ops")
     assert paths(zoned_rows())[:2] == ("profile.yml", "providers.yml")
     assert ".gitignore" not in paths(zoned_rows())
-    assert "rules" not in paths(non_convention_source_rows())
-    assert paths(non_convention_source_rows())[-1] == "ci-extra.yml"
+    assert "agent/rules" not in paths(non_convention_source_rows())
+    assert paths(non_convention_source_rows())[-1] == "ops/ci-extra.yml"
 
 
 # --- substitution ----------------------------------------------------------------
 
 
 def test_with_paths_replaces_only_the_named_paths() -> None:
-    rows = with_paths({"scripts": "ops/scripts"})
+    rows = with_paths({"scripts": "tools/scripts"})
     before = {row.key: row for row in repo_layout.ROOT_ENTRIES}
     assert [row.key for row in rows] == list(before)
     for row in rows:
         expected = (
-            replace(before[row.key], path="ops/scripts")
+            replace(before[row.key], path="tools/scripts")
             if row.key == "scripts"
             else before[row.key]
         )
         assert row == expected
-    assert entry("scripts").path == "scripts", "the registry itself is not changed"
+    assert entry("scripts").path == "ops/scripts", "the registry itself is not changed"
 
 
 def test_with_paths_refuses_an_unknown_key_and_a_broken_layout() -> None:
     with pytest.raises(KeyError, match="nowhere"):
         with_paths({"nowhere": "x"})
     with pytest.raises(ValueError, match="paths declared twice"):
-        with_paths({"skills": "rules"})
-    with pytest.raises(ValueError, match="'rules/skills' lies inside 'rules'"):
-        with_paths({"skills": "rules/skills"})
+        with_paths({"skills": "agent/rules"})
+    with pytest.raises(ValueError, match="'agent/rules/skills' lies inside 'agent/rules'"):
+        with_paths({"skills": "agent/rules/skills"})
 
 
 def test_a_nested_layout_passes_the_invariants(nested_layout: tuple[RootEntry, ...]) -> None:
@@ -405,10 +645,12 @@ def test_a_nested_layout_changes_the_top_level_names(monkeypatch: pytest.MonkeyP
         return {*top_level_names(zoned), *retired_paths(zoned)}
 
     declared = known_names()
-    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", with_paths(NESTED_PATHS))
-    moved = {"rules", "watchdogs", "mcp_servers", "web-terminal-context", "scripts"}
-    assert moved <= declared
-    assert known_names() == (declared - moved) | {"agent", "ops"}
+    regrouped = {"profiles": "config/profiles", "triggers.yml": "config/triggers.yml"}
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", with_paths(regrouped))
+    moved = set(regrouped)
+    assert moved | {"agent", "ops"} <= declared
+    assert "config" not in declared
+    assert known_names() == (declared - moved) | {"config"}
 
 
 # --- reach -----------------------------------------------------------------------
@@ -437,17 +679,20 @@ def _derived_tables() -> dict[str, types.SimpleNamespace]:
     source_plain = non_convention_source_rows()
     zoned = zoned_rows()
 
-    # Render attributes keyed by identity, walked in declaration order; a key on
-    # one side only is an error. The source is the row's path and the
+    # Render attributes keyed by the row's path, walked in declaration order; a
+    # path on one side only is an error. The source is the row's path and the
     # description its purpose, so the mapping carries neither.
-    render = {
+    by_path = {
         pin["source"]: {
             field: value for field, value in pin.items() if field not in ("source", "description")
         }
         for pin in table_pins._CONVENTION_DIR_ROWS
     }
-    keys = [row.key for row in convention_rows()]
-    assert set(keys) == set(render), "convention rows and render attributes disagree"
+    assert set(paths(convention_rows())) == set(by_path), (
+        "convention rows and render attributes disagree"
+    )
+    render = {row.key: by_path[row.path] for row in convention_rows()}
+    keys = list(render)
     convention_dirs = tuple(
         types.SimpleNamespace(**render[row.key], source=row.path, description=row.purpose)
         for row in convention_rows()
@@ -487,7 +732,7 @@ def _derived_tables() -> dict[str, types.SimpleNamespace]:
             WRITE_ONCE_FILES=dict.fromkeys(paths(write_once)),
             WRITE_ONCE_DIRS=dict.fromkeys(paths(seeded)),
             CI_EMITTED_PATHS=ci_emitted,
-            FACILITY_RULE_DIR=facility_rule.path,
+            FACILITY_RULE_DIR=facility_rule.key,
             PRESERVED_BY_FORCE=(
                 *untouched,
                 *paths(write_once),
@@ -507,7 +752,11 @@ def _derived_tables() -> dict[str, types.SimpleNamespace]:
             LAYER_DIRNAMES=(*paths(layers), *retired_paths(layers)),
         ),
         "executor": types.SimpleNamespace(
-            PROFILE_SOURCE_ENTRIES=(*paths(source), *retired_paths(source)),
+            PROFILE_SOURCE_ENTRIES=(
+                *top_level_names(source),
+                *retired_paths(source),
+                *repo_layout.moved_from_top_level_names(source),
+            ),
         ),
     }
 

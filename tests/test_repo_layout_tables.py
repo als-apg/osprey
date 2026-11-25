@@ -22,17 +22,15 @@ def test_source_zone_entries() -> None:
         ".dockerignore",
         ".osprey",
         "apps",
-        "ci-extra.yml",
         "data",
-        "osprey.service",
+        "ops",
         "personas",  # retired-spelling
         "profile.yml",
         "profiles",
         "providers.yml",
-        "scripts",
         "tiers",
         "triggers.yml",
-        "watchdogs",
+        "agent",
     }
 
 
@@ -63,30 +61,18 @@ def test_known_root_entries() -> None:
         ".osprey",
         "CLAUDE.local.md",
         "CLAUDE.md",
-        "agents",
+        "agent",
         "apps",
         "build",
-        "ci-extra.yml",
-        "commands",
         "data",
-        "hooks",
-        "mcp_servers",
-        "osprey.service",
-        "output-styles",
+        "ops",
         "personas",  # retired-spelling
         "profile.yml",
         "profiles",
-        "project",
         "providers.yml",
-        "rules",
-        "scripts",
-        "services",
-        "skills",
         "tiers",
         "triggers.yml",
         "var",
-        "watchdogs",
-        "web-terminal-context",
     }
 
 
@@ -117,7 +103,7 @@ def test_selected_convention_sources() -> None:
 
 _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
     {
-        "source": "rules",
+        "source": "agent/rules",
         "destination": ".claude/rules",
         "shape": "markdown",
         "entry_noun": "rule",
@@ -126,7 +112,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": "rules",
     },
     {
-        "source": "skills",
+        "source": "agent/skills",
         "destination": ".claude/skills",
         "shape": "directory",
         "entry_noun": "skill",
@@ -135,7 +121,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": "skills",
     },
     {
-        "source": "agents",
+        "source": "agent/agents",
         "destination": ".claude/agents",
         "shape": "markdown",
         "entry_noun": "agent",
@@ -144,7 +130,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": "agents",
     },
     {
-        "source": "commands",
+        "source": "agent/commands",
         "destination": ".claude/commands",
         "shape": "markdown",
         "entry_noun": "command",
@@ -153,7 +139,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": None,
     },
     {
-        "source": "output-styles",
+        "source": "agent/output-styles",
         "destination": ".claude/output-styles",
         "shape": "markdown",
         "entry_noun": "output style",
@@ -162,7 +148,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": "output_styles",
     },
     {
-        "source": "hooks",
+        "source": "agent/hooks",
         "destination": ".claude/hooks",
         "shape": "file",
         "entry_noun": "hook",
@@ -171,7 +157,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": "hooks",
     },
     {
-        "source": "web-terminal-context",
+        "source": "agent/context",
         "destination": "docker/web-terminal-context",
         "shape": "directory",
         "entry_noun": "web-terminal user",
@@ -180,7 +166,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": None,
     },
     {
-        "source": "mcp_servers",
+        "source": "agent/mcp_servers",
         "destination": "_mcp_servers",
         "shape": "directory",
         "entry_noun": "MCP server",
@@ -189,7 +175,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": None,
     },
     {
-        "source": "services",
+        "source": "ops/services",
         "destination": "services",
         "shape": "directory",
         "entry_noun": "service",
@@ -198,7 +184,7 @@ _CONVENTION_DIR_ROWS: tuple[dict[str, object], ...] = (
         "list_field": None,
     },
     {
-        "source": "project",
+        "source": "ops/project",
         "destination": "",
         "shape": "mirror",
         "entry_noun": "file",
@@ -232,9 +218,10 @@ def test_materialized_source_entries() -> None:
         "apps",
         ".osprey",
         "triggers.yml",
-        "web-terminal-context",
+        "agent/context",
         ".env.example",
-        "watchdogs",
+        "agent/watchdogs",
+        "agent/code_review",
     )
 
 
@@ -246,16 +233,16 @@ def test_write_once_files_keys() -> None:
         ".gitignore",
         ".env.shared",
         "README.md",
-        "ci-extra.yml",
+        "ops/ci-extra.yml",
     )
 
 
 def test_write_once_dirs_keys() -> None:
-    assert tuple(init_cmd.WRITE_ONCE_DIRS) == ("mcp_servers",)
+    assert tuple(init_cmd.WRITE_ONCE_DIRS) == ("agent/mcp_servers",)
 
 
 def test_ci_emitted_paths() -> None:
-    assert tuple(init_cmd.CI_EMITTED_PATHS) == (".gitlab-ci.yml", "scripts/verify.sh")
+    assert tuple(init_cmd.CI_EMITTED_PATHS) == (".gitlab-ci.yml", "ops/scripts/verify.sh")
 
 
 def test_facility_rule_dir() -> None:
@@ -271,11 +258,11 @@ def test_preserved_by_force() -> None:
         ".gitignore",
         ".env.shared",
         "README.md",
-        "ci-extra.yml",
+        "ops/ci-extra.yml",
         ".gitlab-ci.yml",
-        "scripts/verify.sh",
-        "mcp_servers/",
-        "rules/",
+        "ops/scripts/verify.sh",
+        "agent/mcp_servers/",
+        "agent/rules/",
     )
 
 
@@ -330,6 +317,8 @@ def test_profile_source_entries() -> None:
         "scripts",
         "watchdogs",
         ".osprey",
+        "agent",
+        "ops",
         "rules",
         "skills",
         "agents",
