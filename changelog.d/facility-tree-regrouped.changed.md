@@ -24,7 +24,10 @@ likewise for the other moved files and directories; `model()` now defaults to
 the new models file.
 
 A machine repository mounted from another repository (`machine:`) is moved in
-that repository, not by `--revalidate`, which lists it under what is left for
-you. Move the machine repository first, then upgrade each deployment that
-mounts it. An older OSPREY cannot read the new layout, so deployments sharing
-one machine repository upgrade together.
+that repository, not by `--revalidate` in the deployment, which lists it under
+what is left for you. Upgrade OSPREY in every deployment that mounts it first;
+each deployment's builds then refuse the machine and print the commands that
+move it. Next, move the machine repository (upgrade OSPREY there, run
+`osprey init --revalidate` or the printed commands, commit), then commit the
+new submodule commit in each deployment. An older OSPREY reads a moved machine
+without the moved files and says nothing, so the upgrade comes first.
