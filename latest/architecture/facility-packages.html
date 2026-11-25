@@ -485,7 +485,7 @@ in <a class="reference internal" href="../reference/contracts/facility-json.html
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fp-title fp-desc">
   <title id="fp-title">The facility packages: the framework, osprey-facility, osprey-panels and osprey-connectors, the directions each may import, and facility.json as the one seam between the facility and the panels</title>
-  <desc id="fp-desc">Read left to right along the data flow, with the import directions drawn in accent. Column 1, the source: the facility tree, its records, documents, layers and scenarios, and the panels data beside them. Column 2, the description. osprey-facility, imported as osprey_facility, holds the description and the build, imports nothing of osprey, and depends on pydantic, PyYAML, packaging and numpy; it is released under its own tags, osprey-facility-v*. The build reads the facility tree. Above it sits the framework, osprey: views, settings, the CLI and the engine implementations such as pyat. The framework imports osprey-facility through its public API only. Below it sits osprey-connectors, which holds the engine contract at osprey_connectors.simulation.engines; osprey-facility depends on it, and the framework's engines implement that contract. Column 3, the seam. The build is the sole producer of facility.json, written under the render root. Its header is osprey.facility.facility/N, it has a published JSON Schema, and every reader checks N before it reads; the framework reads it too. A box of edges that do not exist: osprey-facility never imports osprey; osprey-panels never imports osprey or osprey_facility; the framework never imports osprey_panels. Column 4, the panels. osprey-panels, imported as osprey_panels, reads facility.json, the panels data and a theme file passed in, depends on the standard library and jsonschema only, has its own command, osprey-panels write, check and classes, and is released under its own tags, osprey-panels-v*. A fork is a separate distribution that replaces it. It emits Screen-IR, validated at run time against the schema it vendors; a sync test holds the vendored schema to Canopy at the pinned commit. Footer: panels and facility meet only in facility.json; an import outside the accent arrows fails the boundary check.</desc>
+  <desc id="fp-desc">Read left to right along the data flow, with the import directions drawn in accent. Column 1, the source: the facility tree, its records, documents, layers and scenarios, and the panels data beside them. Column 2, the description. osprey-facility, imported as osprey_facility, holds the description and the build, imports nothing of osprey, and depends on pydantic, PyYAML, packaging and numpy; it is released under its own tags, osprey-facility-v*. The build reads the facility tree. Above it sits the framework, osprey: views, settings, the CLI and the engine implementations such as pyat. The framework imports osprey-facility through its public API only. Below it sits osprey-connectors, which holds the engine contract at osprey_connectors.simulation.engines; osprey-facility depends on it, and the framework's engines implement that contract. Column 3, the seam. The build is the sole producer of facility.json, written under the render root. Its header is osprey.facility.facility/N, it has a published JSON Schema, and every reader checks N before it reads; the framework reads it too. A box of edges that do not exist: osprey-facility never imports osprey; osprey-panels never imports osprey or osprey_facility; the framework never imports osprey_panels. Column 4, the panels. osprey-panels, imported as osprey_panels, reads facility.json, the panels data and a theme file passed in, depends on the standard library and jsonschema only, has its own command, osprey-panels write, check and classes, and is not published: it is installed from a checkout. A fork is a separate distribution that replaces it. It emits Screen-IR, validated at run time against the schema it vendors; a sync test holds the vendored schema to Canopy at the pinned commit. Footer: panels and facility meet only in facility.json; an import outside the accent arrows fails the boundary check.</desc>
   <defs>
     <marker id="fp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
     <marker id="fp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
@@ -558,7 +558,7 @@ in <a class="reference internal" href="../reference/contracts/facility-json.html
   <text class="ts" x="791" y="298">stdlib · jsonschema</text>
   <text class="ts" x="791" y="316">osprey-panels write | check</text>
   <text class="ts" x="791" y="330">  | classes</text>
-  <text class="ts" x="791" y="348">tags osprey-panels-v*</text>
+  <text class="ts" x="791" y="348">not published</text>
 
   <rect class="nb-st" x="779" y="396" width="210" height="62" rx="6"/>
   <text class="ta" x="791" y="414">SCREEN-IR</text>
@@ -691,18 +691,21 @@ outside them, and the kinds group is <code class="docutils literal notranslate">
 declares its public modules, ships the <code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> command
 (<a class="reference internal" href="../reference/osprey-panels.html#reference-osprey-panels"><span class="std std-ref">osprey-panels</span></a>), and the framework imports none of it.</p>
 </section>
-<section id="both-packages-have-their-own-tag-streams">
-<h2>6. Both packages have their own tag streams<a class="headerlink" href="#both-packages-have-their-own-tag-streams" title="Link to this heading">#</a></h2>
-<p>Releases are tagged <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey-panels-v*</span></code>, built by
-one release workflow that takes the package as a parameter. The framework
-depends on osprey-facility with a floor. osprey-panels declares the
-<code class="docutils literal notranslate"><span class="pre">facility.json</span></code> versions and the Screen-IR version it supports, not an
-osprey-facility floor.</p>
-<p><em>Why:</em> each package gets its own version and cadence. One parameterised workflow
-generalises the connectors’ release stream instead of copying it twice.</p>
-<p><em>Phase:</em> 6. <em>Today:</em> an <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey-panels-v*</span></code> tag
-runs <code class="docutils literal notranslate"><span class="pre">release-package.yml</span></code>, which publishes that package to PyPI and nothing
-else. The framework’s <code class="docutils literal notranslate"><span class="pre">v*</span></code> release builds neither.</p>
+<section id="osprey-facility-has-its-own-tag-stream-osprey-panels-is-not-published">
+<h2>6. osprey-facility has its own tag stream; osprey-panels is not published<a class="headerlink" href="#osprey-facility-has-its-own-tag-stream-osprey-panels-is-not-published" title="Link to this heading">#</a></h2>
+<p>osprey-facility releases are tagged <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code>, built by one
+release workflow that takes the package as a parameter. The framework
+depends on osprey-facility with a floor. osprey-panels is a package in the
+repository that is not published: it has no tags and is installed from a
+checkout. It declares the <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> versions and the Screen-IR version
+it supports, not an osprey-facility floor.</p>
+<p><em>Why:</em> osprey-facility gets its own version and cadence. One parameterised
+workflow generalises the connectors’ release stream instead of copying it. The
+panel engine is a prototype whose shape will change, so it makes no release
+promise.</p>
+<p><em>Phase:</em> 6. <em>Today:</em> an <code class="docutils literal notranslate"><span class="pre">osprey-facility-v*</span></code> tag runs
+<code class="docutils literal notranslate"><span class="pre">release-package.yml</span></code>, which publishes that package to PyPI and nothing
+else. The framework’s <code class="docutils literal notranslate"><span class="pre">v*</span></code> release builds neither package.</p>
 </section>
 <section id="a-fork-is-a-separate-distribution-that-replaces-osprey-panels">
 <h2>7. A fork is a separate distribution that replaces osprey-panels<a class="headerlink" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels" title="Link to this heading">#</a></h2>
@@ -815,7 +818,7 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 1000 600" role="img" aria-labelledby="fpt-title fpt-desc">
   <title id="fpt-title">Today versus target: the description and the panels each their own package, and the edges the boundary ratchet listed, grouped by the phase that removed them</title>
-  <desc id="fpt-desc">Two halves. The left half is today. The description is its own package, packages/osprey-facility, import root osprey_facility: some 25 modules such as records, combine, build, validate, render, scenarios, compute, layers, kinds, sessions and the schema. It imports no framework code, no click and no pyaml_cs_osprey, and the framework imports it through its public modules only. The panel engine is its own package too, packages/osprey-panels, import root osprey_panels: it reads facility.json, the panel rule tables and a theme file passed in, and imports no framework, no description module and no osprey_connectors. The framework imports no osprey_panels module and has no panels command. No third-party reach is listed. The right half is the ratchet, drawn by edge class and the phase that removed it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle, is done and lists no edge: it removed every description edge into the framework, the edges to click and to pyaml_cs_osprey, and the engine contract's osprey.simulation.engines spelling, and broke the import cycle. Phase 4, the facility package, is done and lists no edge: it removed the framework's reaches into description modules outside the public API, such as the CLI's read of the MML layer data. Phase 5, the panels package, is done and lists no edge: it removed the framework CLI's import of the panels, the panels' climb to the framework theme, replaced by a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: both packages tag and publish. Footer: the ratchet is empty; an edge of any of these classes fails the boundary check today.</desc>
+  <desc id="fpt-desc">Two halves. The left half is today. The description is its own package, packages/osprey-facility, import root osprey_facility: some 25 modules such as records, combine, build, validate, render, scenarios, compute, layers, kinds, sessions and the schema. It imports no framework code, no click and no pyaml_cs_osprey, and the framework imports it through its public modules only. The panel engine is its own package too, packages/osprey-panels, import root osprey_panels: it reads facility.json, the panel rule tables and a theme file passed in, and imports no framework, no description module and no osprey_connectors. The framework imports no osprey_panels module and has no panels command. No third-party reach is listed. The right half is the ratchet, drawn by edge class and the phase that removed it, not entry by entry. Phase 2, the panels seam, is done and lists no edge: the panels read facility.json only. Phase 3, the facility untangle, is done and lists no edge: it removed every description edge into the framework, the edges to click and to pyaml_cs_osprey, and the engine contract's osprey.simulation.engines spelling, and broke the import cycle. Phase 4, the facility package, is done and lists no edge: it removed the framework's reaches into description modules outside the public API, such as the CLI's read of the MML layer data. Phase 5, the panels package, is done and lists no edge: it removed the framework CLI's import of the panels, the panels' climb to the framework theme, replaced by a theme file passed in, and the panels' import of osprey_connectors.safety_file. Phase 6, release wiring, removes no edge: osprey-facility tags and publishes on its own stream, and osprey-panels is not published. Footer: the ratchet is empty; an edge of any of these classes fails the boundary check today.</desc>
   <defs>
     <marker id="fpt-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
   </defs>
@@ -907,8 +910,8 @@ removed. A new crossing edge fails, and so does an entry whose edge is gone.</p>
 
   <rect class="nb-st" x="520" y="470" width="460" height="56" rx="6"/>
   <text class="ta" x="532" y="488">PHASE 6 · RELEASE WIRING</text>
-  <text class="ts" x="532" y="506">removes no edge: osprey-facility and osprey-panels</text>
-  <text class="ts" x="532" y="520">tag and publish on their own streams</text>
+  <text class="ts" x="532" y="506">removes no edge: osprey-facility tags and publishes</text>
+  <text class="ts" x="532" y="520">on its own stream; osprey-panels is not published</text>
 
   <text class="ts" x="20" y="582">The ratchet is empty: each phase deleted its classes, and an edge of any of these classes fails the boundary check today.</text>
 </svg>
@@ -1015,7 +1018,7 @@ entered.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-description-and-the-framework-split-as-the-code-reads">3. The description and the framework split as the code reads</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-simulation-engine-contract-lives-in-osprey-connectors">4. The simulation-engine contract lives in osprey-connectors</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#names-public-modules-and-the-command-line">5. Names, public modules and the command line</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#both-packages-have-their-own-tag-streams">6. Both packages have their own tag streams</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility-has-its-own-tag-stream-osprey-panels-is-not-published">6. osprey-facility has its own tag stream; osprey-panels is not published</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#a-fork-is-a-separate-distribution-that-replaces-osprey-panels">7. A fork is a separate distribution that replaces osprey-panels</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-panels-owns-its-screen-ir-pin">8. osprey-panels owns its Screen-IR pin</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tests-live-inside-each-package">9. Tests live inside each package</a></li>

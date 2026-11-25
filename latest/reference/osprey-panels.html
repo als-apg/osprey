@@ -494,21 +494,18 @@
 <p>The command of osprey-panels, the panel engine: it writes the operator
 screens of a facility from a built <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> and the facility’s panel
 rule tables, as Canopy Screen-IR documents with an index. The package carries
-none of the framework and depends on jsonschema only. <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span>
-<span class="pre">osprey-panels</span></code> installs it and its <code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> command;
-<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_panels</span></code> runs the same command.</p>
+none of the framework and depends on jsonschema only. The package is in the
+repository and is not published on PyPI: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span>
+<span class="pre">./packages/osprey-panels</span></code> from a checkout installs it and its
+<code class="docutils literal notranslate"><span class="pre">osprey-panels</span></code> command; <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey_panels</span></code> runs the same command.</p>
 <p><strong>Experimental.</strong> The commands, the rule tables under <code class="docutils literal notranslate"><span class="pre">panels/</span></code>, the
-<code class="docutils literal notranslate"><span class="pre">draw.json</span></code> settings and the screens they write may change in any release,
+<code class="docutils literal notranslate"><span class="pre">draw.json</span></code> settings and the screens they write may change with any commit,
 without a compatibility path.</p>
-<p>How the package versions, and which <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> versions and Screen-IR
-version each release reads and writes, is in the Stability section of the
-package’s
+<p>Which <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> versions and Screen-IR version the package reads and
+writes is in the Stability section of the package’s
 <a class="reference external" href="https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/README.md">README</a>.
 This page is built from the same tree as the rest of this site, so it can
-describe a release newer or older than the one you have installed; the
-package’s
-<a class="reference external" href="https://github.com/als-apg/osprey/blob/main/packages/osprey-panels/CHANGELOG.md">changelog</a>
-says which release added what.</p>
+describe a checkout newer or older than the one you have installed.</p>
 <p>Every input is named on the command line; nothing is read from a profile or a
 checkout. Reports go to stdout, warnings and errors to stderr. The command
 exits 0 when it did what it was asked, 1 on a failing problem or a refused
