@@ -2875,19 +2875,22 @@ def _inject_project_metadata(config):
     # with an explicit ``./`` — a bind source that is neither absolute nor
     # dot-prefixed is not reliably read as a path by every runtime. A state dir
     # outside the repo has no relative spelling and is emitted absolute.
-    from osprey_connectors.workspace import (
-        SIMULATOR_LOG_DIR_RELPATH,
-        agent_data_base_dir,
-        resolve_simulation_state_dir,
-    )
+    # One source per simulator instance, keyed by its service: each instance
+    # has an active scenario set of its own, so each container is handed its
+    # own directory at the one container path.
+    from osprey.simulation.targets import SIMULATOR_SERVICES, target_state_dir
+    from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, agent_data_base_dir
 
-    state_dir = resolve_simulation_state_dir(config, repo_root).expanduser().absolute()
-    try:
-        relative_state_dir = state_dir.relative_to(repo_root)
-    except ValueError:
-        config_with_labels["osprey_state_mount_source"] = state_dir.as_posix()
-    else:
-        config_with_labels["osprey_state_mount_source"] = f"./{PurePosixPath(relative_state_dir)}"
+    state_sources: dict[str, str] = {}
+    for target, service in SIMULATOR_SERVICES.items():
+        state_dir = target_state_dir(config, repo_root, target).expanduser().absolute()
+        try:
+            relative_state_dir = state_dir.relative_to(repo_root)
+        except ValueError:
+            state_sources[service] = state_dir.as_posix()
+        else:
+            state_sources[service] = f"./{PurePosixPath(relative_state_dir)}"
+    config_with_labels["osprey_state_mount_sources"] = state_sources
 
     # The agent-data root as the CONTAINER sees it, ABSOLUTE and complete —
     # rendered from the same ``agent_data.base_dir`` the container's own
@@ -2995,7 +2998,7 @@ def _inject_project_metadata(config):
     # in `OSPREY_SPOOL_DIR` / `OSPREY_STATE_DIR`, so the path it is mounted at
     # and the path its writer resolves cannot be spelled apart. The state
     # zone's source is `osprey_state_zone_mount_source`: the simulator's
-    # scenario directory already holds `osprey_state_mount_source`.
+    # scenario directories already hold `osprey_state_mount_sources`.
     from osprey.utils.workspace import SPOOL_DIR_RELPATH, STATE_DIR_RELPATH
 
     for zone, relpath, source_key in (
@@ -3129,7 +3132,7 @@ def _inject_project_metadata(config):
         ).as_posix()
 
     # The qmd sidecar's resolved settings and its corpus list, derived here for
-    # the same reason ``osprey_state_mount_source`` is: a mount source has to
+    # the same reason ``osprey_state_mount_sources`` is: a mount source has to
     # follow whatever the config actually points at, and the sidecar's two
     # rendered artifacts — the compose fragment's read-only corpus mounts and
     # index.yml's collections — must be generated from ONE list or they drift
@@ -5782,12 +5785,9 @@ def _ensure_agent_data_structure(config):
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
+    from osprey.simulation.targets import deployed_simulator_targets, target_state_dir
     from osprey_connectors.types import VIRTUAL_ACCELERATOR
-    from osprey_connectors.workspace import (
-        agent_data_base_dir,
-        anchored_path,
-        resolve_simulation_state_dir,
-    )
+    from osprey_connectors.workspace import agent_data_base_dir, anchored_path
 
     # Get file paths configuration
     file_paths = config.get("file_paths", {})
@@ -5826,8 +5826,11 @@ def _ensure_agent_data_structure(config):
     # directory pre-created in one place and mounted from another — leaving the
     # real mount source to the container runtime, which is exactly the
     # root-owned-directory failure this block exists to prevent.
-    if VIRTUAL_ACCELERATOR in {str(name) for name in config.get("deployed_services") or []}:
-        state_path = resolve_simulation_state_dir(config, Path(project_root))
+    #
+    # One directory per simulator instance the deployment runs: each mounts its
+    # own, and the stand-in's is a subdirectory of the first instance's.
+    for target in deployed_simulator_targets(config):
+        state_path = target_state_dir(config, Path(project_root), target)
         state_path.mkdir(parents=True, exist_ok=True)
         logger.debug(f"Created scenario state directory: {state_path}")
 
