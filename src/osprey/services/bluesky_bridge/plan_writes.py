@@ -12,7 +12,14 @@ launch write", read here for every message a plan yields:
 - both worker plan wrappers run the plan through :func:`held_to_declaration`,
   so a launch whose plan does not declare ``writes: true`` is refused at its
   first write, before that write reaches the RunEngine. The preview walks the
-  same wrapper, so the preview and the run refuse in the same words.
+  same wrapper, so the preview and the run refuse in the same words;
+- the run's write authorization (``write_grant``) surveys the same statements
+  to ask for its scope, and checks each write against them as the run goes.
+
+A device that can stop a move also states what its ``stop()`` writes, through
+``stop_writes()``, read by :func:`message_may_writes`: what may be written if
+the run stops mid-move. It is not a write the launch makes and is never in
+:func:`message_writes`.
 
 A device that has a writing verb but no matching statement refuses the launch
 (:class:`UnstatedWriteError`): a write nobody stated is a write nobody can
@@ -83,6 +90,36 @@ def message_writes(msg: Any) -> tuple[ChannelWrite, ...]:
         raise refusal
     args = tuple(getattr(msg, "args", ()) or ()) if command == "set" else ()
     writes = statement(*args)
+    if not isinstance(writes, tuple) or not all(isinstance(w, ChannelWrite) for w in writes):
+        raise refusal
+    return writes
+
+
+def message_may_writes(msg: Any) -> tuple[ChannelWrite, ...]:
+    """The channel writes a stop of the device one plan message moves may make.
+
+    A ``set`` on an object with a ``stop`` method is that object's
+    ``stop_writes()``: what its ``stop()`` writes when it stops a move the
+    run started. The RunEngine stops only what a run moved, so any other
+    message, and a ``set`` on an object without ``stop``, states none.
+
+    Raises:
+        UnstatedWriteError: The object has ``stop`` but not its statement, or
+            the statement is not a tuple of :class:`ChannelWrite`.
+    """
+    if getattr(msg, "command", None) != "set":
+        return ()
+    obj = getattr(msg, "obj", None)
+    if not callable(getattr(obj, "stop", None)):
+        return ()
+    statement = getattr(obj, "stop_writes", None)
+    refusal = UnstatedWriteError(
+        f"device {_device_name(obj)!r} does not state the channels its stop writes; "
+        "the launch is refused"
+    )
+    if not callable(statement):
+        raise refusal
+    writes = statement()
     if not isinstance(writes, tuple) or not all(isinstance(w, ChannelWrite) for w in writes):
         raise refusal
     return writes
