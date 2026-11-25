@@ -186,18 +186,6 @@ def _waiting_copy_lock(conninfo: str, key: str):
     return try_advisory_lock(conninfo, key, wait=True)
 
 
-def _hanging(*, sent: bool):
-    """A fetcher that never answers within any deadline; ``sent`` marks the request out."""
-
-    async def _fetch(*_args, **kwargs):
-        if sent:
-            kwargs["on_sent"]()
-        await asyncio.sleep(3600)
-        return FetchOutcome(data=PNG_MAGIC)
-
-    return _fetch
-
-
 def _sleepy(seconds: float):
     async def _fetch(*_args, **kwargs):
         kwargs["on_sent"]()
@@ -374,18 +362,30 @@ class TestDeadlines:
     ):
         fake_prepare(monkeypatch)
         _scale_copy_runs(monkeypatch)
-        attachment_fetch.respond(_hanging(sent=False))
+        #: How long each hung fetch lived, from its call to its cancellation.
+        lifetimes: list[float] = []
+
+        async def _hang_and_time(*_args, **_kwargs):
+            called = time.monotonic()
+            try:
+                await asyncio.sleep(3600)
+            finally:
+                lifetimes.append(time.monotonic() - called)
+            return FetchOutcome(data=PNG_MAGIC)
+
+        attachment_fetch.respond(_hang_and_time)
         cfg = _config()
         entries = [_entry(f"hang-{i}", [_png(f"h{i}.png")], minutes=i) for i in range(3)]
         scheduler = _scheduler(scratch_repo, monkeypatch, cfg, HttpStubAdapter(cfg, entries))
 
-        started = time.monotonic()
         result = await scheduler.poll_once()
-        elapsed = time.monotonic() - started
 
         assert result.entries_added == 3
-        # Each entry's copy ends at its deadline; the slack covers the database work.
-        assert elapsed < 3 * DEADLINE_S + 2.0
+        # Each entry's fetch is cut off at its deadline. Timed from the fetch
+        # itself, the database work around it (slow on a loaded host) is not
+        # counted; a fetch the deadline missed would live the full hour.
+        assert len(lifetimes) == 3
+        assert all(lifetime < DEADLINE_S + 1.0 for lifetime in lifetimes), lifetimes
         for i in range(3):
             (row,) = (await _state(scratch_repo, f"hang-{i}")).values()
             assert (row["copy_status"], row["copy_attempts"]) == ("pending", 0)
