@@ -2519,6 +2519,7 @@ jobs:
             tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py
             tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py
             tests/va/e2e/test_model_status_va.py tests/va/e2e/test_ca_loop_exit.py
+            tests/va/e2e/test_instance_scenarios.py
           als_lane: false
           bench_ioc: true
           timeout: 30

@@ -909,6 +909,12 @@ def arm_deployed_queue_owner(
     The login is :func:`~osprey_connectors.posture_store.current_owner`, the
     same ladder an in-process tool walks. *targets* defaults to the deployment's
     baseline target; *position* is passed to :func:`set_switch_in_record`.
+
+    At ``asked`` the worker asks a person to approve each plan's write
+    authorization before it writes, so a lane armed there runs its plans inside
+    :func:`approving_write_requests`. ``allowed`` lets the worker issue its own
+    only where the deployment's tier is ``allowed`` too: the shipped presets'
+    is ``asked``, and the tier caps the switch.
     """
     from osprey.deployment.compose_generator import ensure_control_target_dir
     from osprey_connectors import posture_store
@@ -918,6 +924,95 @@ def arm_deployed_queue_owner(
     ensure_control_target_dir(_render_config(repo), repo, owner, relative_to=repo)
     set_switch_in_record(repo, owner=owner, targets=targets, position=position)
     return owner
+
+
+@dataclass
+class WriteApprover:
+    """What :func:`approving_write_requests` saw: each request and what approving it said.
+
+    Attributes:
+        approved: The ids the CLI approved, in the order they were filed.
+        refused: ``{id: output}`` for each request the CLI did not approve.
+    """
+
+    approved: list[str] = field(default_factory=list)
+    refused: dict[str, str] = field(default_factory=dict)
+
+    def describe(self) -> str:
+        """One line for an assertion message."""
+        return f"approved {self.approved}, refused {self.refused}"
+
+
+@contextlib.contextmanager
+def approving_write_requests(repo: Path, *, poll_s: float = 0.5):
+    """Approve every write request the deployment at *repo* files, as its owner, while inside.
+
+    The person at the terminal for lanes whose switch is at ``asked``: a queued
+    plan's worker files a request (:mod:`osprey.services.bluesky_bridge.write_grant`)
+    and waits for it, so a lane that runs plans there needs someone to answer.
+    Each request that appears in the deployment's requests directory is
+    approved with ``osprey write-authorization approve <id> --repo <repo> --yes``,
+    the verb a person runs, so the limits database and the owner's tier are
+    checked exactly as they are for a person. A request the CLI refuses stays
+    pending and its output is kept, so the lane's own timeout fails with the
+    reason. Yields the :class:`WriteApprover`.
+    """
+    import threading
+
+    from osprey.deployment.compose_generator import write_requests_relpath
+    from osprey_connectors import write_authorization as wa
+
+    directory = Path(repo) / write_requests_relpath()
+    seen = WriteApprover()
+    done = threading.Event()
+
+    def answer(request_id: str) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "osprey.cli.main",
+                "write-authorization",
+                "approve",
+                request_id,
+                "--repo",
+                str(repo),
+                "--yes",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0:
+            seen.approved.append(request_id)
+        else:
+            seen.refused[request_id] = (result.stdout + result.stderr).strip()
+
+    def sweep() -> None:
+        try:
+            requests, _unreadable = wa.list_requests(directory)
+        except OSError as exc:
+            seen.refused.setdefault("<listing>", str(exc))
+            return
+        for request in requests:
+            if request.id not in seen.approved and request.id not in seen.refused:
+                answer(request.id)
+
+    def watch() -> None:
+        while not done.is_set():
+            sweep()
+            done.wait(poll_s)
+
+    thread = threading.Thread(target=watch, name="write-approver", daemon=True)
+    thread.start()
+    try:
+        yield seen
+    finally:
+        done.set()
+        thread.join(timeout=150)
+        # A request filed just before the block ended is answered too, so a
+        # plan started inside it never waits on a person who has left.
+        sweep()
 
 
 def activate_scenario(repo: Path, scenario: str) -> None:

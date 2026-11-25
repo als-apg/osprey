@@ -72,6 +72,7 @@ from .preflight import (
 from .queue_backend import REASON_SESSION_PLAN_NOT_IN_NAMESPACE, REASON_SESSION_PLAN_UNVALIDATED
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
+from .write_grant import run_under_grant
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.session_upload")
 
@@ -303,7 +304,13 @@ def install_session_plan(
                 ) from exc
             try:
                 try:
-                    return (yield from held_to_declaration(name, declares, plan))
+                    return (
+                        yield from held_to_declaration(
+                            name,
+                            declares,
+                            run_under_grant(name, lambda: build_plan(declared, params), plan),
+                        )
+                    )
                 except Exception as exc:
                     # Everything, and nothing handled: the shared seam decides
                     # whether what a run raised is a refusal, because a refusal out

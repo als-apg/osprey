@@ -66,6 +66,7 @@ from osprey_facility.records import ChannelSelection, FacilityRecords
 from osprey_facility.relations import shape_problems
 from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey_facility.sources import Sources, group_families, load_sources
+from osprey_facility.start import START_SPELLINGS, start_error
 
 __all__ = [
     "FACILITY_HEADER",
@@ -2703,6 +2704,10 @@ class _Records:
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
             yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
+            if problem := start_error(scenario):
+                yield self._error(
+                    "value-invalid", "scenario", name, files, problem, f"write {START_SPELLINGS}"
+                )
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):

@@ -152,6 +152,7 @@ from .session_upload import (
     check_session_plans_ready,
 )
 from .validation import _validate_launchable_request
+from .write_grant import awaiting_approval
 
 if TYPE_CHECKING:
     from .plan_loader import FacilityPlans
@@ -817,12 +818,18 @@ def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
       removal does move the manager's queue uid, but a panel listing those
       withdrawals beside the completed runs watches the HISTORY keys, which a
       removal from the pending queue leaves exactly where they were.
+    - ``awaiting_approval`` — the write request the running plan waits on
+      (:func:`~osprey.services.bluesky_bridge.write_grant.awaiting_approval`),
+      or ``None``. The manager reports such a plan as executing; without this
+      key a queue waiting for a person reads exactly like one moving the
+      machine.
     """
     summary: dict[str, Any] = {"available": True}
     for key in _SUMMARY_KEYS:
         summary[key] = status.get(key)
     summary["runs_removed"] = len(removed_runs())
     summary["queue_removals"] = len(removal_log())
+    summary["awaiting_approval"] = awaiting_approval()
     return summary
 
 
@@ -842,6 +849,7 @@ def _unavailable_summary(reason: str, detail: str) -> dict[str, Any]:
         summary[key] = None
     summary["runs_removed"] = None
     summary["queue_removals"] = None
+    summary["awaiting_approval"] = None
     return summary
 
 

@@ -475,6 +475,7 @@ def _make_plan_function(
         refuse_misdeclared_triggers,
         warn_if_write_refused,
     )
+    from osprey.services.bluesky_bridge.write_grant import run_under_grant
     from osprey_connectors.posture_store import bind_owner, current_owner
 
     declares_writes = None if spec.metadata is None else spec.metadata.writes
@@ -502,7 +503,13 @@ def _make_plan_function(
                 ) from exc
             try:
                 try:
-                    return (yield from held_to_declaration(spec.name, declares_writes, plan))
+                    return (
+                        yield from held_to_declaration(
+                            spec.name,
+                            declares_writes,
+                            run_under_grant(spec.name, lambda: spec.plan(declared, params), plan),
+                        )
+                    )
                 except Exception as exc:
                     # Everything, because a refusal wears two shapes and the seam
                     # that knows both is the one that decides whether this is one
@@ -1012,6 +1019,11 @@ def build_namespace(
             "(browse-only worker; the queue has nothing to execute)"
         )
     else:
+        from osprey.services.bluesky_bridge.write_grant import withdraw_leftover_requests
+
+        # Before any plan runs: a request this holder still has filed was
+        # left by a worker that died waiting for its approval.
+        withdraw_leftover_requests()
         plan_functions = build_plan_functions(devices, plans)
         namespace.update(plan_functions)
         logger.info(

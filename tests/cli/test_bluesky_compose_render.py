@@ -98,6 +98,27 @@ DEVICES_FILE_TARGET = "/app/project/data/bluesky_devices.yml"
 DEVICES_MOUNT = f"./build/services/bluesky/bluesky_devices.yml:{DEVICES_FILE_TARGET}:ro"
 
 
+def _write_ledger_context() -> dict[str, str]:
+    """The write-ledger and write-request keys the generator injects into every render."""
+    from osprey.deployment.compose_generator import (
+        WRITE_LEDGER_CONTAINER_DIR,
+        WRITE_REQUESTS_CONTAINER_DIR,
+        repo_relative_mount_source,
+        write_ledger_relpath,
+        write_requests_relpath,
+    )
+    from osprey_connectors.write_authorization import LEDGER_DIR_ENV_VAR, REQUESTS_DIR_ENV_VAR
+
+    return {
+        "write_ledger_mount_source": repo_relative_mount_source(write_ledger_relpath()),
+        "write_ledger_container_dir": WRITE_LEDGER_CONTAINER_DIR,
+        "write_ledger_env": LEDGER_DIR_ENV_VAR,
+        "write_requests_mount_source": repo_relative_mount_source(write_requests_relpath()),
+        "write_requests_container_dir": WRITE_REQUESTS_CONTAINER_DIR,
+        "write_requests_env": REQUESTS_DIR_ENV_VAR,
+    }
+
+
 def _render(
     *,
     tiled_enabled: bool = False,
@@ -175,6 +196,7 @@ def _render(
         # this table is not a render any deploy produces.
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         **_control_identity_context(),
+        **_write_ledger_context(),
     }
     if limits_mount is not None:
         context["limits_mount"] = limits_mount

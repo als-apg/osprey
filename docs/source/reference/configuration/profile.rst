@@ -1307,7 +1307,8 @@ The live stand-in
 ``live_standin`` deploys a second simulator container on its own Channel Access
 port and gives the deployment a third control target, ``standin``, dialled
 through its own ``control_system.connector.live_standin`` block. Both containers
-run one image over the same simulator view and the same active scenarios. The
+run one image over the same simulator view, and each holds an active scenario
+set of its own (``osprey sim apply --target``). The
 two machines are told apart by a write to the sandbox not showing on the
 stand-in and by the model RPC status naming its instance.
 

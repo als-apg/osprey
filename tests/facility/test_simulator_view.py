@@ -1546,3 +1546,34 @@ def test_a_stated_value_is_written_as_stated(tmp_path: Path) -> None:
         "nominal": 0,
         "responds": {"to": "C:CMD", "for_s": 0.3, "value": 2},
     }
+
+
+@pytest.mark.parametrize(
+    ("services", "refused"),
+    [
+        (["virtual_accelerator"], False),
+        ([], False),
+        (["virtual_accelerator", "live_standin"], True),
+    ],
+)
+def test_a_start_set_of_an_instance_the_deployment_does_not_run_refuses_nothing(
+    tmp_path: Path, built_demo: BuiltProject, services: list[str], refused: bool
+) -> None:
+    """A scenario marked for the stand-in starts nowhere on a deployment without one."""
+    scenario = {"name": "sr-down", "stopped_servers": ["sim-SR"]}
+    config = {
+        "deployed_services": services,
+        "simulation": {"models": [TEXTURE], "default_scenarios": {"standin": ["sr-down"]}},
+    }
+
+    if refused:
+        with pytest.raises(FacilityBuildError) as stop:
+            _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+        assert stop.value.record_id == "sr-down"
+        return
+    (entry,) = [
+        e
+        for e in _rendered_scenarios(tmp_path, built_demo, [scenario], config)
+        if e["name"] == "sr-down"
+    ]
+    assert entry["inactive_servers"] == {"sim-SR": INACTIVE_UNSERVED}

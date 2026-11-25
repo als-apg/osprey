@@ -96,6 +96,7 @@ OPTIONAL_NAMES = (
     "readout",
     "response_matrix",
     "scenario_stops",
+    "served_settings",
     "take_inputs",
     "REFUSAL_ERRORS",
     "SOLVE_ERRORS",
@@ -184,6 +185,13 @@ class EnginePlugin(Protocol):
                                             keyed ones included, without a deck load;
                                             each stops the build ``engine-invalid``
                                             with the plug-in's remedy
+    ``served_settings(settings, carry)``    the settings a served view holds: for each    the view holds the settings as authored
+                                            file they name beside the deck, ``carry``     and copies the deck alone
+                                            takes its path as stated, relative to the
+                                            deck's directory, and returns the path the
+                                            view serves it under, relative to its copy
+                                            of the deck; called at facility build,
+                                            without a deck load
     ``take_inputs(model, inputs, t_s,``     stores ``inputs``: one ``(input_record,       the build refuses a model that declares
     ``*, baseline)``                        value)`` pair per declared input, the         inputs
                                             record its ``{address, engine}`` and the

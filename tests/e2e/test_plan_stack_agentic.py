@@ -177,6 +177,7 @@ from tests.e2e.sdk_helpers import (
     SCENARIO_INTEGRITY_DISALLOWED_TOOLS,
     HookEvent,
     _default_opus_model,
+    approving_write_requests,
     arm_deployed_queue_owner,
     dump_agent_transcript,
     is_claude_code_available,
@@ -4130,8 +4131,11 @@ def approval_hook_armed_for(repo: Path, tool: str) -> Iterator[None]:
     staging ``queue_add`` asks too.
 
     Moves this login's switch in the deployment's record, which the host-side
-    ``.claude/hooks/osprey_approval.py`` and the bridge worker both read; both
-    positions arm the machine, so the worker's writes are unchanged. The switch
+    ``.claude/hooks/osprey_approval.py`` and the bridge worker both read. At
+    ``asked`` the worker also asks a person to approve each plan's write
+    authorization before it writes, so the operator this test plays answers
+    that too, with ``osprey write-authorization approve``
+    (:func:`~tests.e2e.sdk_helpers.approving_write_requests`). The switch
     is put back at ``allowed`` afterwards: the record is shared with every other
     test in the module and with two more attempts of this one under ``flaky``.
 
@@ -4146,7 +4150,8 @@ def approval_hook_armed_for(repo: Path, tool: str) -> Iterator[None]:
     )
     arm_deployed_queue_owner(repo, position="asked")
     try:
-        yield
+        with approving_write_requests(repo):
+            yield
     finally:
         arm_deployed_queue_owner(repo, position="allowed")
 
