@@ -446,8 +446,8 @@ def test_the_rendered_script_moves_edits_and_deletes_in_one_block(tmp_path: Path
         "mkdir -p group",
         "git mv old group/new",
         "perl -pi -e 's{old/a\\.txt}{group/new/a.txt} if $. == 2' conf.yaml",
-        "git rm -r -q -- stale",
-        "git rm -r -q -- gone/deep",
+        "git rm -r -q -- stale || rm -r -- stale",
+        "git rm -r -q -- gone/deep || rm -r -- gone/deep",
         "rmdir gone 2>/dev/null || true",
     ]
     _run("\n".join(script) + "\n", tmp_path / "elsewhere")
@@ -455,6 +455,19 @@ def test_the_rendered_script_moves_edits_and_deletes_in_one_block(tmp_path: Path
     assert (root / "conf.yaml").read_text(encoding="utf-8") == "first\nkeep: group/new/a.txt\n"
     assert not (root / "stale").exists()
     assert not (root / "gone").exists()
+
+
+def test_a_tracked_delete_git_refuses_is_removed_all_the_same(tmp_path: Path) -> None:
+    root = _repository(tmp_path / "repo", commit=False)
+    _write(root, "stale/x.txt", "as committed\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "seed")
+    _write(root, "stale/x.txt", "changed since\n")
+
+    script = render_script((), (), [(root, "stale")])
+    _run("\n".join(script) + "\n", tmp_path / "elsewhere")
+
+    assert not (root / "stale").exists()
 
 
 def test_a_rendered_line_edit_takes_its_text_literally(tmp_path: Path) -> None:

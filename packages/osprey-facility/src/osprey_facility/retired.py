@@ -536,10 +536,10 @@ def render_script(
     the earlier moves of its block to where it lies before any move, is
     tracked, else ``mv``. Then one ``perl -pi`` per line edit, one
     ``perl -ni`` per line delete (the last lines of a file first, so the line
-    numbers hold), ``git rm -r`` for each tracked deleted path and ``rm -r``
-    for the rest, and last ``rmdir`` of every directory the moves and
-    deletions may leave empty, deepest first. Blocks follow the order their
-    roots first appear. Every path is shell-quoted and relative to the
+    numbers hold), ``git rm -r`` for each tracked deleted path (``rm -r`` when
+    git refuses, as it does over a local change) and ``rm -r`` for the rest,
+    and last ``rmdir`` of every directory the moves and deletions may leave
+    empty, deepest first. Blocks follow the order their roots first appear. Every path is shell-quoted and relative to the
     block's ``cd``, so the lines run from any working directory.
 
     Args:
@@ -627,8 +627,10 @@ class _Block:
     def add_delete(self, root: Path, relative: str) -> None:
         resolved = root.resolve()
         target = _relative(resolved / relative, self.top)
-        verb = "git rm -r -q" if self.in_git and self._tracked(target) else "rm -r"
-        self.deletes.append(f"{verb} -- {shlex.quote(target)}")
+        remove = f"rm -r -- {shlex.quote(target)}"
+        if self.in_git and self._tracked(target):
+            remove = f"git rm -r -q -- {shlex.quote(target)} || {remove}"
+        self.deletes.append(remove)
         for directory in (resolved / relative).parents:
             if resolved in directory.parents:
                 _append_once(self.rmdirs, _relative(directory, self.top))
