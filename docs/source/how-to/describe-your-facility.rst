@@ -334,8 +334,8 @@ as two layers.
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
 
-A Middle Layer export
----------------------
+A MATLAB Middle Layer export
+----------------------------
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer export into
 ``data/facility/imported/mml/``. From the export to a served model it is five

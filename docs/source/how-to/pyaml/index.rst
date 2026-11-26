@@ -6,7 +6,8 @@ Python Accelerator Middle Layer (pyAML)
 
 `pyAML <https://pyaml.readthedocs.io>`_, the Python Accelerator Middle Layer,
 is a joint platform of several laboratories for the design, commissioning and
-operation of particle accelerators. Under OSPREY it runs on
+operation of particle accelerators, intended as the successor to the MATLAB
+Middle Layer [#liuzzo]_. Under OSPREY it runs on
 ``pyaml-cs-osprey``, a control-system backend installed with OSPREY that sends
 every pyAML read and write through the OSPREY connector instead of pyAML's own
 backends. A pyAML write is therefore an ordinary write: checked against the
@@ -162,11 +163,7 @@ and the model's line up entry by entry.
 
 .. seealso::
 
-   S. Liuzzo et al., "Exploratory tests for the design of a Python accelerator
-   middle layer", *Proc. IPAC'25*, Taipei, MOPB088 (2025) ·
-   `doi:10.18429/JACoW-IPAC2025-MOPB088 <https://doi.org/10.18429/JACoW-IPAC2025-MOPB088>`_.
-
-   `pyAML documentation <https://pyaml.readthedocs.io>`_ · `source <https://github.com/python-accelerator-middle-layer/pyaml>`_
+   `pyAML source <https://github.com/python-accelerator-middle-layer/pyaml>`_
       The library itself.
 
    :doc:`/how-to/import-mml-export`
@@ -175,6 +172,10 @@ and the model's line up entry by entry.
 
    :doc:`register-a-measurement-kind`
       Add a measurement OSPREY does not ship.
+
+.. [#liuzzo] S. Liuzzo et al., "Exploratory tests for the design of a Python
+   accelerator middle layer", *Proc. IPAC'25*, Taipei, MOPB088 (2025) ·
+   `doi:10.18429/JACoW-IPAC2025-MOPB088 <https://doi.org/10.18429/JACoW-IPAC2025-MOPB088>`_.
 
 .. toctree::
    :hidden:
