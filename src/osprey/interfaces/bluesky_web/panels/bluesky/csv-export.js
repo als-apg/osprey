@@ -13,7 +13,9 @@
  * table's `formatCell` writes `—` for an absent value and rounds numbers to six
  * decimals, both correct for a human reading a screen and both wrong in a file
  * someone fits a model to. So this module formats independently: absent becomes
- * an empty field, and numbers keep every digit the wire carried.
+ * an empty field, and numbers keep every digit the wire carried. An array cell
+ * is one field holding its whole JSON list in brackets, `[0,1.5,null]`, so one
+ * column per channel stays the file's shape and a gap inside it reads `null`.
  *
  * Second, the file is built in the browser rather than served by a new route.
  * `read_proxy.py` is a GET-only, verbatim JSON passthrough that recomputes
@@ -53,14 +55,19 @@ export function refusedCellText(value) {
  * Non-finite numbers are written as their names rather than blanked, because a
  * `NaN` in a run is a reading that failed, which is a different fact from a
  * channel that was never read at all. A refused cell is written as its
- * refusal (`refusedCellText`) rather than blanked, for the same reason.
+ * refusal (`refusedCellText`) rather than blanked, for the same reason. An
+ * array is written as its JSON list (`[0,1.5,null]`, quoted by the rule below
+ * for its commas): a gap inside it stays `null`, every number keeps its digits,
+ * and `JSON.parse` reads the field back.
  *
  * @param {unknown} value
  * @returns {string}
  */
 export function csvField(value) {
   if (value === null || value === undefined) return '';
-  const text = refusedCellText(value) ?? String(value);
+  const text = Array.isArray(value)
+    ? JSON.stringify(value)
+    : (refusedCellText(value) ?? String(value));
   if (!NEEDS_QUOTING.test(text)) return text;
   return `"${text.replaceAll('"', '""')}"`;
 }

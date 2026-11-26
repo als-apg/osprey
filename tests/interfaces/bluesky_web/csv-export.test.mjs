@@ -72,9 +72,31 @@ describe('csvField', () => {
     expect(csvField(true)).toBe('true');
     expect(csvField({ a: 1 })).toBe('[object Object]');
   });
+
+  test('an array is one quoted field holding its JSON list', () => {
+    expect(csvField([0, 1.5, 2])).toBe('"[0,1.5,2]"');
+    expect(JSON.parse(csvField([0.1234567891234, -2.5e-9]).slice(1, -1))).toEqual([
+      0.1234567891234, -2.5e-9,
+    ]);
+  });
+
+  test('a gap inside an array is written null, never blank', () => {
+    expect(csvField([0, 1.5, null])).toBe('"[0,1.5,null]"');
+  });
 });
 
 describe('toCsv', () => {
+  test('an array column stays one column', () => {
+    const csv = toCsv(
+      ['counts', 'spec'],
+      [
+        [812, [0, 5, 2]],
+        [790, [1, null, 0]],
+      ]
+    );
+    expect(csv).toBe('counts,spec\r\n812,"[0,5,2]"\r\n790,"[1,null,0]"\r\n');
+  });
+
   test('header row then data rows, CRLF-terminated', () => {
     const csv = toCsv(
       ['time', 'signal'],
