@@ -687,3 +687,51 @@ def test_each_axis_states_the_unit_its_column_declares(movable: tuple[str, ...])
             assert panel.x_units == window.units[movable[0]]
         else:
             assert (panel.x_columns, panel.x_units) == (None, None)
+
+
+# --- Array columns -----------------------------------------------------------
+
+
+def test_an_array_column_is_named_and_not_drawn():
+    figure = default_figure(
+        _window(["counts", "spec"], [[812.0, [0.0, 5.0, 2.0]], [790.0, [1.0, None, 0.0]]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+    )
+
+    assert [panel.title for panel in figure.panels] == ["counts"]
+    assert figure.panels[0].annotations == [
+        "spec holds an array per row and is not drawn here; "
+        "click one of its cells in the data table to plot it."
+    ]
+
+
+def test_several_array_columns_are_named_in_one_annotation():
+    figure = default_figure(
+        _window(
+            ["wave_a", "counts", "wave_b"],
+            [[[0.0, 1.0], 812.0, [2.0, 3.0]], [None, 790.0, [4.0, 5.0]]],
+        ),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+    )
+
+    assert [panel.title for panel in figure.panels] == ["counts"]
+    assert figure.panels[0].annotations == [
+        "wave_a, wave_b hold an array per row and are not drawn here; "
+        "click one of their cells in the data table to plot them."
+    ]
+
+
+def test_a_run_without_arrays_gains_no_annotation():
+    figure = default_figure(
+        _window(["counts", "status"], [[812.0, "idle"], [790.0, "busy"]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+    )
+
+    assert [panel.title for panel in figure.panels] == ["counts"]
+    assert figure.panels[0].annotations == []

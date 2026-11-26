@@ -696,6 +696,8 @@ def default_figure(
     the panel polled, so a column would appear and disappear between ticks. Rows
     that hold a string, a boolean, or a non-finite float are gaps for the same
     reason: the renderer breaks the line rather than inventing a position.
+    A column that holds an array in any row is never drawn; the first panel's
+    annotations name it and point at the data table, which plots each cell.
 
     **x is the plan's own movable column when the plan declared exactly one**,
     and the row's index in ``window.rows`` otherwise. The declaration is the
@@ -779,6 +781,21 @@ def default_figure(
         annotations.append(
             f"{omitted} more numeric column{'s' if omitted > 1 else ''} not shown; "
             "the table below lists every column."
+        )
+    arrays = [
+        name
+        for name in window.columns
+        if any(isinstance(row.get(name), list) for row in window.rows)
+    ]
+    if len(arrays) == 1:
+        annotations.append(
+            f"{arrays[0]} holds an array per row and is not drawn here; "
+            "click one of its cells in the data table to plot it."
+        )
+    elif arrays:
+        annotations.append(
+            f"{', '.join(arrays)} hold an array per row and are not drawn here; "
+            "click one of their cells in the data table to plot them."
         )
     if not window.rows_complete:
         annotations.append(

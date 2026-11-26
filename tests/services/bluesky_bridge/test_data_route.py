@@ -1092,6 +1092,7 @@ def test_the_figure_path_leaves_a_waveform_column_out_rather_than_plotting_it(
     }
     assert "det_wave" not in plotted
     assert plotted == {"motor"}
+    assert any("det_wave" in note for note in figure["panels"][0]["annotations"])
 
 
 # =========================================================================
