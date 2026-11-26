@@ -185,7 +185,8 @@ def _tier_file(repo: Path) -> Path:
 
 #: Each refusing command, by its click path, with the arguments that run it.
 #: ``{repo}`` stands for the deployment, ``{tier}`` for one of its tier files,
-#: ``{export}`` for an input file and ``{out}`` for an output directory outside it.
+#: ``{export}`` for an input file, ``{fixtures}`` for a directory of replay
+#: fixtures and ``{out}`` for an output directory outside it.
 REFUSING: dict[str, list[list[str]]] = {
     "build": [["build", "--repo", "{repo}"]],
     "up": [
@@ -236,6 +237,10 @@ REFUSING: dict[str, list[list[str]]] = {
     "users passwd": [["users", "passwd", "alice", "--repo", "{repo}"]],
     "users env": [["users", "env", "--repo", "{repo}"]],
     "set": [["set", "model=claude-opus-5", "--repo", "{repo}"]],
+    "watchdog replay": [
+        ["watchdog", "replay", "{fixtures}", "--profile", "{repo}"],
+        ["watchdog", "replay", "{fixtures}", "--project-dir", "{repo}"],
+    ],
 }
 
 #: Every other command that runs, with why it does not refuse.
@@ -273,7 +278,6 @@ EXEMPT: dict[str, str] = {
     "profile presets": "lists bundled presets",
     "agent-record serve": "serves the agent record it is configured with",
     "artifacts web": "serves the artifact gallery",
-    "watchdog replay": "replays a recording it is given",
     "scaffold apps": "a retired verb that only says what replaced it",
     "vendor fetch": "fills the vendor cache",
     "vendor verify": "checks the vendor cache",
@@ -335,10 +339,16 @@ _CASES = [
 def _invocation(repo: Path, tmp_path: Path, args: list[str]) -> list[str]:
     export = tmp_path / "export.csv"
     export.write_text("address\nSR:NEW:CHANNEL\n", encoding="utf-8")
+    fixtures = tmp_path / "fixtures"
+    fixtures.mkdir(exist_ok=True)
+    (fixtures / "risky.jsonl").write_text(
+        '{"label": "risky", "prompt": "turn the interlock off"}\n', encoding="utf-8"
+    )
     values = {
         "repo": str(repo),
         "tier": str(_tier_file(repo)),
         "export": str(export),
+        "fixtures": str(fixtures),
         "out": str(tmp_path / "render"),
     }
     return [arg.format(**values) for arg in args]
