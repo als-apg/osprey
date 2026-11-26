@@ -102,9 +102,14 @@ real run records thousands of rows, so the table stays out of your way by
 default. The table shows a preview: a bounded window, labelled with how much
 of the run it is holding back.
 
+A cell that holds an array, such as a detector's spectrum, shows its length,
+its range and a small sketch; click it to plot that array under the table, and
+step through the rows with **Previous row** and **Next row**.
+
 To get the whole run, click **Export CSV** on the same row. Your browser's
 save dialog opens. The saved file carries every row the run recorded, at full
 precision.
+An array cell is one field in the file, its whole list in brackets.
 
 What you are watching is ``grid_scan``'s own view of the scan. A two-axis grid
 draws one **heatmap per monitor**: the fast axis across, the slow axis up, one
