@@ -623,3 +623,52 @@ def test_stopping_unfinished_moves_reports_only_the_stops_of_this_run() -> None:
     with pytest.raises(StopIteration) as finished:
         run.send(None)
     assert finished.value.value == "done"
+
+
+def test_a_detector_probes_its_command_status_and_every_result() -> None:
+    """An unreachable result refuses the run before the acquire command is written."""
+    from bluesky import RunEngine
+    from bluesky import plan_stubs as bps
+
+    from osprey.services.bluesky_bridge.devices.connector import ConnectorDetector
+    from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
+    from osprey.services.bluesky_bridge.preflight import probe_before_motion
+    from tests.services.bluesky_bridge._fake_connector import FakeConnector
+
+    class _DeadSpectrum(FakeConnector):
+        def __init__(self) -> None:
+            super().__init__()
+            self.probed: list[str] = []
+
+        async def validate_channel(self, channel_address: str) -> bool:
+            self.probed.append(channel_address)
+            return channel_address != "ES1:MCA01:SPECTRUM"
+
+    connector = _DeadSpectrum()
+    detector = ConnectorDetector(
+        connector,
+        "ES1:MCA01:ACQ",
+        "ES1:MCA01:STATUS",
+        0,
+        5.0,
+        results=[
+            ReadableSpec("ES1:MCA01:COUNTS", "ES1:MCA01:COUNTS"),
+            ReadableSpec("ES1:MCA01:SPECTRUM", "ES1:MCA01:SPECTRUM", shape=(4,)),
+        ],
+        name="ES1-MCA01",
+    )
+
+    def plan():
+        yield from probe_before_motion("count", {"ES1-MCA01": detector})
+        yield from bps.trigger(detector, wait=True)
+
+    with pytest.raises(ConnectionError, match="ES1:MCA01:SPECTRUM"):
+        RunEngine(context_managers=[])(plan())
+
+    assert set(connector.probed) == {
+        "ES1:MCA01:ACQ",
+        "ES1:MCA01:STATUS",
+        "ES1:MCA01:COUNTS",
+        "ES1:MCA01:SPECTRUM",
+    }
+    assert connector.write_calls == []
