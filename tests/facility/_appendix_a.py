@@ -6,7 +6,7 @@ Appendix A of the relations design extends the example facility around sector
 end), one group and eighteen relation claims. The packaged example ships all
 of it; this module reads those records from the example by id (``ADDED_IDS``)
 and writes them, plus stubs of the existing records they reuse, as a
-self-contained ``data/facility`` tree.
+self-contained ``facility`` tree.
 
 Helpers:
 
@@ -226,7 +226,7 @@ def build_appendix_a(
     """Write the Appendix A tree under ``root`` and build its facility document.
 
     Args:
-        root: The ``data/facility`` directory to create.
+        root: The ``facility`` directory to create.
         variant: ``no_policy`` or ``located_in_precedence``; ignored when
             ``tree`` is given.
         tree: A tree to build in place of the variant's (for example one
@@ -273,7 +273,7 @@ def example_without_appendix_a(root: Path) -> Path:
     not written.
 
     Args:
-        root: The ``data/facility`` directory to create.
+        root: The ``facility`` directory to create.
 
     Returns:
         ``root``, the written facility directory.

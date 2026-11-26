@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey import repo_layout
 from osprey.apps.sdk.testing import (
     LINE_GROUPS,
     SR_GROUPS,
@@ -37,10 +38,10 @@ __all__ = [
 
 
 def built_document(root: Path, tree: Mapping[str, Any]) -> tuple[dict[str, Any], Path]:
-    """Write ``tree`` under ``root/data/facility`` and build its facility file in memory."""
+    """Write ``tree`` under ``root/facility`` and build its facility file in memory."""
     from osprey_facility.build import build_facility
 
-    facility = write_tree(root / "data" / "facility", copy.deepcopy(dict(tree)))
+    facility = write_tree(root / repo_layout.entry("facility").path, copy.deepcopy(dict(tree)))
     return build_facility(facility, project_name="demo", extra_checks=FRAMEWORK_CHECKS), facility
 
 

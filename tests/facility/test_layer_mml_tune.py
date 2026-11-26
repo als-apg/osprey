@@ -2,7 +2,7 @@
 
 The spear3 tree's mapping states a waveform block, ``MeasTune`` read on the
 planes x, y and s; each case imports the tree under that mapping, or under an
-edit of it, into a fresh ``data/facility/``. The cases that read the tree as
+edit of it, into a fresh ``facility/``. The cases that read the tree as
 the mapping states it read the run's one import (``mml_imported``) and build
 (``mml_built``) of it.
 """
@@ -35,7 +35,7 @@ MODEL = "StorageRing"
 
 
 def _facility(root: Path, tune: Any = None) -> Path:
-    facility = root / "data" / "facility"
+    facility = root / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     if tune is None:
