@@ -863,6 +863,21 @@ def test_the_default_data_key_alone_is_refused_and_deleted(tmp_path: Path) -> No
     assert find_retired_root(root).empty
 
 
+def test_a_tag_no_loader_knows_does_not_hide_the_data_key(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _write(root, "profile.yml", "name: demo\ndata: ./data/\nextra: !custom value\n")
+    _write(root, "profiles/lab.yml", "data: !custom data\n")
+    layout = find_retired_root(root)
+    assert layout.data_keys == (
+        "profile.yml:2: data: ./data/",
+        "profiles/lab.yml:1: data: data",
+    )
+    assert layout.line_deletes == ()
+    assert any(item.startswith("profiles/lab.yml:1: data: ") for item in layout.check_by_hand)
+    with pytest.raises(RetiredRootRefused):
+        refuse_retired_layout(root)
+
+
 def test_an_out_of_repo_data_key_is_not_deleted_and_still_refuses(tmp_path: Path) -> None:
     root = _repo(tmp_path)
     outside = tmp_path / "outside"

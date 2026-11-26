@@ -542,11 +542,16 @@ def _facility(root: Path, layout: RetiredRoot, roots: FacilityRoots) -> RetiredL
 
 @dataclass(frozen=True)
 class _DataKey:
-    """One ``data:`` line of a profile document."""
+    """One ``data:`` line of a profile document.
+
+    ``value`` is the string the key holds, or ``None`` when it holds anything
+    else. It is read from the document's nodes, never constructed, so a tag
+    no loader knows elsewhere in the document does not hide the key.
+    """
 
     document: Path
     line: int
-    value: Any
+    value: str | None
     text: str
     one_line: bool
     shown: str
@@ -565,12 +570,12 @@ def _data_keys(root: Path) -> list[_DataKey]:
             continue
         lines = text.splitlines()
         where = document.relative_to(root).as_posix()
-        loaded = yaml.safe_load(text)
         for key, value in tree.value:
             if not (isinstance(key, yaml.ScalarNode) and key.value == _DATA_KEY):
                 continue
             line = key.start_mark.line
-            raw = loaded.get(_DATA_KEY) if isinstance(loaded, dict) else None
+            is_string = isinstance(value, yaml.ScalarNode) and value.tag == _STR_TAG
+            raw = value.value if is_string else None
             shown_value = value.value if isinstance(value, yaml.ScalarNode) else "..."
             found.append(
                 _DataKey(
