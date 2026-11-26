@@ -1,6 +1,6 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.11.1-248-gba070105ed",
+  "reviewed_against": "2026.11.1-286-ga7251872cb",
   "files": {
     "apps/manifest.py": "2c03115bdc992a492487188b5199b03964a4aae369b6c353d7338ad0d70656e3",
     "apps/rules.py": "52b7da64976d3278a913ea7585f04b9cc5f42ef8c3a115c84c8bdb78d7802d34",

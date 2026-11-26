@@ -148,16 +148,16 @@ report it as `custom (shadows <name>)` — one artifact, not two.
 entries: `agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/commands/`,
 `agent/output-styles/`, `agent/hooks/`, `agent/context/`, `agent/mcp_servers/`,
 `ops/services/`, `ops/project/`. A root directory that is none of `agent/`, `ops/`,
-`profile.yml`, `providers.yml`, `triggers.yml`, `data/`, `tiers/`, `apps/`, `profiles/`,
+`profile.yml`, `providers.yml`, `triggers.yml`, `facility/`, `web/`, `tiers/`, `apps/`, `profiles/`,
 `build/`, `var/`, `docs/`, `README*`,
 `LICENSE*` or a dot-entry
 is not a zone: nothing reads it, and `osprey build` names it in its unrecognized-root-entry
 warning. `overlays/` in a current-generation repo is exactly that. Give it an `unknown` row
 and one question: what reads this?
 
-**`data/`** is counted, not summarized: `data/facility/` records per kind and its
-imported layers under `data/facility/imported/` (`osprey facility show` prints the
-counts), `data/facility/limits.yaml` records, documents under the facility-knowledge
+**`facility/`** is counted, not summarized: `facility/` records per kind and its
+imported layers under `facility/imported/` (`osprey facility show` prints the
+counts), `facility/limits.yaml` records, documents under the facility-knowledge
 bundle, decks, ARIEL vocabulary, simulation scenarios, benchmark sets. Also count
 `tiers/` (tiers and shared logins apart), `apps/`, `agent/watchdogs/` and `triggers.yml`. The card JSON's machine group gives `<mode> finder`,
 and that is the whole channel-store fact in every mode: the finder reads what the
@@ -175,7 +175,7 @@ purpose is still unclear after reading, it is a `?` row on the card with the pat
 what is unclear, and it becomes an `unknown` element in MAP.
 
 Everything inventoried here has one line in section 7's boxes: tiers, shared logins, applications and users in WEB,
-triggers and the `data/` counts in DATA, variable names in ENV, convention directories in
+triggers and the `facility/` counts in DATA, variable names in ENV, convention directories in
 CUSTOM, validate's advisories on the box they concern or in OPEN. Nothing is left to prose.
 
 ## 4. Inventory: overlay era
@@ -256,13 +256,13 @@ the title bar, a group with nothing to say omitted, the OPEN box last. Draw it f
 file's sections, nothing else — FRAMEWORK from §2 and §3's first two verbs, CONTROL and
 AGENT and WEB from `osprey profile card --json` plus the native-versus-custom rule and the
 agent model pins,
-DATA from the `data/` counts, ENV from the names rule, CUSTOM from the convention
+DATA from the `facility/` counts, ENV from the names rule, CUSTOM from the convention
 directories, OPEN from every `?` row and every advisory that belongs to no box.
 
 Two rules for what goes where:
 
 - **Nothing is left to prose.** Tiers, shared logins, applications and users are WEB lines, triggers and the
-  `data/` counts are DATA lines, variable names are the ENV line, validate's advisories
+  `facility/` counts are DATA lines, variable names are the ENV line, validate's advisories
   sit on the box they concern or in OPEN. The two sentences allowed around the card say
   what was inventoried and what needs an answer, not facts.
 - **Reference-facility material gets its own line.** Any path from

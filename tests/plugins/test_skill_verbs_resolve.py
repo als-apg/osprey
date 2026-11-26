@@ -103,7 +103,7 @@ def test_the_sweep_would_catch_a_dead_verb(tmp_path: Path, citation: str, expect
 def test_the_sweep_reads_past_options_and_arguments(tmp_path: Path) -> None:
     (tmp_path / "SKILL.md").write_text(
         "`osprey init <dir> --preset hello-world`, `osprey set config.a.b=1`,\n"
-        "`osprey scaffold pull demo:data/facility/knowledge` and `osprey --version`.\n",
+        "`osprey scaffold pull demo:facility/knowledge` and `osprey --version`.\n",
         encoding="utf-8",
     )
 
