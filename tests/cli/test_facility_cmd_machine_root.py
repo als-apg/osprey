@@ -2,7 +2,7 @@
 
 With ``machine: <dir>`` in the profile, the imports write their layer files and
 seeds into the machine root, while the deployment's own content directories
-(``knowledge/``, ``ariel/``, ``benchmarks/``) stay under ``data/facility``: a
+(``knowledge/``, ``ariel/``, ``benchmarks/``) stay under ``facility/``: a
 bundled page there is replaced like any bundled file, and the knowledge index
 is settled there. ``facility validate`` stops on a deployment file that
 restates a machine fact.
@@ -19,6 +19,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project
@@ -27,6 +28,9 @@ pytestmark = [pytest.mark.slow]
 
 #: The project name, and the repo's directory name.
 PROJECT = "demo"
+
+#: The deployment's facility content root, relative to the repo.
+FACILITY = repo_layout.entry("facility").path
 
 #: Where the machine root is mounted, relative to the repo.
 MACHINE_DIR = "machine"
@@ -46,10 +50,10 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A demo repo whose machine facts sit in a mounted machine root.
 
     The machine root is a git repository and ships a knowledge page of its
-    own; the deployment's ``data/facility`` keeps only its content directories.
+    own; the deployment's ``facility/`` keeps only its content directories.
     """
     repo = init_project(tmp_path_factory.mktemp("mounted"), "demo", PROJECT)
-    facility = repo / "data" / "facility"
+    facility = repo / FACILITY
     machine = repo / MACHINE_DIR
     machine.mkdir()
     for entry in sorted(facility.iterdir()):
@@ -123,7 +127,7 @@ def test_import_list_writes_its_layer_under_the_machine_root(repo: Path, tmp_pat
     machine = repo / MACHINE_DIR
     assert (machine / "imported" / "list" / "channels.yaml").is_file()
     assert (machine / "imported" / "list" / "devices.yaml").is_file()
-    assert not (repo / "data" / "facility" / "imported").exists()
+    assert not (repo / FACILITY / "imported").exists()
     assert f"{MACHINE_DIR}/imported/list/channels.yaml" in _written(result)
 
 
@@ -133,16 +137,16 @@ def test_import_list_settles_the_knowledge_bundle_in_the_content_root(
     result = _import_list(repo, tmp_path)
 
     assert result.exit_code == 0, result.output
-    index = repo / "data" / "facility" / "knowledge" / "index.md"
+    index = repo / FACILITY / "knowledge" / "index.md"
     assert index.is_file()
-    assert "data/facility/knowledge/index.md" in _written(result)
+    assert f"{FACILITY}/knowledge/index.md" in _written(result)
     assert not (repo / MACHINE_DIR / "knowledge" / "index.md").exists()
 
 
 def test_import_list_replaces_a_bundled_page_in_the_content_root(
     repo: Path, tmp_path: Path
 ) -> None:
-    content = repo / "data" / "facility"
+    content = repo / FACILITY
     assert (content / BUNDLED_PAGE).is_file()
 
     result = _import_list(repo, tmp_path)
@@ -159,7 +163,7 @@ def test_import_list_leaves_the_deployments_other_files_untouched(
     repo: Path, tmp_path: Path
 ) -> None:
     machine = repo / MACHINE_DIR
-    content = repo / "data" / "facility"
+    content = repo / FACILITY
     own_page = content / "knowledge" / "our-notes.md"
     own_page.write_text("# Our notes\n\nWritten by the deployment.\n", encoding="utf-8")
     own_machine_file = machine / "README.md"
@@ -186,7 +190,7 @@ def test_import_list_leaves_the_deployments_other_files_untouched(
 
 
 def test_validate_reports_a_deployment_file_that_restates_the_machine(repo: Path) -> None:
-    restated = repo / "data" / "facility" / "records" / "channels.yaml"
+    restated = repo / FACILITY / "records" / "channels.yaml"
     restated.parent.mkdir(parents=True)
     restated.write_text("channels: []\n", encoding="utf-8")
 

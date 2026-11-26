@@ -1,12 +1,13 @@
 """``osprey init --revalidate`` moves a deployment's root entries off their retired paths.
 
-No live row moves yet, so each test plants ``moved_from`` declarations on a
-substituted layout: the agent-facing rows under ``agent/``, the operator rows
-under ``ops/`` and ``data/code_review`` to ``agent/code_review``; the runtime
-child's move from ``data/.runtime`` to ``var/runtime`` is the live table's own.
-Each repo is a fresh ``hello-world`` deployment with sources at the retired
-paths, profile values, a pipeline file and a ``.dockerignore`` naming them, and
-stale canopy staging at its root.
+Each repo is a fresh ``hello-world`` deployment put back at the retired root
+paths of the live layout table: the agent-facing rows at the root, the operator
+rows at the root, ``facility/`` and ``web/``'s children and each lane's curve
+directory under the dissolved ``data/``, the runtime directory at
+``data/.runtime``. Beside them it holds sources at the retired paths, profile
+values, a pipeline file and a ``.dockerignore`` naming them, and stale canopy
+staging at its root. Tests marked with the ``planted`` fixture read a layout
+whose rows spell their ``moved_from`` declarations out.
 """
 
 from __future__ import annotations
@@ -22,9 +23,15 @@ from click.testing import CliRunner
 
 from osprey import repo_layout
 from osprey.cli.init_cmd import init
-from osprey.cli.init_revalidate import _after_moves_view, _plan_root
+from osprey.cli.init_revalidate import _apply_root_edits, _plan_root, _RootPlan
 from osprey.repo_layout import RootChild, RootEntry, check_layout, with_paths
-from osprey.repo_retired import RetiredRootRefused, find_retired_root, refuse_retired_layout
+from osprey.repo_retired import (
+    RetiredRootRefused,
+    after_moves_view,
+    find_retired_root,
+    refuse_retired_layout,
+)
+from osprey_facility.retired import LineDelete, LineEdit
 from tests._builds import init_project
 
 #: Where each planted row lives now.
@@ -404,8 +411,8 @@ def test_a_moved_directory_reads_through_the_plan(_template: Path, tmp_path: Pat
     root = _plant(_template, tmp_path, git=False)
     _write(root, {"agent/rules/current.md": "# Already moved.\n"})
 
-    plan = _plan_root(root)
-    with _after_moves_view(root, plan, ["agent/rules", "ops/ci-extra.yml"]) as view:
+    plan = _plan_root(find_retired_root(root))
+    with after_moves_view(root, plan.moves, ["agent/rules", "ops/ci-extra.yml"]) as view:
         listed = sorted(p.relative_to(view).as_posix() for p in view.rglob("*") if p.is_file())
         texts = {rel: (view / rel).read_text(encoding="utf-8") for rel in listed}
 
@@ -419,6 +426,174 @@ def test_a_moved_directory_reads_through_the_plan(_template: Path, tmp_path: Pat
     assert (root / "rules" / "plant.md").is_file()
     assert plan.source("agent/rules/plant.md") == "rules/plant.md"
     assert plan.source("agent/rules/current.md") == "agent/rules/current.md"
+
+
+def test_a_lane_directory_reads_from_its_own_retired_path(_template: Path, tmp_path: Path) -> None:
+    """A lane's curve directory nests in the runtime directory and comes from its own source."""
+    root = _plant(_template, tmp_path, git=False)
+    _write(root, {"data/bluesky_curve/bridge/proxy.key": "lane\n"})
+
+    plan = _plan_root(find_retired_root(root))
+    with after_moves_view(root, plan.moves, ["var/runtime"]) as view:
+        texts = {
+            p.relative_to(view).as_posix(): p.read_text(encoding="utf-8")
+            for p in view.rglob("*")
+            if p.is_file()
+        }
+
+    assert texts == {
+        "var/runtime/certs/key.pem": "key\n",
+        "var/runtime/bluesky_curve/bridge/proxy.key": "lane\n",
+    }
+    assert plan.source("var/runtime/bluesky_curve/bridge/proxy.key") == (
+        "data/bluesky_curve/bridge/proxy.key"
+    )
+    assert plan.source("var/runtime/certs/key.pem") == "data/.runtime/certs/key.pem"
+
+
+def test_an_edit_the_rewrite_overtook_is_left_by_hand(tmp_path: Path) -> None:
+    """An edit whose line changed, or whose file is gone, becomes a step; the rest land."""
+    root = tmp_path.resolve()
+    original = "a: rules/x.md\nb: rules/y.md\ndata: data\nkeep: me\n"
+    _write(
+        root, {"profile.yml": "a: rules/x.md\nb: changed by the rewrite\ndata: data\nkeep: me\n"}
+    )
+    plan = _RootPlan(
+        line_edits=(
+            LineEdit(root / "profile.yml", 1, "a: rules/x.md", "a: agent/rules/x.md"),
+            LineEdit(root / "profile.yml", 2, "b: rules/y.md", "b: agent/rules/y.md"),
+            LineEdit(root / "gone.yml", 4, "c: rules/z.md", "c: agent/rules/z.md"),
+        ),
+        line_deletes=(
+            LineDelete(root / "profile.yml", 3, "data: data"),
+            LineDelete(root / "profile.yml", 4, "keep: something else"),
+        ),
+        originals={"profile.yml": original, "gone.yml": "\n\n\nc: rules/z.md\n"},
+    )
+    steps: list[str] = []
+
+    _apply_root_edits(root, plan, {}, steps)
+
+    assert (root / "profile.yml").read_text(encoding="utf-8") == (
+        "a: agent/rules/x.md\nb: changed by the rewrite\nkeep: me\n"
+    )
+    assert steps == [
+        "profile.yml:2: change `b: rules/y.md` to `b: agent/rules/y.md`",
+        "profile.yml:4: delete `keep: something else`",
+        "gone.yml:4: change `c: rules/z.md` to `c: agent/rules/z.md`",
+    ]
+
+
+def test_the_data_tree_dissolves(_template: Path, tmp_path: Path) -> None:
+    """Every ``data/`` source moves, the ``data:`` line goes, and ``data/`` itself is pruned."""
+    root = _plant(_template, tmp_path, git=True)
+    _write(root, {"data/bluesky_curve/bridge/proxy.key": "lane\n"})
+    profile = root / "profile.yml"
+    profile.write_text(f"{profile.read_text(encoding='utf-8')}data: data\n", encoding="utf-8")
+    _commit_all(root, "a lane and the data key")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert not (root / "data").exists()
+    assert (root / "var/runtime/bluesky_curve/bridge/proxy.key").read_text() == "lane\n"
+    assert (root / "facility").is_dir()
+    assert "\ndata:" not in profile.read_text(encoding="utf-8")
+    assert "-data: data" in result.output
+    assert find_retired_root(root).empty
+
+    again = _revalidate(root)
+
+    assert again.exit_code == 0, again.output
+    assert "nothing to rewrite" in again.output
+
+
+def test_a_finder_file_under_a_moved_tree_is_pruned_with_its_parents(
+    _template: Path, tmp_path: Path
+) -> None:
+    """A ``.DS_Store`` beside moved children goes, and so does every directory it leaves empty."""
+    root = _plant(_template, tmp_path, git=True)
+    _write(
+        root,
+        {"data/canopy/library/panel.json": "{}\n", "data/canopy/.DS_Store": "finder\n"},
+    )
+    _commit_all(root, "a canopy library beside a Finder file")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert not (root / "data").exists()
+    assert (root / "web/canopy/library/panel.json").read_text(encoding="utf-8") == "{}\n"
+    assert find_retired_root(root).empty
+
+    again = _revalidate(root)
+
+    assert again.exit_code == 0, again.output
+    assert "nothing to rewrite" in again.output
+
+
+def test_a_data_anchor_holding_only_a_finder_file_is_pruned(
+    _template: Path, tmp_path: Path
+) -> None:
+    """Under ``data: <dir>``, the anchor directory goes once the moves leave only a Finder file."""
+    root = _plant(_template, tmp_path, git=False)
+    (root / "legacy").mkdir()
+    (root / "data" / "facility").rename(root / "legacy" / "facility")
+    _write(root, {"legacy/.DS_Store": "finder\n"})
+    profile = root / "profile.yml"
+    profile.write_text(f"{profile.read_text(encoding='utf-8')}data: legacy\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    _commit_all(root, "the data tree under an anchor")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert not (root / "legacy").exists()
+    assert not (root / "data").exists()
+    assert "\ndata:" not in profile.read_text(encoding="utf-8")
+    assert find_retired_root(root).empty
+
+
+def test_a_leftover_is_listed_and_never_moved(_template: Path, tmp_path: Path) -> None:
+    root = _plant(_template, tmp_path, git=True)
+    _write(root, {"data/notes.md": "# Mine.\n"})
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert (root / "data" / "notes.md").read_text(encoding="utf-8") == "# Mine.\n"
+    assert sorted(p.name for p in (root / "data").iterdir()) == ["notes.md"]
+    assert "Still in data/, place by hand:" in result.output
+    assert "data/notes.md" in result.output
+    assert (root / "facility").is_dir()
+
+    again = _revalidate(root)
+
+    assert again.exit_code == 0, again.output
+    assert "nothing to rewrite" in again.output
+    assert (root / "data" / "notes.md").is_file()
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("data/facility/identity.yaml", "facility/identity.yaml"),
+        ("data/landing/index.html", "web/landing/index.html"),
+    ],
+)
+def test_a_clashing_facility_or_web_refuses_before_any_write(
+    _template: Path, tmp_path: Path, old: str, new: str
+) -> None:
+    root = _plant(_template, tmp_path, git=True)
+    _write(root, {old: "# At the retired path.\n", new: "# At the successor.\n"})
+    before = _files(root)
+
+    result = CliRunner().invoke(init, [str(root), "--revalidate"])
+
+    assert result.exit_code != 0
+    assert old in result.output
+    assert new in result.output
+    assert _files(root) == before
 
 
 #: A lane's certificate set as a deployment minted it under the data tree.

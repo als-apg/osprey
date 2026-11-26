@@ -26,7 +26,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.init_cmd import init
+from osprey_facility.errors import _revalidate_command
 from osprey_facility.retired import find_retired
 from tests._builds import init_project, run_build
 
@@ -37,7 +39,7 @@ pytestmark = [pytest.mark.slow]
 PROJECT = "demo"
 
 #: The facility tree, relative to a deployment.
-FACILITY = "data/facility"
+FACILITY = repo_layout.entry("facility").path
 
 #: Every retired path of the facility tree and where its source lives now,
 #: relative to the facility root.
@@ -62,9 +64,9 @@ CURRENT_ONLY = ("vocabulary", "provenance", "simulation", "benchmarks/channel_fi
 DECK_NOW = "deck: simulation/decks/"
 DECK_RETIRED = "deck: decks/"
 
-#: The first and last lines of the refusal: the block a user pastes.
+#: The first line of the refusal: the block a user pastes, which closes with
+#: :func:`_revalidate_command` for the deployment.
 REFUSAL_OPENS = "# The facility tree at "
-REFUSAL_CLOSES = "# or run: osprey init --revalidate"
 
 #: What a build writes beside its own render that a migration never touches,
 #: and git's own directory.
@@ -161,17 +163,16 @@ def _rendered(repo: Path) -> dict[str, bytes]:
 
 
 def _refusal_block(output: str) -> str:
-    """The refusal's lines, from its first comment through the alternative command."""
-    lines = output.splitlines()
+    """The refusal's lines, from its first comment through its closing command."""
+    lines = output.rstrip("\n").splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith(REFUSAL_OPENS))
-    end = lines.index(REFUSAL_CLOSES, start)
-    return "\n".join(lines[start : end + 1]) + "\n"
+    return "\n".join(lines[start:]) + "\n"
 
 
 def _assert_refused(repo: Path, output: str, exit_code: int) -> None:
     assert exit_code == 1, output
     assert REFUSAL_OPENS + str(_facility(repo).resolve()) in output, output
-    assert REFUSAL_CLOSES in output, output
+    assert _refusal_block(output).splitlines()[-1] == _revalidate_command(repo.resolve()), output
     assert "Traceback" not in output, output
     assert not (repo / "build").exists()
 

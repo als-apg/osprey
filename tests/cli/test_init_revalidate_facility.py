@@ -76,7 +76,7 @@ _NEW_MACHINE = {
 _OLD_CONTENT = {"benchmarks/cross_paradigm/queries/tree.json": "[]\n"}
 _NEW_CONTENT = {"benchmarks/channel_finder/tree.json": "[]\n"}
 
-_FACILITY = "data/facility"
+_FACILITY = "facility"
 
 
 @pytest.fixture(autouse=True)
@@ -327,3 +327,52 @@ def test_a_machine_root_set_in_a_variant_is_found(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     _assert_current(root / "machine", _NEW_MACHINE)
     assert "rename machine/classes.yaml => machine/vocabulary/classes.yaml" in result.output
+
+
+def test_a_tree_still_under_data_moves_out_then_into_its_layout(tmp_path: Path) -> None:
+    """The root move brings the tree to ``facility/``; its own moves then run there."""
+    root = _plant(tmp_path, git=True)
+    (root / "data").mkdir()
+    _git(root, "mv", _FACILITY, f"data/{_FACILITY}")
+    _commit_all(root, "facility under data")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    _assert_current(root / _FACILITY, {**_NEW_MACHINE, **_NEW_CONTENT})
+    assert not (root / "data").exists()
+    output = result.output
+    assert f"rename data/{_FACILITY}/classes.yaml => {_FACILITY}/vocabulary/classes.yaml" in output
+    assert f"--- a/data/{_FACILITY}/models.yaml" in output
+    assert f"+++ b/{_FACILITY}/simulation/models.yaml" in output
+    assert "lies outside this repository" not in output
+
+    again = _revalidate(root)
+
+    assert again.exit_code == 0, again.output
+    assert "nothing to rewrite" in again.output
+
+
+def test_a_tree_under_data_in_another_repository_moves_before_its_own_steps(
+    tmp_path: Path,
+) -> None:
+    """The command bringing a nested ``data/facility`` to ``facility/`` prints before the commands run there."""
+    root = _plant(tmp_path, git=False)
+    (root / "data").mkdir()
+    (root / _FACILITY).rename(root / "data" / _FACILITY)
+    tree = root / "data" / _FACILITY
+    _git(tree, "init", "-q")
+    _commit_all(tree, "the operator's facility tree")
+    _git(root, "init", "-q")
+    _commit_all(root, "facility under data, in its own repository")
+    tree_before = _files(tree)
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert _files(tree) == tree_before
+    output = result.output
+    steps = output[output.index("Left for you to do by hand") :]
+    moved = steps.index(f"data/{_FACILITY} {_FACILITY}")
+    there = steps.index(f"mv {_FACILITY}/classes.yaml {_FACILITY}/vocabulary/classes.yaml")
+    assert moved < there
