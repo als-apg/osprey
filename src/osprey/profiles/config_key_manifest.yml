@@ -4561,7 +4561,7 @@ deleted:
 - ariel.enhancement_modules.qmd_export.settings.embed
   # The single-user switch of an application's roster grant. `roster_grant: {}`
   # names the one operator on a deployment without a roster; app.yml refuses
-  # the old key naming that. No orphan_sites row: the back-test baseline never
+  # the old key as unknown. No orphan_sites row: the back-test baseline never
   # held a site of it.
 - services.<app-container>.roster_grant.single_user_alias
 

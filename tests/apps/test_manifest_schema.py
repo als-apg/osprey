@@ -18,69 +18,77 @@ from osprey.apps.manifest import (
     parse_manifest,
 )
 
-FULL: dict[str, Any] = {
-    "name": "knob-demo",
-    "summary": "Turn one knob.",
-    "containers": {
-        "knob-demo": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_demo.server"],
-            "port": 8100,
-            "health": "/health",
-            "drives_target": True,
-            "control_identity": True,
-            "state": "var/knob-demo",
-            "env": ["KNOB_DEMO_MODE"],
+from ._contract import with_contract
+
+FULL: dict[str, Any] = with_contract(
+    {
+        "name": "knob-demo",
+        "summary": "Turn one knob.",
+        "containers": {
+            "knob-demo": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_demo.server"],
+                "port": 8100,
+                "health": "/health",
+                "drives_target": True,
+                "control_identity": True,
+                "state": "var/knob-demo",
+                "env": ["KNOB_DEMO_MODE"],
+            },
+            "knob-cache": {
+                "image": "redis:7.2",
+                "fragment": "compose/knob-cache/",
+            },
         },
-        "knob-cache": {
-            "image": "redis:7.2",
-            "fragment": "compose/knob-cache/",
+        "panel": {
+            "label": "KNOB",
+            "container": "knob-demo",
+            "entry": "/ui/",
+            "launch_token": True,
+            "read_timeout_s": 30,
+            "agent_routes": [["GET", "/api/state"], ["POST", "/api/write"]],
+            "roster_grant": {},
         },
-    },
-    "panel": {
-        "label": "KNOB",
-        "container": "knob-demo",
-        "entry": "/ui/",
-        "launch_token": True,
-        "read_timeout_s": 30,
-        "agent_routes": [["GET", "/api/state"], ["POST", "/api/write"]],
-        "roster_grant": {},
-    },
-    "tools": {
-        "module": "knob_demo.tools",
-        "shown_when": "panel",
-        "deny_in_jobs": True,
-        "read": ["read_knob"],
-        "approval": [
+        "tools": {
+            "module": "knob_demo.tools",
+            "shown_when": "panel",
+            "deny_in_jobs": True,
+            "read": ["read_knob"],
+            "approval": [
+                {
+                    "tool": "set_knob",
+                    "prompt": "Set {{ input.value }}",
+                    "state_path": "/api/state",
+                    "display_lines_key": "lines",
+                    "bind": {
+                        "state_fields": [{"field": "approved_readback", "key": "readback"}],
+                        "input_digests": [{"field": "approved_digest", "over": ["value"]}],
+                    },
+                    "require": {
+                        "all_of": ["approved_target", "approved_digest"],
+                        "one_of": [["approved_readback"]],
+                    },
+                }
+            ],
+            "errors": {"unreachable": "Open the panel.", "refused": "Re-read the knob."},
+        },
+        "audit_identity": "knob-audit",
+        "vendor": [
             {
-                "tool": "set_knob",
-                "prompt": "Set {{ input.value }}",
-                "state_path": "/api/state",
-                "display_lines_key": "lines",
-                "bind": {
-                    "state_fields": [{"field": "approved_readback", "key": "readback"}],
-                    "input_digests": [{"field": "approved_digest", "over": ["value"]}],
-                },
-                "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_readback"]],
-                },
-            }
+                "url": "https://example.org/lib.js",
+                "into": "panel/vendor/lib.js",
+                "sha256": "a" * 64,
+            },
+            {
+                "package": "uplot",
+                "version": "1.6.30",
+                "file": "dist/uPlot.iife.min.js",
+                "into": "panel/vendor/uplot.js",
+                "sha256": "b" * 64,
+            },
         ],
-        "errors": {"unreachable": "Open the panel.", "refused": "Re-read the knob."},
-    },
-    "audit_identity": "knob-audit",
-    "vendor": [
-        {"url": "https://example.org/lib.js", "into": "panel/vendor/lib.js", "sha256": "a" * 64},
-        {
-            "package": "uplot",
-            "version": "1.6.30",
-            "file": "dist/uPlot.iife.min.js",
-            "into": "panel/vendor/uplot.js",
-            "sha256": "b" * 64,
-        },
-    ],
-}
+    }
+)
 
 
 def _with(path: str, value: Any, base: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -137,7 +145,9 @@ def test_full_manifest_parses() -> None:
 
 
 def test_minimal_manifest_takes_defaults() -> None:
-    m = parse_manifest({"name": "tiny", "containers": {"tiny": {"runtime": "osprey"}}}, app="tiny")
+    m = parse_manifest(
+        with_contract({"name": "tiny", "containers": {"tiny": {"runtime": "osprey"}}}), app="tiny"
+    )
     assert m.summary is None and m.panel is None and m.tools is None
     assert m.vendor == []
     assert m.audit_identity == "tiny"
@@ -148,11 +158,13 @@ def test_minimal_manifest_takes_defaults() -> None:
 
 def test_panel_id_defaults_to_the_name_and_entry_to_root() -> None:
     m = parse_manifest(
-        {
-            "name": "tiny",
-            "containers": {"tiny": {"runtime": "osprey", "port": 8000}},
-            "panel": {"label": "TINY", "container": "tiny"},
-        },
+        with_contract(
+            {
+                "name": "tiny",
+                "containers": {"tiny": {"runtime": "osprey", "port": 8000}},
+                "panel": {"label": "TINY", "container": "tiny"},
+            }
+        ),
         app="tiny",
     )
     assert m.panel is not None
@@ -163,11 +175,13 @@ def test_panel_id_defaults_to_the_name_and_entry_to_root() -> None:
 
 
 def test_a_panel_names_its_icon_from_the_design_system() -> None:
-    base = {
-        "name": "tiny",
-        "containers": {"tiny": {"runtime": "osprey"}},
-        "panel": {"label": "TINY", "container": "tiny"},
-    }
+    base = with_contract(
+        {
+            "name": "tiny",
+            "containers": {"tiny": {"runtime": "osprey"}},
+            "panel": {"label": "TINY", "container": "tiny"},
+        }
+    )
     unset = parse_manifest(base, app="tiny")
     assert unset.panel is not None and unset.panel.icon is None
     named = parse_manifest(_with("panel.icon", "chart-column", base), app="tiny")
@@ -178,11 +192,13 @@ def test_a_panel_names_its_icon_from_the_design_system() -> None:
 
 
 def test_read_timeout_unset_is_distinguishable_from_explicit_null() -> None:
-    base = {
-        "name": "tiny",
-        "containers": {"tiny": {"runtime": "osprey"}},
-        "panel": {"label": "TINY", "container": "tiny"},
-    }
+    base = with_contract(
+        {
+            "name": "tiny",
+            "containers": {"tiny": {"runtime": "osprey"}},
+            "panel": {"label": "TINY", "container": "tiny"},
+        }
+    )
     unset = parse_manifest(base, app="tiny")
     assert unset.panel is not None
     assert "read_timeout_s" not in unset.panel.model_fields_set
@@ -245,12 +261,17 @@ def test_name_is_required() -> None:
 
 # --- the parts of an application -----------------------------------------------
 
-TOOLS_ONLY: dict[str, Any] = {"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}}
+TOOLS_ONLY: dict[str, Any] = with_contract(
+    {"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}}
+)
 
 
 @pytest.mark.parametrize(
     "data",
-    [{"name": "empty"}, {"name": "empty", "summary": "Nothing.", "vendor": FULL["vendor"]}],
+    [
+        with_contract({"name": "empty"}),
+        with_contract({"name": "empty", "summary": "Nothing.", "vendor": FULL["vendor"]}),
+    ],
 )
 def test_an_empty_application_is_refused(data: dict[str, Any]) -> None:
     err = _refusal(data)
@@ -259,7 +280,7 @@ def test_an_empty_application_is_refused(data: dict[str, Any]) -> None:
 
 
 def test_an_application_of_one_subagent_is_accepted() -> None:
-    m = parse_manifest({"name": "guide", "agents": ["guide"]}, app="guide")
+    m = parse_manifest(with_contract({"name": "guide", "agents": ["guide"]}), app="guide")
     assert m.agents == ["guide"]
 
 
@@ -267,8 +288,8 @@ def test_an_application_of_one_subagent_is_accepted() -> None:
     "data",
     [
         TOOLS_ONLY,
-        {"name": "guide", "skills": ["guide"]},
-        {"name": "knob-demo", "panel": FULL["panel"], "tools": FULL["tools"]},
+        with_contract({"name": "guide", "skills": ["guide"]}),
+        with_contract({"name": "knob-demo", "panel": FULL["panel"], "tools": FULL["tools"]}),
     ],
     ids=["tools-only", "skills-only", "panel-and-tools"],
 )
@@ -315,12 +336,10 @@ def test_pre_amendment_keys_are_refused() -> None:
     assert _refusal(_with("tools.container", "knob-demo")).field == "tools.container"
 
 
-@pytest.mark.parametrize("value", [True, False])
-def test_the_single_user_alias_key_is_refused_naming_roster_grant(value: bool) -> None:
-    err = _refusal(_with("panel.roster_grant.single_user_alias", value))
+def test_the_single_user_alias_key_is_refused_as_unknown() -> None:
+    err = _refusal(_with("panel.roster_grant.single_user_alias", True))
     assert err.field == "panel.roster_grant.single_user_alias"
-    assert err.rule == "retired_key"
-    assert "roster_grant: {}" in err.message
+    assert err.rule == "extra_forbidden"
 
 
 # --- compose keys name their home -------------------------------------------------
@@ -495,7 +514,11 @@ def _write_app(root: Path, name: str, data: dict[str, Any]) -> Path:
 
 
 def test_load_discovers_app_directories_sorted_by_name(tmp_path: Path) -> None:
-    _write_app(tmp_path, "zeta", {"name": "zeta", "containers": {"zeta": {"runtime": "osprey"}}})
+    _write_app(
+        tmp_path,
+        "zeta",
+        with_contract({"name": "zeta", "containers": {"zeta": {"runtime": "osprey"}}}),
+    )
     _write_app(tmp_path, "knob-demo", FULL)
     manifests = load(tmp_path)
     assert [m.name for m in manifests] == ["knob-demo", "zeta"]

@@ -30,6 +30,7 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+from osprey.apps.contract import contract_violation
 from osprey.apps.errors import AppManifestError, Violation
 
 if TYPE_CHECKING:
@@ -56,13 +57,6 @@ NO_HOOKS_MESSAGE = (
     "apps ship no hook code: declare the fact in app.yml "
     "(`tools.approval` for a write, `tools.deny_in_jobs` for a job-only refusal, "
     "`tools.errors` for the agent's guidance) and OSPREY's hooks act on it"
-)
-
-#: Why ``panel.roster_grant`` takes no ``single_user_alias``, and what replaces it.
-SINGLE_USER_ALIAS_RETIRED = (
-    "single_user_alias is gone: `roster_grant: {}` names the one operator on a "
-    "deployment without a roster, as it names each card's user on one with a "
-    "roster; remove the key"
 )
 
 Slug = Annotated[str, StringConstraints(pattern=APP_NAME_PATTERN)]
@@ -210,17 +204,6 @@ class RosterGrant(_Strict):
     Presence alone grants them: each entitled roster user's on a deployment
     with a roster, or the one operator's on a deployment without one.
     """
-
-    @model_validator(mode="before")
-    @classmethod
-    def _no_single_user_alias(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "single_user_alias" in data:
-            raise PydanticCustomError(
-                "retired_key",
-                SINGLE_USER_ALIAS_RETIRED,
-                {"at": "panel.roster_grant.single_user_alias"},
-            )
-        return data
 
 
 class Panel(_Strict):
@@ -379,6 +362,10 @@ VendorEntry = Annotated[
 class AppManifest(_Strict):
     """An application's ``app.yml``."""
 
+    #: The version of the application contract the app is written for. Checked
+    #: by :func:`parse_manifest` before validation; it must equal
+    #: :data:`~osprey.apps.contract.APP_CONTRACT`.
+    contract: int
     name: Slug
     summary: NonEmpty | None = None
     #: The application's containers, by compose service name; none for an application
@@ -516,6 +503,9 @@ def parse_manifest(data: Any, *, app: str, source: str | None = None) -> AppMani
         raise AppManifestError.from_violations(
             [Violation(app, "", "mapping", "app.yml must be a mapping of keys", source=source)]
         )
+    refused = contract_violation(data, app=app, source=source)
+    if refused is not None:
+        raise AppManifestError.from_violations([refused])
     try:
         return AppManifest.model_validate(data)
     except ValidationError as exc:
