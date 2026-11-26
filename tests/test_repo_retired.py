@@ -26,6 +26,7 @@ from osprey import repo_layout, repo_retired
 from osprey.cli.main import facility_errors_as_click
 from osprey.repo_layout import EntryKind, RootMove
 from osprey.repo_retired import (
+    _PASTE_THEN_PLACE_HEADER,
     PATH_KEYS,
     RetiredRootRefused,
     after_moves_view,
@@ -810,7 +811,7 @@ def test_an_untracked_note_in_data_is_refused_naming_it(tmp_path: Path) -> None:
     ]
 
 
-def test_a_leftover_beside_moves_is_listed_and_the_block_still_runs(tmp_path: Path) -> None:
+def test_a_leftover_beside_moves_is_listed_and_the_block_says_it_stays(tmp_path: Path) -> None:
     root = _repo(tmp_path)
     _write(root, "data/notes.md", "mine\n")
     _write(root, "data/canopy/library/panel.json", "{}\n")
@@ -818,11 +819,22 @@ def test_a_leftover_beside_moves_is_listed_and_the_block_still_runs(tmp_path: Pa
     refusal = _refusal(root)
     assert refusal.layout.leftovers == ("data/canopy/stray.txt", "data/notes.md")
     lines = refusal.format_message().splitlines()
+    assert lines[1] == _PASTE_THEN_PLACE_HEADER
+    assert PASTE_HEADER not in lines
     assert "#   data/notes.md" in lines
     assert lines[-1] == _revalidate_command(root.resolve())
     _run(refusal.format_message(), tmp_path / "elsewhere")
     assert (root / "web/canopy/library/panel.json").is_file()
     assert (root / "data/notes.md").is_file()
+    after = _refusal(root)
+    assert after.script == ()
+    assert after.format_message().splitlines()[1:] == [
+        "# Still in data/, place by hand:",
+        "#   data/canopy/stray.txt",
+        "#   data/notes.md",
+        "# Content the render must see goes under facility/.",
+        _PLACE_THESE,
+    ]
 
 
 def test_the_shipped_data_readme_is_deleted_and_an_edited_one_is_a_leftover(

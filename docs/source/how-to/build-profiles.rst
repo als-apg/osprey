@@ -211,8 +211,8 @@ git-ignored files included, is a leftover: the refusal names each one under
 ``Still in data/, place by hand``, and nothing moves it for you, since only you
 know where it belongs. Content the render must see goes under ``facility/``;
 the rest goes wherever you keep it. The ``data/README.md`` an earlier
-``osprey init`` wrote is deleted when you never edited it. The migration
-finishes once ``data/`` is empty.
+``osprey init`` wrote is deleted when you never edited it. The repository is
+refused until ``data/`` holds nothing.
 
 **A** ``data:`` **value other than** ``data``. When every profile document names
 the same one directory inside the repository, the facility and web content
@@ -220,7 +220,7 @@ move out of that directory, and the ``data:`` line is deleted once it holds
 no leftovers. Any other value (outside the repository, several different
 values, a directory that holds or sits inside a live entry) moves nothing and
 is listed to check by hand: decide where the content goes, move it, and delete
-the line. This is the one case a single run does not finish.
+the line.
 
 The names a profile lists stay as they are: ``rules/facility`` in a ``rules:``
 list, ``osprey scaffold claim services/postgresql`` and every profile key name
@@ -231,17 +231,19 @@ other command that reads the repository's sources stop before they read or
 write anything, the certificates under ``var/runtime/`` included, and print one
 block. ``osprey down``, ``osprey status`` and ``osprey logs`` keep working, so a
 running stack can still be stopped and watched. The block opens by naming the
-repository, and when the facility tree is retired as well it moves both:
+repository, and when the facility tree is retired as well it moves both. This
+one also holds a leftover, ``data/notes.md``:
 
 .. code-block:: text
 
    # The deployment repo at /srv/my-facility still holds sources at retired paths; nothing was read.
-   # Paste this whole block to move them to their current paths and finish the migration, then run the command again:
+   # Paste this whole block to move them to their current paths, then place by hand what is listed below it; the repo is refused until both are done:
    cd /srv/my-facility
-   mkdir -p agent ops
    git mv data/facility facility
+   mkdir -p agent
    git mv rules agent/rules
    git mv watchdogs agent/watchdogs
+   mkdir -p ops
    git mv services ops/services
    git mv scripts ops/scripts
    git mv osprey.service ops/osprey.service
@@ -250,11 +252,11 @@ repository, and when the facility tree is retired as well it moves both:
    git mv data/canopy/library web/canopy/library
    mkdir -p web
    git mv data/landing web/landing
-   perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 3' profile.yml
+   perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 4' profile.yml
    perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
    perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
-   perl -ni -e 'print unless $. == 21 && m{^data: data$}' profile.yml
    perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
+   perl -ni -e 'print unless $. == 21 && m{^data: data$}' profile.yml
    rmdir data/canopy 2>/dev/null || true
    rmdir data 2>/dev/null || true
    # Host steps, once the files moved:
@@ -274,21 +276,26 @@ history follows them; an entry whose successor already exists is merged into it
 file by file. The script also rewrites the profile values that name a moved
 path (a service ``template:``, ``config.code_review.prompt``,
 ``config.facility_knowledge.bundle_path``, a landing notice, a lifecycle
-``cwd:``), deletes the ``data:`` line, rewrites the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name one, and
-deletes a CANOPY payload and wheels left at the repository root: a build
-stages them in ``build/``. An entry at both its retired and its current
-path is named instead, with ``keep one, delete the other``, and nothing moves
-until you have.
+``cwd:``), rewrites the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name
+one, deletes the ``data:`` line, and deletes a CANOPY payload and wheels left
+at the repository root: a build stages them in ``build/``. A file at both its
+retired and its current path is named instead, with ``keep one, delete the
+other``. The script still moves everything else, the block then ends without
+the closing command, and ``osprey init --revalidate`` moves nothing until you
+have.
 
 Its last line runs ``osprey init --revalidate`` on the repository, which finds
-nothing left to move and finishes the migration: the profile vocabulary, the
-preset changes and the rest of :ref:`--revalidate <cli-osprey-init-revalidate>`.
-Pasted whole, the block leaves the tree ``osprey init --revalidate`` alone
-would. Running that command yourself instead makes the same moves and edits in
-place, prints the same host steps and the same lists, and a second run finds
-nothing left to do. A refusal that holds only leftovers or items to check by
-hand prints no script and no command: place what it lists, then run the
-command again.
+nothing left to move and does the rest of
+:ref:`--revalidate <cli-osprey-init-revalidate>`: the profile vocabulary and
+the preset changes. Pasted whole, the block leaves the tree
+``osprey init --revalidate`` alone would. Running that command yourself
+instead makes the same moves and edits in place, prints the same host steps
+and the same lists, and a second run finds nothing left to do.
+
+Neither route places a leftover. While one remains the repository stays
+refused, and the block's second line says so. A refusal that holds only
+leftovers or items to check by hand prints no script and no command: place
+what it lists, then run the command again.
 
 **Host steps.** Run each one the block prints, on every host the repository is
 deployed on. ``osprey build`` always; when ``osprey scaffold systemd`` wrote the

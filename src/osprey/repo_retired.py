@@ -151,6 +151,13 @@ _SHIPPED_DATA_README_DIGESTS: frozenset[str] = frozenset(
     }
 )
 
+#: The header line of a refusal whose block makes every move while leftovers
+#: remain: the repo is accepted only once those are placed by hand too.
+_PASTE_THEN_PLACE_HEADER = (
+    "# Paste this whole block to move them to their current paths, then place by"
+    " hand what is listed below it; the repo is refused until both are done:"
+)
+
 #: A file macOS writes into any directory it shows; never a leftover.
 _FINDER_FILE = ".DS_Store"
 
@@ -231,7 +238,11 @@ class RetiredRoot:
 
     @property
     def finishes(self) -> bool:
-        """True when, once its block ran, ``osprey init --revalidate`` can finish the migration."""
+        """True when ``osprey init --revalidate`` runs to its end once the block's moves are made.
+
+        Leftovers do not stop that run, and it does not place them: a repo
+        that holds any is refused until a person has placed each.
+        """
         staying = len(self.data_keys) - len(self.line_deletes)
         return not self.clashes and staying == 0
 
@@ -293,8 +304,11 @@ class RetiredRootRefused(click.ClickException):
     clash, then the host
     steps, the check-by-hand list and the leftovers as comment blocks, then
     the closing line: :func:`~osprey_facility.errors._revalidate_command` for
-    the repo when the block can finish the migration, else a line asking to
-    place what is listed. The whole message runs under ``sh``. It prints
+    the repo when that command runs to its end after the moves, else a line
+    asking to place what is listed. The header above the script says which
+    holds: the block migrates the repo; or it makes the moves and the
+    leftovers listed must then be placed by hand; or something listed needs a
+    person first. The whole message runs under ``sh``. It prints
     alone, with no ``Error: `` prefix, and the command line exits 1.
 
     Args:
@@ -324,7 +338,12 @@ class RetiredRootRefused(click.ClickException):
             lines.append(f"{where}.")
         finishes = layout.finishes and not clashes
         if self.script:
-            lines.append(PASTE_HEADER if finishes else MOVE_HEADER)
+            if not finishes:
+                lines.append(MOVE_HEADER)
+            elif layout.leftovers:
+                lines.append(_PASTE_THEN_PLACE_HEADER)
+            else:
+                lines.append(PASTE_HEADER)
             lines.extend(self.script)
         lines.extend(
             f"# {clash.old.resolve()} and {clash.new.resolve()} both exist:"

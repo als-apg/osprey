@@ -7,8 +7,9 @@ Every stop is a single line on stderr::
 A schema failure names its location as record kind ``path`` and the dotted path
 as the id. A tree still laid out at retired paths stops before anything is read,
 with :class:`RetiredLayoutRefused`: comment lines, then the shell lines that move
-it, ending with :func:`_revalidate_command`. The exit code is 1; click keeps 2 for usage errors. A warning shares
-the line shape, prints after a clean build, and leaves the exit code at 0.
+it, ending with :func:`_revalidate_command`. The exit code is 1; click keeps 2 for
+usage errors. A warning shares the line shape, prints after a clean build, and
+leaves the exit code at 0.
 
 Every error the description raises derives from :class:`FacilityError`, a plain
 exception that knows how to print itself. None of them depends on click; the
@@ -272,8 +273,9 @@ _PLACE_THESE = "# Place these, then run the command again."
 def _revalidate_command(repo: Path) -> str:
     """The command a refusal's block ends with: ``osprey init --revalidate <repo>``.
 
-    It finishes the migration the block's file commands start: the run finds
-    nothing left to move and rewrites what a shell line cannot.
+    It runs after the block's file commands: the run finds nothing left to
+    move and rewrites what a shell line cannot. It places nothing a person
+    must place by hand.
 
     Args:
         repo: The deployment repo, absolute; it is shell-quoted.
