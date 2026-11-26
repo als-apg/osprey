@@ -595,6 +595,84 @@ _ROLE_MOCK_BODY_HEADER = textwrap.dedent(
     """
 )
 
+_COUNTS, _STATE = "ES1:DET:MCA:01:COUNTS:RB", "ES1:DET:MCA:01:STATE"
+
+#: What the worker states for a detector and a readable whose channel is a word
+#: (``qserver_startup.describe_devices``).
+_DESCRIBED = {
+    "ES1-MCA01": {
+        "kind": "detector",
+        "data_keys": {
+            _COUNTS: {"source": f"connector:{_COUNTS}", "dtype": "number", "shape": []},
+            _STATE: {
+                "source": f"connector:{_STATE}",
+                "dtype": "string",
+                "shape": [],
+                "choices": ["OK", "LOW"],
+            },
+        },
+    },
+    "rb1": {
+        "kind": "readable",
+        "data_keys": {
+            "rb1": {
+                "source": "connector:RB1",
+                "dtype": "string",
+                "shape": [],
+                "choices": ["OPEN", "CLOSED"],
+            }
+        },
+    },
+}
+
+_DETECTOR_PARAMS = textwrap.dedent(
+    """\
+    class PARAMS(BaseModel):
+        detectors: TriggeredChannels = Field(..., min_length=1)
+        monitors: ReadableChannels = Field(default_factory=list)
+    """
+)
+
+_DETECTOR_READS_ITS_RESULTS = textwrap.dedent(
+    f"""\
+    def build_plan(devices, params):
+        detector = devices["ES1-MCA01"]
+        monitor = devices["rb1"]
+
+        @bpp.run_decorator(
+            md=scan_metadata(
+                movable=[], readable=params.monitors, points=1, triggered=params.detectors
+            )
+        )
+        def _one():
+            reading = yield from bps.trigger_and_read([detector, monitor])
+            if set(reading) != {{{_COUNTS!r}, {_STATE!r}, "rb1"}}:
+                raise AssertionError(f"recorded columns {{sorted(reading)}}")
+            if reading[{_STATE!r}]["value"] != "OK" or reading["rb1"]["value"] != "OPEN":
+                raise AssertionError("a word channel did not rehearse as its word")
+
+        return _one()
+    """
+)
+
+_DETECTOR_COUNTS_ONCE = textwrap.dedent(
+    """\
+    def build_plan(devices, params):
+        detector = devices["ES1-MCA01"]
+        monitor = devices["rb1"]
+
+        @bpp.run_decorator(
+            md=scan_metadata(
+                movable=[], readable=params.monitors, points=1, triggered=params.detectors
+            )
+        )
+        def _one():
+            yield from bps.trigger_and_read([detector, monitor])
+
+        return _one()
+    """
+)
+
 _ASSERT_MOCK_KINDS = textwrap.dedent(
     """\
     def _assert_mock_kinds(devices, expected):
@@ -949,6 +1027,88 @@ class TestDryRunRoleMocks:
             settable_names=(), readable_names=(), triggered_names=("d1",)
         )
         assert set(await stand_ins["d1"].describe()) == {"d1"}
+
+    async def test_a_described_detectors_stand_in_records_the_run_keys(self):
+        """A detector the worker described rehearses with exactly its run's
+        columns, each described as the run describes it, a word as the word."""
+        body = _role_mock_body(_DETECTOR_PARAMS, _DETECTOR_READS_ITS_RESULTS)
+
+        result = await validate_plan(
+            body,
+            plan_name="role_mocks",
+            sample_args={"detectors": ["ES1-MCA01"], "monitors": ["rb1"]},
+            described=_DESCRIBED,
+        )
+
+        assert result.passed is True, result.reasons
+        assert result.triggered_channels == ("ES1-MCA01",)
+        assert result.stand_ins == ()
+
+    async def test_a_described_settable_rehearses_with_its_run_keys(self):
+        """A settable the worker described records its readback and its demand
+        under the run's keys, each holding the value it was moved to."""
+        body = _role_mock_body(
+            textwrap.dedent(
+                """\
+                class PARAMS(BaseModel):
+                    axis: MovableChannel
+                    monitors: ReadableChannels = Field(..., min_length=1)
+                """
+            ),
+            textwrap.dedent(
+                """\
+                def build_plan(devices, params):
+                    axis = devices["sp1"]
+                    monitor = devices["rb1"]
+
+                    @bpp.run_decorator(
+                        md=scan_metadata(movable=[params.axis], readable=params.monitors, points=1)
+                    )
+                    def _one():
+                        yield from bps.mv(axis, 2.5)
+                        reading = yield from bps.trigger_and_read([axis, monitor])
+                        values = {key: reading[key]["value"] for key in ("sp1", "sp1_setpoint")}
+                        if values != {"sp1": 2.5, "sp1_setpoint": 2.5}:
+                            raise AssertionError(f"recorded {values}")
+
+                    return _one()
+                """
+            ),
+        )
+        number = {"source": "connector:SP1", "dtype": "number", "shape": []}
+        described = {
+            "sp1": {"kind": "settable", "data_keys": {"sp1": number, "sp1_setpoint": number}}
+        }
+
+        result = await validate_plan(
+            body,
+            plan_name="role_mocks",
+            sample_args={"axis": "sp1", "monitors": ["rb1"]},
+            described=described,
+        )
+
+        assert result.passed is True, result.reasons
+        assert result.stand_ins == ("rb1",)
+
+    async def test_an_undescribed_detector_is_named_as_a_stand_in(self):
+        """With no worker answering, the stand-in records under its own name:
+        a plan reading the run's columns fails, and a pass names its stand-ins."""
+        failing = await validate_plan(
+            _role_mock_body(_DETECTOR_PARAMS, _DETECTOR_READS_ITS_RESULTS),
+            plan_name="role_mocks",
+            sample_args={"detectors": ["ES1-MCA01"], "monitors": ["rb1"]},
+        )
+        passing = await validate_plan(
+            _role_mock_body(_DETECTOR_PARAMS, _DETECTOR_COUNTS_ONCE),
+            plan_name="role_mocks",
+            sample_args={"detectors": ["ES1-MCA01"], "monitors": ["rb1"]},
+            described={"rb1": _DESCRIBED["rb1"]},
+        )
+
+        assert failing.passed is False
+        assert "recorded columns" in " ".join(failing.reasons)
+        assert passing.passed is True, passing.reasons
+        assert passing.stand_ins == ("ES1-MCA01",)
 
     async def test_a_pass_with_no_declared_role_reports_no_channels(self):
         """The fallback mocks a role-less body is driven against are the dry

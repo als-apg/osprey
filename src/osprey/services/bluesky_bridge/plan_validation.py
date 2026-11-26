@@ -60,15 +60,17 @@ import logging
 import os
 import sys
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from osprey.mcp_server.sandbox_env import (
     configured_child_env_passthrough,
     scrub_sandbox_child_env,
 )
 from osprey.mcp_server.workspace.execution.sandbox_executor import validate_sandbox_code
+from osprey.services.bluesky_bridge.plan_fields import DeviceKind
 from osprey.services.python_executor.analysis.pattern_detection import (
     detect_control_system_operations,
 )
@@ -376,6 +378,11 @@ class ValidationResult:
     ``PARAMS`` declares, sorted. All are empty unless ``passed``; a body that
     declares no role reports none, whatever mocks the dry run drove it against.
 
+    ``stand_ins`` are those of the channels the worker gave no description of,
+    sorted: the dry run rehearsed each against a stand-in recording under its
+    own name, so its columns are not the ones the run records. Empty unless
+    ``passed``.
+
     Raises:
         ValueError: if ``passed`` is false and any channel tuple is non-empty.
     """
@@ -386,10 +393,14 @@ class ValidationResult:
     movable_channels: tuple[str, ...] = ()
     readable_channels: tuple[str, ...] = ()
     triggered_channels: tuple[str, ...] = ()
+    stand_ins: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.passed and (
-            self.movable_channels or self.readable_channels or self.triggered_channels
+            self.movable_channels
+            or self.readable_channels
+            or self.triggered_channels
+            or self.stand_ins
         ):
             raise ValueError("a validation that did not pass reports no channels")
 
@@ -468,6 +479,7 @@ def _render_dry_run_script(
     fallback_readable_names: tuple[str, ...],
     point_count_key: str,
     inner_timeout: float,
+    described: Mapping[str, Any] | None = None,
 ) -> str:
     """Render the subprocess script that drives the dry-run to completion.
 
@@ -478,7 +490,11 @@ def _render_dry_run_script(
     movable, a `MockTriggerable` for every one it declared triggered, a
     `MockReadable` for every one it declared readable, and nothing
     at all for a string sitting under a field that declared no role (that is a
-    plain parameter, not a device). Writes a JSON result to ``result_path`` in a
+    plain parameter, not a device). A channel the worker *described* gets a
+    stand-in that records exactly the data keys of that description, each
+    described as the run describes it (`devices.mock.build_devices`): a
+    detector's stand-in records its result columns. Writes a JSON result to
+    ``result_path`` in a
     ``finally`` so the parent always has something to read even if construction
     itself raised.
 
@@ -524,6 +540,7 @@ _FALLBACK_MOVABLE = {fallback_movable_names!r}
 _FALLBACK_READABLE = {fallback_readable_names!r}
 _POINT_COUNT_KEY = {point_count_key!r}
 _DEADLINE_S = {inner_timeout!r}
+_DESCRIBED = {dict(described or {})!r}
 
 result = {{"success": False, "error": None}}
 try:
@@ -589,6 +606,7 @@ try:
             settable_names=_movable_names,
             readable_names=_readable_names,
             triggered_names=_declared_triggered,
+            described=_DESCRIBED,
         ),
         RE.loop,
     ).result(timeout=30.0))
@@ -776,12 +794,37 @@ class _DryRunOutcome:
     triggered_channels: tuple[str, ...] = ()
 
 
+def described_devices(answer: Any) -> dict[str, dict[str, Any]]:
+    """The well-formed entries of the worker's device description.
+
+    An entry is ``{"kind", "data_keys"}`` with a known ``kind`` and
+    ``data_keys`` a mapping of key to described channel; anything else,
+    including an answer that is no mapping, describes nothing.
+    """
+    if not isinstance(answer, Mapping):
+        return {}
+    kinds = set(get_args(DeviceKind))
+    return {
+        name: {"kind": entry["kind"], "data_keys": dict(entry["data_keys"])}
+        for name, entry in answer.items()
+        if isinstance(name, str)
+        and isinstance(entry, Mapping)
+        and entry.get("kind") in kinds
+        and isinstance(entry.get("data_keys"), Mapping)
+        and all(
+            isinstance(key, str) and isinstance(described, Mapping)
+            for key, described in entry["data_keys"].items()
+        )
+    }
+
+
 async def _dry_run(
     body: str,
     *,
     plan_name: str,
     sample_args: dict[str, Any],
     timeout: float,
+    described: Mapping[str, Any] | None = None,
 ) -> _DryRunOutcome:
     """Stage 3: run the plan body to completion under a mock-device RunEngine.
 
@@ -819,6 +862,7 @@ async def _dry_run(
                 fallback_readable_names=_FALLBACK_READABLE_MOCKS,
                 point_count_key=_DECLARED_POINT_COUNT_KEY,
                 inner_timeout=timeout,
+                described=described_devices(described),
             ),
             encoding="utf-8",
         )
@@ -886,6 +930,7 @@ async def validate_plan(
     plan_name: str = "session_plan",
     sample_args: dict[str, Any] | None = None,
     dry_run_timeout: float = 30.0,
+    described: Mapping[str, Any] | None = None,
 ) -> ValidationResult:
     """Validate an authored plan-file BODY through all three ordered stages.
 
@@ -907,6 +952,10 @@ async def validate_plan(
             whose `PARAMS` has no required fields.
         dry_run_timeout: Seconds the stage-3 subprocess is given to drive the
             plan to completion.
+        described: The worker's description of the devices the sample
+            arguments name (``qserver_startup.describe_devices``), or ``None``
+            when no worker answered. Each described channel rehearses with its
+            run's own data keys; every other is a stand-in (``stand_ins``).
 
     Returns:
         A `ValidationResult` with `content_hash` always populated (hashed
@@ -925,11 +974,13 @@ async def validate_plan(
     if reasons:
         return ValidationResult(passed=False, reasons=reasons, content_hash=content_hash)
 
+    descriptions = described_devices(described)
     outcome = await _dry_run(
         body,
         plan_name=plan_name,
         sample_args=resolved_sample_args,
         timeout=dry_run_timeout,
+        described=descriptions,
     )
     if outcome.reasons:
         return ValidationResult(passed=False, reasons=outcome.reasons, content_hash=content_hash)
@@ -941,4 +992,17 @@ async def validate_plan(
         movable_channels=outcome.movable_channels,
         readable_channels=outcome.readable_channels,
         triggered_channels=outcome.triggered_channels,
+        stand_ins=tuple(
+            sorted(
+                {
+                    name
+                    for name in (
+                        *outcome.movable_channels,
+                        *outcome.readable_channels,
+                        *outcome.triggered_channels,
+                    )
+                    if name not in descriptions
+                }
+            )
+        ),
     )
