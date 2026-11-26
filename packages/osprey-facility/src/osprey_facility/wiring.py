@@ -29,7 +29,9 @@ judges a command reads this mark and no rule of its own. With every command
 marked, each command's ``timeout_s`` and its status's ``idle``, and each
 setpoint's ``started_by`` and ``stopped_by``, are held to the command rules
 (:func:`osprey_facility.validate.check_commands`), which stop with
-``command-invalid``.
+``command-invalid``, and each detector's ``acquire`` and ``results`` to the
+detector rules (:func:`osprey_facility.validate.check_detectors`), which stop
+with ``detector-invalid``.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ from osprey_facility.provenance import add_defaults
 from osprey_facility.validate import (
     Validated,
     check_commands,
+    check_detectors,
     limit_records,
     need,
     record_range,
@@ -119,7 +122,7 @@ def fill_wiring_slots(validated: Validated) -> list[FacilityBuildError]:
             )
         )
     marking = _mark_commands(document)
-    errors.extend(marking or check_commands(document))
+    errors.extend(marking or check_commands(document) + check_detectors(document))
     return sorted(errors, key=lambda error: error.record_id)
 
 

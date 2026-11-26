@@ -518,6 +518,11 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`confirm: true` on a further address of a command that states `timeout_s`",
     ),
     (
+        "detector_invalid__acquire_without_results",
+        "detector-invalid",
+        "`acquire` without `results`",
+    ),
+    (
         "value_invalid__measurement_step_key",
         "value-invalid",
         "a step or settle key a measurement kind needs, missing",
@@ -1835,6 +1840,13 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "facility: command-invalid: limit INJ:RACK:REQ — `confirm: true` on a further "
             "address of a command that states `timeout_s`; fix: remove `confirm`; the wait for "
             "INJ:SHOT:BUSY confirms the write"
+        ),
+    ),
+    "detector_invalid__acquire_without_results": (
+        _plain(commanded(), update("records/devices.yaml", 0, acquire="Q1:ON")),
+        (
+            "facility: detector-invalid: device SR/Q1 — `acquire` without `results`; fix: state "
+            "`acquire` and `results` together"
         ),
     ),
     "value_invalid__measurement_step_key": (

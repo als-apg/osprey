@@ -76,6 +76,7 @@ __all__ = [
     "StageReport",
     "Validated",
     "check_commands",
+    "check_detectors",
     "check_measurement",
     "check_records",
     "check_references",
@@ -132,6 +133,7 @@ _TABLE_ROWS: tuple[tuple[str, ...], ...] = (
     ("class-unknown",),
     ("pair-invalid",),
     ("command-invalid",),
+    ("detector-invalid",),
     ("value-invalid",),
     ("seed-invalid", "seed-missing"),
     ("limit-invalid",),
@@ -1282,6 +1284,118 @@ def check_commands(document: Mapping[str, Any]) -> list[FacilityBuildError]:
         Every error found.
     """
     return list(_Records(document).commands())
+
+
+def check_detectors(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check each device that states ``acquire`` and ``results``: a detector.
+
+    A device states the two together. ``acquire`` names, by its address, a
+    command on this device that states ``timeout_s`` (its status then states
+    ``idle``), so no other device names it, and no setpoint names it under
+    ``started_by``. ``results`` lists each readback on this device it records
+    once, none of more than one dimension. A detector's id is its plan name:
+    it holds no ``/`` or ``.`` and is no channel's address. These stop with
+    ``detector-invalid``. Runs once commands are marked.
+
+    Args:
+        document: The combined document, its commands marked ``command: true``.
+
+    Returns:
+        Every error found.
+    """
+    channels = _by_key(document.get("channels"), "id")
+    starts = {
+        str(channel["started_by"]) for channel in channels.values() if "started_by" in channel
+    }
+    records = _by_key(document.get("devices"), "id")
+    errors: list[FacilityBuildError] = []
+    for device_id, device in sorted(records.items()):
+        if "acquire" not in device and "results" not in device:
+            continue
+
+        def stop(
+            detail: str, remedy: str, slot: str, device_id: str = device_id, device: Any = device
+        ) -> None:
+            errors.append(
+                FacilityBuildError(
+                    "detector-invalid",
+                    device_id,
+                    stating_files(device, slot),
+                    remedy,
+                    record_kind="device",
+                    detail=detail,
+                )
+            )
+
+        if "acquire" not in device or "results" not in device:
+            stated, missing = (
+                ("acquire", "results") if "acquire" in device else ("results", "acquire")
+            )
+            stop(
+                f"`{stated}` without `{missing}`", "state `acquire` and `results` together", stated
+            )
+            continue
+        if "/" in device_id or "." in device_id:
+            stop(
+                "a detector's id is its plan name, and a run cannot name a device whose id "
+                "holds `/` or `.`",
+                "give the device an id without them",
+                "id",
+            )
+        if device_id in channels:
+            stop(
+                f"detector {device_id} has the address of a channel as its id",
+                f"give device {device_id} an id that is no channel address",
+                "id",
+            )
+        own = {"device": device_id}
+        command = str(device["acquire"])
+        channel = channels.get(command)
+        if channel is None or channel.get("on") != own:
+            stop(
+                f"`acquire` names {command}, which is no channel on {device_id}",
+                f"name a command on {device_id}",
+                "acquire",
+            )
+        elif channel.get("command") is not True or "timeout_s" not in channel:
+            stop(
+                f"`acquire` names {command}, which is no command that states `timeout_s`",
+                f"state `timeout_s` on {command} and `idle` on its status",
+                "acquire",
+            )
+        elif command in starts:
+            stop(
+                f"`acquire` names {command}, which a setpoint names under `started_by`",
+                "a command starts a positioner or acquires a detector, not both",
+                "acquire",
+            )
+        results = device["results"]
+        listed = [str(result) for result in results] if isinstance(results, list) else []
+        if not listed or len(set(listed)) != len(listed):
+            stop(
+                "`results` is empty" if not listed else "`results` repeats an address",
+                "list each result once",
+                "results",
+            )
+        for address in dict.fromkeys(listed):
+            result = channels.get(address)
+            if (
+                result is None
+                or result.get("on") != own
+                or result.get("role", DEFAULT_ROLE) != "readback"
+            ):
+                stop(
+                    f"`results` lists {address}, which is no readback on {device_id}",
+                    f"list a readback on {device_id}",
+                    "results",
+                )
+            elif len(result.get("shape") or ()) > 1:
+                stop(
+                    f"`results` lists {address}, a waveform of {len(result['shape'])} dimensions",
+                    f"list a readback of one dimension on {device_id}",
+                    "results",
+                )
+    return errors
 
 
 class _Records:
