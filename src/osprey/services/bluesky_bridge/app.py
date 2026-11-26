@@ -1806,6 +1806,19 @@ def _stream_shapes(stream: Any, columns: Sequence[str]) -> dict[str, list[int | 
     return {column: declared[column] for column in columns if column in declared}
 
 
+def _stream_objects(stream: Any) -> dict[str, list[str]]:
+    """The columns each device recorded, as the stream's stored descriptors state them.
+
+    The sibling of `_stream_units`, read through the rule and the merge the
+    live recorder applies (`live_rows.declared_objects`,
+    `live_rows.merge_objects`).
+    """
+    declared: dict[str, list[str]] = {}
+    for descriptor in stream.descriptors:
+        live_rows.merge_objects(declared, live_rows.declared_objects(descriptor))
+    return declared
+
+
 def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     """One run's full stored state, read from the durable Tiled catalog.
 
@@ -1834,6 +1847,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     ``units`` and ``shapes`` are each column's unit and shape as the stream's
     stored descriptors declare them (`_stream_units`, `_stream_shapes`), the
     same maps the live buffer keeps from the descriptors it was sent.
+    ``objects`` is the columns each device recorded (`_stream_objects`).
 
     ``partial`` is the absence of a stop document, the same signal ``partial``
     means everywhere else, and never the run record: a run still executing
@@ -1873,6 +1887,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         total_seen = 0
         units: dict[str, str] = {}
         shapes: dict[str, list[int | None]] = {}
+        objects: dict[str, list[str]] = {}
     else:
         table = _primary_table(run_node)
         if "seq_num" in table.columns:
@@ -1882,6 +1897,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         total_seen = len(table)
         units = _stream_units(run_node["primary"], columns)
         shapes = _stream_shapes(run_node["primary"], columns)
+        objects = _stream_objects(run_node["primary"])
 
     return {
         "columns": columns,
@@ -1889,6 +1905,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         "total_seen": total_seen,
         "units": units,
         "shapes": shapes,
+        "objects": objects,
         "partial": metadata.get("stop") is None,
         "plan": start.get(PLAN_META_KEY),
         "run_uid": start.get("uid"),
@@ -1986,7 +2003,8 @@ def _data_response(
     """`get_run_data`'s body, built from whichever source is holding the run.
 
     *held* is everything one source knows about the run — ``columns``,
-    ``rows``, ``total_seen``, ``partial``, ``units``, ``shapes`` and the ``plan`` stamp — as the live
+    ``rows``, ``total_seen``, ``partial``, ``units``, ``shapes``, ``objects`` (the
+    columns each device recorded) and the ``plan`` stamp — as the live
     buffer (`live_rows.get`) and the catalog snapshot (`_tiled_run_snapshot`)
     both spell it. That shared spelling is what lets one function shape both
     answers, and shaping both here is the point: the route's promise is that a

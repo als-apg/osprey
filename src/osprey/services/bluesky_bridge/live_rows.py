@@ -22,7 +22,9 @@ Document handling (bluesky's plain-dict document protocol):
   ``units`` records that unit under its column name, and each that declares a
   ``shape`` (:func:`declared_shapes`) records that shape. A later descriptor
   adds units and shapes, never clears them; a column whose data key declares
-  none has none.
+  none has none. Its ``object_keys`` (:func:`declared_objects`) records which
+  device recorded each column; a later descriptor adds columns to a device,
+  never removes them.
 - ``event``: each event's ``doc["data"]`` becomes one row; columns are
   discovered incrementally in first-seen order across events. Each cell is
   stored as a JSON reading value or a refusal (:func:`json_cell`): an array
@@ -154,16 +156,17 @@ def _cell_bytes(cell: Any) -> int:
 
 
 _lock = Lock()
-# Each buffer also holds "shapes", each column's declared size per axis.
-# run_uid -> {"columns": [...], "rows": [[...], ...], "partial": bool,
-#             "total_seen": int, "plan": Any | None, "units": {column: unit}}
+# Each buffer is keyed by run uid and holds the run's "columns" and "rows",
+# whether it is "partial", how many events it has seen ("total_seen"), its
+# "plan" stamp, each column's declared "units" and "shapes", and "objects",
+# the columns each device recorded.
 _buffers: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
 
 def get(run_uid: str) -> dict[str, Any] | None:
     """A snapshot of the live buffer for *run_uid* (or None if unknown).
 
-    ``columns``, ``rows``, ``units`` and ``shapes`` are copies, so a caller cannot reach
+    ``columns``, ``rows``, ``units``, ``shapes`` and ``objects`` are copies, so a caller cannot reach
     back into the buffer through them. A cell that is a list is not copied: it
     is shared with the buffer, and a caller must not mutate it. ``plan`` is
     whatever the recorder was handed and is returned by reference — this module
@@ -181,6 +184,7 @@ def get(run_uid: str) -> dict[str, Any] | None:
             "plan": buf["plan"],
             "units": dict(buf["units"]),
             "shapes": {column: list(shape) for column, shape in buf["shapes"].items()},
+            "objects": {device: list(keys) for device, keys in buf["objects"].items()},
         }
 
 
@@ -215,6 +219,32 @@ def declared_shapes(descriptor: Any) -> dict[str, list[int | None]]:
         for column, key in data_keys.items()
         if isinstance(key, dict) and _is_shape(key.get("shape"))
     }
+
+
+def declared_objects(descriptor: Any) -> dict[str, list[str]]:
+    """The columns each device recorded, as one descriptor document states them.
+
+    A descriptor's ``object_keys`` maps each device the stream read to the data
+    keys it recorded; an entry whose value is a list of strings declares them,
+    any other entry, and any malformed descriptor, declares none.
+    """
+    object_keys = descriptor.get("object_keys") if isinstance(descriptor, dict) else None
+    if not isinstance(object_keys, dict):
+        return {}
+    return {
+        device: list(keys)
+        for device, keys in object_keys.items()
+        if isinstance(device, str)
+        and isinstance(keys, list)
+        and all(isinstance(key, str) for key in keys)
+    }
+
+
+def merge_objects(held: dict[str, list[str]], declared: dict[str, list[str]]) -> None:
+    """Add *declared*'s columns to *held*, device by device, never removing one."""
+    for device, keys in declared.items():
+        columns = held.setdefault(device, [])
+        columns.extend(key for key in keys if key not in columns)
 
 
 def _is_shape(shape: Any) -> bool:
@@ -427,6 +457,7 @@ class LiveRowRecorder:
                 "plan": self._plan,
                 "units": {},
                 "shapes": {},
+                "objects": {},
             }
             _buffers.move_to_end(uid)
             while len(_buffers) > retained_runs:
@@ -437,13 +468,15 @@ class LiveRowRecorder:
             return
         units = declared_units(doc)
         shapes = declared_shapes(doc)
-        if not units and not shapes:
+        objects = declared_objects(doc)
+        if not units and not shapes and not objects:
             return
         with _lock:
             buf = _buffers.get(self._uid)
             if buf is not None:
                 buf["units"].update(units)
                 buf["shapes"].update(shapes)
+                merge_objects(buf["objects"], objects)
 
     def _on_event(self, doc: dict[str, Any]) -> None:
         if not self._uid:

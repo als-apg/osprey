@@ -81,8 +81,9 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from osprey.services.bluesky_bridge import analysis
+from osprey.services.bluesky_bridge import analysis, live_rows
 from osprey.services.bluesky_bridge import app as app_module
+from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -485,6 +486,51 @@ def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
         "motor": first["motor"]["units"],
         "det": later["det"]["units"],
     }
+
+
+def test_a_tiled_run_carries_the_devices_its_descriptors_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stored descriptors' ``object_keys``, rebuilt from each data key's
+    ``object_name`` as the catalog client rebuilds them, say which device
+    recorded each column, as the live buffer says it."""
+    from bluesky_tiled_plugins.exporters import build_descriptor_docs
+
+    counts, spectrum = "DET:COUNTS", "DET:SPECTRUM"
+
+    def key(source: str, device: str, shape: list[int]) -> dict:
+        dtype = "array" if shape else "number"
+        return {"source": source, "dtype": dtype, "shape": shape, "object_name": device}
+
+    stored = {
+        "uid": "desc",
+        "time": 1.0,
+        "data_keys": {
+            "motor": key("mock:motor", "motor", []),
+            counts: key(f"connector:{counts}", "det", []),
+            spectrum: key(f"connector:{spectrum}", "det", [3]),
+        },
+        "configuration": {},
+        "hints": {},
+    }
+    descriptors = build_descriptor_docs(stored, "primary", run_start_uid="bluesky-uid-o")
+    run_node = _run_node_with_events(
+        "bluesky-uid-o",
+        "run-o",
+        [{"motor": 1.0, counts: 5.0}],
+        descriptors=descriptors,
+    )
+    _configured(monkeypatch, "run-o", run_node)
+
+    snapshot = app_module._tiled_run_snapshot("run-o")
+
+    assert snapshot is not None
+    assert snapshot["objects"] == {"motor": ["motor"], "det": [counts, spectrum]}
+    live = LiveRowRecorder()
+    live("start", {"uid": "run-live"})
+    for descriptor in descriptors:
+        live("descriptor", descriptor)
+    assert live_rows.get("run-live")["objects"] == snapshot["objects"]
 
 
 def test_the_data_body_carries_the_declared_units_of_its_columns(
