@@ -7,7 +7,10 @@ and the fixtures and a deployment's own packages are not installed there.
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -63,13 +66,14 @@ def test_a_private_import_added_to_the_fixture_app_fails(tmp_path: Path) -> None
         "from osprey.apps.sdk import testing",
         "import osprey_facility.kinds",
         "from osprey_facility import kinds",
-        "from osprey_facility.kinds import declare",
+        "from osprey_facility.kinds import KindDeclaration",
         "import osprey_connectors",
         "from osprey_connectors import types",
         "from osprey_connectors.types import tier_writes",
         "from osprey_connectors.control_system import write_door",
-        "from osprey_connectors.control_system.write_door import door",
-        "from osprey_connectors.simulation.state import x",
+        "from osprey_connectors.control_system.write_door import open_door",
+        "from osprey_connectors.simulation.state import read_active_state",
+        "from osprey_connectors.control_system.write_door import *",
         "from .sibling import x",
         "from . import sibling",
         "import numpy",
@@ -220,3 +224,157 @@ def test_a_nested_packages_relative_escape_is_measured_from_its_directory(
     assert violation.rule == "relative_import_escape"
     assert violation.field == ".."
     assert violation.source == "fixture/tools.py:2"
+
+
+# --- an allowed import resolves ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("source", "imported"),
+    [
+        ("from osprey.apps.sdk import run", "osprey.apps.sdk.run"),
+        ("from osprey_facility.kinds import declare", "osprey_facility.kinds.declare"),
+        (
+            "from osprey_connectors.control_system.write_door import door",
+            "osprey_connectors.control_system.write_door.door",
+        ),
+        (
+            "from osprey_connectors.simulation.state import x",
+            "osprey_connectors.simulation.state.x",
+        ),
+        ("from osprey_connectors import absent_module", "osprey_connectors.absent_module"),
+    ],
+)
+def test_a_name_its_module_does_not_define_is_refused(
+    tmp_path: Path, source: str, imported: str
+) -> None:
+    [violation] = check_package(_package(tmp_path, source))
+
+    assert violation.rule == "import_missing_name"
+    assert violation.field == imported
+    assert violation.source == "some_app/module.py:1"
+
+
+@pytest.mark.parametrize(
+    ("source", "module"),
+    [
+        ("import osprey_connectors.absent_module", "osprey_connectors.absent_module"),
+        ("from osprey_connectors.absent_module import x", "osprey_connectors.absent_module"),
+        ("from osprey_connectors.absent_module import *", "osprey_connectors.absent_module"),
+        (
+            "from osprey_connectors.absent_package.state import x",
+            "osprey_connectors.absent_package.state",
+        ),
+        ("import osprey.apps.sdk.absent_module", "osprey.apps.sdk.absent_module"),
+        ("import osprey_facility.kinds.absent_module", "osprey_facility.kinds.absent_module"),
+    ],
+)
+def test_a_module_that_does_not_exist_is_refused(tmp_path: Path, source: str, module: str) -> None:
+    [violation] = check_package(_package(tmp_path, source))
+
+    assert violation.rule == "import_missing_module"
+    assert violation.field == module
+
+
+def test_a_refused_import_is_not_also_resolved(tmp_path: Path) -> None:
+    [violation] = check_package(_package(tmp_path, "from osprey.apps.nothing import x"))
+
+    assert violation.rule == "import_boundary"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from some_app.sibling import x",
+        "import some_app.sibling",
+        "import numpy",
+        "from numpy import not_a_numpy_name",
+        "import not_an_installed_module",
+        "from .sibling import x",
+        "from . import sibling",
+    ],
+)
+def test_an_import_outside_the_framework_is_never_resolved(tmp_path: Path, source: str) -> None:
+    assert check_package(_package(tmp_path, source)) == []
+
+
+def test_an_import_that_fails_for_another_reason_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import osprey_connectors
+
+    site = tmp_path / "site"
+    (site / "broken_package").mkdir(parents=True)
+    (site / "broken_module.py").write_text("raise RuntimeError('broken at import')\n")
+    (site / "broken_package" / "__init__.py").write_text("raise RuntimeError('broken')\n")
+    monkeypatch.setattr(osprey_connectors, "__path__", [*osprey_connectors.__path__, str(site)])
+    for name in ("broken_module", "broken_package", "broken_package.state"):
+        monkeypatch.delitem(sys.modules, f"osprey_connectors.{name}", raising=False)
+    source = "\n".join(
+        [
+            "import osprey_connectors.broken_module",
+            "from osprey_connectors.broken_module import anything",
+            "from osprey_connectors.broken_package.state import anything",
+        ]
+    )
+
+    assert check_package(_package(tmp_path / "app", source)) == []
+
+
+#: Records every subprocess start and socket use, then checks the package in argv[1].
+_NO_SIDE_EFFECTS = """
+import json, socket, subprocess, sys
+
+calls = []
+
+class RecordingPopen(subprocess.Popen):
+    def __init__(self, *args, **kwargs):
+        calls.append(("Popen", repr(args)))
+        super().__init__(*args, **kwargs)
+
+subprocess.Popen = RecordingPopen
+
+def recorder(name, original):
+    def record(*args, **kwargs):
+        calls.append((name, repr(args)))
+        return original(*args, **kwargs)
+    return record
+
+for attr in ("connect", "connect_ex", "sendto"):
+    setattr(socket.socket, attr, recorder(attr, getattr(socket.socket, attr)))
+socket.create_connection = recorder("create_connection", socket.create_connection)
+socket.getaddrinfo = recorder("getaddrinfo", socket.getaddrinfo)
+
+from pathlib import Path
+from osprey.apps.boundary import check_package
+
+violations = [str(v) for v in check_package(Path(sys.argv[1]))]
+print(json.dumps({"violations": violations, "calls": calls}))
+"""
+
+
+def test_resolving_imports_starts_no_process_and_opens_no_connection(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "from osprey.apps.sdk import serve_tools",
+            "from osprey.apps.sdk.testing import synthetic_deployment",
+            "from osprey_facility.kinds import KindDeclaration",
+            "from osprey_connectors.types import tier_writes",
+            "from osprey_connectors.config import get_config_value",
+            "from osprey_connectors.control_system.write_door import open_door",
+            "from osprey_connectors.simulation.state import read_active_state",
+            "import osprey_connectors.posture_store",
+        ]
+    )
+    package = _package(tmp_path, source)
+
+    result = subprocess.run(
+        [sys.executable, "-c", _NO_SIDE_EFFECTS, str(package)],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=300,
+    )
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+
+    assert report == {"violations": [], "calls": []}

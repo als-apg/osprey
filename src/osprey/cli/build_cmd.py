@@ -51,6 +51,7 @@ from uuid import uuid4
 
 import click
 
+from osprey.apps.boundary import check_apps, checked_apps
 from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
 from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
@@ -4355,6 +4356,13 @@ def _build_repo(
                 f"{PROFILE_FILENAME} does not name it. A package there that is no application "
                 f"is a dependencies entry, ./apps/{unnamed}."
             )
+        # The import boundary, as `osprey app check` runs it: an import outside the
+        # SDK or of a name the framework lacks refuses here, in every mode.
+        boundary, boundary_notes = check_apps(checked_apps(applications.manifests, repo_root))
+        for note in boundary_notes:
+            output.note(note)
+        if boundary:
+            raise AppManifestError.from_violations(boundary)
         try:
             fetch_app_vendor(
                 repo_root,
