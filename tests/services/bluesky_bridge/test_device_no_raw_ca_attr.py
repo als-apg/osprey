@@ -47,10 +47,12 @@ from __future__ import annotations
 from typing import Any
 
 from osprey.services.bluesky_bridge.devices.connector import (
+    ConnectorDetector,
     ConnectorReadable,
     ConnectorSettable,
     ConnectorTriggerable,
 )
+from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
 
 
 class _FakeWriteResult:
@@ -112,6 +114,7 @@ _EXPECTED_SETTABLE_PUBLIC_ATTRS = [
     "channel_addresses",
     "children",
     "connect",
+    "data_keys",
     "describe",
     "describe_configuration",
     "has_distinct_readback",
@@ -136,6 +139,7 @@ _EXPECTED_READABLE_PUBLIC_ATTRS = [
     "channel_addresses",
     "children",
     "connect",
+    "data_keys",
     "describe",
     "describe_configuration",
     "hints",
@@ -157,6 +161,7 @@ _EXPECTED_TRIGGERABLE_PUBLIC_ATTRS = [
     "channel_addresses",
     "children",
     "connect",
+    "data_keys",
     "describe",
     "describe_configuration",
     "hints",
@@ -173,6 +178,9 @@ _EXPECTED_TRIGGERABLE_PUBLIC_ATTRS = [
     "trigger_writes",
     "unstage",
 ]
+
+
+_EXPECTED_DETECTOR_PUBLIC_ATTRS = _EXPECTED_TRIGGERABLE_PUBLIC_ATTRS
 
 
 def _assert_no_raw_ca_or_unchecked_write(device: Any, fake: FakeConnector) -> None:
@@ -225,6 +233,23 @@ def test_connector_triggerable_public_surface_has_no_raw_ca_or_unchecked_write()
     device = ConnectorTriggerable(fake, "CMD", "STATUS", idle=0, timeout_s=5.0, name="det")
 
     assert _public_attrs(device) == _EXPECTED_TRIGGERABLE_PUBLIC_ATTRS
+    _assert_no_raw_ca_or_unchecked_write(device, fake)
+
+
+def test_connector_detector_public_surface_has_no_raw_ca_or_unchecked_write() -> None:
+    """`ConnectorDetector`'s public API never leaks the connector or `write_channel`."""
+    fake = FakeConnector()
+    device = ConnectorDetector(
+        fake,
+        "CMD",
+        "STATUS",
+        idle=0,
+        timeout_s=5.0,
+        results=[ReadableSpec(name="COUNTS", read_pv="COUNTS")],
+        name="det",
+    )
+
+    assert _public_attrs(device) == _EXPECTED_DETECTOR_PUBLIC_ATTRS
     _assert_no_raw_ca_or_unchecked_write(device, fake)
 
 

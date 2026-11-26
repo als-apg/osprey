@@ -417,7 +417,10 @@ def _make_plan_function(
     A declared device the plan triggers -- one whose ``trigger_writes()`` states
     a write -- must be named under a triggered field and under no other; the
     wrapper refuses the run before the plan is built otherwise
-    (``preflight.refuse_misdeclared_triggers``).
+    (``preflight.refuse_misdeclared_triggers``). Two declared devices that record
+    one data key -- a detector and a readable of one of its results -- refuse
+    the run there too, before anything is written
+    (``preflight.refuse_colliding_data_keys``).
 
     Those declared channels are also what the run's pre-flight probes: the last
     thing the wrapper does before the plan is built is ask the connector
@@ -486,6 +489,7 @@ def _make_plan_function(
         available_devices_phrase,
         cancel_unfinished_triggers,
         probe_before_motion,
+        refuse_colliding_data_keys,
         refuse_misdeclared_triggers,
         stopping_unfinished_moves,
         warn_if_write_refused,
@@ -500,6 +504,7 @@ def _make_plan_function(
             params = spec.schema.model_validate(clean)
             declared = _declared_devices(spec.schema, params, devices)
             refuse_misdeclared_triggers(spec.name, spec.schema, params, declared)
+            refuse_colliding_data_keys(spec.name, declared)
             yield from probe_before_motion(spec.name, declared)
             try:
                 plan = spec.plan(declared, params)

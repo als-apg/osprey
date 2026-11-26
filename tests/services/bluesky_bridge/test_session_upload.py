@@ -1133,3 +1133,30 @@ def test_the_session_wrapper_refuses_and_cancels_the_same_way() -> None:
     next(run)
     run.close()
     assert detector.cancels == 2
+
+
+class FakeRecording(FakeDevice):
+    """A device that records the data keys it is given."""
+
+    def __init__(self, name: str, *keys: str) -> None:
+        super().__init__(name)
+        self.keys = keys
+
+    def data_keys(self) -> tuple[str, ...]:
+        return self.keys
+
+
+def test_the_session_wrapper_refuses_colliding_keys_the_same_way() -> None:
+    namespace = worker_namespace(
+        mca=FakeRecording("mca", "ES1:COUNTS", "ES1:SPECTRUM"),
+        counts=FakeRecording("counts", "ES1:COUNTS"),
+    )
+    run_upload_script(namespace, "shots", TRIGGERING_PLAN_SOURCE)
+
+    with pytest.raises(ValueError) as raised:
+        next(namespace["shots"](detectors=["mca"], monitors=["counts"]))
+
+    assert str(raised.value) == (
+        "refusing plan 'shots' before it writes anything: devices 'mca' and 'counts' both "
+        "record 'ES1:COUNTS'; declare one of them"
+    )

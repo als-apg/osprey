@@ -388,6 +388,13 @@ class ConnectorSettable(StandardReadable):
         """The addresses a run of this device touches: the setpoint and the readback."""
         return (self._setpoint_pv, self._readback_pv)
 
+    def data_keys(self) -> tuple[str, ...]:
+        """The data keys :meth:`describe` states: the name, and :attr:`setpoint_key`
+        with a distinct readback. No I/O."""
+        if self.has_distinct_readback:
+            return (self.name, self.setpoint_key)
+        return (self.name,)
+
     @property
     def has_distinct_readback(self) -> bool:
         """Whether this device reads back a channel other than the one it writes."""
@@ -788,6 +795,10 @@ class ConnectorReadable(StandardReadable):
         """The address a run of this device touches: its one channel."""
         return (self._read_pv,)
 
+    def data_keys(self) -> tuple[str, ...]:
+        """The data key :meth:`describe` states: the name. No I/O."""
+        return (self.name,)
+
     async def read(self) -> dict[str, Reading[Any]]:
         """Return the live value, read fresh through the connector; an enum
         channel's word (:func:`recorded_value`)."""
@@ -922,6 +933,10 @@ class ConnectorTriggerable(StandardReadable):
         """The addresses a run of this device touches: the command and the status."""
         return (self._firing.act.command, self._firing.act.status)
 
+    def data_keys(self) -> tuple[str, ...]:
+        """The data key :meth:`describe` states: the name. No I/O."""
+        return (self.name,)
+
     async def read(self) -> dict[str, Reading[Any]]:
         """Return the status, read fresh through the connector, under the device's
         name; an enum status's word (:func:`recorded_value`)."""
@@ -986,6 +1001,10 @@ class ConnectorDetector(ConnectorTriggerable):
         status and every result."""
         return (*super().channel_addresses(), *(result.read_pv for result in self._results))
 
+    def data_keys(self) -> tuple[str, ...]:
+        """The data keys :meth:`describe` states: every result's address, in order. No I/O."""
+        return tuple(result.read_pv for result in self._results)
+
     async def read(self) -> dict[str, Reading[Any]]:
         """Return every result, read fresh through the connector, under its address;
         an enum result's word (:func:`recorded_value`)."""
@@ -999,14 +1018,14 @@ class ConnectorDetector(ConnectorTriggerable):
     async def describe(self) -> dict[str, DataKey]:
         """Describe every result under its address, by its kind. Reads nothing."""
         return {
-            result.read_pv: data_key(
-                result.read_pv,
+            key: data_key(
+                key,
                 value_type=result.value_type,
                 unit=result.unit,
                 shape=result.shape,
                 options=result.options,
             )
-            for result in self._results
+            for key, result in zip(self.data_keys(), self._results, strict=True)
         }
 
     @property

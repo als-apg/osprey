@@ -30,7 +30,9 @@ from osprey.services.bluesky_bridge.preflight import (
     PROBE_TIMEOUT_S,
     ProbeOutcome,
     cancel_unfinished_triggers,
+    data_key_collisions,
     probe_addresses,
+    refuse_colliding_data_keys,
     refuse_misdeclared_triggers,
     sweep_budget,
 )
@@ -672,3 +674,60 @@ def test_a_detector_probes_its_command_status_and_every_result() -> None:
         "ES1:MCA01:SPECTRUM",
     }
     assert connector.write_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Two declared devices that record one data key
+# ---------------------------------------------------------------------------
+
+
+class _Records:
+    def __init__(self, *keys: str) -> None:
+        self.keys = keys
+
+    def data_keys(self) -> tuple[str, ...]:
+        return self.keys
+
+
+def _example_detector() -> dict[str, object]:
+    from osprey.services.bluesky_bridge.devices.connector import (
+        ConnectorDetector,
+        ConnectorReadable,
+    )
+    from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
+
+    results = [
+        ReadableSpec("ES1:COUNTS", "ES1:COUNTS"),
+        ReadableSpec("ES1:SPECTRUM", "ES1:SPECTRUM"),
+    ]
+    return {
+        "ES1-MCA01": ConnectorDetector(
+            StubConnector(), "ES1:ACQ", "ES1:STATUS", 0, 5.0, results=results, name="ES1-MCA01"
+        ),
+        "ES1:SPECTRUM": ConnectorReadable(StubConnector(), "ES1:SPECTRUM", name="ES1:SPECTRUM"),
+    }
+
+
+def test_a_detector_and_a_readable_of_its_result_collide() -> None:
+    declared = _example_detector()
+
+    assert data_key_collisions(declared) == [("ES1:SPECTRUM", "ES1-MCA01", "ES1:SPECTRUM")]
+    with pytest.raises(ValueError) as raised:
+        refuse_colliding_data_keys("count", declared)
+    assert str(raised.value) == (
+        "refusing plan 'count' before it writes anything: devices 'ES1-MCA01' and "
+        "'ES1:SPECTRUM' both record 'ES1:SPECTRUM'; declare one of them"
+    )
+
+
+def test_devices_that_record_distinct_keys_pass() -> None:
+    declared = {"a": _Records("A", "A_setpoint"), "b": _Records("B")}
+
+    assert data_key_collisions(declared) == []
+    assert refuse_colliding_data_keys("scan", declared) is None
+
+
+def test_a_device_without_data_keys_contributes_nothing() -> None:
+    declared = {"a": _Records("A"), "bare": object(), "b": _Records("B")}
+
+    assert data_key_collisions(declared) == []
