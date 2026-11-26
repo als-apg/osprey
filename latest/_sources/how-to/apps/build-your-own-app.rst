@@ -288,7 +288,9 @@ holding the documents:
 ``path`` is the corpus's source directory, mounted read-only. ``search``
 returns ranked hits, each with ``path`` (relative to the corpus's ``path``),
 ``title``, ``score``, ``line`` and ``snippet``; the score orders one result
-list and means nothing across queries. ``search`` raises ``CorpusUnavailable``
+list and means nothing across queries. The hits are ranked by keyword and
+vector match, without the sidecar's LLM reranker, so a search box answers at
+once on a host with no GPU. ``search`` raises ``CorpusUnavailable``
 while the sidecar is down or still building its first index, which on a large
 corpus takes a while and does not hold the app's container back; reading
 ``path`` works throughout.

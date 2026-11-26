@@ -820,7 +820,9 @@ holding the documents:</p>
 <p><code class="docutils literal notranslate"><span class="pre">path</span></code> is the corpus’s source directory, mounted read-only. <code class="docutils literal notranslate"><span class="pre">search</span></code>
 returns ranked hits, each with <code class="docutils literal notranslate"><span class="pre">path</span></code> (relative to the corpus’s <code class="docutils literal notranslate"><span class="pre">path</span></code>),
 <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">score</span></code>, <code class="docutils literal notranslate"><span class="pre">line</span></code> and <code class="docutils literal notranslate"><span class="pre">snippet</span></code>; the score orders one result
-list and means nothing across queries. <code class="docutils literal notranslate"><span class="pre">search</span></code> raises <code class="docutils literal notranslate"><span class="pre">CorpusUnavailable</span></code>
+list and means nothing across queries. The hits are ranked by keyword and
+vector match, without the sidecar’s LLM reranker, so a search box answers at
+once on a host with no GPU. <code class="docutils literal notranslate"><span class="pre">search</span></code> raises <code class="docutils literal notranslate"><span class="pre">CorpusUnavailable</span></code>
 while the sidecar is down or still building its first index, which on a large
 corpus takes a while and does not hold the app’s container back; reading
 <code class="docutils literal notranslate"><span class="pre">path</span></code> works throughout.</p>
