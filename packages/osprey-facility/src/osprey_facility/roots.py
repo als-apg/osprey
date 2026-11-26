@@ -1,10 +1,10 @@
 """The two facility roots of a deployment and the predicates that walk them.
 
-A deployment's facility facts live in one tree, ``<data>/facility``, unless its
+A deployment's facility facts live in one tree, ``facility/``, unless its
 profile names a **machine root** (the ``machine:`` key). Then the machine facts
 (identity, classes, records, imported layers, models, decks, seeds, limits,
 scenarios, measurement, fixes) are read from the machine root, and the
-deployment's own content is read from the **content root**, ``<data>/facility``.
+deployment's own content is read from the **content root**, ``facility/``.
 Without the key the one tree plays both roles: :meth:`FacilityRoots.single`.
 
 Everything here is path arithmetic on relative paths; nothing touches the disk.

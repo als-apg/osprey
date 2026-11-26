@@ -187,7 +187,7 @@ class Validated:
     """What the stages have produced so far.
 
     Attributes:
-        facility_dir: The machine root: the ``data/facility`` directory, or
+        facility_dir: The machine root: the ``facility`` directory, or
             the profile's ``machine:`` root when mounted.
         project_name: The project's name; the zero-source identity folds it.
         sources: What S1 read.
@@ -281,7 +281,7 @@ def run_stages(
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
     Args:
-        facility_dir: The machine root, the ``data/facility`` directory of a
+        facility_dir: The machine root, the ``facility`` directory of a
             single tree; a missing one is zero sources.
         project_name: The project's name, folded into the identity code when
             there is no ``identity.yaml``.
@@ -364,7 +364,7 @@ def validate(
     """Check a facility directory; print nothing.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         project_name: The project's name.
         extra_checks: Checks the caller supplies (:func:`run_stages`).
 

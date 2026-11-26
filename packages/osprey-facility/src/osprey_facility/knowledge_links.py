@@ -1,6 +1,6 @@
 """Knowledge pages that link what the facility file does not hold.
 
-A page under ``data/facility/knowledge`` links the facility two ways. The
+A page under ``facility/knowledge`` links the facility two ways. The
 ``device_id`` key of its frontmatter names a device, and a
 ``[label](facility:ADDRESS)`` link in its body names a channel id or a device
 id, or a place as ``facility:place/<id>``. Every link resolves through
@@ -26,7 +26,7 @@ from osprey_facility.validate import Validated, need
 
 __all__ = ["KNOWLEDGE_DIR", "LINK_KEY", "DanglingLink", "check_knowledge_links", "dangling_links"]
 
-#: Where the knowledge pages live, relative to ``data/facility/``.
+#: Where the knowledge pages live, relative to ``facility/``.
 KNOWLEDGE_DIR = source_tree.path("knowledge")
 
 #: The frontmatter key that links a page to a device.
@@ -38,7 +38,7 @@ class DanglingLink:
     """One link of a page that the facility file does not resolve.
 
     Attributes:
-        page: The page, relative to ``data/facility/``.
+        page: The page, relative to ``facility/``.
         target: The id the link names.
         where: ``frontmatter`` for the ``device_id`` key, ``body`` for a
             facility link in the page's text.
@@ -70,7 +70,7 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
     """Name every knowledge-page link the facility file does not resolve.
 
     Args:
-        facility_dir: The content root, ``data/facility``, where the
+        facility_dir: The content root, ``facility``, where the
             deployment's ``knowledge`` directory sits; it may be missing.
         doc: The facility file.
 

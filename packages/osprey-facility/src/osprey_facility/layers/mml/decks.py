@@ -147,7 +147,7 @@ HARMONIC_KEY = "HarmonicNumber"
 #: The pass method every served cavity runs on.
 CAVITY_PASS = "RFCavityPass"  # noqa: S105 -- names a tracking pass method, holds no secret
 
-#: Where the layer's decks live, relative to ``data/facility/``.
+#: Where the layer's decks live, relative to ``facility/``.
 DECKS_DIR = source_tree.layer_entry("mml", "decks")
 
 #: The key pyAT stamps its own version into, dropped from every written deck.
@@ -778,7 +778,7 @@ def write_deck(deck: Any, facility_dir: Path, model: str) -> Path:
 
     Args:
         deck: The deck to write, as :func:`served_deck` returned it.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         model: The model's name, which names the file.
 
     Returns:

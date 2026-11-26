@@ -842,7 +842,7 @@ def compare(
     """Hold every block of one model's kept response export against the model.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         document: The facility file the build made of it.
         model: The model's record in ``document``, carrying its ``deck`` and
             filled ``wiring``.
@@ -982,7 +982,7 @@ def check_responses(facility_dir: Path, document: Mapping[str, Any]) -> list[Mod
     """Check every model of the facility file that has a kept response export.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         document: The facility file the build made of it.
 
     Returns:

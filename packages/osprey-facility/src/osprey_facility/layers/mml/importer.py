@@ -10,7 +10,7 @@ problem stops the import before anything is written) and writes the layer's
 record files. It writes sources, never a view: the
 build merges them with every other layer.
 
-What is written, relative to ``data/facility/``:
+What is written, relative to ``facility/``:
 
 * ``imported/mml/devices.yaml``: one device per device of a family that
   carries a channel, its id and the slots it stands for resolved by the
@@ -377,7 +377,7 @@ def import_mml(
 
     Args:
         paths: The exports' AO files.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         echo: Receives each progress line (deck checks, tolerance count,
             wiring and seeding notes), in the order the import reaches it.
 
@@ -427,7 +427,7 @@ def write_records(
         exports: What :func:`read_exports` read.
         mapping: The layer's mapping, every slot decided and its check
             against these exports clean.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         echo: Receives each line the wiring pass reports.
 
     Returns:
@@ -926,7 +926,7 @@ def _wire(
     """Wire every imported model and name its deck and wiring on its entry.
 
     Each entry of ``models`` that has a deck gains ``deck``, the path its
-    served deck is written to relative to ``data/facility/``, and ``wiring``,
+    served deck is written to relative to ``facility/``, and ``wiring``,
     in the order ``name, engine, deck, settings, wiring``; its ``settings``
     are left as they are. Nothing is written here.
 

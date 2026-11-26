@@ -52,7 +52,7 @@ def build_facility(
     """Build the facility file in memory.
 
     Args:
-        facility_dir: The ``data/facility`` directory itself; a missing one
+        facility_dir: The ``facility`` directory itself; a missing one
             is zero sources.
         project_name: The project's name, folded into the identity ``code``
             when there is no ``identity.yaml``.
@@ -90,7 +90,7 @@ def build_facility_with_warnings(
     """Build the facility file in memory, with the warnings of the build.
 
     Args:
-        facility_dir: The ``data/facility`` directory itself; a missing one
+        facility_dir: The ``facility`` directory itself; a missing one
             is zero sources.
         project_name: The project's name, folded into the identity ``code``
             when there is no ``identity.yaml``.

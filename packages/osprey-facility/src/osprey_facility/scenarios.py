@@ -419,7 +419,7 @@ def check_scenario_attachments(
 
     Args:
         document: The combined document.
-        facility_dir: The ``data/facility`` directory the scenarios came from.
+        facility_dir: The ``facility`` directory the scenarios came from.
 
     Returns:
         Every stop, in scenario, entry and item order.

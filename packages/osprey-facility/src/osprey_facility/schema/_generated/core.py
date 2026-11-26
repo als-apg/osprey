@@ -74,13 +74,12 @@ linkml_meta = LinkMLMeta({'default_prefix': 'osprey_facility',
      'description': 'One facility, described once: its places, devices, channels '
                     'and groups, the models that simulate it and how each model is '
                     'wired to channels, the write limits and the scenarios. '
-                    '`osprey build` combines the sources under data/facility/ into '
-                    'one file of this shape. Every list whose order carries '
-                    'meaning sets `list_elements_ordered`; a multivalued slot '
-                    'without it is a set, compared and written sorted by its '
-                    'string form, or by its key when its entries are keyed '
-                    '(`scheme_names` by name and scheme, `citations` by document, '
-                    'version and locator).',
+                    '`osprey build` combines the sources under facility/ into one '
+                    'file of this shape. Every list whose order carries meaning '
+                    'sets `list_elements_ordered`; a multivalued slot without it '
+                    'is a set, compared and written sorted by its string form, or '
+                    'by its key when its entries are keyed (`scheme_names` by name '
+                    'and scheme, `citations` by document, version and locator).',
      'id': 'https://narad.example.org/schema/osprey.facility.core',
      'imports': ['linkml:types', 'vocabulary'],
      'name': 'osprey.facility.core',
@@ -1658,7 +1657,7 @@ class ProvenanceSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     layer: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
-    file: str = Field(default=..., description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
+    file: str = Field(default=..., description="""Relative to facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
     fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
          'list_elements_ordered': True} })
     basis: Optional[BasisEnum] = Field(default=None, description="""What the fields rest on, as the layer's record says (its `basis`); absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
