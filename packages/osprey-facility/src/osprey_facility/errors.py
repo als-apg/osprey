@@ -7,7 +7,7 @@ Every stop is a single line on stderr::
 A schema failure names its location as record kind ``path`` and the dotted path
 as the id. A tree still laid out at retired paths stops before anything is read,
 with :class:`RetiredLayoutRefused`: comment lines, then the shell lines that move
-it. The exit code is 1; click keeps 2 for usage errors. A warning shares
+it, ending with :func:`_revalidate_command`. The exit code is 1; click keeps 2 for usage errors. A warning shares
 the line shape, prints after a clean build, and leaves the exit code at 0.
 
 Every error the description raises derives from :class:`FacilityError`, a plain
@@ -17,6 +17,7 @@ command line turns them into click errors at its root group.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -39,10 +40,13 @@ __all__ = [
     "FacilityUsageError",
     "ImportStop",
     "LayerSourceInvalid",
+    "MOVE_HEADER",
     "MappingProblems",
+    "PASTE_HEADER",
     "RetiredLayoutRefused",
     "exact_number",
     "quoted_slots",
+    "refusal_ending",
 ]
 
 #: Every error kind, each ``<thing>-<problem>``.
@@ -251,12 +255,58 @@ class MappingProblems(FacilityError):
         super().__init__("\n".join(lines))
 
 
+#: The header line of a refusal whose block migrates the tree when pasted whole.
+PASTE_HEADER = (
+    "# Paste this whole block to move them to their current paths and finish the"
+    " migration, then run the command again:"
+)
+
+#: The header line of a refusal whose block moves files but cannot finish the
+#: migration, because something listed below it needs a person first.
+MOVE_HEADER = "# Move them to their current paths, then run the command again:"
+
+#: The closing line of a refusal that ends with a list instead of a command.
+_PLACE_THESE = "# Place these, then run the command again."
+
+
+def _revalidate_command(repo: Path) -> str:
+    """The command a refusal's block ends with: ``osprey init --revalidate <repo>``.
+
+    It finishes the migration the block's file commands start: the run finds
+    nothing left to move and rewrites what a shell line cannot.
+
+    Args:
+        repo: The deployment repo, absolute; it is shell-quoted.
+    """
+    return f"osprey init --revalidate {shlex.quote(str(repo))}"
+
+
+def refusal_ending(script: Sequence[str], repo: Path, *, finishes: bool) -> list[str]:
+    """The lines a refusal ends with, after its block and its lists.
+
+    Args:
+        script: The block's file commands; empty when nothing can be moved.
+        repo: The deployment repo the closing command migrates.
+        finishes: False when something listed needs a person before the
+            migration can finish.
+
+    Returns:
+        :func:`_revalidate_command` when *script* is non-empty and *finishes*,
+        else :data:`_PLACE_THESE`.
+    """
+    if script and finishes:
+        return [_revalidate_command(repo)]
+    return [_PLACE_THESE]
+
+
 class RetiredLayoutRefused(FacilityError):
     """A facility tree still holds sources at retired paths, so nothing is read.
 
     The message is ``# `` comment lines, then *script* (shell lines that run
-    from any working directory), then one comment per clash, then the
-    alternative command.
+    from any working directory), then one comment per clash, then
+    :func:`_revalidate_command` for *repo*. When there is a clash, or no
+    script, it ends with :data:`_PLACE_THESE` instead: the command would stop
+    on the clash.
 
     Args:
         machine_dir: The machine root, resolved.
@@ -264,6 +314,7 @@ class RetiredLayoutRefused(FacilityError):
             it is the machine root.
         layout: What the tree still holds at retired paths.
         script: The shell lines that carry out the moves and deck edits.
+        repo: The deployment repo the closing command migrates.
     """
 
     def __init__(
@@ -272,25 +323,27 @@ class RetiredLayoutRefused(FacilityError):
         content_dir: Path | None,
         layout: RetiredLayout,
         script: Sequence[str],
+        repo: Path,
     ) -> None:
         self.machine_dir = machine_dir
         self.content_dir = content_dir
         self.layout = layout
         self.script = tuple(script)
+        self.repo = repo
         where = f"# The facility tree at {machine_dir}"
         if content_dir is not None and content_dir != machine_dir:
             where += f" (content at {content_dir})"
-        lines = [
-            f"{where} still holds sources at retired paths; nothing was read.",
-            "# Move them to their current paths, then run the command again:",
-            *self.script,
-        ]
+        finishes = not layout.clashes
+        lines = [f"{where} still holds sources at retired paths; nothing was read."]
+        if self.script:
+            lines.append(PASTE_HEADER if finishes else MOVE_HEADER)
+            lines.extend(self.script)
         lines.extend(
             f"# {clash.old.resolve()} and {clash.new.resolve()} both exist:"
             " keep one, delete the other."
             for clash in layout.clashes
         )
-        lines.append("# or run: osprey init --revalidate")
+        lines.extend(refusal_ending(self.script, repo, finishes=finishes))
         super().__init__("\n".join(lines))
 
 

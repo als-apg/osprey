@@ -7,9 +7,13 @@ leaves the tree byte-identical, the state zone and the env files included.
 
 The ``rules`` row lives at ``agent/rules`` and has moved from ``rules``; each
 test moves an initialised deployment's ``agent/rules`` back to ``rules``, the
-tree an unmigrated deployment holds. The profile also gains a key no profile accepts, so a
-command that read or validated the profile before refusing would fail on that
-key instead.
+tree an unmigrated deployment holds. The dissolved ``data/`` tree is planted
+the five ways an unmigrated deployment still holds it: a source at its old
+``data/...`` path, a ``data:`` line, a ``data:`` naming a directory outside the
+repo, a file of the operator's own left in ``data/``, and a lane's
+``data/<lane>_curve`` directory. The profile also gains a key no profile
+accepts, so a command that read or validated the profile before refusing would
+fail on that key instead.
 
 An inventory walks the whole click tree: every command is either proved to
 refuse here or named in an exempt table with its reason, so a command added
@@ -19,6 +23,7 @@ later cannot skip the refusal unnoticed.
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -67,13 +72,79 @@ def repo(initialised: Path, tmp_path: Path, planted: None) -> Path:  # noqa: ARG
     group = (copy / MOVED_TO).parent
     if not any(group.iterdir()):
         group.rmdir()
+    _mark(copy)
+    return copy
+
+
+def _plant_old_data_path(repo: Path) -> None:
+    (repo / "data").mkdir()
+    (repo / "facility").rename(repo / "data" / "facility")
+
+
+def _plant_data_line(repo: Path) -> None:
+    _append_profile_line(repo, "data: data")
+
+
+def _plant_out_of_repo_data_line(repo: Path) -> None:
+    outside = repo.parent / "shared-data"
+    outside.mkdir()
+    (outside / "README.md").write_text("shared\n", encoding="utf-8")
+    _append_profile_line(repo, "data: ../shared-data")
+
+
+def _plant_leftover_file(repo: Path) -> None:
+    (repo / "data").mkdir()
+    (repo / "data" / "notes.md").write_text("mine\n", encoding="utf-8")
+
+
+def _plant_lane_curve_dir(repo: Path) -> None:
+    curve = repo / "data" / "bluesky_curve" / "bridge"
+    curve.mkdir(parents=True)
+    (curve / "proxy.key_secret").write_text("secret\n", encoding="utf-8")
+
+
+#: Each way a deployment still holds the dissolved ``data/`` tree, with what
+#: its refusal names.
+DATA_PLANTS: dict[str, tuple[Callable[[Path], None], str]] = {
+    "old-data-path": (_plant_old_data_path, "data/facility"),
+    "data-line": (_plant_data_line, "data: data"),
+    "out-of-repo-data-line": (_plant_out_of_repo_data_line, "data: ../shared-data"),
+    "leftover-file": (_plant_leftover_file, "data/notes.md"),
+    "lane-curve-dir": (_plant_lane_curve_dir, "data/bluesky_curve"),
+}
+
+
+def _append_profile_line(repo: Path, line: str) -> None:
+    profile = repo / "profile.yml"
+    profile.write_text(profile.read_text(encoding="utf-8") + f"{line}\n", encoding="utf-8")
+
+
+@pytest.fixture(params=list(DATA_PLANTS))
+def data_plant(request: pytest.FixtureRequest) -> str:
+    """The name of one way the dissolved ``data/`` tree is still held."""
+    return request.param
+
+
+@pytest.fixture
+def data_repo(initialised: Path, tmp_path: Path, data_plant: str) -> Path:
+    """A fresh copy of the deployment holding *data_plant*, marked like :func:`repo`."""
+    copy = tmp_path / PROJECT
+    shutil.copytree(initialised, copy, symlinks=True)
+    assert not (copy / "data").exists()
+    _mark(copy)
+    plant, _named = DATA_PLANTS[data_plant]
+    plant(copy)
+    return copy
+
+
+def _mark(copy: Path) -> None:
+    """Add a ``pre_build`` step that leaves a marker, and a key no profile accepts."""
     profile = copy / "profile.yml"
     data = yaml.safe_load(profile.read_text(encoding="utf-8"))
     steps = data.setdefault("lifecycle", {}).setdefault("pre_build", [])
     steps.insert(0, {"name": "mark", "run": f"touch {_marker(copy)}"})
     data[UNVALIDATABLE_KEY] = True
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    return copy
 
 
 def _marker(repo: Path) -> Path:
@@ -164,6 +235,7 @@ REFUSING: dict[str, list[list[str]]] = {
     "users login-url": [["users", "login-url", "alice", "--repo", "{repo}"]],
     "users passwd": [["users", "passwd", "alice", "--repo", "{repo}"]],
     "users env": [["users", "env", "--repo", "{repo}"]],
+    "set": [["set", "model=claude-opus-5", "--repo", "{repo}"]],
 }
 
 #: Every other command that runs, with why it does not refuse.
@@ -215,11 +287,6 @@ EXEMPT: dict[str, str] = {
 #: Command groups whose own name runs no command: each subcommand is listed.
 _GROUP_PREFIXES = ("channel-finder", "ariel")
 
-#: Commands that write the source zone and have no refusal yet; tracked to their seam.
-UNSEAMED: dict[str, str] = {
-    "set": "writes profile.yml",
-}
-
 
 def _commands() -> list[str]:
     """Every command path click runs: leaves, and groups that run without a subcommand."""
@@ -245,11 +312,11 @@ def _commands() -> list[str]:
 
 def test_every_command_refuses_or_is_exempt_with_a_reason() -> None:
     commands = {command for command in _commands() if not command.startswith(_GROUP_PREFIXES)}
-    classified = set(REFUSING) | set(EXEMPT) | set(UNSEAMED)
+    classified = set(REFUSING) | set(EXEMPT)
     assert not set(REFUSING) & set(EXEMPT)
     assert commands - classified == set(), "classify each new command: refuse, or exempt why"
     assert classified - commands == set(), "a classified command no longer exists"
-    assert all(EXEMPT.values()) and all(UNSEAMED.values())
+    assert all(EXEMPT.values())
 
 
 def test_the_plant_is_detected(repo: Path) -> None:
@@ -265,10 +332,7 @@ _CASES = [
 ]
 
 
-@pytest.mark.parametrize("args", _CASES)
-def test_command_refuses_before_reading_or_writing(
-    repo: Path, tmp_path: Path, args: list[str]
-) -> None:
+def _invocation(repo: Path, tmp_path: Path, args: list[str]) -> list[str]:
     export = tmp_path / "export.csv"
     export.write_text("address\nSR:NEW:CHANNEL\n", encoding="utf-8")
     values = {
@@ -277,7 +341,26 @@ def test_command_refuses_before_reading_or_writing(
         "export": str(export),
         "out": str(tmp_path / "render"),
     }
-    _assert_refused(repo, [arg.format(**values) for arg in args])
+    return [arg.format(**values) for arg in args]
+
+
+@pytest.mark.parametrize("args", _CASES)
+def test_command_refuses_before_reading_or_writing(
+    repo: Path, tmp_path: Path, args: list[str]
+) -> None:
+    _assert_refused(repo, _invocation(repo, tmp_path, args))
+
+
+def test_each_data_plant_is_detected(data_repo: Path, data_plant: str) -> None:
+    _plant, named = DATA_PLANTS[data_plant]
+    assert named in _expected_message(data_repo)
+
+
+@pytest.mark.parametrize("args", _CASES)
+def test_command_refuses_a_held_data_tree_before_reading_or_writing(
+    data_repo: Path, tmp_path: Path, args: list[str]
+) -> None:
+    _assert_refused(data_repo, _invocation(data_repo, tmp_path, args))
 
 
 def test_build_refuses_before_the_state_zone(repo: Path) -> None:

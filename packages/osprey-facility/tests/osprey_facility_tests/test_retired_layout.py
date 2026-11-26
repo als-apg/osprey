@@ -427,3 +427,82 @@ def test_a_file_where_a_merged_directory_is_expected_is_one_clash(tmp_path: Path
         Move(root=tmp_path, old="old/c.txt", new="new/c.txt", is_dir=False, merge=True),
     ]
     assert clashes == [Clash(old=tmp_path / "old/sub", new=tmp_path / "new/sub")]
+
+
+# --- moves placed against each other ----------------------------------------------------
+
+
+def test_two_moves_to_one_successor_are_a_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "first/a.txt")
+    _write(tmp_path, "second/b.txt")
+
+    moves, clashes = place_moves(tmp_path, [("first", "joined"), ("second", "joined")])
+
+    assert [(move.old, move.new) for move in moves] == [("first", "joined")]
+    assert clashes == [Clash(old=tmp_path / "second", new=tmp_path / "first")]
+
+
+def test_a_move_to_one_successor_with_no_source_beside_it_is_no_clash(tmp_path: Path) -> None:
+    _write(tmp_path, "second/b.txt")
+
+    moves, clashes = place_moves(tmp_path, [("first", "joined"), ("second", "joined")])
+
+    assert [(move.old, move.new) for move in moves] == [("second", "joined")]
+    assert clashes == []
+
+
+def test_a_move_into_another_moves_successor_runs_after_it_and_merges_flat(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, "data/curve/b.pem")
+    _write(tmp_path, "data/.runtime/curve/a.pem")
+    _write(tmp_path, "data/.runtime/other.txt")
+
+    moves, clashes = place_moves(
+        tmp_path,
+        [("data/curve", "var/runtime/curve"), ("data/.runtime", "var/runtime")],
+        hidden=True,
+    )
+
+    assert clashes == []
+    assert [(move.old, move.new, move.merge) for move in moves] == [
+        ("data/.runtime", "var/runtime", False),
+        ("data/curve/b.pem", "var/runtime/curve/b.pem", True),
+    ]
+
+
+def test_a_file_both_moves_bring_is_a_clash_named_where_it_lies_now(tmp_path: Path) -> None:
+    _write(tmp_path, "data/curve/a.pem")
+    _write(tmp_path, "data/curve/b.pem")
+    _write(tmp_path, "data/.runtime/curve/a.pem")
+
+    moves, clashes = place_moves(
+        tmp_path,
+        [("data/.runtime", "var/runtime"), ("data/curve", "var/runtime/curve")],
+        hidden=True,
+    )
+
+    assert [(move.old, move.new) for move in moves] == [
+        ("data/.runtime", "var/runtime"),
+        ("data/curve/b.pem", "var/runtime/curve/b.pem"),
+    ]
+    assert clashes == [
+        Clash(old=tmp_path / "data/curve/a.pem", new=tmp_path / "data/.runtime/curve/a.pem")
+    ]
+
+
+def test_a_nested_move_with_nothing_brought_beside_it_moves_whole(tmp_path: Path) -> None:
+    _write(tmp_path, "data/curve/b.pem")
+    _write(tmp_path, "data/.runtime/other.txt")
+
+    moves, clashes = place_moves(
+        tmp_path,
+        [("data/.runtime", "var/runtime"), ("data/curve", "var/runtime/curve")],
+        hidden=True,
+    )
+
+    assert clashes == []
+    assert [(move.old, move.new, move.merge) for move in moves] == [
+        ("data/.runtime", "var/runtime", False),
+        ("data/curve", "var/runtime/curve", False),
+    ]

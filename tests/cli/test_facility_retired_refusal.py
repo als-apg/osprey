@@ -17,6 +17,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from osprey_facility import source_tree
 from osprey_facility.errors import RetiredLayoutRefused
@@ -37,7 +38,7 @@ RETIRED_DIR = "scenarios"
 
 
 def _facility(repo: Path) -> Path:
-    return repo / "data" / "facility"
+    return repo / repo_layout.entry("facility").path
 
 
 @pytest.fixture(scope="module")
@@ -150,7 +151,14 @@ def test_scaffold_pull_refuses_whatever_is_pulled(repo: Path) -> None:
     index.unlink()
     _assert_refused(
         repo,
-        ["scaffold", "pull", "demo:data/facility/knowledge", "--force", "--repo", str(repo)],
+        [
+            "scaffold",
+            "pull",
+            f"demo:{repo_layout.entry('facility').path}/{source_tree.path('knowledge')}",
+            "--force",
+            "--repo",
+            str(repo),
+        ],
     )
     assert not index.exists()
 

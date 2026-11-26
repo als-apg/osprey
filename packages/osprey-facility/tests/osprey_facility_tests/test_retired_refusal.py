@@ -2,8 +2,10 @@
 
 A read of such a tree stops before anything is read, and what it prints is a
 shell script: run from any directory, it moves every source to its current
-path, so the tree holds nothing retired and builds. Old trees are laid out
-from literal paths here, never from the declaration.
+path, so the tree holds nothing retired and builds, then runs
+``osprey init --revalidate <repo>`` to finish the migration. The scripts run
+here with a stand-in ``osprey`` that records how it was called. Old trees are
+laid out from literal paths here, never from the declaration.
 """
 
 from __future__ import annotations
@@ -17,7 +19,14 @@ from pathlib import Path
 import pytest
 
 from osprey_facility.build import build_facility
-from osprey_facility.errors import FacilityError, RetiredLayoutRefused
+from osprey_facility.errors import (
+    _PLACE_THESE,
+    MOVE_HEADER,
+    PASTE_HEADER,
+    FacilityError,
+    RetiredLayoutRefused,
+    _revalidate_command,
+)
 from osprey_facility.layers.list import import_list
 from osprey_facility.retired import (
     LineEdit,
@@ -94,12 +103,27 @@ def _refusal(machine: Path, content: Path | None = None) -> RetiredLayoutRefused
     return caught.value
 
 
-def _run(message: str, elsewhere: Path) -> None:
+def _run(message: str, elsewhere: Path) -> list[str]:
+    """Run *message* under ``sh -e`` from *elsewhere*; each ``osprey`` call it made."""
     elsewhere.mkdir(exist_ok=True)
+    bin_dir = elsewhere / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    calls = elsewhere / "osprey-calls"
+    stand_in = bin_dir / "osprey"
+    stand_in.write_text(f'#!/bin/sh\necho "$*" >> {calls}\n', encoding="utf-8")
+    stand_in.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
     done = subprocess.run(
-        ["sh", "-e"], input=message, cwd=elsewhere, capture_output=True, text=True, check=False
+        ["sh", "-e"],
+        input=message,
+        cwd=elsewhere,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
     )
     assert done.returncode == 0, done.stderr
+    return calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
 
 
 # --- when it refuses --------------------------------------------------------------------
@@ -174,15 +198,37 @@ def test_the_message_is_comments_then_the_script(tmp_path: Path) -> None:
 
     assert lines == [
         f"# The facility tree at {root} still holds sources at retired paths; nothing was read.",
-        "# Move them to their current paths, then run the command again:",
+        PASTE_HEADER,
         f"cd {root}",
-        "mkdir -p vocabulary simulation",
+        "mkdir -p vocabulary",
         "mv classes.yaml vocabulary/classes.yaml",
+        "mkdir -p simulation",
         "mv models.yaml simulation/models.yaml",
         "mv decks simulation/decks",
         "perl -pi -e 's{decks/}{simulation/decks/} if $. == 4' simulation/models.yaml",
-        "# or run: osprey init --revalidate",
+        f"osprey init --revalidate {root.parent}",
     ]
+
+
+def test_the_closing_command_names_the_repo_given(tmp_path: Path) -> None:
+    _old_tree(tmp_path / "facility")
+    repo = tmp_path / "a repo"
+
+    with pytest.raises(RetiredLayoutRefused) as caught:
+        refuse_retired(tmp_path / "facility", repo=repo)
+
+    assert caught.value.message.splitlines()[-1] == _revalidate_command(repo.resolve())
+    assert caught.value.message.splitlines()[-1] == f"osprey init --revalidate '{repo.resolve()}'"
+
+
+def test_in_a_repository_the_closing_command_names_its_top(tmp_path: Path) -> None:
+    deployment = tmp_path / "deployment"
+    facility = _old_tree(deployment / "facility")
+    _repository(deployment)
+
+    assert _refusal(facility).message.splitlines()[-1] == (
+        f"osprey init --revalidate {deployment.resolve()}"
+    )
 
 
 def test_it_prints_alone_with_no_error_prefix(tmp_path: Path) -> None:
@@ -205,7 +251,11 @@ def test_tracked_sources_move_with_git_from_the_repository_top(tmp_path: Path) -
     assert script[0] == f"cd {deployment.resolve()}"
     assert "git mv data/facility/classes.yaml data/facility/vocabulary/classes.yaml" in script
     assert "git mv data/facility/decks data/facility/simulation/decks" in script
-    assert "mkdir -p data/facility/vocabulary data/facility/simulation" in script
+    assert "mkdir -p data/facility/vocabulary" in script
+    assert "mkdir -p data/facility/simulation" in script
+    assert script.index("mkdir -p data/facility/simulation") == (
+        script.index("git mv data/facility/models.yaml data/facility/simulation/models.yaml") - 1
+    )
     assert (
         "perl -pi -e 's{decks/}{simulation/decks/} if $. == 4' data/facility/simulation/models.yaml"
         in script
@@ -286,11 +336,23 @@ def test_a_clash_is_a_comment_with_no_command(tmp_path: Path) -> None:
     stop = _refusal(tmp_path)
 
     assert stop.script == ()
-    assert stop.message.splitlines()[-2:] == [
+    assert stop.message.splitlines()[1:] == [
         f"# {root / 'classes.yaml'} and {root / 'vocabulary/classes.yaml'} both exist:"
         " keep one, delete the other.",
-        "# or run: osprey init --revalidate",
+        _PLACE_THESE,
     ]
+
+
+def test_a_clash_beside_moves_prints_the_moves_but_no_command(tmp_path: Path) -> None:
+    _old_tree(tmp_path)
+    _write(tmp_path, "vocabulary/classes.yaml")
+
+    lines = _refusal(tmp_path).message.splitlines()
+
+    assert lines[1] == MOVE_HEADER
+    assert "mv models.yaml simulation/models.yaml" in lines
+    assert lines[-1] == _PLACE_THESE
+    assert not [line for line in lines if line.startswith("osprey ")]
 
 
 # --- running what it prints -------------------------------------------------------------
@@ -302,8 +364,9 @@ def test_running_the_printed_script_leaves_a_tree_that_builds(tmp_path: Path, st
     facility = _old_tree(deployment / "data/facility", MODELS[style])
     _repository(deployment)
 
-    _run(_refusal(facility).message, tmp_path / "elsewhere")
+    calls = _run(_refusal(facility).message, tmp_path / "elsewhere")
 
+    assert calls == [f"init --revalidate {deployment.resolve()}"]
     assert find_retired(facility).empty
     assert not (facility / "decks").exists()
     assert "deck: " in (facility / "simulation/models.yaml").read_text(encoding="utf-8")

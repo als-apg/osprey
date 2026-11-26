@@ -493,7 +493,8 @@ def test_sources_left_at_the_retired_locations_are_refused(probe: dict[str, Any]
 
 def test_the_refusal_prints_commands_for_the_substituted_layout(probe: dict[str, Any]) -> None:
     lines = probe["retired"]["load_sources"]["message"].splitlines()
-    assert "mkdir -p terms sim" in lines
+    assert "mkdir -p terms" in lines
+    assert "mkdir -p sim" in lines
     assert "mv decks sim/decks" in lines
     assert "perl -pi -e 's{decks/}{sim/decks/} if $. == 3' sim/models.yaml" in lines
-    assert lines[-1] == "# or run: osprey init --revalidate"
+    assert lines[-1].startswith("osprey init --revalidate ")

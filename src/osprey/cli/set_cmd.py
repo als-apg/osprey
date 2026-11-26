@@ -37,7 +37,7 @@ from osprey.repo_layout import entry as root_entry
 from osprey_connectors.types import TIER_WORDS
 
 from .output import note, report, warn
-from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
+from .repo_resolver import PROFILE_FILENAME, repo_option
 from .styles import Styles
 
 #: Retired shorthand. It stood for a facility out of a table of named
@@ -666,6 +666,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     from ruamel.yaml.error import YAMLError
 
     from osprey.deployment.staleness import check_drift
+    from osprey.repo_retired import deployment_root
     from osprey_connectors.errors import BuildProfileError
 
     from .build_profile import write_back_cli_overrides
@@ -684,7 +685,7 @@ def set(pairs: tuple[str, ...], repo: Path | None) -> None:
     layer_refusal = bundled_layer_dir_refusal(Path.cwd() if repo is None else repo)
     if layer_refusal is not None:
         raise click.UsageError(layer_refusal)
-    repo_root = find_repo_root(repo)
+    repo_root = deployment_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
     before = _refuse_unparsable(profile_path)
