@@ -872,6 +872,9 @@ class CanopySidecar:
                     settings.get("correlation_default_query") or ""
                 ),
                 "CANOPY_WAVEFORM_DEFAULT_QUERY": str(settings.get("waveform_default_query") or ""),
+                # The page about one channel that a channel's menu opens in the
+                # viewer; empty leaves the entry out of the menu.
+                "CANOPY_PV_DETAILS_URL": str(settings.get("pv_details_url") or ""),
                 # The build's channel catalog, at the one path every web
                 # container mounts it at; a container without the mount leaves
                 # FRONT's /channels a 404.

@@ -89,7 +89,7 @@ def test_the_page_names_the_entry_point_group_and_the_built_in_kinds() -> None:
 
 
 def test_the_contract_and_the_how_to_lead_to_each_other() -> None:
-    how_to = "/how-to/register-a-measurement-kind"
+    how_to = "/how-to/pyaml/register-a-measurement-kind"
     contract = "/reference/contracts/facility-kinds"
     extending = (DOCS_SOURCE / "contributing" / "extending-osprey.rst").read_text(encoding="utf-8")
     lines = extending.splitlines()
@@ -99,7 +99,7 @@ def test_the_contract_and_the_how_to_lead_to_each_other() -> None:
         len(lines),
     )
     section = "\n".join(lines[start:end])
-    how_to_page = (DOCS_SOURCE / "how-to" / "register-a-measurement-kind.rst").read_text(
+    how_to_page = (DOCS_SOURCE / "how-to" / "pyaml" / "register-a-measurement-kind.rst").read_text(
         encoding="utf-8"
     )
 

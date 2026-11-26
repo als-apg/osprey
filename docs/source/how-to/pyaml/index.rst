@@ -1,12 +1,22 @@
-.. _measure-with-pyaml:
+.. _how-to-pyaml:
 
-============================
-Measure with the pyAML tools
-============================
+=======================================
+Python Accelerator Middle Layer (pyAML)
+=======================================
+
+`pyAML <https://pyaml.readthedocs.io>`_, the Python Accelerator Middle Layer,
+is a joint platform of several laboratories for the design, commissioning and
+operation of particle accelerators, intended as the successor to the MATLAB
+Middle Layer [#liuzzo]_. Under OSPREY it runs on
+``pyaml-cs-osprey``, a control-system backend installed with OSPREY that sends
+every pyAML read and write through the OSPREY connector instead of pyAML's own
+backends. A pyAML write is therefore an ordinary write: checked against the
+channel limits, verified and recorded. ``osprey build`` writes the pyAML
+configuration of each measured model from the facility description, and the
+agent measures through it.
 
 This page shows how to take a measurement on the control target through the
-agent, and what happens to the machine while it runs. pyAML is the
-accelerator library the measurement tools drive. The page also says when the
+agent, and what happens to the machine while it runs. It also says when the
 tools appear and what a measurement asks for. Every parameter and every result
 field is in :ref:`executor-measurement-tools`.
 
@@ -22,7 +32,7 @@ When the tools are there
 
 The build writes ``data/pyaml/<model>/configuration.yaml`` for each served
 model that names a deck and has a measurement file under
-``data/facility/measurement/`` (see :doc:`describe-your-facility`). This file
+``data/facility/measurement/`` (see :doc:`/how-to/describe-your-facility`). This file
 is the model's *pyAML view*.
 
 A render with at least one such view registers three things: both tools, the
@@ -30,7 +40,7 @@ A render with at least one such view registers three things: both tools, the
 no view registers none of the three.
 
 The measurement file decides which kinds a model takes. OSPREY ships these,
-and a deployment registers its own (:doc:`/how-to/register-a-measurement-kind`,
+and a deployment registers its own (:doc:`/how-to/pyaml/register-a-measurement-kind`,
 :doc:`/reference/contracts/facility-kinds`):
 
 .. list-table::
@@ -150,3 +160,24 @@ The model's answer
 own deck, without touching the machine and without asking for approval. Its
 rows and columns carry the same addresses and device ids, so a measured matrix
 and the model's line up entry by entry.
+
+.. seealso::
+
+   `pyAML source <https://github.com/python-accelerator-middle-layer/pyaml>`_
+      The library itself.
+
+   :doc:`/how-to/import-mml-export`
+      A machine already described in the MATLAB Middle Layer gets its facility
+      description, and with it its pyAML view, from an export.
+
+   :doc:`register-a-measurement-kind`
+      Add a measurement OSPREY does not ship.
+
+.. [#liuzzo] S. Liuzzo et al., "Exploratory tests for the design of a Python
+   accelerator middle layer", *Proc. IPAC'25*, Taipei, MOPB088 (2025) ·
+   `doi:10.18429/JACoW-IPAC2025-MOPB088 <https://doi.org/10.18429/JACoW-IPAC2025-MOPB088>`_.
+
+.. toctree::
+   :hidden:
+
+   register-a-measurement-kind

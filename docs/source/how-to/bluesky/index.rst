@@ -1,11 +1,11 @@
-=============
-Bluesky Plans
-=============
+===================
+Bluesky Integration
+===================
 
 The OSPREY agent can run real measurement plans — sweep magnets, read beam
 monitors, and collect the data — through the same chat and panels you already
 use. The plans and the queue are `Bluesky <https://blueskyproject.io/>`_'s;
-Osprey deploys those services, wires them to your control system, and puts the
+OSPREY deploys those services, wires them to your control system, and puts the
 agent and a human approval step in front.
 
 .. raw:: html

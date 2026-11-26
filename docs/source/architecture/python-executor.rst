@@ -37,7 +37,7 @@ detection (for example ``"figure"``, ``"dataframe"``); ``category`` is a free-fo
 grouping label used by the gallery UI.
 
 A render that carries a pyAML view adds two tools to the same server. A render
-without one registers neither (see :doc:`/how-to/measure-with-pyaml`):
+without one registers neither (see :doc:`/how-to/pyaml/index`):
 
 - ``pyaml_measure`` measures a response matrix or the chromaticity on the
   control target through a generated script. Every write of one measurement

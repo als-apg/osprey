@@ -262,5 +262,5 @@ them with their old values.
    :doc:`connectors`
       The checked write every write goes through.
 
-   :doc:`/how-to/measure-with-pyaml`
+   :doc:`/how-to/pyaml/index`
       ``pyaml_measure`` and what its result lists.
