@@ -30,11 +30,13 @@ from pydantic import BaseModel, ConfigDict
 from osprey.services.bluesky_bridge import qserver_startup, session_upload, write_grant
 from osprey.services.bluesky_bridge.devices.connector import (
     PRESS_VALUE,
+    ConnectorDetector,
     ConnectorPositioner,
     ConnectorSettable,
     ConnectorTriggerable,
 )
 from osprey.services.bluesky_bridge.devices.mock import MockReadable
+from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
 from osprey.services.bluesky_bridge.plan_fields import MovableChannel, TriggeredChannel
 from osprey.services.bluesky_bridge.plan_writes import (
     ChannelWrite,
@@ -782,6 +784,22 @@ def test_a_positioner_run_is_surveyed_with_its_start_writes_and_asks_once(
     assert connector.sent == [
         write for point in points for write in ((CHANNEL, point), (COMMAND, PRESS_VALUE))
     ]
+
+
+def test_a_detector_run_is_surveyed_with_its_trigger_writes_and_asks_once(
+    person: _Person,
+) -> None:
+    connector = _CommandConnector()
+    detector = ConnectorDetector(
+        connector, COMMAND, STATUS, 0, 5.0, results=[ReadableSpec(CHANNEL, CHANNEL)], name=DETECTOR
+    )
+
+    _run_device(_three_triggers, detector, schema=_TriggerParams)
+
+    [request] = person.seen  # neither refused nor replaced for its trigger writes
+    assert request.channels == {COMMAND: wa.ChannelRange(1.0, 1.0)}
+    assert request.steps == 3
+    assert connector.sent == [(COMMAND, PRESS_VALUE)] * 3
 
 
 class _StoppingSettable(ConnectorSettable):
