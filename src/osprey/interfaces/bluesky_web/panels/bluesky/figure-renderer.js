@@ -1106,16 +1106,80 @@ function renderPanel(panel, colors, view) {
 /** @typedef {{panels: HTMLElement, note?: HTMLElement|null}} FigureElements */
 
 /**
+ * Append one `<section class="figure-panel">` per panel to `root`, or the "No
+ * figure for this run." line when there are none.
+ *
+ * Theme colors are read here, once per render, so a caller re-rendering from a
+ * theme change gets the new palette. `redraw` is what a picker calls with the
+ * selection store after the reader changes it.
+ *
+ * @param {HTMLElement} root
+ * @param {FigurePanel[]} panels
+ * @param {{selection?: FigureSelection}} options
+ * @param {(selection: FigureSelection) => void} redraw
+ */
+function appendPanels(root, panels, options, redraw) {
+  const theme = chartTheme();
+  /** @type {RenderColors} */
+  const colors = {
+    text: theme.font.color || 'currentColor',
+    grid: theme.xaxis.gridcolor || theme.yaxis.gridcolor || 'currentColor',
+    plotBg: theme.plot_bgcolor || 'transparent',
+    palette: chartSeries(),
+  };
+
+  if (panels.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'figure-empty';
+    empty.textContent = 'No figure for this run.';
+    root.appendChild(empty);
+    return;
+  }
+
+  const store = options.selection ?? {};
+  store.series ??= {};
+  store.section ??= {};
+  store.open ??= {};
+  const view = {
+    selection: /** @type {Required<FigureSelection>} */ (store),
+    redraw: () => redraw(store),
+  };
+
+  const { inline, sections } = groupPanels(panels);
+  for (const panel of inline) root.appendChild(renderPanel(panel, colors, view));
+  for (const group of sections) {
+    root.appendChild(sectionElement(group, view, (panel) => renderPanel(panel, colors, view)));
+  }
+}
+
+/**
+ * Draw `panels` into `root` with no provenance line, for a caller that is not
+ * drawing a bridge figure and so has no source, partial or reason to state.
+ *
+ * `root` is emptied and refilled exactly as `renderFigure` refills its panels
+ * container, and `options.selection` gives the panels' pickers memory the same
+ * way.
+ *
+ * @param {HTMLElement} root
+ * @param {FigurePanel[]} panels
+ * @param {{selection?: FigureSelection}} [options]
+ */
+export function renderPanels(root, panels, options = {}) {
+  root.replaceChildren();
+  appendPanels(root, panels, options, (selection) =>
+    renderPanels(root, panels, { ...options, selection })
+  );
+}
+
+/**
  * Draw `figure` into the caller's containers.
  *
  * `elements.panels` is emptied and refilled with one `<section
- * class="figure-panel">` per panel. `elements.note`, when given, receives the
- * figure-level note (source, partial, reason) and is un-hidden; without it the
- * note is written as the first child of `elements.panels` instead, so the
- * provenance line is never silently dropped.
- *
- * Theme colors are read here, once per render, so a caller re-rendering from a
- * theme change gets the new palette.
+ * class="figure-panel">` per panel (through the same door as `renderPanels`).
+ * `elements.note`, when given, receives the figure-level note (source,
+ * partial, reason) and is un-hidden; without it the note is written as the
+ * first child of `elements.panels` instead, so the provenance line is never
+ * silently dropped.
  *
  * Pass a stable `options.selection` object to give the figure's pickers and
  * disclosures memory: this function replaces its container's children on every
@@ -1128,15 +1192,6 @@ function renderPanel(panel, colors, view) {
  * @param {{selection?: FigureSelection}} [options]
  */
 export function renderFigure(elements, figure, options = {}) {
-  const theme = chartTheme();
-  /** @type {RenderColors} */
-  const colors = {
-    text: theme.font.color || 'currentColor',
-    grid: theme.xaxis.gridcolor || theme.yaxis.gridcolor || 'currentColor',
-    plotBg: theme.plot_bgcolor || 'transparent',
-    palette: chartSeries(),
-  };
-
   const root = elements.panels;
   root.replaceChildren();
 
@@ -1151,26 +1206,7 @@ export function renderFigure(elements, figure, options = {}) {
     root.appendChild(note);
   }
 
-  if (figure.panels.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'figure-empty';
-    empty.textContent = 'No figure for this run.';
-    root.appendChild(empty);
-    return;
-  }
-
-  const store = options.selection ?? {};
-  store.series ??= {};
-  store.section ??= {};
-  store.open ??= {};
-  const view = {
-    selection: /** @type {Required<FigureSelection>} */ (store),
-    redraw: () => renderFigure(elements, figure, { ...options, selection: store }),
-  };
-
-  const { inline, sections } = groupPanels(figure.panels);
-  for (const panel of inline) root.appendChild(renderPanel(panel, colors, view));
-  for (const group of sections) {
-    root.appendChild(sectionElement(group, view, (panel) => renderPanel(panel, colors, view)));
-  }
+  appendPanels(root, figure.panels, options, (selection) =>
+    renderFigure(elements, figure, { ...options, selection })
+  );
 }

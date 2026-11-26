@@ -42,6 +42,7 @@ import {
   plotBox,
   polylinePoints,
   renderFigure,
+  renderPanels,
   seriesColor,
   seriesExtent,
   shownPointCount,
@@ -1343,5 +1344,40 @@ describe('renderFigure', () => {
       ])
     );
     expect(errors).not.toHaveBeenCalled();
+  });
+});
+
+describe('renderPanels', () => {
+  beforeEach(() => {
+    applyTheme(LIGHT);
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    document.getElementById(THEME_STYLE_ID)?.remove();
+  });
+
+  test('draws the panels and writes no note', () => {
+    const { panels: root } = mount();
+    const stale = document.createElement('p');
+    stale.className = 'stale';
+    root.append(stale);
+
+    renderPanels(root, [
+      panel(
+        linesMark([
+          series('wave', [
+            [0, 1],
+            [1, 3],
+          ]),
+        ]),
+        { title: 'wave · row 1 of 2' }
+      ),
+    ]);
+
+    expect(root.querySelector('.stale')).toBeNull();
+    expect(textsOf(root, '.figure-panel-title')).toEqual(['wave · row 1 of 2']);
+    expect(root.querySelectorAll('polyline.figure-line')).toHaveLength(1);
+    expect(root.querySelector('.figure-note')).toBeNull();
   });
 });
