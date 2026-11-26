@@ -1063,6 +1063,23 @@ def test_a_stored_complex_column_is_refused_cell_by_cell(
     assert result["rows"] == [[1.0, refused], [2.0, refused]]
 
 
+def test_a_stored_cell_with_no_time_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A stored date column's missing value reads empty, as a live one does."""
+    run_node = _run_node_with_events(
+        "uid-nat",
+        "run-nat",
+        [
+            {"motor": 1.0, "taken": pd.Timestamp("2026-11-24T10:00:00")},
+            {"motor": 2.0, "taken": pd.NaT},
+        ],
+    )
+    _configured(monkeypatch, "run-nat", run_node)
+
+    result = app_module._from_tiled("run-nat", max_rows=100, offset=None, tail=False)
+
+    assert result["rows"] == [[1.0, "2026-11-24T10:00:00Z"], [2.0, None]]
+
+
 def test_the_figure_path_leaves_a_waveform_column_out_rather_than_plotting_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

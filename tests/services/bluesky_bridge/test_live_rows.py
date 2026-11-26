@@ -378,8 +378,6 @@ def test_json_cell_spells_each_date_of_an_array() -> None:
         {"a": 1},
         Decimal("1.5"),
         np.timedelta64(5, "s"),
-        np.datetime64("NaT"),
-        pd.NaT,
         object(),
     ],
 )
@@ -398,6 +396,26 @@ def test_json_cell_refuses_a_value_that_is_not_a_number_text_or_array(value: obj
 )
 def test_json_cell_refuses_the_whole_cell_for_one_refused_element(value: object) -> None:
     assert live_rows.json_cell(value) == {"refused": live_rows.REFUSED_NOT_TEXT}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [np.datetime64("NaT"), np.timedelta64("NaT"), pd.NaT, pd.NA],
+    ids=["numpy-nat", "numpy-timedelta-nat", "pandas-nat", "pandas-na"],
+)
+def test_json_cell_reads_a_missing_value_as_empty(value: object) -> None:
+    """A missing value of any kind is an empty cell, like a missing number."""
+    assert live_rows.json_cell(value) is None
+    assert live_rows.json_cell(np.array([value, value], dtype=object)) == [None, None]
+
+
+def test_a_live_cell_with_no_time_is_empty() -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("event", _event_doc({"x": 1.0, "taken": pd.NaT}))
+    recorder("event", _event_doc({"x": 2.0, "taken": np.datetime64("NaT")}))
+
+    assert live_rows.get("run-1")["rows"] == [[1.0, None], [2.0, None]]
 
 
 def test_json_cell_serves_a_tuple_as_a_list() -> None:
