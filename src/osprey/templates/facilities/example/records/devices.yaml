@@ -1197,6 +1197,10 @@
 - id: ES1-MCA01
   class: Detector
   description: End station 1 multichannel analyzer 01.
+  acquire: ES1:DET:MCA:01:ACQUIRE:SP
+  results:
+  - ES1:DET:MCA:01:COUNTS:RB
+  - ES1:DET:MCA:01:SPECTRUM:WAVEFORM
   names:
   - MCA01
   label: MCA 01

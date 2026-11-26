@@ -80,6 +80,15 @@ def test_the_spectrum_is_a_waveform_of_1024_samples(built_demo: BuiltProject) ->
     assert len(spectrum["simulation"]["nominal"]) == 1024
 
 
+def test_the_detector_acquires_and_records_its_counts_and_spectrum(
+    built_demo: BuiltProject,
+) -> None:
+    (detector,) = [d for d in built_demo.facility["devices"] if d["id"] == "ES1-MCA01"]
+
+    assert detector["acquire"] == "ES1:DET:MCA:01:ACQUIRE:SP"
+    assert detector["results"] == ["ES1:DET:MCA:01:COUNTS:RB", SPECTRUM]
+
+
 def test_the_stop_command_is_its_own_pair(built_demo: BuiltProject) -> None:
     stop = _channels(built_demo)[STOP]
 
