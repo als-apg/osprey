@@ -5,7 +5,7 @@ Build Profiles
 ==============
 
 A **build profile** is the directory your facility owns: one ``profile.yml``, your
-data tree, your secrets, and any rules, skills or scripts you write. ``osprey build``
+facility tree, your secrets, and any rules, skills or scripts you write. ``osprey build``
 reads that directory and renders a project from it.
 
 The profile is the source of truth. The project is a derived artifact — regenerable,
@@ -16,7 +16,7 @@ and safe to delete and rebuild at any time.
    :icon: book
 
    - Creating a deployment repository and rendering its ``build/`` zone
-   - What lives in a profile: the convention directories, ``data/``, secrets, logins
+   - What lives in a profile: the convention directories, ``facility/``, ``web/``, secrets, logins
    - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
    - Keeping a profile and its build in step
@@ -87,7 +87,8 @@ What ``osprey init`` writes
    my-facility/
      profile.yml     the full configuration — edit freely
      providers.yml   the catalog of model providers profile.yml selects from
-     data/           the facility tree (data/facility/) and the agent's other data
+     facility/       the facility tree: records, imports, simulation, knowledge
+     web/            the landing notices and the CANOPY screens (web presets only)
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
      .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
@@ -114,7 +115,7 @@ What ``osprey init`` writes
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml`` and ``tiers/`` appear only when the preset calls for them. A
+``triggers.yml``, ``tiers/`` and ``web/`` appear only when the preset calls for them. A
 ``demo`` deployment has all of them; a ``hello-world`` deployment has none. Inside
 ``agent/``, every deployment has ``code_review/``; a ``demo`` deployment also
 has ``rules/``, ``context/`` and ``watchdogs/``, and a ``hello-world``
@@ -136,14 +137,14 @@ never create means the profile contributes nothing of that kind.
 The facility tree
 -----------------
 
-``data/facility/`` holds every source of the facility file: the authored files
+``facility/`` holds every source of the facility file: the authored files
 and the ``imported/<layer>/`` directories the importers write. With
 ``machine:``, the machine facts come from a
 :doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
-the render, never back into ``data/facility/``:
+the render, never back into ``facility/``:
 
 .. code-block:: text
 
@@ -168,9 +169,10 @@ path. What a scenario file holds is in :ref:`reference-scenario-files`.
 A repository with entries at retired root paths
 -----------------------------------------------
 
-What the agent is told and runs with sits under ``agent/``, and how the
-deployment is built and run sits under ``ops/``. A repository that still holds
-one of these entries at the repository root is refused:
+What the agent is told and runs with sits under ``agent/``, how the
+deployment is built and run under ``ops/``, the facility tree under
+``facility/`` and the web content under ``web/``. A repository that still holds
+one of these entries at a retired path is refused:
 
 .. list-table::
    :header-rows: 1
@@ -190,6 +192,35 @@ one of these entries at the repository root is refused:
      - the same name under ``ops/``
    * - ``data/.runtime/``
      - ``var/runtime/``
+   * - ``data/<lane>_curve/``
+     - ``var/runtime/<lane>_curve/``
+   * - ``data/facility/``
+     - ``facility/``
+   * - ``data/canopy/library/``, ``data/canopy/collections/``,
+       ``data/canopy/theme/``
+     - the same name under ``web/canopy/``
+   * - ``data/landing/``
+     - ``web/landing/``
+
+``data/`` itself is gone: nothing reads it, and the render assembles
+``build/data/`` from ``facility/`` and ``web/`` alone. A profile that still
+carries the ``data:`` key is refused too.
+
+**Leftovers.** Whatever ``data/`` holds outside these paths, untracked and
+git-ignored files included, is a leftover: the refusal names each one under
+``Still in data/, place by hand``, and nothing moves it for you, since only you
+know where it belongs. Content the render must see goes under ``facility/``;
+the rest goes wherever you keep it. The ``data/README.md`` an earlier
+``osprey init`` wrote is deleted when you never edited it. The migration
+finishes once ``data/`` is empty.
+
+**A** ``data:`` **value other than** ``data``. When every profile document names
+the same one directory inside the repository, the facility and web content
+move out of that directory, and the ``data:`` line is deleted once it holds
+no leftovers. Any other value (outside the repository, several different
+values, a directory that holds or sits inside a live entry) moves nothing and
+is listed to check by hand: decide where the content goes, move it, and delete
+the line. This is the one case a single run does not finish.
 
 The names a profile lists stay as they are: ``rules/facility`` in a ``rules:``
 list, ``osprey scaffold claim services/postgresql`` and every profile key name
@@ -205,39 +236,59 @@ repository, and when the facility tree is retired as well it moves both:
 .. code-block:: text
 
    # The deployment repo at /srv/my-facility still holds sources at retired paths; nothing was read.
-   # Move them to their current paths, then run the command again:
+   # Paste this whole block to move them to their current paths and finish the migration, then run the command again:
    cd /srv/my-facility
    mkdir -p agent ops
+   git mv data/facility facility
    git mv rules agent/rules
    git mv watchdogs agent/watchdogs
    git mv services ops/services
    git mv scripts ops/scripts
    git mv osprey.service ops/osprey.service
    git mv ci-extra.yml ops/ci-extra.yml
+   mkdir -p web/canopy
+   git mv data/canopy/library web/canopy/library
+   mkdir -p web
+   git mv data/landing web/landing
    perl -pi -e 's{    template: services/site_api}{    template: ops/services/site_api} if $. == 3' profile.yml
+   perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
+   perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
+   perl -ni -e 'print unless $. == 21 && m{^data: data$}' profile.yml
    perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
+   rmdir data/canopy 2>/dev/null || true
+   rmdir data 2>/dev/null || true
    # Host steps, once the files moved:
    #   osprey build
    # Check by hand; the paths inside these are not rewritten:
    #   ops/ci-extra.yml
    #   ops/services/site_api/Dockerfile
    #   ops/scripts/ (operator scripts)
-   # or run: osprey init --revalidate
+   # Still in data/, place by hand:
+   #   data/notes.md
+   # Content the render must see goes under facility/.
+   osprey init --revalidate /srv/my-facility
 
-The lines that do not start with ``#`` are a script: paste them into a shell,
-or pipe the block to ``sh``. Tracked entries move with ``git mv``, so their
+The lines that do not start with ``#`` are a script: paste the whole block into
+a shell, or pipe it to ``sh``. Tracked entries move with ``git mv``, so their
 history follows them; an entry whose successor already exists is merged into it
 file by file. The script also rewrites the profile values that name a moved
-path (a service ``template:``, ``config.code_review.prompt``, a lifecycle
-``cwd:``), the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name one, and
+path (a service ``template:``, ``config.code_review.prompt``,
+``config.facility_knowledge.bundle_path``, a landing notice, a lifecycle
+``cwd:``), deletes the ``data:`` line, rewrites the ``.gitlab-ci.yml`` and ``.dockerignore`` lines that name one, and
 deletes a CANOPY payload and wheels left at the repository root: a build
 stages them in ``build/``. An entry at both its retired and its current
 path is named instead, with ``keep one, delete the other``, and nothing moves
 until you have.
 
-**Or run** ``osprey init --revalidate``. It makes the same moves and edits in
-place, prints the same host steps and the same list to check by hand, and a
-second run finds nothing left to do.
+Its last line runs ``osprey init --revalidate`` on the repository, which finds
+nothing left to move and finishes the migration: the profile vocabulary, the
+preset changes and the rest of :ref:`--revalidate <cli-osprey-init-revalidate>`.
+Pasted whole, the block leaves the tree ``osprey init --revalidate`` alone
+would. Running that command yourself instead makes the same moves and edits in
+place, prints the same host steps and the same lists, and a second run finds
+nothing left to do. A refusal that holds only leftovers or items to check by
+hand prints no script and no command: place what it lists, then run the
+command again.
 
 **Host steps.** Run each one the block prints, on every host the repository is
 deployed on. ``osprey build`` always; when ``osprey scaffold systemd`` wrote the
@@ -396,10 +447,10 @@ channel:
    * - ``.osprey-manifest.json``
      - the build itself
    * - ``data/channel_limits.json``
-     - the build, from ``data/facility/limits.yaml``
+     - the build, from ``facility/limits.yaml``
    * - ``data/pyaml/<model>/``
      - the build: the pyAML view, per served model with a measurement file
-       (``data/facility/simulation/measurement/<model>.yaml``)
+       (``facility/simulation/measurement/<model>.yaml``)
 
 A profile that targets one of these is rejected at build time, with the owning
 channel named. The same refusal applies to a claim (below).
@@ -502,14 +553,13 @@ report success and then break every later build.
    target can still change between the check and the copy. Read it as the rule
    the build holds you to, not as a boundary it enforces.
 
-``data:`` is a path the profile *names*, not material the build finds by
-convention. It resolves against the profile directory and must resolve inside
-the repository, as must every file the profile ``extends``. ``osprey validate``
-and ``osprey build`` refuse a profile that reads anything outside the
-repository, before anything is installed, naming the path. The resolved tree is
-folded into the profile hash, so editing it reports the built project as out of
-date. ``machine:``, the facility directory of a mounted machine repository,
-resolves and is folded the same way.
+Every file the profile ``extends`` must resolve inside the repository.
+``osprey validate`` and ``osprey build`` refuse a profile that reads anything
+outside the repository, before anything is installed, naming the path.
+``facility/`` and ``web/`` are folded into the profile hash, so editing them
+reports the built project as out of date. ``machine:``, the facility directory
+of a mounted machine repository, resolves inside the repository and is folded
+the same way.
 
 
 .. _profile-claim:
@@ -724,7 +774,7 @@ landing page opens a **login**: one file in ``tiers/``, laid over
 
    my-facility/
      profile.yml
-     data/
+     facility/
      tiers/
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
@@ -739,7 +789,7 @@ A login file says what its card's agent is: ``name``, ``model``,
 ``web_panels`` and ``mcp_servers`` lists, ``panel_presets``, ``config:``,
 the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
 ``provenance:`` block ``osprey init`` writes. A deployment fact — the
-connector, the provider, ``port_base``, a service block, ``data:``,
+connector, the provider, ``port_base``, a service block,
 ``machine:``, ``services:`` — is refused on a login, naming ``profile.yml`` as
 its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 
@@ -1202,7 +1252,7 @@ Checking a profile without building
    osprey validate tiers/readonly.yml
 
 Resolves the profile and runs the full consistency check — convention
-directories, the data tree, service templates, lifecycle steps, environment
+directories, the facility tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.
 
 The profile is yours to edit. No difference from the preset it was
@@ -1242,7 +1292,8 @@ What the build does
    the last good one in place.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
-7. Render the base template and the profile's ``data/`` tree. No env file is
+7. Render the base template and assemble ``data/`` from ``facility/`` and
+   ``web/``. No env file is
    carried in: the repository's own ``.env.shared`` and ``.env`` stay where
    they are, and the containers are handed them at start time.
 8. Apply the ``config:`` overrides.
@@ -1277,7 +1328,7 @@ What gets generated
    ├── .mcp.json             # MCP server configurations
    ├── CLAUDE.md             # generated system prompt
    ├── config.yml            # config with the profile's overrides applied
-   ├── data/                 # the profile's data tree, materialized
+   ├── data/                 # facility/ and web/ as the render reads them, and the facility views
    ├── _mcp_servers/         # facility server code from the profile
    └── .env.example          # every variable this deployment reads, no values
 
@@ -1336,7 +1387,7 @@ source zone over one that is already there. To re-render the project, run
 ``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which replaces ``profile.yml``,
-``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``agent/context/``,
+``facility/``, ``web/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``agent/context/``,
 ``.env.example``, ``agent/watchdogs/`` and ``agent/code_review/``, losing any
 edit to them, and rewrites
 ``.osprey/``. In ``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.

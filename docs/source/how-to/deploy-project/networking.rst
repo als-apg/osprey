@@ -102,7 +102,7 @@ themselves; a facility service on the host network declares it beside
 
 .. code-block:: yaml
 
-   # services/site_api/docker-compose.yml.j2
+   # ops/services/site_api/docker-compose.yml.j2
        environment:
          SITE_BIND: "127.0.0.1"
 

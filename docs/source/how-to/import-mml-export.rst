@@ -6,8 +6,8 @@ Import a Middle Layer export
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer (MML) export and
 writes it as sources of your facility description, under
-``data/facility/imported/mml/``. ``osprey build`` merges those sources with
-everything else under ``data/facility/``; the import itself builds nothing.
+``facility/imported/mml/``. ``osprey build`` merges those sources with
+everything else under ``facility/``; the import itself builds nothing.
 
 Export from MATLAB
 ==================
@@ -110,7 +110,7 @@ Run the import
    osprey facility import mml mymachine.storagering.ao.json mymachine.booster.ao.json
 
 The first run finds no mapping, writes a draft to
-``data/facility/imported/mml/mapping.yaml`` and stops with
+``facility/imported/mml/mapping.yaml`` and stops with
 ``import mml: mapping-draft``. No record is written. Review the draft, then
 run the same command again.
 
@@ -202,7 +202,7 @@ vocabulary lacks, each as ``<class>: {parent, description}``. A family whose
 it extends as its ``branch``. The import writes each class the vocabulary
 lacks to ``vocabulary/classes.yaml``.
 
-The ``facility:`` block seeds ``data/facility/identity.yaml`` on the first
+The ``facility:`` block seeds ``facility/identity.yaml`` on the first
 import and is then removed from the mapping.
 
 A mapping that disagrees with the exports prints one ``<key>: <message>`` line
@@ -212,7 +212,7 @@ What the import writes
 ======================
 
 A clean run prints one ``wrote <path>`` line per file. The record files under
-``data/facility/imported/mml/`` are rewritten by every import; ``mapping.yaml``
+``facility/imported/mml/`` are rewritten by every import; ``mapping.yaml``
 is yours and is only drafted when absent. The authored files beside them ---
 ``limits.yaml``, ``simulation/seeds.yaml``, ``identity.yaml``,
 ``simulation/measurement/<model>.yaml`` and ``simulation/scenarios/readout.yaml`` --- are created
@@ -334,7 +334,7 @@ whose conversion curves the pass cut, and
 whose supplies feed several devices. Both go to stdout and never stop the
 import.
 
-Before it reads an export, the import looks at ``data/facility/``:
+Before it reads an export, the import looks at ``facility/``:
 
 * Hand-written records of a kind this format writes refuse the import, which
   names each file, changes nothing and exits 1. The mml format writes channel,

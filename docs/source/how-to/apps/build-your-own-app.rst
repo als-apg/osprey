@@ -577,7 +577,7 @@ two pytest fixtures from ``osprey.apps.sdk.testing``: ``synthetic_deployment``
 makes a deployment, ``rendered_tree`` makes one and builds it. Both take:
 
 - ``apps`` — each app's name and its source directory;
-- ``facility`` — the ``data/facility`` tree. The default, ``plain_tree()``, is
+- ``facility`` — the ``facility`` tree. The default, ``plain_tree()``, is
   one quadrupole and one BPM; ``measured_tree()`` is two models wired for the
   built-in measurement kinds, for a test to extend with its own kind's records;
 - ``logins`` — each login and its ``control_system.writes`` ceiling, one

@@ -392,7 +392,7 @@ highlighted name, **Escape** dismisses it. The suggestions only suggest — a
 name typed in full is accepted whether or not it appears in the list.
 
 In every channel-finder mode, the names come from the project's facility
-file (``data/facility/``). ``osprey build`` writes a snapshot of its channels
+file (``facility/``). ``osprey build`` writes a snapshot of its channels
 next to the generated config, and the panel reads that snapshot. There is no
 control-system traffic, and nothing to keep in sync at run time. A project
 with no facility file shows no suggestions and is otherwise unchanged.

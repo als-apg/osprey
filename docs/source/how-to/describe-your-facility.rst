@@ -5,7 +5,7 @@ Describe your facility
 ======================
 
 A deployment describes its facility once, as source files under
-``data/facility/``. ``osprey build`` combines them into one facility file,
+``facility/``. ``osprey build`` combines them into one facility file,
 ``build/facility.json``, and writes every file a service reads from it: the
 channel finder's index, the limits database, the simulator's channel list, the
 knowledge graph. Nothing else in the deployment lists a channel. The machine
@@ -22,7 +22,7 @@ The tree
 
 .. code-block:: text
 
-   data/facility/
+   facility/
      identity.yaml             who the facility is
      records/
        places.yaml             the facility's own tree of places
@@ -49,7 +49,7 @@ The tree
      ariel/vocabulary.yml      the logbook shorthand ARIEL expands
      benchmarks/               the channel-finder benchmark queries
 
-Every file is optional. A deployment with no ``data/facility/`` at all builds
+Every file is optional. A deployment with no ``facility/`` at all builds
 a facility with no channel, and each file added states more. The
 demo preset ships all of them except ``vocabulary/signals.yaml``, ``provenance/fixes.yaml`` and
 ``imported/``; the hello-world preset ships
@@ -331,7 +331,7 @@ names writes such a layer:
 
 .. code-block:: yaml
 
-   # data/facility/imported/names/channels.yaml
+   # facility/imported/names/channels.yaml
    - id: BR:DIAG:TV:01:PADDLE:SP
      pair: BR:DIAG:TV:01:PADDLE:RB
      basis: inferred
@@ -350,7 +350,7 @@ A Middle Layer export
 ---------------------
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer export into
-``data/facility/imported/mml/``. From the export to a served model it is five
+``facility/imported/mml/``. From the export to a served model it is five
 steps; each is described in :doc:`/how-to/import-mml-export`.
 
 1. **Export.** ``osprey facility import mml --print-exporter > mml_export.m``
@@ -407,7 +407,7 @@ A channel list
 --------------
 
 ``osprey facility import list FILE`` reads a CSV of channel addresses into
-``data/facility/imported/list/``. A header row names ``address`` and any of
+``facility/imported/list/``. A header row names ``address`` and any of
 ``role``, ``pair``, ``device``, ``place``, ``unit``, ``description``,
 ``tags``, ``s`` and ``model``; a file with no ``address`` column holds one
 address per line.
@@ -433,7 +433,7 @@ Relation tables
 ---------------
 
 ``osprey facility import relations TABLE --layer NAME`` reads relation claims,
-from a cable schedule or a rack list, into ``data/facility/imported/<NAME>/``.
+from a cable schedule or a rack list, into ``facility/imported/<NAME>/``.
 ``TABLE`` holds the claims; three optional tables hold what the claims lean on.
 Each is UTF-8 CSV with a header row naming its columns in any order; an empty
 cell is absent.

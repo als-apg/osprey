@@ -247,7 +247,7 @@ is written out here because it is the line that changes when the deployment
 goes live (`Changing something later`_).
 
 The facility's display name is not a config key. Open
-``data/facility/identity.yaml`` (``osprey init`` wrote it with the facility
+``facility/identity.yaml`` (``osprey init`` wrote it with the facility
 code) and add the name:
 
 .. code-block:: yaml
