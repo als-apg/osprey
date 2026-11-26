@@ -59,6 +59,11 @@ from osprey.services.bluesky_bridge.figure import (
     BarsMark as FigBarsMark,
 )
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+from osprey.services.bluesky_bridge.plan_fields import (
+    OptionalMovableChannel,
+    TriggeredChannel,
+    channel_roles,
+)
 from osprey.services.bluesky_bridge.plan_loader import FacilityPlans
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import PLAN_META_KEY, RUN_ID_META_KEY
@@ -514,6 +519,7 @@ def test_malformed_source_snapshot_is_params_mismatch(
             "plan": None,
             "units": {},
             "shapes": {},
+            "objects": {},
         },
     )
 
@@ -579,6 +585,7 @@ def test_render_is_handed_the_window_with_the_sources_completeness(
             "plan": {"name": "watcher", "kwargs": {}},
             "units": {},
             "shapes": {},
+            "objects": {},
         },
     )
 
@@ -772,6 +779,7 @@ def test_settled_hit_revalidates_total_seen_against_the_buffer(
             "plan": {"name": "echo", "kwargs": {}},
             "units": {},
             "shapes": {},
+            "objects": {},
         }
 
     monkeypatch.setattr(live_rows, "get", lambda run_id: snapshot(2, 1.0))
@@ -988,6 +996,71 @@ def test_a_live_waveform_column_is_left_out_of_the_figure(client: TestClient) ->
     assert "det_wave" not in plotted
     assert plotted == {"motor"}
     assert any("det_wave" in note for note in figure["panels"][0]["annotations"])
+
+
+class _DetectorParams(BaseModel):
+    """A plan that may move one axis and triggers one detector."""
+
+    axis: OptionalMovableChannel = None
+    detector: TriggeredChannel
+
+
+_COUNTS, _SPECTRUM = "DET:COUNTS", "DET:SPECTRUM"
+
+
+def _feed_detector_run(run_id: str, rows: list[dict[str, Any]], plan: dict[str, Any]) -> None:
+    """A settled live run whose descriptor says ``DET`` recorded both results."""
+    recorder = LiveRowRecorder(key=run_id, plan=plan)
+    recorder("start", {"uid": f"engine-{run_id}"})
+    recorder(
+        "descriptor",
+        {"data_keys": {}, "object_keys": {"DET": [_COUNTS, _SPECTRUM], "motor": ["motor"]}},
+    )
+    for row in rows:
+        recorder("event", {"data": row})
+    recorder("stop", {})
+
+
+def _detector_spec() -> PlanSpec[Any]:
+    return PlanSpec(
+        name="detector_plan",
+        plan=lambda devices, params: None,
+        schema=_DetectorParams,
+        roles=tuple(channel_roles(_DetectorParams)),
+    )
+
+
+def _panel_titles(figure: dict[str, Any]) -> list[str]:
+    return [panel["title"] for panel in figure["panels"]]
+
+
+def test_a_count_of_a_detector_is_drawn_from_its_recorded_columns(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A count draws the detector's numeric result and names its waveform."""
+    _install_catalog(monkeypatch, _detector_spec())
+    rows = [{_COUNTS: float(i), _SPECTRUM: [float(i), 0.0]} for i in range(3)]
+    _feed_detector_run("run-count", rows, {"name": "detector_plan", "kwargs": {"detector": "DET"}})
+
+    figure = _get_figure(client, "run-count")
+
+    assert _panel_titles(figure) == [_COUNTS]
+    assert any(_SPECTRUM in note for note in figure["panels"][0]["annotations"])
+
+
+def test_a_scanned_detectors_results_lead_the_figure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Against a declared axis, the columns recorded under the declared detector
+    lead the undeclared ones."""
+    _install_catalog(monkeypatch, _detector_spec())
+    rows = [{"motor": float(i), "temperature": 300.0 + i, _COUNTS: float(i)} for i in range(3)]
+    plan = {"name": "detector_plan", "kwargs": {"axis": "motor", "detector": "DET"}}
+    _feed_detector_run("run-scan", rows, plan)
+
+    figure = _get_figure(client, "run-scan")
+
+    assert _panel_titles(figure) == [_COUNTS, "temperature"]
 
 
 def test_tiled_start_doc_without_a_stamp_is_plan_identity_unavailable(

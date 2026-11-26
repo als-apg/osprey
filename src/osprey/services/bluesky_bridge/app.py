@@ -1913,7 +1913,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
 
 
 def _compute_analysis(
-    columns: list[str], rows: list[Any], plan_stamp: Any
+    columns: list[str], rows: list[Any], plan_stamp: Any, objects: Mapping[str, Sequence[str]]
 ) -> tuple[dict[str, Any], bool]:
     """One settled run's peak statistics, plus whether they may be cached.
 
@@ -1926,7 +1926,8 @@ def _compute_analysis(
     Which channels the statistics are computed for comes from the plan the run
     was stamped with, read through the same `_role_channels` the default figure
     reads: the movable channel is the independent variable, the readable ones
-    are what is fitted against it. A run with no usable stamp, or whose stamped
+    are what is fitted against it, each found through *objects*, the columns
+    each device recorded (`plan_fields.device_columns`). A run with no usable stamp, or whose stamped
     name has no current owner in the catalog, has no declaration to read and
     comes back absent with `analysis.REASON_PLAN_IDENTITY_UNAVAILABLE` — the
     same word the figure route uses for the same situation.
@@ -1949,7 +1950,7 @@ def _compute_analysis(
         return analysis.absent(analysis.REASON_PLAN_IDENTITY_UNAVAILABLE), True
 
     movable, readable = _role_channels(spec, plan_stamp.get("kwargs"))
-    return analysis.analyze(columns, rows, movable, readable), True
+    return analysis.analyze(columns, rows, movable, readable, objects), True
 
 
 def _run_analysis(
@@ -1960,6 +1961,7 @@ def _run_analysis(
     total_seen: int,
     partial: bool,
     plan_stamp: Any,
+    objects: Mapping[str, Sequence[str]],
     source: str,
     generation: int,
 ) -> dict[str, Any]:
@@ -1983,7 +1985,7 @@ def _run_analysis(
     if hit is not None:
         return hit
 
-    payload, cacheable = _compute_analysis(columns, rows, plan_stamp)
+    payload, cacheable = _compute_analysis(columns, rows, plan_stamp, objects)
     if cacheable:
         analysis.store(run_id, source, generation, total_seen, payload)
     return payload
@@ -2053,6 +2055,7 @@ def _data_response(
         total_seen=held["total_seen"],
         partial=bool(held["partial"]),
         plan_stamp=held["plan"],
+        objects=held["objects"],
         source=source,
         generation=generation,
     )
@@ -2586,6 +2589,7 @@ def _compose_figure(
     partial: bool,
     source: Literal["live", "tiled"],
     units: Mapping[str, str],
+    objects: Mapping[str, Sequence[str]],
 ) -> tuple[Figure, bool]:
     """One source snapshot in, one servable figure out — total, never raises.
 
@@ -2613,7 +2617,8 @@ def _compose_figure(
     ``units`` is each column's declared unit as the source holds it; the
     `RowWindow` a render is handed carries it, and every figure served from
     here has its axes' units stated from it by `bind_units`, before
-    decimation, on every path.
+    decimation, on every path. ``objects`` is the columns each device recorded,
+    through which a default figure finds a declared detector's results.
 
     The reason ladder, in the order it is walked:
 
@@ -2668,6 +2673,7 @@ def _compose_figure(
                     source=source,
                     movable=movable,
                     readable=readable,
+                    objects=objects,
                 ),
                 window,
             )
@@ -2776,6 +2782,7 @@ def get_run_figure(run_id: str) -> dict:
             partial=partial,
             source="live",
             units=buf["units"],
+            objects=buf["objects"],
         )
         if not partial and cacheable:
             figure_cache.put(key, _CachedFigure(figure, buf["total_seen"], None), generation)
@@ -2817,6 +2824,7 @@ def get_run_figure(run_id: str) -> dict:
         partial=snapshot["partial"],
         source="tiled",
         units=snapshot["units"],
+        objects=snapshot["objects"],
     )
     if not snapshot["partial"] and cacheable:
         figure_cache.put(
