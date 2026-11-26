@@ -5,7 +5,7 @@ A preset names a bundled facility (``templates/facilities/<name>/``) with
 keys are preset-side only: the resolver follows ``extends:`` to find them, the
 preset read consumes them, an emitted profile carries neither, and a repo
 ``profile.yml`` spelling one is refused. ``osprey init`` copies the app
-template's ``data/`` plus the facility at ``data/facility/``.
+template's ``web/`` plus the facility at ``facility/``.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.build_profile import _load_preset_raw, resolve_build_profile
 from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 from osprey.cli.build_profile_presets import (
@@ -34,10 +35,7 @@ FACILITIES = Path(TemplateManager().template_root) / "facilities"
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
-    """Write a profile document; a repo profile also gets the ``data:`` it must name."""
-    if path.parent.name != "presets":
-        body = {**body, "data": "data"}
-        (path.parent / "data").mkdir(exist_ok=True)
+    """Write a profile document."""
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path
 
@@ -157,20 +155,19 @@ def test_the_emitted_profile_carries_neither_the_key_nor_its_comment(preset: str
 
 
 # ---------------------------------------------------------------------------
-# The composition: app template data/ + facility at data/facility/
+# The composition: app template web/ + facility at facility/
 # ---------------------------------------------------------------------------
 
 
 def test_the_composition_lands_the_facility_under_facility(tmp_path: Path) -> None:
     composed = _preset_data(TemplateManager(), "demo")
-    target = tmp_path / "data"
 
     composed.copy_into(tmp_path)
 
-    assert (target / "facility" / "identity.yaml").read_bytes() == (
+    assert (tmp_path / repo_layout.entry("facility").path / "identity.yaml").read_bytes() == (
         FACILITIES / "example" / "identity.yaml"
     ).read_bytes()
-    assert (target / "README.md").is_file()
+    assert (tmp_path / repo_layout.entry("web").path).is_dir()
 
 
 def test_the_example_facility_states_its_display_name() -> None:
@@ -192,9 +189,9 @@ def test_a_preset_naming_no_facility_composes_the_app_template_alone(tmp_path: P
 
 def _template_root(tmp_path: Path, *, app_ships_facility: bool) -> Path:
     root = tmp_path / "templates"
-    (root / "apps" / "app" / "data").mkdir(parents=True)
+    (root / "apps" / "app").mkdir(parents=True)
     if app_ships_facility:
-        (root / "apps" / "app" / "data" / "facility").mkdir()
+        (root / "apps" / "app" / repo_layout.entry("facility").path).mkdir()
     (root / "facilities" / "plant").mkdir(parents=True)
     (root / "facilities" / "plant" / "identity.yaml").write_text("code: plant\n")
     (root / "code_review").mkdir()
@@ -207,7 +204,7 @@ def test_an_app_template_shipping_a_facility_beside_a_named_one_is_refused(
 ) -> None:
     root = _template_root(tmp_path, app_ships_facility=True)
 
-    with pytest.raises(BuildProfileError, match="ships data/facility/"):
+    with pytest.raises(BuildProfileError, match="ships facility/"):
         compose_preset_data(root, "app", "plant")
 
 

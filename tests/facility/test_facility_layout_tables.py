@@ -1,7 +1,8 @@
 """The framework's facility-tree tables, pinned as literals.
 
-Every framework table that names an entry of the facility tree, or a path
-under ``data/`` beside it, is held here to its exact value. A table computed
+Every framework table that names an entry of the facility tree, at the
+repository's ``facility/`` or at its render under the build's ``data/``, is
+held here to its exact value. A table computed
 from a declaration must keep producing these values; a change to one is a
 visible, reviewed edit of this file.
 
@@ -24,7 +25,7 @@ TREE_QUERY_FILE = "tree_queries.json"
 
 VOCABULARY_SOURCE = "data/facility/ariel/vocabulary.yml"
 
-KNOWLEDGE_ROOT = "data/facility/knowledge"
+KNOWLEDGE_ROOT = "facility/knowledge"
 
 FACILITY_DATA_DIRNAME = "facility"
 

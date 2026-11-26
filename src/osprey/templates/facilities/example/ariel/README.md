@@ -148,7 +148,7 @@ results. The example file ships no ambiguous forms.
 ## Check every edit
 
 ```bash
-osprey ariel vocab-check data/facility/ariel/vocabulary.yml
+osprey ariel vocab-check facility/ariel/vocabulary.yml
 ```
 
 It needs no database. Exit code 0 means the file loads; 1 means it lists the
