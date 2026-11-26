@@ -882,6 +882,57 @@ def test_a_triggerable_named_as_readable_is_refused_before_the_plan_is_built(
     assert built == []
 
 
+class _Records:
+    """A device that records the data keys it states."""
+
+    def __init__(self, *keys: str) -> None:
+        self.keys = keys
+
+    def data_keys(self) -> tuple[str, ...]:
+        return self.keys
+
+
+#: The refusal ``sample_scan`` meets when its two devices record one key.
+_COLLISION = (
+    "refusing plan 'sample_scan' before it writes anything: devices 'corrector_01' and "
+    "'bpm_01' both record 'SR:BPM:01:X'; declare one of them"
+)
+
+
+def test_a_colliding_plan_is_refused_before_the_probe_and_before_the_plan_is_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plans = _catalog(tmp_path, monkeypatch)
+    built: list[Any] = []
+    spec = plans["sample_scan"]
+    plans["sample_scan"] = dataclasses.replace(
+        spec, plan=lambda devices, params: built.append(params) or spec.plan(devices, params)
+    )
+    devices = {"corrector_01": _Records("SR:BPM:01:X"), "bpm_01": _Records("SR:BPM:01:X")}
+
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+
+    with pytest.raises(ValueError) as raised:
+        next(plan_function(**_sample_kwargs()))
+    assert str(raised.value) == _COLLISION
+    assert built == []
+
+
+def test_the_preview_reports_the_collision_as_the_plans_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plans = _catalog(tmp_path, monkeypatch)
+    devices = {"corrector_01": _Records("SR:BPM:01:X"), "bpm_01": _Records("SR:BPM:01:X")}
+    plan_function = qserver_startup.build_plan_functions(devices, plans)["sample_scan"]
+
+    preview = qserver_startup.preview_plan_in_namespace(
+        "sample_scan", _sample_kwargs(), {"sample_scan": plan_function}
+    )
+
+    assert preview["ok"] is False
+    assert _COLLISION in preview["error"]
+
+
 def test_filtering_leaves_the_wrapper_annotations_untouched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

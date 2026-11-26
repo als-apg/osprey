@@ -1131,3 +1131,37 @@ async def test_build_devices_builds_a_positioner_for_a_started_spec() -> None:
         ChannelWrite("STAGE:SP", 2.0),
         ChannelWrite(_COMMAND, PRESS_VALUE),
     )
+
+
+def _five_devices() -> list[Any]:
+    from osprey.services.bluesky_bridge.devices.connector import ConnectorDetector
+
+    fake = FakeConnector()
+    act = CommandAct(_COMMAND, _STATUS, 0, 5.0)
+    return [
+        ConnectorSettable(fake, "SP", name="aliased"),
+        ConnectorSettable(fake, "SP", "RB", name="paired"),
+        ConnectorPositioner(fake, "STAGE:SP", "STAGE:RB", started_by=act, name="stage"),
+        ConnectorReadable(fake, "BPM", name="bpm"),
+        _triggerable(fake),
+        ConnectorDetector(
+            fake,
+            _COMMAND,
+            _STATUS,
+            0,
+            5.0,
+            results=[ReadableSpec("C", "C"), ReadableSpec("W", "W", shape=(4,))],
+            name="det",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "index",
+    range(6),
+    ids=["aliased", "paired", "positioner", "readable", "triggerable", "detector"],
+)
+async def test_data_keys_are_exactly_what_describe_returns(index: int) -> None:
+    device = _five_devices()[index]
+
+    assert device.data_keys() == tuple(await device.describe())

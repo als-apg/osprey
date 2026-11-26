@@ -66,6 +66,7 @@ from .preflight import (
     available_devices_phrase,
     cancel_unfinished_triggers,
     probe_before_motion,
+    refuse_colliding_data_keys,
     refuse_misdeclared_triggers,
     stopping_unfinished_moves,
     warn_if_write_refused,
@@ -236,7 +237,9 @@ def install_session_plan(
     trigger is cancelled on every exit but the plan's own return, through the
     same two seams the catalog wrapper calls
     (``preflight.refuse_misdeclared_triggers``,
-    ``preflight.cancel_unfinished_triggers``). Every unfinished positioner move
+    ``preflight.cancel_unfinished_triggers``), and two declared devices that
+    record one data key refuse the run before anything is written
+    (``preflight.refuse_colliding_data_keys``). Every unfinished positioner move
     is stopped inside the run's write authorization, and a stop that was
     refused or failed ends the run naming the positioner, through the seam the
     catalog wrapper calls (``preflight.stopping_unfinished_moves``).
@@ -293,6 +296,7 @@ def install_session_plan(
             params = params_model.model_validate(clean)
             declared = _declared_devices(params_model, params, devices)
             refuse_misdeclared_triggers(name, params_model, params, declared)
+            refuse_colliding_data_keys(name, declared)
             yield from probe_before_motion(name, declared)
             try:
                 plan = build_plan(declared, params)

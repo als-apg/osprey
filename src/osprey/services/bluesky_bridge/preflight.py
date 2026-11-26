@@ -4,7 +4,8 @@ Both wrappers in this package — ``qserver_startup._make_plan_function`` for a
 catalog plan and ``session_upload.install_session_plan`` for a session one —
 build the same connector-mediated devices in the same worker process, and have
 the same things to say about a run: whether the channels it declares are alive,
-whether a device it triggers is declared as one, what this worker actually
+whether a device it triggers is declared as one, whether two declared devices
+record one data key, what this worker actually
 holds when a declared name does not resolve, whose switch refused a write the
 run tried to make, which unfinished triggers an abort cancels, and which
 positioner a refused or failed stop left moving. One copy of each lives
@@ -523,6 +524,49 @@ def refuse_misdeclared_triggers(
                     f"plan {plan_name!r} names {name!r} as a {role} channel; {name!r} is "
                     f"triggered, not {verb} — declare it under a {TRIGGERED_ROLE} field"
                 )
+
+
+def data_key_collisions(declared: Mapping[str, Any]) -> list[tuple[str, str, str]]:
+    """Each data key two declared devices both record, with the two devices.
+
+    A device states its keys through ``data_keys()``, exactly the keys its
+    ``describe()`` returns; a device without the method contributes nothing.
+    Synchronous, so it runs where a plan wrapper's generator is advanced, the
+    preview's walk included.
+
+    Returns:
+        ``(key, first device, second device)`` per collision, in declaration
+        order.
+    """
+    recorded_by: dict[str, str] = {}
+    collisions: list[tuple[str, str, str]] = []
+    for name, device in declared.items():
+        stated = getattr(device, "data_keys", None)
+        if not callable(stated):
+            continue
+        for key in stated():
+            first = recorded_by.setdefault(key, name)
+            if first != name:
+                collisions.append((key, first, name))
+    return collisions
+
+
+def refuse_colliding_data_keys(plan_name: str, declared: Mapping[str, Any]) -> None:
+    """Refuse a plan whose declared devices record one data key twice.
+
+    A run records each key once per event; two devices that both describe it
+    end the run part way, so the plan is refused before anything is written.
+
+    Raises:
+        ValueError: Two declared devices record one key; names the key and both.
+    """
+    collisions = data_key_collisions(declared)
+    if collisions:
+        key, first, second = collisions[0]
+        raise ValueError(
+            f"refusing plan {plan_name!r} before it writes anything: devices {first!r} and "
+            f"{second!r} both record {key!r}; declare one of them"
+        )
 
 
 def cancel_unfinished_triggers(declared: Mapping[str, Any]) -> None:
