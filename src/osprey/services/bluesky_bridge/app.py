@@ -61,6 +61,7 @@ from .models import (
     PlanValidateRequest,
 )
 from .plan_fields import (
+    DEVICE_KINDS,
     MOVABLE_ROLE,
     READABLE_ROLE,
     TRIGGERED_ROLE,
@@ -69,7 +70,7 @@ from .plan_fields import (
 )
 from .plan_metadata import extract_plan_name_from_source
 from .plan_types import PlanSpec, Provenance
-from .plan_validation import hash_plan_body, validate_plan
+from .plan_validation import described_devices, hash_plan_body, validate_plan
 from .queue_backend import (
     PLAN_META_KEY,
     REASON_AMBIGUOUS_TABLE,
@@ -633,23 +634,48 @@ async def list_plans() -> list:
 
 
 # The per-device keys `GET /devices` republishes from the manager's own device
-# description. The rest of what it carries (`classname`, `module`, the
-# component tree) is worker-internal detail nothing can be done with from
-# outside the worker; these three protocol flags are the part that answers the
-# question a caller actually has — whether a device can be driven as a
+# description: three protocol flags, whether a device can be driven as a
 # setpoint or only read as a readback. Absent keys stay absent rather than
-# defaulting to False: "the manager did not say" is not "no".
+# defaulting to False: "the manager did not say" is not "no". Beside them an
+# entry states `kind`, what a plan does to the device, read from the manager's
+# `classname` through `plan_fields.DEVICE_KINDS`, and a detector's `records`,
+# the columns its run records, from the worker (`describe_devices`). The rest
+# of the manager's description (`module`, the component tree) is
+# worker-internal detail nothing can be done with from outside the worker.
 _DEVICE_FLAG_KEYS = ("is_movable", "is_readable", "is_flyable")
 
 
 def _device_entry(name: str, description: Any) -> dict[str, Any]:
-    """One `GET /devices` entry: the name, plus whichever flags the manager gave it."""
+    """One `GET /devices` entry: the name, whichever flags the manager gave it,
+    and its ``kind`` when its class has one."""
     if not isinstance(description, dict):
         return {"name": name}
-    return {
+    entry = {
         "name": name,
         **{key: description[key] for key in _DEVICE_FLAG_KEYS if key in description},
     }
+    classname = description.get("classname")
+    if isinstance(classname, str) and classname in DEVICE_KINDS:
+        entry["kind"] = DEVICE_KINDS[classname]
+    return entry
+
+
+async def _with_records(entries: list[dict[str, Any]]) -> str | None:
+    """Give each detector entry its ``records``, read with one worker call;
+    the sentence naming those the worker did not describe, or ``None``."""
+    detectors = [entry for entry in entries if entry.get("kind") == "detector"]
+    if not detectors:
+        return None
+    described = described_devices(await _describe_devices([entry["name"] for entry in detectors]))
+    missing = []
+    for entry in detectors:
+        if entry["name"] in described:
+            entry["records"] = list(described[entry["name"]]["data_keys"])
+        else:
+            missing.append(entry["name"])
+    if not missing:
+        return None
+    return f"The worker did not state what {', '.join(missing)} records."
 
 
 @app.get("/devices")
@@ -671,7 +697,12 @@ async def list_devices(
     was cut, so a caller can tell "that is all of them" from "there is more".
     Each entry is `{"name", ...}` plus whatever of `is_movable`/`is_readable`/
     `is_flyable` the manager reported for it, which is how a caller tells a
-    drivable setpoint from a read-only readback.
+    drivable setpoint from a read-only readback, and `kind`: what a plan does
+    to it (`settable`, `readable`, `triggerable` or `detector`), read from the
+    class the worker built it from. A detector entry also carries `records`,
+    the columns its run records, from one `describe_devices` call over the
+    page's detectors; a detector the worker did not describe carries none, and
+    the response's `note` names it.
 
     `prefix` filters by literal, case-sensitive `str.startswith` — device names
     come out of the worker's namespace verbatim, so folding case here would
@@ -710,12 +741,17 @@ async def list_devices(
         for name, description in sorted(allowed.items())
         if name.startswith(prefix)
     ]
-    return {
-        "devices": matches[start : start + bound],
+    page = matches[start : start + bound]
+    body: dict[str, Any] = {
+        "devices": page,
         "total": len(matches),
         "offset": start,
         "limit": bound,
     }
+    note = await _with_records(page)
+    if note is not None:
+        body["note"] = note
+    return body
 
 
 # ---------------------------------------------------------------------------
