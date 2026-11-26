@@ -8,5 +8,5 @@ now places `classes` and `signals` under `vocabulary/`; `models`, `seeds`,
 new `osprey_facility.retired` module finds what a tree still holds at them
 (`find_retired`), builds the shell lines that move it (`move_script`), and
 `refuse_retired` raises `RetiredLayoutRefused`, a `FacilityError` whose message
-is those lines. Code that spelled the old paths, or the old `deck:` prefix
+carries those lines. Code that spelled the old paths, or the old `deck:` prefix
 `decks/`, must take them from `source_tree` or be updated.
