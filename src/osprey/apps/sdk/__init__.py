@@ -1,9 +1,9 @@
 """The application SDK: what an application's tool server and backend import from OSPREY.
 
-Stability promise: every name in ``__all__`` keeps its name, its import path
-(``from osprey.apps.sdk import <name>``) and its meaning across releases; a
-change to one is a breaking change of the application contract, announced in
-the changelog. Application code imports OSPREY only through this module (and
+The names in ``__all__`` are part of the application contract, whose terms and
+version history are at
+https://als-apg.github.io/osprey/reference/contracts/app-contract.html.
+Application code imports OSPREY only through this module (and
 ``osprey_facility.kinds`` and the public ``osprey_connectors`` modules); the
 framework modules behind these names are internal and may move.
 

@@ -210,9 +210,10 @@ and Markdown. What OSPREY supplies, so the app does not have to:
   login.
 
 App code imports OSPREY only through ``osprey.apps.sdk`` (plus
-``osprey_facility.kinds`` and the public ``osprey_connectors`` modules). Every
-name in the SDK keeps its meaning across releases; ``osprey app check`` reports
-any other import, so an app built today still builds on the next OSPREY.
+``osprey_facility.kinds`` and the public ``osprey_connectors`` modules);
+``osprey build`` and ``osprey app check`` refuse any other import. The app
+declares the contract number it is written for, and
+:doc:`/reference/contracts/app-contract` lists what that number covers.
 
 How writes stay safe
 ====================
@@ -268,6 +269,8 @@ Where to go next
   tools on your deployment: the manifest, the backend, the tool server, the
   panel, writes and approvals, logins, skills and subagents.
 - :ref:`osprey app <cli-osprey-app>` — the command reference.
+- :doc:`/reference/contracts/app-contract` — what the contract number covers
+  and what each number broke.
 
 .. toctree::
    :hidden:
