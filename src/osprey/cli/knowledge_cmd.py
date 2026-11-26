@@ -2,9 +2,9 @@
 
 ``regen-index``, ``validate`` and ``seed-from-ttl`` operate on an OKF bundle: a
 directory of markdown documents on disk.  ``seed-from-ttl`` writes one device
-stub per device of the build's graph view, ``data/graph/facility.ttl``.  The
-graph store and the channel search index are filled from that same view by
-``osprey build && osprey up``, with no verb of their own.
+stub per device of the build's graph view, ``build/data/graph/facility.ttl``.
+The graph store and the channel search index are filled from that same view
+by ``osprey build && osprey up``, with no verb of their own.
 
 Note: this module is intentionally importable without ``rdflib`` or the
 ``neo4j`` driver in the import graph.  Both are core dependencies, so this is

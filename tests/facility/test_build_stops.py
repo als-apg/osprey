@@ -2,7 +2,7 @@
 
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
-``data/facility`` tree of a demo repo, beside any profile edit the
+``facility`` tree of a demo repo, beside any profile edit the
 case makes, and runs through ``osprey facility validate``, which must print the
 case's line byte for byte on stderr and exit 1. ``osprey build --skip-deps``
 must print the same line; it runs every case whose stop is not the facility
@@ -819,16 +819,6 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "`project/data/graph/facility.ttl`",
     ),
     (
-        "profile_invalid__handwritten_limits",
-        "profile-invalid",
-        "a hand-written `data/channel_limits.json`",
-    ),
-    (
-        "profile_invalid__handwritten_simulation_limits",
-        "profile-invalid",
-        "a hand-written `data/simulation/channel_limits.json`",
-    ),
-    (
         "profile_invalid__mirrored_limits",
         "profile-invalid",
         "`project/data/channel_limits.json`",
@@ -907,7 +897,7 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
     (
         "machine_restated__deployment_record",
         "machine-restated",
-        "a mounted deployment's `data/facility` restating a machine file",
+        "a mounted deployment's `facility/` restating a machine file",
     ),
 )
 
@@ -1122,7 +1112,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: fix-authored: device SR/BPM1 — `set` targets a record only authored "
-            "sources state; fix: edit data/facility/records/devices.yaml"
+            "sources state; fix: edit facility/records/devices.yaml"
         ),
     ),
     "fix_referenced__device": (
@@ -2370,7 +2360,7 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         ),
         (
             "facility: seed-missing: channel Q2:SP — limits band [1, 2] excludes 0 and the "
-            "channel has no seed; fix: add a nominal for it in data/facility/simulation/seeds.yaml"
+            "channel has no seed; fix: add a nominal for it in facility/simulation/seeds.yaml"
         ),
     ),
     "limit_invalid__writable": (
@@ -2869,25 +2859,25 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         _plain(),
         (
             "facility: profile-invalid: path ops/project/facility.json — the ops/project/ mirror writes "
-            "facility.json, which the build writes from data/facility/; fix: remove "
-            "ops/project/facility.json and author the facility in data/facility/"
+            "facility.json, which the build writes from facility/; fix: remove "
+            "ops/project/facility.json and author the facility in facility/"
         ),
     ),
     "profile_invalid__mirrored_simulator_view": (
         _plain(),
         (
             "facility: profile-invalid: path ops/project/data/simulator/x.json — the ops/project/ "
-            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
-            "fix: remove ops/project/data/simulator/x.json and author the facility in data/facility/"
+            "mirror writes data/simulator/x.json, which the build writes from facility/; "
+            "fix: remove ops/project/data/simulator/x.json and author the facility in facility/"
         ),
     ),
     "profile_invalid__mirrored_facts_view": (
         _plain(),
         (
             "facility: profile-invalid: path ops/project/data/facility_facts.json — the ops/project/ "
-            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
+            "mirror writes data/facility_facts.json, which the build writes from facility/; "
             "fix: remove ops/project/data/facility_facts.json and author the facility in "
-            "data/facility/"
+            "facility/"
         ),
     ),
     "profile_invalid__mirrored_channel_finder_view": (
@@ -2895,8 +2885,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path ops/project/data/channel_finder/in_context.json — the "
             "ops/project/ mirror writes data/channel_finder/in_context.json, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
-            "author the facility in data/facility/"
+            "from facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
+            "author the facility in facility/"
         ),
     ),
     "profile_invalid__mirrored_graph_view": (
@@ -2904,33 +2894,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path ops/project/data/graph/facility.ttl — the "
             "ops/project/ mirror writes data/graph/facility.ttl, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/graph/facility.ttl and "
-            "author the facility in data/facility/"
-        ),
-    ),
-    "profile_invalid__handwritten_limits": (
-        _plain(),
-        (
-            "facility: profile-invalid: path data/channel_limits.json — the build writes "
-            "data/channel_limits.json from data/facility/limits.yaml; fix: move its limits "
-            "into data/facility/limits.yaml and remove data/channel_limits.json"
-        ),
-    ),
-    "profile_invalid__handwritten_simulation_limits": (
-        _plain(),
-        (
-            "facility: profile-invalid: path data/simulation/channel_limits.json — the build "
-            "writes data/simulation/channel_limits.json from data/facility/limits.yaml; fix: "
-            "move its limits into data/facility/limits.yaml and remove "
-            "data/simulation/channel_limits.json"
+            "from facility/; fix: remove ops/project/data/graph/facility.ttl and "
+            "author the facility in facility/"
         ),
     ),
     "profile_invalid__mirrored_limits": (
         _plain(),
         (
             "facility: profile-invalid: path ops/project/data/channel_limits.json — the build "
-            "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
-            "limits into data/facility/limits.yaml and remove ops/project/data/channel_limits.json"
+            "writes data/channel_limits.json from facility/limits.yaml; fix: move its "
+            "limits into facility/limits.yaml and remove ops/project/data/channel_limits.json"
         ),
     ),
     "profile_invalid__unknown_served_model": (
@@ -2978,7 +2951,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got 'rf-thermal'; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__default_scenarios_entry_not_a_string": (
@@ -2986,7 +2960,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got [1]; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__default_scenarios_entry_empty": (
@@ -2994,15 +2969,16 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path simulation.default_scenarios — "
             "simulation.default_scenarios must be a list of scenario names, got ['']; "
-            "fix: set `simulation.default_scenarios` to a list of scenario names"
+            "fix: set `simulation.default_scenarios` to a list of scenario names, or to a "
+            "mapping with such a list under `va` and under `standin`"
         ),
     ),
     "profile_invalid__limits_database_path": (
         _plain(),
         (
             "facility: profile-invalid: path control_system.limits_checking.database_path — "
-            "the build writes data/channel_limits.json from data/facility/limits.yaml and names "
-            "it as the limits database; fix: move its limits into data/facility/limits.yaml and "
+            "the build writes data/channel_limits.json from facility/limits.yaml and names "
+            "it as the limits database; fix: move its limits into facility/limits.yaml and "
             "remove control_system.limits_checking.database_path from the profile"
         ),
     ),
@@ -3011,8 +2987,8 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
         (
             "facility: profile-invalid: path "
             "control_system.connector.epics.limits_checking.database_path — the build writes "
-            "data/channel_limits.json from data/facility/limits.yaml and names it as the limits "
-            "database; fix: move its limits into data/facility/limits.yaml and remove "
+            "data/channel_limits.json from facility/limits.yaml and names it as the limits "
+            "database; fix: move its limits into facility/limits.yaml and remove "
             "control_system.connector.epics.limits_checking.database_path from the profile"
         ),
     ),
@@ -3057,16 +3033,17 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "'machine' (resolved: <repo>/machine) holds no identity.yaml, so there is no "
             "machine to build; fix: point `machine:` at the machine repository's facility "
             "directory (the one holding identity.yaml); for a git submodule, run "
-            "`git submodule update --init`"
+            "`git submodule update --init`; a machine repository holds it at "
+            "`<machine>/facility` or `<machine>/data/facility`"
         ),
     ),
     "machine_restated__deployment_record": (
         _plain(),
         (
-            "facility: machine-restated: path data/facility/records/channels.yaml — the "
+            "facility: machine-restated: path facility/records/channels.yaml — the "
             "mounted machine states machine/records/channels.yaml, and a mounted "
-            "deployment's data/facility/ holds only knowledge/, ariel/, benchmarks/; fix: "
-            "remove data/facility/records/channels.yaml; edit machine/records/channels.yaml "
+            "deployment's facility/ holds only knowledge/, ariel/, benchmarks/; fix: "
+            "remove facility/records/channels.yaml; edit machine/records/channels.yaml "
             "in the machine repository instead"
         ),
     ),
@@ -3097,7 +3074,7 @@ def _select_in_context(repo: Path) -> None:
     profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     # An in_context render binds the facility-knowledge bundle, which the
     # synthetic tree does not lay down.
-    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (repo / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
 
 
 def _select_hierarchical(repo: Path) -> None:
@@ -3206,16 +3183,6 @@ def _disable_approval(repo: Path) -> None:
         render.write_text(text.replace(armed, "control_system.writes: never"), encoding="utf-8")
 
 
-def _ship_limits(repo: Path) -> None:
-    (repo / "data" / "channel_limits.json").write_text('{"_version": "4.0"}\n', encoding="utf-8")
-
-
-def _ship_simulation_limits(repo: Path) -> None:
-    target = repo / "data" / "simulation" / "channel_limits.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text('{"_version": "4.0"}\n', encoding="utf-8")
-
-
 def _render_serves_models(repo: Path) -> None:
     render = repo / TIERS_DIRNAME / "reader.yml"
     render.parent.mkdir(parents=True, exist_ok=True)
@@ -3244,7 +3211,7 @@ def _mount_uninitialised(repo: Path) -> None:
 
 def _mount_and_restate(repo: Path) -> None:
     """Move the machine facts into a mounted root and leave one record file behind."""
-    facility = repo / "data" / "facility"
+    facility = repo / "facility"
     machine = repo / MACHINE_DIR
     machine.mkdir()
     for entry in sorted(facility.iterdir()):
@@ -3275,8 +3242,6 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__default_scenarios_not_a_list": _start_in("rf-thermal"),
     "profile_invalid__default_scenarios_entry_not_a_string": _start_in([1]),
     "profile_invalid__default_scenarios_entry_empty": _start_in([""]),
-    "profile_invalid__handwritten_limits": _ship_limits,
-    "profile_invalid__handwritten_simulation_limits": _ship_simulation_limits,
     "profile_invalid__limits_database_path": _state_limits_database(
         "control_system.limits_checking.database_path"
     ),
@@ -3399,8 +3364,8 @@ def _repo(initialised: Path, tmp_path: Path, case: str) -> Path:
     """
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    _clear_facility_records(repo / "data" / "facility")
-    _write(repo / "data", case)
+    _clear_facility_records(repo / "facility")
+    _write(repo, case)
     for rel in MIRRORED.get(case, ()):
         mirrored = repo / "ops" / "project" / rel
         mirrored.parent.mkdir(parents=True, exist_ok=True)
@@ -3496,8 +3461,8 @@ def test_an_asking_profile_builds_with_approval_off(
 ) -> None:
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    _clear_facility_records(repo / "data" / "facility")
-    write_tree(repo / "data" / "facility", plain_tree())
+    _clear_facility_records(repo / "facility")
+    write_tree(repo / "facility", plain_tree())
     for edit in edits:
         edit(repo)
 
@@ -3514,8 +3479,8 @@ def test_approval_off_does_not_excuse_a_missing_hook_for_a_governed_tool(
     switch still puts it to a human, so the build stops without the hook."""
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    _clear_facility_records(repo / "data" / "facility")
-    write_tree(repo / "data" / "facility", plain_tree())
+    _clear_facility_records(repo / "facility")
+    write_tree(repo / "facility", plain_tree())
     _drop_approval_hook(repo)
     _disable_approval(repo)
 
@@ -3550,8 +3515,8 @@ def test_a_fault_polarity_is_one_of_its_options(
         return
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    _clear_facility_records(repo / "data" / "facility")
-    write_tree(repo / "data" / "facility", tree)
+    _clear_facility_records(repo / "facility")
+    write_tree(repo / "facility", tree)
 
     result = run_build(repo, SKIP_LIFECYCLE)
 
@@ -3650,11 +3615,11 @@ def test_a_seeded_setpoint_whose_band_excludes_zero_validates(
 ) -> None:
     repo = tmp_path / PROJECT
     shutil.copytree(initialised, repo, symlinks=True)
-    _clear_facility_records(repo / "data" / "facility")
+    _clear_facility_records(repo / "facility")
     make, _line = CASES["seed_missing__band_excludes_zero"]
     tree = make()
     tree["simulation/seeds.yaml"] = {"Q2:SP": {"nominal": 1.5}}
-    write_tree(repo / "data" / "facility", tree)
+    write_tree(repo / "facility", tree)
 
     # Validate runs the build's facility stages and renders every view in memory.
     validated = CliRunner().invoke(cli, ["facility", "validate", "--repo", str(repo)])

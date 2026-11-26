@@ -45,16 +45,6 @@ PRESETS = ("hello-world", "demo")
 #: The directory and project name every materialization uses.
 _REPO_NAME = "fold-pin"
 
-#: Presets whose materialized data tree carries ``data/README.md``.
-_DATA_README_PRESETS = frozenset({"demo"})
-
-#: What the materialized ``data/README.md`` is overwritten with before the fold is read.
-#: The README is template prose that is expected to be rewritten, and the whole data
-#: tree folds into one digest, so its bytes would otherwise move the ``data/`` digest
-#: and both hashes on every wording change. Fixing them keeps this pin about the fold's
-#: structure and the rest of the material; the README is checked for presence instead.
-_FIXED_DATA_README = b"# data\n"
-
 #: The OSPREY version every materialization is emitted under. Emitted files carry an
 #: ``emitted by OSPREY <version>`` header line, and the tier files fold byte for byte,
 #: so the running version (which moves with every commit and with the tree's git state)
@@ -95,21 +85,17 @@ def _fold(repo: Path, preset: str) -> dict[str, Any]:
     }
 
 
-def _observe(parent: Path, preset: str) -> tuple[dict[str, Any], bool]:
-    """Materialize *preset* under *parent*; return its fold and whether the README existed."""
+def _observe(parent: Path, preset: str) -> dict[str, Any]:
+    """Materialize *preset* under *parent*; return its fold."""
     with pytest.MonkeyPatch.context() as patch:
         for module in _VERSION_READERS:
             patch.setattr(module, "__version__", _FIXED_OSPREY_VERSION)
         repo = _materialize(parent, preset)
-    readme = repo / "data" / "README.md"
-    existed = readme.is_file()
-    if preset in _DATA_README_PRESETS and existed:
-        readme.write_bytes(_FIXED_DATA_README)
-    return _fold(repo, preset), existed
+    return _fold(repo, preset)
 
 
 @pytest.fixture(scope="module")
-def observed(tmp_path_factory) -> dict[str, list[tuple[dict[str, Any], bool]]]:
+def observed(tmp_path_factory) -> dict[str, list[dict[str, Any]]]:
     """Each preset materialized twice, under two different parents."""
     return {
         preset: [
@@ -121,20 +107,22 @@ def observed(tmp_path_factory) -> dict[str, list[tuple[dict[str, Any], bool]]]:
 
 @pytest.mark.parametrize("preset", PRESETS)
 def test_fold_does_not_depend_on_the_parent_directory(observed, preset: str) -> None:
-    (first, _), (second, _) = observed[preset]
+    first, second = observed[preset]
     assert first == second
 
 
 @pytest.mark.parametrize("preset", PRESETS)
 def test_fold_equals_the_golden(observed, preset: str) -> None:
-    (fold, _), _ = observed[preset]
+    fold, _ = observed[preset]
     golden = json.loads(_GOLDEN.read_text(encoding="utf-8"))
     assert fold == golden[preset]
 
 
-@pytest.mark.parametrize("preset", sorted(_DATA_README_PRESETS))
-def test_materialization_writes_the_data_readme(observed, preset: str) -> None:
-    assert all(existed for _, existed in observed[preset])
+@pytest.mark.parametrize("preset", PRESETS)
+def test_the_fold_lists_no_retired_data_input(observed, preset: str) -> None:
+    fold, _ = observed[preset]
+    assert all(entry["label"] != "data" for entry in fold["inputs"])
+    assert all(not entry["key"].startswith("data/") for entry in fold["inputs"])
 
 
 def _regenerate() -> None:
@@ -142,7 +130,7 @@ def _regenerate() -> None:
     golden = {}
     for preset in PRESETS:
         with tempfile.TemporaryDirectory() as parent:
-            golden[preset], _ = _observe(Path(parent), preset)
+            golden[preset] = _observe(Path(parent), preset)
     _GOLDEN.parent.mkdir(parents=True, exist_ok=True)
     _GOLDEN.write_text(json.dumps(golden, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {_GOLDEN}")

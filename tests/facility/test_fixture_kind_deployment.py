@@ -14,7 +14,7 @@ roles, its own measurement sub-block, a view file, the facts its writer puts in
 each model's kind block, a settings patch of its model's engine, a build stop,
 and a facility-added signal role; its engine marks a record ``command`` and
 refuses a scenario fault on it. The built-in ``orm`` goes through the same
-registry beside it. The tree is a ``data/facility/`` tree in the deployment
+registry beside it. The tree is a ``facility/`` tree in the deployment
 repository, not a mounted machine repository.
 """
 
@@ -140,7 +140,7 @@ def _deploy(
     from tests.facility._synthetic_trees import write_tree
 
     repo = init_project(parent, "hello-world", "demo")
-    facility = repo / "data" / "facility"
+    facility = repo / "facility"
     shutil.rmtree(facility)
     write_tree(repo / MACHINE_DIR if mounted else facility, copy.deepcopy(tree))
     if mounted:

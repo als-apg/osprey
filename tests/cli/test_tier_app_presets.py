@@ -98,7 +98,6 @@ TIER_NAMES = ("readonly", "readwrite", "admin")
 _ROOT_ONLY_KEYS = frozenset(
     {
         "extends",
-        "data",
         "project_name",
         "deploy",
         "deploy_services",
@@ -306,7 +305,7 @@ APP_REQUIRED_KEYS = frozenset(
 )
 _APP_LIST_KEYS = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
 _APP_FORBIDDEN_KEYS = frozenset(
-    {"extends", "exclude", "services", "deployed_services", "provider", "data", "deploy_services"}
+    {"extends", "exclude", "services", "deployed_services", "provider", "deploy_services"}
 )
 
 # The tool servers the flagship host runs. A shared login's render starts from

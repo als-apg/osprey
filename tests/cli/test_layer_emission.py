@@ -596,56 +596,39 @@ def test_an_unreadable_access_value_is_refused_rather_than_raised(
 
 
 # ---------------------------------------------------------------------------
-# Build exhaust never travels with the data tree (wheel/source parity)
+# Build exhaust never travels with the packaged content (wheel/source parity)
 # ---------------------------------------------------------------------------
-
-
-def test_data_copy_ignore_drops_only_the_named_subtree(tmp_path: Path) -> None:
-    """``benchmarks/results`` is dropped; a same-named directory anywhere else,
-    and its sibling staging dirs, are not."""
-    import shutil
-
-    from osprey.cli.profile_cmd import _data_copy_ignore
-
-    source = tmp_path / "src"
-    for rel in ("benchmarks/results", "benchmarks/channel_finder", "results", "raw/results"):
-        (source / rel).mkdir(parents=True)
-        (source / rel / "f.txt").write_text("x", encoding="utf-8")
-
-    shutil.copytree(source, tmp_path / "dst", ignore=_data_copy_ignore(source))
-
-    dst = tmp_path / "dst"
-    assert not (dst / "benchmarks" / "results").exists()
-    assert (dst / "benchmarks" / "channel_finder" / "f.txt").is_file()
-    assert (dst / "results" / "f.txt").is_file()
-    assert (dst / "raw" / "results" / "f.txt").is_file()
 
 
 def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A source checkout that has run the channel-finder benchmark holds
-    ``data/benchmarks/results/``; a wheel install never does. Emission must be
-    the same tree either way, so the copy drops it.
+    ``data/benchmarks/results/`` exhaust in the app template; a wheel install
+    never does. Emission must be the same tree either way: the template's
+    ``data/`` is never copied.
 
     The checkout is a copy of the shipped template tree: other tests read the
     real one while this runs beside them."""
     import shutil
 
+    from osprey import repo_layout
     from osprey.cli.templates.manager import TemplateManager
 
     root = tmp_path / "templates"
     shutil.copytree(
         TemplateManager().template_root, root, ignore=shutil.ignore_patterns("__pycache__")
     )
-    results = root / "apps" / "demo" / "data" / "benchmarks" / "results"
-    results.mkdir(parents=True, exist_ok=True)
+    app = root / "apps" / "demo"
+    results = app / "data" / "benchmarks" / "results"
+    results.mkdir(parents=True)
     (results / "run-from-a-test.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(TemplateManager, "_get_template_root", lambda self: root)
 
     target = tmp_path / "my-facility"
     assert _new(runner, target, "demo").exit_code == 0
 
-    assert not (target / "data" / "benchmarks" / "results").exists()
+    assert not (target / "data").exists()
     # The sibling staging dir the bundle really ships still comes across.
-    assert (target / "data" / "facility" / "benchmarks" / "channel_finder").is_dir()
+    facility = target / repo_layout.entry("facility").path
+    assert (facility / "benchmarks" / "channel_finder").is_dir()

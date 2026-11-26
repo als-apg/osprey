@@ -576,8 +576,8 @@ markdown file, listed in config:
    modules.web_terminals:
      landing:
        notices:
-       - data/landing/working-safely.md
-       - data/landing/local-procedures.md
+       - web/landing/working-safely.md
+       - web/landing/local-procedures.md
        footer: "Example Research Facility control room. Questions: ext. 5555."
 
 The file's first heading (``# Working safely with the agent``) becomes the
@@ -585,7 +585,7 @@ section label, and everything after it becomes the panel. So adding a section
 means writing a file and listing it — there is no schema to learn, and nothing
 about the text lives in ``config.yml``.
 
-``osprey init`` writes a starter ``data/landing/working-safely.md`` into your
+``osprey init`` writes a starter ``web/landing/working-safely.md`` into your
 project. It is yours: rewrite it for your facility, or drop it and list your own
 files instead. Sections appear in the order you list them, and each one gets an
 id from its filename, so you can point someone at

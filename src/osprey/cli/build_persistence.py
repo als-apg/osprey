@@ -177,7 +177,7 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
 
     Feeds the unknown-root-entry warning's ``extra_known``: the profile's own
     filename plus the first path component of every profile-relative path the
-    profile declares — ``data:``, ``machine:`` (the mounted machine root, often
+    profile declares — ``machine:`` (the mounted machine root, often
     a git submodule), ``dispatch.triggers``, each ``services.*.template``, the
     mounted ``optimizer.environments_dir`` and ``bluesky.plan_dir``, each host
     path of ``bluesky.external.parameter_schemas``, and every local-path
@@ -191,7 +191,7 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     if profile_path is not None:
         known.append(profile_path.name)
 
-    candidates: list[str | None] = [profile.data, profile.machine]
+    candidates: list[str | None] = [profile.machine]
     if profile.dispatch is not None:
         candidates.append(profile.dispatch.triggers)
     candidates.extend(service.template for service in profile.services.values())
@@ -328,8 +328,7 @@ def _apply_conventions(
         context_users: Resolved web-terminal roster. ``None`` or empty skips
             the per-user category.
         extra_known: Profile-root entry names the caller knows about beyond
-            the defaults (a non-default ``data:`` directory or profile
-            filename), exempted from the unknown-entry warning.
+            the defaults (a non-default profile filename), exempted from the unknown-entry warning.
         excluded: Category-qualified artifact names a resolved layer
             excludes (``agents/orbit-writer``). An excluded copy is skipped
             entirely — whatever it would have shadowed keeps the framework

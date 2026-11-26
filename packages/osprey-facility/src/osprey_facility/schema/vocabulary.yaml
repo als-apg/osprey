@@ -4,7 +4,7 @@ title: Facility vocabulary
 description: >-
   The shared device-class tree, signal roles and property names a facility file
   refers to by name, with the aliases people use for them. A facility adds device
-  classes as children of these classes in data/facility/vocabulary/classes.yaml.
+  classes as children of these classes in facility/vocabulary/classes.yaml.
 
 prefixes:
   narad_sem: https://narad.example.org/schema/shared_semantics/

@@ -11,11 +11,10 @@ different kinds of thing:
   README explaining the zones, the ``ops/ci-extra.yml`` include point — are
   compared BYTE FOR BYTE. Those are the repo's own shell, and the exemplar is
   their specification.
-* The ``data/`` tree is compared on SHAPE alone — ~2 MB of packaged bundle
-  against the exemplar's ~20 hand-authored files, which exist to pin paths
-  rather than content. Every path the exemplar names must be present.
-* ``data/README.md`` is the exception: it is copied from the package, the
-  exemplar reads that same file, and the two are compared byte for byte.
+* The ``facility/`` and ``web/`` trees are compared on SHAPE alone — ~2 MB
+  of packaged bundle against the exemplar's ~20 hand-authored files, which
+  exist to pin paths rather than content. Every path the exemplar names must
+  be present.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
   ``the retired layer directory*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
   That is the full TR-4 contract: the packaged prose is the exemplar's, down
@@ -358,12 +357,6 @@ def test_the_preset_lists_no_application(exemplar_repo: Path) -> None:
     assert not (exemplar_repo / APPS_DIRNAME).exists()
 
 
-def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
-    """Init copies the preset's ``data/README.md`` through unchanged."""
-    emitted = exemplar_repo.joinpath("data/README.md").read_text(encoding="utf-8")
-    assert emitted == exemplar_source_files(with_ci=False)["data/README.md"]
-
-
 def test_source_lives_at_the_repo_root(exemplar_repo: Path) -> None:
     """No ``profile/`` nesting: the repo root IS the profile root."""
     assert (exemplar_repo / "profile.yml").is_file()
@@ -481,9 +474,9 @@ def test_init_refuses_a_stated_name_compose_would_rewrite(
     assert not target.exists()
 
 
-def test_data_key_names_the_repos_own_tree(exemplar_repo: Path) -> None:
+def test_the_profile_names_no_data_tree(exemplar_repo: Path) -> None:
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
-    assert profile["data"] == "data"
+    assert "data" not in profile
     assert profile["provenance"]["preset"] == "demo"
 
 
@@ -788,7 +781,7 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     # assertion below reads a re-materialized file as the operator's edit.
     replaced_marker = "REPLACED-BY-FORCE-MARKER"
     (exemplar_repo / "profile.yml").write_text(f"name: {replaced_marker}\n", encoding="utf-8")
-    (exemplar_repo / "data" / "stale.json").write_text("{}\n", encoding="utf-8")
+    (exemplar_repo / "facility" / "stale.json").write_text("{}\n", encoding="utf-8")
 
     result = init_exemplar(runner, exemplar_repo, "--force")
 
@@ -810,7 +803,7 @@ def test_force_replaces_the_source_zone_and_nothing_else(
     assert destroyed == []
     # …and the source zone really was re-materialized, so the test cannot pass
     # by the command having done nothing at all.
-    assert not (exemplar_repo / "data" / "stale.json").exists()
+    assert not (exemplar_repo / "facility" / "stale.json").exists()
     assert replaced_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
 
 
@@ -861,7 +854,7 @@ def test_the_zone_row_names_a_seeded_directory_only_when_one_was_seeded() -> Non
 def test_the_settings_row_lists_the_source_entries_in_table_order() -> None:
     """The README's "Your settings" cell: the replaced source entries but OSPREY's record."""
     assert _settings_row() == (
-        "`profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, "
+        "`profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `apps/`, `triggers.yml`, "
         "`agent/context/`, `agent/watchdogs/`, `agent/code_review/`"
     )
     assert _settings_row(("agent/mcp_servers",), True).endswith(
@@ -870,7 +863,8 @@ def test_the_settings_row_lists_the_source_entries_in_table_order() -> None:
     assert _settings_row(
         (), True, frozenset({"tiers/", "apps/", "agent/watchdogs/", "agent/code_review/"})
     ) == (
-        "`profile.yml`, `providers.yml`, `data/`, `triggers.yml`, `agent/context/`, `agent/rules/`"
+        "`profile.yml`, `providers.yml`, `facility/`, `web/`, `triggers.yml`, `agent/context/`, "
+        "`agent/rules/`"
     )
 
 
@@ -880,7 +874,7 @@ def test_the_zone_sentence_leaves_out_what_the_repo_lacks() -> None:
 
     assert "`apps/`" not in entries
     assert "`.gitlab-ci.yml`" not in entries
-    assert entries[:3] == ["`profile.yml`", "`providers.yml`", "`data/`"]
+    assert entries[:4] == ["`profile.yml`", "`providers.yml`", "`facility/`", "`web/`"]
     assert [f"`{name}`" for name in WRITE_ONCE_FILES] == entries[-len(WRITE_ONCE_FILES) - 1 : -1]
     assert entries[-1] == f"`{CI_EMITTED_PATHS[-1]}`"
 
@@ -903,7 +897,7 @@ def test_the_readme_names_only_entries_the_repo_has(
     (sentence,) = re.findall(r"^In full, the first row is: (.+)\.$", readme, re.MULTILINE)
     named = [name.strip("`") for name in (*row.split(", "), *sentence.split(", "))]
 
-    assert {"profile.yml", "providers.yml", "data/"} <= set(named)
+    assert {"profile.yml", "providers.yml", "facility/"} <= set(named)
     assert [name for name in named if not (target / name.rstrip("/")).exists()] == []
     if with_ci:
         assert {*CI_EMITTED_PATHS} <= set(named)
@@ -911,7 +905,7 @@ def test_the_readme_names_only_entries_the_repo_has(
 
 def test_the_already_a_repo_message_lists_the_replaced_entries_in_table_order() -> None:
     assert (
-        "which replaces profile.yml, data/, tiers/, apps/, triggers.yml, "
+        "which replaces profile.yml, facility/, web/, tiers/, apps/, triggers.yml, "
         "agent/context/, .env.example, agent/watchdogs/ and agent/code_review/, losing any "
         "edit to them, "
         "and rewrites .osprey/. In providers.yml the entries OSPREY ships are reset"
@@ -924,7 +918,7 @@ def test_the_force_help_lists_the_replaced_entries_in_table_order() -> None:
     }
     assert option_help["force"].startswith(
         "Re-materialize the source zone of an existing deployment repo, discarding edits to "
-        "profile.yml, data/, tiers/, apps/, triggers.yml, agent/context/, "
+        "profile.yml, facility/, web/, tiers/, apps/, triggers.yml, agent/context/, "
         ".env.example, agent/watchdogs/, and agent/code_review/, and rewriting .osprey/. In providers.yml the entries "
         "OSPREY ships are reset"
     )
@@ -1064,7 +1058,8 @@ EXEMPLAR_REPORT = f"""\
 ✓ Created {EXEMPLAR_DIRNAME}
 
   profile.yml   your assistant's settings; edit this
-  data/         channel lists and facility docs; edit these
+  facility/     channel lists and facility docs; edit these
+  web/          the screens and pages the web panels show
   tiers/        the logins of your assistant: admin, channel-finder, knowledge, logbook, readonly, readwrite
   .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
@@ -1622,7 +1617,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         stale_marker = "STALE-FROM-THE-LAST-DEPLOYMENT"
         (exemplar_repo / "profile.yml").write_text(f"name: {stale_marker}\n", encoding="utf-8")
-        (exemplar_repo / "data" / "orphan.json").write_text("{}\n", encoding="utf-8")
+        (exemplar_repo / "facility" / "orphan.json").write_text("{}\n", encoding="utf-8")
         env = exemplar_repo / ".env"
         env.write_text("MY_PROVIDER_KEY=keepme\n", encoding="utf-8")
 
@@ -1630,7 +1625,7 @@ class TestResetFlag:
 
         assert result.exit_code == 0, result.output
         assert stale_marker not in (exemplar_repo / "profile.yml").read_text(encoding="utf-8")
-        assert not (exemplar_repo / "data" / "orphan.json").exists()
+        assert not (exemplar_repo / "facility" / "orphan.json").exists()
         assert "MY_PROVIDER_KEY=keepme" in env.read_text(encoding="utf-8")
 
     def test_init_reset_sweeps_the_recorded_project_with_the_recorded_runtime(

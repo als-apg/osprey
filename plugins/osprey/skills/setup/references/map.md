@@ -63,7 +63,7 @@ under `## Porting map (locked)`, below the word `none`.
 MAP ends with three facts. Ask only for the ones the inventory did not yield, and say
 where each one came from when it did:
 
-- **Facility name**, written as `name:` in `data/facility/identity.yaml`.
+- **Facility name**, written as `name:` in `facility/identity.yaml`.
 - **Timezone**, as an IANA name for `system.timezone`.
 - **Project name**, which becomes the repo directory, and which the web container
   names are built from.
@@ -95,11 +95,11 @@ is dropped.
 
 | Area | Source it consumes | Components, read from `demo.yml` |
 | --- | --- | --- |
-| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; shared login `logbook` (`tiers/logbook.yml`, named under `shared:`); `data/facility/ariel/vocabulary.yml` |
-| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; shared login `knowledge` (`tiers/knowledge.yml`, named under `shared:`); `data/facility/knowledge/`; the build's graph view |
-| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder`; shared login `channel-finder` (`tiers/channel-finder.yml`) |
+| LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; shared login `logbook` (`tiers/logbook.yml`, named under `shared:`); `facility/ariel/vocabulary.yml` |
+| KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; shared login `knowledge` (`tiers/knowledge.yml`, named under `shared:`); `facility/knowledge/`; the build's graph view |
+| CHANNEL FINDER | a channel list, CSV, IOC database, or an MML export | `channel_finder_mode` (`in_context`, `hierarchical` and `middle_layer` read the view the build writes under `build/data/channel_finder/`, `graph` reads the graph store; the build writes each from the facility file), `# ── Channel finder` group; agent `channel-finder`; shared login `channel-finder` (`tiers/channel-finder.yml`) |
 | WEB TERMINALS | named operator roles | `# ── Web terminal` and `# ── Multi-user web terminals` groups (`modules.web_terminals`, `deploy.fqdn`, the floor keys); the login files in `tiers/`, one per tier and one per shared login the roster names under `shared:`; the login wall |
-| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `data/facility/simulation/models.yaml`, `data/facility/simulation/decks/`, `data/facility/simulation/measurement/` and `data/facility/simulation/scenarios/` (written by `osprey facility import mml`, or authored) |
+| SIMULATION | a simulator or lattice the facility runs | `virtual_accelerator:`, `bluesky:`, `bluesky_web:`, `va_archiver:` blocks; agent `pyat-specialist`; skills `bluesky-*`; `osprey sim apply` for scenarios; `facility/simulation/models.yaml`, `facility/simulation/decks/`, `facility/simulation/measurement/` and `facility/simulation/scenarios/` (written by `osprey facility import mml`, or authored) |
 | EVENT DISPATCH | a trigger source (facility events) | `dispatch:` block; `events` panel; `dispatch.triggers` |
 | AGENT RECORD | nothing external | top-level `agent_record:` block (`backend`, `retention_days`, `readers`) |
 | DEPLOYMENT | a CI platform and a deploy host | `deploy:` block; `osprey scaffold ci` |
@@ -123,7 +123,7 @@ no other. It is what keeps the profile complete and the data facility-owned.
 
 1. **Keys.** In `demo.yml`, find the area's `# ── <Area> ──` group inside
    `config:`. Copy the whole group into the emitted profile's `config:` block, comments
-   included — after its last key, before the top-level `data:`. A repo that was already
+   included — after its last key, before the top-level `requires_osprey_version:`. A repo that was already
    `osprey init`-ed from that preset carries the same keys in its own `profile.yml`, so
    copy from there when you have one. From a pip install, the preset sits at
    `profiles/presets/demo.yml` under the package root
@@ -155,8 +155,8 @@ no other. It is what keeps the profile complete and the data facility-owned.
 Worked example, the facility knowledge bundle:
 
 ```
-osprey scaffold pull demo:data/facility/knowledge
-osprey set config.facility_knowledge.bundle_path=data/facility/knowledge
+osprey scaffold pull demo:facility/knowledge
+osprey set config.facility_knowledge.bundle_path=facility/knowledge
 ```
 
 plus `okf` in the profile's top-level `web_panels` list, which is what renders the
@@ -174,7 +174,7 @@ osprey set config.ariel.ingestion.source_url=<the facility's logbook endpoint or
 The adapter list is `osprey ariel ingest --help` (`-a`) and
 `<OSPREY_ROOT>/services/ariel_search/ingestion/adapters/`; a facility whose logbook has no adapter uses
 `generic_json` over an export and logs a `worked-around` candidate for the native
-adapter. `data/facility/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
+adapter. `facility/ariel/vocabulary.yml` arrives as a `localize` stub, never as the
 reference example's concepts.
 
 ## The web-terminal recipe
@@ -189,7 +189,8 @@ a hello-world base. Run all seven steps, in order.
 1. `osprey init <name> --preset hello-world`.
 2. From `src/osprey/profiles/presets/demo.yml`, copy the
    `modules.web_terminals:` block **and** its two floor keys into `profile.yml`. They go
-   inside `config:`, after its last key, before the top-level `data:`.
+   inside `config:`, after its last key, before the top-level
+   `requires_osprey_version:`.
 
    ```yaml
    claude_code.permissions.deny:
@@ -205,7 +206,7 @@ a hello-world base. Run all seven steps, in order.
 
    Two things arrive inside the pasted block that do not belong on this base:
 
-   - **`landing.notices:`** names `data/landing/working-safely.md`, which hello-world does
+   - **`landing.notices:`** names `web/landing/working-safely.md`, which hello-world does
      not ship. Nothing reports the missing file — validate and build both exit 0 and
      render the dead path into every login's config. Delete the key. Dropping it is what
      yields OSPREY's built-in safety notice; a facility that wants its own notice writes
@@ -274,7 +275,7 @@ reference example's own copy — never pull it.
   `example_server` entry under `mcp_servers:` in `profile.yml` and the
   `agent/mcp_servers/example_server/` directory together. One without the other costs every
   session a 20 second wait for a server that cannot start.
-- **`data/facility/limits.yaml`**, written already populated with three records for
+- **`facility/limits.yaml`**, written already populated with three records for
   the demo facility's channels: two setpoints with `min_value` / `max_value` bounds and
   one channel marked `writable: false`. The build renders the records into the limits
   database, `build/data/channel_limits.json`, and every write is checked against

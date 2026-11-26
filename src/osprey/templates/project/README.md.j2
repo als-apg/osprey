@@ -11,11 +11,98 @@ The files you own live one level up, beside `profile.yml`:
 - `profile.yml` — what to build; edit this, then run `osprey build`
 - `.env` — this host's API keys and secrets; a value set there survives every
   rebuild (`.env.example` beside it lists the ones this deployment supplies)
-- `data/` — your facility's channel database, limits and other data files
+- `facility/` — your facility's authored sources: its records, limits,
+  vocabulary, simulation, knowledge and benchmark queries
+- `web/` — the web content, when the deployment ships any: CANOPY screens,
+  collections and theme, and the landing page's notices
 
 What is rendered here: `config.yml` (the resolved settings), the agent's
-`.claude/` tree (rules, hooks, and MCP server wiring), and a working copy of
-your `data/` files.
+`.claude/` tree (rules, hooks, and MCP server wiring), `facility.json`, and
+under `data/` the views the build writes from `facility/` and a working copy
+of your `web/` content.
+
+## Your source tree
+
+One level up, as a preset ships it:
+
+```
+facility/                             # The facility's authored sources
+├── identity.yaml                     # The facility's code and display name
+├── records/                          # places, devices, channels, groups, relations
+├── limits.yaml                       # Write limits, one record per channel
+├── vocabulary/
+│   └── classes.yaml                  # Device classes, their parents and aliases
+├── provenance/
+│   ├── documents.yaml                # The facility's documents and the system holding each
+│   └── policy.yaml                   # Which document kind wins for each relation
+├── simulation/
+│   ├── models.yaml                   # Each simulated model, its engine and wiring
+│   ├── decks/                        # The deck each model runs
+│   ├── measurement/                  # The measurement kinds each model offers
+│   ├── seeds.yaml                    # Simulated channels' nominal values and noise
+│   └── scenarios/                    # Simulation scenarios, one YAML file each
+├── knowledge/                        # Markdown knowledge bundle
+├── benchmarks/
+│   └── channel_finder/               # Benchmark query sources, one per channel-finder pipeline
+└── ariel/
+    └── vocabulary.yml                # Logbook shorthand -> the words entries use
+web/                                  # Only when the preset ships web content
+├── canopy/
+│   ├── library/screens/              # CANOPY screens
+│   ├── collections/                  # CANOPY collections: screens and views opened together
+│   └── theme/                        # CANOPY colour theme
+└── landing/                          # Notices on the web terminal's landing page
+```
+
+A facility file holds data only. An importer writes its own layer under
+`facility/imported/<layer>/`: `osprey facility import mml` writes
+`facility/imported/mml/`. Edit the authored files; an import rewrites its own
+directory.
+
+`osprey build` reads `facility/` and writes the facility file and its views
+here, never back there: `facility.json` at the root of this directory, and
+under `data/` the limits view `channel_limits.json`, the facts view
+`facility_facts.json`, the simulator view `simulator/`, the graph view
+`graph/facility.ttl`, the channel-finder view `channel_finder/<mode>.json` and
+the benchmarks view `benchmarks/queries.json`. `osprey facility show` prints
+the facility the tree builds and each view's path.
+
+The benchmarks view writes `benchmarks/queries.json` from
+`facility/benchmarks/channel_finder/`: `in_context_queries.json` for
+`in_context`, `tree_queries.json` for every other mode. The query sources do
+not reach this directory.
+
+## CANOPY screens
+
+`web/canopy/library/` is the deployment's CANOPY screen library: the control
+system screens the web terminal's CANOPY panel lists and opens. Screens live
+under `web/canopy/library/screens/` as Screen-IR documents (`*.screen.json`),
+one file per screen, addressed by their path without the suffix.
+
+The library is baked into the image: after editing a screen, run
+`osprey build` and then `osprey up`; `osprey up` alone does not refresh it.
+
+## Database paradigms
+
+`channel_finder_mode` in the build profile picks one of three ways to organize
+the same channel namespace as a file; all three are views of the same
+facility records. The mode's fourth value, `graph`, is not one of them: it
+answers from the facility knowledge graph rather than a channel database. Its
+corpus is `data/graph/facility.ttl`, the graph view the build writes from
+`facility/`, seeded into the `services.graphdb` store.
+
+- `in_context` — flat: the whole database fits in the agent's context. Best
+  for fewer than about 1,000 channels.
+- `hierarchical` — nested: the agent navigates level by level, the facility's
+  place words by depth, then class, device and leaf. Best for more.
+- `middle_layer` — functional: System / Family / Field / Subfield, the way
+  operators reason about devices rather than the way the control system names
+  them.
+
+`osprey channel-finder validate` and `osprey channel-finder preview` check and
+show the active database; pass `--database data/channel_finder/<mode>.json` to
+name another. `osprey channel-finder benchmark --model <model>` evaluates
+accuracy against `data/benchmarks/queries.json`.
 
 ## Run it
 

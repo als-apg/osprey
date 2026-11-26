@@ -25,7 +25,7 @@ from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
 from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -131,7 +131,7 @@ def test_the_build_succeeds_disabled_and_enabled(
 def _child_profile(directory: Path, *lines: str) -> Path:
     profile = directory / "profile.yml"
     (directory / "data").mkdir()
-    text = "\n".join(("name: Narrowed", "extends: demo", "data: data", *lines, ""))
+    text = "\n".join(("name: Narrowed", "extends: demo", *lines, ""))
     profile.write_text(text, encoding="utf-8")
     return profile
 
@@ -197,7 +197,7 @@ def test_the_agent_profile_defines_the_twin_and_the_reader() -> None:
 def test_the_agent_profile_builds_with_both_enabled(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     shutil.copytree(FIXTURES / "agent-profile", repo)
-    copy_bundle_data(repo / "data", "hello_world")
+    shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8")
     head, block = text.split("watchdogs:\n", 1)

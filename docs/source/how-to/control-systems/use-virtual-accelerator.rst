@@ -74,7 +74,7 @@ What channels it serves
 =======================
 
 Your project's own. Every ``osprey build`` renders the facility definition
-under ``data/facility/`` into the simulator view, ``build/data/simulator/``,
+under ``facility/`` into the simulator view, ``build/data/simulator/``,
 which the compose file mounts at ``/data/simulator/``.
 
 The container serves the ``channels`` of the view's ``addresses.json``, which
@@ -201,19 +201,49 @@ runs beside it. ``control_target_set standin`` moves the deployment onto the sta
 ``control_target_set live`` from there walks the real go-live path, gates and
 all.
 
-The two simulated machines run one image over one simulator view. The
-stand-in carries no errors of its own: it exists to rehearse the live safety
-posture, not different physics. The two machines are told apart by a write to
+The two simulated machines run one image over one simulator view, so both
+serve the same channels and the same models. Each holds an active scenario set
+of its own. The two machines are told apart by a write to
 the sandbox not showing on the stand-in and by the model RPC status naming its
 instance (``virtual_accelerator`` or ``live_standin``). The label stays honest:
 the banner reads ``Rehearsal — nothing moves`` and the Web Terminal's header
 chip reads *Rehearsal*.
 :doc:`switch-control-target` has the ritual itself.
 
-**Scenarios reach both machines.** ``osprey sim apply`` writes one scenario file
-and both containers poll it, so a scenario changes the world rather than one
-lane. There is no scenario that applies to the simulator but not to the stand-in,
-and switching targets does not undo one.
+**Each machine has its own scenarios.** The simulator is the ``va`` instance
+and the stand-in the ``standin`` instance, and each polls a scenario file of
+its own. So the stand-in can run a set of errors while the simulator runs the
+clean model, which is what a commissioning rehearsal needs: the model you
+correct with on one side, the machine that disagrees with it on the other.
+
+- ``osprey sim apply --target standin <names>`` replaces the stand-in's set,
+  ``--target va`` the simulator's. Without ``--target`` the command acts on
+  the deployment's own target when the deployment runs that instance, else on
+  ``va``, and its output names the instance.
+- ``osprey sim list --target standin`` marks the stand-in's active set, and
+  ``osprey sim status`` prints the active set of the target it reports on.
+- A scenario file states where it starts: ``start: true`` on every instance,
+  ``start_on: [standin]`` on the stand-in alone
+  (:ref:`reference-scenario-files`).
+- The logbook, the stored archive and the example sessions follow the ``va``
+  set. A set applied to the stand-in changes its telemetry and nothing stored.
+  On a deployment whose own target is the stand-in, that is what a plain
+  ``osprey sim apply`` does; ``--target va`` changes the set the stored data
+  follows.
+
+Switching targets changes neither set.
+
+.. note::
+
+   Until instances had sets of their own, both containers read the one
+   scenario file, and a deployment rendered then still mounts it into both.
+   The split takes effect when the deployment is built again: run
+   ``osprey build``, then ``osprey up``. That ``osprey up`` gives a stand-in
+   that was already running its own start set, copies nothing, and prints one
+   line that names the set it followed and the command that puts it back.
+   Until the build, both instances follow the ``va`` set: ``osprey up`` and
+   ``osprey sim apply`` say so, and ``--target standin`` is refused with the
+   two commands to run.
 
 **The archive belongs to the machine.** The store this deployment seeds and
 records is the simulator's, with or without a stand-in. The recorder samples
@@ -360,7 +390,7 @@ Scenarios give tests, demos and rehearsals a known machine state: a fault for
 the agent to find, with the archive history and logbook entries that go with
 it.
 
-You write each scenario as one YAML file under ``data/facility/simulation/scenarios/``.
+You write each scenario as one YAML file under ``facility/simulation/scenarios/``.
 ``osprey build`` serves the scenarios from the simulator view under
 ``build/data/simulator/``. The ``osprey sim`` commands list, apply and report
 on them; :ref:`cli-osprey-sim` has their options.
@@ -369,7 +399,7 @@ The scenarios the demo ships
 ----------------------------
 
 The demo preset ships seven scenarios in
-``data/facility/simulation/scenarios/``:
+``facility/simulation/scenarios/``:
 
 .. list-table::
    :header-rows: 1
@@ -459,7 +489,8 @@ What a switch does to the running simulator
 -------------------------------------------
 
 ``osprey sim apply <scenario>`` works the same in both venues (`Two venues`_).
-It writes the project's ``var/agent_data/simulation/active_scenarios`` file,
+It writes the project's ``var/agent_data/simulation/active_scenarios`` file
+(``var/agent_data/simulation/standin/active_scenarios`` for the stand-in's set),
 and the simulator re-reads the file on its next pass (``simulation.tick_s``,
 1 s by default). The machine then starts again at the new set's start state:
 setpoints written during the session are dropped, served and in process alike.
@@ -469,7 +500,8 @@ The served simulator's container mounts two directories:
 - the render's data root, ``build/data``: read-only, holding the simulator view
   the build writes, rebuilt on every ``osprey build``;
 - the scenario state directory, ``var/agent_data/simulation``: written by
-  ``osprey sim apply`` while the system runs.
+  ``osprey sim apply`` while the system runs. The stand-in's container mounts
+  its own, the ``standin/`` directory inside it.
 
 Both mounts are automatic for the deployed service.
 
@@ -492,12 +524,12 @@ Write a scenario
 
 To add a scenario to your facility:
 
-#. Create ``data/facility/simulation/scenarios/<name>.yaml``. The file name is the
+#. Create ``facility/simulation/scenarios/<name>.yaml``. The file name is the
    scenario name.
 #. Add the keys the scenario needs, from :ref:`reference-scenario-files`.
    Every key is optional.
 #. If a logbook entry has attachments, put the files in the folder
-   ``data/facility/simulation/scenarios/<name>/`` beside the scenario file.
+   ``facility/simulation/scenarios/<name>/`` beside the scenario file.
 #. Check the sources with ``osprey facility validate``, which writes nothing.
    An address, model or key the facility does not have stops the check, and
    the error names the file.
@@ -510,7 +542,7 @@ Serving your facility's own model
 
 To version the model with the other machine facts apart from any one
 deployment, keep them in a :doc:`machine repository <machine-repository>`;
-``data/facility/`` in this section is then its machine root.
+``facility/`` in this section is then its machine root.
 
 .. toctree::
    :hidden:
@@ -520,8 +552,8 @@ deployment, keep them in a :doc:`machine repository <machine-repository>`;
 A pyAT lattice
 --------------
 
-#. Stage the deck in the facility tree as ``data/facility/simulation/decks/<model>.json``.
-#. Name it in the model's record in ``data/facility/simulation/models.yaml``, with the
+#. Stage the deck in the facility tree as ``facility/simulation/decks/<model>.json``.
+#. Name it in the model's record in ``facility/simulation/models.yaml``, with the
    ``wiring`` that ties each channel to an element of the deck:
 
    .. code-block:: yaml
@@ -928,6 +960,14 @@ plain float.
      - none
      - The apertures of single elements, a list of items read in order; see
        *Apertures per element* below.
+   * - ``pickup``
+     - none
+     - The button pickup of every monitor of the ring; see *Button pickups*
+       below. Unstated, a monitor reads the beam position as it is.
+   * - ``pickups``
+     - none
+     - The pickups of single monitors, a list of items read in order; see
+       *Button pickups* below.
    * - ``sum_per_charge``
      - ``1.0``
      - Sum per unit of the shot's charge.
@@ -955,8 +995,8 @@ plain float.
 
 Every number but ``launch``, ``alpha`` and ``dispersion`` in ``twiss``, and a
 rectangle's limits is finite and not negative; an unknown key, also inside
-``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture`` or an
-``apertures`` item, stops the build. The apertures decide when an RF-off bunch
+``launch``, ``jitter``, ``twiss``, ``mismatch``, ``aperture``, an
+``apertures`` item, ``pickup`` or a ``pickups`` item, stops the build. The apertures decide when an RF-off bunch
 is lost; they are the facility's to calibrate.
 
 **Apertures per element.** A vacuum chamber is not one pipe: it narrows in the
@@ -1059,7 +1099,7 @@ client moves it while the ring is served:
 
 .. code-block:: yaml
 
-   # data/facility/simulation/scenarios/injection-error.yaml
+   # facility/simulation/scenarios/injection-error.yaml
    overrides:
      SIM:RING:INJ:OFFSET:X: 4.0e-4
      SIM:RING:INJ:OFFSET:PX: -8.0e-5
@@ -1145,6 +1185,188 @@ As a fault of the running model its name is
 ``SIM:RING:BPM01:TBT:SUM/gain``. Where two records read one monitor's sum,
 the first carries the gain. A ``turn_sum`` record takes no other fault field,
 and a ``turn_x`` or ``turn_y`` record none at all.
+
+**Button pickups.** A real monitor does not measure a position. It has
+buttons on the chamber wall, each reads more of a beam that is closer to it,
+and the electronics form the sum and the two positions from the button
+signals. Both therefore depend on where the beam is: the sum is not the same
+for one charge everywhere in the chamber, and a position far from the centre
+reads short of the true one. A monitor that states a pickup is read that way.
+A monitor that states none reads as described above, to the last bit.
+
+.. code-block:: yaml
+
+   - name: RING
+     settings:
+       pyat:
+         turn_by_turn:
+           injection_element: INJ_POINT
+           pickup:
+             shape: round
+             radius: 0.016
+             buttons: [45, 135, 225, 315]
+             half_width: 14
+             x: {plus: [1, 4], minus: [2, 3]}
+             y: {plus: [1, 2], minus: [3, 4]}
+           pickups:
+             - elements: [BPM07, BPM08]
+               shape: table
+               table: pickups/flat-chamber.json
+               buttons: 4
+               interpolation: bicubic
+               x: {plus: [1, 4], minus: [2, 3], scale: 0.0125}
+               y: {plus: [1, 2], minus: [3, 4]}
+
+``pickup`` is the pickup of every monitor of the ring. Each ``pickups`` item
+states one in the same words and names its monitors' deck elements under
+``elements``; a monitor takes the last item that names it, and the ring's
+``pickup`` where none does. A pickup has one of two shapes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Key
+     - Meaning
+   * - ``shape: round``
+     - Buttons on a round pipe.
+   * - ``radius``
+     - The pipe's radius in metres, above 0.
+   * - ``buttons``
+     - The centre angle of each button in degrees, counterclockwise from the
+       positive x axis, looking along the beam; two buttons or more. Their
+       order numbers them from 1.
+   * - ``half_width`` or ``diameter``
+     - The buttons' size, exactly one of the two: the angular half-width in
+       degrees, above 0 and at most 90, or the diameter in metres. A diameter
+       is read as an arc of that width along the wall, a half-width of
+       ``diameter / (2 * radius)`` radians.
+   * - ``shape: table``
+     - Each button's response on a grid, computed outside OSPREY, for a
+       chamber that is not round.
+   * - ``table``
+     - The table's JSON file, relative to the directory of the model's deck.
+       It may sit anywhere in the facility tree: a render copies it beside
+       its copy of the deck, as ``decks/<model>.<file name>``.
+   * - ``buttons``
+     - How many buttons the table holds, two or more.
+   * - ``interpolation``
+     - ``bilinear`` (the default) or ``bicubic``, how the table is read
+       between its grid points.
+
+Both shapes state the electronics' difference over sum, one map per plane:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Key
+     - Meaning
+   * - ``x.plus``, ``x.minus``
+     - The numbers of the buttons that add to and subtract from the
+       horizontal difference. Both lists are required; a button is in at most
+       one of them.
+   * - ``x.scale``
+     - The horizontal reading per unit of difference over sum, in metres.
+       Unstated, it is the scale that makes the reading exact to first order
+       at the centre, computed from the geometry or, for a table, from the
+       table's slope at the centre.
+   * - ``y.plus``, ``y.minus``, ``y.scale``
+     - The same for the vertical reading.
+
+A round pickup's button reads the wall image charge of the beam averaged over
+its arc. For a button at angle :math:`\varphi` of half-width :math:`\delta`
+on a pipe of radius :math:`a`, and a beam at :math:`(r, \theta)`, that is
+
+.. math::
+
+   1 + 2 \sum_{n \ge 1} \left(\frac{r}{a}\right)^{n}
+   \cos\bigl(n(\theta - \varphi)\bigr)\,
+   \frac{\sin n\delta}{n\delta} ,
+
+which OSPREY evaluates in closed form, with no truncation. Four buttons at
+45 degrees to the axes so read a sum that is larger for a beam displaced
+towards a button and smaller for one displaced along an axis, by an amount
+that grows with the fourth power of the displacement. A beam at or beyond
+99.9 % of the radius is read at that share of it, in its own direction.
+
+A table is a JSON map of three keys. ``x`` and ``y`` are the grid, in metres:
+each two or more values, increasing in equal steps, with 0 inside their
+range. ``buttons`` holds one array per button, each ``len(y)`` rows of
+``len(x)`` responses, none negative; row ``j``, column ``i`` is the response
+to a beam at ``(x[i], y[j])``. Only the ratios matter: the table is divided
+by the sum of its responses at the centre, which must be above 0. A beam
+outside the grid is read at the grid's edge, plane by plane, so make the grid
+as wide as the chamber.
+
+.. code-block:: json
+
+   {"x": [-0.002, 0.0, 0.002],
+    "y": [-0.001, 0.0, 0.001],
+    "buttons": [[[0.91, 1.0, 1.10], [0.95, 1.05, 1.16], [1.0, 1.10, 1.22]],
+                [[1.10, 1.0, 0.91], [1.16, 1.05, 0.95], [1.22, 1.10, 1.0]],
+                [[1.22, 1.10, 1.0], [1.16, 1.05, 0.95], [1.10, 1.0, 0.91]],
+                [[1.0, 1.10, 1.22], [0.95, 1.05, 1.16], [0.91, 1.0, 1.10]]]}
+
+With a pickup stated, a monitor's three arrays are formed in this order:
+
+1. The injected weight of a sample is the shot's charge times the share of
+   the bunch alive times ``sum_per_charge``; the stored weight is, with the
+   RF on, the stored current times ``sum_per_stored``.
+2. Each button's signal is its gain times the sum of the injected weight
+   times its response at the bunch's centroid and the stored weight times its
+   response at zero. The injected bunch and the stored beam so add at the
+   buttons, not as two positions.
+3. The beam sum is the sum of the button signals. A position is the plane's
+   ``scale`` times its ``plus`` buttons minus its ``minus`` buttons, over the
+   beam sum.
+4. There is beam to read where that beam sum, button gains included and the
+   monitor's sum gain not, exceeds ``sum_floor``.
+5. The positions take ``position_noise``, then the monitor's read-out
+   faults, ``floor_noise`` where there is no beam, and the pilot tone, as
+   without a pickup.
+6. The sum array is the beam sum times the monitor's sum gain, plus
+   ``sum_noise``, floored at ``sum_floor``, plus the pilot tone, as without
+   a pickup.
+
+The responses to a centred beam sum to 1, so a centred beam on buttons of
+gain 1 reads the sum it reads without a pickup; the two agree to floating-
+point rounding, not bit for bit.
+
+Each button has a gain of its own, a fault on the monitor's ``turn_sum``
+record beside the sum gain: ``button_1`` to ``button_<N>``, ``1`` when
+unstated and between 0 and 10. A facility states measured button gains there
+and a scenario weakens or kills a button:
+
+.. code-block:: yaml
+
+   faults:
+     RING:
+       SIM:RING:BPM01:TBT:SUM: {button_1: 0.95}
+       SIM:RING:BPM02:TBT:SUM: {button_3: 0.0, gain: 1.08}
+
+Uneven buttons show as an offset in both positions with no offset stated: a
+button that is weaker by a small share :math:`d` moves each plane it adds to
+by about ``-scale * d / N`` for ``N`` buttons, and each plane it subtracts
+from by as much the other way. With every button at 0 the monitor reads no
+beam. As a fault of the running model the name is
+``SIM:RING:BPM01:TBT:SUM/button_1``. A monitor with no pickup carries no
+button gain, and one with a pickup but no ``turn_sum`` record wired has none
+to state.
+
+The limits of the model:
+
+- OSPREY serves the raw difference over sum times the scale, as the
+  electronics do. It applies no linearisation; a correction polynomial is the
+  reading application's.
+- The buttons read the bunch at its centroid, not particle by particle, so a
+  bunch as wide as the chamber reads as a point.
+- The stored beam is read at zero, not at its closed orbit.
+- A monitor's ``roll`` fault turns the pair of readings, as before; it does
+  not turn the buttons.
+- The orbit readings of the same monitor do not use the pickup: they read the
+  closed orbit as it is, through the monitor's read-out faults alone.
+- The trajectory response, below, is the deck's and shows no pickup.
 
 With the pilot tone on, every sample whose index is a
 multiple of ``tone_period`` carries a spike in all three arrays. The noise is
@@ -1313,7 +1535,7 @@ image has to be on the host or pullable where it is named;
 Write limits
 ============
 
-Channels with a record in ``data/facility/limits.yaml`` carry a min/max range,
+Channels with a record in ``facility/limits.yaml`` carry a min/max range,
 and a write outside that range is rejected before it reaches the IOC; an
 in-range write goes through. The write switch's positions apply
 unchanged — the Virtual Accelerator connector inherits the same write-safety
@@ -1363,11 +1585,11 @@ rule is on :ref:`write-safety-config`.
    out. A block stating one of them alone is refused by ``osprey build`` and
    ``osprey validate``, naming the one that is missing. The limits database
    itself stays deployment-wide — the build renders one limits database from
-   ``data/facility/limits.yaml`` for every target, and a per-type block does
+   ``facility/limits.yaml`` for every target, and a per-type block does
    not take a path.
 
    With the pair above, a write to the simulator is still checked against the
-   ranges the records in ``data/facility/limits.yaml`` give. What changes is
+   ranges the records in ``facility/limits.yaml`` give. What changes is
    that a channel with *no* record is allowed through on the simulator, and
    refused on the live machine and the stand-in. That strict
    posture is what a switch to either real-machine target requires, and

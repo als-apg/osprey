@@ -531,7 +531,7 @@ def generate_manifest(
 
         # The path the build resolved, never the string the user typed: the two
         # only agree while the process stays in the invocation directory, and a
-        # profile's data/overlay trees are anchored on it.
+        # profile's source and overlay trees are anchored on it.
         hashed_profile = build_args.get("profile_path_abs") or profile_path
         if hashed_profile:
             preset_hash = _build_profile.compute_profile_hash(Path(hashed_profile))

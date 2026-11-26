@@ -757,7 +757,7 @@ class ResetPlan:
         )
         tracked = ", ".join(
             repo_layout.listing_name(repo_layout.entry(key))
-            for key in ("profile.yml", "data", "tiers", "triggers.yml", "scripts")
+            for key in ("profile.yml", "facility", "web", "tiers", "triggers.yml", "scripts")
         )
         kept.append(f"    {tracked} — the tracked source zone, and .git/ with it.")
         for filename, holds, refresh in WEB_CREDENTIAL_FILES:
@@ -821,27 +821,16 @@ class ResetPlan:
             f"    {STATE_DIR_NAME}/  everything outside the entries listed above, including "
             "any --archive tarballs."
         )
-        # The certificates live in the state zone, which a reset keeps; a
-        # deployment that has not started since they moved out of the data tree
-        # still holds them at data/bluesky_curve/, which a reset never touches.
-        data_dir = self.repo_root / repo_layout.entry("data").path
-        for curve_dir, shown, zone in (
-            (self.repo_root / RUNTIME_DIR_RELPATH, f"{RUNTIME_DIR_RELPATH}/", "state"),
-            (
-                data_dir / "bluesky_curve",
-                f"{repo_layout.display_path('data', 'bluesky_curve')}/",
-                "source",
-            ),
-        ):
-            if curve_dir.is_dir():
-                kept.append(
-                    f"    {shown}  the document-plane CURVE certificates, which live "
-                    f"in the {zone} zone. They are"
-                )
-                kept.append(
-                    "      regenerated only when absent, so a reset leaves this deployment's "
-                    "existing key material in place."
-                )
+        # The certificates live in the state zone, which a reset keeps.
+        if (self.repo_root / RUNTIME_DIR_RELPATH).is_dir():
+            kept.append(
+                f"    {RUNTIME_DIR_RELPATH}/  the document-plane CURVE certificates, which live "
+                "in the state zone. They are"
+            )
+            kept.append(
+                "      regenerated only when absent, so a reset leaves this deployment's "
+                "existing key material in place."
+            )
         return kept
 
     def _path_note(self, path: Path) -> str:

@@ -22,6 +22,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.init_cmd import init
 from tests._builds import copy_build, strip_machine
 from tests._preset_data import packaged_facility_dir
@@ -84,7 +85,7 @@ def test_a_replaced_facility_leaves_no_stale_identity(tmp_path, built_demo):
 
     new_name = "Second Test Facility"
     strip_machine(repo)
-    (repo / "data" / "facility" / "identity.yaml").write_text(
+    (repo / repo_layout.entry("facility").path / "identity.yaml").write_text(
         yaml.safe_dump({"code": "stf", "name": new_name}), encoding="utf-8"
     )
     _build(repo)

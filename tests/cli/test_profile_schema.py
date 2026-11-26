@@ -10,7 +10,6 @@ and the ``_KNOWN_PROFILE_KEYS`` membership.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -25,20 +24,6 @@ from osprey.cli.build_profile import (
 from osprey.cli.build_profile_presets import resolve_triggers_path
 from osprey_connectors.errors import BuildProfileError
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
-def _profile(**fields: Any) -> BuildProfile:
-    """A :class:`BuildProfile` carrying the keys every deployment must spell.
-
-    Only ``data:`` so far: it names the facility data tree a build copies, and
-    a profile without it is refused before any of the per-field rules below is
-    reached. ``tests/cli/test_profile_data_key.py`` owns the ``data:`` rules
-    themselves.
-    """
-    fields.setdefault("data", "data")
-    return BuildProfile(**fields)
-
 
 def _write_triggers(tmp_path: Path, name: str = "trig.yml") -> str:
     """Write a minimal triggers file into ``tmp_path`` and return its name."""
@@ -48,13 +33,13 @@ def _write_triggers(tmp_path: Path, name: str = "trig.yml") -> str:
 
 def test_no_dispatch_validates(tmp_path: Path) -> None:
     """A profile with no dispatch block validates without raising."""
-    _profile(name="x").validate(tmp_path)
+    BuildProfile(name="x").validate(tmp_path)
 
 
 def test_valid_dispatch_validates(tmp_path: Path) -> None:
     """A dispatch with a profile-relative triggers file validates."""
     triggers = _write_triggers(tmp_path)
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers=triggers))
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers=triggers))
     profile.validate(tmp_path)
 
 
@@ -66,7 +51,7 @@ def test_events_panel_with_dispatch_validates_without_url(tmp_path: Path) -> Non
     a dispatch block is present rather than aborting the build.
     """
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["events"],
         dispatch=DispatchConfig(triggers=triggers),
@@ -77,7 +62,7 @@ def test_events_panel_with_dispatch_validates_without_url(tmp_path: Path) -> Non
 def test_events_panel_without_dispatch_still_requires_url(tmp_path: Path) -> None:
     """The escape hatch is narrow: an ``events`` panel with no dispatch block and
     no url override is still rejected (nothing would derive its URL)."""
-    profile = _profile(name="x", web_panels=["events"])
+    profile = BuildProfile(name="x", web_panels=["events"])
     with pytest.raises(BuildProfileError, match="events"):
         profile.validate(tmp_path)
 
@@ -86,7 +71,7 @@ def test_non_events_custom_panel_with_dispatch_still_requires_url(tmp_path: Path
     """The dispatch escape hatch applies only to ``events`` — any other url-less
     custom panel is still rejected even when a dispatch block is present."""
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["grafana"],
         dispatch=DispatchConfig(triggers=triggers),
@@ -97,14 +82,14 @@ def test_non_events_custom_panel_with_dispatch_still_requires_url(tmp_path: Path
 
 def test_worker_count_below_one_raises(tmp_path: Path) -> None:
     triggers = _write_triggers(tmp_path)
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers=triggers, worker_count=0))
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers=triggers, worker_count=0))
     with pytest.raises(BuildProfileError, match="worker_count"):
         profile.validate(tmp_path)
 
 
 def test_workspace_mode_invalid_raises(tmp_path: Path) -> None:
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         dispatch=DispatchConfig(triggers=triggers, workspace_mode="weird"),  # type: ignore[arg-type]
     )
@@ -114,7 +99,7 @@ def test_workspace_mode_invalid_raises(tmp_path: Path) -> None:
 
 def test_port_overflow_raises(tmp_path: Path) -> None:
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         dispatch=DispatchConfig(triggers=triggers, worker_port_base=65530, worker_count=10),
     )
@@ -130,7 +115,7 @@ def test_port_overflow_raises(tmp_path: Path) -> None:
     ],
 )
 def test_triggers_that_name_no_file_raise(tmp_path: Path, triggers: str) -> None:
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers=triggers))
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers=triggers))
     with pytest.raises(BuildProfileError, match="triggers"):
         profile.validate(tmp_path)
 
@@ -138,7 +123,7 @@ def test_triggers_that_name_no_file_raise(tmp_path: Path, triggers: str) -> None
 def test_shared_multiworker_emits_warning(tmp_path: Path) -> None:
     """shared workspace + worker_count>1 warns but does not raise."""
     triggers = _write_triggers(tmp_path)
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         dispatch=DispatchConfig(triggers=triggers, workspace_mode="shared", worker_count=2),
     )
@@ -155,8 +140,7 @@ def test_bundled_triggers_name_resolves(tmp_path: Path, monkeypatch: pytest.Monk
 
     profile_dir = tmp_path / "empty_profile"
     profile_dir.mkdir()
-    (profile_dir / "data").mkdir()
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers="tutorial_triggers.yml"))
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers="tutorial_triggers.yml"))
     profile.validate(profile_dir)
 
 
@@ -236,7 +220,7 @@ def test_parse_round_trip() -> None:
 
 def test_inactivity_sec_below_one_raises(tmp_path: Path) -> None:
     triggers = _write_triggers(tmp_path)
-    profile = _profile(name="x", dispatch=DispatchConfig(triggers=triggers, inactivity_sec=0))
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers=triggers, inactivity_sec=0))
     with pytest.raises(BuildProfileError, match="inactivity_sec"):
         profile.validate(tmp_path)
 
@@ -263,10 +247,12 @@ def test_dispatch_is_known_key() -> None:
 
 def test_servicedef_osprey_prefix_skips_filesystem_check(tmp_path: Path) -> None:
     """An ``osprey.``-prefixed template skips the profile-dir check; others error."""
-    bundled = _profile(name="x", services={"ed": ServiceDef(template="osprey.event_dispatcher")})
+    bundled = BuildProfile(
+        name="x", services={"ed": ServiceDef(template="osprey.event_dispatcher")}
+    )
     bundled.validate(tmp_path)  # no filesystem error despite no such dir
 
-    missing = _profile(name="x", services={"ed": ServiceDef(template="nonexistent-dir")})
+    missing = BuildProfile(name="x", services={"ed": ServiceDef(template="nonexistent-dir")})
     with pytest.raises(BuildProfileError, match="template dir not found"):
         missing.validate(tmp_path)
 

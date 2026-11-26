@@ -49,14 +49,10 @@ def profile_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
 def _bridge_profile(**kwargs: object) -> BuildProfile:
     """A profile declaring the bridge plus a dispatch block, overridable per test."""
     fields: dict = {
         "name": "x",
-        "data": "data",
         "dispatch": DispatchConfig(triggers="triggers.yml"),
         "slack_bridge": SlackBridgeProfileConfig(),
     }

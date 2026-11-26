@@ -61,7 +61,7 @@ __all__ = ["COLUMNS", "LAYER_DIR", "import_list"]
 #: The layer's name, its directory's name under the layer root.
 _LAYER = "list"
 
-#: The layer's directory, relative to ``data/facility/``.
+#: The layer's directory, relative to ``facility/``.
 LAYER_DIR = source_tree.layer_dir(_LAYER)
 
 #: Every column a header may name, in the order the docs list them.
@@ -114,7 +114,7 @@ def import_list(path: Path, facility_dir: Path) -> tuple[list[Path], list[str]]:
 
     Args:
         path: The CSV file.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
 
     Returns:
         Every file written, and the lines to show on stderr in order: the

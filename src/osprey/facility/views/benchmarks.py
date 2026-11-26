@@ -1,7 +1,7 @@
 """The benchmarks view: the channel-finder benchmark query file a render carries.
 
 The facility tree ships one scored query set per pipeline family under
-``data/facility/benchmarks/channel_finder/``: ``in_context_queries.json``
+``facility/benchmarks/channel_finder/``: ``in_context_queries.json``
 for the ``in_context`` pipeline and ``tree_queries.json`` for every other mode.
 A render whose ``config.yml`` states ``channel_finder.benchmark.dataset_path``
 carries the one its ``channel_finder.pipeline_mode`` selects, byte-equal, at
@@ -15,7 +15,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility.views import PIPELINE_MODE_KEY
-from osprey.repo_layout import child_display_path
+from osprey.repo_layout import display_path
 from osprey_facility import source_tree
 
 if TYPE_CHECKING:
@@ -88,7 +88,7 @@ def benchmarks_wanted(inputs: ViewInputs) -> tuple[bool, str]:
     if _dataset_path(inputs.rendered_config) is None:
         return False, BENCHMARK_DATASET_KEY
     if not (inputs.content_root / QUERY_SOURCES).is_dir():
-        return False, child_display_path("data", "facility", QUERY_SOURCES)
+        return False, display_path("facility", QUERY_SOURCES)
     return True, BENCHMARK_DATASET_KEY
 
 
@@ -140,8 +140,8 @@ def write_benchmarks_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "view-unsupported",
             PIPELINE_MODE_KEY,
             f"selects {mode} and the facility ships no "
-            f"{child_display_path('data', 'facility', QUERY_SOURCES, source.name)}",
-            f"add {source.name} to {child_display_path('data', 'facility', QUERY_SOURCES)}/, "
+            f"{display_path('facility', QUERY_SOURCES, source.name)}",
+            f"add {source.name} to {display_path('facility', QUERY_SOURCES)}/, "
             "or select another channel_finder_mode",
         )
     target = root.parent.joinpath(*relative.parts)

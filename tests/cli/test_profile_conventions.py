@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli import profile_conventions as conventions
 from osprey.cli.build_profile import BuildProfile, McpServerDef
 from osprey.cli.profile_conventions import (
@@ -354,56 +355,56 @@ def test_the_facility_mirror_patterns_are_the_facility_file_and_its_tree():
         (
             "facility.json",
             "facility: profile-invalid: path ops/project/facility.json — the ops/project/ mirror "
-            "writes facility.json, which the build writes from data/facility/; fix: remove "
-            "ops/project/facility.json and author the facility in data/facility/",
+            "writes facility.json, which the build writes from facility/; fix: remove "
+            "ops/project/facility.json and author the facility in facility/",
         ),
         (
             "data/facility/records/devices.yaml",
             "facility: profile-invalid: path ops/project/data/facility/records/devices.yaml — the "
             "ops/project/ mirror writes data/facility/records/devices.yaml, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/facility/records/devices.yaml and "
-            "author the facility in data/facility/",
+            "from facility/; fix: remove ops/project/data/facility/records/devices.yaml and "
+            "author the facility in facility/",
         ),
         (
             "data/simulator/x.json",
             "facility: profile-invalid: path ops/project/data/simulator/x.json — the ops/project/ "
-            "mirror writes data/simulator/x.json, which the build writes from data/facility/; "
-            "fix: remove ops/project/data/simulator/x.json and author the facility in data/facility/",
+            "mirror writes data/simulator/x.json, which the build writes from facility/; "
+            "fix: remove ops/project/data/simulator/x.json and author the facility in facility/",
         ),
         (
             "data/facility_facts.json",
             "facility: profile-invalid: path ops/project/data/facility_facts.json — the ops/project/ "
-            "mirror writes data/facility_facts.json, which the build writes from data/facility/; "
+            "mirror writes data/facility_facts.json, which the build writes from facility/; "
             "fix: remove ops/project/data/facility_facts.json and author the facility in "
-            "data/facility/",
+            "facility/",
         ),
         (
             "data/facility_facts.md",
             "facility: profile-invalid: path ops/project/data/facility_facts.md — the ops/project/ "
-            "mirror writes data/facility_facts.md, which the build writes from data/facility/; "
+            "mirror writes data/facility_facts.md, which the build writes from facility/; "
             "fix: remove ops/project/data/facility_facts.md and author the facility in "
-            "data/facility/",
+            "facility/",
         ),
         (
             "data/channel_finder/in_context.json",
             "facility: profile-invalid: path ops/project/data/channel_finder/in_context.json — the "
             "ops/project/ mirror writes data/channel_finder/in_context.json, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
-            "author the facility in data/facility/",
+            "from facility/; fix: remove ops/project/data/channel_finder/in_context.json and "
+            "author the facility in facility/",
         ),
         (
             "data/graph/facility.ttl",
             "facility: profile-invalid: path ops/project/data/graph/facility.ttl — the "
             "ops/project/ mirror writes data/graph/facility.ttl, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/graph/facility.ttl and "
-            "author the facility in data/facility/",
+            "from facility/; fix: remove ops/project/data/graph/facility.ttl and "
+            "author the facility in facility/",
         ),
         (
             "data/channel_databases/graph.duckdb",
             "facility: profile-invalid: path ops/project/data/channel_databases/graph.duckdb — the "
             "ops/project/ mirror writes data/channel_databases/graph.duckdb, which the build writes "
-            "from data/facility/; fix: remove ops/project/data/channel_databases/graph.duckdb and "
-            "author the facility in data/facility/",
+            "from facility/; fix: remove ops/project/data/channel_databases/graph.duckdb and "
+            "author the facility in facility/",
         ),
     ],
 )
@@ -460,8 +461,7 @@ def test_the_generic_mirror_check_skips_the_facility_patterns(profile_dir: Path)
 
 def test_profile_validation_still_gathers_past_a_facility_mirror_hit(profile_dir: Path):
     _write(profile_dir / "ops" / "project" / "facility.json")
-    (profile_dir / "data").mkdir()
-    profile = BuildProfile(name="x", data="data", mcp_servers={"empty": McpServerDef()})
+    profile = BuildProfile(name="x", mcp_servers={"empty": McpServerDef()})
 
     with pytest.raises(BuildProfileError) as excinfo:
         profile.validate(profile_dir)
@@ -849,7 +849,6 @@ def test_known_root_entries_are_not_flagged(profile_dir: Path):
     _write(profile_dir / ".env.example")
     for layer_dir in LAYER_DIRNAMES:
         (profile_dir / layer_dir).mkdir()
-    (profile_dir / "data").mkdir()
     for convention in CONVENTION_DIRS:
         (profile_dir / convention.source).mkdir(parents=True, exist_ok=True)
     assert unknown_root_entries(profile_dir) == []
@@ -914,7 +913,6 @@ def zone_repo(tmp_path: Path) -> Path:
     # SOURCE — tracked, user-edited.
     _write(repo / "profile.yml", "name: als-exemplar\n")
     _write(repo / "triggers.yml")
-    (repo / "data").mkdir()
     (repo / TIERS_DIRNAME).mkdir()
     _write(repo / "agent" / "rules" / "safety.md")
     _write(repo / "agent" / "context" / "operator" / "CONTEXT.md")
@@ -1078,20 +1076,20 @@ def test_reserved_exact_table_is_unchanged_by_the_pattern_table():
         (".claude/rules/nested/deep.md", "`agent/rules/`"),
         (".claude/settings.local.json", "claude_code.permissions"),
         ("data/channel_limits.json", "limits.yaml"),
-        ("data/bluesky_devices.yml", "`data/`"),
-        ("facility.json", "`data/facility/`"),
-        ("data/facility/records/devices.yaml", "`data/facility/`"),
-        ("data/facility/simulation/decks/SR.json", "`data/facility/`"),
-        ("data/simulator/served_models.json", "`data/facility/`"),
-        ("data/simulator/decks/SR.json", "`data/facility/`"),
-        ("data/facility_facts.json", "`data/facility/`"),
-        ("data/facility_facts.md", "`data/facility/`"),
-        ("data/channel_finder/in_context.json", "`data/facility/`"),
-        ("data/channel_finder/hierarchical.json", "`data/facility/`"),
-        ("data/channel_finder/middle_layer.json", "`data/facility/`"),
-        ("data/channel_finder/middle_layer.duckdb", "`data/facility/`"),
-        ("data/graph/facility.ttl", "`data/facility/`"),
-        ("data/channel_databases/graph.duckdb", "`data/facility/`"),
+        ("data/bluesky_devices.yml", "`facility/`"),
+        ("facility.json", "`facility/`"),
+        ("data/facility/records/devices.yaml", "`facility/`"),
+        ("data/facility/simulation/decks/SR.json", "`facility/`"),
+        ("data/simulator/served_models.json", "`facility/`"),
+        ("data/simulator/decks/SR.json", "`facility/`"),
+        ("data/facility_facts.json", "`facility/`"),
+        ("data/facility_facts.md", "`facility/`"),
+        ("data/channel_finder/in_context.json", "`facility/`"),
+        ("data/channel_finder/hierarchical.json", "`facility/`"),
+        ("data/channel_finder/middle_layer.json", "`facility/`"),
+        ("data/channel_finder/middle_layer.duckdb", "`facility/`"),
+        ("data/graph/facility.ttl", "`facility/`"),
+        ("data/channel_databases/graph.duckdb", "`facility/`"),
     ],
 )
 def test_pattern_reserved_write_names_its_channel(target: str, channel_hint: str):
@@ -1129,7 +1127,7 @@ def test_unreserved_writes_stay_writable(allowed: str):
 @pytest.mark.parametrize("target", ["FACILITY.json", "Data/Facility/identity.yaml"])
 def test_case_variants_of_a_facility_path_are_refused(target: str):
     channel = is_reserved_write(target)
-    assert channel is not None and "`data/facility/`" in channel
+    assert channel is not None and "`facility/`" in channel
 
 
 def test_every_exact_reservation_is_a_reserved_write():
@@ -1165,7 +1163,7 @@ def test_knowledge_pages_stay_agent_writable(page: str):
 def test_the_rest_of_the_facility_tree_stays_reserved(authored: str):
     """Only the knowledge directory is open; its neighbours name the facility tree."""
     channel = is_reserved_write(authored)
-    assert channel is not None and "`data/facility/`" in channel
+    assert channel is not None and "`facility/`" in channel
 
 
 def test_the_mirror_still_owns_the_knowledge_directory(tmp_path: Path):
@@ -1216,7 +1214,7 @@ def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path)
 
     The mirror validation leaves it alone, so the one stop that names every
     hand-written limits file is the one that answers: the build writes that
-    file from ``data/facility/limits.yaml``. A running agent still may not
+    file from the facility's ``limits.yaml``. A running agent still may not
     rewrite the limits table.
     """
     mirror = profile_dir / "ops" / "project" / "data"
@@ -1225,64 +1223,45 @@ def test_a_mirrored_limits_file_is_refused_by_the_limits_stop(profile_dir: Path)
     validate_convention_sources(profile_dir)  # does not raise
     assert reserved_path_channel("data/channel_limits.json") is None
     assert is_reserved_write("data/channel_limits.json") is not None
-    stop = handwritten_limits_violation(profile_dir / "data", profile_dir)
+    stop = handwritten_limits_violation(profile_dir)
     assert stop is not None
     assert str(stop) == (
         "facility: profile-invalid: path ops/project/data/channel_limits.json — the build "
-        "writes data/channel_limits.json from data/facility/limits.yaml; fix: move its "
-        "limits into data/facility/limits.yaml and remove ops/project/data/channel_limits.json"
+        "writes data/channel_limits.json from facility/limits.yaml; fix: move its "
+        "limits into facility/limits.yaml and remove ops/project/data/channel_limits.json"
     )
 
 
 def test_a_tree_shipping_no_limits_file_passes_the_limits_stop(profile_dir: Path):
-    _write(profile_dir / "data" / "facility" / "limits.yaml", "records: []\n")
+    _write(profile_dir / repo_layout.entry("facility").path / "limits.yaml", "records: []\n")
 
-    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_the_limits_stop_names_the_first_file_in_its_fixed_order(profile_dir: Path):
-    data = profile_dir / "data"
-    _write(profile_dir / "ops" / "project" / "data" / "channel_limits.json", "{}\n")
-    _write(data / "simulation" / "channel_limits.json", "{}\n")
-    _write(data / "channel_limits.json", "{}\n")
+    mirror = profile_dir / "ops" / "project" / "data"
+    _write(mirror / "simulation" / "channel_limits.json", "{}\n")
+    _write(mirror / "channel_limits.json", "{}\n")
 
     found = []
-    for path in (
-        data / "channel_limits.json",
-        data / "simulation" / "channel_limits.json",
-        profile_dir / "ops" / "project" / "data" / "channel_limits.json",
-    ):
-        stop = handwritten_limits_violation(data, profile_dir)
+    for path in (mirror / "channel_limits.json", mirror / "simulation" / "channel_limits.json"):
+        stop = handwritten_limits_violation(profile_dir)
         assert stop is not None
         found.append(stop.record_id)
         path.unlink()
 
     assert found == [
-        "data/channel_limits.json",
-        "data/simulation/channel_limits.json",
         "ops/project/data/channel_limits.json",
+        "ops/project/data/simulation/channel_limits.json",
     ]
-    assert handwritten_limits_violation(data, profile_dir) is None
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_the_limits_stop_never_reads_a_render(profile_dir: Path):
     _write(profile_dir / "build" / "data" / "channel_limits.json", "{}\n")
     _write(profile_dir / "build" / "data" / "simulation" / "channel_limits.json", "{}\n")
 
-    assert handwritten_limits_violation(profile_dir / "data", profile_dir) is None
-
-
-def test_the_limits_stop_names_a_data_tree_outside_the_repo_absolutely(
-    profile_dir: Path, tmp_path: Path
-):
-    data = tmp_path / "elsewhere" / "data"
-    _write(data / "channel_limits.json", "{}\n")
-
-    stop = handwritten_limits_violation(data, profile_dir)
-
-    assert stop is not None
-    assert stop.record_id == str(data / "channel_limits.json")
-    assert f"move its limits into {data}/facility/limits.yaml" in str(stop)
+    assert handwritten_limits_violation(profile_dir) is None
 
 
 def test_reserved_write_normalizes_its_input():

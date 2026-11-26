@@ -58,7 +58,7 @@ class FacilityIndex:
         """Read the facility with ``layer``'s records dropped.
 
         Args:
-            facility_dir: The ``data/facility`` directory.
+            facility_dir: The ``facility`` directory.
             layer: The layer the import replaces.
 
         Returns:

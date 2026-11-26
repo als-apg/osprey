@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_record.config import HISTORY_SERVICE
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
@@ -5106,3 +5107,52 @@ def test_a_refused_port_preflight_keeps_the_previous_host_network_ports(monkeypa
         container_lifecycle._preflight_host_ports(config, [])
 
     assert host_ports.read_host_network_ports(tmp_path) == {"event-dispatcher": {19191}}
+
+
+#: A lane's certificate set as the oldest deployments minted it, under ``data/``.
+_DATA_TREE_CERTS = (
+    "bridge/proxy.key_secret",
+    "bridge/clients/publisher.key",
+    "queueserver/publisher.key_secret",
+    "queueserver/proxy.key",
+)
+
+
+@pytest.mark.parametrize("lane_key", LANE_KEYS)
+@pytest.mark.parametrize("args", [["up", "-d"], ["restart", "-d"]], ids=" ".join)
+def test_a_start_on_certificates_under_the_data_tree_is_refused_and_mints_nothing(
+    tmp_path: Path, lane_key: str, args: list[str]
+) -> None:
+    """``data/<lane>_curve/`` stops a start at verb entry; the old keys stay where they are."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+    from osprey.repo_retired import RetiredRootRefused, refuse_retired_layout
+    from osprey.utils.workspace import RUNTIME_DIR_RELPATH
+
+    repo = tmp_path / "demo"
+    repo.mkdir()
+    (repo / "profile.yml").write_text("name: demo\n", encoding="utf-8")
+    old = repo / "data" / f"{lane_key}_curve"
+    for rel in _DATA_TREE_CERTS:
+        (old / rel).parent.mkdir(parents=True, exist_ok=True)
+        (old / rel).write_bytes(f"minted {rel}\n".encode())
+    before = {
+        path.relative_to(repo).as_posix(): path.read_bytes() if path.is_file() else None
+        for path in sorted(repo.rglob("*"))
+    }
+    with pytest.raises(RetiredRootRefused) as refusal:
+        refuse_retired_layout(repo)
+    assert [(move.old, move.new) for move in refusal.value.layout.moves] == [
+        (f"data/{lane_key}_curve", f"{RUNTIME_DIR_RELPATH}/{lane_key}_curve")
+    ]
+
+    result = CliRunner().invoke(cli, [*args, "--repo", str(repo)])
+
+    assert result.exit_code == 1, result.output
+    assert result.output.count(refusal.value.format_message()) == 1, result.output
+    assert {
+        path.relative_to(repo).as_posix(): path.read_bytes() if path.is_file() else None
+        for path in sorted(repo.rglob("*"))
+    } == before
+    assert not (repo / RUNTIME_DIR_RELPATH).exists()

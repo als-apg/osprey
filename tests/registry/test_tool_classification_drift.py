@@ -338,7 +338,7 @@ def declaring_render(tmp_path_factory):
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.templates.manager import TemplateManager
     from osprey.utils.config_writer import config_update_fields
-    from tests._preset_data import bundle_data_root
+    from tests._preset_data import bundle_source_root
 
     tmp_path = tmp_path_factory.mktemp("declaring-render")
     manager = TemplateManager()
@@ -347,7 +347,7 @@ def declaring_render(tmp_path_factory):
         project_name="declaring-render",
         output_dir=tmp_path,
         data_bundle="demo",
-        data_root=bundle_data_root(),
+        repo_root=bundle_source_root(),
         context={"channel_finder_mode": "hierarchical"},
         force=True,
     )

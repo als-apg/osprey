@@ -177,7 +177,7 @@ class TestSet:
         fix = {"op": "set", "kind": "device", "id": "BPM9", "fields": {"class": "X"}, "why": "x"}
         err = _one(_build(tmp_path, _fixes(fix)).errors)
         assert (err.kind, err.record_id) == ("fix-authored", "BPM9")
-        assert err.remedy == "edit data/facility/records/devices.yaml"
+        assert err.remedy == "edit facility/records/devices.yaml"
 
 
 class TestAdd:

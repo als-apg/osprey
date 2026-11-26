@@ -1769,7 +1769,7 @@ class ResolvedProfileDocument:
         raw: The fully resolved profile mapping — ``extends`` consumed and, for
             a layer, merged over its root.
         root_dir: The profile root every profile-relative path anchors at
-            (``data:``, convention directories, ``.env``, hash material). For a
+            (declared sources, convention directories, ``.env``, hash material). For a
             layer this is the directory *above* ``tiers/``, never the
             delta's own parent.
         is_layer: Whether the document was resolved as a layer.
@@ -1846,9 +1846,8 @@ def resolve_profile_document(
         BuildProfileError: If a layer declares ``extends``, if the root
             of a layer is missing or is not a YAML mapping, or if
             ``extends`` resolution fails.
-        FacilityBuildError: ``profile-invalid`` when a layer names
-            ``data:`` (every render shares the root profile's facility tree)
-            or sets ``simulation.models`` on a VA-baselined render.
+        FacilityBuildError: ``profile-invalid`` when a layer sets
+            ``simulation.models`` on a VA-baselined render.
     """
     root_dir, kind = resolve_profile_root(profile_path)
     is_layer = bool(kind)
@@ -1914,21 +1913,6 @@ def resolve_profile_document(
             f"it, so a second base would be ambiguous. "
             f"Remove the 'extends' key; to change what every render of this deployment "
             f"inherits, edit {root_dir / PROFILE_FILENAME} instead."
-        )
-
-    if "data" in normalized:
-        from osprey_facility.errors import FacilityBuildError
-
-        raise FacilityBuildError(
-            "profile-invalid",
-            layer_rel,
-            [layer_rel],
-            f"remove `data:` from {layer_rel}",
-            record_kind="path",
-            detail=(
-                f"a {kind.value} names `data:`, and every render of a deployment shares "
-                f"the facility tree the root {PROFILE_FILENAME}'s `data:` names"
-            ),
         )
 
     if "machine" in normalized:
@@ -2138,9 +2122,9 @@ def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
     and the document entries, which the canonical JSON already covers, are not.
     Seven kinds of input are covered:
 
-    * the ``data:`` tree, anchored via
-      :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
-      so it resolves exactly where the build copies it from;
+    * every declared source the render assembles
+      (:func:`~osprey.repo_layout.rendered_sources`), read from exactly where
+      the build copies it;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted key order
@@ -2206,7 +2190,7 @@ class ProfileInputRole(StrEnum):
 
     #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
     DOCUMENT = "document"
-    #: The ``data:`` tree, the convention directories, the trigger file, the
+    #: The declared sources, the convention directories, the trigger file, the
     #: layer files, the profile-relative service templates and the enabled
     #: watchdogs' directories.
     MATERIAL = "material"
@@ -2339,7 +2323,9 @@ def profile_inputs(
 
     1. documents — the root ``profile.yml``, then the non-preset files the
        ``extends`` chain read, nearest first (:attr:`ResolvedProfileDocument.extends_files`);
-    2. material — the ``data:`` root (``data``), the mounted machine root
+    2. material — each declared source present on disk
+       (:func:`~osprey.repo_layout.rendered_sources`, labelled by its key, in
+       declaration order), the mounted machine root
        when ``machine:`` is set (``machine``), each existing convention
        directory (``convention:<name>``, sorted by name), the trigger file that
        lives with the profile (``triggers``) and each layer file
@@ -2361,14 +2347,13 @@ def profile_inputs(
 
     Args:
         document: The profile's resolution, from :func:`resolve_profile_document`.
-        conventions: ``False`` for a bundled preset: the ``data:`` root alone.
+        conventions: ``False`` for a bundled preset, which lists nothing.
             A preset is one file among many in a shared package directory, so
             its neighbours, its own file and any overlay are package content.
     """
-    from osprey.repo_layout import display_path, watchdogs_source_dir
+    from osprey.repo_layout import display_path, rendered_sources, watchdogs_source_dir
     from osprey.services.watchdog.config import WATCHDOGS_BLOCK
 
-    from .build_profile_model import BuildProfile
     from .build_profile_watchdogs import enabled_watchdogs
     from .profile_conventions import CONVENTION_DIRS
     from .profile_root import layer_files
@@ -2383,25 +2368,28 @@ def profile_inputs(
             for path in (root / PROFILE_FILENAME, *document.extends_files)
         )
 
-    data = document.raw.get("data")
-    data_root = BuildProfile(name="", data=data).resolved_data_root(root)
-    # A data root resolves only from a non-empty string ``data:``.
-    if data_root is not None and isinstance(data, str):
-        entries.append(
-            ProfileInput(
-                f"{PurePosixPath(data).as_posix()}/", "data", data_root, ProfileInputRole.MATERIAL
-            )
-        )
-
     if not conventions:
         return tuple(entries)
 
-    # A mounted machine root (``machine:``), which needs a data root to be
-    # mounted beside. Listed unresolved, as spelled, so the repository walk
-    # sees a link that escapes; the build's own resolution refuses a missing or
-    # overlapping root, which the enumeration does not judge.
+    # Every declared source the render assembles, in declaration order: keyed
+    # as the operator spells its directory and labelled by its declaration
+    # key, so a source that moves keeps its label. An absent source renders
+    # nothing and folds nothing.
+    for source in rendered_sources():
+        candidate = root.joinpath(*source.source_rel.split("/"))
+        if candidate.exists():
+            entries.append(
+                ProfileInput(
+                    f"{source.source_rel}/", source.key, candidate, ProfileInputRole.MATERIAL
+                )
+            )
+
+    # A mounted machine root (``machine:``). Listed unresolved, as spelled, so
+    # the repository walk sees a link that escapes; the build's own resolution
+    # refuses a missing or overlapping root, which the enumeration does not
+    # judge.
     machine = document.raw.get("machine")
-    if data_root is not None and isinstance(machine, str) and machine.strip():
+    if isinstance(machine, str) and machine.strip():
         entries.append(
             ProfileInput(
                 f"{PurePosixPath(machine).as_posix()}/",
@@ -2663,9 +2651,7 @@ def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
                 f"{_MOVE_INSIDE}"
             )
             continue
-        if entry.label == "data":
-            key = f"data: {document.raw['data']}"
-        elif entry.label == "triggers":
+        if entry.label == "triggers":
             key = f"dispatch.triggers: {entry.key}"
         elif entry.role is ProfileInputRole.PACKAGE:
             key = f"dependencies: {entry.key}"
@@ -2719,7 +2705,7 @@ def _hash_resolved_profile(
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
     ``extends`` parent is not. The file inputs :func:`profile_inputs` lists —
-    the ``data:`` tree, convention directories, the named trigger file, the
+    the declared sources, convention directories, the named trigger file, the
     layer files and the selected host-variant overlay — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.

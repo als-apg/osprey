@@ -1,6 +1,6 @@
 """Builds the facility tests make of their own trees.
 
-``build_project`` builds a small project whose ``data/facility/`` a test writes.
+``build_project`` builds a small project whose ``facility/`` a test writes.
 ``built_machineless``, a demo repo with no machine in it built once per run, is
 read by the modules that need a machineless build.
 The shared demo build, ``built_demo``, lives in
@@ -46,9 +46,9 @@ def entry_points_read_afresh() -> Iterator[None]:
 def build_project(
     tmp_path: Path,
 ) -> Callable[..., tuple[BuiltProject, Result]]:
-    """Build a hello-world repo whose ``data/facility/`` holds the given tree.
+    """Build a hello-world repo whose ``facility/`` holds the given tree.
 
-    The returned callable takes the tree (``None`` for no ``data/facility/`` at
+    The returned callable takes the tree (``None`` for no ``facility/`` at
     all), the repo name and a ``profile`` mapping deep-merged into the repo's
     ``profile.yml`` before the build, and returns the project and the build's
     result.
@@ -60,7 +60,7 @@ def build_project(
         profile: Mapping[str, Any] | None = None,
     ) -> tuple[BuiltProject, Result]:
         repo = init_project(tmp_path, "hello-world", name)
-        facility_dir = repo / "data" / "facility"
+        facility_dir = repo / "facility"
         shutil.rmtree(facility_dir)
         if tree is not None:
             write_tree(facility_dir, tree)

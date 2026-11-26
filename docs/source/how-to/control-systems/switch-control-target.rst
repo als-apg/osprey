@@ -790,8 +790,15 @@ It is never shown the simulator's store. That store stays the virtual
 accelerator's: the recorder samples the simulator, and the history seeded on
 the first deploy is the simulator's own. So a trend read on the stand-in and
 one read on the live machine come from one archive, the way a rehearsal
-should. ``osprey sim apply`` reaches both machines: a scenario changes the
-world, not one lane.
+should.
+
+**Each machine has its own scenarios.** The simulator and the stand-in each
+hold an active scenario set, so the stand-in can run a set of errors while the
+simulator runs the clean model. ``osprey sim apply --target standin <names>``
+replaces the stand-in's set and ``--target va`` the simulator's; without
+``--target`` the command acts on the deployment's own target. The logbook and
+the stored archive follow the simulator's set, so a set applied to the
+stand-in changes its telemetry and nothing stored.
 
 On a laptop the second container is a real cost: a second simulator runs for
 the life of the deployment. Delete the line when the rehearsal is over.

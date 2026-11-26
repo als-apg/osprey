@@ -67,8 +67,9 @@
 # this project runs against; `live-standin` stands in for the live target, so
 # a session can rehearse against that machine's shape without touching it. They
 # run one image, built at most once, on distinct Channel Access ports, reading the same
-# simulator view and the same active scenarios; each appends its model logs to
-# its own directory.
+# simulator view. Each has an active scenario set of its own, so one can run the
+# clean model while the other runs a set of errors, and each appends its model
+# logs to its own directory.
 {%- endif %}
 {#- The BUILDER instance: the first, in render order, whose own image is the one
     OSPREY builds (unset, or equal to `osprey_images.va`). A null block reads
@@ -135,7 +136,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env).
+      # their plain names (var/, .env).
       context: ./build/services/virtual_accelerator
       dockerfile: Dockerfile
       args:
@@ -215,7 +216,7 @@ services:
     # the deployment repo root — so each is spelled from there.
     #
     # The simulator view comes from the OUTPUT zone, `build/data`, and not from
-    # a source `data/` tree: `osprey build` writes `simulator/addresses.json`
+    # the source zone: `osprey build` writes `simulator/addresses.json`
     # and `simulator/served_models.json` into the render, and the entrypoint
     # reads them under VA_DATA_DIR (default `/data`). Read-only: the IOC never
     # writes the view.
@@ -229,13 +230,15 @@ services:
     # appends `<model>.log` under `/var/simulator`. The host directory is
     # provisioned setgid and group-writable before compose runs, so the agent
     # containers that mount it too can append to the same files.
-{#- BOTH instances read the SAME view and the SAME scenario state: a scenario
-    applied on the host is meant to be observable on every machine this
-    deployment runs. Each writes its logs to its OWN directory, so a reader
-    can tell which machine a record came from by where it sits. #}
+{#- BOTH instances read the SAME view. Each reads its OWN scenario state, at the
+    one container path, so the two machines of one deployment can run different
+    sets (`osprey sim apply --target` names whose), and each writes its logs to
+    its OWN directory, so a reader can tell which machine a record came from by
+    where it sits. The comments emitted above stay as a deployment with one
+    instance has always rendered them. #}
     volumes:
       - ./build/data:/data:ro
-      - {{ osprey_state_mount_source }}:/state/simulation:ro
+      - {{ osprey_state_mount_sources[instance_key] }}:/state/simulation:ro
       - {{ osprey_simulator_log_sources[instance_key] }}:/var/simulator
     networks:
       - osprey-network

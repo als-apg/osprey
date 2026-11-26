@@ -88,7 +88,7 @@ def test_the_login_set_is_the_root_set_minus_deployment_keys_and_facts() -> None
     assert RENDER_KEYS <= TIER_KIND_KEYS
 
 
-@pytest.mark.parametrize("key", sorted(_FACTS | ROOT_ONLY_KEYS | {"services", "data"}))
+@pytest.mark.parametrize("key", sorted(_FACTS | ROOT_ONLY_KEYS | {"services"}))
 def test_no_deployment_fact_is_admitted_on_a_login(key: str) -> None:
     assert key not in TIER_KIND_KEYS
     with pytest.raises(BuildProfileError) as excinfo:
@@ -119,13 +119,12 @@ def test_every_key_a_preset_app_file_spells_is_admitted_on_a_login(stem: str) ->
     reject_unknown_kind_keys(raw, ProfileKind.TIER, f"tiers/{stem}.yml")
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 @pytest.mark.parametrize("tier", ["readonly", "readwrite", "admin"])
 def test_an_init_materialised_login_loads(tmp_path: Path, tier: str) -> None:
     from osprey.cli.build_profile_emit import emit_layer_delta_yaml, emit_standalone_profile_yaml
 
     (tmp_path / "profile.yml").write_text(
-        emit_standalone_profile_yaml("demo", ("data=data",), "Site", project_name="site"),
+        emit_standalone_profile_yaml("demo", (), "Site", project_name="site"),
         encoding="utf-8",
     )
     lay_preset_applications("demo", tmp_path)

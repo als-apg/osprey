@@ -27,7 +27,7 @@ import yaml
 from osprey.agent_runner.tool_names import SHELL_TOOLS
 from osprey.cli.templates.manager import TemplateManager
 from osprey_connectors.errors import BuildProfileError
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests.cli.test_build_cmd import _create_project, _ship_declared_pre_hook
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
@@ -65,7 +65,7 @@ def _root_project(tmp_path: Path, name: str, writes: str, permissions: dict) -> 
         project_name=name,
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     manager.generate_manifest(
         project,

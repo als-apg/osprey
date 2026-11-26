@@ -26,7 +26,7 @@ from osprey.health.core.rendered import rendered
 from osprey.health.models import Status
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests._builds import copy_build
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests.cli._template_projects import create_project_with_manifest
 
 SERVER = "channel-directory"
@@ -88,7 +88,7 @@ def base(tmp_path_factory) -> Path:
         output_dir=tmp_path_factory.mktemp("channel_directory_on_base"),
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="demo")
     # The demo preset ships a channel_directory section; the base is the preset without it.

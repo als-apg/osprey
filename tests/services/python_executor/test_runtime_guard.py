@@ -38,6 +38,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.mcp_server.python_executor.executor import (
     PROFILE_SOURCE_ENTRIES,
     resolve_permitted_roots,
@@ -599,8 +600,24 @@ def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project)
         project.root / "project",
         project.root / "agent",
         project.root / "skills",
+        project.root / repo_layout.entry("facility").path,
+        project.root / repo_layout.entry("web").path,
+        *(project.root / name for name in repo_layout.dissolved_names()),
     ):
         assert expected.resolve() in protected, expected
+
+
+@pytest.mark.parametrize("name", ["facility", "web", "data"])
+def test_content_row_and_dissolved_name_writes_are_refused(project: _Project, name: str):
+    """The facility and web trees are source; an unmigrated ``data/`` still is."""
+    assert name in (
+        repo_layout.entry("facility").path,
+        repo_layout.entry("web").path,
+        *repo_layout.dissolved_names(),
+    )
+    out = project.probe(f"os.makedirs({str(project.root / name / 'new')!r})")
+    assert out.startswith("REFUSED:"), out
+    assert name in out
 
 
 def test_protected_roots_exclude_the_agent_data_zone(project: _Project):

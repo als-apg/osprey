@@ -318,8 +318,8 @@ committed file that differs. After a `write`, regenerate the library's report
 
 **Usage**:
 ```bash
-uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/data/canopy/library
-uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/data/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py write --library src/osprey/templates/apps/demo/web/canopy/library
+uv run --no-sync python scripts/facility_demo/facility_overview.py check --library src/osprey/templates/apps/demo/web/canopy/library
 ```
 
 ---

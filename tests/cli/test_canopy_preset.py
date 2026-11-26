@@ -27,12 +27,18 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli.build_profile import BuildProfile, resolve_build_profile
 from osprey.profiles.web_panels import BUILTIN_PANELS, SIDECAR_PANELS
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 DEMO_TEMPLATE = Path(__file__).resolve().parents[2] / "src/osprey/templates/apps/demo"
-SHIPPED_COLLECTION = DEMO_TEMPLATE / "data/canopy/collections/demo.json"
+SHIPPED_COLLECTION = (
+    repo_layout.child_path(
+        DEMO_TEMPLATE / repo_layout.entry("web").path, "web", "canopy-collections"
+    )
+    / "demo.json"
+)
 
 #: Tools run without a prompt: the reads, then the workspace tools.
 ALLOW = [
@@ -137,7 +143,9 @@ class TestRootPreset:
         assert stated == {
             "web.panels.canopy.home_screen": "facility/overview",
             "web.panels.canopy.vole_bytes_max": 268435456,
-            "web.panels.canopy.theme_file": "data/canopy/theme/osprey.json",
+            "web.panels.canopy.theme_file": repo_layout.child_display_path(
+                "web", "canopy-theme", "osprey.json"
+            ),
         }
 
     @pytest.mark.parametrize("page", ["trace", "correlation", "waveform"])

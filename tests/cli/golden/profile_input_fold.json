@@ -7,17 +7,17 @@
         "digest": null
       },
       {
-        "key": "data/",
-        "label": "data",
-        "digest": "24bf83dfd003c6f6cca54960b5c8a1f2109e37e45b69b8cce42a18ecac7a7902"
+        "key": "facility/",
+        "label": "facility",
+        "digest": "a0fd9902f8f20179eb76e1fbca13d95d713504cb722ef9facee5ddbbac7826eb"
       },
       {
         "key": "agent/mcp_servers/",
         "label": "convention:mcp_servers",
-        "digest": "72e20c6d85aa37b14817615911be979a2940085c0371ca85be95914585709098"
+        "digest": "b114bd3f0234a577c3fee6dedef252d098e4dc7b0b75f945e65a41670dd2ce8d"
       }
     ],
-    "profile_hash": "sha256:f9954eee4160b73a3ba843487e0c99968e0583ed26b7a2a5831e38c071542a6b",
+    "profile_hash": "sha256:1cf6db7797e6eba5380628ff765c7019fe5a67a169a849653bac5961ea3c2abd",
     "preset_hash": "sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"
   },
   "demo": {
@@ -28,14 +28,34 @@
         "digest": null
       },
       {
-        "key": "data/",
-        "label": "data",
-        "digest": "d0f39c6be2eae43e5ba6c1b8b06e0e777e95e6c4fa433ccae68640284f04b058"
+        "key": "facility/",
+        "label": "facility",
+        "digest": "c650e23fcabefb2e0d5acc0820efc0a6bb112330b11b60abecae780daee3dfc5"
+      },
+      {
+        "key": "web/canopy/library/",
+        "label": "web:canopy-library",
+        "digest": "200bce386f12e2a293dec370eab5e65bb3d2f6f83725d66c5f907c2e2625fdf5"
+      },
+      {
+        "key": "web/canopy/collections/",
+        "label": "web:canopy-collections",
+        "digest": "175913a8636894d480e24eab009b2fc2e953b1301536ee81c041027167213f3d"
+      },
+      {
+        "key": "web/canopy/theme/",
+        "label": "web:canopy-theme",
+        "digest": "679870fb6e49b1498ad6ff8aff355a503368a33055d2ccfdab6141f898373df8"
+      },
+      {
+        "key": "web/landing/",
+        "label": "web:landing",
+        "digest": "49f95eaba39f15f5561e42e8078b352988ce2724f59da946530b7fd2febd988e"
       },
       {
         "key": "agent/rules/",
         "label": "convention:rules",
-        "digest": "b11d17d8e3695ec8c01472a8f0107cd2e869c6bbcce6c66db438aa5cd242d32d"
+        "digest": "56ca52aab2689d0978de40f0cbe5c3c822c2fcf16293e1c8fc86bfd7ff44e59b"
       },
       {
         "key": "agent/context/",
@@ -78,7 +98,7 @@
         "digest": "63dbd2d7f4c556bdd25f7a8e30b0d5189e9eb99b6d87ebc50ca2983882c82219"
       }
     ],
-    "profile_hash": "sha256:f17b438dfd57ae5a332581435cbd0550543c111867625af1bc38088445979dc1",
-    "preset_hash": "sha256:922c1ef4698306f142b53635e4558198534879249174b8597ba1ff1b40667a4e"
+    "profile_hash": "sha256:db0cdb26880d499501947cdeedf0cad60649bdeffec5e4da4d423d2db6be105b",
+    "preset_hash": "sha256:df1db339234e046d52d74cd7f9b2b37eaa9fd2ac65724142c8db8acff53c878c"
   }
 }

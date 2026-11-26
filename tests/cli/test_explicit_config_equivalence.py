@@ -261,7 +261,7 @@ def _canopy_theme_deltas(*documents: str) -> tuple[Delta, ...]:
             document=document,
             path="web.panels.canopy.theme_file",
             fixture=ABSENT,
-            live="data/canopy/theme/osprey.json",
+            live="web/canopy/theme/osprey.json",
         )
         for document in documents
     )

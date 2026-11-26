@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.deployment import runtime_helper
 from osprey.integrations.canopy import push
 from osprey.integrations.canopy.library import judge, scan
@@ -272,7 +273,7 @@ def deployment(tmp_path: Path) -> Path:
     config = {"project_name": "proj", "modules": {"web_terminals": roster_document("local")}}
     (root / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     write_renders(root)
-    library = root / "data" / "canopy" / "library"
+    library = library_of(root)
     for path, doc in (
         ("common/KnobPanel", KNOB),
         ("gtb/x", _doc(_node("l", "label", {"text": "gtb"}))),
@@ -285,7 +286,9 @@ def deployment(tmp_path: Path) -> Path:
 
 
 def library_of(deployment: Path) -> Path:
-    return deployment / "data" / "canopy" / "library"
+    return repo_layout.child_path(
+        deployment / repo_layout.entry("web").path, "web", "canopy-library"
+    )
 
 
 def request_doc(files: dict[str, bytes], **overrides) -> dict:

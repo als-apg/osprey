@@ -212,9 +212,9 @@ def test_the_content_directories_and_their_files() -> None:
 
 
 def test_the_display_path() -> None:
-    assert source_tree._DISPLAY_PREFIX == "data/facility"
-    assert display_path(path("seeds")) == "data/facility/simulation/seeds.yaml"
-    assert display_path(path("ariel_vocabulary")) == "data/facility/ariel/vocabulary.yml"
+    assert source_tree._DISPLAY_PREFIX == "facility"
+    assert display_path(path("seeds")) == "facility/simulation/seeds.yaml"
+    assert display_path(path("ariel_vocabulary")) == "facility/ariel/vocabulary.yml"
 
 
 def test_the_slot_kinds() -> None:
@@ -353,7 +353,7 @@ def test_every_accessor_follows_a_rebound_registry() -> None:
     assert layer_root() == "machine/imported"
     assert layer_dir("mml") == "machine/imported/mml"
     assert layer_entry("mml", "decks") == "machine/imported/mml/decks"
-    assert display_path(path("limits")) == "data/facility/machine/limits.yaml"
+    assert display_path(path("limits")) == "facility/machine/limits.yaml"
 
 
 @pytest.mark.usefixtures("moved")

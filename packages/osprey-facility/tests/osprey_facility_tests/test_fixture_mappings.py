@@ -4,7 +4,7 @@ Every file answers the whole export beside it: it loads through the mml
 layer's reader with no problem, leaves no slot undecided, gives every family
 field the export carries a direction, and names the wiring of every model the
 tree wires. A test that imports a tree copies its file to
-``data/facility/imported/mml/mapping.yaml`` first, which is what the
+``facility/imported/mml/mapping.yaml`` first, which is what the
 ``load_or_draft`` case does here.
 """
 
@@ -61,7 +61,7 @@ def test_every_exported_family_field_has_a_decided_direction(tree: str) -> None:
 @pytest.mark.parametrize("tree", sorted(TREES))
 def test_a_copy_under_data_facility_loads_without_a_draft(tree: str, tmp_path: Path) -> None:
     ao, ad, va = _export(tree)
-    facility_dir = tmp_path / "data" / "facility"
+    facility_dir = tmp_path / "facility"
     target = facility_dir / MAPPING_FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)

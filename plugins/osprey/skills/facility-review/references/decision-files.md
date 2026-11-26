@@ -4,7 +4,7 @@ Where rulings are written, and what the build does with them. The formats below 
 ones OSPREY reads today; when in doubt, the schema errors the build prints
 (`source-invalid` with a dotted path) are the authority.
 
-All paths are relative to the facility tree: `data/facility/` in the repository, or the
+All paths are relative to the facility tree: `facility/` in the repository, or the
 directory the profile's `machine:` key points at when the facility is mounted from a
 machine repository.
 

@@ -194,7 +194,7 @@ def _raw_default_config(repo_root: Path) -> dict:
         "deployed_services": [],
         # qmd renders one sidecar per corpus, so with no corpus its golden pins
         # nothing; the bundle is the corpus the shipped presets index.
-        "facility_knowledge": {"bundle_path": "data/facility_knowledge"},
+        "facility_knowledge": {"bundle_path": "facility/knowledge"},
     }
 
 

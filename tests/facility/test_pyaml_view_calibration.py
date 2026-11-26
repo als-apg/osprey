@@ -227,7 +227,7 @@ def test_a_thin_quadrupole_steps_the_tune_the_deck_s_strength_change_does(
     magnet.strength.set(held + step)
     after = design.get_lattice().get_tune()
 
-    deck = at.load_lattice(str(tmp_path / "data" / "facility" / "simulation" / "decks" / "sr.json"))
+    deck = at.load_lattice(str(tmp_path / "facility" / "simulation" / "decks" / "sr.json"))
     (quad,) = [element for element in deck if element.FamName == "QD"]
     expected_before = deck.get_tune()
     quad.PolynomB[1] += step

@@ -17,15 +17,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.cli.templates")
 
-#: The render's data directory, relative to the rendered project, and the
-#: facility tree inside it. Render paths: the runtime reads them there whatever
-#: the source tree's layout, so they do not follow the deployment-root
-#: declaration. The source facility tree arrives with the copy of the data
-#: tree, so it lands here only while the declared facility child of ``data``
-#: has this name; a mounted machine tree is copied here either way.
-_RENDER_DATA_DIRNAME = "data"
-_RENDER_FACILITY_DIRNAME = "facility"
-
 # Fallback default for the Dockerfile.j2 CLAUDE_CLI_VERSION build ARG when
 # the project's config.yml doesn't set claude_code.cli_version (the common
 # case — it's an opt-in pin). Matches the dispatch-worker image's pinned
@@ -393,86 +384,89 @@ def copy_services_selective(template_root: Path, project_dir: Path, service_name
 
 
 def copy_template_data(
-    template_root: Path,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
+    template_root: Path,  # noqa: ARG001 - template-copier signature; the deployment's sources are copied verbatim
     project_dir: Path,
-    package_name: str,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
-    data_bundle: str,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
-    ctx: dict,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
-    jinja_env=None,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
-    data_root: Path | None = None,
+    package_name: str,  # noqa: ARG001 - template-copier signature; the deployment's sources are copied verbatim
+    data_bundle: str,  # noqa: ARG001 - template-copier signature; the deployment's sources are copied verbatim
+    ctx: dict,  # noqa: ARG001 - template-copier signature; the deployment's sources are copied verbatim
+    jinja_env=None,  # noqa: ARG001 - template-copier signature; the deployment's sources are copied verbatim
+    *,
+    repo_root: Path,
     facility_roots: FacilityRoots | None = None,
 ):
-    """Copy the profile's data tree to the project root (no src/ package).
+    """Assemble the render's ``data/`` from the deployment's declared sources.
 
-    Data files (channel databases, logbook seeds, benchmark datasets) are
-    placed at ``project_dir/data/``. The profile's ``data:`` tree is the only
-    source: it is copied verbatim, so a stray ``.j2`` file lands
-    byte-identical rather than being rendered.
+    Every source :func:`~osprey.repo_layout.rendered_sources` declares is
+    copied from *repo_root* to its render path under *project_dir*; a source
+    absent on disk renders nothing, and nothing outside the declared sources
+    is copied. The sources are content, not templates: each is a plain copy,
+    so a stray ``.j2`` file lands byte-identical rather than being rendered.
 
     Args:
-        template_root: Path to osprey's bundled templates directory
+        template_root: Path to osprey's bundled templates directory (unused)
         project_dir: Root directory of the project
         package_name: Python package name (unused; kept for the caller's shape)
         data_bundle: Name of the data bundle the project's other packaged
             trees come from (unused here)
-        ctx: Template context variables
+        ctx: Template context variables (unused)
         jinja_env: Optional Jinja2 environment (unused here)
-        data_root: Resolved data tree carried by the build profile (its
-            ``data:`` key), required. Symlinks inside the tree are
-            dereferenced into real files: a built project is self-contained
-            and must not depend on paths under the profile directory
-            surviving. Version-control metadata (``.git``) is never copied,
-            at any depth.
+        repo_root: The deployment root the declared sources are read from.
+            Symlinks inside a source are dereferenced into real files: a
+            built project is self-contained and must not depend on paths
+            under the deployment root surviving. Version-control metadata
+            (``.git``) is never copied, at any depth. The benchmark query
+            sources inside the facility source reach a render only through
+            the benchmarks view, so they are not copied here.
         facility_roots: The deployment's resolved facility roots. When
             mounted, every machine entry of the machine root
             (:func:`~osprey_facility.roots.is_machine_entry`) is copied into
-            ``data/facility`` after the data tree, so the render carries one
-            facility tree: the machine's facts beside the deployment's own
-            ``knowledge/``, ``ariel/`` and ``benchmarks/``. The two never
-            collide, because the build stops on a deployment file that
-            restates a machine fact. ``None`` or a single tree copies nothing
-            more.
-
-    Raises:
-        ValueError: If ``data_root`` is None. Every profile declares ``data:``
-            (``BuildProfile.validate`` requires it), so there is no packaged
-            tree to fall back to.
+            the facility row's render path after the declared sources, so the
+            render carries one facility tree: the machine's facts beside the
+            deployment's own ``knowledge/``, ``ariel/`` and ``benchmarks/``.
+            The two never collide, because the build stops on a deployment
+            file that restates a machine fact. ``None`` or a single tree
+            copies nothing more.
     """
-    # The facility's tree is the whole of the project's data/: nothing reads
-    # `apps/<bundle>/data` here any more, so no packaged file can land beside
-    # what the profile ships. It is content, not templates — a plain copytree,
-    # so a stray `.j2` lands byte-identical. Rendering is not merely skipped
-    # but impossible: the package-rooted Jinja loader addresses templates by
-    # their path relative to ``template_root`` and cannot reach a tree outside
-    # the osprey package at all.
-    if data_root is None:
-        raise ValueError(
-            "copy_template_data requires the profile's resolved `data:` tree; "
-            "there is no packaged data bundle to fall back to. Pass "
-            "data_root=BuildProfile.resolved_data_root(profile_dir)."
-        )
+    # Rendering is not merely skipped but impossible: the package-rooted Jinja
+    # loader addresses templates by their path relative to ``template_root``
+    # and cannot reach a tree outside the osprey package at all.
+    root = Path(repo_root)
+    facility = repo_layout.entry("facility")
+    rendered = repo_layout.rendered_sources()
+    facility_render = next(source.render_rel for source in rendered if source.key == facility.key)
+    for source in rendered:
+        src = root.joinpath(*source.source_rel.split("/"))
+        if not src.is_dir():
+            continue
+        dst = project_dir.joinpath(*source.render_rel.split("/"))
+        ignore = _skip_benchmark_queries(src) if source.key == facility.key else _skip_vcs
+        # dirs_exist_ok is defensive — no build path reaches here with the render present.
+        shutil.copytree(src, dst, dirs_exist_ok=True, ignore=ignore)
+        logger.debug("Copied profile data files from %s to %s", src, dst)
 
-    dst_data = project_dir / _RENDER_DATA_DIRNAME
+    if facility_roots is not None and facility_roots.mounted:
+        copy_machine_tree(facility_roots, project_dir.joinpath(*facility_render.split("/")))
 
-    root = Path(data_root)
-    # The facility's top-level directory the query sources live under, and the
-    # entry inside it that leads to them.
-    facility_dir = repo_layout.child_path(root, "data", "facility")
+
+def _skip_vcs(directory: str, names: list[str]) -> set[str]:  # noqa: ARG001 - copytree ignore signature
+    """A ``.git`` entry (a clone's directory, a submodule's pointer file) is version control at any depth, never content."""
+    return {name for name in names if is_vcs_metadata(PurePosixPath(name))}
+
+
+def _skip_benchmark_queries(facility_dir: Path):
+    """The copytree ignore for the facility source rooted at *facility_dir*.
+
+    Beside the version-control skip, the entry leading to the benchmark query
+    sources is not copied, nor the top-level directory above it when it holds
+    nothing else.
+    """
     query_parts = PurePosixPath(source_tree.path("benchmark_queries")).parts
     benchmarks = facility_dir / query_parts[0]
     queries_holder = facility_dir.joinpath(*query_parts[:2])
 
-    def _skip_unrendered(directory: str, names: list[str]) -> set[str]:
-        # data/raw/ holds raw staging inputs no render reads; top level only.
-        # The benchmark query sources reach a render only through the
-        # benchmarks view, so the entry leading to them is not copied, nor
-        # the top-level directory above it when it holds nothing else.
-        # A `.git` entry (a clone's directory, a submodule's pointer file) is
-        # version control at any depth, never data.
-        vcs = {name for name in names if is_vcs_metadata(PurePosixPath(name))}
+    def _ignore(directory: str, names: list[str]) -> set[str]:
+        vcs = _skip_vcs(directory, names)
         here = Path(directory)
-        if here == root:
-            return vcs | ({"raw"} & set(names))
         if (
             here == benchmarks.parent
             and benchmarks.name in names
@@ -486,26 +480,21 @@ def copy_template_data(
             return vcs | {queries_holder.name}
         return vcs
 
-    # dirs_exist_ok is defensive — no build path reaches here with data/ present.
-    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_skip_unrendered)
-    logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
-
-    if facility_roots is not None and facility_roots.mounted:
-        copy_machine_tree(facility_roots, dst_data / _RENDER_FACILITY_DIRNAME)
+    return _ignore
 
 
 def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
-    """Copy a mounted machine root's facts into a render's ``data/facility``.
+    """Copy a mounted machine root's facts into the render's facility tree.
 
     The runtime reads one facility tree, ``data/facility``: the knowledge
     mounts, the ARIEL vocabulary and the agent rules naming
     ``data/facility/identity.yaml`` and ``limits.yaml`` all expect it. A
     mounted deployment's tree is therefore assembled in the render: its own
-    content is already there from the data copy, and the machine's facts land
+    content is already there from the source copy, and the machine's facts land
     beside it. Only :func:`~osprey_facility.roots.is_machine_entry` entries are
     copied, so the machine repository's ``.git`` and its own copies of the
     deployment content directories stay out. Symlinks are dereferenced, as for
-    the data tree.
+    the declared sources.
 
     Args:
         roots: The deployment's resolved, mounted facility roots.

@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli.build_cmd import _profile_data_bundle
 from osprey.cli.build_profile import compute_profile_hash
 from osprey.cli.build_profile_load import load_profile, load_profile_document
@@ -41,7 +42,6 @@ from osprey_connectors.errors import BuildProfileError
 # interchangeable when they are not.
 _HOST = """\
 name: Facility
-data: data
 provider: anthropic
 model: claude-sonnet-5
 channel_finder_mode: in_context
@@ -126,11 +126,10 @@ def test_root_extends_chain_is_resolved_before_the_merge(tmp_path: Path) -> None
     has by way of its ``extends`` base still reaches the render.
     """
     root = tmp_path / "facility"
-    (root / "data").mkdir(parents=True)
     _write(root / "base.yml", "name: Base\nmodel: claude-opus-5\n")
     _write(
         root / "profile.yml",
-        "extends: ./base.yml\nname: Facility\ndata: data\nprovider: cborg\n",
+        "extends: ./base.yml\nname: Facility\nprovider: cborg\n",
     )
     render = _render(root, "reader", "name: Reader\n")
 
@@ -169,18 +168,20 @@ def test_two_renders_under_one_root_resolve_independently(host: Path) -> None:
 
 
 def test_relative_paths_anchor_at_the_root_not_at_renders(host: Path) -> None:
-    """``data: data`` on the root means the root's tree, read from a render too.
+    """The root's facility tree is the one a render reads too.
 
-    Anchored at the delta's own parent it would resolve to
-    ``tiers/data`` — absent — and every render would build without the
-    facility's channel database.
+    Anchored at the delta's own parent it would resolve under ``tiers/`` —
+    absent — and every render would build without the facility's channel
+    database.
     """
     render = _render(host, "reader", "name: Reader\n")
 
     loaded = load_profile_document(render)
 
     assert loaded.profile_dir == host
-    assert loaded.profile.resolved_data_root(loaded.profile_dir) == (host / "data").resolve()
+    assert loaded.profile.resolved_facility_roots(loaded.profile_dir).content == (
+        host / repo_layout.entry("facility").path
+    )
 
 
 def test_render_and_root_read_the_same_data_tree(host: Path) -> None:
@@ -190,16 +191,16 @@ def test_render_and_root_read_the_same_data_tree(host: Path) -> None:
     render_loaded = load_profile_document(render)
     root_loaded = load_profile_document(host / "profile.yml")
 
-    assert render_loaded.profile.resolved_data_root(
+    assert render_loaded.profile.resolved_facility_roots(
         render_loaded.profile_dir
-    ) == root_loaded.profile.resolved_data_root(root_loaded.profile_dir)
+    ) == root_loaded.profile.resolved_facility_roots(root_loaded.profile_dir)
 
 
 def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> None:
     """Only layer files re-anchor; every other file is unaffected."""
     root = tmp_path / "plain"
     _write(root / "data" / "channels.json", "{}\n")
-    profile_path = _write(root / "profile.yml", "name: Plain\ndata: data\n")
+    profile_path = _write(root / "profile.yml", "name: Plain\n")
 
     loaded = load_profile_document(profile_path)
 
@@ -209,8 +210,7 @@ def test_a_standalone_profile_anchors_at_its_own_directory(tmp_path: Path) -> No
 
 def test_a_bare_file_outside_any_profile_still_loads(tmp_path: Path) -> None:
     """A one-off YAML in a scratch directory is not a delta and needs no root."""
-    (tmp_path / "data").mkdir()
-    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\ndata: data\n")
+    profile_path = _write(tmp_path / "scratch.yml", "name: Scratch\n")
 
     loaded = load_profile_document(profile_path)
 

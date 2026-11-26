@@ -32,9 +32,9 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 | Custom providers (`models/providers/*.py`) | Provider registry still exists             | EVALUATE  |
 | Custom prompt builders (`*prompts*/*.py`)  | Customization layer likely still needed    | EVALUATE  |
 | `services/channel_finder/` full copies     | Framework-native now — likely redundant    | EVALUATE  |
-| Channel database JSON files                | Channels are `data/facility/` records now  | TRANSFORM |
+| Channel database JSON files                | Channels are `facility/` records now  | TRANSFORM |
 | `data/channel_limits.json`                 | Limits are `limits.yaml` records now       | TRANSFORM |
-| `data/benchmarks/**`, `data/raw/*.csv`     | Same format                                | SALVAGE   |
+| `data/benchmarks/**`                       | Same format, under `facility/benchmarks/`  | SALVAGE   |
 | `data/tools/*.py`, machine-state JSON      | Utility data                               | SALVAGE   |
 | Custom `.claude/rules/`, `.claude/skills/` | Content still valid                        | SALVAGE   |
 | Custom `.claude/hooks/`                    | Hook API may differ — review               | TRANSFORM |
@@ -49,7 +49,7 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 Do not memorize target paths — open the live repo and read its profile.yml
 comments — but the general destinations are:
 
-- Data files → the repo's `data/` tree (same formats).
+- Data files → the repo's `facility/` tree (same formats).
 - Config values (gateways, archiver URLs, timezone, provider/model) →
   `osprey set key=value` into the live profile.
 - Custom code and assets (rules, skills, agents, MCP servers, services,

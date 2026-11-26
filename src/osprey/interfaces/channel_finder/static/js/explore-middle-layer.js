@@ -3,7 +3,7 @@
  * OSPREY Channel Finder — Middle Layer Explore (Three-Column Drill-Down)
  *
  * System -> Family -> Fields/Channels in a fixed three-column layout.
- * Read-only: corrections go into data/facility/provenance/fixes.yaml and take effect with
+ * Read-only: corrections go into facility/provenance/fixes.yaml and take effect with
  * `osprey build`.
  */
 
@@ -45,7 +45,7 @@ export function setShowDescriptions(val) {
 export async function mountMiddleLayer(container) {
   container.innerHTML = `
     <div class="cf-corrections-info">
-      Corrections go in <code>data/facility/provenance/fixes.yaml</code> and take effect with <code>osprey build</code>.
+      Corrections go in <code>facility/provenance/fixes.yaml</code> and take effect with <code>osprey build</code>.
     </div>
     <div class="three-column-layout">
       <div class="column-panel" id="ml-systems">

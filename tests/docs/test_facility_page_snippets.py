@@ -49,7 +49,7 @@ PRESET = TEMPLATE_ROOT / "facilities/example"
 
 #: A block with no facility file to check, keyed by page name and first line.
 SKIPPED: dict[tuple[str, str], str] = {
-    ("describe-your-facility.rst", "data/facility/"): "a directory tree, not a file",
+    ("describe-your-facility.rst", "facility/"): "a directory tree, not a file",
     ("describe-your-facility.rst", "osprey facility validate"): "commands, not a facility file",
     (
         "describe-your-facility.rst",
@@ -194,7 +194,7 @@ PASTED: dict[str, tuple[str, Callable[[Path, Any], None]]] = {
     "- address: BTS:DIAG:BPM:01:POSITION:X": (source_path("models"), _wiring_of("BTS")),
     "- class: Undulator": (source_path("classes"), _by("class")),
     "- name: taper_setpoint": (source_path("signals"), _by("name")),
-    "# data/facility/imported/names/channels.yaml": (
+    "# facility/imported/names/channels.yaml": (
         "imported/names/channels.yaml",
         _by("id"),
     ),

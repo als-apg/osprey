@@ -12,6 +12,7 @@ from textwrap import dedent
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.build_profile import (
     BuildProfile,
     EnvConfig,
@@ -23,7 +24,7 @@ from osprey.cli.build_profile import (
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build
 
@@ -33,15 +34,14 @@ from tests.cli._lifecycle_build import invoke_build
 
 
 def _create_project(manager, **kwargs) -> Path:
-    """``create_project`` with the data tree every render now requires.
+    """``create_project`` with the source trees every render requires.
 
-    A build copies the tree its profile's ``data:`` key names, and that key is
-    required — nothing falls back to a packaged tree any more. These fixtures
-    render straight from a bundle rather than from a profile, so they name the
-    tree that bundle packages.
+    A build copies the facility and web trees beside its profile, and nothing
+    falls back to a packaged tree. These fixtures render straight from a bundle
+    rather than from a profile, so they name the sources that bundle packages.
     """
     kwargs.setdefault("data_bundle", "demo")
-    kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
+    kwargs.setdefault("repo_root", bundle_source_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
 
 
@@ -62,18 +62,20 @@ def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> N
     )
 
 
-def materialize_data(profile_dir: Path, bundle: str = "demo") -> Path:
-    """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
+def materialize_sources(profile_dir: Path, bundle: str = "demo") -> Path:
+    """Copy the sources *bundle*'s preset holds into ``profile_dir``, as init lays them.
 
     For a test that builds through the real verb: the render stages channel
-    databases, limits and seeds out of the profile's tree, so the tree has to
-    be a real one.
+    databases, limits and seeds out of the repo's facility tree, so the tree
+    has to be a real one.
+
+    Returns:
+        The facility tree under *profile_dir*.
     """
     import shutil
 
-    dst = profile_dir / "data"
-    shutil.copytree(bundle_data_root(bundle), dst, dirs_exist_ok=True)
-    return dst
+    shutil.copytree(bundle_source_root(bundle), profile_dir, dirs_exist_ok=True)
+    return profile_dir / repo_layout.entry("facility").path
 
 
 # ---------------------------------------------------------------------------
@@ -83,10 +85,7 @@ def materialize_data(profile_dir: Path, bundle: str = "demo") -> Path:
 
 @pytest.fixture()
 def profile_dir(tmp_path: Path) -> Path:
-    """Create a minimal profile directory with a data tree and an MCP server."""
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    (data_dir / "channels.json").write_text('{"pvs": ["SR:DCCT"]}')
+    """Create a minimal profile directory with an MCP server."""
 
     mcp_dir = tmp_path / "agent" / "mcp_servers" / "test_server"
     mcp_dir.mkdir(parents=True)
@@ -101,7 +100,6 @@ def minimal_profile_yaml(profile_dir: Path) -> Path:
     """Write a minimal valid profile YAML and return its path."""
     profile = {
         "name": "Test Profile",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "config": {
@@ -138,7 +136,6 @@ class TestProfileLoading:
     def test_load_minimal_profile(self, minimal_profile_yaml: Path):
         profile = load_profile(minimal_profile_yaml)
         assert profile.name == "Test Profile"
-        assert profile.data == "data"
         assert profile.provider == "cborg"
         assert profile.model == "claude-haiku-4-5"
 
@@ -178,13 +175,11 @@ class TestProfileLoading:
 
     def test_load_profile_mcp_server_url(self, tmp_path: Path):
         """URL-only MCP server should parse correctly."""
-        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "Test",
-                    "data": "data",
                     "mcp_servers": {
                         "remote": {
                             "url": "http://host:8001/sse",
@@ -217,14 +212,12 @@ class TestProfileLoading:
     def test_load_profile_defaults(self, tmp_path: Path):
         """A profile stating only what is required should use defaults.
 
-        ``name:`` and ``data:`` are the two keys every profile must carry, so
-        they are what "only" means here.
+        ``name:`` is the one key every profile must carry, so it is what
+        "only" means here.
         """
-        (tmp_path / "data").mkdir()
         simple = tmp_path / "simple.yml"
-        simple.write_text("name: Simple\ndata: data\n")
+        simple.write_text("name: Simple\n")
         profile = load_profile(simple)
-        assert profile.data == "data"
         assert profile.provider is None
         assert profile.config == {}
         assert profile.mcp_servers == {}
@@ -242,19 +235,14 @@ class TestProfileLoading:
 
     def test_deploy_services_defaults_true(self, tmp_path: Path):
         """Omitting the knob leaves a project self-contained (deploys its own stack)."""
-        (tmp_path / "data").mkdir()
         p = tmp_path / "d.yml"
-        p.write_text("name: Deployable\ndata: data\n")
+        p.write_text("name: Deployable\n")
         assert load_profile(p).deploy_services is True
 
     def test_deploy_services_explicit_false_parses(self, tmp_path: Path):
         """An explicit false marks the project as attached."""
-        (tmp_path / "data").mkdir()
         p = tmp_path / "a.yml"
-        p.write_text(
-            "name: Attached\ndata: data\ndeploy_services: false\n"
-            "config:\n  services.qmd.port: 8180\n"
-        )
+        p.write_text("name: Attached\ndeploy_services: false\nconfig:\n  services.qmd.port: 8180\n")
         assert load_profile(p).deploy_services is False
 
     def test_deploy_services_inherited_child_wins(self, tmp_path: Path):
@@ -264,9 +252,8 @@ class TestProfileLoading:
         like any other scalar: a base that leaves it defaulted-true is overridden
         by a child that sets it false.
         """
-        (tmp_path / "data").mkdir()
         base = tmp_path / "base.yml"
-        base.write_text("name: Base\ndata: data\ndeploy_services: true\n")
+        base.write_text("name: Base\ndeploy_services: true\n")
         child = tmp_path / "child.yml"
         child.write_text(
             "name: Child\nextends: base.yml\ndeploy_services: false\n"
@@ -275,10 +262,8 @@ class TestProfileLoading:
         assert load_profile(child).deploy_services is False
 
     def test_load_profile_lifecycle_parsed(self, tmp_path: Path):
-        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Lifecycle Test",
-            "data": "data",
             "lifecycle": {
                 "pre_build": [{"name": "check deps", "run": "pip check"}],
                 "post_build": [{"name": "build index", "run": "python index.py", "cwd": "data"}],
@@ -296,10 +281,8 @@ class TestProfileLoading:
         assert len(profile.lifecycle.validate) == 1
 
     def test_load_profile_env_parsed(self, tmp_path: Path):
-        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Env Test",
-            "data": "data",
             "env": {
                 "required": ["API_KEY", "DB_HOST"],
                 "defaults": {"LOG_LEVEL": "info", "PORT": "8080"},
@@ -312,10 +295,8 @@ class TestProfileLoading:
         assert profile.env.defaults == {"LOG_LEVEL": "info", "PORT": "8080"}
 
     def test_load_profile_dependencies_parsed(self, tmp_path: Path):
-        (tmp_path / "data").mkdir()
         profile_data = {
             "name": "Deps Test",
-            "data": "data",
             "dependencies": ["numpy>=1.24", "pandas", "scipy~=1.11"],
         }
         path = tmp_path / "deps.yml"
@@ -493,13 +474,11 @@ class TestBuildHelpers:
 
     def test_load_profile_mcp_server_port_derives_url(self, tmp_path: Path):
         """A bare `port:` should yield url=http://localhost:<port>/mcp."""
-        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "PortTest",
-                    "data": "data",
                     "mcp_servers": {
                         "matlab": {
                             "port": 8008,
@@ -517,13 +496,11 @@ class TestBuildHelpers:
 
     def test_load_profile_mcp_server_port_with_explicit_url(self, tmp_path: Path):
         """An explicit `url:` plus `port:` should keep the explicit url verbatim."""
-        (tmp_path / "data").mkdir()
         p = tmp_path / "profile.yml"
         p.write_text(
             yaml.dump(
                 {
                     "name": "ExternalClient",
-                    "data": "data",
                     "mcp_servers": {
                         "matlab": {
                             "port": 8008,
@@ -832,7 +809,7 @@ class TestGeneratedProjectEnvExample:
             TemplateManager(),
             project_name="env-example-project",
             output_dir=tmp_path,
-            data_root=bundle_data_root(),
+            repo_root=bundle_source_root(),
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -1482,16 +1459,12 @@ class TestProfileExtends:
     """Tests for profile inheritance via the ``extends:`` keyword."""
 
     def _make_base(self, tmp_path: Path) -> Path:
-        """Create a base profile with a data tree so validation passes."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(exist_ok=True)
-        (data_dir / "channels.json").write_text("{}")
+        """Create a base profile that validates."""
 
         return _write_yaml(
             tmp_path / "base.yml",
             {
                 "name": "Base Profile",
-                "data": "data",
                 "provider": "cborg",
                 "model": "claude-opus-5",
                 "hooks": ["hook-a", "hook-b"],
@@ -1580,15 +1553,11 @@ class TestProfileExtends:
     def test_mcp_server_deep_merge(self, tmp_path: Path):
         """MCP servers are deep-merged: child adds url, inherits permissions."""
         # Base with permissions-only server (can't be built standalone)
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(exist_ok=True)
-        (data_dir / "channels.json").write_text("{}")
 
         _write_yaml(
             tmp_path / "base.yml",
             {
                 "name": "Base",
-                "data": "data",
                 "config": {
                     "control_system.type": "virtual_accelerator",
                     "control_system.connector.virtual_accelerator.serving": "in_process",
@@ -1668,15 +1637,11 @@ class TestProfileExtends:
 
     def test_multi_level_extends(self, tmp_path: Path):
         """A extends B extends C resolves correctly."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(exist_ok=True)
-        (data_dir / "channels.json").write_text("{}")
 
         _write_yaml(
             tmp_path / "grandparent.yml",
             {
                 "name": "Grandparent",
-                "data": "data",
                 "provider": "cborg",
                 "model": "claude-opus-5",
                 "hooks": ["hook-a"],
@@ -1721,15 +1686,11 @@ class TestProfileExtends:
 
     def test_lifecycle_concatenation(self, tmp_path: Path):
         """Lifecycle step lists are concatenated (base first, child appended)."""
-        data_dir = tmp_path / "data"
-        data_dir.mkdir(exist_ok=True)
-        (data_dir / "channels.json").write_text("{}")
 
         _write_yaml(
             tmp_path / "base.yml",
             {
                 "name": "Base",
-                "data": "data",
                 "config": {
                     "control_system.type": "virtual_accelerator",
                     "control_system.connector.virtual_accelerator.serving": "in_process",
@@ -1804,13 +1765,8 @@ def _build_for_web_panels(
     from osprey.cli.templates.artifact_library import validate_artifacts
     from osprey.cli.templates.manager import TemplateManager
 
-    data_dir = tmp_path / "data"
-    data_dir.mkdir(exist_ok=True)
-    (data_dir / "channels.json").write_text("{}")
-
     profile_data: dict = {
         "name": "Panels Test",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         # Ship the memory-guard hook the real demo preset ships:
@@ -1851,7 +1807,6 @@ def _build_for_web_panels(
         context=template_context,
         force=False,
         artifacts=artifacts,
-        data_root=build_profile.resolved_data_root(tmp_path),
     )
     if build_profile.config:
         _apply_config_overrides(project_dir, build_profile.config)
@@ -1967,18 +1922,17 @@ def _mode_repo(tmp_path: Path, paradigm: str) -> Path:
     profile_data: dict = {
         "name": "Mode Test",
         "project_name": "mode-test",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": paradigm,
         "config": dict(POSTURE_CONFIG),
     }
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
-    # The data tree `osprey init` lays down beside the profile: the build stages
-    # its channel databases out of this tree and no other, and the Reach
-    # Contract refuses a render whose bind source is not there.
-    materialize_data(repo)
-    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    # The sources `osprey init` lays down beside the profile: the build stages
+    # its channel databases out of the facility tree and no other, and the
+    # Reach Contract refuses a render whose bind source is not there.
+    facility = materialize_sources(repo)
+    (facility / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
@@ -2004,7 +1958,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
 
     - rendered config.yml names the index the build writes at
       ``data/channel_finder/<paradigm>.json``, and the file is there.
-    - no ``data/facility/benchmarks/``, no
+    - no ``facility/benchmarks/``, no
       ``data/benchmarks/channel_finder/`` and no ``data/raw/`` reaches the
       render; the facility tree keeps them.
     - no ``data/channel_databases/<paradigm>.json`` is materialized, for this
@@ -2039,7 +1993,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (data / "benchmarks" / "queries.json").is_file()
 
     # The facility tree the render came from is never pruned.
-    assert (repo / "data" / "facility" / "benchmarks" / "channel_finder").is_dir()
+    assert (repo / repo_layout.entry("facility").path / "benchmarks" / "channel_finder").is_dir()
 
     if paradigm == "hierarchical":
         # The levels the channel-finder agent is told are the index's own.
@@ -2190,14 +2144,13 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path, caplog) -> Non
     profile_data = {
         "name": "no mode",
         "project_name": "no-mode",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "agents": ["channel-finder"],
         # NOTE: channel_finder_mode intentionally omitted.
     }
     repo = tmp_path / "no-mode"
-    (repo / "data").mkdir(parents=True)
+    repo.mkdir()
     (repo / "profile.yml").write_text(yaml.dump(profile_data, default_flow_style=False))
 
     runner = CliRunner()
@@ -2236,7 +2189,7 @@ def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path
         project_name="remove-ask-warn",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     _stamp_bundle_selection(manager, project, "remove-ask-warn", "hello_world")
 
@@ -2280,7 +2233,7 @@ def test_lint_rejects_ungated_write_tool_when_memory_guard_absent(tmp_path: Path
         project_name="lint-no-guard",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     _stamp_bundle_selection(manager, project, "lint-no-guard", "hello_world")
 
@@ -2318,7 +2271,7 @@ def test_lint_passes_for_normal_build_with_memory_guard(tmp_path: Path) -> None:
         project_name="lint-normal",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
@@ -2426,7 +2379,7 @@ def _project_with_permissions(tmp_path: Path, name: str, permissions: dict) -> t
         project_name=name,
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     manager.generate_manifest(
         project,
@@ -2588,7 +2541,7 @@ def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -
             project_name="framework-gate-quiet",
             output_dir=tmp_path,
             data_bundle="hello_world",
-            data_root=bundle_data_root("hello_world"),
+            repo_root=bundle_source_root("hello_world"),
         )
 
     assert project.is_dir()
@@ -2612,7 +2565,7 @@ def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> Non
         project_name="writes-block-clone",
         output_dir=tmp_path,
         data_bundle="hello_world",
-        data_root=bundle_data_root("hello_world"),
+        repo_root=bundle_source_root("hello_world"),
     )
     # The regen below reads its artifact selection back from the manifest, so
     # the stamp carries what a build's stamp carries: the recorded preset and

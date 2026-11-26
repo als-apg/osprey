@@ -19,8 +19,6 @@ from osprey.cli.build_profile import _parse_profile, load_profile
 from osprey.services.channel_directory import resolve
 from osprey_connectors.errors import BuildProfileError
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 _URL = {"url": "https://directory.example/api"}
 _KAFKA = {"type": "phoebus_alarm_server", "settings": {"bootstrap_servers": "kafka:9092"}}
 
@@ -35,7 +33,7 @@ def printed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _profile(config: dict[str, Any], **keys: Any) -> Any:
-    return _parse_profile({"name": "x", "data": "data", "config": config, **keys})
+    return _parse_profile({"name": "x", "config": config, **keys})
 
 
 def _problems(profile: Any, base: Path) -> str:
@@ -70,9 +68,7 @@ def test_each_refusal_reaches_the_build(config: dict[str, Any], key: str, tmp_pa
 def test_a_refusal_reaches_a_profile_loaded_from_disk(tmp_path: Path) -> None:
     path = tmp_path / "profile.yml"
     path.write_text(
-        yaml.safe_dump(
-            {"name": "x", "data": "data", "config": {"channel_directory.put_log.type": "caputlog"}}
-        ),
+        yaml.safe_dump({"name": "x", "config": {"channel_directory.put_log.type": "caputlog"}}),
         encoding="utf-8",
     )
 

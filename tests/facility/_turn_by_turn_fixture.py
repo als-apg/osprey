@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from osprey import repo_layout
 from osprey_facility import source_tree
 from tests._builds import FRAMEWORK_CHECKS
 
@@ -127,12 +128,12 @@ _REPORTED: set[str] = set()
 def turn_by_turn_view(root: Path) -> Path:
     """Build and render the turn-by-turn fixture under ``root``.
 
-    The tree is copied to ``root/data/facility``, built, and rendered into
+    The tree is copied to ``root/facility``, built, and rendered into
     ``root/build`` under the in-process render configuration of
     :mod:`tests.facility.served_tree`.
 
     Args:
-        root: A directory holding neither ``data/facility`` nor ``build``.
+        root: A directory holding neither ``facility`` nor ``build``.
 
     Returns:
         The render's simulator view, ``root/build/data/simulator``.
@@ -141,7 +142,7 @@ def turn_by_turn_view(root: Path) -> Path:
     from osprey_facility.build import build_facility
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
-    facility_dir = root / "data" / "facility"
+    facility_dir = root / repo_layout.entry("facility").path
     shutil.copytree(FIXTURE, facility_dir)
     render_dir = root / "build"
     render_dir.mkdir(parents=True)

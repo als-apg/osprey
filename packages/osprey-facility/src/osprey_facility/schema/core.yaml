@@ -5,7 +5,7 @@ description: >-
   One facility, described once: its places, devices, channels and groups, the
   models that simulate it and how each model is wired to channels, the write
   limits and the scenarios. `osprey build` combines the sources under
-  data/facility/ into one file of this shape. Every list whose order carries
+  facility/ into one file of this shape. Every list whose order carries
   meaning sets `list_elements_ordered`; a multivalued slot without it is a set,
   compared and written sorted by its string form, or by its key when its
   entries are keyed (`scheme_names` by name and scheme, `citations` by
@@ -333,7 +333,7 @@ classes:
         required: true
       file:
         required: true
-        description: Relative to data/facility/.
+        description: Relative to facility/.
       fields:
         multivalued: true
         list_elements_ordered: true
@@ -1089,8 +1089,17 @@ classes:
       start:
         range: boolean
         description: >-
-          True puts the scenario in the deployment's start set, the scenarios
-          the simulator activates when it first comes up; absent means false.
+          True puts the scenario in the start set of every simulator instance
+          the deployment runs, the scenarios an instance activates when it
+          first comes up; absent means false.
+      start_on:
+        range: string
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          The simulator targets (`va`, `standin`) whose instances start in the
+          scenario, for a scenario that starts on some instances and not on
+          others; stated in place of `start: true`.
       still:
         range: Any
         description: >-

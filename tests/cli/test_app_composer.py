@@ -44,7 +44,6 @@ _WRITES = "control_system.writes"
 
 _HOST = {
     "name": "Facility",
-    "data": "data",
     "provider": "anthropic",
     "model": "opus",
     "env": {"defaults": {"FACILITY": "test"}},
@@ -106,7 +105,6 @@ def _repo(tmp_path: Path, app: dict, host: dict | None = None) -> Path:
     config the test hands it, so the login is always sealed.
     """
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True, exist_ok=True)
     host = dict(host if host is not None else _HOST)
     host["config"] = {"modules.web_terminals.shared": ["logbook"], **(host.get("config") or {})}
     _write_yaml(repo / "profile.yml", host)
@@ -136,8 +134,7 @@ def _leaves(config: dict) -> dict:
 
 def _materialized_repo(repo: Path, host_preset: str, host_config: dict | None = None) -> Path:
     """A deployment extending ``host_preset`` with every bundled app materialized."""
-    (repo / "data").mkdir(parents=True)
-    host: dict = {"extends": host_preset, "name": "Flagship", "data": "data"}
+    host: dict = {"extends": host_preset, "name": "Flagship"}
     if host_config:
         host["config"] = host_config
     _write_yaml(repo / "profile.yml", host)
@@ -244,7 +241,7 @@ def test_writes_check_is_not_duplicated(tmp_path: Path) -> None:
 def test_other_top_level_keys_are_the_hosts_verbatim(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
 
-    for key in ("provider", "model", "env", "dispatch", "data", "mcp_servers"):
+    for key in ("provider", "model", "env", "dispatch", "mcp_servers"):
         assert raw[key] == _HOST[key], key
 
 

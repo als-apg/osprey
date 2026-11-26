@@ -314,7 +314,7 @@ NSLS2_STEMS = ("nsls2.storagering", "nsls2.ltb")
 
 
 def _nsls2(tmp_path: Path, places: dict[str, Any]) -> Path:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = load_yaml(FIXTURES / "nsls2" / MAPPING_FILE)
@@ -397,7 +397,7 @@ def test_a_placement_the_mapping_leaves_open_stops_before_writing(tmp_path: Path
 
 
 def test_a_mapping_without_place_rules_writes_no_places(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     (facility / LAYER_DIR).mkdir(parents=True)
     shutil.copyfile(FIXTURES / "spear3" / MAPPING_FILE, facility / MAPPING_FILE)
     (facility / LAYER_DIR / "places.yaml").write_text("[]\n", encoding="utf-8")

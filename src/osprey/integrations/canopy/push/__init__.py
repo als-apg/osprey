@@ -29,7 +29,7 @@ uid (``1000:1000``); one that mounts only the host stage runs as the invoking
 user, who wrote the stage.
 
 **Common rules.** The module refuses to run as uid 0 and unless the
-effective uid owns ``data/canopy/library``. ``<user>`` must match the roster
+effective uid owns ``web/canopy/library``. ``<user>`` must match the roster
 charset, be on the roster and have its agent-data volume. Every verb holds
 ``var/canopy/push.lock``. ``show`` refuses unless :func:`library_is_fresh`
 passes for the library it reviews against. Everything printed passes through

@@ -34,7 +34,7 @@ from osprey.deployment.graphdb_service import (
 )
 from osprey.mcp_server.graph.server_context import GraphStoreError
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
-from osprey.repo_layout import child_display_path
+from osprey.repo_layout import display_path
 from osprey.services.channel_finder.core.base_database import BaseDatabase
 from osprey.services.channel_finder.databases import (
     FlatChannelDatabase,
@@ -156,7 +156,7 @@ _NO_ROSTER_SUGGESTIONS = [
 #: channels. The build is not the remedy: it writes what the project's tree
 #: declares, so the tree is what changes.
 _EMPTY_FACILITY_SUGGESTIONS = [
-    f"Declare the channels in the project's {child_display_path('data', 'facility')} "
+    f"Declare the channels in the project's {display_path('facility')} "
     "tree, then rebuild "
     "and restart the channel finder.",
 ]

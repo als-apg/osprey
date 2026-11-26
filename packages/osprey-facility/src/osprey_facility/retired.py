@@ -23,6 +23,10 @@ The placement and the script assume nothing about the facility tree, so any
 tree with paths that moved uses them: :func:`place_moves` finds what a list of
 ``(old, new)`` paths under one root asks to move or clashes, and
 :func:`render_script` renders moves, line edits and deletions as one script.
+Moves are placed and rendered in stages: each one against the tree as the
+moves before it leave it, so a move into a directory an earlier move brings
+merges file by file, and its ``git mv``-or-``mv`` decision is made where its
+source lies before any move.
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ from osprey_facility.errors import RetiredLayoutRefused
 
 __all__ = [
     "Clash",
+    "LineDelete",
     "LineEdit",
     "Move",
     "RetiredLayout",
@@ -102,6 +107,23 @@ class LineEdit:
     line: int
     old: str
     new: str
+
+
+@dataclass(frozen=True)
+class LineDelete:
+    """One whole line to remove from a file.
+
+    Attributes:
+        file: The file, at the path where the delete applies once the moves
+            are done.
+        line: The line in that file, 1-based, counted before any delete.
+        text: The line as written, without its line ending; a line that no
+            longer reads so is kept.
+    """
+
+    file: Path
+    line: int
+    text: str
 
 
 @dataclass(frozen=True)
@@ -175,11 +197,17 @@ def place_moves(
     directory below the retired path whose name starts with ``.`` is not a
     source; the retired path itself counts whatever its name.
 
+    Each move is placed against the tree as the moves placed before it leave
+    it. A move whose successor lies inside another move's successor is placed
+    after that one, so it merges into what that move brings. Two moves to the
+    same successor that both hold a source clash with each other.
+
     When nothing stands at the successor, the whole path moves. When the
     successor is a directory and the retired path is one too, each source
     moves on its own into it, and one already present there is a clash. A
     file onto an existing path is a clash, and so is a file where the move
     needs a directory: a successor, or a directory above it, that is a file.
+    A clash names each side where it lies before any move.
 
     Args:
         root: The root every path is relative to.
@@ -188,47 +216,148 @@ def place_moves(
         hidden: Count names starting with ``.`` below each retired path.
 
     Returns:
-        The moves, in the order of *moves* and per-file moves of one
-        directory in path order, and the clashes.
+        The moves in the order they run, per-file moves of one directory in
+        path order, and the clashes.
     """
+    pairs = list(moves)
+    ordered = sorted(pairs, key=lambda pair: sum(_inside(pair[1], other[1]) for other in pairs))
     placed: list[Move] = []
     clashes: list[Clash] = []
-    for old, new in moves:
-        _place(root, old, new, hidden, placed, clashes)
+    overlay = _Overlay(root, placed)
+    claimed: dict[str, str] = {}
+    for old, new in ordered:
+        if next(_sources(root / old, hidden), None) is None:
+            continue
+        if new in claimed:
+            clashes.append(Clash(old=root / old, new=root / claimed[new]))
+            continue
+        claimed[new] = old
+        _place(root, old, new, hidden, overlay, placed, clashes)
     return placed, clashes
 
 
+def _inside(path: str, directory: str) -> bool:
+    """True when the POSIX *path* lies strictly below *directory*."""
+    return path.startswith(f"{directory}/")
+
+
+def _join(directory: str, relative: str) -> str:
+    """*relative* below *directory*, POSIX; either may be ``""``."""
+    return "/".join(part for part in (directory, relative) if part)
+
+
+@dataclass
+class _Overlay:
+    """The tree under *root* as the moves in *placed* leave it, read without touching it."""
+
+    root: Path
+    placed: list[Move]
+
+    def vacated(self, rel: str) -> bool:
+        return any(rel == move.old or _inside(rel, move.old) for move in self.placed)
+
+    def now(self, rel: str) -> Path:
+        """Where what the tree holds at *rel* after the moves lies before them."""
+        best: Move | None = None
+        for move in self.placed:
+            if (rel == move.new or _inside(rel, move.new)) and (
+                best is None or len(move.new) > len(best.new)
+            ):
+                best = move
+        if best is None:
+            return self.root / rel
+        return self.root / (best.old + rel[len(best.new) :])
+
+    def is_file(self, rel: str) -> bool:
+        if self.vacated(rel):
+            return False
+        return self.now(rel).is_file() or (self.root / rel).is_file()
+
+    def exists(self, rel: str) -> bool:
+        if (self.root / rel).exists() and not self.vacated(rel):
+            return True
+        return any(
+            (self.root / move.old).exists()
+            if move.new == rel or _inside(move.new, rel)
+            else _inside(rel, move.new) and self.now(rel).exists()
+            for move in self.placed
+        )
+
+    def file_above(self, rel: str) -> str | None:
+        """The first directory *rel* needs, below the root, that is a file."""
+        current = ""
+        for part in Path(rel).parts[:-1]:
+            current = _join(current, part)
+            if not self.exists(current):
+                return None
+            if self.is_file(current):
+                return current
+        return None
+
+    def files(self, rel: str) -> set[str]:
+        """Every file at *rel*, relative to it; ``""`` when *rel* is a file."""
+        found = {
+            item for item in _sources(self.root / rel, True) if not self.vacated(_join(rel, item))
+        }
+        for move in self.placed:
+            if move.new == rel or _inside(move.new, rel):
+                sub = move.new[len(rel) + 1 :] if move.new != rel else ""
+                found.update(_join(sub, item) for item in _sources(self.root / move.old, True))
+            elif _inside(rel, move.new):
+                inner = rel[len(move.new) + 1 :]
+                found.update(_sources(self.root / move.old / inner, True))
+        return found
+
+
 def _place(
-    root: Path, old: str, new: str, hidden: bool, moves: list[Move], clashes: list[Clash]
+    root: Path,
+    old: str,
+    new: str,
+    hidden: bool,
+    overlay: _Overlay,
+    moves: list[Move],
+    clashes: list[Clash],
 ) -> None:
     """Record how retired path *old* under *root* reaches *new*, if it holds a source."""
     source = root / old
     files = sorted(_sources(source, hidden))
     if not files:
         return
-    successor = root / new
     is_dir = source.is_dir()
-    blocker = _file_above(root, new)
+    blocker = overlay.file_above(new)
     if blocker is not None:
-        clashes.append(Clash(old=source, new=blocker))
+        clashes.append(Clash(old=source, new=overlay.now(blocker)))
         return
-    if not successor.exists():
+    if not overlay.exists(new):
         moves.append(Move(root=root, old=old, new=new, is_dir=is_dir, merge=False))
         return
-    if not (is_dir and successor.is_dir()):
-        clashes.append(Clash(old=source, new=successor))
+    if not (is_dir and not overlay.is_file(new)):
+        clashes.append(Clash(old=source, new=overlay.now(new)))
         return
+    present = overlay.files(new)
+    directories = {
+        "/".join(item.split("/")[:depth])
+        for item in present
+        for depth in range(1, item.count("/") + 1)
+    }
     blocked: set[str] = set()
     for relative in files:
-        if any(relative.startswith(f"{prefix}/") for prefix in blocked):
+        if any(_inside(relative, prefix) for prefix in blocked):
             continue
-        blocker = _file_above(successor, relative)
-        if blocker is not None:
-            prefix = blocker.relative_to(successor).as_posix()
-            blocked.add(prefix)
-            clashes.append(Clash(old=source / prefix, new=blocker))
-        elif (successor / relative).exists():
-            clashes.append(Clash(old=source / relative, new=successor / relative))
+        parts = relative.split("/")
+        above = next(
+            (
+                "/".join(parts[:depth])
+                for depth in range(1, len(parts))
+                if "/".join(parts[:depth]) in present
+            ),
+            None,
+        )
+        if above is not None:
+            blocked.add(above)
+            clashes.append(Clash(old=source / above, new=overlay.now(_join(new, above))))
+        elif relative in present or relative in directories:
+            clashes.append(Clash(old=source / relative, new=overlay.now(_join(new, relative))))
         else:
             moves.append(
                 Move(
@@ -239,18 +368,6 @@ def _place(
                     merge=True,
                 )
             )
-
-
-def _file_above(base: Path, relative: str) -> Path | None:
-    """The first path strictly above *base* / *relative*, below *base*, that is not a directory."""
-    current = base
-    for part in Path(relative).parts[:-1]:
-        current = current / part
-        if not current.exists():
-            return None
-        if not current.is_dir():
-            return current
-    return None
 
 
 def _sources(source: Path, hidden: bool) -> Iterator[str]:
@@ -314,13 +431,17 @@ def _deck_edits(machine_dir: Path) -> tuple[LineEdit, ...]:
     return tuple(edits)
 
 
-def refuse_retired(machine_dir: Path, content_dir: Path | None = None) -> None:
+def refuse_retired(
+    machine_dir: Path, content_dir: Path | None = None, *, repo: Path | None = None
+) -> None:
     """Stop when the facility tree still holds anything at a retired path.
 
     Args:
         machine_dir: The machine root.
         content_dir: The content root when mounted; ``None`` means
             *machine_dir*.
+        repo: The deployment repo the refusal's closing command migrates;
+            ``None`` means the one :func:`_deployment_of` finds.
 
     Raises:
         RetiredLayoutRefused: :func:`find_retired` reports a move, a deck
@@ -329,12 +450,25 @@ def refuse_retired(machine_dir: Path, content_dir: Path | None = None) -> None:
     layout = find_retired(machine_dir, content_dir)
     if layout.empty:
         return
+    content = None if content_dir is None else content_dir.resolve()
     raise RetiredLayoutRefused(
         machine_dir.resolve(),
-        None if content_dir is None else content_dir.resolve(),
+        content,
         layout,
         move_script(layout),
+        (repo if repo is not None else _deployment_of(content or machine_dir)).resolve(),
     )
+
+
+def _deployment_of(content_dir: Path) -> Path:
+    """The deployment repo a facility content root belongs to.
+
+    The top of the git work tree holding it; without one, the directory
+    holding it, since a deployment keeps its facility content in one
+    directory at its root.
+    """
+    top = repository_root(content_dir)
+    return top if top is not None else content_dir.resolve().parent
 
 
 def repository_root(directory: Path) -> Path | None:
@@ -383,26 +517,37 @@ def render_script(
     moves: Iterable[Move],
     line_edits: Iterable[tuple[Path, LineEdit]],
     deletes: Iterable[tuple[Path, str]],
+    line_deletes: Iterable[tuple[Path, LineDelete]] = (),
 ) -> list[str]:
-    """POSIX shell lines that carry out *moves*, then *line_edits*, then *deletes*.
+    """POSIX shell lines that carry out *moves*, then the line edits and line deletes, then *deletes*.
 
     Every command runs in the block of the repository holding its root: a
-    move's own root, the root paired with each line edit, and the root paired
-    with each deleted path, which is POSIX and relative to that root. A block
+    move's own root, the root paired with each line edit or line delete, and
+    the root paired with each deleted path, which is POSIX and relative to
+    that root. A root that does not exist yet (an earlier move brings it)
+    belongs to the repository of its nearest existing directory. A block
     opens with ``cd`` to the repository's absolute top (the root itself when
-    no git work tree holds it), then ``mkdir -p`` for every missing successor
-    parent, ``git mv`` for each tracked source and ``mv`` for the rest, one
-    ``perl -pi`` per line edit, ``git rm -r`` for each tracked deleted path and
-    ``rm -r`` for the rest, and last ``rmdir`` of every directory the moves and
+    no git work tree holds it).
+
+    The moves run in the order given, in stages: a move may read the tree
+    the moves before it leave. Each gets its own ``mkdir -p`` of its
+    successor's parent immediately before it, unless that directory is
+    already there; it is ``git mv`` when its source, followed back through
+    the earlier moves of its block to where it lies before any move, is
+    tracked, else ``mv``. Then one ``perl -pi`` per line edit, one
+    ``perl -ni`` per line delete (the last lines of a file first, so the line
+    numbers hold), ``git rm -r`` for each tracked deleted path and ``rm -r``
+    for the rest, and last ``rmdir`` of every directory the moves and
     deletions may leave empty, deepest first. Blocks follow the order their
     roots first appear. Every path is shell-quoted and relative to the
     block's ``cd``, so the lines run from any working directory.
 
     Args:
-        moves: The moves.
+        moves: The moves, in the order they run.
         line_edits: ``(root, edit)`` pairs; the edit replaces the first
             occurrence of *old* on its line with *new*, both taken literally.
         deletes: ``(root, path)`` pairs naming what to remove.
+        line_deletes: ``(root, delete)`` pairs naming whole lines to remove.
 
     Returns:
         The script lines, empty when there is nothing to do.
@@ -411,7 +556,11 @@ def render_script(
 
     def block_for(root: Path) -> _Block:
         resolved = root.resolve()
-        top = repository_root(resolved)
+        existing = next(
+            (directory for directory in (resolved, *resolved.parents) if directory.exists()),
+            resolved,
+        )
+        top = repository_root(existing)
         key = top if top is not None else resolved
         if key not in blocks:
             blocks[key] = _Block(top=key, in_git=top is not None)
@@ -421,6 +570,10 @@ def render_script(
         block_for(move.root).add_move(move)
     for root, edit in line_edits:
         block_for(root).add_line_edit(edit)
+    for root, line_delete in sorted(
+        line_deletes, key=lambda pair: (str(pair[1].file), -pair[1].line)
+    ):
+        block_for(root).add_line_delete(line_delete)
     for root, relative in deletes:
         block_for(root).add_delete(root, relative)
     lines: list[str] = []
@@ -435,21 +588,28 @@ class _Block:
 
     top: Path
     in_git: bool
-    mkdirs: list[str] = field(default_factory=list)
     moves: list[str] = field(default_factory=list)
     edits: list[str] = field(default_factory=list)
     deletes: list[str] = field(default_factory=list)
     rmdirs: list[str] = field(default_factory=list)
+    made: list[Path] = field(default_factory=list)
+    moved: list[tuple[Path, Path]] = field(default_factory=list)
 
     def add_move(self, move: Move) -> None:
         root = move.root.resolve()
-        old = _relative(root / move.old, self.top)
-        new = _relative(root / move.new, self.top)
-        parent = (root / move.new).parent
-        if not parent.exists():
-            _append_once(self.mkdirs, _relative(parent, self.top))
-        verb = "git mv" if self.in_git and self._tracked(old) else "mv"
+        source = root / move.old
+        target = root / move.new
+        parent = target.parent
+        if parent != self.top and parent not in self.made and not self._standing(parent):
+            self.made.append(parent)
+            self.moves.append(f"mkdir -p {shlex.quote(_relative(parent, self.top))}")
+        before = self._before(source)
+        tracked = self.in_git and self._tracked(_relative(before, self.top))
+        verb = "git mv" if tracked else "mv"
+        old = _relative(source, self.top)
+        new = _relative(target, self.top)
         self.moves.append(f"{verb} {shlex.quote(old)} {shlex.quote(new)}")
+        self.moved.append((source, target))
         for directory in move.vacated():
             _append_once(self.rmdirs, _relative(directory, self.top))
 
@@ -458,6 +618,11 @@ class _Block:
         expression += f" if $. == {edit.line}"
         target = _relative(edit.file.resolve(), self.top)
         self.edits.append(f"perl -pi -e {shlex.quote(expression)} {shlex.quote(target)}")
+
+    def add_line_delete(self, delete: LineDelete) -> None:
+        expression = f"print unless $. == {delete.line} && m{{^{_perl_pattern(delete.text)}$}}"
+        target = _relative(delete.file.resolve(), self.top)
+        self.edits.append(f"perl -ni -e {shlex.quote(expression)} {shlex.quote(target)}")
 
     def add_delete(self, root: Path, relative: str) -> None:
         resolved = root.resolve()
@@ -470,14 +635,27 @@ class _Block:
 
     def render(self) -> list[str]:
         lines = [f"cd {shlex.quote(str(self.top))}"]
-        if self.mkdirs:
-            lines.append("mkdir -p " + " ".join(shlex.quote(path) for path in self.mkdirs))
         lines.extend(self.moves)
         lines.extend(self.edits)
         lines.extend(self.deletes)
         deepest_first = sorted(self.rmdirs, key=lambda path: path.count("/"), reverse=True)
         lines.extend(f"rmdir {shlex.quote(path)} 2>/dev/null || true" for path in deepest_first)
         return lines
+
+    def _standing(self, directory: Path) -> bool:
+        """True when *directory* is there now and no earlier move takes it away."""
+        if not directory.is_dir():
+            return False
+        return not any(
+            directory == source or source in directory.parents for source, _ in self.moved
+        )
+
+    def _before(self, path: Path) -> Path:
+        """*path*, followed back through this block's earlier moves to where it lies before them."""
+        for source, target in reversed(self.moved):
+            if path == target or target in path.parents:
+                path = source / path.relative_to(target)
+        return path
 
     def _tracked(self, relative: str) -> bool:
         try:

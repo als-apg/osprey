@@ -6,16 +6,15 @@ on:
       # Calendar tags like osprey-facility-v2026.12.0, one glob per stream.
       - 'osprey-connectors-v2*'
       - 'osprey-facility-v2*'
-      - 'osprey-panels-v2*'
 
-# Each component package (osprey-connectors, osprey-facility, osprey-panels)
-# has its own calendar stream, on its own <dist>-vYYYY.M.P tags (bN / rcN for
+# Each published component package (osprey-connectors, osprey-facility) has
+# its own calendar stream, on its own <dist>-vYYYY.M.P tags (bN / rcN for
 # pre-releases), cut when the package changes rather than with every framework
 # release. This workflow is the whole release of every such stream: one tag
 # builds, checks and publishes that stream's wheel and sdist and nothing else.
 # What differs between the streams (the package, its lanes, its environment,
-# its changelog, its smoke command) is read from scripts/ci/release_streams.py
-# by the `resolve` job, never spelled here. The framework's v-tags run
+# its changelog) is read from scripts/ci/release_streams.py by the `resolve`
+# job, never spelled here. The framework's v-tags run
 # release.yml, which builds none of these packages; the framework declares only
 # floors on them, and its own release proves the floors resolve from PyPI.
 #
@@ -27,8 +26,8 @@ on:
 # builds and publishes nothing.
 #
 # On PyPI, each package's trusted publisher names this workflow file and the
-# stream's environment (`pypi-connectors`, `pypi-facility`, `pypi-panels`),
-# and nothing else can upload it: the framework's publisher (release.yml,
+# stream's environment (`pypi-connectors`, `pypi-facility`), and nothing else
+# can upload it: the framework's publisher (release.yml,
 # `pypi`) is registered on osprey-framework, not on these.
 
 # Nothing at workflow level writes. The two jobs that do — the PyPI upload
@@ -37,7 +36,7 @@ permissions:
   contents: read
 
 jobs:
-  # The one place a tag becomes a stream. A ref outside the three globs, or a
+  # The one place a tag becomes a stream. A ref outside the two globs, or a
   # version not spelled in canonical PEP 440 form (`-rc1`, `2026.01.0`), fails
   # here, before anything is built: the table refuses a spelling rather than
   # normalising it, so the version every later job compares against is the one
@@ -45,7 +44,7 @@ jobs:
   resolve:
     name: Resolve The Release Stream
     runs-on: ubuntu-latest
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
     outputs:
       key: ${{ steps.stream.outputs.key }}
       dist: ${{ steps.stream.outputs.dist }}
@@ -55,7 +54,6 @@ jobs:
       changelog: ${{ steps.stream.outputs.changelog }}
       tag_prefix: ${{ steps.stream.outputs.tag_prefix }}
       lean_extras: ${{ steps.stream.outputs.lean_extras }}
-      smoke: ${{ steps.stream.outputs.smoke }}
       version: ${{ steps.stream.outputs.version }}
       prerelease: ${{ steps.stream.outputs.prerelease }}
 
@@ -77,7 +75,7 @@ jobs:
     name: Verify CI On The Tagged Tree
     runs-on: ubuntu-latest
     needs: [resolve]
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
     # A job-level block REPLACES the workflow's scopes rather than extending
     # them. Reading another workflow's runs needs `actions: read`.
     permissions:
@@ -136,7 +134,7 @@ jobs:
     name: Build The Package
     runs-on: ubuntu-latest
     needs: [resolve, verify-ci]
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
 
     steps:
     - name: Checkout repository
@@ -211,14 +209,13 @@ jobs:
     name: Verify The Wheel On A Bare Venv
     runs-on: ubuntu-latest
     needs: [resolve, build]
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
 
     # The wheel about to be published, installed into a fresh venv with every
     # dependency resolved from PyPI (with the stream's extras, so the walk
     # imports what they gate), then walked by the same lean import check every
     # PR runs: every module imports, and nothing the stream forbids is loaded.
-    # Then the installed `__version__` must be the tag's, and the stream's smoke
-    # command runs from the venv.
+    # Then the installed `__version__` must be the tag's.
     steps:
     # For scripts/ci/lean_import_walk.py and the stream table it reads.
     - name: Checkout repository
@@ -238,14 +235,12 @@ jobs:
     - name: Install the wheel with deps from PyPI and import-walk it
       # The extras are a separate requirement on the package name, never a
       # bracket after the wheel glob, which the shell reads as a character
-      # class. The smoke command is relative to the venv, so it runs the
-      # installed entry point and not whatever is first on PATH.
+      # class.
       env:
         KEY: ${{ needs.resolve.outputs.key }}
         DIST: ${{ needs.resolve.outputs.dist }}
         IMPORT_NAME: ${{ needs.resolve.outputs.import_name }}
         LEAN_EXTRAS: ${{ needs.resolve.outputs.lean_extras }}
-        SMOKE: ${{ needs.resolve.outputs.smoke }}
         VERSION: ${{ needs.resolve.outputs.version }}
       run: |
         set -euo pipefail
@@ -262,10 +257,6 @@ jobs:
         INSTALLED="$(/tmp/lean-check/bin/python -I -c "import $IMPORT_NAME; print($IMPORT_NAME.__version__)")"
         echo "$IMPORT_NAME.__version__ = $INSTALLED"
         [ "$INSTALLED" = "$VERSION" ]
-        if [ -n "$SMOKE" ]; then
-          read -ra smoke <<< "$SMOKE"
-          "/tmp/lean-check/${smoke[0]}" "${smoke[@]:1}"
-        fi
 
   publish-to-pypi:
     name: Publish The Package To PyPI
@@ -273,7 +264,7 @@ jobs:
     # The publish is the one step nobody can take back, and a future edit that
     # re-wires the chain above must not be able to un-gate it silently.
     needs: [resolve, verify-ci, build, verify-install]
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
     runs-on: ubuntu-latest
     # The stream's own environment, which its PyPI trusted publisher names.
     environment:
@@ -301,7 +292,7 @@ jobs:
   create-github-release:
     name: Create GitHub Release
     needs: [resolve, build, publish-to-pypi]
-    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2') || startsWith(github.ref, 'refs/tags/osprey-panels-v2'))
+    if: github.repository == 'als-apg/osprey' && (startsWith(github.ref, 'refs/tags/osprey-connectors-v2') || startsWith(github.ref, 'refs/tags/osprey-facility-v2'))
     runs-on: ubuntu-latest
     permissions:
       contents: write  # creating the release

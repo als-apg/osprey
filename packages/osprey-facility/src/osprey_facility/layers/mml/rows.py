@@ -45,7 +45,7 @@ def write_rows(layer: Path, rows: Iterable[Mapping[str, Any]]) -> Path:
     """Write the row table into the layer directory.
 
     Args:
-        layer: The layer directory, ``data/facility/imported/mml``.
+        layer: The layer directory, ``facility/imported/mml``.
         rows: One ``{model, family, device_list, device}`` mapping per export row.
 
     Returns:
@@ -73,7 +73,7 @@ def read_rows(facility_dir: Path) -> dict[tuple[str, str], dict[tuple[int, ...],
     A row two devices claim binds nothing. A missing table reads as empty.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
 
     Returns:
         Each (model, raw family)'s rows, keyed by their ``DeviceList`` row.

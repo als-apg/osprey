@@ -97,7 +97,7 @@ class TestConfigResolution:
         """A deployment repo with a render: manifest at the root, config in ``build/``."""
         repo = tmp_path / "repo"
         (repo / "build").mkdir(parents=True)
-        (repo / "profile.yml").write_text("name: Demo\ndata: data\n")
+        (repo / "profile.yml").write_text("name: Demo\n")
         (repo / "build" / "config.yml").write_text("project_name: demo\n")
         return repo
 

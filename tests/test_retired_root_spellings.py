@@ -102,6 +102,98 @@ LINE_ALLOWLIST: Mapping[tuple[str, str], str] = {
     ): "the sample refusal block rewrites a retired template value",
     (
         "docs/source/how-to/build-profiles.rst",
+        "* - ``data/facility/``",
+    ): "the migration table names each retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "* - ``data/canopy/library/``, ``data/canopy/collections/``,",
+    ): "the migration table names each retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "       ``data/canopy/theme/``",
+    ): "the migration table names each retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "* - ``data/landing/``",
+    ): "the migration table names each retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "git mv data/facility facility",
+    ): "the sample refusal block moves a retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "git mv data/canopy/library web/canopy/library",
+    ): "the sample refusal block moves a retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "git mv data/landing web/landing",
+    ): "the sample refusal block moves a retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "facility_knowledge\\.bundle_path: data/facility/knowledge}",
+    ): "the sample refusal block rewrites a profile value naming a retired path",
+    (
+        "docs/source/how-to/build-profiles.rst",
+        "        - data/landing/working-safely\\.md}",
+    ): "the sample refusal block rewrites a profile value naming a retired path",
+    (
+        "docs/source/reference/cli.rst",
+        "``data/`` is dissolved: ``data/facility/`` moves to",
+    ): "the migration command names each path it moves",
+    (
+        "docs/source/reference/cli.rst",
+        "``facility/``, ``data/landing/`` and ``data/canopy/`` to ``web/``",
+    ): "the migration command names each path it moves",
+    (
+        "docs/source/architecture/facility-file.rst",
+        "       ``data/facility/ariel/vocabulary.yml``",
+    ): "names the render's copy, which the render still places under data/",
+    (
+        "docs/source/how-to/ariel/search-modes.rst",
+        "``data/facility/ariel/vocabulary.yml``. The example",
+    ): "names the render's copy, which the render still places under data/",
+    (
+        "docs/source/how-to/ariel/search-modes.rst",
+        "path: data/facility/ariel/vocabulary.yml     # stated by the build",
+    ): "names the render's copy, which the render still places under data/",
+    (
+        "src/osprey/profiles/config_key_manifest.yml",
+        "The build states data/facility/ariel/vocabulary.yml",
+    ): "names the render's copy, which the render still places under data/",
+    (
+        "src/osprey/templates/claude_code/claude/skills/pyaml-tools/SKILL.md.j2",
+        "exceeds half its `max_step` in `data/facility/limits.yaml`",
+    ): "the agent reads the render's facility tree",
+    (
+        "src/osprey/cli/build_profile_load.py",
+        "keep saying ``data/facility``, because the",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/facility/views/__init__.py",
+        "facility_dir: The build's machine root, its ``data/facility``",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/facility/views/outputs.py",
+        "facility_dir: The build's machine root, its ``data/facility``",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/cli/templates/scaffolding.py",
+        "The runtime reads one facility tree, ``data/facility``",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/cli/templates/scaffolding.py",
+        "``data/facility/identity.yaml`` and ``limits.yaml`` all expect it",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/cli/templates/scaffolding.py",
+        "dst_facility: The render's ``data/facility`` directory.",
+    ): "names the render's facility tree",
+    (
+        "src/osprey/cli/templates/manager.py",
+        "project's ``data/facility`` beside the deployment's own content",
+    ): "names the render's facility tree",
+    (
+        "docs/source/how-to/build-profiles.rst",
         "- web-terminal-context/base.md   #",
     ): "an exclude entry names an artifact by its convention key, not a path",
 }
@@ -309,10 +401,30 @@ def test_retired_paths_are_known() -> None:
     assert retired["web-terminal-context"] is True
     assert retired["osprey.service"] is False
     assert retired["data/.runtime"] is True
+    for old in (
+        "data/facility",
+        "data/landing",
+        "data/canopy/library",
+        "data/canopy/collections",
+        "data/canopy/theme",
+        "data/bluesky_curve",
+        "data/bluesky_va_curve",
+        "data/bluesky_live_curve",
+        "data/bluesky_standin_curve",
+    ):
+        assert retired[old] is True, old
     assert "template" in _path_key_names()
     kept = kept_names()
     assert "rules" in kept and "osprey.service" in kept
-    assert not {"web-terminal-context", "data/code_review", "data/.runtime"} & kept
+    renamed = {
+        "web-terminal-context",
+        "data/code_review",
+        "data/.runtime",
+        "data/facility",
+        "data/landing",
+        "data/bluesky_curve",
+    }
+    assert not renamed & kept
 
 
 def test_every_retired_move_is_covered() -> None:
@@ -372,7 +484,8 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
         "certificates sit in ``data/.runtime/``.\n"
         "Edit the deployment's ``rules/`` and the profile's ``project/`` mirror.\n"
         "The profile's ``osprey.service`` and the repository's ``ci-extra.yml``.\n"
-        "   $ ./osprey.service\n",
+        "   $ ./osprey.service\n"
+        "Describe the machine under ``data/facility/devices/``.\n",
     )
     _plant(
         tmp_path,
@@ -394,7 +507,11 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
         "\n"
         "\n"
         "def load():\n"
-        '    """Load the repo\'s ``watchdogs/`` directory."""\n',
+        '    """Load the repo\'s ``watchdogs/`` directory."""\n'
+        "\n"
+        "\n"
+        "def facility():\n"
+        '    """Read the sources under data/facility/records."""\n',
     )
 
     assert _planted_sweep(tmp_path) == sorted(
@@ -408,11 +525,13 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
             "docs/source/page.rst:8: The profile's ``osprey.service",
             "docs/source/page.rst:8: the repository's ``ci-extra.yml",
             "docs/source/page.rst:9:    $ ./osprey.service",
+            "docs/source/page.rst:10: data/facility",
             "src/osprey/profiles/presets/site.yml:3: template: services",
             "plugins/skill/SKILL.md:1: your repo's `output-styles",
             "src/osprey/templates/app/README.md.j2:1: This deployment's `mcp_servers",
             "src/pkg/mod.py:1: data/.runtime",
             "src/pkg/mod.py:7: the repo's ``watchdogs",
+            "src/pkg/mod.py:11: data/facility",
         ]
     )
 
@@ -429,7 +548,7 @@ def test_current_spellings_pass(tmp_path: Path) -> None:
         "The build writes ``build/.claude/output-styles/`` and ``.claude/rules/``.\n"
         "The template tree is ``claude_code/web-terminal-context/``.\n"
         "The unit is ``osprey.service`` and the CI file ``ops/ci-extra.yml``.\n"
-        "The runtime state sits in ``var/runtime/``; ``data/facility/`` stays.\n"
+        "The runtime state sits in ``var/runtime/``; the render reads ``build/data/facility/``.\n"
         "A style is named ``output-styles/terse``; the profile's ``mcp_servers:`` key.\n"
         "The build injector writes ``path: ./services/qmd`` and the profile's project.\n"
         "Ship ``rules/facility.md`` in the convention directory ``rules/``.\n"

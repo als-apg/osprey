@@ -1,4 +1,4 @@
-"""Minimal synthetic ``data/facility`` trees for the facility build's tests.
+"""Minimal synthetic ``facility`` trees for the facility build's tests.
 
 The trees ship with the application SDK's test support,
 :mod:`osprey.apps.sdk.testing`; this module names them where OSPREY's own tests

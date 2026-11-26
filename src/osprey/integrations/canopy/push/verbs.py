@@ -1364,7 +1364,7 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--library",
-        help=f"review against this library instead of {child_display_path('data', 'canopy-library')}",
+        help=f"review against this library instead of {child_display_path('web', 'canopy-library')}",
     )
     verbs = parser.add_subparsers(dest="verb", required=True)
     verbs.add_parser("list", help="list every user's pending push requests")

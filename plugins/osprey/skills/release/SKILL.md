@@ -88,8 +88,8 @@ differences, each load-bearing:
   publish a component pre-release only when every beta deployment should
   absorb it. Raise a floor only when the framework starts needing something a
   newer stable release carries, and run `uv lock --check` after that edit
-  (see "Releasing a component package" below). `osprey-panels` has no floor:
-  the framework does not depend on it.
+  (see "Releasing a component package" below). `osprey-panels` is not published and
+  has no floor: the framework does not depend on it.
 - **The install command goes in the release body.** The installation page
   carries it under *Pre-releases* (`uv tool install --prerelease allow
   "osprey-framework==YYYY.M.PbN"`); repeat the exact command at the top of the
@@ -126,30 +126,32 @@ distinguishable from the release it descends from.
 
 ### The component packages have their own version streams
 
-Three workspace packages — `osprey-connectors`, `osprey-facility` and
-`osprey-panels` — are versioned the same way (CalVer, derived from a tag, no
+Two workspace packages — `osprey-connectors` and `osprey-facility` — are
+versioned the same way (CalVer, derived from a tag, no
 literal) but each from its **own** tags, `<dist>-vYYYY.M.P` (`bN` / `rcN` for
 pre-releases), cut when that package changes rather than with every framework
 tag. Each describe glob (`<dist>-v2[0-9][0-9][0-9].*`) reads only its own
 stream's calendar tags — the connectors one also skips the retired
 `osprey-connectors-v0.1.0` — and the framework's `v[0-9]*` glob never reads a
-component tag. `scripts/ci/release_streams.py` is the table of the three
-streams: tag prefix, environment, changelog, required CI lanes, smoke command.
+component tag. `scripts/ci/release_streams.py` is the table of the two
+streams: tag prefix, environment, changelog, required CI lanes.
 
 Connectors and facility releases stay backward-compatible with every
 supported framework release, enforced in CI by the `connectors-compat` /
 `framework-at-connectors-floor` and `facility-compat` /
 `framework-at-facility-floor` lanes, which is why the framework declares only
-a floor on each. Panels reads the facility document as JSON and imports
-neither the framework nor the other components; it has no compatibility
-lanes and no floor.
+a floor on each.
+
+`osprey-panels` is a workspace package that is **not published**: it has no
+tags, no PyPI project, no changelog and no floor, and no release step in this
+skill applies to it. The `osprey-panels-standalone` lane tests it on every
+PR.
 
 A checkout with no calendar tag of a stream reachable builds that package as
 `0.0.postN+g…`, which the framework's floor refuses — `osprey up --dev` then
 stops before staging and names the tag glob. Fetch tags (`git fetch --tags`)
-before building; a fork or mirror must sync the `osprey-connectors-v*`,
-`osprey-facility-v*` and `osprey-panels-v*` tags, not only the framework's
-`v*` ones.
+before building; a fork or mirror must sync the `osprey-connectors-v*` and
+`osprey-facility-v*` tags, not only the framework's `v*` ones.
 
 The one version literal that does exist is the **plugin's**: the two manifests
 under `plugins/osprey/` carry their own CalVer, kept in sync by
@@ -631,8 +633,9 @@ do): register a PyPI pending trusted publisher for it (this repository,
 workflow `release.yml`, environment `pypi`) and add its `uv build --package`
 line to `release.yml` — without the publisher PyPI refuses that wheel and the
 tag lands half-published.
-`osprey-connectors`, `osprey-facility` and `osprey-panels` are not: a
-framework tag never builds them (see "Releasing a component package" below).
+`osprey-connectors` and `osprey-facility` are not: a framework tag never
+builds them (see "Releasing a component package" below). Nor does it build
+`osprey-panels`, which is not published.
 
 Run the before-tagging check once per package with compatibility lanes:
 
@@ -644,8 +647,6 @@ python3 scripts/ci/compat_matrix.py --package facility check --before-tagging vY
 Every earlier framework release after that package's cutoff must already be
 listed (or retired) in `[tool.osprey-connectors.compat]` or
 `[tool.osprey-facility.compat]`, or the next PR after the tag goes red.
-Panels has no compatibility lanes, so it has no check (`--package panels` is
-refused).
 
 Tags can be pushed directly; branch protection covers branches, not tags:
 
@@ -736,28 +737,27 @@ green.
 
 ## Releasing a component package
 
-`osprey-connectors`, `osprey-facility` and `osprey-panels` each release on
-their own, from their own tag, through the one component workflow
+`osprey-connectors` and `osprey-facility` each release on their own, from
+their own tag, through the one component workflow
 `.github/workflows/release-package.yml` — never with a framework tag, and the
 framework's `release.yml` never builds them. Everything that differs between
-the three streams is read from the stream table in
+the two streams is read from the stream table in
 `scripts/ci/release_streams.py`:
 
 | Stream | Tag | PyPI environment | Changelog and fragments | Required CI lanes | Floor in the framework |
 | --- | --- | --- | --- | --- | --- |
 | connectors | `osprey-connectors-vYYYY.M.P` | `pypi-connectors` | `packages/osprey-connectors/CHANGELOG.md`, `packages/osprey-connectors/changelog.d/` | `test`, `lint`, `package`, `connectors-standalone`, `connectors-compat`, `framework-at-connectors-floor` | `osprey-connectors>=` (and pyaml-cs-osprey's) |
 | facility | `osprey-facility-vYYYY.M.P` | `pypi-facility` | `packages/osprey-facility/CHANGELOG.md`, `packages/osprey-facility/changelog.d/` | `test`, `lint`, `package`, `osprey-facility-standalone`, `facility-compat`, `framework-at-facility-floor`, `framework-at-connectors-floor` | `osprey-facility>=`, once the root lists one |
-| panels | `osprey-panels-vYYYY.M.P` | `pypi-panels` | `packages/osprey-panels/CHANGELOG.md`, `packages/osprey-panels/changelog.d/` | `test`, `lint`, `osprey-panels-standalone` | none |
 
 `python3 scripts/ci/release_streams.py lanes refs/tags/<tag>` prints the
 lanes the workflow will require for a tag; read them there rather than from
 this table when the two disagree.
 
-**Tag format.** `<dist>-vYYYY.M.P` (`osprey-panels-v2026.12.0`), spelled in
+**Tag format.** `<dist>-vYYYY.M.P` (`osprey-facility-v2026.12.0`), spelled in
 canonical PEP 440: a pre-release segment is attached with no hyphen and no
 dot before it — `osprey-facility-v2026.12.0rc1`, `…0b2`, `…0.dev1` (`.devN`
-takes its dot). The workflow fires on `osprey-connectors-v2*`,
-`osprey-facility-v2*` and `osprey-panels-v2*` pushes and nothing else — there
+takes its dot). The workflow fires on `osprey-connectors-v2*` and
+`osprey-facility-v2*` pushes and nothing else — there
 is no dispatch — and its first job, `resolve`, refuses any spelling that is
 not canonical: `osprey-connectors-v2026.12.0-rc1`, which the old connectors
 workflow accepted, now fails at resolve before anything is built. Delete such
@@ -771,8 +771,8 @@ for the whole resolve (`--prerelease=allow`), so it would absorb any
 connectors or facility beta on PyPI.
 
 **One-time setup per stream**, before that stream's first tag: register the
-PyPI trusted publisher on the stream's project (`osprey-connectors`,
-`osprey-facility` or `osprey-panels`; owner `als-apg`, repository `osprey`,
+PyPI trusted publisher on the stream's project (`osprey-connectors` or
+`osprey-facility`; owner `als-apg`, repository `osprey`,
 workflow `release-package.yml`, environment `pypi-<key>`), and create the
 GitHub environment `pypi-<key>`. A new project with no release yet takes a
 *pending* publisher. Without it the publish job is refused after the build
@@ -795,39 +795,29 @@ and the tag lands unpublished; re-push the tag once it is registered.
   `full-ci` label is involved — but a `main` run superseded by a later merge
   is `cancelled`, not green; then `gh workflow run ci.yml --ref <tag>` and
   re-push the tag.
-- **The before-tagging check passes**, for connectors and facility (panels has
-  no compatibility lanes, and `compat_matrix.py` refuses `--package panels`):
+- **The before-tagging check passes**:
   `python3 scripts/ci/compat_matrix.py --package <connectors|facility> check`.
   It holds the package's `[tool.<dist>.compat]` listing and its floor to the
   tags reachable from `main`. (Its `--before-tagging vYYYY.M.P` form is for a
   framework tag; see Step 6.)
-- **The facility N-bump order.** A facility release that first writes
-  `facility.json` header `/N+1` is cut only after a panels release whose
-  `reads` (`[tool.osprey-panels.compat]`, `osprey_panels.document.READS`)
-  includes `/N+1` is on PyPI. So the order is: panels PR adding the read →
-  panels release → facility release. Nothing enforces this — the facility
-  package does not know panels exists — so check it by hand before every
-  facility tag that changes N.
 
 **What the tag runs:** `resolve` (the stream, from the tag; canonical spelling
 or refuse) → `verify-ci` (the tag is on `main`, then the shared
 `scripts/ci/require_green_lanes.py` gate over the stream's lanes) → `build`
 (`uv build --package <dist>`; the wheel and sdist must carry exactly the tag's
 version; `twine check`) → `verify-install` (a bare venv, dependencies from
-PyPI, the lean import walk `scripts/ci/lean_import_walk.py <key>`, the
-installed `__version__`, and the stream's smoke command — `osprey-panels
---help` for panels) → `publish-to-pypi` (in the stream's environment) → the
+PyPI, the lean import walk `scripts/ci/lean_import_walk.py <key>`, and the
+installed `__version__`) → `publish-to-pypi` (in the stream's environment) → the
 GitHub Release `<dist> vYYYY.M.P`, never Latest. A re-pushed tag resumes a
 half-finished publish (`skip-existing`).
 
 ```bash
-git tag osprey-panels-vYYYY.M.P <main merge commit>
-git push origin osprey-panels-vYYYY.M.P
+git tag osprey-facility-vYYYY.M.P <main merge commit>
+git push origin osprey-facility-vYYYY.M.P
 gh run watch                     # follow the release-package.yml run
 ```
 
-**Raising a framework floor** — connectors and facility only (panels has
-none), only after the release is on PyPI, and only when the framework starts
+**Raising a framework floor** — only after the release is on PyPI, and only when the framework starts
 needing what it carries:
 
 1. Confirm `https://pypi.org/project/<dist>/YYYY.M.P/` exists.
@@ -875,12 +865,12 @@ python3 scripts/ci/release_notes.py CHANGELOG.md YYYY.M.P > /tmp/notes.md
 gh release create vYYYY.M.P --title "Release vYYYY.M.P" --notes-file /tmp/notes.md
 ```
 
-Component tag `<dist>-vYYYY.M.P` (`<dist>` is `osprey-connectors`,
-`osprey-facility` or `osprey-panels`; its wheel prefix replaces the hyphens
+Component tag `<dist>-vYYYY.M.P` (`<dist>` is `osprey-connectors` or
+`osprey-facility`; its wheel prefix replaces the hyphens
 with underscores):
 
 ```bash
-DIST=osprey-panels                        # or osprey-connectors, osprey-facility
+DIST=osprey-facility                      # or osprey-connectors
 python3 scripts/ci/release_streams.py resolve "refs/tags/$DIST-vYYYY.M.P"   # refuses a non-canonical tag
 git checkout "$DIST-vYYYY.M.P" && rm -rf dist/
 uv build --package "$DIST"

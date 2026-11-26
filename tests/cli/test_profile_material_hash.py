@@ -1,10 +1,11 @@
 """The profile content hash covers the files a profile points at, not just its YAML.
 
 ``compute_profile_hash`` is what the drift check (``check_drift``) compares
-against, so anything a build consumes has to be inside it. A profile's ``data:``
-tree is consumed verbatim by the build, which means a facility that edits a
-channel database changes what a project would be built from while the profile
-YAML itself is untouched — invisible to a hash over the YAML alone.
+against, so anything a build consumes has to be inside it. The source trees beside
+a profile (``facility/`` and the ``web/`` trees) are consumed verbatim by the
+build, which means a facility that edits a channel database changes what a
+project would be built from while the profile YAML itself is untouched —
+invisible to a hash over the YAML alone.
 
 The convention directories and ``triggers.yml`` are folded on the same
 principle; they are pinned separately in ``test_profile_hash_folding.py``.
@@ -22,7 +23,11 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli.build_profile import compute_profile_hash
+
+FACILITY = Path(repo_layout.entry("facility").path)
+LIBRARY = repo_layout.child_path(Path(repo_layout.entry("web").path), "web", "canopy-library")
 
 
 def _write(path: Path, text: str) -> Path:
@@ -33,23 +38,29 @@ def _write(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def data_profile(tmp_path):
-    """A profile directory carrying its own ``data/`` tree."""
-    root = tmp_path / "facility"
-    _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
-    _write(root / "data" / "docs" / "notes.md", "notes\n")
-    return _write(root / "profile.yml", "name: Facility\ndata: data\n")
+    """A profile directory carrying its own facility and screen-library trees."""
+    root = tmp_path / "deployment"
+    _write(root / FACILITY / "channel_databases" / "als.json", '{"channels": []}\n')
+    _write(root / LIBRARY / "notes.md", "notes\n")
+    return _write(root / "profile.yml", "name: Facility\n")
 
 
 def test_data_tree_edit_moves_the_hash(data_profile):
     """The case the advisory exists for: same YAML, different facility data."""
     before = compute_profile_hash(data_profile)
-    _write(data_profile.parent / "data" / "channel_databases" / "als.json", '{"channels": [1]}\n')
+    _write(data_profile.parent / FACILITY / "channel_databases" / "als.json", '{"channels": [1]}\n')
     assert compute_profile_hash(data_profile) != before
 
 
 def test_data_tree_addition_moves_the_hash(data_profile):
     before = compute_profile_hash(data_profile)
-    _write(data_profile.parent / "data" / "channel_databases" / "extra.json", "{}\n")
+    _write(data_profile.parent / FACILITY / "channel_databases" / "extra.json", "{}\n")
+    assert compute_profile_hash(data_profile) != before
+
+
+def test_web_tree_edit_moves_the_hash(data_profile):
+    before = compute_profile_hash(data_profile)
+    _write(data_profile.parent / LIBRARY / "notes.md", "edited\n")
     assert compute_profile_hash(data_profile) != before
 
 
@@ -70,11 +81,11 @@ def test_runtime_minted_material_does_not_move_the_hash(data_profile):
     assert compute_profile_hash(data_profile) == before
 
 
-def test_the_data_tree_carries_no_runtime_carve_out(data_profile):
-    """Every file under ``data/`` is build input, a dot-named directory included."""
+def test_the_source_tree_carries_no_runtime_carve_out(data_profile):
+    """Every file under ``facility/`` is build input, a dot-named directory included."""
     before = compute_profile_hash(data_profile)
 
-    _write(data_profile.parent / "data" / ".runtime" / "minted.key", "runtime\n")
+    _write(data_profile.parent / FACILITY / ".runtime" / "minted.key", "runtime\n")
 
     assert compute_profile_hash(data_profile) != before
 
@@ -89,9 +100,9 @@ def test_identical_trees_in_different_locations_hash_the_same(tmp_path):
     hashes = set()
     for location in ("alpha", "beta"):
         root = tmp_path / location
-        _write(root / "data" / "b" / "second.json", "second\n")
-        _write(root / "data" / "a" / "first.json", "first\n")
-        profile = _write(root / "profile.yml", "name: Same\ndata: data\n")
+        _write(root / FACILITY / "b" / "second.json", "second\n")
+        _write(root / FACILITY / "a" / "first.json", "first\n")
+        profile = _write(root / "profile.yml", "name: Same\n")
         hashes.add(compute_profile_hash(profile))
     assert len(hashes) == 1
 
@@ -99,41 +110,22 @@ def test_identical_trees_in_different_locations_hash_the_same(tmp_path):
 def test_empty_directory_does_not_move_the_hash(data_profile):
     """Directories contribute nothing — only the files under them."""
     before = compute_profile_hash(data_profile)
-    (data_profile.parent / "data" / "empty_subdir").mkdir()
+    (data_profile.parent / FACILITY / "empty_subdir").mkdir()
     assert compute_profile_hash(data_profile) == before
 
 
-def test_shared_parent_data_tree_marks_profiles_outside_a_repository_stale(tmp_path):
-    """The hash folds a data tree wherever it sits, for a profile outside any repository.
-
-    Profiles outside any repository are hashed like any other: each names the
-    tree beside it as ``../data``, and an edit to that tree moves every hash
-    that folds it.
-    """
-    _write(tmp_path / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
-    profiles = [
-        _write(tmp_path / user / "profile.yml", f"name: {user}\ndata: ../data\n")
-        for user in ("alice", "bob")
-    ]
-    before = [compute_profile_hash(p) for p in profiles]
-    assert all(h is not None for h in before)
-
-    _write(tmp_path / "data" / "channel_databases" / "als.json", '{"channels": [1]}\n')
-    assert [compute_profile_hash(p) for p in profiles] != before
-
-
-def test_missing_data_tree_still_hashes(tmp_path):
+def test_missing_machine_tree_still_hashes(tmp_path):
     """A profile naming a tree that isn't there is unbuildable, not unhashable.
 
     Returning ``None`` here would read as "cannot compare" and silence the
     version check alongside it.
     """
-    profile = _write(tmp_path / "profile.yml", "name: Gone\ndata: nowhere\n")
+    profile = _write(tmp_path / "profile.yml", "name: Gone\nmachine: nowhere\n")
     assert compute_profile_hash(profile) is not None
 
 
 def test_profile_without_file_inputs_is_unaffected_by_neighbouring_files(tmp_path):
-    """No ``data:`` means no tree material — the YAML alone decides.
+    """No source tree beside the profile means no tree material — the YAML alone decides.
 
     This is what keeps the bundled presets' pinned digests stable: they declare
     no file inputs, so nothing beside them can move their hash.
@@ -161,7 +153,7 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     from osprey.cli.variant_selection import VARIANT_SETTING_FILENAME, VARIANT_SETTING_KEY
 
     root = tmp_path / "facility"
-    _write(root / "data" / "channels.json", "{}\n")
+    _write(root / FACILITY / "channels.json", "{}\n")
     _write(root / "rules" / "safety.md", "rule\n")
     _write(root / "skills" / "scan" / "SKILL.md", "skill\n")
     _write(root / "triggers.yml", "triggers: []\n")
@@ -174,15 +166,14 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     _write(root / VARIANT_SETTING_FILENAME, f"{VARIANT_SETTING_KEY}=teststand\n")
     profile = _write(
         root / "profile.yml",
-        "name: Facility\ndata: data\ndependencies:\n  - ./packages/ring\n"
-        "dispatch:\n  triggers: triggers.yml\n",
+        "name: Facility\ndependencies:\n  - ./packages/ring\ndispatch:\n  triggers: triggers.yml\n",
     )
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
     inputs = profile_inputs(document)
     folded = [entry for entry in inputs if entry.role is not ProfileInputRole.DOCUMENT]
     labels = [entry.label for entry in folded]
-    assert labels[0] == "data"
+    assert labels[0] == "facility"
     assert labels[-5:] == ["tier", "tier", "app:knob", "package:packages/ring", "variant"]
     assert "triggers" in labels
     assert [entry.path for entry in folded if entry.label == "tier"] == [
@@ -215,21 +206,6 @@ def test_a_label_disagreeing_with_the_role_fails_at_construction(tmp_path):
         ProfileInput("profile.yml", "data", tmp_path, ProfileInputRole.DOCUMENT)
     with pytest.raises(ValueError):
         ProfileInput("", "data", tmp_path, ProfileInputRole.MATERIAL)
-
-
-def test_the_data_key_is_the_tree_the_profile_names(tmp_path):
-    """For a profile outside any repository, the data key is the tree as spelled."""
-    from osprey.cli.build_profile_document import _read_profile_document
-    from osprey.cli.build_profile_merge import profile_inputs, resolve_profile_document
-
-    _write(tmp_path / "data" / "channels.json", "{}\n")
-    profile = _write(tmp_path / "alice" / "profile.yml", "name: alice\ndata: ../data\n")
-    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
-
-    data = [entry for entry in profile_inputs(document) if entry.label == "data"]
-
-    assert [entry.key for entry in data] == ["../data/"]
-    assert data[0].path == (tmp_path / "data").resolve()
 
 
 def test_resolved_document_records_the_repo_local_extends_files(tmp_path):

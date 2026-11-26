@@ -46,8 +46,6 @@ from typing import TYPE_CHECKING, Any
 from osprey.repo_layout import (
     RootEntry,
     Zone,
-    child_display_path,
-    child_path,
     convention_rows,
     display_path,
     non_convention_source_rows,
@@ -478,7 +476,7 @@ class ReservedPattern:
 
 #: The profile tree every :data:`RESERVED_MIRROR_PATTERNS` path is authored in,
 #: as a message names it.
-FACILITY_AUTHORING_ROUTE = f"{child_display_path('data', 'facility')}/"
+FACILITY_AUTHORING_ROUTE = f"{display_path('facility')}/"
 
 #: The render's facility tree, relative to the project root: where the build
 #: lays the facility down and the runtime reads it. A render path, which does
@@ -530,7 +528,7 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
     ),
     ReservedPattern(
         "data/bluesky_devices.yml",
-        f"the profile's `{display_path('data')}/` directory — this is the device table that "
+        f"the profile's `{FACILITY_AUTHORING_ROUTE}` tree — this is the device table that "
         "decides "
         "which channels a Bluesky plan may drive",
     ),
@@ -594,7 +592,7 @@ RESERVED_PATH_PATTERNS: tuple[ReservedPattern, ...] = (
 )
 
 
-#: Project paths the facility build writes from the profile's ``data/facility/``
+#: Project paths the facility build writes from the profile's ``facility/``
 #: tree, as globs matched like :class:`ReservedPattern` (``*`` spans path
 #: separators, both sides casefolded). A ``project/`` mirror file at one of them
 #: stops the build with a ``profile-invalid`` line
@@ -1419,7 +1417,7 @@ def _first_restated_file(content: Path, allowed: Collection[str]) -> Path | None
 def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | None:
     """The stop for a deployment file that restates a mounted machine's facts.
 
-    While a profile mounts a machine root, the content root (``<data>/facility``)
+    While a profile mounts a machine root, the content root (``facility/``)
     holds only :data:`~osprey_facility.roots.DEPLOYMENT_CONTENT_DIRS`; every
     other entry is a machine fact and belongs to the machine repository. Only
     files are judged: stated settings (the probe and freshness channels, ARIEL
@@ -1428,7 +1426,7 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
     :mod:`osprey.facility.settings`.
 
     Paths are shown relative to the nearest directory holding both roots, so
-    the message reads ``data/facility/records/x.yaml`` beside
+    the message reads ``facility/records/x.yaml`` beside
     ``machine/records/x.yaml``.
 
     Args:
@@ -1485,48 +1483,57 @@ def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | Non
 
 
 def handwritten_limits_violation(
-    data_root: Path, repo_root: Path, *, machine_root: Path | None = None
+    repo_root: Path, *, machine_root: Path | None = None
 ) -> FacilityBuildError | None:
-    """The stop for a limits file the profile ships itself.
+    """The stop for a limits file the deployment ships itself.
 
-    The build writes the limits database from ``<data>/facility/limits.yaml``,
-    so a profile's own copy at a path the build writes is refused rather than
-    overwritten. The paths are checked in a fixed order and the first match is
-    returned; a render under ``build/`` is never consulted.
+    The build writes the limits database from the facility's ``limits.yaml``,
+    so a deployment file that the render would land at a path the build
+    writes is refused rather than overwritten. The candidates are every
+    source that renders there: each declared source
+    (:func:`~osprey.repo_layout.rendered_sources`) whose render holds that
+    path, then the verbatim project mirror. They are checked in a fixed order
+    and the first match is returned; a render under ``build/`` is never
+    consulted.
 
     Args:
-        data_root: The profile's resolved ``data:`` tree. The guard checks the
-            deployment's files whether or not a machine root is mounted.
-        repo_root: The repo the profile lives in.
+        repo_root: The deployment root the profile lives in.
         machine_root: The mounted machine root, when the profile names one.
             The machine repository owns ``limits.yaml`` then, so the remedy
-            names ``<machine>/limits.yaml``; ``None`` names
-            ``<data>/facility/limits.yaml`` as for a single tree.
+            names ``<machine>/limits.yaml``; ``None`` names the deployment's
+            own facility ``limits.yaml`` as for a single tree.
 
     Returns:
         A ``profile-invalid`` error naming the file found, the file the build
         writes in its place and the facility's ``limits.yaml`` as where its
-        limits go, or ``None`` when the profile ships none.
+        limits go, or ``None`` when the deployment ships none.
     """
     from osprey.facility.views.limits import LIMITS_FILE
+    from osprey.repo_layout import rendered_sources
     from osprey_facility.errors import FacilityBuildError
+
+    from .build_injectors import LIMITS_DATABASE_PATH
 
     def shown(path: Path) -> str:
         return (
             path.relative_to(repo_root).as_posix() if path.is_relative_to(repo_root) else str(path)
         )
 
-    candidates = (
-        (data_root / LIMITS_FILE, f"data/{LIMITS_FILE}"),
-        (data_root / "simulation" / LIMITS_FILE, f"data/simulation/{LIMITS_FILE}"),
-        (
-            repo_root / convention_source(PROJECT_MIRROR_DIR) / "data" / LIMITS_FILE,
-            f"data/{LIMITS_FILE}",
-        ),
-    )
+    render_dir = PurePosixPath(LIMITS_DATABASE_PATH).parent
+    written_paths = (LIMITS_DATABASE_PATH, (render_dir / "simulation" / LIMITS_FILE).as_posix())
+    candidates: list[tuple[Path, str]] = []
+    for written in written_paths:
+        for rendered in rendered_sources():
+            if written.startswith(f"{rendered.render_rel}/"):
+                rest = written[len(rendered.render_rel) + 1 :]
+                candidates.append(
+                    (repo_root.joinpath(*rendered.source_rel.split("/"), *rest.split("/")), written)
+                )
+    mirror = repo_root / convention_source(PROJECT_MIRROR_DIR)
+    candidates.extend((mirror.joinpath(*written.split("/")), written) for written in written_paths)
     limits = source_tree.path("limits")
     if machine_root is None:
-        source = f"{shown(child_path(data_root, 'data', 'facility'))}/{limits}"
+        source = f"{shown(repo_root / root_entry('facility').path)}/{limits}"
     else:
         source = f"{shown(machine_root)}/{limits}"
     for path, written in candidates:
@@ -2167,7 +2174,7 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
     Args:
         profile_dir: The profile root directory.
         extra_known: Additional names the caller knows about (a profile whose
-            ``data:`` key or profile filename differs from the default).
+            profile filename differs from the default).
 
     Returns:
         Sorted names, each a candidate typo of a convention directory.

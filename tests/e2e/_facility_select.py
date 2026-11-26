@@ -22,6 +22,7 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey import repo_layout
 from tests._builds import FRAMEWORK_CHECKS
 
 if TYPE_CHECKING:
@@ -281,7 +282,7 @@ def bounded_corrector(repo: Path) -> tuple[str, str, str]:
     if found is None:
         raise AssertionError(
             "no corrector has a limits record with both min_value and max_value "
-            f"in the limits table of {repo / 'data' / 'facility' / 'limits.yaml'}"
+            f"in the limits table of {repo / repo_layout.entry('facility').path / 'limits.yaml'}"
         )
     return found
 

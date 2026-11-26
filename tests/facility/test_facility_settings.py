@@ -123,7 +123,7 @@ def test_a_stated_true_without_the_file_is_refused(tmp_path: Path) -> None:
 
     assert stop.value.kind == "profile-invalid"
     assert stop.value.record_id == VOCABULARY_ENABLED_KEY
-    assert VOCABULARY_SOURCE in stop.value.detail
+    assert f"ships no {VOCABULARY_SOURCE.removeprefix('data/')}" in stop.value.detail
 
 
 def test_shipped_query_sources_state_the_dataset_path(tmp_path: Path) -> None:

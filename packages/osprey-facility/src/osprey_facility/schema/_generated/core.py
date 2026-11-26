@@ -74,13 +74,12 @@ linkml_meta = LinkMLMeta({'default_prefix': 'osprey_facility',
      'description': 'One facility, described once: its places, devices, channels '
                     'and groups, the models that simulate it and how each model is '
                     'wired to channels, the write limits and the scenarios. '
-                    '`osprey build` combines the sources under data/facility/ into '
-                    'one file of this shape. Every list whose order carries '
-                    'meaning sets `list_elements_ordered`; a multivalued slot '
-                    'without it is a set, compared and written sorted by its '
-                    'string form, or by its key when its entries are keyed '
-                    '(`scheme_names` by name and scheme, `citations` by document, '
-                    'version and locator).',
+                    '`osprey build` combines the sources under facility/ into one '
+                    'file of this shape. Every list whose order carries meaning '
+                    'sets `list_elements_ordered`; a multivalued slot without it '
+                    'is a set, compared and written sorted by its string form, or '
+                    'by its key when its entries are keyed (`scheme_names` by name '
+                    'and scheme, `citations` by document, version and locator).',
      'id': 'https://narad.example.org/schema/osprey.facility.core',
      'imports': ['linkml:types', 'vocabulary'],
      'name': 'osprey.facility.core',
@@ -1658,7 +1657,7 @@ class ProvenanceSource(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     layer: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
-    file: str = Field(default=..., description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
+    file: str = Field(default=..., description="""Relative to facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource']} })
     fields: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'ProvenanceRule'],
          'list_elements_ordered': True} })
     basis: Optional[BasisEnum] = Field(default=None, description="""What the fields rest on, as the layer's record says (its `basis`); absent means stated.""", json_schema_extra = { "linkml_meta": {'domain_of': ['ProvenanceSource', 'Relation', 'Alias']} })
@@ -2189,7 +2188,8 @@ class Scenario(ConfiguredBaseModel):
     drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
-    start: Optional[bool] = Field(default=None, description="""True puts the scenario in the deployment's start set, the scenarios the simulator activates when it first comes up; absent means false.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    start: Optional[bool] = Field(default=None, description="""True puts the scenario in the start set of every simulator instance the deployment runs, the scenarios an instance activates when it first comes up; absent means false.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    start_on: Optional[list[str]] = Field(default=None, description="""The simulator targets (`va`, `standin`) whose instances start in the scenario, for a scenario that starts on some instances and not on others; stated in place of `start: true`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
     still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses and selections: while the scenario is active, those readings serve without drift, couplings or noise. A selection is `{model|place, group, signal, engine_role, plane}` and names a model or a place.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
 
 

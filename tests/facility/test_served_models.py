@@ -108,7 +108,7 @@ def _channel(document: dict[str, Any], address: str) -> dict[str, Any]:
 def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: BuiltProject) -> None:
     # The authored side is the shared build's own facility file: the build makes it from the
     # same tree with the same project name.
-    facility_dir = tmp_path / "reseeded" / "data" / "facility"
+    facility_dir = tmp_path / "reseeded" / "facility"
     shutil.copytree(built_demo.facility_dir, facility_dir)
     seeds = facility_dir / SEEDS
     text = seeds.read_text(encoding="utf-8")

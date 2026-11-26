@@ -22,7 +22,7 @@ When the tools are there
 
 The build writes ``data/pyaml/<model>/configuration.yaml`` for each served
 model that names a deck and has a measurement file under
-``data/facility/simulation/measurement/`` (see :doc:`describe-your-facility`). This file
+``facility/simulation/measurement/`` (see :doc:`describe-your-facility`). This file
 is the model's *pyAML view*.
 
 A render with at least one such view registers three things: both tools, the
@@ -105,7 +105,7 @@ What happens to the machine
 
 Each step starts as the measurement file's value. The tool shrinks it until no
 setpoint's largest single write exceeds half its ``max_step`` in
-``data/facility/limits.yaml``. A strength, ``max_step`` or write that is not a
+``facility/limits.yaml``. A strength, ``max_step`` or write that is not a
 finite number refuses the measurement.
 
 Every write of one measurement runs under the control target's run lock:

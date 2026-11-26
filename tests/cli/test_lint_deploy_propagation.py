@@ -183,7 +183,7 @@ def test_a_malformed_config_block_is_refused_by_name_not_by_traceback(
     path = tmp_path / "profile" / "profile.yml"
     path.parent.mkdir(parents=True)
     (path.parent / "data").mkdir()
-    path.write_text("name: Bad\ndata: data\nconfig: []\n", encoding="utf-8")
+    path.write_text("name: Bad\nconfig: []\n", encoding="utf-8")
 
     validated = runner.invoke(profile_group, ["validate", str(path)])
     with caplog.at_level("ERROR"):
@@ -208,7 +208,7 @@ def test_an_empty_config_block_is_not_a_malformed_one(runner: CliRunner, tmp_pat
     path = tmp_path / "profile" / "profile.yml"
     path.parent.mkdir(parents=True)
     (path.parent / "data").mkdir()
-    path.write_text("name: Empty\ndata: data\nconfig:\n", encoding="utf-8")
+    path.write_text("name: Empty\nconfig:\n", encoding="utf-8")
 
     result = runner.invoke(profile_group, ["validate", str(path)])
 
@@ -259,7 +259,6 @@ def _write_profile(
     raw: dict[str, Any] = {
         "name": "Demo Facility",
         "project_name": "demo-facility",
-        "data": "data",
         "provider": "anthropic",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",

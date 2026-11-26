@@ -35,10 +35,9 @@ def _write_yaml(path: Path, document: dict) -> Path:
 
 def _repo(tmp_path: Path, root_config: dict) -> Path:
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
     return _write_yaml(
         repo / "profile.yml",
-        {"name": "Facility", "data": "data", "deploy_services": True, "config": root_config},
+        {"name": "Facility", "deploy_services": True, "config": root_config},
     )
 
 

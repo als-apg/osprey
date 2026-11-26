@@ -354,19 +354,6 @@ def test_no_key_is_both_active_and_commented(preset: str) -> None:
     assert not active & commented, f"{preset}: both active and templated: {active & commented}"
 
 
-def test_data_emits_active_when_the_resolved_profile_carries_it() -> None:
-    """Forward-compat for `osprey init` (3.4), which materializes a data tree and
-    injects `data` into the resolved dict: the COMMENTED contract is
-    active-when-carried, so nothing here may assume `data` renders commented."""
-    text = _emit("hello-world", ("data=data",))
-    active, _commented = _active_and_commented(text)
-
-    assert "data" in active
-    assert yaml.safe_load(text)["data"] == "data"
-    # The template must not tag along behind the active key.
-    assert "\n# data: data" not in text
-
-
 def test_hello_world_extension_surface_is_pinned() -> None:
     """The commented blocks a fresh `osprey init --preset hello-world` leaves
     behind ARE the onboarding curriculum: each one is a feature the tutorial
@@ -377,11 +364,6 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     satisfies just as well. So a preset gaining a key, or a template being
     dropped, would quietly delete a lesson. Pin the set exactly, by name, so
     both a shrink and an unexpected growth fail here and get looked at.
-
-    The count is 14, not 15: a *bare* emission templates 15, but `osprey init`
-    injects `data=data` into `set_pairs` (``profile_cmd``), which makes `data`
-    an active key. What ships to the reader is the materialized profile, so
-    that is what is pinned — do not "correct" this to the bare-emission 15.
 
     `mcp_servers` left this set deliberately, and no lesson left with it: the
     preset now carries a live `example_server` entry for the package seeded
@@ -394,7 +376,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
     `agent_record` left it the same way: the preset sets the record's
     `backend: embedded` itself, so the block emits active.
     """
-    _, templated = _active_and_commented(_emit("hello-world", set_pairs=("data=data",)))
+    _, templated = _active_and_commented(_emit("hello-world"))
 
     assert templated == {
         "model",

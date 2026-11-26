@@ -10,7 +10,7 @@ What it does NOT get to be is a second discovery rule. One question decides
 between the two answers — *is the directory in hand itself a project?* — and
 when it is not, the deployment repo enclosing it is found by
 :func:`osprey.cli.repo_resolver.find_repo_root`, the same upward walk every
-repo-scoped verb uses. So ``osprey health`` typed in ``<repo>/data/raw``
+repo-scoped verb uses. So ``osprey health`` typed in ``<repo>/facility/knowledge``
 reports on that repo, exactly as ``git status`` typed there reports on the
 repository, while ``--project`` pointed straight at a render still reports on
 the render.
@@ -87,7 +87,7 @@ def resolve_project_path(project_arg: str | None = None) -> Path:
     the place the operator actually stood.
 
     The walk is what makes these commands behave like every other verb: run
-    from ``<repo>/data/raw``, ``osprey health`` reports on that repo instead of
+    from ``<repo>/facility/knowledge``, ``osprey health`` reports on that repo instead of
     calling it a deployment with no configuration.
 
     No environment variable sits between the two answers, and none belongs

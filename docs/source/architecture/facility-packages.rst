@@ -5,7 +5,7 @@ Facility Packages
 
 The facility code leaves the framework as two distributions. **osprey-facility**
 holds the description and its build: it reads the sources under
-``data/facility/`` and writes ``facility.json``. **osprey-panels** is the panel
+``facility/`` and writes ``facility.json``. **osprey-panels** is the panel
 engine: it reads ``facility.json`` and writes Canopy screens. The framework
 keeps the views, the settings and the command line, and reaches the
 description through its public modules only.
@@ -133,21 +133,24 @@ outside them, and the kinds group is ``osprey_facility.kinds``. osprey-panels
 declares its public modules, ships the ``osprey-panels`` command
 (:ref:`reference-osprey-panels`), and the framework imports none of it.
 
-6. Both packages have their own tag streams
--------------------------------------------
+6. osprey-facility has its own tag stream; osprey-panels is not published
+-------------------------------------------------------------------------
 
-Releases are tagged ``osprey-facility-v*`` and ``osprey-panels-v*``, built by
-one release workflow that takes the package as a parameter. The framework
-depends on osprey-facility with a floor. osprey-panels declares the
-``facility.json`` versions and the Screen-IR version it supports, not an
-osprey-facility floor.
+osprey-facility releases are tagged ``osprey-facility-v*``, built by one
+release workflow that takes the package as a parameter. The framework
+depends on osprey-facility with a floor. osprey-panels is a package in the
+repository that is not published: it has no tags and is installed from a
+checkout. It declares the ``facility.json`` versions and the Screen-IR version
+it supports, not an osprey-facility floor.
 
-*Why:* each package gets its own version and cadence. One parameterised workflow
-generalises the connectors' release stream instead of copying it twice.
+*Why:* osprey-facility gets its own version and cadence. One parameterised
+workflow generalises the connectors' release stream instead of copying it. The
+panel engine is a prototype whose shape will change, so it makes no release
+promise.
 
-*Phase:* 6. *Today:* an ``osprey-facility-v*`` or ``osprey-panels-v*`` tag
-runs ``release-package.yml``, which publishes that package to PyPI and nothing
-else. The framework's ``v*`` release builds neither.
+*Phase:* 6. *Today:* an ``osprey-facility-v*`` tag runs
+``release-package.yml``, which publishes that package to PyPI and nothing
+else. The framework's ``v*`` release builds neither package.
 
 7. A fork is a separate distribution that replaces osprey-panels
 ----------------------------------------------------------------

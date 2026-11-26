@@ -490,7 +490,7 @@ def test_families_binding_the_two_axes_of_one_address_are_twins() -> None:
 
 
 def test_a_nameless_family_the_mapping_leaves_out_stops_the_import(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = load_yaml(FIXTURES / "nsls2" / MAPPING_FILE)

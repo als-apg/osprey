@@ -386,7 +386,12 @@ unit the orbit reading publishes; the arrays show them in metres. The
 monitor's ``turn_sum`` record carries one fault of its own, ``gain``: the
 factor on the beam sum that monitor reads, so monitors read one charge
 differently. It acts on the sum array alone, before the sum's noise and
-floor, and the position faults never reach the sum.
+floor, and the position faults never reach the sum. Where the ring's settings
+state a button pickup for the monitor, the same record also carries one gain
+per button, ``button_1`` to ``button_<N>``: the factor on that button's
+signal, before the sum and the positions are formed from the buttons, so
+uneven buttons show as a position offset. The position faults then act on
+what the buttons read.
 
 Four read-only arrays sit beside them: ``tunes``, ``chromaticity``,
 ``beta_at_monitors`` and ``orbit_at_monitors``, the last two one row per
@@ -396,7 +401,7 @@ and served from memory until the next solve, so a setpoint write never pays
 for them.
 
 The imperfections a machine starts from are scenario faults. A scenario under
-``data/facility/simulation/scenarios/`` names them in its ``faults`` block,
+``facility/simulation/scenarios/`` names them in its ``faults`` block,
 keyed by model and then by address, each a value or a map of fault fields to values; the
 composite seeds them into its models when the scenario is active. Channel
 faults, named in the scenario's ``channel_faults`` block, are faults of the

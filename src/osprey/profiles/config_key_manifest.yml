@@ -1318,8 +1318,12 @@ keys:
       demo-history]), the one preset whose facility tree ships scenarios.
       Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
-      has no scenario state. Derived from the facility file: the sorted names
-      of the scenarios marked `start: true`. A stated value next to a mark is
+      has no scenario state. A list is the start set of every simulator
+      instance, a mapping of `va` and `standin` each one's own
+      (`simulation.apply.resolve_default_scenarios` is the one reader of
+      both). Derived from the facility file: the sorted names
+      of the scenarios marked `start: true`, or the mapping when a scenario is
+      marked `start_on`. A stated value next to a mark is
       refused (a dotted null cancels a preset's); with no mark, a stated name
       is an override checked against the file.
       Listed in `osprey.facility.settings`.
@@ -1404,7 +1408,7 @@ keys:
       `_check_limits_database_path` in `build_profile_load.py`.
     default: derived
     default_note: >-
-      the build writes `data/channel_limits.json`, the file the limits view renders from `data/facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
+      the build writes `data/channel_limits.json`, the file the limits view renders from `facility/limits.yaml`, into every render that states a limits block; a profile that states the key, at either scope, stops the build (`profile-invalid`)
   control_system.limits_checking.mode:
     evidence: '_limits_mode\(block\.get\(mode_leaf\)\)'
     note: >-
@@ -2494,7 +2498,7 @@ keys:
       The benchmarks facility view writes the mode's query file to
       dataset_path; a facility that ships no query sources gets none. No preset
       states it: the build states data/benchmarks/queries.json when the
-      facility ships data/facility/benchmarks/channel_finder/, a stated
+      facility ships facility/benchmarks/channel_finder/, a stated
       value is the location, and a stated value for a facility with no query
       sources is refused at build.
     default: {}
@@ -2854,7 +2858,7 @@ keys:
     facility-fact: true
     note: >-
       The off switch. No preset states it: the build states true when the
-      facility ships data/facility/ariel/vocabulary.yml, a stated false turns
+      facility ships facility/ariel/vocabulary.yml, a stated false turns
       it off, and a stated true with no such file and no path of its own is
       refused at build. False means nothing is read at all, so a stale `path`
       left behind is inert rather than a startup failure. Listed in `osprey.facility.settings`.
@@ -3267,7 +3271,7 @@ keys:
       Config-relative, resolved against the directory holding config.yml — the
       same rule as `facility_knowledge.bundle_path`. Shipped under var/, the
       gitignored STATE zone: the mirror is machine-written from Postgres and is
-      as large as the logbook, so a path under the tracked data/ zone would
+      as large as the logbook, so a path under the tracked source zone would
       commit a generated corpus. An enabled export with no value here is
       refused at configure() time rather than skipped.
     default: no-fallback
@@ -3715,7 +3719,7 @@ keys:
       project root (the directory holding the rendered build); an absolute
       path is used as written. Unset keeps CANOPY's own theme. The demo
       preset sets it to the OSPREY theme its template ships
-      (data/canopy/theme/osprey.json).
+      (web/canopy/theme/osprey.json).
     default: null
   web.panels.system-health.hidden:
     rendered: false

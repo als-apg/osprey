@@ -2,7 +2,7 @@
 
 One scratch deployment takes both exports of the committed NSLS-II tree in one
 ``osprey facility import mml`` call, under the tree's reviewed mapping, builds
-the facility file from what the import left under ``data/facility/`` and
+the facility file from what the import left under ``facility/`` and
 renders it into ``build/``, twice over. Everything asserted here reads that one
 chain, so what is pinned is one facility installed the way a facility is
 installed:
@@ -126,7 +126,7 @@ class Pass:
     """What one pass of the chain left behind.
 
     Attributes:
-        sources: Every file under ``data/facility/``, keyed by its path
+        sources: Every file under ``facility/``, keyed by its path
             relative to the deployment.
         rendered: Every file of the render, keyed by its path relative to the
             render.
@@ -152,8 +152,8 @@ class Chain:
 
     @property
     def facility(self) -> Path:
-        """The deployment's ``data/facility`` directory."""
-        return self.root / "data" / "facility"
+        """The deployment's ``facility`` directory."""
+        return self.root / "facility"
 
     @property
     def build(self) -> Path:
@@ -178,7 +178,7 @@ def run_chain(root: Path, config: Mapping[str, Any], *, passes: int = 2) -> Chai
     """Install the two-model tree into a scratch deployment, ``passes`` times over.
 
     Each pass imports both exports in one ``osprey facility import mml`` call,
-    builds the facility file from ``data/facility/`` and renders it into
+    builds the facility file from ``facility/`` and renders it into
     ``build/`` under ``config``, over whatever the pass before left there.
 
     The reviewed mapping is installed once, before the first pass. An import
@@ -202,9 +202,9 @@ def run_chain(root: Path, config: Mapping[str, Any], *, passes: int = 2) -> Chai
 
     root.mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
-        f"name: {PROJECT}\nproject_name: {PROJECT}\ndata: data\n", encoding="utf-8"
+        f"name: {PROJECT}\nproject_name: {PROJECT}\n", encoding="utf-8"
     )
-    facility = root / "data" / "facility"
+    facility = root / "facility"
     installed = facility / MAPPING_FILE
     installed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(FIXTURES / TREE / MAPPING_FILE, installed)
@@ -297,7 +297,7 @@ class TestTheLayers:
 
         The layers are read off the tree rather than listed: each directory
         under ``imported/`` is a layer, and the files the import seeds at the
-        top of ``data/facility/`` merge as the authored one. Every one of them
+        top of ``facility/`` merge as the authored one. Every one of them
         is named by the provenance of some record.
         """
         from osprey_facility.sources import AUTHORED
@@ -470,9 +470,9 @@ def _paired_import(root: Path, tree: str, edit: Any = None, deck: Path | None = 
     stem = ao.name.removesuffix(".ao.json")
     root.mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
-        f"name: {PROJECT}\nproject_name: {PROJECT}\ndata: data\n", encoding="utf-8"
+        f"name: {PROJECT}\nproject_name: {PROJECT}\n", encoding="utf-8"
     )
-    installed = root / "data" / "facility" / MAPPING_FILE
+    installed = root / "facility" / MAPPING_FILE
     installed.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, installed)
     exports = root / "exports"
@@ -513,7 +513,7 @@ class TestTheDeckBesideAnExport:
             "import mml: export-invalid: StorageRing: the deck spear3.storagering.lattice.mat "
             f"holds elements 3510 and the export states 876; {REMEDY}"
         ]
-        facility = tmp_path / "data" / "facility"
+        facility = tmp_path / "facility"
         assert sorted(_files(facility, facility)) == sorted([MAPPING_FILE, "knowledge/index.md"])
 
     def test_an_export_that_differs_in_energy_alone_imports_with_a_warning(
@@ -531,7 +531,7 @@ class TestTheDeckBesideAnExport:
             "import mml: deck energy: SR: the deck quokka.sr.lattice.mat holds energy_gev 2.0 "
             f"and the export states 2.5; {REMEDY}"
         ) in result.output.splitlines()
-        assert (tmp_path / "data/facility/imported/mml/decks/SR.json").is_file()
+        assert (tmp_path / "facility/imported/mml/decks/SR.json").is_file()
 
     def test_an_export_that_refused_its_fingerprint_is_filed_unchecked_with_a_warning(
         self, tmp_path: Path
@@ -548,7 +548,7 @@ class TestTheDeckBesideAnExport:
             "import mml: deck unchecked: SR: the export states no lattice fingerprint "
             "(no Java runtime); the deck quokka.sr.lattice.mat is filed unchecked"
         ) in result.output.splitlines()
-        assert (tmp_path / "data/facility/imported/mml/decks/SR.json").is_file()
+        assert (tmp_path / "facility/imported/mml/decks/SR.json").is_file()
 
     def test_a_deck_that_is_the_exports_own_prints_no_line_about_it(self, tmp_path: Path) -> None:
         result = _paired_import(tmp_path, "synthetic")

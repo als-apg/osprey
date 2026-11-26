@@ -164,6 +164,7 @@ class TestLifecycle:
         assert os.getsid(shared_ioc.pid) == shared_ioc.pid != os.getsid(0)
         shared_ioc.wait_ca_listening(timeout=1.0)
 
+    @pytest.mark.wallclock
     def test_300_records_are_ready_within_the_budget(self, tmp_path):
         names = [f"SOFTIOC:SMOKE:AI{i:03d}" for i in range(300)]
         started = time.monotonic()
@@ -201,6 +202,7 @@ class TestLifecycle:
             SoftIOC('record(nosuchtype, "X") {}\n', workdir=tmp_path).start()
         assert "IOC Starting" in str(raised.value)
 
+    @pytest.mark.wallclock
     def test_an_ioc_that_never_reports_ready_fails_at_its_deadline(self, tmp_path, monkeypatch):
         monkeypatch.setattr(_soft_ioc, "_READY_LINE", "a line the IOC never prints")
         soft = SoftIOC([ai_record(PLAIN)], workdir=tmp_path, ready_timeout=0.5)

@@ -25,7 +25,7 @@ AO = "quokka.sr.ao.json"
 
 
 def _shared(tmp_path: Path) -> tuple[Path, Path]:
-    """The synthetic export with ``BPM`` added, and its ``data/facility`` beside it.
+    """The synthetic export with ``BPM`` added, and its ``facility`` beside it.
 
     Returns:
         The copied AO file and the facility directory holding the copied
@@ -46,7 +46,7 @@ def _shared(tmp_path: Path) -> tuple[Path, Path]:
     }
     (export / AO).write_text(json.dumps(ao), encoding="utf-8")
 
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = yaml.safe_load((SYNTHETIC / MAPPING_FILE).read_text(encoding="utf-8"))

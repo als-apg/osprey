@@ -1,6 +1,6 @@
 """The limits view of a packaged tree, and a validator loading it under a mode.
 
-``render_limits`` builds a preset's packaged ``data/facility`` tree in memory
+``render_limits`` builds a preset's packaged ``facility`` tree in memory
 and writes its facility outputs into a render directory, returning the limits
 database the render carries. ``validator_under`` loads that file the way a
 deployment does, with ``control_system.limits_checking.mode`` stated.
@@ -49,7 +49,7 @@ def without_limits_findings(stderr: str) -> str:
 
 
 def packaged_facility_dir(bundle: str) -> Path:
-    """The packaged facility tree an app bundle's preset lands at ``data/facility``."""
+    """The packaged facility tree an app bundle's preset lands at ``facility``."""
     from tests._preset_data import packaged_facility_dir as composed_facility_dir
 
     return composed_facility_dir(bundle)

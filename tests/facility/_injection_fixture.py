@@ -18,6 +18,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from osprey import repo_layout
 from tests._builds import FRAMEWORK_CHECKS
 
 __all__ = [
@@ -97,12 +98,12 @@ _REPORTED: set[str] = set()
 def injection_view(root: Path) -> Path:
     """Build and render the injection fixture under ``root``.
 
-    The tree is copied to ``root/data/facility``, built, and rendered into
+    The tree is copied to ``root/facility``, built, and rendered into
     ``root/build`` under the in-process render configuration of
     :mod:`tests.facility.served_tree`.
 
     Args:
-        root: A directory holding neither ``data/facility`` nor ``build``.
+        root: A directory holding neither ``facility`` nor ``build``.
 
     Returns:
         The render's simulator view, ``root/build/data/simulator``.
@@ -111,7 +112,7 @@ def injection_view(root: Path) -> Path:
     from osprey_facility.build import build_facility
     from tests.facility.served_tree import IN_PROCESS_RENDER_CONFIG
 
-    facility_dir = root / "data" / "facility"
+    facility_dir = root / repo_layout.entry("facility").path
     shutil.copytree(FIXTURE, facility_dir)
     render_dir = root / "build"
     render_dir.mkdir(parents=True)

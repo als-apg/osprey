@@ -2,7 +2,7 @@
 
 A deployment whose profile mounts a machine root reads the machine facts from
 that root and its own ``knowledge/``, ``ariel/`` and ``benchmarks/`` from the
-content root, ``<data>/facility``. The pipeline takes the content root as the
+content root, ``facility/``. The pipeline takes the content root as the
 keyword-only ``content_dir``; left out, the one tree plays both roles, as
 before. Version-control metadata is never a fact of either root.
 """

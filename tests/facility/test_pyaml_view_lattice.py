@@ -145,7 +145,7 @@ def test_a_thin_corrector_steps_the_orbit_the_served_kick_does(
     after = np.array([reader.positions.get() for reader in readers])
 
     served = _served_response(
-        tmp_path / "data" / "facility" / "simulation" / "decks" / "sr.json",
+        tmp_path / "facility" / "simulation" / "decks" / "sr.json",
         "SCOR",
         plane,
         list(bpms.values()),
@@ -213,7 +213,7 @@ def test_a_thin_multipole_s_kick_reads_back_and_a_step_moves_the_orbit_by_the_st
 
     # SCOR holds no kick and sits where TCOR does, so a step on it alone is the reference.
     served = _served_response(
-        tmp_path / "data" / "facility" / "simulation" / "decks" / "sr.json",
+        tmp_path / "facility" / "simulation" / "decks" / "sr.json",
         "SCOR",
         plane,
         list(bpms.values()),

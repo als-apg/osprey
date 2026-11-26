@@ -40,21 +40,15 @@ Profile YAML reference
        first sets its own value in a variant overlay (see
        :ref:`profile-host-variants`). Changing it renames the deployment, and
        the volumes follow the new name.
-   * - ``data``
-     - string
-     - *required*
-     - Facility data tree, relative to the profile directory (``data`` in a
-       materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. Must resolve inside the
-       repository; a path outside it is refused (see :ref:`profile-self-contained`).
    * - ``machine``
      - string
      - ``None``
      - The facility directory of a mounted machine repository, relative to the
-       profile directory (e.g. ``vendor/example-machine/data/facility``). The
-       machine facts then come from there, and the deployment's ``data/facility/``
-       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Resolved and
-       folded into the profile hash like ``data``; only the root profile may
+       profile directory (e.g. ``vendor/example-machine/facility``). The
+       machine facts then come from there, and the deployment's ``facility/``
+       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Must resolve
+       inside the repository (see :ref:`profile-self-contained`) and is folded
+       into the profile hash; only the root profile may
        state it (see :doc:`/how-to/control-systems/machine-repository`).
    * - ``extends``
      - string
@@ -1150,7 +1144,6 @@ keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
    name: control-room
    provider: anthropic
    channel_finder_mode: graph
-   data: data
    config:
      services.graphdb.path: ./services/graphdb
      services.graphdb.image: neo4j:5.26-community
@@ -1308,7 +1301,8 @@ The live stand-in
 ``live_standin`` deploys a second simulator container on its own Channel Access
 port and gives the deployment a third control target, ``standin``, dialled
 through its own ``control_system.connector.live_standin`` block. Both containers
-run one image over the same simulator view and the same active scenarios. The
+run one image over the same simulator view, and each holds an active scenario
+set of its own (``osprey sim apply --target``). The
 two machines are told apart by a write to the sandbox not showing on the
 stand-in and by the model RPC status naming its instance.
 

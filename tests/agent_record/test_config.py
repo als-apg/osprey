@@ -160,7 +160,7 @@ def test_a_root_profile_file_with_the_block_loads(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
     profile = _write_yaml(
         tmp_path / "profile.yml",
-        {"name": "site", "data": "data", "agent_record": {"retention_days": 7}},
+        {"name": "site", "agent_record": {"retention_days": 7}},
     )
 
     load_profile_document(profile)
@@ -277,7 +277,7 @@ def test_a_days_back_past_retention_is_refused_naming_both_fixes() -> None:
 
 def test_a_block_in_a_tier_file_is_refused(tmp_path: Path) -> None:
     (tmp_path / "data").mkdir()
-    _write_yaml(tmp_path / "profile.yml", {"name": "site", "data": "data"})
+    _write_yaml(tmp_path / "profile.yml", {"name": "site"})
     tier = _write_yaml(
         tmp_path / "tiers" / "ro.yml", {"name": "ro", "agent_record": {"backend": "embedded"}}
     )

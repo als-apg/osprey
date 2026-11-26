@@ -65,7 +65,7 @@ from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests._renders import tier_render
 from tests._scoped_stdlib import scoped
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
@@ -89,7 +89,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    kwargs.setdefault("repo_root", bundle_source_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)
@@ -1120,6 +1120,39 @@ def test_va_state_mount_matches_the_scenario_state_dir(
     source = re.search(r"- (\S+):/state/simulation:ro", rendered).group(1)
 
     assert (tmp_path / source).resolve() == resolve_simulation_state_dir(config, tmp_path).resolve()
+
+
+@pytest.mark.parametrize(
+    "relocation",
+    [
+        pytest.param({}, id="default"),
+        pytest.param({"agent_data": {"base_dir": "./scratch-data"}}, id="relocated-agent-data"),
+        pytest.param({"simulation": {"state_dir": "run/scenarios"}}, id="explicit-state-dir"),
+    ],
+)
+def test_each_va_instance_mounts_the_state_dir_its_own_set_is_written_to(
+    tmp_path: Path, relocation: dict[str, Any]
+) -> None:
+    """Two instances, two mounts, each the directory ``sim apply`` writes for its target."""
+    from osprey.simulation.targets import target_state_dir
+
+    config: dict[str, Any] = {
+        "project_root": str(tmp_path),
+        "services": {
+            "virtual_accelerator": {"port": 5064},
+            "live_standin": {"path": "./services/virtual_accelerator", "port": 5074},
+        },
+        "deployed_services": ["virtual_accelerator", "live_standin"],
+        **relocation,
+    }
+    rendered = _render_va_template(config)
+    sources = re.findall(r"- (\S+):/state/simulation:ro", rendered)
+
+    assert [(tmp_path / source).resolve() for source in sources] == [
+        target_state_dir(config, tmp_path, "va").resolve(),
+        target_state_dir(config, tmp_path, "standin").resolve(),
+    ]
+    assert sources[0] != sources[1]
 
 
 # The worker process reads OSPREY config directly (get_facility_timezone while
@@ -3259,6 +3292,12 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
         "deployed_services": [],
         "control_system": {},
         "osprey_simulator_log_sources": simulator_log_mount_sources(),
+        # Computed per config by the generator; spelled here as the default
+        # layout's answer, one source per simulator instance.
+        "osprey_state_mount_sources": {
+            "virtual_accelerator": f"./{DEFAULT_AGENT_DATA_BASE_DIR}/simulation",
+            "live_standin": f"./{DEFAULT_AGENT_DATA_BASE_DIR}/simulation/standin",
+        },
         "osprey_guarded_run_mount": {
             "source": f"./{guarded_run_relpath()}",
             "target": f"/app/{project_name}/{guarded_run_relpath()}",

@@ -13,11 +13,11 @@
 
 name: OSPREY Demo
 
-# Which packaged app this builds. "demo" is the full one. Its data
-# files are copied into data/, and that copy is what the build uses from then on.
+# Which packaged app this builds. "demo" is the full one. Its web content is
+# copied into web/, and that copy is what the build uses from then on.
 app_template: demo
 
-# Which bundled facility this shows. Its files are copied into data/facility/,
+# Which bundled facility this shows. Its files are copied into facility/,
 # and that copy is what the build reads from then on.
 facility: example
 
@@ -153,9 +153,10 @@ virtual_accelerator:
   # running a stand-in exactly as on one that is not — the build writes no key
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
-  # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The stand-in is never recorded: it reads the facility's archive,
-  # and the store holds the simulator's past.
+  # Each machine has an active scenario set of its own: `osprey sim apply
+  # --target standin` moves the stand-in, `--target va` the simulator. The
+  # stand-in is never recorded: it reads the facility's archive, and the store
+  # holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -604,10 +605,10 @@ config:
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
   # reported back as `expanded_terms`. The build turns it on when the facility
-  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # ships facility/ariel/vocabulary.yml. The file is read once at startup;
   # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
   # search 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -757,7 +758,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility/knowledge
+  facility_knowledge.bundle_path: facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -1004,7 +1005,7 @@ config:
   # collection's Orbit, RF thermal and Septum pulse carry their own views.
   # A `*_default_query` here would give the bare tools a view as well.
   # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
-  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  # The screen CANOPY opens on, by its id in web/canopy/library/screens.
   web.panels.canopy.home_screen: facility/overview
   # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
   # memory (256 MB).
@@ -1012,7 +1013,7 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
   # screens OSPREY's light and dark colours.
-  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
+  web.panels.canopy.theme_file: web/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1116,12 +1117,12 @@ config:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
       # adding a section means adding a markdown file and listing it here.
-      # `data/landing/working-safely.md` ships with this preset and is yours to
+      # `web/landing/working-safely.md` ships with this preset and is yours to
       # rewrite; add your own for local procedures, contacts or shift handover.
       # Drop this key entirely and you get OSPREY's built-in safety notice
       # instead; set it to [] for no notices at all.
       notices:
-        - data/landing/working-safely.md
+        - web/landing/working-safely.md
       # The line under everything. Set to "" for no footer.
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
@@ -1200,7 +1201,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/simulation/models.yaml. null
+  # Models the simulator serves, named from facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models: null
   # Seconds between the simulator's ticks; must be greater than 0.
@@ -1209,6 +1210,8 @@ config:
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # demo-history also seeds the sidebar's example sessions on first deploy.
   # Absent or [] starts in nominal alone; a stated set is checked at build.
+  # A list starts every simulator instance in the set; {va: [...],
+  # standin: [...]} gives the simulator and the stand-in each its own.
   simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────

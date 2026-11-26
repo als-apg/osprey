@@ -56,7 +56,8 @@ _RENDER_INSTRUCTIONS = "Watch from the render.\n"
 #: the watchdog's render under ``build/``.
 _MOVED_ROOT: dict[str, str] = {
     "profile.yml": "name: moved\nwatchdogs:\n  sentinel:\n    enabled: true\n    engine: agent\n",
-    "data/README.md": "# data\n",
+    "facility/identity.yaml": "name: moved\n",
+    "web/landing/notice.md": "# notice\n",
     "agent/rules/x.md": "# x\n",
     "agent/rules/y.md": "# y\n",
     "agent/watchdogs/sentinel/instructions.md": _SOURCE_INSTRUCTIONS,
@@ -354,12 +355,12 @@ def test_the_old_names_are_unknown_entries_in_the_moved_layout(probe: dict[str, 
 # --- the write boundary -----------------------------------------------------------------
 
 
-def test_the_write_boundary_protects_the_moved_paths_and_still_protects_data(
+def test_the_write_boundary_protects_the_moved_paths_and_the_content_rows(
     probe: dict[str, Any],
 ) -> None:
     protected = set(probe["protected"])
     assert _NEW_TOP_LEVEL <= protected
-    assert "data" in protected
+    assert {"facility", "web", "data"} <= protected
     assert _DECLARED_OLD <= protected
     assert (_OLD_NAMES - _DECLARED_OLD).isdisjoint(protected)
 
@@ -529,7 +530,7 @@ def test_the_image_carries_the_moved_sources_and_still_leaves_out_the_excluded_e
     probe: dict[str, Any], baseline: dict[str, Any]
 ) -> None:
     assert probe["tables"]["_NON_SOURCE_ROOT_ENTRIES"] == baseline["_NON_SOURCE_ROOT_ENTRIES"]
-    assert probe["image"] == ["agent", "data", "ops", "profile.yml"]
+    assert probe["image"] == ["agent", "facility", "ops", "profile.yml", "web"]
     assert {
         "agent/rules/x.md",
         "agent/watchdogs/sentinel/instructions.md",

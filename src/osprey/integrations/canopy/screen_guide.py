@@ -28,7 +28,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from osprey.integrations.canopy import FACILITY_COLLECTIONS_SUBPATH, LIBRARY_SUBPATH
 from osprey.integrations.canopy.library import SCREEN_SUFFIX, SCREENS_DIRNAME
 
 logger = logging.getLogger(__name__)
@@ -70,7 +69,7 @@ def build_screen_guide(library: Path, facility: Mapping[str, Any] | None) -> Scr
     """The guide to every screen under ``library/screens``, in ``ref`` order.
 
     Args:
-        library: The project's screen library, ``data/canopy/library``.
+        library: The screen library the build rendered, below the render dir.
         facility: The build's ``facility.json``, or ``None`` to name devices by
             tooltip only.
     """
@@ -138,9 +137,10 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
     """Index the project's CANOPY screens, tools and collections for the screens skill.
 
     The template context of the ``canopy-screens`` skill. Runs only when
-    ``config.yml`` declares the CANOPY panel. Reads the built project's
-    ``data/canopy/library``, its ``facility.json`` for device labels, its
-    ``data/canopy/collections`` and the tools' default views from
+    ``config.yml`` declares the CANOPY panel. Reads, in the built project, the
+    screen library and the facility collections where the render puts the
+    ``web`` children ``canopy-library`` and ``canopy-collections``, its
+    ``facility.json`` for device labels, and the tools' default views from
     ``web.panels.canopy``. Never raises: an unreadable piece is a build warning
     and leaves its part of the guide empty.
 
@@ -149,13 +149,17 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
         ``None`` when the panel is not declared.
     """
     from osprey.deployment.web_terminals.roster import config_declares_panel
+    from osprey.repo_layout import rendered_sources
 
     if not config_declares_panel(config, "canopy"):
         return None
 
+    renders = {source.key: source.render_rel for source in rendered_sources()}
+
     try:
         guide = build_screen_guide(
-            project_dir / LIBRARY_SUBPATH, _guide_facility(project_dir / "facility.json")
+            project_dir / renders["web:canopy-library"],
+            _guide_facility(project_dir / "facility.json"),
         )
     except Exception as exc:  # pragma: no cover - defensive; the builder is fail-soft
         logger.warning("canopy screen guide skipped: %s", exc)
@@ -170,7 +174,7 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
         if isinstance(panel.get(key), str) and panel[key]
     ]
     collections = []
-    for path in sorted((project_dir / FACILITY_COLLECTIONS_SUBPATH).glob("*.json")):
+    for path in sorted((project_dir / renders["web:canopy-collections"]).glob("*.json")):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:

@@ -136,7 +136,7 @@ Read **before** the `try`, not inside it, so a device whose read fails is
 never entered and the `finally` can never run without a target. Your range
 parameters are then *excursions*, not absolute setpoints — say so in their
 descriptions, and do not give them a magnitude ceiling of your own: what a
-device tolerates is the records of `data/facility/limits.yaml`, which
+device tolerates is the records of `facility/limits.yaml`, which
 `osprey build` renders into `build/data/channel_limits.json`, the file the
 connector's reference monitor and the runtime's limits check enforce on every
 write. Many channels have no record, which is normal: the deployment's limits

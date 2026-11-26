@@ -42,7 +42,7 @@ services:
       # which is the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd), never this file's own subdir. So
       # render output is addressed under build/ and the repo's own zones by
-      # their plain names (data/). The corpus mounts below follow the same rule.
+      # their plain names (facility/). The corpus mounts below follow the same rule.
       context: ./build/services/qmd
       dockerfile: Dockerfile
       args:
@@ -89,7 +89,7 @@ services:
       # The corpus, read-only. Read-only is load-bearing: the sidecar indexes
       # this tree, and the processes that write it (the OKF bundle's authors,
       # ARIEL's mirror exporter) are outside this container.
-      - ./data/facility_knowledge:/corpus/okf:ro
+      - ./facility/knowledge:/corpus/okf:ro
     networks:
       - osprey-network
     healthcheck:

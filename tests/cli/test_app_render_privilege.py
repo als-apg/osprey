@@ -388,12 +388,11 @@ def test_a_set_edit_on_an_app_build_stays_pinned(pair: str, tmp_path: Path) -> N
     from osprey.cli.build_profile_resolve import resolve_build_document
 
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
+    repo.mkdir()
     (repo / "profile.yml").write_text(
         yaml.safe_dump(
             {
                 "name": "Facility",
-                "data": "data",
                 "config": {_WRITES: "allowed", "modules.web_terminals.shared": ["logbook"]},
             }
         ),

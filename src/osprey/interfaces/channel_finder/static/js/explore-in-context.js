@@ -9,7 +9,7 @@
  * derive from one shared filtered set (see chunk-filter.js) so a search match on
  * any page is always found — fixing the disjoint-scope bug in issue #299. (hygiene-allow-color: issue number, not a hex color)
  *
- * Read-only: corrections go into data/facility/provenance/fixes.yaml and take effect with
+ * Read-only: corrections go into facility/provenance/fixes.yaml and take effect with
  * `osprey build`.
  */
 
@@ -52,7 +52,7 @@ export async function mountInContext(container) {
   filterText = filterWords.toLowerCase();
   container.innerHTML = `
     <div class="cf-corrections-info">
-      Corrections go in <code>data/facility/provenance/fixes.yaml</code> and take effect with <code>osprey build</code>.
+      Corrections go in <code>facility/provenance/fixes.yaml</code> and take effect with <code>osprey build</code>.
     </div>
     <div class="filter-bar">
       <span class="filter-label">Filter:</span>

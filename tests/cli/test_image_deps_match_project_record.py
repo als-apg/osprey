@@ -98,7 +98,6 @@ def build(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         scoped(monkeypatch, "osprey.cli.build_cmd", "subprocess", run=ok)
         repo = tmp_path / "proj"
         repo.mkdir(exist_ok=True)
-        (repo / "data").mkdir(exist_ok=True)
         profile = repo / "profile.yml"
         profile.write_text(profile_yaml, encoding="utf-8")
         args = ["build", "--repo", str(repo), "--skip-lifecycle"]
@@ -121,7 +120,6 @@ def _profile_yaml(
     lines = [
         "extends: hello-world",
         "project_name: proj",
-        "data: data",
         f"osprey_install: {OSPREY_SPEC}",
     ]
     if dependencies:

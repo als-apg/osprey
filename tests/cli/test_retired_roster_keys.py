@@ -505,8 +505,8 @@ def test_extends_in_a_layer_is_refused_without_the_retired_tier_word(
     tmp_path: Path, layer: str
 ) -> None:
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
-    (repo / "profile.yml").write_text("name: Facility\ndata: data\n", encoding="utf-8")
+    repo.mkdir(parents=True)
+    (repo / "profile.yml").write_text("name: Facility\n", encoding="utf-8")
     path = repo / layer
     path.parent.mkdir(parents=True)
     path.write_text("extends: demo\n", encoding="utf-8")
@@ -572,10 +572,8 @@ _PROJECT = "demo"
 
 def _render_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
-    (repo / "profile.yml").write_text(
-        f"name: Demo\nproject_name: {_PROJECT}\ndata: data\n", encoding="utf-8"
-    )
+    repo.mkdir(parents=True)
+    (repo / "profile.yml").write_text(f"name: Demo\nproject_name: {_PROJECT}\n", encoding="utf-8")
     for layer in ("tiers/readonly.yml", "tiers/logbook.yml"):
         (repo / layer).parent.mkdir(exist_ok=True)
         (repo / layer).write_text(f"name: {Path(layer).stem}\n", encoding="utf-8")

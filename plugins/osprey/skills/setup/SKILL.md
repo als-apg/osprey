@@ -194,7 +194,7 @@ MAP ends with three facts. Ask only for the ones the inventory did not yield, an
 where the others came from: facility name; the IANA timezone for `system.timezone`; the
 project name, which the web container names are built from. The project name is the
 `osprey init` argument, the timezone is the `osprey set` key applied after it, and the
-facility name goes into `data/facility/identity.yaml` as its `name:` — hello-world's
+facility name goes into `facility/identity.yaml` as its `name:` — hello-world's
 ships `code:` only.
 
 ### 3. BUILD
@@ -226,8 +226,8 @@ ships `code:` only.
      Deferred. Never write a custom component mid-run.
 6. **Wiring rule.** A `port` on a data path, and an adopted area's data path, is complete
    only when the config keys binding that path are set. Files nothing points at are
-   invisible to the build. `data/facility/` is the exception: the build reads the tree
-   under the profile's data root with no key naming it.
+   invisible to the build. `facility/` is the exception: the build reads that tree
+   with no key naming it.
 7. **Harvest.** For every source the user named in DISCOVER — documents, a channel list,
    an IOC database, a MATLAB Middle Layer, a lattice — one question: harvest it, or an
    empty placeholder. One question per source, batched up to four per AskUserQuestion
@@ -237,7 +237,7 @@ ships `code:` only.
      `osprey facility import mml --print-exporter > mml_export.m`; the user runs
      `mml_export` once per sub-machine;
      `osprey facility import mml <machine>.<sub>.ao.json`, whose first run writes the
-     draft `data/facility/imported/mml/mapping.yaml` and stops; fill every `null`;
+     draft `facility/imported/mml/mapping.yaml` and stops; fill every `null`;
      answer every slot of the `judgments:` block with the user; review every
      `derived` description, direction, `class`, `branch` and `devices` answer with
      the user and mark each slot `stated`; the same import again, which writes the
@@ -274,8 +274,8 @@ ships `code:` only.
    **Project identity**.
 10. **Base demo material.** hello-world emits two demo items of its own: the
     `example_server` MCP example (keep or remove) and three demo records in
-    `data/facility/limits.yaml` (keep only with the facility's own channels, else empty
-    or replace). Limits are authored in `data/facility/limits.yaml`; the build renders
+    `facility/limits.yaml` (keep only with the facility's own channels, else empty
+    or replace). Limits are authored in `facility/limits.yaml`; the build renders
     them into `build/data/channel_limits.json`, a profile's own `channel_limits.json`
     stops the build, and a channel with no record follows
     `control_system.limits_checking.mode` (`optional` on this base). Both are ledger
@@ -287,12 +287,12 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
   derived from a named source and marked as such. Nothing else gets a file.
 - Facility records: imported from the facility's own channel list by
   `osprey facility import list` or from its MML export by
-  `osprey facility import mml`, or authored under `data/facility/records/` from what
+  `osprey facility import mml`, or authored under `facility/records/` from what
   the user states. Never from a guess.
-- The MML mapping: `data/facility/imported/mml/mapping.yaml` is reviewed to `stated`
+- The MML mapping: `facility/imported/mml/mapping.yaml` is reviewed to `stated`
   and every `judgments:` slot is answered by the user before the import writes a
   record from it, and every file `osprey facility import mml` writes under
-  `data/facility/imported/mml/` is `built`.
+  `facility/imported/mml/` is `built`.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
 - Tiers, shared logins and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.
@@ -301,7 +301,7 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
 
 ### 4. CLOSE
 
-**Ledger gate first, mechanical.** Walk `data/`, `tiers/`, `apps/`, `agent/watchdogs/`,
+**Ledger gate first, mechanical.** Walk `facility/`, `web/`, `tiers/`, `apps/`, `agent/watchdogs/`,
 `agent/context/`, `agent/mcp_servers/` and every `services.*` block in the profile against `## Ledger`. Render
 the LEDGER GATE panel from `references/cards.md`. Wrap-up is blocked while any path has
 no row, or any row reads `reference facility`. Each blocking row is resolved with the
@@ -363,9 +363,9 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 ## Ledger
 | path or block | provenance | content | note |
 | --- | --- | --- | --- |
-| data/facility/knowledge/ | pulled | skeleton | indexes only |
-| data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
-| data/facility/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
+| facility/knowledge/ | pulled | skeleton | indexes only |
+| facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
+| facility/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided
 - <decision> — <one-line rationale> (<date>)

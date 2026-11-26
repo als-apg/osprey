@@ -1,7 +1,7 @@
 """The ``osprey validate`` verb — check a deployment's source without building.
 
 Validation is the cheap half of a build: resolve the ``extends:`` chain, check
-the convention directories, the ``data:`` tree, service templates, lifecycle
+the convention directories, the facility tree, service templates, lifecycle
 steps and env vars, then lint the web stack against the config a build would
 render. Nothing is written and nothing is started, which is what makes this the
 verb a CI pipeline runs first and an operator runs after every profile edit.
@@ -176,17 +176,16 @@ def check_profile_file(profile_file: Path) -> None:
         raise click.UsageError(str(e)) from e
 
     # Where the deployment reads its facility, checked exactly as the build
-    # checks it: a `machine:` naming an empty submodule or overlapping `data:`,
-    # or a facility tree holding sources at retired paths, stops here with the
-    # same facility stop the build would raise.
+    # checks it: a `machine:` naming an empty submodule or overlapping the
+    # facility tree, or a facility tree holding sources at retired paths, stops
+    # here with the same facility stop the build would raise.
     facility_roots = build_profile.resolved_facility_roots(profile_dir)
-    if facility_roots is not None:
-        if deployment:
-            refuse_retired_layout(root_dir, facility_roots)
-        else:
-            from osprey_facility.retired import refuse_retired
+    if deployment:
+        refuse_retired_layout(root_dir, facility_roots)
+    else:
+        from osprey_facility.retired import refuse_retired
 
-            refuse_retired(facility_roots.machine, facility_roots.content)
+        refuse_retired(facility_roots.machine, facility_roots.content)
 
     # The multi-user web stack the profile declares, judged on the config the
     # build would render — the `config:` block with the `deploy:` block's

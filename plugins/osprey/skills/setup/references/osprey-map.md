@@ -54,7 +54,7 @@ feature port). It refuses to re-materialize an existing repo's source zone unles
 | Path | What it is |
 | --- | --- |
 | `profile.yml` | SOURCE. The manifest: everything the preset configures, written out explicitly |
-| `data/`, `tiers/`, `apps/`, `agent/watchdogs/`, `triggers.yml`, `agent/context/`, `agent/code_review/` | SOURCE. The material the manifest names — yours to edit. `tiers/` holds every login file, `apps/<name>/` one application per directory, `agent/watchdogs/<name>/` one watchdog's instructions, `agent/code_review/reviewer.md` the code reviewer's rules |
+| `facility/`, `web/`, `tiers/`, `apps/`, `agent/watchdogs/`, `triggers.yml`, `agent/context/`, `agent/code_review/` | SOURCE. The material the manifest names — yours to edit. `tiers/` holds every login file, `apps/<name>/` one application per directory, `agent/watchdogs/<name>/` one watchdog's instructions, `agent/code_review/reviewer.md` the code reviewer's rules |
 | `profiles/` | SOURCE. One `<name>.yml` host-variant overlay per variant the deployment has. Which one this host builds is the single line `OSPREY_PROFILE_VARIANT=<name>` in the git-ignored `.env.variant`; with none set, the tracked `profile.yml` builds |
 | `agent/rules/`, `agent/skills/`, `agent/agents/`, `agent/commands/`, `agent/output-styles/`, `agent/hooks/`, `agent/mcp_servers/`, `ops/services/`, `ops/project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `ops/project/` is the catch-all mirrored onto the built project's root |
 | `.gitlab-ci.yml`, `ops/scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
@@ -109,7 +109,7 @@ roster.
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `src/osprey/profiles/providers.yml` — the packaged catalog `osprey init` copies into the repo as `providers.yml`; `provider:` names one of its entries |
 | Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |
-| Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `data/`, `agent/mcp_servers/`, `agent/context/` only; the config a preset ships is in the preset file, not here |
+| Packaged data bundles a preset materializes | `src/osprey/templates/apps/` — `web/`, `agent/mcp_servers/`, `agent/context/` only; the facility a preset names is in `src/osprey/templates/facilities/`, and the config it ships is in the preset file, not here |
 | The framework config template | `src/osprey/templates/project/config.yml.j2` — derived keys only (project layout, ports, `providers.yml`, profile fields) |
 | Control-system connectors | `packages/osprey-connectors/src/osprey_connectors/` |
 

@@ -192,15 +192,13 @@ def _required_at_startup(bridge: Bridge) -> list[str]:
 def _write_profile(bridge: Bridge, directory: Path, declared_trigger: str | None = None) -> Path:
     """The page's fragment as a whole profile in *directory*, with a stub triggers file.
 
-    The fragment is wrapped with the two keys every profile carries (``name``,
-    ``data``). A fragment without a ``dispatch:`` block gets the one the page's
+    The fragment is wrapped with the key every profile carries, ``name``. A fragment without a ``dispatch:`` block gets the one the page's
     prerequisites ask for.
     """
     fragment = _example(bridge)
-    profile = {"name": "docs-example", "data": "data", **fragment}
+    profile = {"name": "docs-example", **fragment}
     profile.setdefault("dispatch", {"triggers": "triggers.yml"})
     trigger = declared_trigger or fragment[bridge.profile_key]["trigger"]
-    (directory / "data").mkdir(exist_ok=True)
     (directory / profile["dispatch"]["triggers"]).write_text(
         f"triggers:\n  - name: {trigger}\n    source: webhook\n    action:\n      prompt: Answer.\n",
         encoding="utf-8",

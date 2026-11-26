@@ -924,11 +924,11 @@ class TestEnvironments:
         assert {subpath[0] for subpath in subpaths} == {"canopy"}
 
     def test_the_library_subpath_is_relative(self):
-        assert LIBRARY_SUBPATH == Path("data/canopy/library")
+        assert LIBRARY_SUBPATH == Path("web/canopy/library")
         assert not LIBRARY_SUBPATH.is_absolute()
 
     def test_the_facility_collections_subpath_is_relative_beside_the_library(self):
-        assert FACILITY_COLLECTIONS_SUBPATH == Path("data/canopy/collections")
+        assert FACILITY_COLLECTIONS_SUBPATH == Path("web/canopy/collections")
         assert not FACILITY_COLLECTIONS_SUBPATH.is_absolute()
         assert FACILITY_COLLECTIONS_SUBPATH.parent == LIBRARY_SUBPATH.parent
 

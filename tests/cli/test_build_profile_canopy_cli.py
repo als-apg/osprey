@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
@@ -32,7 +33,8 @@ def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "\nconfig:\n", "\nconfig:\n  web.panels.canopy.home_screen: facility/nope\n"
     )
     profile.write_text(body)
-    screen = root / "data" / "canopy" / "library" / "screens" / "facility" / "overview.screen.json"
+    library = repo_layout.child_path(root / repo_layout.entry("web").path, "web", "canopy-library")
+    screen = library / "screens" / "facility" / "overview.screen.json"
     screen.parent.mkdir(parents=True)
     screen.write_text(json.dumps({"kind": "screen", "widgets": []}))
     return root

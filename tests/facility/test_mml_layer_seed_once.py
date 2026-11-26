@@ -1,6 +1,6 @@
 """The mml layer's seed-once files: authored files an import creates when absent.
 
-Each case imports a fixture tree's exports into a fresh ``data/facility/``
+Each case imports a fixture tree's exports into a fresh ``facility/``
 under the tree's layer mapping and reads the authored files the import
 seeded beside the layer's records. The build cases run the in-process build
 over the imported tree. The cases that only read a clean import of a whole
@@ -103,7 +103,7 @@ def _roles(facility: Path) -> dict[str, str]:
 
 
 def _authored(facility: Path) -> dict[str, bytes]:
-    """Every file outside the layer directory, by its path under ``data/facility``."""
+    """Every file outside the layer directory, by its path under ``facility``."""
     return {
         path.relative_to(facility).as_posix(): path.read_bytes()
         for path in sorted(facility.rglob("*"))
@@ -133,7 +133,7 @@ class _Imported:
 
     def copy(self, root: Path) -> Path:
         """The imported facility copied under ``root``, for a case that changes it."""
-        facility = root / "data" / "facility"
+        facility = root / "facility"
         shutil.copytree(self.facility, facility)
         return facility
 

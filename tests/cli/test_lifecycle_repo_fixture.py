@@ -85,8 +85,7 @@ def test_repo_root_holds_the_profile(lifecycle_repo: Path) -> None:
         f"{TIERS_DIRNAME}/logbook.yml",
         f"{TIERS_DIRNAME}/knowledge.yml",
         f"{TIERS_DIRNAME}/channel-finder.yml",
-        "data/README.md",
-        "data/facility/knowledge/index.md",
+        "facility/knowledge/index.md",
         "agent/context/alice/.gitkeep",
         "agent/context/bob/.gitkeep",
     ],
@@ -321,7 +320,7 @@ def test_provenance_records_the_live_preset(lifecycle_repo: Path) -> None:
 
 def test_repo_is_discoverable_from_any_subdirectory(lifecycle_repo: Path) -> None:
     """The single discovery rule finds this repo from inside it (FR-9)."""
-    nested = lifecycle_repo / "data" / "facility" / "knowledge" / "subsystems"
+    nested = lifecycle_repo / "facility" / "knowledge" / "subsystems"
 
     assert find_repo_root(nested) == lifecycle_repo.resolve()
     assert find_repo_root(lifecycle_repo) == lifecycle_repo.resolve()

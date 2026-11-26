@@ -81,7 +81,7 @@ def _git(root: Path, *args: str) -> str:
 
 
 #: The exemplar's facility tree, relative to the repo.
-_FACILITY = "data/facility/"
+_FACILITY = f"{repo_layout.entry('facility').path}/"
 
 
 def _facility_spelling(rel: str, *, retired: bool) -> str:

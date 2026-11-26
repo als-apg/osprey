@@ -291,7 +291,8 @@ surprising always arrives with the reason it appeared.
 
 Nothing is built in. With no vocabulary configured, no query is ever rewritten.
 ``osprey build`` turns expansion on when the facility ships
-``data/facility/ariel/vocabulary.yml``, and states that path. The example
+``facility/ariel/vocabulary.yml``, and states the copy the render reads,
+``data/facility/ariel/vocabulary.yml``. The example
 facility ships one as a starting point and a format tutorial; it is meant to be
 edited down to what your control room actually says.
 
@@ -484,7 +485,7 @@ Turning expansion off, for a deployment or for one search
 ``ariel.vocabulary.enabled: false`` switches the whole thing off: nothing is
 read, and a stale ``path`` left behind is inert rather than a startup failure.
 A profile that states ``true`` and no ``path`` of its own, for a facility that
-ships no ``data/facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
+ships no ``facility/ariel/vocabulary.yml``, is refused at ``osprey build``.
 
 For a single search, every surface takes an ``expand_query`` argument:
 
@@ -640,7 +641,7 @@ Checking the file, and reading the status
 .. code-block:: bash
 
    osprey ariel vocab-check                            # the configured file
-   osprey ariel vocab-check data/facility/ariel/vocabulary.yml  # any file
+   osprey ariel vocab-check facility/ariel/vocabulary.yml  # any file
    osprey ariel vocab-check --json                     # one JSON document
 
 Neither this command nor the vocabulary line of ``osprey ariel status`` needs a

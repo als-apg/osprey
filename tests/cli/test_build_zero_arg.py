@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli import build_cmd
 from osprey.cli.build_cmd import build
 from osprey.deployment import staleness
@@ -121,7 +122,7 @@ class TestRepoIdentity:
         assert rendered_config(lifecycle_repo)["project_root"] == "/app/als-exemplar"
 
     def test_runs_from_any_subdirectory(self, runner, lifecycle_repo):
-        result = _build(runner, lifecycle_repo / "data" / "facility" / "knowledge")
+        result = _build(runner, lifecycle_repo / repo_layout.entry("facility").path / "knowledge")
 
         assert result.exit_code == 0, result.output
         assert (lifecycle_repo / "build" / "config.yml").is_file()

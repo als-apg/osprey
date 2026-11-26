@@ -837,7 +837,8 @@ def ci(repo: Path | None, force: bool) -> None:
     Re-running is safe. A file whose content already matches is left untouched,
     stamp included, so an OSPREY upgrade alone produces no diff. A file the
     scaffolder did not write is reported and left alone; --force replaces it.
-    ci-extra.yml is never touched: it is yours, and the pipeline includes it.
+    ops/ci-extra.yml is never touched: it is yours, and the pipeline includes
+    it.
 
     Examples:
 
@@ -1024,8 +1025,8 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     """Copy a preset's packaged content into this repo.
 
     PRESET[:PATH] names what to copy: 'demo' is the whole app
-    template with its facility under data/facility/,
-    'demo:data/facility/knowledge' one subtree of it.
+    template with its facility under facility/,
+    'demo:facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1042,7 +1043,7 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
 
     \b
       $ osprey scaffold pull demo --list
-      $ osprey scaffold pull demo:data/facility/knowledge
+      $ osprey scaffold pull demo:facility/knowledge
       $ osprey scaffold pull demo:agent/context
       $ osprey scaffold pull hello-world:agent/mcp_servers/example_server --force
     """
@@ -1136,10 +1137,10 @@ def systemd(repo: Path | None, force: bool) -> None:
     """Emit a systemd unit that starts this deployment at boot.
 
     Writes two files into the repo and prints how to install them: the unit,
-    osprey.service, and the boot hook, osprey-boot-hook.sh. The unit runs
-    'osprey up -d' from this repo and 'osprey down' on stop; both the repo and
-    the osprey program are written into it as full paths, because systemd
-    starts a unit with no working directory and a short PATH. The hook is for
+    ops/osprey.service, and the boot hook, ops/scripts/osprey-boot-hook.sh. The
+    unit runs 'osprey up -d' from this repo and 'osprey down' on stop; both the
+    repo and the osprey program are written into it as full paths, because
+    systemd starts a unit with no working directory and a short PATH. The hook is for
     one situation only — a home directory that arrives after the user manager
     does — and this verb says so when it finds one. Run it on the machine that
     will run the deployment, and again after the repo moves or OSPREY is

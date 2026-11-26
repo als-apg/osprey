@@ -1,4 +1,4 @@
-"""Stage S1: load every source file under ``data/facility/``, one file at a time.
+"""Stage S1: load every source file under ``facility/``, one file at a time.
 
 The tree the loader reads::
 
@@ -470,7 +470,7 @@ class SourceRecord:
             or ``wiring``.
         id: The record's id; a model's name; a wiring record's ``<model>/<address>``.
         layer: The layer that wrote it.
-        file: The file it came from, relative to ``data/facility/``.
+        file: The file it came from, relative to ``facility/``.
         fields: The slots the layer states, without the id and, for a model,
             without its wiring.
         basis: What the stated fields rest on: ``inferred`` when the record says
@@ -547,7 +547,7 @@ def load_sources(facility_dir: Path) -> LoadResult:
     for case) and ``layer-duplicate`` (one layer stating an id twice).
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
 
     Returns:
         The sources and every stop found.
@@ -567,7 +567,7 @@ def facility_signals(facility_dir: Path) -> list[dict[str, Any]]:
     import). A row the build refuses is left out; ``osprey build`` reports it.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
 
     Returns:
         The accepted ``signals.yaml`` rows, in file order; none when the file or

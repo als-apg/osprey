@@ -1,6 +1,6 @@
-"""Minimal synthetic ``data/facility`` trees: what an application's tests build a facility from.
+"""Minimal synthetic ``facility/`` trees: what an application's tests build a facility from.
 
-A tree is a mapping of path (relative to ``data/facility``) to content: a string
+A tree is a mapping of path (relative to ``facility/``) to content: a string
 is written as it is, a ``Deck`` is saved as a pyAT lattice file, anything else
 is dumped as YAML. Every factory returns a fresh tree, so a test may edit it.
 The models file and the decks sit where ``osprey_facility.source_tree`` puts
@@ -205,7 +205,7 @@ def write_tree(root: Path, tree: Mapping[str, Any]) -> Path:
     """Write a tree under ``root``.
 
     Args:
-        root: The ``data/facility`` directory to create.
+        root: The ``facility/`` directory to create.
         tree: Path to content.
 
     Returns:

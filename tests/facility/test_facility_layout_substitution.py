@@ -85,7 +85,7 @@ _NO_TREE_QUERIES: dict[str, Any] = {
     "benchmarks/channel_finder/tree_queries.json": "[]\n",
 }
 
-#: A profile's data tree whose benchmarks hold more than the query sources.
+#: A deployment root whose facility benchmarks hold more than the query sources.
 _DATA_TREE_SHARED: dict[str, Any] = {
     "facility/identity.yaml": {"code": "demo"},
     "facility/knowledge/index.md": "# Notes\n",
@@ -96,13 +96,13 @@ _DATA_TREE_SHARED: dict[str, Any] = {
     "other/keep.txt": "Kept.\n",
 }
 
-#: A profile's data tree whose benchmarks hold the query sources and nothing else.
+#: A deployment root whose facility benchmarks hold the query sources and nothing else.
 _DATA_TREE_ALONE: dict[str, Any] = {
     "facility/identity.yaml": {"code": "demo"},
     "facility/benchmarks/queries/tree_queries.json": "[]\n",
 }
 
-#: A profile's data tree whose facility holds only the query sources.
+#: A deployment root whose facility holds only the query sources.
 _DATA_TREE_ONLY_QUERIES: dict[str, Any] = {
     "facility/benchmarks/queries/tree_queries.json": "[]\n",
     "other/keep.txt": "Kept.\n",
@@ -139,7 +139,7 @@ from osprey_facility.records import FacilityRecords
 from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 
 facility, no_tree, out = (Path(arg) for arg in sys.argv[2:5])
-data_trees = {name: Path(arg) for name, arg in zip(("shared", "alone", "only"), sys.argv[5:8])}
+repo_roots = {name: Path(arg) for name, arg in zip(("shared", "alone", "only"), sys.argv[5:8])}
 
 
 def files_under(root):
@@ -185,12 +185,12 @@ unwanted = benchmarks.benchmarks_wanted(
     )
 )
 
-# --- the scaffolding copy of a profile's data tree -------------------------------------
+# --- the scaffolding copy of a deployment's declared sources ---------------------------
 copied = {}
-for name, data_root in data_trees.items():
+for name, repo_root in repo_roots.items():
     project = out / "project" / name
     copy_template_data(
-        out / "templates", project, "pkg", "bundle", {}, data_root=data_root
+        out / "templates", project, "pkg", "bundle", {}, repo_root=repo_root
     )
     copied[name] = {
         "files": files_under(project / "data"),
@@ -314,8 +314,8 @@ def _run_probe(base: Path, moved: dict[str, str]) -> dict[str, Any]:
     ]
     out = base / "out"
     (out / "templates").mkdir(parents=True)
-    data_trees = [
-        _write(base / name / "data", files)
+    repo_roots = [
+        _write(base / name, files)
         for name, files in (
             ("data-shared", _DATA_TREE_SHARED),
             ("data-alone", _DATA_TREE_ALONE),
@@ -323,7 +323,7 @@ def _run_probe(base: Path, moved: dict[str, str]) -> dict[str, Any]:
         )
     ]
     done = subprocess.run(
-        [sys.executable, "-c", _PROBE, json.dumps(moved), *map(str, [*trees, out, *data_trees])],
+        [sys.executable, "-c", _PROBE, json.dumps(moved), *map(str, [*trees, out, *repo_roots])],
         capture_output=True,
         text=True,
         check=False,
@@ -360,14 +360,14 @@ def test_the_view_reads_each_query_file_from_the_new_directory(probe: dict[str, 
 
 def test_the_view_is_wanted_by_the_new_directory_alone(probe: dict[str, Any]) -> None:
     assert probe["benchmarks"]["wanted"] == [True, "channel_finder.benchmark.dataset_path"]
-    assert probe["benchmarks"]["unwanted"] == [False, "data/facility/benchmarks/queries"]
+    assert probe["benchmarks"]["unwanted"] == [False, "facility/benchmarks/queries"]
 
 
 def test_a_missing_query_file_is_named_at_its_new_path(probe: dict[str, Any]) -> None:
     refusal = probe["benchmarks"]["refusal"]
     assert refusal is not None
-    assert "the facility ships no data/facility/benchmarks/queries/tree_queries.json" in refusal
-    assert "add tree_queries.json to data/facility/benchmarks/queries/" in refusal
+    assert "the facility ships no facility/benchmarks/queries/tree_queries.json" in refusal
+    assert "add tree_queries.json to facility/benchmarks/queries/" in refusal
     assert "benchmarks/channel_finder" not in refusal
 
 
@@ -380,7 +380,6 @@ def test_the_copy_skips_the_query_directory_and_nothing_beside_it(probe: dict[st
         "facility/benchmarks/channel_finder/notes.md",
         "facility/identity.yaml",
         "facility/knowledge/index.md",
-        "other/keep.txt",
     ]
 
 
@@ -392,8 +391,8 @@ def test_the_copy_skips_benchmarks_holding_only_the_query_directory(
 
 
 def test_the_copy_keeps_a_facility_holding_only_benchmarks(probe: dict[str, Any]) -> None:
-    assert probe["copied"]["only"]["files"] == ["other/keep.txt"]
-    assert probe["copied"]["only"]["dirs"] == ["facility", "other"]
+    assert probe["copied"]["only"]["files"] == []
+    assert probe["copied"]["only"]["dirs"] == ["facility"]
 
 
 # --- the import verbs ------------------------------------------------------------------
@@ -464,8 +463,8 @@ def test_the_vocabulary_render_path_keeps_its_render_prefix(probe: dict[str, Any
 
 # --- the scaffolding copy, query sources one level down ---------------------------------
 
-#: A profile's data tree whose query sources sit directly in a top-level
-#: facility directory, beside entries that share a part of its name or path.
+#: A deployment root whose query sources sit directly in a top-level facility
+#: directory, beside entries that share a part of its name or path.
 _DATA_TREE_ONE_SEGMENT: dict[str, Any] = {
     "facility/identity.yaml": {"code": "demo"},
     "facility/queries/tree_queries.json": "[]\n",
@@ -476,7 +475,7 @@ _DATA_TREE_ONE_SEGMENT: dict[str, Any] = {
     "other/queries/keep.txt": "Kept.\n",
 }
 
-#: Runs in a fresh interpreter: rebinds the registry, then copies one data tree.
+#: Runs in a fresh interpreter: rebinds the registry, then copies one deployment root.
 _COPY_PROBE = r"""
 import json
 import sys
@@ -488,10 +487,10 @@ source_tree._FACILITY_SLOTS = source_tree._with_paths(json.loads(sys.argv[1]))
 
 from osprey.cli.templates.scaffolding import copy_template_data
 
-data_root, out = Path(sys.argv[2]), Path(sys.argv[3])
+repo_root, out = Path(sys.argv[2]), Path(sys.argv[3])
 (out / "templates").mkdir(parents=True)
 project = out / "project"
-copy_template_data(out / "templates", project, "pkg", "bundle", {}, data_root=data_root)
+copy_template_data(out / "templates", project, "pkg", "bundle", {}, repo_root=repo_root)
 data = project / "data"
 print(json.dumps({
     "files": sorted(p.relative_to(data).as_posix() for p in data.rglob("*") if p.is_file()),
@@ -502,16 +501,16 @@ print(json.dumps({
 
 @pytest.fixture(scope="module")
 def one_segment_copy(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The copy of a data tree whose query sources sit in the top-level ``queries``."""
+    """The copy of a deployment root whose query sources sit in the facility's top-level ``queries``."""
     base = tmp_path_factory.mktemp("one-segment")
-    data_root = _write(base / "data", _DATA_TREE_ONE_SEGMENT)
+    repo_root = _write(base / "repo", _DATA_TREE_ONE_SEGMENT)
     done = subprocess.run(
         [
             sys.executable,
             "-c",
             _COPY_PROBE,
             json.dumps({"benchmark_queries": "queries"}),
-            str(data_root),
+            str(repo_root),
             str(base / "out"),
         ],
         capture_output=True,
@@ -531,6 +530,5 @@ def test_the_copy_skips_a_top_level_query_directory_and_nothing_beside_it(
         "facility/identity.yaml",
         "facility/knowledge/index.md",
         "facility/queries_notes/keep.md",
-        "other/queries/keep.txt",
     ]
     assert "facility/queries" not in one_segment_copy["dirs"]

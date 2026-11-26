@@ -116,7 +116,7 @@ def import_relations(
 
     Args:
         table: The relations table.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         layer: The layer's name; its directory is ``imported/<layer>/``.
         names: The names table, if any.
         places: The places table, if any.

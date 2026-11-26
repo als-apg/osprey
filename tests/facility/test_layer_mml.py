@@ -132,7 +132,7 @@ def _by(rows: list[dict[str, Any]], key: str = "id") -> dict[str, dict[str, Any]
 
 @pytest.fixture(scope="module")
 def small(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    facility = tmp_path_factory.mktemp("small") / "data" / "facility"
+    facility = tmp_path_factory.mktemp("small") / "facility"
     write_records(Exports(ao=_export()), parse_mapping(_document()), facility)
     return facility
 
@@ -179,14 +179,14 @@ def test_a_null_direction_has_no_role() -> None:
 def test_a_null_direction_writes_no_record(tmp_path: Path) -> None:
     document = _document()
     document["directions"]["Q.Trim"] = _direction(None)
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     with pytest.raises(ImportStop, match="mapping-undecided: directions.Q.Trim.direction"):
         write_records(Exports(ao=_export()), parse_mapping(document), facility)
     assert not facility.exists()
 
 
 def test_a_null_direction_stops_the_import_of_a_fixture_tree(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = yaml.safe_load((FIXTURES / "spear3" / MAPPING_FILE).read_text(encoding="utf-8"))
@@ -412,7 +412,7 @@ def test_an_exported_family_the_mapping_leaves_out_writes_no_record(tmp_path: Pa
     document = _document()
     del document["families"]["S"]
     del document["directions"]["S.Setpoint"]
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     with pytest.raises(MappingProblems, match="families: leaves out the exported family S"):
         write_records(Exports(ao=_export()), parse_mapping(document), facility)
     assert not facility.exists()

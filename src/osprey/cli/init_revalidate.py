@@ -6,18 +6,20 @@ its per-card files in the retired layer directory and runs the logbook and
 knowledge cards as fake users pinned to a tier. This module rewrites such a repo
 in place, with the round-trip writer so every comment the operator kept survives:
 
-1. Each root entry still at a retired root path
-   (:func:`osprey.repo_retired.find_retired_root`) is moved to its current
-   path. The moves are planned before every other step, which reads a moved
-   entry through that plan, and made before every other step writes:
-   ``git mv`` where tracked, file by file into a successor that exists, every
-   directory the moves empty removed. Once the rest is written, each
-   profile value, pipeline line and ``.dockerignore`` pattern that names a
-   retired path is rewritten on its line, keeping its spelling, and stale
-   canopy staging at the root is removed. The host steps and the files whose
-   inner paths are not rewritten are printed as steps left to do by hand, as
-   are the commands for a source in another repository. A file at both a
-   retired root path and its successor stops the rewrite.
+1. Each root entry still at a retired root path is moved to its current
+   path, by the one plan :func:`osprey.repo_retired.plan_retired` makes. The
+   moves are planned before every other step, which reads a moved entry
+   through that plan, and made before every other step writes: ``git mv``
+   where tracked, file by file into a successor that exists, every directory
+   the moves empty removed. Once the rest is written, each profile value,
+   pipeline line and ``.dockerignore`` pattern that names a retired path is
+   rewritten on its line, keeping its spelling, each ``data:`` line is
+   deleted, and stale canopy staging, the shipped data README and what is
+   pruned from the dissolved ``data/`` are removed, ``data/`` itself once it
+   ends empty. What else lies in ``data/`` is never moved: it is listed to
+   place by hand, with the host steps, the values to check by hand and the
+   commands for a source in another repository. A file at both a retired
+   root path and its successor stops the rewrite before anything is written.
 2. The retired layer directory becomes ``tiers/`` (``git mv`` when the files are
    tracked).
 3. The retired default-tier, tier-pin and role-target keys are renamed to
@@ -73,14 +75,15 @@ in place, with the round-trip writer so every comment the operator kept survives
    ``profile.yml``'s lists. A profile whose lists already name one by path is
    under that rule already, and the step is skipped.
 10. Each facility tree ``profile.yml`` or a variant overlay builds from that
-   still holds sources at retired paths
-   (:func:`osprey_facility.retired.find_retired`) is moved to the current
-   layout: ``git mv`` where tracked, file by file into a successor that
-   exists, every retired directory the moves empty removed, and each authored
-   ``deck:`` value under the retired decks directory rewritten on its line. A
-   tree in another repository (a mounted machine repository, a submodule) is
-   not touched: the commands that move it are printed as steps left to do by
-   hand. A file at both a retired path and its successor stops the rewrite.
+   still holds sources at retired paths (the facility half of the same plan,
+   read where the root moves leave the tree, at ``<repo>/facility``) is
+   moved to the current layout, after the root moves: ``git mv`` where
+   tracked, file by file into a successor that exists, every retired
+   directory the moves empty removed, and each authored ``deck:`` value under
+   the retired decks directory rewritten on its line. A tree in another
+   repository (a mounted machine repository, a submodule) is not touched: the
+   commands that move it are printed as steps left to do by hand. A file at
+   both a retired path and its successor stops the rewrite.
 
 Every file is read and rewritten in memory before the repo is touched, so a
 file that cannot be read leaves the repo as it was. The result is reported as
@@ -96,7 +99,6 @@ import json
 import re
 import shutil
 import subprocess
-import tempfile
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
@@ -113,7 +115,14 @@ from osprey.profiles.providers import (
     compute_providers_hash,
     packaged_catalog_path,
 )
-from osprey.repo_layout import display_path
+from osprey.repo_layout import display_path, dissolved_names
+from osprey.repo_retired import (
+    RetiredRoot,
+    _leftover_lines,
+    after_moves_view,
+    plan_retired,
+    source_of,
+)
 from osprey.utils.config_writer import _yaml as _ROUND_TRIP
 from osprey.utils.workspace import (
     APPS_DIRNAME,
@@ -126,10 +135,10 @@ from osprey.utils.workspace import (
 from osprey_connectors.errors import BuildProfileError
 from osprey_facility.retired import (
     Clash,
+    LineDelete,
     LineEdit,
     Move,
     RetiredLayout,
-    find_retired,
     move_script,
     render_script,
     repository_root,
@@ -1348,25 +1357,31 @@ class _RootPlan:
             the order :func:`osprey.repo_retired.find_retired_root` reports.
         line_edits: The line edits that follow the moves, each naming its
             file at its path once the moves are done.
+        line_deletes: The ``data:`` profile lines deleted after the moves,
+            each naming its file at its path once the moves are done.
         originals: The text of each edited file before the rewrite, by that
             path, repo-relative.
-        deletes: The stale generated copies at the root, repo-relative.
-        manual_steps: The commands for every source in another repository,
-            the host steps and what to check by hand.
+        deletes: What is removed with the moves (stale generated copies at
+            the root, the shipped data README, what is pruned from a
+            dissolved directory), repo-relative.
+        elsewhere_steps: The commands for every source in another
+            repository, which run before any step that reads the tree
+            where the moves leave it.
+        manual_steps: The leftovers to place, the host steps and what to
+            check by hand.
     """
 
     moves: tuple[Move, ...] = ()
     line_edits: tuple[LineEdit, ...] = ()
+    line_deletes: tuple[LineDelete, ...] = ()
     originals: dict[str, str] = field(default_factory=dict)
     deletes: tuple[str, ...] = ()
+    elsewhere_steps: tuple[str, ...] = ()
     manual_steps: tuple[str, ...] = ()
 
     def source(self, rel: str) -> str:
         """Where *rel*, a repo-relative path once the moves are done, is before them."""
-        for move in self.moves:
-            if rel == move.new or rel.startswith(f"{move.new}/"):
-                return move.old + rel[len(move.new) :]
-        return rel
+        return source_of(rel, self.moves)
 
     def before_trees(self) -> list[str]:
         """Every path the rewrite moves, edits or deletes, where it is before the rewrite."""
@@ -1378,21 +1393,42 @@ class _RootPlan:
         return [*(move.new for move in self.moves), *self.originals]
 
 
-def _plan_root(root: Path) -> _RootPlan:
-    """Plan the move of every root entry still at a retired root path.
+def _plan_retired(root: Path, documents: dict[str, Any]) -> tuple[_RootPlan, _FacilityPlan]:
+    """Plan the migration off every retired path: the root entries, then each facility tree.
+
+    One :func:`osprey.repo_retired.plan_retired` per facility root
+    ``profile.yml`` or a variant overlay builds from; the facility half of
+    each is read as the root moves leave the tree.
+
+    Raises:
+        BuildProfileError: A file is present at a retired path and at its
+            successor; nothing has been written.
+    """
+    plans = [plan_retired(root, roots) for roots in _facility_roots(root, documents)]
+    if not plans:
+        plans = [plan_retired(root)]
+    root_plan = _plan_root(plans[0].layout)
+    facilities = [
+        (plan.facility_roots, plan.facility)
+        for plan in plans
+        if plan.facility_roots is not None and plan.facility is not None
+    ]
+    return root_plan, _plan_facility(root, plans[0].layout, facilities)
+
+
+def _plan_root(layout: RetiredRoot) -> _RootPlan:
+    """Plan the move of every root entry *layout* finds still at a retired root path.
 
     A source in the deployment's git repository (or, without one, in no
     repository) is moved here. A source in another repository (a nested
     repository, a submodule) is left as it is, and the commands that move it
-    become manual steps.
+    become manual steps. What lies in a dissolved directory that no move
+    takes is listed to place by hand, never moved.
 
     Raises:
         BuildProfileError: A file is present at a retired root path and at
             its successor; nothing has been written.
     """
-    from osprey.repo_retired import find_retired_root
-
-    layout = find_retired_root(root)
     if layout.empty:
         return _RootPlan()
     deployment = layout.root
@@ -1414,18 +1450,22 @@ def _plan_root(root: Path) -> _RootPlan:
         (here if repository_root(directory) == top else there).append(move)
     plan = _RootPlan(moves=tuple(here))
     originals: dict[str, str] = {}
-    for edit in layout.line_edits:
-        rel = edit.file.relative_to(deployment).as_posix()
+    changed = [change.file for change in layout.line_edits]
+    changed += [change.file for change in layout.line_deletes]
+    for file in changed:
+        rel = file.relative_to(deployment).as_posix()
         if rel not in originals:
-            originals[rel] = (root / plan.source(rel)).read_text(encoding="utf-8")
-    manual: list[str] = []
+            originals[rel] = (deployment / plan.source(rel)).read_text(encoding="utf-8")
+    elsewhere_steps: list[str] = []
     if there:
         elsewhere = ", ".join(str(deployment / move.old) for move in there)
-        manual.append(
+        elsewhere_steps.append(
             f"# {elsewhere} lies in another repository and still holds sources at retired "
             f"root paths; nothing there was moved. Run these commands to move them:"
         )
-        manual.extend(render_script(there, (), ()))
+        elsewhere_steps.extend(render_script(there, (), ()))
+    manual: list[str] = []
+    manual.extend(_leftover_lines(layout.leftovers, layout.data_root))
     if layout.host_steps:
         manual.append("# Host steps, once the files moved:")
         manual.extend(f"#   {step}" for step in layout.host_steps)
@@ -1435,51 +1475,12 @@ def _plan_root(root: Path) -> _RootPlan:
     return replace(
         plan,
         line_edits=layout.line_edits,
+        line_deletes=layout.line_deletes,
         originals=originals,
-        deletes=layout.deletes,
+        deletes=(*layout.shipped, *layout.deletes),
+        elsewhere_steps=tuple(elsewhere_steps),
         manual_steps=tuple(manual),
     )
-
-
-@contextmanager
-def _after_moves_view(root: Path, plan: _RootPlan, rels: Iterable[str]) -> Iterator[Path]:
-    """A directory holding each of *rels* as it reads once *plan*'s moves are done.
-
-    Each file is a link to where it is now: at its retired path when a move
-    brings it to *rels*, else in place. Nothing in the repo is touched.
-
-    Args:
-        root: The repo root.
-        plan: The root moves.
-        rels: Repo-relative paths, as they are once the moves are done.
-
-    Yields:
-        The view's root; each of *rels* lies below it at its own path.
-    """
-    leaving = frozenset((root / move.old).resolve() for move in plan.moves)
-    with tempfile.TemporaryDirectory(prefix="osprey-revalidate-") as tmp:
-        view = Path(tmp)
-        for rel in rels:
-            _link_tree(root / rel, view / rel, leaving)
-            for move in plan.moves:
-                if move.new == rel or move.new.startswith(f"{rel}/"):
-                    _link_tree(root / move.old, view / move.new, frozenset())
-                elif rel.startswith(f"{move.new}/"):
-                    _link_tree(root / (move.old + rel[len(move.new) :]), view / rel, frozenset())
-        yield view
-
-
-def _link_tree(source: Path, target: Path, leaving: frozenset[Path]) -> None:
-    """Mirror *source* at *target*: directories made, files linked, *leaving* left out."""
-    if not source.exists() or source.resolve() in leaving:
-        return
-    if source.is_dir():
-        target.mkdir(parents=True, exist_ok=True)
-        for child in source.iterdir():
-            _link_tree(child, target / child.name, leaving)
-    elif not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.symlink_to(source.resolve())
 
 
 @contextmanager
@@ -1488,7 +1489,7 @@ def _reading(root: Path, plan: _RootPlan, rels: Iterable[str]) -> Iterator[Path]
     if not plan.moves:
         yield root
         return
-    with _after_moves_view(root, plan, rels) as view:
+    with after_moves_view(root, plan.moves, rels) as view:
         yield view
 
 
@@ -1527,24 +1528,28 @@ def _make_moves(root: Path, moves: Iterable[Move]) -> dict[str, str]:
 def _apply_root_edits(
     root: Path, plan: _RootPlan, renamed: dict[str, str], steps: list[str]
 ) -> None:
-    """Make *plan*'s line edits on the files as the rest of the rewrite left them.
+    """Make *plan*'s line edits and line deletes on the files as the rest of the rewrite left them.
 
-    Each edit lands on the line its original line became: the rewrite keeps a
-    line it does not change, so the two texts are matched line by line. An
-    edit whose line the rewrite changed, or whose file it removed, is left
-    to do by hand.
+    Each change lands on the line its original line became: the rewrite keeps
+    a line it does not change, so the two texts are matched line by line. An
+    edit whose line the rewrite changed, or whose file it removed, is left to
+    do by hand; a line to delete that no longer reads so is kept.
     """
-    by_file: dict[str, list[LineEdit]] = {}
     deployment = root.resolve()
+    by_file: dict[str, tuple[list[LineEdit], list[LineDelete]]] = {}
     for edit in plan.line_edits:
-        by_file.setdefault(edit.file.relative_to(deployment).as_posix(), []).append(edit)
-    for rel, edits in by_file.items():
+        by_file.setdefault(edit.file.relative_to(deployment).as_posix(), ([], []))[0].append(edit)
+    for delete in plan.line_deletes:
+        rel = delete.file.relative_to(deployment).as_posix()
+        by_file.setdefault(rel, ([], []))[1].append(delete)
+    for rel, (edits, deletes) in by_file.items():
         path = root / renamed.get(rel, rel)
         if not path.is_file():
             steps.extend(
                 f"{rel}:{edit.line}: change `{edit.old.strip()}` to `{edit.new.strip()}`"
                 for edit in edits
             )
+            steps.extend(f"{rel}:{gone.line}: delete `{gone.text.strip()}`" for gone in deletes)
             continue
         original = plan.originals[rel].splitlines(keepends=True)
         current = path.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -1565,12 +1570,32 @@ def _apply_root_edits(
                 continue
             current[at] = edit.new + current[at][len(edit.old) :]
             changed = True
+        dropped: set[int] = set()
+        for gone in deletes:
+            at = kept.get(gone.line - 1)
+            if at is None or current[at].rstrip("\r\n") != gone.text:
+                steps.append(f"{rel}:{gone.line}: delete `{gone.text.strip()}`")
+                continue
+            dropped.add(at)
+        if dropped:
+            current = [line for at, line in enumerate(current) if at not in dropped]
+            changed = True
         if changed:
             path.write_text("".join(current), encoding="utf-8")
 
 
 def _apply_root_deletes(root: Path, plan: _RootPlan) -> None:
-    """Remove *plan*'s stale generated copies, by ``git rm`` when git tracks them."""
+    """Remove *plan*'s deletes, by ``git rm`` when git tracks them, then each directory they leave empty.
+
+    Every directory above a deleted path, up to the deployment, and each
+    dissolved directory is removed when empty, deepest first, as the printed
+    block's ``rmdir`` lines do.
+    """
+    parents: list[PurePosixPath] = [PurePosixPath(name) for name in dissolved_names()]
+    for rel in plan.deletes:
+        for ancestor in PurePosixPath(rel).parents:
+            if ancestor != PurePosixPath(".") and ancestor not in parents:
+                parents.append(ancestor)
     for rel in plan.deletes:
         if _tracked(root, rel) and _git(root, "rm", "-r", "-q", "--", rel).returncode == 0:
             continue
@@ -1579,6 +1604,10 @@ def _apply_root_deletes(root: Path, plan: _RootPlan) -> None:
             shutil.rmtree(path)
         else:
             path.unlink(missing_ok=True)
+    for parent in sorted(parents, key=lambda path: len(path.parts), reverse=True):
+        directory = root / parent
+        if directory.is_dir() and not directory.is_symlink() and not any(directory.iterdir()):
+            directory.rmdir()
 
 
 @dataclass(frozen=True)
@@ -1613,25 +1642,29 @@ def _facility_roots(root: Path, documents: dict[str, Any]) -> list[FacilityRoots
     base = documents[PROFILE_FILENAME]
     found: list[FacilityRoots] = []
     for document in documents.values():
-        data, machine = (
-            document[key] if key in document else base.get(key) for key in ("data", "machine")
-        )
+        machine = document["machine"] if "machine" in document else base.get("machine")
         try:
-            roots = BuildProfile(name="", data=data, machine=machine).resolved_facility_roots(root)
+            roots = BuildProfile(name="", machine=machine).resolved_facility_roots(root)
         except FacilityError:
             continue
-        if roots is not None and roots not in found:
+        if roots not in found:
             found.append(roots)
     return found
 
 
-def _plan_facility(root: Path, documents: dict[str, Any]) -> _FacilityPlan:
+def _plan_facility(
+    root: Path,
+    layout: RetiredRoot,
+    facilities: Iterable[tuple[FacilityRoots, RetiredLayout]],
+) -> _FacilityPlan:
     """Plan the move of every facility tree the deployment builds from off its retired paths.
 
-    A tree inside the deployment and in its git repository (or, without one,
-    in no repository) is moved here. Any other tree (a mounted machine
-    repository, a submodule) is left as it is, and the commands that move it
-    become manual steps.
+    Each of *facilities* (the roots, and what the tree at them holds) names
+    its paths where they lie once *layout*'s root moves are done; which
+    repository a tree is in is decided where it lies now. A tree inside the deployment and in its git repository (or, without
+    one, in no repository) is moved here, after the root moves. Any other
+    tree (a mounted machine repository, a submodule) is left as it is, and
+    the commands that move it become manual steps.
 
     Raises:
         BuildProfileError: A file is present at a retired path and at its
@@ -1641,11 +1674,17 @@ def _plan_facility(root: Path, documents: dict[str, Any]) -> _FacilityPlan:
     top = repository_root(deployment)
     ours: dict[Path, bool] = {}
 
+    def now(directory: Path) -> Path:
+        resolved = directory.resolve()
+        if not resolved.is_relative_to(deployment):
+            return resolved
+        return deployment / source_of(resolved.relative_to(deployment).as_posix(), layout.moves)
+
     def is_ours(directory: Path) -> bool:
         resolved = directory.resolve()
         if resolved not in ours:
             ours[resolved] = (
-                resolved.is_relative_to(deployment) and repository_root(resolved) == top
+                resolved.is_relative_to(deployment) and repository_root(now(resolved)) == top
             )
         return ours[resolved]
 
@@ -1658,10 +1697,9 @@ def _plan_facility(root: Path, documents: dict[str, Any]) -> _FacilityPlan:
     elsewhere: list[str] = []
     seen_moves: set[tuple[Path, str]] = set()
     seen_edits: set[tuple[Path, int]] = set()
-    for roots in _facility_roots(root, documents):
-        layout = find_retired(roots.machine, roots.content if roots.mounted else None)
-        clashes.extend(clash for clash in layout.clashes if clash not in clashes)
-        for move in layout.moves:
+    for roots, found in facilities:
+        clashes.extend(clash for clash in found.clashes if clash not in clashes)
+        for move in found.moves:
             key = (move.root.resolve(), move.old)
             if key in seen_moves:
                 continue
@@ -1672,7 +1710,7 @@ def _plan_facility(root: Path, documents: dict[str, Any]) -> _FacilityPlan:
             else:
                 there.append(move)
                 _append_once(elsewhere, str(move.root.resolve()))
-        for edit in layout.deck_edits:
+        for edit in found.deck_edits:
             at = (edit.file.resolve(), edit.line)
             if at in seen_edits:
                 continue
@@ -1701,6 +1739,14 @@ def _plan_facility(root: Path, documents: dict[str, Any]) -> _FacilityPlan:
         )
         manual.extend(move_script(RetiredLayout(tuple(there), tuple(edits_there), ())))
     return _FacilityPlan(tuple(here), tuple(edits_here), tuple(trees), tuple(manual))
+
+
+def _then(first: dict[str, str], second: dict[str, str]) -> dict[str, str]:
+    """Every file's old → new path across *first*'s moves, then *second*'s."""
+    chained = {old: second.get(new, new) for old, new in first.items()}
+    landed = set(first.values())
+    chained.update((old, new) for old, new in second.items() if old not in landed)
+    return chained
 
 
 def _append_tree(trees: list[str], directory: Path, deployment: Path) -> None:
@@ -3578,13 +3624,13 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         _drop_helper_selections(doc)
 
     # ── Root entries at retired root paths: planned before every other pass ──
-    root_plan = _plan_root(root)
+    root_plan, facility = _plan_retired(root, documents)
     before.update(_tree_texts(root, root_plan.before_trees()))
+    before.update(_tree_texts(root, [root_plan.source(tree) for tree in facility.trees]))
 
     # ── Which file each catalog entry built ─────────────────────────────────
     _refuse_dir_clash(root)
-    facility = _plan_facility(root, documents)
-    before.update(_tree_texts(root, facility.trees))
+    steps.extend(root_plan.elsewhere_steps)
     steps.extend(facility.manual_steps)
     on_disk = {
         p.stem
@@ -4039,8 +4085,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     _apply_root_edits(root, root_plan, renamed, steps)
     _apply_root_deletes(root, root_plan)
     steps.extend(root_plan.manual_steps)
-    renamed.update(root_moved)
-    renamed.update(facility_moved)
+    renamed.update(_then(root_moved, facility_moved))
     after = {
         **_snapshot(root),
         **_tree_texts(root, facility.trees),

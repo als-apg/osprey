@@ -19,6 +19,7 @@ import pytest
 import yaml
 from ruamel.yaml import YAML
 
+from osprey import repo_layout
 from osprey.cli.build_profile import resolve_build_profile
 from osprey.cli.templates.manager import TemplateManager
 from tests._builds import BuiltProject
@@ -136,7 +137,7 @@ class TestRenderedConfig:
             "enabled": True,
             "home_screen": "facility/overview",
             "vole_bytes_max": 268435456,
-            "theme_file": "data/canopy/theme/osprey.json",
+            "theme_file": repo_layout.child_display_path("web", "canopy-theme", "osprey.json"),
         }
 
     def test_root_default_panel(self, default_cell: Path) -> None:
@@ -241,26 +242,41 @@ class TestPrebuildHook:
             ).is_file()
 
 
-# ── The data tree the image copies ───────────────────────────────────────────
+# ── The collection the image serves ──────────────────────────────────────────
 
-#: The template's one facility collection (RULINGS D14a), relative to a project.
-TEMPLATE_COLLECTION = Path("data/canopy/collections/demo.json")
+#: The template's one facility collection (RULINGS D14a).
+COLLECTION_NAME = "demo.json"
 
 
-class TestTheDataTree:
-    """The facility collection reaches the project's ``data/`` tree.
+def _collections_dir(root: Path) -> Path:
+    """The canopy collections directory of the deployment or template at *root*."""
+    return repo_layout.child_path(root / repo_layout.entry("web").path, "web", "canopy-collections")
 
-    The Dockerfile copies the whole deployment (``COPY . /app/<project>/``) and
-    the ``.dockerignore`` names nothing under ``data/``, so there is no copy list
-    to extend: a collection in the project's data tree is a collection in the
-    image, where the image build checks it and CANOPY serves it.
+
+def _rendered_collections_dir(project: Path) -> Path:
+    """Where the build lays the canopy collections inside the render."""
+    (rendered,) = (
+        source
+        for source in repo_layout.rendered_sources()
+        if source.key == "web:canopy-collections"
+    )
+    return project / "build" / rendered.render_rel
+
+
+class TestTheCollection:
+    """The facility collection reaches the deployment's sources and the render.
+
+    ``osprey init`` copies the template's collection into the deployment's web
+    tree, and the build lays it into the render the image copies, where the
+    image build checks it and CANOPY serves it.
     """
 
     def test_the_project_carries_the_template_collection(self, default_cell: Path) -> None:
         template = Path(TemplateManager().template_root) / "apps" / "demo"
-        shipped = template / TEMPLATE_COLLECTION
-        assert (default_cell / TEMPLATE_COLLECTION).read_bytes() == shipped.read_bytes()
+        shipped = (_collections_dir(template) / COLLECTION_NAME).read_bytes()
+        assert (_collections_dir(default_cell) / COLLECTION_NAME).read_bytes() == shipped
+        assert (_rendered_collections_dir(default_cell) / COLLECTION_NAME).read_bytes() == shipped
 
     def test_the_collection_directory_holds_the_one_collection(self, default_cell: Path) -> None:
-        directory = default_cell / TEMPLATE_COLLECTION.parent
-        assert sorted(p.name for p in directory.iterdir()) == [TEMPLATE_COLLECTION.name]
+        for directory in (_collections_dir(default_cell), _rendered_collections_dir(default_cell)):
+            assert sorted(p.name for p in directory.iterdir()) == [COLLECTION_NAME]

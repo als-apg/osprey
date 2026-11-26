@@ -449,7 +449,7 @@ jobs:
         out="$(mktemp -d)"
         args=(--facility packages/osprey-panels/tests/osprey_panels_tests/fixture/facility.json
           --tables packages/osprey-panels/tests/osprey_panels_tests/fixture/panels
-          --theme src/osprey/templates/apps/demo/data/canopy/theme/osprey.json --out "$out")
+          --theme src/osprey/templates/apps/demo/web/canopy/theme/osprey.json --out "$out")
         uv run --no-sync osprey-panels write "${args[@]}"
         uv run --no-sync osprey-panels check "${args[@]}"
 
@@ -461,7 +461,8 @@ jobs:
         --timeout=600 --timeout-method=signal
 
     - name: Build and check the panels distributions
-      # The sdist, then the wheel from it, as release-package.yml builds them.
+      # The sdist, then the wheel from it. The package is not published; this
+      # is the only place its distributions are built.
       run: |
         uv build --package osprey-panels --out-dir dist/
         wheels=(dist/osprey_panels-*.whl) sdists=(dist/osprey_panels-*.tar.gz)
@@ -2519,6 +2520,7 @@ jobs:
             tests/va/e2e/test_target_switch.py tests/va/e2e/test_bench_ioc_live.py
             tests/va/e2e/test_live_standin.py tests/va/e2e/test_per_target_posture.py
             tests/va/e2e/test_model_status_va.py tests/va/e2e/test_ca_loop_exit.py
+            tests/va/e2e/test_instance_scenarios.py
           als_lane: false
           bench_ioc: true
           timeout: 30

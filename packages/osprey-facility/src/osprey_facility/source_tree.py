@@ -55,7 +55,7 @@ _KINDS = frozenset({FILE, _DIRECTORY, _KEYED_DIRECTORY})
 _KEYED_SUFFIX = ".yaml"
 
 #: Where the facility tree sits in a deployment, as messages name it.
-_DISPLAY_PREFIX = "data/facility"
+_DISPLAY_PREFIX = "facility"
 
 #: The slot every imported layer's directory sits in.
 _LAYER_ROOT = "imported"
@@ -248,7 +248,7 @@ def retired_deck_prefix() -> tuple[str, str]:
 
 
 def display_path(relative: str) -> str:
-    """A path relative to the facility root as messages name it: ``data/facility/<relative>``."""
+    """A path relative to the facility root as messages name it: ``facility/<relative>``."""
     return f"{_DISPLAY_PREFIX}/{relative}"
 
 

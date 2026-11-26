@@ -38,7 +38,7 @@ import yaml
 
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
@@ -92,7 +92,7 @@ def _create_project(tmp_path):
             project_name=name,
             output_dir=tmp_path,
             data_bundle="demo",
-            data_root=bundle_data_root(),
+            repo_root=bundle_source_root(),
             context={"channel_finder_mode": "hierarchical", **(context or {})},
             force=True,
         )

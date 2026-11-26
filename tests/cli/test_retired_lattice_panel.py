@@ -77,13 +77,12 @@ def test_a_repo_still_selecting_it_builds_without_it(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
+    repo.mkdir()
     root = repo / "profile.yml"
     root.write_text(
         yaml.safe_dump(
             {
                 "name": "Facility",
-                "data": "data",
                 "deploy_services": True,
                 "web_panels": ["lattice"],
                 "config": {"lattice_dashboard.auto_launch": True},

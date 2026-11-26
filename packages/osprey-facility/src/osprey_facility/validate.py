@@ -67,6 +67,7 @@ from osprey_facility.relations import shape_problems
 from osprey_facility.retired import refuse_retired
 from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
 from osprey_facility.sources import Sources, group_families, load_sources
+from osprey_facility.start import START_SPELLINGS, start_error
 
 __all__ = [
     "FACILITY_HEADER",
@@ -186,7 +187,7 @@ class Validated:
     """What the stages have produced so far.
 
     Attributes:
-        facility_dir: The machine root: the ``data/facility`` directory, or
+        facility_dir: The machine root: the ``facility`` directory, or
             the profile's ``machine:`` root when mounted.
         project_name: The project's name; the zero-source identity folds it.
         sources: What S1 read.
@@ -280,7 +281,7 @@ def run_stages(
     """Run S1 to S5, then each later stage, stopping at the first that fails.
 
     Args:
-        facility_dir: The machine root, the ``data/facility`` directory of a
+        facility_dir: The machine root, the ``facility`` directory of a
             single tree; a missing one is zero sources.
         project_name: The project's name, folded into the identity code when
             there is no ``identity.yaml``.
@@ -363,7 +364,7 @@ def validate(
     """Check a facility directory; print nothing.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         project_name: The project's name.
         extra_checks: Checks the caller supplies (:func:`run_stages`).
 
@@ -2564,6 +2565,10 @@ class _Records:
             yield from self._still(name, files, scenario)
             yield from self._channel_faults(name, files, scenario.get("channel_faults"))
             yield from self._stopped_servers(name, files, scenario.get("stopped_servers"))
+            if problem := start_error(scenario):
+                yield self._error(
+                    "value-invalid", "scenario", name, files, problem, f"write {START_SPELLINGS}"
+                )
             faults = scenario.get("faults") or {}
             for model, targets in sorted(faults.items(), key=lambda kv: str(kv[0])):
                 for address, value in sorted(targets.items(), key=lambda kv: str(kv[0])):

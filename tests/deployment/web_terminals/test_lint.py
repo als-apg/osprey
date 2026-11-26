@@ -4826,11 +4826,9 @@ def test_lint_preset_render_over_an_armed_parent_is_closed_by_construction(
             }
         )
     )
-    # `data:` is required of every profile EXCEPT a bundled preset, and the
-    # exemption is "the profile directory IS the presets directory". This one
-    # patch covers it: the model asks `is_bundled_preset_dir`, which reads the
-    # directory from here, so these two are exempt rather than validating as
-    # ordinary profiles with no data tree.
+    # A bundled preset is "the profile directory IS the presets directory":
+    # `is_bundled_preset_dir` reads the directory from here, so these two
+    # resolve as bundled presets rather than as ordinary profiles.
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
     config = _profile_config(
         default_tier="tier",

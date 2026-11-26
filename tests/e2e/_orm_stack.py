@@ -52,6 +52,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from osprey import repo_layout
 from osprey_connectors_tests._harness._ports import hold_ports
 from tests._builds import FRAMEWORK_CHECKS
 from tests.e2e._deploy_support import (
@@ -642,7 +643,7 @@ def channel_limits(project_dir: Path) -> dict[str, Any]:
     if render.exists():
         shutil.rmtree(render)
     render.mkdir(parents=True)
-    facility_dir = project_dir / "data" / "facility"
+    facility_dir = project_dir / repo_layout.entry("facility").path
     document = build_facility(
         facility_dir, project_name=project_dir.name, extra_checks=FRAMEWORK_CHECKS
     )

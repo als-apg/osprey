@@ -1,6 +1,6 @@
 """The mml layer's wiring pass: each imported model's deck and wiring records.
 
-Each case imports a fixture tree's exports into a fresh ``data/facility/``
+Each case imports a fixture tree's exports into a fresh ``facility/``
 under the tree's layer mapping. The cases that only read a clean import of a
 whole tree share the run's one import of it (``mml_imported``), and the parse
 of its records.
@@ -51,7 +51,7 @@ Edit = Callable[[dict[str, Any]], None]
 
 
 def _facility(root: Path, tree: str, edit: Edit | None = None) -> Path:
-    facility = root / "data" / "facility"
+    facility = root / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     document = load_yaml(FIXTURES / tree / MAPPING_FILE)
@@ -317,7 +317,7 @@ def test_a_deck_of_a_model_the_import_does_not_carry_is_removed(
     tmp_path: Path, imports: Callable[[str], _Imported]
 ) -> None:
     # A copy of the shared import is the facility a first import leaves behind.
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     shutil.copytree(imports("spear3").facility, facility)
     exports = [FIXTURES / "spear3" / f"{stem}.ao.json" for stem in TREES["spear3"]]
     stale = facility / decks.DECKS_DIR / "Other.json"

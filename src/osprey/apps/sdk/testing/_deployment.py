@@ -72,7 +72,7 @@ def synthetic_deployment(
     Args:
         root: The repository to create; it must not exist yet.
         apps: Each application's name and the directory holding its ``app.yml``.
-        facility: The ``data/facility`` tree, in the shape
+        facility: The ``facility/`` tree, in the shape
             :func:`~osprey.apps.sdk.testing.write_tree` writes; ``None`` is
             :func:`~osprey.apps.sdk.testing.plain_tree`. The measurement kinds
             built are the ones its measurement files list.
@@ -94,7 +94,7 @@ def synthetic_deployment(
     if made.exit_code != 0:
         raise AssertionError(f"osprey init failed:\n{made.output}")
 
-    tree = repo_layout.child_path(root / repo_layout.entry("data").path, "data", "facility")
+    tree = root / repo_layout.entry("facility").path
     shutil.rmtree(tree)
     write_tree(tree, copy.deepcopy(dict(plain_tree() if facility is None else facility)))
 

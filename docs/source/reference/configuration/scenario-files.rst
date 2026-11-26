@@ -4,7 +4,7 @@
 Scenario files
 ==============
 
-A scenario file is one YAML file under ``data/facility/simulation/scenarios/``; the file
+A scenario file is one YAML file under ``facility/simulation/scenarios/``; the file
 name is the scenario name. This page lists what the file may hold. Applying
 and writing scenarios is in :ref:`how-to-run-scenarios`.
 
@@ -42,7 +42,7 @@ Every key is optional.
        optionally ``tags``, ``categories``, ``loto_tag``, ``extra`` and
        ``attachments``. ``attachments`` lists the entry's pictures, each
        ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative
-       to the folder ``data/facility/simulation/scenarios/<name>/``.
+       to the folder ``facility/simulation/scenarios/<name>/``.
    * - ``drivers``, ``couple``
      - Slow shared signals, and the channels that follow them.
    * - ``noise``
@@ -56,6 +56,15 @@ Every key is optional.
        `Select readings to still`_). While the scenario is active, those
        readings serve without drift, couplings or noise; readout faults
        still apply.
+   * - ``start``
+     - ``true`` puts the scenario in the start set of every simulator
+       instance the deployment runs: the set an instance that has never
+       been given one starts in.
+   * - ``start_on``
+     - The simulator instances whose start set holds the scenario, a list of
+       ``va`` and ``standin``: ``start_on: [standin]`` starts it on the live
+       stand-in alone. A scenario states ``start`` or ``start_on``, not both.
+       An instance the deployment does not run is no error.
    * - ``sessions``
      - Past agent sessions, ``[{slug, title, when, parts}]``. Each part has
        a ``title`` and ``turns``; a ``/clear`` starts the next part. A turn

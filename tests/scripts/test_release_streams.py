@@ -1,4 +1,4 @@
-"""The release-stream table resolves exactly the component tags, and agrees with the repository.
+"""The release-stream table resolves exactly the published packages' tags, and agrees with the repository.
 
 Every ref is the full ``refs/tags/...`` string ``GITHUB_REF`` carries.
 """
@@ -49,7 +49,6 @@ RESOLVE_NAMES = [
     "changelog",
     "tag_prefix",
     "lean_extras",
-    "smoke",
     "version",
     "prerelease",
 ]
@@ -76,8 +75,27 @@ def _parse_outputs(text: str) -> dict[str, str]:
     return outputs
 
 
-def test_the_table_holds_connectors_facility_panels_in_order():
-    assert [stream.key for stream in rs.STREAMS] == ["connectors", "facility", "panels"]
+def test_the_streams_are_connectors_and_facility_in_order():
+    assert [stream.key for stream in rs.STREAMS] == ["connectors", "facility"]
+
+
+def test_panels_is_a_walked_package_and_no_stream():
+    assert [package.key for package in rs.UNRELEASED] == ["panels"]
+    assert rs.PACKAGES == (*rs.STREAMS, *rs.UNRELEASED)
+    (panels,) = rs.UNRELEASED
+    assert not isinstance(panels, rs.Stream)
+    for name in ("tag_prefix", "tag_glob", "environment", "changelog", "required_lanes"):
+        assert not hasattr(panels, name), f"the unreleased panels record carries {name}"
+    assert (panels.dist, panels.import_name) == ("osprey-panels", "osprey_panels")
+    assert (REPO_ROOT / panels.package_dir / "src" / panels.import_name / "__init__.py").is_file()
+    assert not panels.typed
+    assert panels.lean_entry_modules == ("osprey_panels", "osprey_panels.cli")
+    assert panels.lean_forbidden == frozenset(
+        {
+            *("litellm", "openai", "anthropic", "fastapi", "playwright"),
+            *("osprey", "osprey_facility", "osprey_connectors"),
+        }
+    )
 
 
 EXPECTED = {
@@ -89,7 +107,6 @@ EXPECTED = {
         "changelog": "packages/osprey-connectors/CHANGELOG.md",
         "tag_prefix": "osprey-connectors-v",
         "lean_extras": "",
-        "smoke": "",
     },
     "facility": {
         "dist": "osprey-facility",
@@ -99,17 +116,6 @@ EXPECTED = {
         "changelog": "packages/osprey-facility/CHANGELOG.md",
         "tag_prefix": "osprey-facility-v",
         "lean_extras": "mml",
-        "smoke": "",
-    },
-    "panels": {
-        "dist": "osprey-panels",
-        "import_name": "osprey_panels",
-        "package_dir": "packages/osprey-panels",
-        "environment": "pypi-panels",
-        "changelog": "packages/osprey-panels/CHANGELOG.md",
-        "tag_prefix": "osprey-panels-v",
-        "lean_extras": "",
-        "smoke": "bin/osprey-panels --help",
     },
 }
 
@@ -143,17 +149,17 @@ def test_each_tag_glob_resolves_to_its_streams_fields(key, version, prerelease, 
 
 
 def test_the_table_fields_match_the_contract():
-    connectors, facility, panels = (BY_KEY[k] for k in ("connectors", "facility", "panels"))
+    connectors, facility = (BY_KEY[k] for k in ("connectors", "facility"))
     for stream in rs.STREAMS:
         assert stream.tag_glob == f"{stream.tag_prefix}2*"
-        assert stream.lean_entry_modules[0] == stream.import_name
-        assert "osprey" in stream.lean_forbidden
-        assert stream.import_name not in stream.lean_forbidden
-    assert connectors.typed and not facility.typed and not panels.typed
-    assert connectors.compat and facility.compat and not panels.compat
+    for package in rs.PACKAGES:
+        assert package.lean_entry_modules[0] == package.import_name
+        assert "osprey" in package.lean_forbidden
+        assert package.import_name not in package.lean_forbidden
+    assert connectors.typed and not facility.typed
+    assert connectors.compat and facility.compat
     assert connectors.floor_consumers == ("osprey", "pyaml_cs_osprey")
     assert facility.floor_consumers == ("osprey",)
-    assert panels.floor_consumers == ()
     assert connectors.lean_forbidden == frozenset(
         {"litellm", "openai", "anthropic", "fastapi", "playwright", "osprey"}
     )
@@ -169,8 +175,9 @@ def test_the_table_fields_match_the_contract():
 
 
 def test_records_are_frozen():
-    with pytest.raises(AttributeError):
-        rs.STREAMS[0].key = "other"  # type: ignore[misc]
+    for record in (rs.STREAMS[0], rs.UNRELEASED[0]):
+        with pytest.raises(AttributeError):
+            record.key = "other"  # type: ignore[misc]
 
 
 @pytest.mark.parametrize(
@@ -180,7 +187,7 @@ def test_records_are_frozen():
         "refs/tags/osprey-facility-v2026.12.0.RC1",
         "refs/tags/osprey-facility-v2026.01.0",
         "refs/tags/osprey-facility-v2026.12.01",
-        "refs/tags/osprey-panels-v2026.12.0rc01",
+        "refs/tags/osprey-connectors-v2026.12.0rc01",
         "refs/tags/osprey-connectors-v2026.12",
         "refs/tags/osprey-connectors-v2026.12.0.post1",
         "refs/tags/osprey-connectors-v2026.12.0+local",
@@ -215,6 +222,8 @@ def test_a_non_canonical_version_is_refused_not_normalised(ref):
         "refs/heads/osprey-facility-v2026.12.0",
         "refs/tags/osprey-connectors-v0.1.0",
         "refs/tags/osprey-optimizer-v2026.12.0",
+        "refs/tags/osprey-panels-v2026.12.0",
+        "refs/tags/osprey-panels-v2026.12.0rc1",
         "",
     ],
     ids=[
@@ -226,6 +235,8 @@ def test_a_non_canonical_version_is_refused_not_normalised(ref):
         "branch-named-like-a-tag",
         "retired-connectors",
         "unknown-package",
+        "unreleased-panels",
+        "unreleased-panels-rc",
         "empty",
     ],
 )
@@ -242,8 +253,19 @@ def test_a_ref_outside_the_tag_globs_is_refused_and_the_globs_named(ref, tmp_pat
 
 def test_in_process_refusal_raises_stream_error():
     with pytest.raises(rs.StreamError):
-        rs.stream_for("osprey-panels-v2026.12.0")
+        rs.stream_for("osprey-facility-v2026.12.0")
     assert rs.main(["resolve", "refs/heads/main"]) == 1
+
+
+@pytest.mark.parametrize("version", ["2026.12.0", "2026.12.0b1", "2027.1.3rc2"])
+def test_a_panels_tag_is_refused_like_any_unknown_ref(version):
+    """osprey-panels is not published: no command knows a panels tag."""
+    ref = f"refs/tags/osprey-panels-v{version}"
+    with pytest.raises(rs.StreamError, match="is not a component release tag") as refused:
+        rs.stream_for(ref)
+    assert "osprey-panels" not in str(refused.value).replace(ref, "")
+    for command in ("resolve", "lanes"):
+        assert rs.main([command, ref]) == 1
 
 
 EXPECTED_LANES = {
@@ -264,11 +286,6 @@ EXPECTED_LANES = {
         "framework-at-facility-floor=Framework at Facility Floor Tests",
         "framework-at-connectors-floor=Framework at Connectors Floor Tests",
     ],
-    "panels": [
-        "test=Test Python",
-        "lint=Lint and Code Quality",
-        "osprey-panels-standalone=Panels Standalone Tests",
-    ],
 }
 
 
@@ -284,7 +301,8 @@ def test_lanes_prints_the_streams_id_name_lines(key):
     assert all(a and b for a, b in (line.split("=", 1) for line in EXPECTED_LANES[key]))
 
 
-def test_dists_prints_each_streams_wheel_prefix():
+def test_dists_prints_every_component_packages_wheel_prefix():
+    # Published or not: a framework release must carry none of these files.
     result = _run("dists", env={})
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines() == [

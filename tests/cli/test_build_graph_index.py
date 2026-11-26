@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.cli.phase_reporter import PhaseReporter
 from osprey.utils.workspace import TIERS_DIRNAME
 from tests.cli._lifecycle_build import invoke_build
@@ -43,8 +44,15 @@ from tests.services.channel_finder.graph_index import corpora
 #: Where a render's index goes: the fixed path under the render.
 _INDEX_RELATIVE = Path("data") / "channel_databases" / "graph.duckdb"
 
-#: What the profile points ``services.graphdb.ttl_path`` at, inside its own tree.
-_CORPUS_RELATIVE = "./data/facility.ttl"
+#: The facility tree in the deployment repo, and where the build renders it.
+_FACILITY = repo_layout.entry("facility").path
+_FACILITY_RENDER = Path(repo_layout.entry("facility").render)
+
+#: The corpus file, inside the facility tree.
+_CORPUS_NAME = "facility.ttl"
+
+#: What the profile points ``services.graphdb.ttl_path`` at: the corpus in the render.
+_CORPUS_RELATIVE = f"./{(_FACILITY_RENDER / _CORPUS_NAME).as_posix()}"
 
 
 @pytest.fixture(autouse=True)
@@ -63,24 +71,23 @@ def _graph_repo(
 ) -> Path:
     """A graph-mode deployment repo with its OWN corpus.
 
-    The data tree carries the per-tree sources a build reads and no paradigm
+    The facility tree carries the per-tree sources a build reads and no paradigm
     channel database at all, which is what a graph-mode facility looks like:
     its channels are in the corpus. ``corpus=None`` writes no corpus file,
     leaving ``ttl_path`` naming a file that is not staged.
     """
     root.mkdir(parents=True, exist_ok=True)
-    data = root / "data"
-    (data / "simulation").mkdir(parents=True)
-    (data / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
-    (data / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    facility = root / _FACILITY
+    (facility / "simulation").mkdir(parents=True)
+    (facility / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
+    (facility / "knowledge").mkdir(parents=True, exist_ok=True)
     if corpus is not None:
-        (data / "facility.ttl").write_text(corpus, encoding="utf-8")
+        (facility / _CORPUS_NAME).write_text(corpus, encoding="utf-8")
     (root / "profile.yml").write_text(
         "name: Graph Index\n"
         f"project_name: {root.name}\n"
         "provider: anthropic\n"
         f"channel_finder_mode: {mode}\n"
-        "data: data\n"
         "config:\n"
         # The posture floor a hand-written profile states for itself: with no
         # app template beneath it, nothing else can answer these. The simulator
@@ -139,7 +146,7 @@ def test_a_profile_build_derives_the_index_from_its_own_corpus(tmp_path: Path) -
 
     # Not the source corpus: the render's own copy of it, which is what the
     # containers built from this render will carry.
-    staged = render / "data" / "facility.ttl"
+    staged = render / _FACILITY_RENDER / _CORPUS_NAME
     assert staged.is_file()
 
     index = open_graph_index(index_path)
@@ -190,7 +197,7 @@ def test_a_render_with_a_graph_store_ships_the_index_in_any_mode(tmp_path: Path)
     index = open_graph_index(index_path)
     try:
         assert getattr(index, "meta", None) is not None, f"index absent: {index}"
-        staged = render / "data" / "facility.ttl"
+        staged = render / _FACILITY_RENDER / _CORPUS_NAME
         assert index.meta.corpus_sha256 == ttl_sha256(staged.read_text(encoding="utf-8"))
     finally:
         index.close()
@@ -301,7 +308,7 @@ def test_a_corpus_that_is_not_text_warns_and_the_build_still_succeeds(
     so a staged file the build cannot decode cannot take the whole render down.
     """
     repo = _graph_repo(tmp_path / "graph-binary-corpus", corpus="")
-    (repo / "data" / "facility.ttl").write_bytes(b"\xff\xfe\x00binary, not turtle\x00")
+    (repo / _FACILITY / _CORPUS_NAME).write_bytes(b"\xff\xfe\x00binary, not turtle\x00")
 
     with caplog.at_level(logging.WARNING):
         result = invoke_build(repo)

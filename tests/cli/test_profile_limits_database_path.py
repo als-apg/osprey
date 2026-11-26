@@ -1,7 +1,7 @@
 """A profile that names its own limits database stops the profile parse.
 
-The build writes ``data/channel_limits.json`` from ``<data>/facility/limits.yaml``
-and names it as the limits database, so a profile that states
+The build writes ``data/channel_limits.json`` from ``facility/limits.yaml`` (or
+``<machine>/limits.yaml`` when the profile names a machine repository) and names it as the limits database, so a profile that states
 ``control_system.limits_checking.database_path``, at either scope and in any
 spelling, is refused with one ``profile-invalid`` line naming the rendered key.
 """
@@ -15,17 +15,18 @@ import pytest
 from osprey.cli.build_profile_load import _parse_profile
 from osprey.cli.build_profile_merge import merge_layer_delta
 from osprey.cli.build_profile_resolve import apply_cli_edits
+from osprey.repo_layout import display_path
 from osprey_facility.errors import FacilityBuildError
 
 WIDE = "control_system.limits_checking.database_path"
 PER_TYPE = "control_system.connector.epics.limits_checking.database_path"
 
 
-def _line(key: str, data: str = "data") -> str:
+def _line(key: str, limits: str = display_path("facility", "limits.yaml")) -> str:
     return (
         f"facility: profile-invalid: path {key} — the build writes data/channel_limits.json "
-        f"from {data}/facility/limits.yaml and names it as the limits database; fix: move its "
-        f"limits into {data}/facility/limits.yaml and remove {key} from the profile"
+        f"from {limits} and names it as the limits database; fix: move its "
+        f"limits into {limits} and remove {key} from the profile"
     )
 
 
@@ -101,12 +102,17 @@ def test_a_block_stating_only_the_posture_passes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("data", "shown"),
-    [("./site-data", "site-data"), ("facility_data/", "facility_data"), (None, "data")],
+    ("machine", "shown"),
+    [
+        (None, display_path("facility", "limits.yaml")),
+        ("../machine-repo", "../machine-repo/limits.yaml"),
+        ("./machine/", "machine/limits.yaml"),
+    ],
+    ids=["facility-tree", "machine-relative", "machine-dotted"],
 )
-def test_the_data_tree_follows_the_profile(data: str | None, shown: str) -> None:
+def test_the_limits_file_follows_the_profile(machine: str | None, shown: str) -> None:
     raw: dict[str, Any] = {"config": {WIDE: "x.json"}}
-    if data is not None:
-        raw["data"] = data
+    if machine is not None:
+        raw["machine"] = machine
 
     assert _refusal(raw) == _line(WIDE, shown)

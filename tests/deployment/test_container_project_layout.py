@@ -40,6 +40,7 @@ import yaml
 from click.testing import CliRunner
 from jinja2 import Template
 
+from osprey import repo_layout
 from osprey.cli.build_cmd import (
     _CONTAINER_INTERPRETER,
     _image_build_inputs,
@@ -56,6 +57,8 @@ from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME,
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import WRITES_KEY, tier_writes
 from osprey_connectors.workspace import BUILD_DIR_NAME, RENDERED_CONFIG_RELPATH
+
+FACILITY = repo_layout.entry("facility").path
 
 PROJECT_NAME = "layout-fixture"
 
@@ -165,9 +168,9 @@ def test_the_container_context_carries_no_secret_and_no_host_state(tmp_path: Pat
     (repo / PROFILE_FILENAME).write_text("name: facility\n", encoding="utf-8")
     (repo / ".env").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
     (repo / ".env.users").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
-    (repo / "data").mkdir()
-    (repo / "data" / ".env").write_text("NESTED=sk-secret\n", encoding="utf-8")
-    (repo / "data" / "channels.yml").write_text("channels: []\n", encoding="utf-8")
+    (repo / FACILITY).mkdir()
+    (repo / FACILITY / ".env").write_text("NESTED=sk-secret\n", encoding="utf-8")
+    (repo / FACILITY / "channels.yml").write_text("channels: []\n", encoding="utf-8")
 
     image_root = tmp_path / "image"
     image_root.mkdir()
@@ -179,7 +182,7 @@ def test_the_container_context_carries_no_secret_and_no_host_state(tmp_path: Pat
         assert not (image_root / zone).exists(), f"{zone} must not travel into an image"
     # ...and the source the drift fingerprint folds DOES travel, or the
     # container reports its own untouched build as drifted.
-    assert (image_root / "data" / "channels.yml").is_file()
+    assert (image_root / FACILITY / "channels.yml").is_file()
 
 
 def _write_repo_claude_code_files(repo: Path) -> None:
@@ -213,7 +216,7 @@ def test_the_container_context_leaves_out_the_repos_own_claude_code_files(
     nested = {
         Path("ops") / "project" / "notes" / "CLAUDE.md": "# mirrored notes\n",
         Path("ops") / "project" / ".claude" / "commands" / "ops.md": "# ops command\n",
-        Path("data") / "notes" / "CLAUDE.md": "# data notes\n",
+        Path(FACILITY) / "notes" / "CLAUDE.md": "# data notes\n",
     }
     for relpath, text in nested.items():
         (repo / relpath).parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +256,7 @@ def test_leaving_out_the_claude_code_files_moves_no_fingerprint(tmp_path: Path) 
     (repo / BUILD_DIR_NAME).mkdir(parents=True)
     (repo / PROFILE_FILENAME).write_text("name: fixture\n", encoding="utf-8")
     sources = {
-        Path("data") / "channels.yml": "channels: []\n",
+        Path(FACILITY) / "channels.yml": "channels: []\n",
         Path("rules") / "safety.md": "# safety\n",
         Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
         Path("ops") / "project" / "notes" / "CLAUDE.md": "# mirrored notes\n",
@@ -391,9 +394,9 @@ def _repo_with_own_dockerignore(
     repo = tmp_path / "facility"
     extends = f"extends: {extends_base}\n" if extends_base else ""
     files = {
-        Path(PROFILE_FILENAME): f"{extends}name: facility\ndata: data\n",
-        Path("data") / "channels.csv": "name\n",
-        Path("data") / "deep.h5": "authored\n",
+        Path(PROFILE_FILENAME): f"{extends}name: facility\n",
+        Path(FACILITY) / "channels.csv": "name\n",
+        Path(FACILITY) / "deep.h5": "authored\n",
         Path(TIERS_DIRNAME) / "readonly.yml": "name: readonly\n",
         Path(APPS_DIRNAME) / "logbook.yml": "name: logbook\n",
         Path("notebooks") / "a" / "b.ipynb": "{}\n",
@@ -428,8 +431,8 @@ def test_the_repos_own_dockerignore_keeps_its_files_out_of_the_image(tmp_path: P
     assert not (image_root / "notebooks").exists()
     assert not (image_root / "x.h5").exists()
     assert not (image_root / ".dockerignore").exists(), "the repo's ignore file is consumed"
-    assert (image_root / "data" / "channels.csv").is_file()
-    assert (image_root / "data" / "deep.h5").is_file(), "`*.h5` is anchored at the repo root"
+    assert (image_root / FACILITY / "channels.csv").is_file()
+    assert (image_root / FACILITY / "deep.h5").is_file(), "`*.h5` is anchored at the repo root"
     assert (image_root / PROFILE_FILENAME).is_file()
     assert (image_root / TIERS_DIRNAME / "readonly.yml").is_file()
     assert (image_root / APPS_DIRNAME / "logbook.yml").is_file()
@@ -464,7 +467,7 @@ def test_a_negated_line_keeps_one_file_of_an_excluded_directory(tmp_path: Path) 
 @pytest.mark.parametrize(
     "pattern,path,extends_base",
     [
-        ("**/*.csv", "data/channels.csv", None),
+        ("**/*.csv", f"{FACILITY}/channels.csv", None),
         (PROFILE_FILENAME, PROFILE_FILENAME, None),
         ("site-base.yml", "site-base.yml", "site-base.yml"),
     ],
@@ -532,7 +535,7 @@ def built_repo(tmp_path_factory) -> Path:
     contexts carry none: the secret has to exist to be kept out. A developer's
     own Claude Code files sit at the root for the same reason, so every context
     below is read off a repo that has them. So do a regenerable log and byte-code
-    file under ``data/``, a fold input, which the build must drop before it
+    file under ``facility/``, a fold input, which the build must drop before it
     stamps (:func:`test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped`).
     """
     from tests.fixtures.lifecycle_repo import (
@@ -547,8 +550,8 @@ def built_repo(tmp_path_factory) -> Path:
     (repo / ".mcp.json").write_text('{"mcpServers": {"dev": {}}}\n', encoding="utf-8")
     (repo / ".claude" / "skills" / "dev").mkdir(parents=True)
     (repo / ".claude" / "skills" / "dev" / "SKILL.md").write_text("# dev\n", encoding="utf-8")
-    data_root = repo / "data"
-    assert data_root.is_dir(), "the exemplar must have a data tree for the regenerable pin"
+    data_root = repo / FACILITY
+    assert data_root.is_dir(), "the exemplar must have a facility tree for the regenerable pin"
     (data_root / "ingest.log").write_text("2026-01-01 loaded\n", encoding="utf-8")
     (data_root / "__pycache__").mkdir(exist_ok=True)
     (data_root / "__pycache__" / "loader.cpython-312.pyc").write_bytes(b"\x00compiled")
@@ -793,9 +796,9 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     """What the ``.dockerignore`` excludes is gone from the context BEFORE the stamp.
 
     A ``.dockerignore`` decides what the image receives; it does not touch the
-    context. Those patterns are ``**/``-anchored, so they reach inside ``data/``
+    context. Those patterns are ``**/``-anchored, so they reach inside ``facility/``
     and the convention directories — which are exactly the trees the profile
-    fingerprint folds. A ``data/ingest.log`` left in the context would therefore
+    fingerprint folds. A ``facility/ingest.log`` left in the context would therefore
     be folded into the stamp here and be missing from the image there, and the
     container would recompute a different hash and refuse to start on drift
     nobody caused.
@@ -811,7 +814,7 @@ def test_a_regenerable_file_under_a_fold_input_is_neither_folded_nor_shipped(
     """
     from osprey.deployment.staleness import DriftState, check_drift
 
-    assert (built_repo / "data" / "ingest.log").is_file(), "the regenerable plant is gone"
+    assert (built_repo / FACILITY / "ingest.log").is_file(), "the regenerable plant is gone"
     for name, context in _contexts(built_repo).items():
         shipped = sorted(
             str(path.relative_to(context))

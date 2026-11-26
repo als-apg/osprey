@@ -16,7 +16,7 @@ from osprey_panels_tests._fixture import PANELS_DIR, add_part, write_fixture_fac
 from osprey_panels_tests._harness import REPO_ROOT
 
 #: The demo theme, read by its path in the checkout (a file, not an import).
-DEMO_THEME = REPO_ROOT / "src/osprey/templates/apps/demo/data/canopy/theme/osprey.json"
+DEMO_THEME = REPO_ROOT / "src/osprey/templates/apps/demo/web/canopy/theme/osprey.json"
 #: The demo theme's MINOR light colour: far from the fallback MINOR shades.
 THEME_ONLY_MINOR = "#b5710d"
 

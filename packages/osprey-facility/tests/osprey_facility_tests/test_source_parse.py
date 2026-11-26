@@ -51,7 +51,7 @@ def test_a_source_parses_as_the_bool_rule_reads_it() -> None:
 
 @pytest.mark.usefixtures("scanner")
 def test_a_source_that_does_not_parse_quotes_the_line(tmp_path: Path) -> None:
-    facility = tmp_path / "data" / "facility"
+    facility = tmp_path / "facility"
     facility.mkdir(parents=True)
     (facility / "identity.yaml").write_text(_BROKEN, encoding="utf-8")
     with pytest.raises(yaml.YAMLError) as refused:

@@ -3,7 +3,7 @@
 The deployment root is ``fixtures/six_logins``: a profile with the service axis
 keys, a hand tool server and the ``apps:`` block, and six logins under
 ``tiers/`` with no ``exclude:``. The test assembles the ``controls_admin_like``
-application under ``apps/`` and the packaged example facility under ``data/``,
+application under ``apps/`` and the packaged example facility under ``facility/``,
 runs the real ``osprey build`` once, and reads what it rendered.
 
 Which tool servers a login runs is one mechanism for every login: the
@@ -59,7 +59,7 @@ def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     # vocabulary, which would switch its consumers on, is left out.
     shutil.copytree(
         FACILITY,
-        root / "data" / FACILITY_DATA_DIRNAME,
+        root / FACILITY_DATA_DIRNAME,
         ignore=shutil.ignore_patterns("ariel"),
     )
     result = invoke_build(root)

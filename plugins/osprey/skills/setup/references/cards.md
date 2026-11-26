@@ -43,7 +43,7 @@ Header line, then one box per group in this order, then the question.
  │ artifacts framework-managed ×<n> · claimed ×<n|? (never built here)> │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ CONTROL ── <type> · writes <never|asked|allowed> · archiver <type> ──┐
- │ limits     <n> records in data/facility/limits.yaml                  │
+ │ limits     <n> records in facility/limits.yaml                       │
  │ archiver   <endpoint or ?>                                           │
  └──────────────────────────────────────────────────────────────────────┘
  ┌ AGENT ── <provider> / <model> · <n> hooks · <n> agents · <n> skills ─┐
@@ -152,7 +152,7 @@ every state blank, so the user sees that nothing was assumed.
 
 ## MODEL WIRING
 
-An overview of one model's `wiring` block in `data/facility/imported/mml/mapping.yaml`,
+An overview of one model's `wiring` block in `facility/imported/mml/mapping.yaml`,
 drawn after the first `osprey facility import mml` run wrote the draft. `?` rows
 first, then the wired families, then the rest. The card is a shape you may draw, not
 a required single step; the export is not editable from it.
@@ -186,7 +186,7 @@ Do not force several cards on a simple model.
 Where each line comes from:
 
 - **Header.** `<facility>` is the mapping's `facility.code`, or `code:` in
-  `data/facility/identity.yaml` once the first import has moved it there; `<model>` is
+  `facility/identity.yaml` once the first import has moved it there; `<model>` is
   `models.<raw>.name`. `<n> families` counts the keys of `families:`; `<n> open` counts
   the `null` slots of this model's `wiring` block.
 - **OPEN** is one `?` row per `null` slot of the block, in the block's order: a

@@ -19,8 +19,6 @@ from osprey.cli.build_profile import BuildProfile
 from osprey.cli.derived_keys import DERIVED_KEYS, derived_key_errors, is_derived_key
 from osprey_connectors.errors import BuildProfileError
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def _nested(dotted_key: str, value: object) -> dict:
     """The fully nested spelling of one dotted key."""
@@ -143,7 +141,7 @@ def test_a_non_mapping_config_yields_nothing() -> None:
 
 def test_validate_refuses_a_derived_key(tmp_path: Path) -> None:
     """End to end: the operator meets the refusal through the build."""
-    profile = BuildProfile(name="x", data="data", config={"claude_code.provider": "anthropic"})
+    profile = BuildProfile(name="x", config={"claude_code.provider": "anthropic"})
 
     with pytest.raises(BuildProfileError) as excinfo:
         profile.validate(tmp_path)
@@ -155,4 +153,4 @@ def test_validate_refuses_a_derived_key(tmp_path: Path) -> None:
 
 def test_validate_accepts_a_profile_that_states_nothing_derived(tmp_path: Path) -> None:
     """The guard adds no refusal to an ordinary profile."""
-    BuildProfile(name="x", data="data", config={"web.theme": "dark"}).validate(tmp_path)
+    BuildProfile(name="x", config={"web.theme": "dark"}).validate(tmp_path)

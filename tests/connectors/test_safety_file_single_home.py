@@ -80,9 +80,6 @@ ALLOWED: dict[tuple[str, str], str] = {
         "moves an existing layer directory or its files where git does not track them"
     ),
     ("src/osprey/cli/scaffold_cmd.py", "claim_into_profile"): "moves an existing tree",
-    ("src/osprey/deployment/container_lifecycle.py", "_migrate_legacy_curve_dir"): (
-        "relocates a directory"
-    ),
     ("src/osprey/deployment/container_lifecycle.py", "_generate_bluesky_curve_certs"): (
         "moves files a library minted in a scratch directory"
     ),

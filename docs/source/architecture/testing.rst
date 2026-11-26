@@ -199,7 +199,7 @@ training sessions on the :doc:`Virtual Accelerator <virtual-accelerator>`.
    :file: ../_diagrams/testing-scenario-pipeline.html
 
 **The scenario file.** A scenario is one YAML file,
-``data/facility/simulation/scenarios/<name>.yaml``, and says how the machine departs from
+``facility/simulation/scenarios/<name>.yaml``, and says how the machine departs from
 its baseline: ``overrides`` set live values, ``faults`` write a fault into a
 physics model, ``channel_faults`` make a channel stuck, frozen or disconnected,
 ``archiver`` events shape a channel's history, ``drivers`` and ``couple`` give

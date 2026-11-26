@@ -1,13 +1,12 @@
-"""A bundle's ``data/`` tree and a bundled facility are content, never templates.
+"""A bundle's ``web/`` tree and a bundled facility are content, never templates.
 
-``osprey init`` materializes ``apps/<bundle>/data/`` and the preset's
-``facilities/<name>/`` into a facility's own profile source by literal copy, and ``osprey build`` copies a profile's
-``data:`` root back out the same way. Neither side renders Jinja, so a ``.j2``
-file staged under ``apps/*/data/`` would reach the built project with its
-suffix intact and its placeholders unexpanded -- and the preset path, which
-DOES render and strips the suffix, would land it under a different filename
-than the profile path. Keeping data trees template-free is what makes the two
-paths agree by construction.
+``osprey init`` materializes ``apps/<bundle>/web/`` and the preset's
+``facilities/<name>/`` into the deployment repository's ``web/`` and
+``facility/`` by literal copy, and ``osprey build`` copies those trees into
+the render the same way. Neither side renders Jinja, so a ``.j2`` file staged
+under ``apps/*/web/`` would reach the built project with its suffix intact and
+its placeholders unexpanded. Keeping content trees template-free is what
+makes the copy and the render agree by construction.
 """
 
 from __future__ import annotations
@@ -25,13 +24,21 @@ def test_apps_root_is_discoverable():
     assert bundles, f"no app bundles found under {APPS_ROOT}"
 
 
-def test_no_jinja_templates_under_any_bundle_data_tree():
+def test_no_jinja_templates_under_any_bundle_content_tree():
     offenders = sorted(
         str(p.relative_to(REPO_ROOT))
-        for p in [*APPS_ROOT.glob("*/data/**/*.j2"), *FACILITIES_ROOT.glob("**/*.j2")]
+        for p in [*APPS_ROOT.glob("*/web/**/*.j2"), *FACILITIES_ROOT.glob("**/*.j2")]
         if p.is_file()
     )
     assert offenders == [], (
-        "data/ trees are copied verbatim, so these would ship with their .j2 "
+        "web/ and facility trees are copied verbatim, so these would ship with their .j2 "
         f"suffix and unexpanded placeholders: {offenders}"
     )
+
+
+def test_no_bundle_ships_a_data_tree():
+    """``data`` is a dissolved name: a bundle's content lives under ``web/``."""
+    offenders = sorted(
+        str(p.relative_to(REPO_ROOT)) for p in APPS_ROOT.glob("*/data") if p.exists()
+    )
+    assert offenders == [], f"a bundle still ships a data/ tree: {offenders}"

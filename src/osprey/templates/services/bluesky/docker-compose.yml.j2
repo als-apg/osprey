@@ -120,7 +120,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env). Same convention in the volumes below.
+      # their plain names (var/, .env). Same convention in the volumes below.
       context: ./build/services/bluesky
       dockerfile: Dockerfile
       args:
@@ -448,6 +448,14 @@ services:
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
 {% endif %}
+{%- if svc.writes_enabled and not external %}
+      # The write requests this lane's queueserver files, read-only, and the
+      # name it files them under: a plan waiting for a person to approve its
+      # writes shows in the queue summary as `awaiting_approval`
+      # (`bluesky_bridge.write_grant.awaiting_approval`).
+      {{ write_requests_env }}: {{ write_requests_container_dir }}
+      BLUESKY_WORKER_HOLDER: {{ qserver }}
+{%- endif %}
 {#- The env passthrough axis, on EVERY container this file renders — the
     bridge here, the queueserver, Redis and Tiled. `services.bluesky.env` is
     one declaration on one service block, and the profile has no per-container
@@ -531,6 +539,11 @@ services:
       # connector follows. The writes gate above still decides WHETHER to mount.
       - {{ limits_mount.source }}:{{ limits_mount.target }}:ro
 {% endif %}
+{%- if svc.writes_enabled and not external %}
+      # The queueserver's write requests, READ-ONLY: the bridge only reports
+      # that one is waiting; approving it is the web terminal's.
+      - {{ write_requests_mount_source }}:{{ write_requests_container_dir }}:ro
+{%- endif %}
     networks:
 {%- if external %}
       # Single-homed: the external RE Manager lives outside compose and is
@@ -736,6 +749,12 @@ services:
       # image's group-joining entrypoint, so nothing here joins the tree's
       # group: the mode on the host directory is the whole access story.
       OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
+      # The write ledger, mounted read-write below: where a plan run files the
+      # write request a person approves from the chip, where the worker's
+      # connector spends the grant's steps, and where the run renews its lease
+      # (`bluesky_bridge.write_grant`). Naming it is what turns the per-run
+      # write authorization on; bound with the tree, as the optimizer's is.
+      {{ write_ledger_env }}: {{ write_ledger_container_dir }}
 {%- endif %}
       # ── queue control plane (server side) ────────────────────────────────
       # Upstream-spelled: `start-re-manager` reads the private key from
@@ -892,7 +911,7 @@ services:
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
       # SOURCE is a literal staged path rather than a computed one: `osprey
-      # build` writes the devices view from the channels under data/facility/,
+      # build` writes the devices view from the channels under facility/,
       # and the staging step copies it unchanged into this service's build
       # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
       # no configured path is left here to resolve. Both plan lanes declare the
@@ -944,6 +963,10 @@ services:
       # follows `agent_data.base_dir`, and a template that joined that itself
       # would be a second spelling of the path the writer resolves.
       - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
+      # The deployment's write ledger, READ-WRITE and outside the state zone:
+      # each plan run's requests, ledgers and self-issued grants. Every web
+      # terminal reads its requests/ through a read-only bind of its own.
+      - {{ write_ledger_mount_source }}:{{ write_ledger_container_dir }}
 {%- endif %}
     networks:
       # Necessarily dual-homed: {{ lane }}-internal for the bridge and Redis,

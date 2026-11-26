@@ -93,12 +93,7 @@ def test_connector_epics_still_builds_with_the_section(tmp_path: Path) -> None:
 
 def test_a_child_turns_the_nested_section_off_with_null(tmp_path: Path) -> None:
     child = (
-        "name: Narrowed\n"
-        "project_name: demo\n"
-        "extends: demo\n"
-        "data: data\n"
-        "config:\n"
-        "  channel_directory: null\n"
+        "name: Narrowed\nproject_name: demo\nextends: demo\nconfig:\n  channel_directory: null\n"
     )
     render = _init_and_build(tmp_path, "demo", profile=child)
 

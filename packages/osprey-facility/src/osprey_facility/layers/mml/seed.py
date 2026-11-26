@@ -6,7 +6,7 @@ that does not exist yet, opening it with the facility import's header
 (:data:`osprey_facility.layers.HEADER`). A file that exists is never rewritten,
 whoever wrote it.
 
-What :func:`seed_once` writes, relative to ``data/facility/``:
+What :func:`seed_once` writes, relative to ``facility/``:
 
 * ``limits.yaml``: one record per setpoint whose field states a ``Range``,
   holding the band as stated (:func:`band`). A setpoint a model wires carries
@@ -189,7 +189,7 @@ def seed_once(
     Args:
         exports: What the import read.
         mapping: The layer's mapping, every slot decided.
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         views: The judged families that carry channel records, in the order
             the importer wrote their channels.
 

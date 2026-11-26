@@ -1,6 +1,6 @@
 """A small facility with two measured models: what an application's tests build a kind on.
 
-``measured_tree`` is a ``data/facility`` tree, in the shape
+``measured_tree`` is a ``facility/`` tree, in the shape
 :func:`~osprey.apps.sdk.testing.write_tree` writes, holding:
 
 * model ``SR`` on a periodic deck: the split quadrupole ``SR/QF`` (slices QFA,

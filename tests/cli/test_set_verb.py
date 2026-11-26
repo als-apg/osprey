@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -501,7 +502,7 @@ def test_no_pairs_is_a_usage_error(runner, lifecycle_repo):
 
 def test_resolves_the_repo_from_a_subdirectory(runner, lifecycle_repo, monkeypatch):
     """The walk-up rule: any subdirectory is inside the deployment."""
-    monkeypatch.chdir(lifecycle_repo / "data" / "facility" / "knowledge")
+    monkeypatch.chdir(lifecycle_repo / "facility" / "knowledge")
 
     result = runner.invoke(set_command, ["model=claude-opus-5"], catch_exceptions=False)
 
@@ -576,7 +577,6 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
     (repo / "profile.yml").write_text(
         "name: Honesty Table\n"
         f"project_name: {name}\n"
-        "data: data\n"
         "provider: cborg\n"
         "model: claude-haiku-4-5\n"
         "channel_finder_mode: in_context\n"
@@ -600,14 +600,14 @@ def _honesty_repo(tmp_path: Path, name: str = "honesty") -> Path:
         "  deployed_services: [postgresql]\n",
         encoding="utf-8",
     )
-    # The facility data tree `osprey init` lays down beside the profile. The
-    # limits validator reads `channel_limits.json` out of it and the Reach
-    # Contract refuses a render whose source zone is not there, so the packaged
-    # tree is copied whole rather than stubbed.
-    from tests._preset_data import copy_bundle_data
+    # The facility and web sources `osprey init` lays down beside the profile.
+    # The limits validator reads `channel_limits.json` out of the facility and
+    # the Reach Contract refuses a render whose source zone is not there, so the
+    # packaged trees are copied whole rather than stubbed.
+    from tests._preset_data import bundle_source_root
 
-    copy_bundle_data(repo / "data")
-    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(bundle_source_root(), repo, dirs_exist_ok=True)
+    (repo / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 

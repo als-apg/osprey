@@ -16,19 +16,19 @@ What goes where
 
    example-machine/              the machine repository
      profile.yml                 its VA-only setup
-     data/facility/              the machine facts
+     facility/              the machine facts
        identity.yaml  records/  limits.yaml  imported/<layer>/
        vocabulary/  provenance/  simulation/
 
    my-deployment/                a deployment
-     profile.yml                 states machine: vendor/example-machine/data/facility
+     profile.yml                 states machine: vendor/example-machine/facility
      vendor/example-machine/     the machine repository, mounted
-     data/facility/
+     facility/
        knowledge/  ariel/  benchmarks/
 
 The machine repository holds every machine fact, including its start set: the
-scenarios marked ``start: true``, which the simulator activates when it first
-comes up. The deployment keeps only what it writes about its own use of the
+scenarios marked ``start: true`` or ``start_on``, which the simulator
+activates when it first comes up. The deployment keeps only what it writes about its own use of the
 machine: ``knowledge/``, ``ariel/`` and ``benchmarks/``
 (:doc:`/how-to/describe-your-facility`).
 
@@ -58,7 +58,7 @@ same) and name its facility directory in the root ``profile.yml``:
 
 .. code-block:: yaml
 
-   machine: vendor/example-machine/data/facility
+   machine: vendor/example-machine/facility
 
 ``machine:`` resolves and is folded into the profile hash like ``data:``
 (:doc:`/how-to/build-profiles`), so a new machine commit reports the build out of date.
@@ -70,7 +70,7 @@ deployment judges its block (:doc:`/how-to/register-a-measurement-kind`).
 
 With ``machine:`` set, ``osprey facility import`` writes into the machine root,
 except the knowledge index, which goes under the deployment's
-``data/facility/knowledge/``. Commit the change in the machine repository, then
+``facility/knowledge/``. Commit the change in the machine repository, then
 the new submodule commit in the deployment.
 
 Stops
@@ -82,15 +82,15 @@ fix, on:
 ``machine-missing``
    The machine root holds no ``identity.yaml``: the submodule is not
    initialised (``git submodule update --init``), or ``machine:`` names the
-   repository top instead of its ``data/facility``.
+   repository top instead of its ``facility``.
 ``machine-restated``
-   The deployment's ``data/facility/`` holds a file outside ``knowledge/``,
+   The deployment's ``facility/`` holds a file outside ``knowledge/``,
    ``ariel/`` and ``benchmarks/``. Edit the fact in the machine repository and
    remove the deployment's copy.
 ``profile-invalid``
    ``machine:`` and ``data:`` overlap; a login file states ``machine:``; or the
-   profile states ``simulation.default_scenarios`` beside ``start: true`` marks
-   or a mounted machine. ``simulation.default_scenarios: null`` cancels a
+   profile states ``simulation.default_scenarios`` beside ``start: true`` or
+   ``start_on`` marks or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.
 
 .. _machine-repository-upgrade:

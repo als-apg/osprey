@@ -66,7 +66,7 @@ from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import queue_stack_logs
 from tests.e2e._deploy_support import format_failure, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.sdk_helpers import arm_deployed_queue_owner
+from tests.e2e.sdk_helpers import approving_write_requests, arm_deployed_queue_owner
 
 pytestmark = [
     pytest.mark.slow,
@@ -175,6 +175,8 @@ def deployed_grid_scan_stack(
     _orm_stack.seed_repo_env(repo)
     # The plans write, and the worker's writes follow the add's owner's switch:
     # this login's switch on in the deployment's record, before `up`.
+    # At `asked` each plan's worker asks for its write authorization; the
+    # approver around the yield below answers it the way a person would.
     arm_deployed_queue_owner(repo)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
@@ -204,12 +206,13 @@ def deployed_grid_scan_stack(
         except AssertionError as exc:
             pytest.fail(f"{exc}\n{queue_stack_logs(_orm_stack.project_prefix(PROJECT_NAME))}")
         corrector_name, (_, corrector_readback) = next(iter(correctors.items()))
-        yield DeployedGridScanStack(
-            repo=repo,
-            corrector_name=corrector_name,
-            corrector_readback=corrector_readback,
-            bpm_name=next(iter(bpms)),
-        )
+        with approving_write_requests(repo):
+            yield DeployedGridScanStack(
+                repo=repo,
+                corrector_name=corrector_name,
+                corrector_readback=corrector_readback,
+                bpm_name=next(iter(bpms)),
+            )
     finally:
         down = subprocess.run(
             [str(osprey_bin), "down"],

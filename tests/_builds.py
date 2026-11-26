@@ -40,6 +40,7 @@ from typing import Any, NamedTuple
 import pytest
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.registry.scenario_servers import check_scenario_servers
 from tests._scoped_temp import shared_dir
 
@@ -118,7 +119,7 @@ def strip_machine(repo: Path) -> None:
     from osprey.cli.main import cli
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
-    facility = repo / "data" / "facility"
+    facility = repo / repo_layout.entry("facility").path
     shutil.rmtree(facility)
     _settle_bundle(facility / "knowledge")
     stated = CliRunner().invoke(
@@ -183,8 +184,8 @@ class BuiltProject:
 
     @property
     def facility_dir(self) -> Path:
-        """The repo's ``data/facility`` directory."""
-        return self.repo / "data" / "facility"
+        """The repo's ``facility`` directory."""
+        return self.repo / repo_layout.entry("facility").path
 
     @cached_property
     def facility_raw(self) -> bytes:

@@ -2,7 +2,7 @@
 
 A test that drives a connector hands it the addresses it reads and writes as a
 facility tree, the way a deployment does. :func:`served_facility` writes those
-addresses as channel records under ``<root>/data/facility`` and builds the
+addresses as channel records under ``<root>/facility`` and builds the
 facility file. Rendering it into a simulator view needs the framework's views;
 the root suite's ``tests/facility/served_tree.py`` does that and imports the
 rest from here. :func:`in_process_config` names a view in the in-process
@@ -70,7 +70,7 @@ class ServedFacility(NamedTuple):
     """A served tree's facility, built.
 
     Attributes:
-        facility: The ``data/facility`` directory the records were written to.
+        facility: The ``facility`` directory the records were written to.
         document: The facility file built from it.
         setpoints: The writable setpoints.
         readbacks: The addresses only read.
@@ -92,7 +92,7 @@ def served_facility(
     """Write a tree serving the given addresses and build its facility file.
 
     Args:
-        root: An empty directory; the tree is written to ``root/data/facility``.
+        root: An empty directory; the tree is written to ``root/facility``.
         setpoints: The addresses a test writes, each a writable setpoint. A
             mapping pairs each setpoint with its readback address, which joins
             the tree as a readback.
@@ -126,7 +126,7 @@ def served_facility(
     for record in records:
         record.update(further.get(record["id"], {}))
 
-    facility_dir = root / "data" / "facility"
+    facility_dir = root / "facility"
     (facility_dir / "records").mkdir(parents=True)
     (facility_dir / "records" / "channels.yaml").write_text(
         yaml.safe_dump(records, sort_keys=False), encoding="utf-8"

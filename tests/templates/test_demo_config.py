@@ -184,3 +184,55 @@ def test_mode_field_comment_names_every_paradigm():
         if not re.search(rf"(?<![\w-]){re.escape(mode)}(?![\w-])", prose)
     ]
     assert missing == [], f"{PRESET_PATH.name} names no paradigm {missing} in {comment!r}"
+
+
+# ---------------------------------------------------------------------------
+# The repo paths the preset names are the fresh init's source paths
+# ---------------------------------------------------------------------------
+
+
+def _find_key(node: Any, key: str) -> list[Any]:
+    """Every value stored under *key* anywhere in *node*."""
+    found: list[Any] = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == key:
+                found.append(v)
+            found.extend(_find_key(v, key))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_find_key(item, key))
+    return found
+
+
+def _preset_repo_paths() -> dict[str, str]:
+    raw = yaml.safe_load(PRESET_PATH.read_text(encoding="utf-8"))
+    config = raw["config"]
+    paths = {
+        "web.panels.canopy.theme_file": config["web.panels.canopy.theme_file"],
+        "facility_knowledge.bundle_path": config["facility_knowledge.bundle_path"],
+    }
+    (notices,) = _find_key(raw, "notices")
+    for index, notice in enumerate(notices):
+        paths[f"landing.notices[{index}]"] = notice
+    return paths
+
+
+def test_the_preset_names_no_data_key():
+    raw = yaml.safe_load(PRESET_PATH.read_text(encoding="utf-8"))
+    assert "data" not in raw
+
+
+def test_every_repo_path_the_preset_names_is_outside_the_dissolved_tree():
+    paths = _preset_repo_paths()
+    assert paths["landing.notices[0]"] == "web/landing/working-safely.md"
+    offenders = {k: v for k, v in paths.items() if v.split("/", 1)[0] == "data"}
+    assert offenders == {}
+
+
+def test_every_repo_path_the_preset_names_exists_in_a_fresh_source_tree():
+    from tests._preset_data import bundle_source_root
+
+    root = bundle_source_root(PRESET)
+    missing = {k: v for k, v in _preset_repo_paths().items() if not (root / v).exists()}
+    assert missing == {}

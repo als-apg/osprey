@@ -11,7 +11,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     als-exemplar/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  tiers/  agent/context/
+    ├── facility/  web/  tiers/  agent/context/
     ├── .gitignore  .env.example  .env.shared  ops/ci-extra.yml
     ├── .gitlab-ci.yml  ops/scripts/verify.sh   (with_ci=True only)
     │  ═ SECRETS — ignored, durable ══════════════════
@@ -68,12 +68,11 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml``, ``triggers.yml`` and ``data/README.md`` are the fourth,
-fifth and sixth things not frozen. Init copies the packaged provider catalog,
-the packaged tutorial trigger file and the preset's data README into the repo
-verbatim, so the fixture reads all three rather than holding a second copy of
-any; see :func:`packaged_providers_yml`, :func:`packaged_tutorial_triggers_yml`
-and :func:`packaged_data_readme_md`.
+``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
+frozen. Init copies the packaged provider catalog and the packaged tutorial
+trigger file into the repo verbatim, so the fixture reads both rather than
+holding a second copy of either; see :func:`packaged_providers_yml` and
+:func:`packaged_tutorial_triggers_yml`.
 
 Usage::
 
@@ -162,12 +161,13 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
 #   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
-#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   | facility/ …  |           | .mcp.json  … |          | + containers   |
 #   +--------------+           +--------------+          +----------------+
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
 #
-#   SOURCE   yours to edit, kept in git: this file, data/, tiers/, apps/
+#   SOURCE   yours to edit, kept in git: this file, facility/, agent/, web/,
+#            ops/, tiers/, apps/
 #   RECORD   .osprey/, what the presets produced. Kept in git. Not edited
 #   SECRETS  .env, your API keys. Not in git. Rebuilds never touch it
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
@@ -329,9 +329,10 @@ virtual_accelerator:
   # running a stand-in exactly as on one that is not — the build writes no key
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
-  # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The stand-in is never recorded: it reads the facility's archive,
-  # and the store holds the simulator's past.
+  # Each machine has an active scenario set of its own: `osprey sim apply
+  # --target standin` moves the stand-in, `--target va` the simulator. The
+  # stand-in is never recorded: it reads the facility's archive, and the store
+  # holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -789,10 +790,10 @@ config:
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
   # reported back as `expanded_terms`. The build turns it on when the facility
-  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # ships facility/ariel/vocabulary.yml. The file is read once at startup;
   # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
   # search 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -942,7 +943,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility/knowledge
+  facility_knowledge.bundle_path: facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -1189,7 +1190,7 @@ config:
   # collection's Orbit, RF thermal and Septum pulse carry their own views.
   # A `*_default_query` here would give the bare tools a view as well.
   # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
-  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  # The screen CANOPY opens on, by its id in web/canopy/library/screens.
   web.panels.canopy.home_screen: facility/overview
   # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
   # memory (256 MB).
@@ -1197,7 +1198,7 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme. This one gives the
   # screens OSPREY's light and dark colours.
-  web.panels.canopy.theme_file: data/canopy/theme/osprey.json
+  web.panels.canopy.theme_file: web/canopy/theme/osprey.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1299,12 +1300,12 @@ config:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
       # adding a section means adding a markdown file and listing it here.
-      # `data/landing/working-safely.md` ships with this preset and is yours to
+      # `web/landing/working-safely.md` ships with this preset and is yours to
       # rewrite; add your own for local procedures, contacts or shift handover.
       # Drop this key entirely and you get OSPREY's built-in safety notice
       # instead; set it to [] for no notices at all.
       notices:
-        - data/landing/working-safely.md
+        - web/landing/working-safely.md
       # The line under everything. Set to "" for no footer.
       footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
       groups:
@@ -1383,7 +1384,7 @@ config:
   # Container runtime `osprey up` uses: auto (Docker first, then Podman),
   # docker, or podman. CONTAINER_RUNTIME in the environment overrides it.
   container_runtime: auto
-  # Models the simulator serves, named from data/facility/simulation/models.yaml. null
+  # Models the simulator serves, named from facility/simulation/models.yaml. null
   # serves every model; [texture] serves no physics.
   simulation.models:
   # Seconds between the simulator's ticks; must be greater than 0.
@@ -1392,6 +1393,8 @@ config:
   # the facility's scenarios; `osprey sim apply` replaces the set.
   # demo-history also seeds the sidebar's example sessions on first deploy.
   # Absent or [] starts in nominal alone; a stated set is checked at build.
+  # A list starts every simulator instance in the set; {va: [...],
+  # standin: [...]} gives the simulator and the stand-in each its own.
   simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
@@ -1492,13 +1495,6 @@ deploy_services: true
 panel_presets: {}
 # Bundled template rendered as CLAUDE.md, the agent's instructions.
 claude_md_template: CLAUDE.md.j2
-
-# --- Facility data tree ------------------------------------------------------
-# Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes it from the preset's packaged tree and sets this key; a
-# layer under tiers/ inherits it and resolves it against this
-# profile's directory. Full replacement, not a fallback.
-data: data
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -2185,29 +2181,6 @@ def packaged_tutorial_triggers_yml() -> str:
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
-def packaged_data_readme_md() -> str:
-    """The preset's packaged ``data/README.md``, which ``osprey init`` copies verbatim.
-
-    Read rather than frozen, for the same reason the provider catalog and the
-    trigger file are: the package owns this file's content, so a copy here
-    would prove only that someone remembered to update two places. What the
-    byte comparison downstream is for is that init copies the README through
-    unchanged, and that is what reading it here asserts.
-
-    Resolved from the preset's packaged composition, the tree ``osprey init``
-    copies into ``data/``, so the exemplar and the emission it is compared
-    against read one file.
-    """
-    from tests._preset_data import preset_data
-
-    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
-
-
-#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
-#: import, because :data:`BASE_SOURCE_FILES` is built at import.
-DATA_README_MD = packaged_data_readme_md()
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # SOURCE zone — git, secrets, README
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2398,12 +2371,12 @@ in `profile.yml`, not the folder name.
 
 | What | Where | In git? | Kept? |
 | --- | --- | --- | --- |
-| Your settings | `profile.yml`, `providers.yml`, `data/`, `tiers/`, `triggers.yml`, `agent/context/`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/` | yes | yes |
+| Your settings | `profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `triggers.yml`, `agent/context/`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/` | yes | yes |
 | Your API keys | `.env` | no | yes |
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `.osprey/`, `triggers.yml`, `agent/context/`, `.env.example`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/`, `.gitignore`, `.env.shared`, `README.md`, `ops/ci-extra.yml`.
+In full, the first row is: `profile.yml`, `providers.yml`, `facility/`, `web/`, `tiers/`, `.osprey/`, `triggers.yml`, `agent/context/`, `.env.example`, `agent/watchdogs/`, `agent/code_review/`, `agent/rules/`, `.gitignore`, `.env.shared`, `README.md`, `ops/ci-extra.yml`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
@@ -2947,10 +2920,9 @@ exit 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SOURCE zone — data tree
+# SOURCE zone — facility and web trees
 # ─────────────────────────────────────────────────────────────────────────────
-# Hand-authored and deliberately small, except ``data/README.md``, which is
-# read from the package (:func:`packaged_data_readme_md`). The packaged bundle a
+# Hand-authored and deliberately small. The packaged bundle a
 # real `init` copies here is ~2 MB across ~60 files; a per-test tmp_path
 # materialization wants the *shape* — every path the profile and the build
 # reference — not the volume. Each file below is valid content of its real kind.
@@ -3100,18 +3072,17 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "agent/context/alice/.gitkeep": "",
     "agent/context/bob/.gitkeep": "",
     "agent/context/carol/.gitkeep": "",
-    "data/README.md": DATA_README_MD,
-    "data/facility/benchmarks/channel_finder/tree_queries.json": BENCHMARK_QUERIES_JSON,
-    "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
-    "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
-    "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
-    "data/facility/simulation/scenarios/demo-history.yaml": "{}\n",
-    "data/facility/simulation/scenarios/rf-thermal.yaml": "{}\n",
-    "data/facility/knowledge/index.md": FK_INDEX_MD,
-    "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
-    "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
-    "data/facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
-    "data/facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
+    "facility/benchmarks/channel_finder/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "facility/records/places.yaml": FACILITY_PLACES_YAML,
+    "facility/records/devices.yaml": FACILITY_DEVICES_YAML,
+    "facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "facility/simulation/scenarios/demo-history.yaml": "{}\n",
+    "facility/simulation/scenarios/rf-thermal.yaml": "{}\n",
+    "facility/knowledge/index.md": FK_INDEX_MD,
+    "facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
+    "facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
+    "facility/knowledge/procedures/index.md": FK_PROCEDURES_INDEX_MD,
+    "facility/knowledge/procedures/vacuum-recovery.md": FK_VACUUM_RECOVERY_MD,
 }
 
 #: The scaffolded CI pipeline. Emitted only where the profile names deploy
@@ -3213,7 +3184,7 @@ def packaged_providers_yml() -> str:
 
 
 #: Where the exemplar's screen library sits, repo-relative.
-CANOPY_LIBRARY_RELPATH = "data/canopy/library"
+CANOPY_LIBRARY_RELPATH = "web/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
@@ -3222,10 +3193,10 @@ def packaged_canopy_library() -> Path:
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
     the exemplar carries exactly what ``osprey init --preset demo``
-    puts into a deployment's ``data/``.
+    puts into a deployment's ``web/``.
     """
     bundle = importlib.resources.files("osprey.templates.apps.demo")
-    return Path(str(bundle)) / "data" / "canopy" / "library"
+    return Path(str(bundle)) / "web" / "canopy" / "library"
 
 
 def copy_canopy_library(root: Path) -> Path:

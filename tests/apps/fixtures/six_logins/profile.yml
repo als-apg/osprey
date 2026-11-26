@@ -9,7 +9,6 @@
 extends: hello-world
 name: Six Logins
 project_name: six-logins
-data: data
 
 skills:
   - diagnose

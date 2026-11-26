@@ -1,6 +1,6 @@
 """The response check ``osprey facility validate`` runs per kept response export.
 
-The tree cases import a fixture tree's exports into a fresh ``data/facility/``
+The tree cases import a fixture tree's exports into a fresh ``facility/``
 under the tree's mapping, widen the limits records the build names, and hold
 each model's kept ``imported/mml/<model>.response.json`` against the model.
 The figure cases build entries by hand, and the spear3 case pins every
@@ -80,8 +80,8 @@ SYNTHETIC_WIDENED: dict[str, tuple[str, float]] = {OUTSIDE: ("max_value", 2.0)}
 
 
 def _repo(root: Path, tree: str) -> Path:
-    """A repo whose ``data/facility/`` is one fixture tree, imported and building clean."""
-    facility = root / "data" / "facility"
+    """A repo whose ``facility/`` is one fixture tree, imported and building clean."""
+    facility = root / "facility"
     target = facility / MAPPING_FILE
     target.parent.mkdir(parents=True)
     shutil.copyfile(FIXTURES / tree / MAPPING_FILE, target)
@@ -89,14 +89,12 @@ def _repo(root: Path, tree: str) -> Path:
     widen(facility, WIDENED.get(tree, {}))
     if tree == "synthetic":
         widen(facility, SYNTHETIC_WIDENED)
-    (root / "profile.yml").write_text(
-        "name: scratch\nproject_name: scratch\ndata: data\n", encoding="utf-8"
-    )
+    (root / "profile.yml").write_text("name: scratch\nproject_name: scratch\n", encoding="utf-8")
     return root
 
 
 def _facility(repo: Path) -> Path:
-    return repo / "data" / "facility"
+    return repo / "facility"
 
 
 #: The columns of NSLS-II's storage-ring export the check sweeps, the same in
