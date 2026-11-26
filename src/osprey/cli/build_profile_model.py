@@ -55,7 +55,6 @@ from .build_profile_archiver import (
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
 from .build_profile_presets import (
-    is_bundled_preset_dir,
     resolve_service_template,
     resolve_triggers_path,
 )
@@ -419,17 +418,6 @@ class BuildProfile:
     compose itself would use. ``None`` only for a document no repo holds — a
     bundled preset — which ``osprey build`` refuses to render.
     """
-    data: str | None = None
-    """Facility data tree this profile carries, as a path relative to the
-    profile directory that resolves inside the repository (``data`` for a
-    materialized profile). The build copies this tree and no other:
-    it is the whole source of the project's ``data/``, with no packaged
-    fallback behind it, so :meth:`validate` requires it of every profile file.
-    ``None`` only for a bundled preset, which has no profile directory to
-    anchor it against (``--preset`` refuses the key outright) and whose tree
-    ``osprey init`` materializes. The resolution point for both the validator
-    and the build is :meth:`resolved_data_root`.
-    """
     machine: str | None = None
     """The deployment's machine root (``machine:``), as a path relative to the
     profile directory naming a facility directory, typically inside a git
@@ -438,8 +426,8 @@ class BuildProfile:
     Set, the build reads every machine fact (identity, classes, records,
     models, decks, seeds, limits, scenarios) from that directory and only the
     deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``)
-    from ``<data>/facility``. Unset, ``<data>/facility`` plays both roles, as
-    for every deployment before the key existed. Root-only: a login may
+    from the ``facility/`` tree beside the profile. Unset, that tree plays
+    both roles. Root-only: a login may
     not restate it, because the machine a deployment drives is deployment-wide.
     :meth:`validate` checks only that it is a non-empty string; the location
     itself is checked by :meth:`resolved_facility_roots`, which build,
@@ -605,24 +593,6 @@ class BuildProfile:
         """
         self.inherited_preset: str | None = None
 
-    def resolved_data_root(self, profile_dir: Path) -> Path | None:
-        """Resolve the profile's ``data:`` tree against its profile directory.
-
-        The single anchoring point shared by :meth:`validate` and the build, so
-        the tree the validator checks is the tree the build copies.
-
-        Args:
-            profile_dir: Directory holding the profile file.
-
-        Returns:
-            The resolved data root, or ``None`` when the profile declares no
-            ``data:`` (or declares it with a non-string value, which
-            :meth:`validate` reports).
-        """
-        if not isinstance(self.data, str) or not self.data.strip():
-            return None
-        return (profile_dir / self.data).resolve()
-
     def app_shown(self, name: str) -> bool:
         """Whether this render's card shows application *name*.
 
@@ -719,15 +689,16 @@ class BuildProfile:
                     errors.extend(env_names_errors(axes.env, f"{where}.env"))
         return errors
 
-    def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:
+    def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:
         """Resolve where this deployment reads machine facts and its own content.
 
         The one resolution point for ``machine:``, shared by the build,
         ``osprey facility`` and ``osprey validate``. The content root is always
-        ``<data>/facility``; the machine root is the same directory unless
-        ``machine:`` names another one.
+        the facility row beside the profile (``<profile dir>/facility``); the
+        machine root is the same directory unless ``machine:`` names another
+        one.
 
-        A named machine root must not overlap the ``data:`` tree in either
+        A named machine root must not overlap the content root in either
         direction, since one tree would then be read in both roles; and it
         must hold ``identity.yaml``. The identity requirement is what catches
         an uninitialised submodule (an empty directory), and it keeps the
@@ -738,51 +709,56 @@ class BuildProfile:
             profile_dir: Directory holding the profile file.
 
         Returns:
-            ``None`` when the profile declares no ``data:``; a single-tree
-            :class:`FacilityRoots` when it declares no ``machine:``; otherwise
-            the machine root and ``<data>/facility``.
+            A single-tree :class:`FacilityRoots` when the profile declares no
+            ``machine:``; otherwise the machine root and the content root.
 
         Raises:
             FacilityBuildError: ``profile-invalid`` when the machine root and
-                the data tree overlap, ``machine-missing`` when the machine
+                the content root overlap, ``machine-missing`` when the machine
                 root holds no ``identity.yaml``.
         """
-        data_root = self.resolved_data_root(profile_dir)
-        if data_root is None:
-            return None
-        content = repo_layout.child_path(data_root, "data", "facility")
+        facility_in_repo = repo_layout.entry("facility").path
+        content = profile_dir.joinpath(*facility_in_repo.split("/"))
         if not isinstance(self.machine, str) or not self.machine.strip():
             return FacilityRoots.single(content)
         machine = (profile_dir / self.machine).resolve()
-        if machine.is_relative_to(data_root) or data_root.is_relative_to(machine):
+        resolved_content = content.resolve()
+        if machine.is_relative_to(resolved_content) or resolved_content.is_relative_to(machine):
             raise FacilityBuildError(
                 "profile-invalid",
                 self.machine,
-                [self.machine, self.data or ""],
-                "point `machine:` at a directory outside the `data:` tree, and "
-                "`data:` at one outside the machine root",
+                [self.machine, facility_in_repo],
+                f"point `machine:` at a directory outside the deployment's "
+                f"`{facility_in_repo}/` tree, and not at a directory holding it",
                 record_kind="path",
                 detail=(
-                    f"the machine root {self.machine!r} and the data tree {self.data!r} "
-                    "overlap, so one directory would be read both as machine facts and "
-                    "as the deployment's own data"
+                    f"the machine root {self.machine!r} and the deployment's "
+                    f"{facility_in_repo}/ tree overlap, so one directory would be read "
+                    "both as machine facts and as the deployment's own content"
                 ),
             )
         identity = machine / "identity.yaml"
         if not identity.is_file():
-            hint = ""
-            # A machine repository is a deployment root, laid out as declared.
-            facility_in_repo = repo_layout.child_display_path("data", "facility")
-            machine_data = machine / repo_layout.entry("data").path
-            if repo_layout.child_path(machine_data, "data", "facility").is_dir():
+            named = self.machine.rstrip("/")
+            # A machine repository is another deployment root on its own
+            # release: its facility sits at the facility row's path, or at
+            # that row's former location on a release before the move.
+            spellings = (facility_in_repo, *repo_layout.former_locations(facility_in_repo))
+            found = next(
+                (rel for rel in spellings if machine.joinpath(*rel.split("/")).is_dir()), None
+            )
+            if found is not None:
                 hint = (
-                    f"; {self.machine}/{facility_in_repo} exists, so `machine:` likely names "
-                    f"the repository top instead of its facility directory: state "
-                    f"`machine: {self.machine.rstrip('/')}/{facility_in_repo}`"
+                    f"; {named}/{found} exists, so `machine:` likely names the repository "
+                    f"top instead of its facility directory: state `machine: {named}/{found}`"
+                )
+            else:
+                hint = "; a machine repository holds it at " + " or ".join(
+                    f"`<machine>/{rel}`" for rel in spellings
                 )
             raise FacilityBuildError(
                 "machine-missing",
-                f"{self.machine.rstrip('/')}/identity.yaml",
+                f"{named}/identity.yaml",
                 [self.machine],
                 "point `machine:` at the machine repository's facility directory "
                 "(the one holding identity.yaml); for a git submodule, run "
@@ -2061,35 +2037,6 @@ class BuildProfile:
         # (`refuse_inputs_outside_repository`); here only existence and shape
         # are checked.
         #
-        # It is also required. ``data:`` is the ONLY source of the project's
-        # ``data/`` tree — the build copies it and nothing else — so a profile
-        # that names none states a deployment with no channel databases, drive
-        # limits or seeds to build from. A bundled preset is exempt: it is
-        # resolved out of the packaged presets directory and has no profile
-        # directory to anchor a tree against (``--preset`` refuses ``data:``
-        # outright), and it is ``osprey init`` that materializes the tree and
-        # writes the key into the profile it emits. A layer needs no
-        # exemption: it resolves over the ``profile.yml`` it lives under, and
-        # inherits that file's ``data:`` before this runs.
-        if self.data is None:
-            if not is_bundled_preset_dir(profile_dir):
-                errors.append(
-                    "data is required: it names the facility data tree this deployment "
-                    "builds from, as a path relative to profile.yml (a materialized "
-                    "profile says `data: data`). Run `osprey init <dir> --preset <name>` "
-                    "to materialize a profile and its tree, or add `data: <dir>` naming "
-                    "the tree this profile already carries."
-                )
-        elif not isinstance(self.data, str) or not self.data.strip():
-            errors.append(f"data must be a non-empty directory path (got {self.data!r})")
-        else:
-            data_root = self.resolved_data_root(profile_dir)
-            assert data_root is not None  # narrows for type-checkers
-            if not data_root.exists():
-                errors.append(f"data directory not found: {self.data} (resolved: {data_root})")
-            elif not data_root.is_dir():
-                errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
-
         # ``machine:`` is only shape-checked here; whether the location holds a
         # machine is resolved_facility_roots' job, which raises the facility
         # stop the build and ``osprey validate`` both report.

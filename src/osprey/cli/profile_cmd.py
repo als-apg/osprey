@@ -1,9 +1,9 @@
 """Profile command group — inspect build profiles, and materialize one.
 
 A build profile is the editable source a deployment owns: the ``profile.yml`` at
-its repo root plus the data tree and convention directories beside it. This
-group holds the read-only verbs that act on that source, kept separate from
-``osprey build``, which consumes a profile and renders ``build/`` from it.
+its repo root plus the facility tree, web content and convention directories
+beside it. This group holds the read-only verbs that act on that source, kept
+separate from ``osprey build``, which consumes a profile and renders ``build/`` from it.
 
 The write half lives elsewhere by design: ``osprey init`` creates the deployment
 repo (through :func:`_materialize_profile_directory` here, which is the one
@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 import shutil
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -114,7 +114,7 @@ def validate(target: Path) -> None:
 
     TARGET is a profile directory (its profile.yml is used) or a path to a
     profile file. Resolves 'extends:' chains and runs the full consistency
-    check — convention directories, the 'data:' tree, service templates,
+    check — convention directories, service templates,
     lifecycle steps, env vars — reporting every problem found, not just the
     first.
 
@@ -282,11 +282,6 @@ def panels(as_json: bool, html_path: Path | None, repo: Path | None) -> None:
             reporter.echo(f"wrote {html_path}")
 
 
-# Directory the materialized data tree gets, and the value written to the
-# profile's ``data:`` key: the data row's path. One constant so the copy target
-# and the emitted key cannot drift apart.
-_PROFILE_DATA_DIRNAME = repo_layout.entry("data").path
-
 # The framework template tree's own directory of the generic context baseline.
 # The template tree is not laid out as a deployment, so this does not follow the
 # per-user context row.
@@ -330,13 +325,6 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = repo_layout.paths(
     repo_layout.rows_with_init(repo_layout.InitRole.REPLACED)
 )
 
-# Build exhaust that a source checkout may hold inside a bundle's data tree but
-# a wheel install never does. Copying it would make an emission from a
-# checkout differ from an emission from a wheel, so the copy drops it. Paths are
-# relative to the data root, matched segment-wise so an unrelated `results/`
-# elsewhere in the tree is untouched.
-_EXCLUDED_DATA_SUBTREES: tuple[tuple[str, ...], ...] = (("benchmarks", "results"),)
-
 
 def _directory_derived_name(dirname: str) -> str:
     """The facility's display name, read off the directory the operator chose.
@@ -346,30 +334,6 @@ def _directory_derived_name(dirname: str) -> str:
     result as an ordinary editable key.
     """
     return dirname.replace("-", " ").replace("_", " ").title()
-
-
-def _data_copy_ignore(source_root: Path) -> Callable[[str, list[str]], set[str]]:
-    """``shutil.copytree`` ignore callable dropping :data:`_EXCLUDED_DATA_SUBTREES`.
-
-    Matching is by position in the tree, not by name: only the directory at
-    exactly ``benchmarks/results`` under ``source_root`` is dropped, so a
-    ``results/`` a bundle legitimately ships anywhere else comes across.
-    """
-    root = source_root.resolve()
-
-    def ignore(directory: str, names: list[str]) -> set[str]:
-        try:
-            here = Path(directory).resolve().relative_to(root).parts
-        except ValueError:
-            # Outside the tree (a symlinked subdirectory): nothing to drop.
-            return set()
-        return {
-            subtree[-1]
-            for subtree in _EXCLUDED_DATA_SUBTREES
-            if subtree[:-1] == here and subtree[-1] in names
-        }
-
-    return ignore
 
 
 class _ProviderCatalogPlan(NamedTuple):
@@ -1809,10 +1773,8 @@ def _materialize_profile_directory(
     from .templates.manager import TemplateManager
 
     # Resolving through the public path validates the preset AND its --set
-    # edits up front, and names the bundle whose data tree gets copied. It also
-    # rejects a user-supplied `data:` in preset mode, which is right: this
-    # command materializes the tree, so pointing it elsewhere is a mistake.
-    # Everything it rejects is a user error, so it surfaces as one.
+    # edits up front, and names the bundle whose tree gets copied. Everything it
+    # rejects is a user error, so it surfaces as one.
     try:
         edit = cli_edit_layer(set_pairs)
         if "extends" in edit:
@@ -1858,8 +1820,8 @@ def _materialize_profile_directory(
         )
 
     manager = TemplateManager()
-    # The packaged data this repo's `data/` is copied from: the app template's
-    # `data/` plus the facility at `data/facility/`. Read off the preset chain,
+    # The packaged data this repo's source trees are copied from: the app
+    # template's `web/` plus the facility at `facility/`. Read off the preset chain,
     # not off `resolved`: both names are preset-side only, so they never reach
     # the profile the emission below writes.
     data_bundle = preset_data_bundle(normalized_preset)
@@ -1924,12 +1886,9 @@ def _materialize_profile_directory(
     # would document a directory that was never made.
     roster = _roster_user_names(resolved.config)
 
-    # The materialized tree is what the build must read, so `data:` is emitted
-    # as an active key — injected through the same --set edit a user would
-    # make, rather than through a second path into the resolved content.
     profile_text = emit_standalone_profile_yaml(
         preset_name=normalized_preset,
-        set_pairs=(*set_pairs, f"data={_PROFILE_DATA_DIRNAME}"),
+        set_pairs=set_pairs,
         profile_name=profile_name_default,
         project_name=project_name,
         extra_layers=extra_layers,
@@ -1956,14 +1915,13 @@ def _materialize_profile_directory(
 
     try:
         # Verbatim copy (D1/FR2): staging subdirectories and any stray `.j2`
-        # come across byte-identical — a profile data tree is content, never
-        # templates, so nothing here is rendered. The one exclusion is build
-        # exhaust the wheel does not ship either (_EXCLUDED_DATA_SUBTREES).
+        # come across byte-identical — a profile's source trees are content,
+        # never templates, so nothing here is rendered.
         # The facility, and any files this template shares with another one,
         # land beside the template's own, byte-identical, so the profile
         # cannot tell them apart; the starter reviewer prompt lands in the code
         # reviewer's directory.
-        preset_data.copy_into(target, ignore=_data_copy_ignore(preset_data.app_data))
+        preset_data.copy_into(target)
         (target / "profile.yml").write_text(profile_text, encoding="utf-8")
         (target / PROVIDERS_FILENAME).write_text(catalog.text, encoding="utf-8")
         # Every watchdog the block names, enabled or not, so the files travel with
@@ -2137,8 +2095,8 @@ def _materialize_profile_directory(
 
         save_preset_base(target)
 
-        # The round-trip runs last because it validates `data:` against the tree
-        # that must already be on disk. Only the host profile is resolved: a
+        # The round-trip runs last because it validates the profile against the
+        # tree that must already be on disk. Only the host profile is resolved: a
         # tier file is a delta, meaningless on its own, and resolving one is
         # resolving the host with that delta merged in — which the host's own
         # round-trip already covers.

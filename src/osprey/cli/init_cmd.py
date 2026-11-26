@@ -6,7 +6,7 @@ repository that is the deployment: one directory, four zones.
     my-assistant/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  tiers/  apps/  .osprey/
+    ├── facility/  web/  tiers/  apps/  .osprey/
     ├── agent/context/  agent/watchdogs/  agent/code_review/
     ├── agent/rules/  agent/mcp_servers/   (where the profile selects or the bundle ships them)
     ├── .gitignore  .env.example  .env.shared  ops/ci-extra.yml
@@ -344,7 +344,7 @@ git clone <this repo> && tar xf state.tar.gz && osprey build && osprey up -d
 
 ### Adding an MCP server of your own
 
-Put the server's Python package at `agent/mcp_servers/<name>/`. `osprey build` copies
+Put the server's Python package at `{repo_layout.entry("mcp_servers").path}/<name>/`. `osprey build` copies
 it to `{BUILD_OUTPUT_DIR}/_mcp_servers/<name>/`, and an entry under `mcp_servers:`
 in `profile.yml` says how to start it:
 
@@ -1480,7 +1480,7 @@ def init(
 
     \b
       profile.yml     the manifest; everything the preset configures, explicit
-      data/ tiers/ apps/ triggers.yml  the material it names — yours to edit
+      facility/ web/ tiers/ apps/ triggers.yml  the material it names — yours to edit
       .env            provider keys, seeded from your shell where it has them
       build/          rendered by `osprey build`; gitignored, 100% disposable
       var/            agent memory and audit log; gitignored, durable
@@ -2132,10 +2132,15 @@ def _entry_list(target: Path, materialized: _MaterializedProfile) -> list[str]:
         by_dir.setdefault(layer.parent.name, []).append(layer.stem)
     rows: list[tuple[str, str]] = [
         ("profile.yml", "your assistant's settings; edit this"),
-        (
-            repo_layout.listing_name(repo_layout.entry("data")),
-            "channel lists and facility docs; edit these",
-        ),
+    ]
+    entry_notes = (
+        ("facility", "channel lists and facility docs; edit these"),
+        ("web", "the screens and pages the web panels show"),
+    )
+    rows += [
+        (f"{repo_layout.entry(key).path}/", note)
+        for key, note in entry_notes
+        if (target / repo_layout.entry(key).path).is_dir()
     ]
     rows += [
         (f"{dirname}/", f"{_LAYER_ENTRY_NOTES[kind]}: {', '.join(by_dir[dirname])}")

@@ -556,7 +556,7 @@ def resolve_build_document(
 
     Raises:
         BuildProfileError: For mutual-exclusion violations, missing files,
-        invalid YAML, a ``data:`` tree in preset mode, or validation failures.
+        invalid YAML, or validation failures.
     """
     if profile_path is not None and preset is not None:
         raise BuildProfileError("Pass either a profile path or --preset, not both.")
@@ -585,18 +585,6 @@ def resolve_build_document(
         # inheritance merge to union with the preset's, and a subtree it names
         # outranks the deeper keys the preset or a parent spells beneath.
         raw = apply_cli_edits(raw, set_pairs)
-
-        # Checked after extends resolution so no injection path escapes: the
-        # preset itself, a --set pair, or an extends parent. A preset
-        # has no profile directory to anchor a data tree against (profile_dir is
-        # the bundled package dir), so carrying one is always a mistake.
-        if raw.get("data") is not None:
-            raise BuildProfileError(
-                f"Profile key 'data' is not supported with --preset (got {raw['data']!r}). "
-                f"A preset carries no profile directory to resolve the data tree against. "
-                f"Materialize the preset first — 'osprey init DIR --preset {preset}' — "
-                f"then build from that directory."
-            )
     else:
         assert profile_path is not None  # narrows for type-checkers
         if not profile_path.exists():

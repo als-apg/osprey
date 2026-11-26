@@ -54,7 +54,6 @@ from osprey.deployment.host_binding import (
     osprey_owns_binding,
 )
 from osprey.optimizer_connection import OPTIMIZER_PANEL_READ_TIMEOUT_S
-from osprey.repo_layout import child_display_path
 from osprey.repo_layout import entry as root_entry
 from osprey.utils.config_writer import (
     anchored_append,
@@ -1796,7 +1795,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
         )
     logger.debug(
         "    Data:       requires <project>/data/simulator/addresses.json "
-        f"(the build writes it from {child_display_path('data', 'facility')}/; "
+        f"(the build writes it from {root_entry('facility').path}/; "
         "without it the IOC exits)."
     )
     logger.debug(

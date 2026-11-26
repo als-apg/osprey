@@ -1,20 +1,22 @@
-"""Tests for the profile ``data:`` tree replacing the bundle's data tree.
+"""Tests for the deployment's declared sources replacing the bundle's data tree.
 
-A profile that declares ``data:`` sources the project's ``data/`` directory
-from its own tree instead of ``apps/<data_bundle>/data/``. That is a full
-replacement, not a layer, and the tree is content rather than templates:
+A deployment's render sources its ``data/`` from the declared sources beside
+the profile (the ``facility/`` tree and the ``web/`` content), never from
+``apps/<data_bundle>/data/``; no profile key names them. That is a full
+replacement, not a layer, and the sources are content rather than templates:
 
 * a stray ``.j2`` file lands byte-identical, extension intact
-* neither ``copy_template_data`` branch that reads the bundle contributes a
-  file (the ``apps/<bundle>/data`` derivation nor the rglob fallback/merge)
+* no file of the bundle's packaged ``data/`` reaches the render, whatever its
+  shape
 * the build-time pipeline is otherwise untouched: the benchmark query step runs
-  against the profile-sourced tree, and the project/ mirror applied later still
-  wins
+  against the deployment's facility tree, and the project/ mirror applied later
+  still wins
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -28,31 +30,30 @@ from osprey.facility.views.limits import limits_document
 from osprey_facility.build import build_facility
 from osprey_facility.records import FacilityRecords
 from tests._builds import FRAMEWORK_CHECKS
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 
 
 def _write_profile(profile_dir: Path, **extra) -> Path:
-    """Materialize a profile directory carrying its own copy of the bundle data.
+    """Materialize a profile directory carrying its own copy of the bundle's sources.
 
-    The copy starts byte-identical to the demo preset's packaged
-    data (app template ``data/`` plus its facility) so the
-    benchmark query sources the build copies from are present; individual tests
-    then mutate it to make the replacement observable.
+    The copy starts byte-identical to what ``osprey init`` lays down from the
+    demo preset (its ``facility/`` and ``web/``) so the benchmark query sources
+    the build copies from are present; individual tests then mutate it to make
+    the replacement observable.
     """
     profile_dir.mkdir(parents=True, exist_ok=True)
-    copy_bundle_data(profile_dir / "data")
+    shutil.copytree(bundle_source_root(), profile_dir, dirs_exist_ok=True)
 
     profile: dict = {
         "name": "Data Root Test",
         "project_name": "data-root-test",
         "extends": "demo",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "in_context",
         # The preset deploys a virtual accelerator, which serves the project's
-        # own channels and so refuses a build whose data tree stages none. These
-        # tests replace that tree wholesale — that is their subject — so the
+        # own channels and so refuses a build whose sources stage none. These
+        # tests replace those sources wholesale — that is their subject — so the
         # inherited block is dropped rather than fed.
         "virtual_accelerator": None,
         # With no accelerator to stand up, the baseline moves off the stand-in
@@ -115,9 +116,11 @@ def _build(profile_path: Path) -> Path:
     return repo / "build"
 
 
-#: Where the build reads the in_context mode's benchmark queries from, and the
-#: flat channel database the project/ mirror overrides.
-QUERIES_SOURCE = Path("data/facility/benchmarks/channel_finder/in_context_queries.json")
+#: Where the build reads the in_context mode's benchmark queries from.
+QUERIES_SOURCE = Path("facility/benchmarks/channel_finder/in_context_queries.json")
+
+#: The flat channel database the build writes from the facility tree, which the
+#: project/ mirror overrides.
 FLAT_DB = Path("data/channel_databases/in_context.json")
 
 STRAY_J2 = b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
@@ -134,65 +137,62 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
     """
     profile_dir = tmp_path_factory.mktemp("data-root") / "profile"
     profile_path = _write_profile(profile_dir)
-    data = profile_dir / "data"
-    (data / "facility_notes.md.j2").write_bytes(STRAY_J2)
-    # A profile-only file proves the profile tree is the source.
-    (data / "facility_marker.txt").write_text("profile tree\n")
+    facility = profile_dir / "facility"
+    (facility / "facility_notes.md.j2").write_bytes(STRAY_J2)
+    # A deployment-only file proves the deployment's tree is the source.
+    (facility / "facility_marker.txt").write_text("profile tree\n")
     # Queries recognizably NOT the bundle's.
     (profile_dir / QUERIES_SOURCE).write_text(PROFILE_QUERIES)
-    # The mirror and the profile's flat DB differ, so only the mirror landing
-    # last can pass.
-    (profile_dir / "ops" / "project" / FLAT_DB).parent.mkdir(parents=True)
-    (profile_dir / "ops" / "project" / FLAT_DB).write_text(MIRROR_BODY)
-    (profile_dir / FLAT_DB).parent.mkdir(parents=True, exist_ok=True)
-    (profile_dir / FLAT_DB).write_text('{"channels": {"PROFILE:FLAT": {}}}\n')
+    # The mirror and the database the build writes differ, so only the mirror
+    # landing last can pass.
+    mirrored = profile_dir / "ops" / "project" / FLAT_DB
+    mirrored.parent.mkdir(parents=True)
+    mirrored.write_text(MIRROR_BODY)
     return profile_dir, _build(profile_path)
 
 
 class TestProfileDataIsContentNotTemplates:
-    """The profile data tree is copied verbatim — no Jinja pass."""
+    """The deployment's sources are copied verbatim — no Jinja pass."""
 
     def test_stray_j2_survives_byte_identical(self, built: tuple[Path, Path]) -> None:
         _, project_dir = built
 
-        landed = project_dir / "data" / "facility_notes.md.j2"
-        assert landed.exists(), "stray .j2 was dropped from the profile data tree"
+        landed = project_dir / "data" / "facility" / "facility_notes.md.j2"
+        assert landed.exists(), "stray .j2 was dropped from the deployment's facility tree"
         assert landed.read_bytes() == STRAY_J2, "stray .j2 was rendered instead of copied verbatim"
-        assert not (project_dir / "data" / "facility_notes.md").exists(), (
+        assert not (project_dir / "data" / "facility" / "facility_notes.md").exists(), (
             ".j2 extension was stripped — the profile tree went through the render path"
         )
 
 
 class TestFullReplacement:
-    """No bundle file reaches a project built from a profile data tree."""
+    """No bundle file reaches a project built from the deployment's sources."""
 
     def test_bundle_files_absent_from_build(self, built: tuple[Path, Path]) -> None:
         profile_dir, project_dir = built
-        assert (project_dir / "data" / "facility_marker.txt").exists(), (
-            "profile-only file did not land — the profile tree was not the source"
+        assert (project_dir / "data" / "facility" / "facility_marker.txt").exists(), (
+            "deployment-only file did not land — the deployment's tree was not the source"
         )
-        # The build writes the limits database itself, from the profile tree's
+        # The build writes the limits database itself, from the deployment's
         # `facility/limits.yaml`.
         limits = json.loads((project_dir / "data" / "channel_limits.json").read_text())
-        facility_dir = profile_dir / "data" / "facility"
+        facility_dir = profile_dir / "facility"
         assert limits == limits_document(
             FacilityRecords(
                 build_facility(
                     facility_dir, project_name=project_dir.name, extra_checks=FRAMEWORK_CHECKS
                 )
             )
-        ), "the limits database is not the view of the profile tree's limits.yaml"
+        ), "the limits database is not the view of the deployment's limits.yaml"
 
     @pytest.mark.parametrize("bundle_data_at_top", [True, False])
     def test_both_bundle_derivation_branches_are_bypassed(
         self, tmp_path: Path, bundle_data_at_top: bool
     ) -> None:
-        """``data_root`` short-circuits before either bundle-reading branch.
+        """The render reads the deployment root, never the bundle's packaged ``data/``.
 
-        ``copy_template_data`` finds bundle data two ways: the direct
-        ``apps/<bundle>/data`` derivation, and — when that is absent — an rglob
-        for a nested ``data/`` directory that merges into an existing
-        destination. Parametrizing over the bundle's shape exercises both.
+        A bundle can hold its data at ``apps/<bundle>/data`` or nested deeper;
+        parametrizing over the shape shows neither is read.
         """
         template_root = tmp_path / "templates"
         bundle_dir = template_root / "apps" / "demo"
@@ -203,14 +203,13 @@ class TestFullReplacement:
         bundle_data.mkdir(parents=True)
         (bundle_data / "from_bundle.txt").write_text("bundle\n")
 
-        data_root = tmp_path / "facility_data"
-        (data_root / "nested").mkdir(parents=True)
-        (data_root / "from_profile.txt").write_text("profile\n")
-        (data_root / "nested" / "seed.json.j2").write_text("{{ not_rendered }}\n")
+        repo_root = tmp_path / "deployment"
+        facility = repo_root / "facility"
+        (facility / "nested").mkdir(parents=True)
+        (facility / "from_profile.txt").write_text("profile\n")
+        (facility / "nested" / "seed.json.j2").write_text("{{ not_rendered }}\n")
 
         project_dir = tmp_path / "project"
-        # Pre-populate data/ so the fallback's merge-into-existing path would
-        # be taken if the bypass were missing.
         (project_dir / "data").mkdir(parents=True)
 
         copy_template_data(
@@ -220,15 +219,14 @@ class TestFullReplacement:
             "demo",
             {},
             jinja_env=Environment(loader=FileSystemLoader(str(template_root))),
-            data_root=data_root,
+            repo_root=repo_root,
         )
 
-        assert (project_dir / "data" / "from_profile.txt").read_text() == "profile\n"
-        assert (project_dir / "data" / "nested" / "seed.json.j2").read_text() == (
-            "{{ not_rendered }}\n"
-        )
-        assert not (project_dir / "data" / "from_bundle.txt").exists(), (
-            "bundle data leaked past the data_root bypass"
+        rendered = project_dir / "data" / "facility"
+        assert (rendered / "from_profile.txt").read_text() == "profile\n"
+        assert (rendered / "nested" / "seed.json.j2").read_text() == "{{ not_rendered }}\n"
+        assert not any(path.name == "from_bundle.txt" for path in project_dir.rglob("*")), (
+            "bundle data leaked into the render"
         )
 
 
@@ -241,21 +239,23 @@ class TestBuildPipelineOrderingHolds:
 
         queries = project_dir / "data" / "benchmarks" / "queries.json"
         assert queries.read_text() == PROFILE_QUERIES, (
-            "benchmark queries were not copied from the profile's tree"
+            "benchmark queries were not copied from the deployment's facility tree"
         )
         assert not (project_dir / "data" / "facility" / "benchmarks" / "channel_finder").exists(), (
-            "channel_finder/ subtree reached the render from the profile-sourced tree"
+            "channel_finder/ subtree reached the render from the deployment's tree"
         )
-        assert queries_src.exists(), "the profile's own tree was pruned"
+        assert queries_src.exists(), "the deployment's own tree was pruned"
 
-    def test_project_mirror_wins_over_profile_data(self, built: tuple[Path, Path]) -> None:
-        """The project/ mirror applies after the data tree lands, so it wins."""
+    def test_project_mirror_wins_over_the_deployment_sources(
+        self, built: tuple[Path, Path]
+    ) -> None:
+        """The project/ mirror applies after the sources land, so it wins."""
         _, project_dir = built
 
-        assert (project_dir / "data" / "facility_marker.txt").exists(), (
-            "data/ was not sourced from the profile tree — the ordering claim is untested"
+        assert (project_dir / "data" / "facility" / "facility_marker.txt").exists(), (
+            "data/ was not sourced from the deployment's tree — the ordering claim is untested"
         )
         landed = project_dir / FLAT_DB
         assert landed.read_text() == MIRROR_BODY, (
-            "project/ mirror did not win over the profile data tree"
+            "project/ mirror did not win over what the build writes from the facility tree"
         )
