@@ -480,8 +480,8 @@ Five locations are protected:
 
   - ``profile.yml``, with ``providers.yml``, ``triggers.yml`` and
     ``.dockerignore`` beside it
-  - the ``tiers/``, ``apps/``, ``profiles/``, ``data/`` and ``.osprey/``
-    directories
+  - the ``facility/``, ``web/``, ``tiers/``, ``apps/``, ``profiles/`` and
+    ``.osprey/`` directories
   - the ``agent/`` directory whole, which groups what the agent is made of
     (``agent/rules/``, ``agent/skills/``, ``agent/agents/``,
     ``agent/commands/``, ``agent/output-styles/``, ``agent/hooks/``,

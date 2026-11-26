@@ -676,7 +676,7 @@ class TestTheGateIsDiscriminating:
 
         for authored in ("data/facility/limits.yaml", "data/facility"):
             channel = reserved_write_channel(project_dir, authored)
-            assert channel is not None and "`data/facility/`" in channel
+            assert channel is not None and "`facility/`" in channel
 
     def test_the_graph_views_are_refused(self, project_dir):
         """The graph view and its index are build output, derived from the facility tree."""
@@ -684,7 +684,7 @@ class TestTheGateIsDiscriminating:
 
         for view in ("data/graph/facility.ttl", "data/channel_databases/graph.duckdb"):
             channel = reserved_write_channel(project_dir, view)
-            assert channel is not None and "`data/facility/`" in channel
+            assert channel is not None and "`facility/`" in channel
 
     def test_a_knowledge_page_linked_into_the_facility_tree_is_refused(self, project_dir):
         """The opening is for the file the bytes land in, not the name spelled."""
@@ -696,7 +696,7 @@ class TestTheGateIsDiscriminating:
 
         channel = reserved_write_channel(project_dir, "data/facility/knowledge/alias.md")
 
-        assert channel is not None and "`data/facility/`" in channel
+        assert channel is not None and "`facility/`" in channel
 
 
 # ── setup_patch: the one surface that publishes out-of-process ───────

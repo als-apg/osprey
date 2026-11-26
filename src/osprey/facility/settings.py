@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
-from osprey.repo_layout import child_display_path, entry
+from osprey.repo_layout import display_path, entry
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
 from osprey_connectors.simulation.servers import server_addresses
@@ -424,7 +424,7 @@ def _check_start_set(inputs: _Inputs) -> None:
 
 def _vocabulary_source_display() -> str:
     """How a message names the vocabulary file the facility tree is authored with."""
-    return child_display_path("data", "facility", source_tree.path("ariel_vocabulary"))
+    return display_path("facility", source_tree.path("ariel_vocabulary"))
 
 
 def _check_vocabulary_enabled(inputs: _Inputs) -> None:
@@ -484,8 +484,8 @@ def _check_dataset(inputs: _Inputs) -> None:
         raise _refusal(
             BENCHMARK_DATASET_KEY,
             "names a benchmark query file and the facility ships no "
-            f"{child_display_path('data', 'facility', QUERY_SOURCES)}/",
-            f"add the query sources to {child_display_path('data', 'facility', QUERY_SOURCES)}/, "
+            f"{display_path('facility', QUERY_SOURCES)}/",
+            f"add the query sources to {display_path('facility', QUERY_SOURCES)}/, "
             f"or remove `{BENCHMARK_DATASET_KEY}`",
         )
 
@@ -551,7 +551,7 @@ def fill_facility_settings(
 
     Args:
         records: The build's facility file's records.
-        facility_dir: The build's machine root, its ``data/facility``
+        facility_dir: The build's machine root, its ``facility/``
             directory unless mounted.
         project_root: The repository the build renders, which a stated
             relative path is resolved against.

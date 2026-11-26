@@ -22,7 +22,7 @@ def test_source_zone_entries() -> None:
         ".dockerignore",
         ".osprey",
         "apps",
-        "data",
+        "facility",
         "ops",
         "personas",  # retired-spelling
         "profile.yml",
@@ -30,6 +30,7 @@ def test_source_zone_entries() -> None:
         "providers.yml",
         "tiers",
         "triggers.yml",
+        "web",
         "agent",
     }
 
@@ -64,7 +65,7 @@ def test_known_root_entries() -> None:
         "agent",
         "apps",
         "build",
-        "data",
+        "facility",
         "ops",
         "personas",  # retired-spelling
         "profile.yml",
@@ -73,6 +74,7 @@ def test_known_root_entries() -> None:
         "tiers",
         "triggers.yml",
         "var",
+        "web",
     }
 
 
@@ -213,7 +215,8 @@ def test_materialized_source_entries() -> None:
     assert tuple(profile_cmd.MATERIALIZED_SOURCE_ENTRIES) == (
         "profile.yml",
         "providers.yml",
-        "data",
+        "facility",
+        "web",
         "tiers",
         "apps",
         ".osprey",
@@ -309,6 +312,8 @@ def test_profile_source_entries() -> None:
         "ci-extra.yml",
         "osprey.service",
         ".dockerignore",
+        "facility",
+        "web",
         "data",
         "tiers",
         "personas",  # retired-spelling

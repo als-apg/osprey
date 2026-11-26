@@ -24,10 +24,16 @@ A former location that is no longer read at all, only refused until its
 contents are moved, is a moved-from path of the live row or child
 (:attr:`RootEntry.moved_from`, :attr:`RootChild.moved_from`). Those paths are
 relative to the deployment root, whatever their successor is, and
-:func:`retired_moves` is the one table of them.
+:func:`retired_moves` is the one table of them. A former top-level directory
+whose contents all moved elsewhere, and which no move names whole, is a
+dissolved name (:func:`dissolved_names`).
+
+A source the build copies into the render carries its place there
+(:attr:`RootEntry.render`, :attr:`RootChild.render`), so the render is
+assembled from declared sources only (:func:`rendered_sources`).
 
 Children are named paths inside a row (:data:`ROOT_CHILDREN`): the CI verifier
-inside ``scripts``, the facility tree inside ``data``. A child follows its
+inside ``scripts``, the canopy library inside ``web``. A child follows its
 parent wherever the parent resolves, and is in no zone table. A child's key
 names its role, lowercase words joined by hyphens (``verify-script``,
 ``canopy-library``), and never spells its file: the key survives the child
@@ -65,7 +71,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
+from typing import NamedTuple
 
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey_connectors.dotenv import ENV_LOCAL_FILENAME, ENV_SHARED_FILENAME
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -74,6 +82,7 @@ __all__ = [
     "ROOT_ENTRIES",
     "EntryKind",
     "InitRole",
+    "RenderedSource",
     "RootChild",
     "RootEntry",
     "RootMove",
@@ -84,6 +93,7 @@ __all__ = [
     "child_path",
     "convention_rows",
     "display_path",
+    "dissolved_names",
     "entry",
     "former_locations",
     "image_excluded_rows",
@@ -92,6 +102,7 @@ __all__ = [
     "moved_from_top_level_names",
     "non_convention_source_rows",
     "paths",
+    "rendered_sources",
     "retired_moves",
     "retired_paths",
     "rows_in_zone",
@@ -174,6 +185,9 @@ class RootEntry:
     #: Former locations never read again, only refused until their contents
     #: move to :attr:`path`. Relative to the root: POSIX, possibly nested.
     moved_from: tuple[str, ...] = ()
+    #: Where the build copies this source to, relative to the render directory,
+    #: else ``None``: the build does not copy it as a declared source.
+    render: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +204,13 @@ class RootChild:
     #: Former locations never read again, only refused until their contents
     #: move here. Relative to the deployment root, not to the parent.
     moved_from: tuple[str, ...] = ()
+    #: Where the build copies this child to, relative to the render directory,
+    #: else ``None``.
+    render: str | None = None
+    #: ``(old, subpath)`` pairs: the former location *old*, relative to the
+    #: deployment root, whose contents move to this child's path joined with
+    #: *subpath*.
+    moved_into: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +223,17 @@ class RootMove:
     new: str
     #: The successor row's kind; a child declares none, so it is ``EITHER``.
     kind: EntryKind
+
+
+class RenderedSource(NamedTuple):
+    """One source the build copies into the render, and where it lands there."""
+
+    #: The row's key, or ``<row>:<child>`` for a child.
+    key: str
+    #: The source, relative to the deployment root.
+    source_rel: str
+    #: Where it lands, relative to the render directory.
+    render_rel: str
 
 
 _FILE = EntryKind.FILE
@@ -228,10 +260,20 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
         init=InitRole.REPLACED,
     ),
     RootEntry(
-        "data",
-        "data",
+        "facility",
+        "facility",
         _DIR,
-        "The deployment's data tree, including the facility description.",
+        "The facility description: devices, channels, simulation and knowledge.",
+        zone=Zone.SOURCE,
+        init=InitRole.REPLACED,
+        moved_from=("data/facility",),
+        render="data/facility",
+    ),
+    RootEntry(
+        "web",
+        "web",
+        _DIR,
+        "The web content the build serves: canopy panels and landing pages.",
         zone=Zone.SOURCE,
         init=InitRole.REPLACED,
     ),
@@ -526,9 +568,8 @@ ROOT_ENTRIES: tuple[RootEntry, ...] = (
     ),
 )
 
-#: Named paths inside a row. The ``data`` children resolve under wherever the
-#: data root resolves (the profile's ``data:`` key, whose default is the row's
-#: path); every other child resolves under its row's path at the repo root.
+#: Named paths inside a row. A child resolves under its row's path at the repo
+#: root.
 ROOT_CHILDREN: tuple[RootChild, ...] = (
     RootChild(
         "scripts",
@@ -542,13 +583,37 @@ ROOT_CHILDREN: tuple[RootChild, ...] = (
         "osprey-boot-hook.sh",
         "The boot hook the systemd scaffolding emits.",
     ),
-    RootChild("data", "facility", "facility", "The facility description."),
-    RootChild("data", "canopy-library", "canopy/library", "The facility's canopy panel library."),
     RootChild(
-        "data",
+        "web",
+        "canopy-library",
+        "canopy/library",
+        "The facility's canopy panel library.",
+        moved_from=("data/canopy/library",),
+        render="data/canopy/library",
+    ),
+    RootChild(
+        "web",
         "canopy-collections",
         "canopy/collections",
         "The facility's canopy collections.",
+        moved_from=("data/canopy/collections",),
+        render="data/canopy/collections",
+    ),
+    RootChild(
+        "web",
+        "canopy-theme",
+        "canopy/theme",
+        "The facility's canopy theme.",
+        moved_from=("data/canopy/theme",),
+        render="data/canopy/theme",
+    ),
+    RootChild(
+        "web",
+        "landing",
+        "landing",
+        "The pages the web terminal's landing screen shows.",
+        moved_from=("data/landing",),
+        render="data/landing",
     ),
     RootChild(
         "var",
@@ -556,6 +621,7 @@ ROOT_CHILDREN: tuple[RootChild, ...] = (
         "runtime",
         "Material the deployment mints at start, such as certificates; never hashed or staged.",
         moved_from=("data/.runtime",),
+        moved_into=tuple((f"data/{lane}_curve", f"{lane}_curve") for lane in LANE_KEYS),
     ),
 )
 
@@ -644,17 +710,73 @@ def retired_moves() -> tuple[RootMove, ...]:
 
 
 def _moves(rows: Iterable[RootEntry], children: Iterable[RootChild]) -> tuple[RootMove, ...]:
-    """The moves *rows* and *children* declare; a child of no row in *rows* declares none."""
+    """The moves *rows* and *children* declare; a child of no row in *rows* declares none.
+
+    A child's :attr:`RootChild.moved_into` pairs follow its own moved-from
+    paths, each successor being the child's path joined with the pair's subpath.
+    """
     rows = tuple(rows)
+    children = tuple(children)
     parents = {row.key: row.path for row in rows}
     return (
         *(RootMove(old, row.path, row.kind) for row in rows for old in row.moved_from),
         *(
-            RootMove(old, f"{parents[item.parent]}/{item.path}", EntryKind.EITHER)
+            move
             for item in children
             if item.parent in parents
-            for old in item.moved_from
+            for move in (
+                *(
+                    RootMove(old, f"{parents[item.parent]}/{item.path}", EntryKind.EITHER)
+                    for old in item.moved_from
+                ),
+                *(
+                    RootMove(old, f"{parents[item.parent]}/{item.path}/{sub}", EntryKind.EITHER)
+                    for old, sub in item.moved_into
+                ),
+            )
         ),
+    )
+
+
+def rendered_sources() -> tuple[RenderedSource, ...]:
+    """Every declared source the build copies into the render, rows first, each in declaration order.
+
+    A child's source is its parent row's path joined with the child's own.
+    """
+    return _rendered(ROOT_ENTRIES, ROOT_CHILDREN)
+
+
+def _rendered(
+    rows: Iterable[RootEntry], children: Iterable[RootChild]
+) -> tuple[RenderedSource, ...]:
+    rows = tuple(rows)
+    parents = {row.key: row.path for row in rows}
+    return (
+        *(RenderedSource(row.key, row.path, row.render) for row in rows if row.render is not None),
+        *(
+            RenderedSource(
+                f"{item.parent}:{item.key}", f"{parents[item.parent]}/{item.path}", item.render
+            )
+            for item in children
+            if item.parent in parents and item.render is not None
+        ),
+    )
+
+
+def dissolved_names() -> tuple[str, ...]:
+    """The top-level names moved-from paths sit under that no move names whole, in first-seen order.
+
+    What an unmigrated deployment holds at its root only as a container of
+    moved content: the name itself is no live entry and no move's old path,
+    so nothing succeeds it and it is emptied rather than moved.
+    """
+    moves = retired_moves()
+    whole = {move.old for move in moves}
+    live = set(top_level_names(ROOT_ENTRIES))
+    return tuple(
+        name
+        for name in dict.fromkeys(move.old.split("/", 1)[0] for move in moves)
+        if name not in whole and name not in live
     )
 
 
@@ -675,8 +797,9 @@ def moved_from_top_level_names(rows: Iterable[RootEntry]) -> tuple[str, ...]:
     """The first segment of each row's moved-from paths, once each, in first-seen order.
 
     What an unmigrated deployment still holds at its root for these rows, and
-    nothing else: a first segment a row of *rows* still occupies
-    (``data/code_review`` answers ``data``) is a live name, not a moved-from one.
+    nothing else: a first segment a row of *rows* still occupies (a moved-from
+    path under ``agent`` while a row lives under ``agent``) is a live name, not
+    a moved-from one.
     """
     rows = tuple(rows)
     live = set(top_level_names(rows))
@@ -721,7 +844,7 @@ def child_display_path(parent: str, key: str, *parts: str) -> str:
     """How a message names the child, or a path inside it, relative to the root.
 
     The parent row's path joined with the child's own, then with *parts*:
-    ``child_display_path("data", "facility", "limits.yaml")``.
+    ``child_display_path("web", "landing", "notice.md")``.
     """
     return display_path(parent, child(parent, key).path, *parts)
 
@@ -794,7 +917,9 @@ def check_layout(rows: Iterable[RootEntry], children: Iterable[RootChild] = ()) 
     POSIX path declared once, is no live or retired path, holds no live path
     (its successor included), lies inside no successor of its own, and lies
     inside another live path only when that is a directory row that is neither
-    a convention nor a layer.
+    a convention nor a layer. No moved-from path lies inside another
+    moved-from path or inside a retired path. A render path is a relative
+    POSIX path declared once and lies inside no other render path.
 
     Raises:
         ValueError: Naming every broken invariant, each overlapping pair once.
@@ -854,6 +979,7 @@ def check_layout(rows: Iterable[RootEntry], children: Iterable[RootChild] = ()) 
         )
 
     problems.extend(_moved_problems(rows, children))
+    problems.extend(_render_problems(rows, children))
 
     if problems:
         raise ValueError("inconsistent deployment-root layout: " + "; ".join(problems))
@@ -876,6 +1002,10 @@ def _moved_problems(rows: tuple[RootEntry, ...], children: tuple[RootChild, ...]
     problems: list[str] = []
     if dup := sorted(old for old, count in Counter(old for old, _ in moves).items() if count > 1):
         problems.append(f"moved-from paths declared twice {dup}")
+    problems.extend(
+        f"moved-from path {inner!r} lies inside the moved-from path {outer!r}"
+        for inner, outer in _nested_pairs(old for old, _ in moves)
+    )
     for old, new in dict.fromkeys(moves):
         if (problem := _relative_posix_problem(old)) is not None:
             problems.append(f"moved-from path {old!r} {problem}")
@@ -885,6 +1015,11 @@ def _moved_problems(rows: tuple[RootEntry, ...], children: tuple[RootChild, ...]
             continue
         if old in retired:
             problems.append(f"moved-from path {old!r} is also a retired path")
+        problems.extend(
+            f"moved-from path {old!r} lies inside the retired path {outer!r}"
+            for outer in sorted(retired)
+            if PurePosixPath(outer) in PurePosixPath(old).parents
+        )
         here = PurePosixPath(old)
         if here in PurePosixPath(new).parents:
             problems.append(f"moved-from path {old!r} holds its successor {new!r}")
@@ -900,4 +1035,22 @@ def _moved_problems(rows: tuple[RootEntry, ...], children: tuple[RootChild, ...]
                     f"moved-from path {old!r} lies inside {live!r}, "
                     "which is not a plain directory row"
                 )
+    return problems
+
+
+def _render_problems(rows: tuple[RootEntry, ...], children: tuple[RootChild, ...]) -> list[str]:
+    """What is wrong with the render paths of *rows* and *children*."""
+    rendered = _rendered(rows, children)
+    problems = [
+        f"render path {source.render_rel!r} of {source.key!r} {problem}"
+        for source in rendered
+        if (problem := _relative_posix_problem(source.render_rel)) is not None
+    ]
+    renders = [source.render_rel for source in rendered]
+    if dup := sorted(path for path, count in Counter(renders).items() if count > 1):
+        problems.append(f"render paths declared twice {dup}")
+    problems.extend(
+        f"render path {inner!r} lies inside the render path {outer!r}"
+        for inner, outer in _nested_pairs(renders)
+    )
     return problems

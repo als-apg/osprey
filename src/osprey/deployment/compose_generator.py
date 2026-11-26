@@ -97,9 +97,7 @@ from osprey_facility import source_tree
 logger = get_logger("deployment.compose")
 
 #: The limits file a build renders the limits database from, as a remedy names it.
-_LIMITS_SOURCE_DISPLAY = repo_layout.child_display_path(
-    "data", "facility", source_tree.path("limits")
-)
+_LIMITS_SOURCE_DISPLAY = repo_layout.display_path("facility", source_tree.path("limits"))
 
 
 def _report_fact(message: str) -> None:
@@ -4411,7 +4409,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
     :param relative_to: Root to spell the directory against in the INFO line
         below. The default view carries exactly one absolute path — the tree the
         build wrote — and a second one wraps a normal terminal and buries it, so
-        this line names ``data/facility/knowledge`` rather than 90 characters of
+        this line names ``facility/knowledge`` rather than 90 characters of
         ``/private/var/folders/...``. Affects the message only; the directory
         acted on is always *path*.
     :type relative_to: str | pathlib.Path | None

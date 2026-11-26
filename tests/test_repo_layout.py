@@ -19,9 +19,11 @@ import pytest
 
 import tests.test_repo_layout_tables as table_pins
 from osprey import repo_layout
+from osprey.bluesky_bridge_connection import LANE_KEYS
 from osprey.repo_layout import (
     EntryKind,
     InitRole,
+    RenderedSource,
     RootChild,
     RootEntry,
     RootMove,
@@ -32,6 +34,7 @@ from osprey.repo_layout import (
     convention_rows,
     display_path,
     entry,
+    former_locations,
     image_excluded_rows,
     layer_rows,
     listing_name,
@@ -115,7 +118,8 @@ def test_a_convention_purpose_is_the_convention_description() -> None:
 #: every other row is a file.
 _DIRECTORY_KEYS = frozenset(
     {
-        "data",
+        "facility",
+        "web",
         "tiers",
         "apps",
         ".osprey",
@@ -151,9 +155,10 @@ def test_child_keys_name_roles() -> None:
     assert keys == {
         ("scripts", "verify-script"),
         ("scripts", "boot-hook"),
-        ("data", "facility"),
-        ("data", "canopy-library"),
-        ("data", "canopy-collections"),
+        ("web", "canopy-library"),
+        ("web", "canopy-collections"),
+        ("web", "canopy-theme"),
+        ("web", "landing"),
         ("var", "runtime"),
     }
     for _, key in keys:
@@ -173,15 +178,15 @@ def test_child_keys_name_roles() -> None:
         (lambda rows: (replace(rows[0], path="a/./b"), *rows[1:]), "empty, '.' or '..' segment"),
         (lambda rows: (replace(rows[0], path="a\\b"), *rows[1:]), "not a POSIX path"),
         (
-            lambda rows: (*rows, RootEntry("inside", "data/inside", EntryKind.DIRECTORY, "x.")),
-            "'data/inside' lies inside 'data'",
+            lambda rows: (*rows, RootEntry("inside", "web/inside", EntryKind.DIRECTORY, "x.")),
+            "'web/inside' lies inside 'web'",
         ),
         (
             lambda rows: tuple(
-                replace(row, retired_paths=("data/old",)) if row.key == "tiers" else row
+                replace(row, retired_paths=("web/old",)) if row.key == "tiers" else row
                 for row in rows
             ),
-            "'data/old' lies inside 'data'",
+            "'web/old' lies inside 'web'",
         ),
         (
             lambda rows: tuple(
@@ -270,25 +275,25 @@ def test_an_image_excluded_row_must_be_one_segment() -> None:
 
 
 def test_an_overlap_is_reported_once() -> None:
-    rows = (*repo_layout.ROOT_ENTRIES, RootEntry("inside", "data/inside", EntryKind.FILE, "x"))
+    rows = (*repo_layout.ROOT_ENTRIES, RootEntry("inside", "web/inside", EntryKind.FILE, "x"))
     with pytest.raises(ValueError) as caught:
         check_layout(rows, repo_layout.ROOT_CHILDREN)
-    assert str(caught.value).count("data/inside") == 1
+    assert str(caught.value).count("web/inside") == 1
 
 
 @pytest.mark.parametrize(
     ("extra", "message"),
     [
         (RootChild("profile.yml", "x", "x", "x"), "names 'profile.yml', not a directory row"),
-        (RootChild("data", "elsewhere", "../x", "x"), "child path '../x' has an empty"),
-        (RootChild("data", "facility", "other", "x"), "duplicate children ['data:facility']"),
+        (RootChild("web", "elsewhere", "../x", "x"), "child path '../x' has an empty"),
+        (RootChild("web", "landing", "other", "x"), "duplicate children ['web:landing']"),
         (
-            RootChild("data", "second-facility", "facility", "x"),
-            "children of 'data' share the path(s) ['facility']",
+            RootChild("web", "second-landing", "landing", "x"),
+            "children of 'web' share the path(s) ['landing']",
         ),
         (
-            RootChild("data", "facility-part", "facility/part", "x"),
-            "child path 'facility/part' of 'data' lies inside 'facility'",
+            RootChild("web", "landing-part", "landing/part", "x"),
+            "child path 'landing/part' of 'web' lies inside 'landing'",
         ),
     ],
 )
@@ -328,7 +333,7 @@ def _planted_rows(
 
 
 def _planted_children() -> tuple[RootChild, ...]:
-    """The live children, whose runtime child moved out of ``data`` to ``var/runtime``."""
+    """The live children: the web content and the runtime child moved out of ``data``."""
     return repo_layout.ROOT_CHILDREN
 
 
@@ -351,8 +356,9 @@ AGENT_MOVES = (
     ("mcp_servers", "agent/mcp_servers"),
 )
 
-#: The top-level names an unmigrated repo holds for those rows: ``data`` is still
-#: a live name, so ``data/code_review`` contributes none.
+#: The top-level names an unmigrated repo holds for those rows. ``data`` is the
+#: facility row's moved-from name, first in declaration order, so
+#: ``data/code_review`` adds nothing new.
 AGENT_GROUP = (
     "rules",
     "skills",
@@ -379,24 +385,60 @@ OPS_MOVES = (
 OPS_GROUP = tuple(old for old, _new, _kind in OPS_MOVES)
 
 
-def test_the_live_moves_group_the_agent_and_ops_trees_and_the_runtime_child() -> None:
+#: What the dissolved ``data`` tree held, and where each part lives now: the
+#: web children's moves, in declaration order.
+WEB_MOVES = (
+    ("data/canopy/library", "web/canopy/library"),
+    ("data/canopy/collections", "web/canopy/collections"),
+    ("data/canopy/theme", "web/canopy/theme"),
+    ("data/landing", "web/landing"),
+)
+
+#: The runtime child's moves: the old runtime directory whole, then one
+#: certificate directory per registered bluesky lane.
+RUNTIME_MOVES = (
+    ("data/.runtime", "var/runtime"),
+    *((f"data/{lane}_curve", f"var/runtime/{lane}_curve") for lane in LANE_KEYS),
+)
+
+
+def test_the_live_moves_group_the_agent_and_ops_trees_and_dissolve_data() -> None:
     assert retired_moves() == (
+        RootMove("data/facility", "facility", EntryKind.DIRECTORY),
         *(RootMove(old, new, EntryKind.DIRECTORY) for old, new in AGENT_MOVES),
         *(RootMove(old, new, kind) for old, new, kind in OPS_MOVES),
-        RootMove("data/.runtime", "var/runtime", EntryKind.EITHER),
+        *(RootMove(old, new, EntryKind.EITHER) for old, new in WEB_MOVES),
+        *(RootMove(old, new, EntryKind.EITHER) for old, new in RUNTIME_MOVES),
     )
-    assert [(item.parent, item.key) for item in repo_layout.ROOT_CHILDREN if item.moved_from] == [
-        ("var", "runtime")
+    assert [
+        (item.parent, item.key)
+        for item in repo_layout.ROOT_CHILDREN
+        if item.moved_from or item.moved_into
+    ] == [
+        ("web", "canopy-library"),
+        ("web", "canopy-collections"),
+        ("web", "canopy-theme"),
+        ("web", "landing"),
+        ("var", "runtime"),
     ]
+
+
+def test_the_lane_moves_are_the_registry_and_nothing_else() -> None:
+    (runtime,) = [item for item in repo_layout.ROOT_CHILDREN if item.moved_into]
+    assert runtime.key == "runtime"
+    assert [sub for _old, sub in runtime.moved_into] == [f"{lane}_curve" for lane in LANE_KEYS]
+    assert len(LANE_KEYS) > 1
 
 
 def test_the_moved_from_top_level_names_are_the_first_segments_once_each() -> None:
     assert repo_layout.moved_from_top_level_names(repo_layout.ROOT_ENTRIES) == (
+        "data",
         *AGENT_GROUP,
         *OPS_GROUP,
     )
     rows = _move_row(repo_layout.ROOT_ENTRIES, "watchdogs", "old/watchdogs", "old/more")
     assert repo_layout.moved_from_top_level_names(rows) == (
+        "data",
         *AGENT_GROUP[:-2],
         "old",
         "mcp_servers",
@@ -405,8 +447,67 @@ def test_the_moved_from_top_level_names_are_the_first_segments_once_each() -> No
 
 
 def test_a_moved_from_first_segment_that_is_still_live_is_no_moved_from_name() -> None:
-    assert "data" in top_level_names(repo_layout.ROOT_ENTRIES)
-    assert "data" not in repo_layout.moved_from_top_level_names(repo_layout.ROOT_ENTRIES)
+    rows = _move_row(repo_layout.ROOT_ENTRIES, "watchdogs", "web/watchdogs")
+    assert "web" in top_level_names(rows)
+    assert "web" not in repo_layout.moved_from_top_level_names(rows)
+
+
+def test_the_source_zone_names_both_successors_and_the_dissolved_name() -> None:
+    source = rows_in_zone(Zone.SOURCE)
+    assert {"facility", "web"} <= set(top_level_names(source))
+    assert "data" not in top_level_names(repo_layout.ROOT_ENTRIES)
+    assert "data" in repo_layout.moved_from_top_level_names(source)
+
+
+# --- dissolved names and render paths --------------------------------------------
+
+
+def test_data_is_the_one_dissolved_name() -> None:
+    assert repo_layout.dissolved_names() == ("data",)
+
+
+def test_a_name_a_move_names_whole_is_not_dissolved(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``watchdogs`` moves whole, so an unmigrated root's ``watchdogs/`` has a successor."""
+    assert "watchdogs" in {move.old for move in retired_moves()}
+    assert "watchdogs" not in repo_layout.dissolved_names()
+    rows = _move_row(repo_layout.ROOT_ENTRIES, "watchdogs", "old/watchdogs")
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", rows)
+    assert repo_layout.dissolved_names() == ("data", "old")
+
+
+def test_the_dissolved_name_follows_the_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Moving the facility row's whole tree under another name dissolves that name too."""
+    rows = _move_row(repo_layout.ROOT_ENTRIES, "facility", "content/facility")
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", rows)
+    assert repo_layout.dissolved_names() == ("content", "data")
+
+
+def test_the_rendered_sources_are_the_facility_and_web_rows() -> None:
+    assert repo_layout.rendered_sources() == (
+        RenderedSource("facility", "facility", "data/facility"),
+        RenderedSource("web:canopy-library", "web/canopy/library", "data/canopy/library"),
+        RenderedSource(
+            "web:canopy-collections", "web/canopy/collections", "data/canopy/collections"
+        ),
+        RenderedSource("web:canopy-theme", "web/canopy/theme", "data/canopy/theme"),
+        RenderedSource("web:landing", "web/landing", "data/landing"),
+    )
+
+
+def test_each_rendered_source_moved_from_its_render_name() -> None:
+    """Each source's old home is where the render has always put it."""
+    for source in repo_layout.rendered_sources():
+        assert former_locations(source.source_rel) == (source.render_rel,), source.key
+
+
+def test_the_rendered_sources_follow_a_moved_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(repo_layout, "ROOT_ENTRIES", with_paths({"web": "site"}))
+    assert [(s.key, s.source_rel) for s in repo_layout.rendered_sources()][1:] == [
+        ("web:canopy-library", "site/canopy/library"),
+        ("web:canopy-collections", "site/canopy/collections"),
+        ("web:canopy-theme", "site/canopy/theme"),
+        ("web:landing", "site/landing"),
+    ]
 
 
 def test_the_retired_moves_project_planted_rows_in_declaration_order(
@@ -418,7 +519,7 @@ def test_the_retired_moves_project_planted_rows_in_declaration_order(
     expected_rows = [RootMove(old, row.path, row.kind) for row in rows for old in row.moved_from]
     assert retired_moves() == (
         *expected_rows,
-        RootMove("data/.runtime", "var/runtime", EntryKind.EITHER),
+        *(RootMove(old, new, EntryKind.EITHER) for old, new in (*WEB_MOVES, *RUNTIME_MOVES)),
     )
     assert RootMove("rules", "agent/rules", EntryKind.DIRECTORY) in expected_rows
     old_order = [move.old for move in expected_rows]
@@ -439,16 +540,16 @@ def test_a_planted_moved_layout_passes_the_invariants() -> None:
 
 
 def test_a_moved_path_may_lie_inside_a_plain_directory_row() -> None:
-    """``data`` is a directory row that is no convention and no layer."""
-    assert entry("code_review").moved_from == ("data/code_review",)
-    check_layout(_planted_rows(), _planted_children())
+    """``web`` is a directory row that is no convention and no layer."""
+    check_layout(_move_row(_planted_rows(), "rules", "web/rules"), _planted_children())
 
 
-def test_a_data_child_old_path_is_refused_while_the_child_lives() -> None:
-    children = (*_planted_children(), RootChild("data", "code-review", "code_review", "x."))
+def test_a_child_old_path_is_refused_while_the_child_lives() -> None:
+    children = (*_planted_children(), RootChild("web", "code-review", "code_review", "x."))
+    rows = _move_row(_planted_rows(), "code_review", "web/code_review")
     with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
-        check_layout(_planted_rows(), children)
-    assert "moved-from path 'data/code_review' is a live path" in str(caught.value)
+        check_layout(rows, children)
+    assert "moved-from path 'web/code_review' is a live path" in str(caught.value)
 
 
 @pytest.mark.parametrize(
@@ -463,8 +564,8 @@ def test_a_data_child_old_path_is_refused_while_the_child_lives() -> None:
             "moved-from path 'agent/watchdogs' is a live path",
         ),
         (
-            lambda rows: _move_row(rows, "rules", "data/facility"),
-            "moved-from path 'data/facility' is a live path",
+            lambda rows: _move_row(rows, "rules", "web/landing"),
+            "moved-from path 'web/landing' is a live path",
         ),
         (
             lambda rows: _move_row(rows, "rules", "agent"),
@@ -499,8 +600,17 @@ def test_a_data_child_old_path_is_refused_while_the_child_lives() -> None:
             "moved-from path 'profile.yml/rules' lies inside 'profile.yml'",
         ),
         (
+            lambda rows: _move_row(rows, "rules", "web/landing/rules"),
+            "moved-from path 'web/landing/rules' lies inside 'web/landing'",
+        ),
+        (
             lambda rows: _move_row(rows, "rules", "data/facility/rules"),
-            "moved-from path 'data/facility/rules' lies inside 'data/facility'",
+            "moved-from path 'data/facility/rules' lies inside the moved-from path 'data/facility'",
+        ),
+        (
+            lambda rows: _move_row(rows, "rules", "personas/rules"),  # retired-spelling
+            "moved-from path 'personas/rules' lies inside the retired path "  # retired-spelling
+            "'personas'",  # retired-spelling
         ),
         (
             lambda rows: _move_row(rows, "rules", "/rules"),
@@ -526,7 +636,11 @@ def test_a_broken_moved_path_is_refused(
         (("var",), "moved-from path 'var' is a live path"),
         (("var/runtime/old",), "moved-from path 'var/runtime/old' lies inside its successor"),
         (("rules",), "moved-from paths declared twice ['rules']"),
-        (("data/canopy/library",), "moved-from path 'data/canopy/library' is a live path"),
+        (("web/canopy/library",), "moved-from path 'web/canopy/library' is a live path"),
+        (
+            ("data/landing",),
+            "moved-from paths declared twice ['data/landing']",
+        ),
         (("data/.runtime/x/../y",), "has an empty, '.' or '..' segment"),
     ],
 )
@@ -543,11 +657,110 @@ def test_a_broken_moved_child_is_refused(moved_from: tuple[str, ...], message: s
 def test_a_child_old_path_holding_its_successor_is_refused() -> None:
     children = (
         *_planted_children(),
-        RootChild("data", "deep", "x/y", "x.", moved_from=("data/x",)),
+        RootChild("web", "deep", "x/y", "x.", moved_from=("web/x",)),
     )
     with pytest.raises(ValueError) as caught:
         check_layout(_planted_rows(), children)
-    assert "moved-from path 'data/x' holds its successor 'data/x/y'" in str(caught.value)
+    assert "moved-from path 'web/x' holds its successor 'web/x/y'" in str(caught.value)
+
+
+def _with_runtime(**changes) -> tuple[RootChild, ...]:
+    return tuple(
+        replace(item, **changes) if item.key == "runtime" else item
+        for item in repo_layout.ROOT_CHILDREN
+    )
+
+
+@pytest.mark.parametrize(
+    ("moved_into", "message"),
+    [
+        (
+            (("data/.runtime/x_curve", "x_curve"),),
+            "moved-from path 'data/.runtime/x_curve' lies inside the moved-from path "
+            "'data/.runtime'",
+        ),
+        (
+            (("data/landing/x_curve", "x_curve"),),
+            "moved-from path 'data/landing/x_curve' lies inside the moved-from path 'data/landing'",
+        ),
+        (
+            (("personas/x_curve", "x_curve"),),  # retired-spelling
+            "lies inside the retired path 'personas'",  # retired-spelling
+        ),
+        (
+            (("data/x_curve", "x_curve"), ("data/x_curve", "y_curve")),
+            "moved-from paths declared twice ['data/x_curve']",
+        ),
+        ((("data/../x_curve", "x_curve"),), "has an empty, '.' or '..' segment"),
+    ],
+)
+def test_a_broken_lane_move_is_refused(
+    moved_into: tuple[tuple[str, str], ...], message: str
+) -> None:
+    with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
+        check_layout(repo_layout.ROOT_ENTRIES, _with_runtime(moved_into=moved_into))
+    assert message in str(caught.value)
+
+
+def test_a_lane_move_joins_the_child_path_and_its_subpath() -> None:
+    children = _with_runtime(moved_into=(("old/certs", "deep/certs"),))
+    moves = repo_layout._moves(repo_layout.ROOT_ENTRIES, children)
+    assert RootMove("old/certs", "var/runtime/deep/certs", EntryKind.EITHER) in moves
+    check_layout(repo_layout.ROOT_ENTRIES, children)
+
+
+def _with_render(key: str, render: str | None) -> tuple[RootChild, ...]:
+    return tuple(
+        replace(item, render=render) if item.key == key else item
+        for item in repo_layout.ROOT_CHILDREN
+    )
+
+
+@pytest.mark.parametrize(
+    ("children", "rows", "message"),
+    [
+        (
+            lambda: _with_render("landing", "data/facility"),
+            lambda: repo_layout.ROOT_ENTRIES,
+            "render paths declared twice ['data/facility']",
+        ),
+        (
+            lambda: _with_render("landing", "data/facility/landing"),
+            lambda: repo_layout.ROOT_ENTRIES,
+            "render path 'data/facility/landing' lies inside the render path 'data/facility'",
+        ),
+        (
+            lambda: _with_render("canopy-library", "data/canopy"),
+            lambda: repo_layout.ROOT_ENTRIES,
+            "render path 'data/canopy/collections' lies inside the render path 'data/canopy'",
+        ),
+        (
+            lambda: repo_layout.ROOT_CHILDREN,
+            lambda: tuple(
+                replace(row, render="/data/facility") if row.key == "facility" else row
+                for row in repo_layout.ROOT_ENTRIES
+            ),
+            "render path '/data/facility' of 'facility' has a leading or trailing slash",
+        ),
+        (
+            lambda: _with_render("landing", "data/../landing"),
+            lambda: repo_layout.ROOT_ENTRIES,
+            "render path 'data/../landing' of 'web:landing' has an empty, '.' or '..' segment",
+        ),
+    ],
+)
+def test_a_broken_render_path_is_refused(
+    children: Callable[[], tuple[RootChild, ...]],
+    rows: Callable[[], tuple[RootEntry, ...]],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match="inconsistent deployment-root layout") as caught:
+        check_layout(rows(), children())
+    assert message in str(caught.value)
+
+
+def test_the_live_layout_passes_every_invariant() -> None:
+    check_layout(repo_layout.ROOT_ENTRIES, repo_layout.ROOT_CHILDREN)
 
 
 # --- lookup and accessors --------------------------------------------------------
@@ -564,20 +777,27 @@ def test_accessors_join_the_declared_paths(tmp_path: Path) -> None:
     assert display_path("rules", "x.md") == "agent/rules/x.md"
     assert child_display_path("scripts", "verify-script") == "ops/scripts/verify.sh"
     assert child_display_path("scripts", "boot-hook") == "ops/scripts/osprey-boot-hook.sh"
-    assert child_display_path("data", "facility") == "data/facility"
-    assert child_display_path("data", "canopy-library") == "data/canopy/library"
-    assert child_display_path("data", "canopy-collections") == "data/canopy/collections"
+    assert display_path("facility") == "facility"
+    assert child_display_path("web", "canopy-library") == "web/canopy/library"
+    assert child_display_path("web", "canopy-collections") == "web/canopy/collections"
+    assert child_display_path("web", "canopy-theme") == "web/canopy/theme"
+    assert child_display_path("web", "landing") == "web/landing"
     assert child_display_path("var", "runtime") == "var/runtime"
     assert display_path("code_review", "reviewer.md") == "agent/code_review/reviewer.md"
     assert watchdogs_source_dir(tmp_path) == tmp_path / "agent" / "watchdogs"
 
 
-def test_a_data_child_joins_wherever_the_data_root_resolves(tmp_path: Path) -> None:
-    data_root = tmp_path / "elsewhere"
-    assert child_path(data_root, "data", "facility") == data_root / "facility"
-    assert child_path(data_root, "data", "canopy-library") == data_root / "canopy" / "library"
+def test_a_child_joins_wherever_its_row_resolves(tmp_path: Path) -> None:
+    web_dir = tmp_path / "elsewhere"
+    assert child_path(web_dir, "web", "landing") == web_dir / "landing"
+    assert child_path(web_dir, "web", "canopy-library") == web_dir / "canopy" / "library"
     with pytest.raises(KeyError, match="no child 'nowhere'"):
-        child_path(data_root, "data", "nowhere")
+        child_path(web_dir, "web", "nowhere")
+
+
+def test_the_data_row_is_gone() -> None:
+    with pytest.raises(KeyError, match="'data'"):
+        entry("data")
 
 
 def test_listing_name_marks_only_directories() -> None:
@@ -634,7 +854,7 @@ def test_lookups_follow_a_rebound_registry(tmp_path: Path) -> None:
     assert display_path("rules", "x.md") == "agent/rules/x.md"
     assert listing_name(entry("web-terminal-context")) == "agent/context/"
     assert child_display_path("scripts", "verify-script") == "ops/scripts/verify.sh"
-    assert child_display_path("data", "facility") == "data/facility"
+    assert child_display_path("web", "landing") == "web/landing"
     assert watchdogs_source_dir(tmp_path) == tmp_path / "agent" / "watchdogs"
     assert paths(rows_with_init(InitRole.SEEDED)) == ("agent/mcp_servers",)
 

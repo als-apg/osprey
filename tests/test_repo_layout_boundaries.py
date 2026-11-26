@@ -28,6 +28,8 @@ EXAMPLE_ROOT_ENTRIES: tuple[str, ...] = (
     "ci-extra.yml",
     "osprey.service",
     ".dockerignore",
+    "facility/",
+    "web/",
     "data/",
     "tiers/",
     "personas/",  # retired-spelling
@@ -106,7 +108,8 @@ def test_executed_code_may_not_write_exactly_these_paths(deployment: Path) -> No
         "ci-extra.yml",
         "osprey.service",
         ".dockerignore",
-        "data",
+        "facility",
+        "web",
         "tiers",
         "personas",  # retired-spelling
         "apps",
@@ -114,6 +117,9 @@ def test_executed_code_may_not_write_exactly_these_paths(deployment: Path) -> No
         "scripts",
         "watchdogs",
         ".osprey",
+        # The dissolved data tree the facility and web content moved out of,
+        # which an unmigrated tree still holds.
+        "data",
         # The agent and ops groups whole, and the paths their entries moved
         # from, which an unmigrated tree still holds.
         "agent",
@@ -205,6 +211,8 @@ def test_image_staging_leaves_out_exactly_these_root_entries(
         "triggers.yml",
         "ci-extra.yml",
         "osprey.service",
+        "facility",
+        "web",
         "data",
         "tiers",
         "personas",  # retired-spelling
