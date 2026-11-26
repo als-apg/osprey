@@ -22,10 +22,10 @@ deleted.
 Every command that reads the deployment root now stops before reading anything
 when a retired path is present. It prints the `mkdir -p`, `git mv` (or `mv`)
 lines that move the sources, the edits to path values in the profile,
-`.gitlab-ci.yml` and `.dockerignore`, the host steps, and names
-`osprey init --revalidate`. A path present at both the old and the new
-location is reported and left to you. To migrate, run
-`osprey init --revalidate`, or paste the printed lines.
+`.gitlab-ci.yml` and `.dockerignore`, and the host steps; when nothing listed
+needs you first, the block's last line runs `osprey init --revalidate <repo>`.
+A path present at both the old and the new location is reported and left to
+you. To migrate, run `osprey init --revalidate`, or paste the printed lines.
 
 Upgrade OSPREY in every deployment first, then migrate each one. The refusal
 and `--revalidate` come with the new OSPREY, and an older OSPREY does not read

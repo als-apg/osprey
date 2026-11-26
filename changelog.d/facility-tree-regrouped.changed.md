@@ -12,11 +12,12 @@ regrouped, and a tree still laid out the old way is refused. Sources move:
 `simulation/decks/<model>.json`. Every command that reads or writes the tree
 (`osprey build`, `osprey validate`, `osprey facility validate`, `show` and
 `import`, `osprey scaffold pull`) now stops before reading anything when a
-retired path is present, prints the `mkdir -p`, `git mv` (or `mv`) and `deck:`
-edit lines that move the tree, and names `osprey init --revalidate`. A file
-present at both an old and a new path is reported and left to you. To migrate,
-run `osprey init --revalidate`, or paste the printed lines; the tree then
-builds to the same facts as before. `osprey init` writes the new layout.
+retired path is present and prints the `mkdir -p`, `git mv` (or `mv`) and
+`deck:` edit lines that move the tree; when nothing listed needs you first, the
+block's last line runs `osprey init --revalidate <repo>`. A file present at
+both an old and a new path is reported and left to you. To migrate, run
+`osprey init --revalidate`, or paste the printed lines; the tree then builds to
+the same facts as before. `osprey init` writes the new layout.
 
 App repositories that build trees for `osprey.apps.sdk.testing.write_tree`
 update the keys by hand: `models.yaml` becomes `simulation/models.yaml`, and
