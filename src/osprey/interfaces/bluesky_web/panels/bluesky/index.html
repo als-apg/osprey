@@ -357,6 +357,18 @@
                 <tbody id="table-body"></tbody>
               </table>
             </div>
+            <!--
+              One opened array cell, plotted. Drawn by results-view.js through
+              the figure renderer's renderPanels; hidden until a cell is clicked.
+            -->
+            <div id="cell-plot" class="cell-plot" hidden>
+              <div class="cell-plot-head">
+                <button type="button" id="cell-plot-prev" class="btn btn-quiet">‹ Previous row</button>
+                <button type="button" id="cell-plot-next" class="btn btn-quiet">Next row ›</button>
+                <button type="button" id="cell-plot-close" class="btn btn-quiet">Close</button>
+              </div>
+              <div id="cell-plot-panels"></div>
+            </div>
             <p id="table-note" class="table-note" hidden></p>
           </details>
           <button type="button" id="export-btn" class="btn export-btn">Export CSV</button>

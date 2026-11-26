@@ -1539,6 +1539,50 @@ button.queue-label:focus-visible {
   background: var(--neutral-tint-08);
 }
 
+/* An array cell: its summary and a sketch, as a button that plots the cell in
+ * the pane under the table. The pressed cell takes the row hover's tint. */
+.array-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.array-cell:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.array-cell[aria-pressed='true'] {
+  background: var(--neutral-tint-08);
+}
+.array-spark {
+  width: 64px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  vertical-align: middle;
+}
+
+.cell-plot {
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.cell-plot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#cell-plot-close {
+  margin-left: auto;
+}
+
 /* ---- Results figure ----
  *
  * `figure-renderer.js` owns everything inside `#figure-panels`: one

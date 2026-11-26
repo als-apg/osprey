@@ -42,6 +42,12 @@
  * A transient figure fetch failure keeps the last good figure on screen rather
  * than blanking it, exactly as the table does with its last good rows.
  *
+ * An ARRAY cell (a detector's spectrum) shows its summary and a small sketch,
+ * and clicking it plots that cell under the table, drawn by the renderer from
+ * the data window the table already holds. The pane follows the chosen row
+ * through every poll — Previous row / Next row move it — and closes when that
+ * row or column is gone from the window, or when the view follows another run.
+ *
  * Colors live in the renderer, which re-reads the theme bridges on every call;
  * this file re-renders the retained figure from a `subscribe()` callback so a
  * settled run re-themes without waiting for a poll tick that will never come.
@@ -50,7 +56,8 @@
 import { subscribe } from '/design-system/js/theme-manager.js';
 
 import { exportFilename, refusedCellText, saveCsv, toCsv } from './csv-export.js';
-import { renderFigure } from './figure-renderer.js';
+import { cellPlotPanel, isPlottableArray, sparklineElement, stepRow } from './array-cell.js';
+import { renderFigure, renderPanels } from './figure-renderer.js';
 import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 
 /** @typedef {{
@@ -205,6 +212,11 @@ function count(value) {
  *   figurePanels: HTMLElement,
  *   figureNote: HTMLElement,
  *   removeButton: HTMLButtonElement,
+ *   cellPlot: HTMLElement,
+ *   cellPlotPanels: HTMLElement,
+ *   cellPlotPrev: HTMLButtonElement,
+ *   cellPlotNext: HTMLButtonElement,
+ *   cellPlotClose: HTMLButtonElement,
  * }} ResultsElements `figurePanels` is handed straight to the renderer, which
  *   empties and refills it; nothing else in this file writes to it.
  *   `figureNote` takes the renderer's provenance line (source, partial,
@@ -214,7 +226,11 @@ function count(value) {
  *
  *   `tableCard` is the whole data section (disclosure + export). `tableDetails`
  *   is the disclosure itself and this view READS its `open` state but never
- *   writes it — see the module docstring. */
+ *   writes it — see the module docstring.
+ *
+ *   `cellPlot` is the pane under the table that plots one opened array cell;
+ *   `cellPlotPanels` is handed to the renderer's `renderPanels` like
+ *   `figurePanels` is to `renderFigure`. */
 
 /**
  * @param {{
@@ -252,6 +268,8 @@ export function createResultsView({
    *   rowCount: number,
    *   planName: string|null,
    *   exporting: boolean,
+   *   cell: {column: string, row: number}|null,
+   *   lastData: RunData|null,
    * }} `lastFigure` is the last figure that had something to draw. It is what a
    *   theme change re-renders from, and what a transient figure fetch failure
    *   leaves on screen.
@@ -259,7 +277,10 @@ export function createResultsView({
    *   `rowCount` and `planName` are what the export needs and the click handler
    *   cannot re-derive: the run's TRUE total (not the rendered window's length)
    *   and the name the file is called after. `exporting` guards against a
-   *   second click while a large fetch is in flight. */
+   *   second click while a large fetch is in flight.
+   *
+   *   `cell` is the array cell the operator opened, by column name and row
+   *   index, and `lastData` the window it is read from; both belong to ONE run. */
   const state = {
     runId: null,
     timer: null,
@@ -267,6 +288,8 @@ export function createResultsView({
     rowCount: 0,
     planName: null,
     exporting: false,
+    cell: null,
+    lastData: null,
   };
 
   /** @type {import('./figure-renderer.js').FigureSelection} */
@@ -594,6 +617,7 @@ export function createResultsView({
 
   /** @param {RunData} data */
   function renderTable(data) {
+    state.lastData = data;
     elements.tableHeadRow.replaceChildren();
     elements.tableBody.replaceChildren();
 
@@ -618,15 +642,21 @@ export function createResultsView({
       elements.tableHeadRow.appendChild(th);
     }
 
-    for (const row of data.rows) {
+    data.rows.forEach((row, rowIndex) => {
       const tr = document.createElement('tr');
-      for (const value of row) {
+      row.forEach((value, columnIndex) => {
         const td = document.createElement('td');
-        td.textContent = formatCell(value);
+        const column = data.columns[columnIndex];
+        if (column && isPlottableArray(value)) {
+          td.appendChild(arrayCellButton(column.name, rowIndex, value));
+        } else {
+          td.textContent = formatCell(value);
+        }
         tr.appendChild(td);
-      }
+      });
       elements.tableBody.appendChild(tr);
-    }
+    });
+    drawCellPlot();
 
     // row_count is the bridge's true total — the number of rows the run has
     // produced, which can exceed what is stored. Never recomputed from
@@ -656,6 +686,105 @@ export function createResultsView({
     if (data.columns.length === 0) hide(elements.tableCard);
     else show(elements.tableCard);
   }
+
+  /**
+   * One array cell as a button: its summary, its sketch, and a click that
+   * opens it in the pane under the table, or closes it when it is the open one.
+   *
+   * @param {string} column
+   * @param {number} row
+   * @param {Array<number|null>} values
+   * @returns {HTMLButtonElement}
+   */
+  function arrayCellButton(column, row, values) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'array-cell';
+    button.dataset.column = column;
+    button.dataset.row = String(row);
+    button.setAttribute('aria-label', `Plot ${column}, row ${row + 1}`);
+    button.setAttribute('aria-pressed', String(isOpenCell(column, row)));
+    button.append(formatCell(values));
+    const spark = sparklineElement(values);
+    if (spark) button.appendChild(spark);
+    button.addEventListener('click', () => {
+      state.cell = isOpenCell(column, row) ? null : { column, row };
+      drawCellPlot();
+    });
+    return button;
+  }
+
+  /**
+   * @param {string} column
+   * @param {number} row
+   */
+  function isOpenCell(column, row) {
+    return state.cell !== null && state.cell.column === column && state.cell.row === row;
+  }
+
+  function closeCellPlot() {
+    state.cell = null;
+    elements.cellPlotPanels.replaceChildren();
+    hide(elements.cellPlot);
+  }
+
+  /**
+   * Plot the open array cell under the table, or close the pane when no cell
+   * is open or the open one is gone from the window.
+   *
+   * Drawn through the renderer's panel door, contained like `drawFigure`: this
+   * runs inside the shared poll tick, and a throwing renderer must not abandon
+   * it.
+   */
+  function drawCellPlot() {
+    const data = state.lastData;
+    const cell = state.cell;
+    const columnIndex = cell && data ? data.columns.findIndex((c) => c.name === cell.column) : -1;
+    const values =
+      cell && data && columnIndex >= 0 ? data.rows[cell.row]?.[columnIndex] : undefined;
+    if (!cell || !data || !isPlottableArray(values)) {
+      closeCellPlot();
+    } else {
+      const rows = data.rows.length;
+      try {
+        renderPanels(elements.cellPlotPanels, [
+          cellPlotPanel({
+            column: cell.column,
+            unit: data.columns[columnIndex].unit,
+            values,
+            row: cell.row,
+            rows,
+          }),
+        ]);
+      } catch (error) {
+        console.error('osprey bluesky results: the figure renderer threw', error);
+      }
+      elements.cellPlotPrev.disabled = cell.row <= 0;
+      elements.cellPlotNext.disabled = cell.row >= rows - 1;
+      show(elements.cellPlot);
+    }
+    for (const button of elements.tableBody.querySelectorAll('button.array-cell')) {
+      const { column, row } = /** @type {HTMLElement} */ (button).dataset;
+      button.setAttribute('aria-pressed', String(isOpenCell(column ?? '', Number(row))));
+    }
+  }
+
+  /** @param {-1|1} direction */
+  function stepCellPlot(direction) {
+    if (!state.cell || !state.lastData) return;
+    state.cell = {
+      column: state.cell.column,
+      row: stepRow(state.cell.row, direction, state.lastData.rows.length),
+    };
+    drawCellPlot();
+  }
+
+  const previousRow = () => stepCellPlot(-1);
+  const nextRow = () => stepCellPlot(1);
+  const closeCell = () => {
+    state.cell = null;
+    drawCellPlot();
+  };
 
   /**
    * Export the run's data as a CSV.
@@ -724,6 +853,9 @@ export function createResultsView({
   elements.removeButton.addEventListener('click', () => {
     if (state.runId) onRemove(state.runId);
   });
+  elements.cellPlotPrev.addEventListener('click', previousRow);
+  elements.cellPlotNext.addEventListener('click', nextRow);
+  elements.cellPlotClose.addEventListener('click', closeCell);
 
   /**
    * Hand a figure to the renderer and reveal the card.
@@ -763,6 +895,7 @@ export function createResultsView({
   // nothing to invalidate here beyond calling it again.
   const unsubscribe = subscribe(() => {
     if (state.lastFigure) drawFigure(state.lastFigure);
+    drawCellPlot();
   });
 
   return {
@@ -773,6 +906,10 @@ export function createResultsView({
       state.lastFigure = null;
       state.rowCount = 0;
       state.planName = null;
+      // An opened cell belongs to one run, like `figureSelection.series`
+      // below: it is never re-opened on the next run's table.
+      state.lastData = null;
+      closeCellPlot();
       hide(elements.tableCard);
       hide(elements.figureCard);
       hide(elements.statusBadge);
@@ -804,6 +941,9 @@ export function createResultsView({
     destroy() {
       stopPolling();
       elements.exportButton.removeEventListener('click', exportCsv);
+      elements.cellPlotPrev.removeEventListener('click', previousRow);
+      elements.cellPlotNext.removeEventListener('click', nextRow);
+      elements.cellPlotClose.removeEventListener('click', closeCell);
       if (typeof unsubscribe === 'function') unsubscribe();
     },
   };

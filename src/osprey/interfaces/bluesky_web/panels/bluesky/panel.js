@@ -156,6 +156,11 @@ const resultsView = createResultsView({
     figurePanels: byId('figure-panels'),
     figureNote: byId('figure-note'),
     removeButton: /** @type {HTMLButtonElement} */ (byId('run-remove-btn')),
+    cellPlot: byId('cell-plot'),
+    cellPlotPanels: byId('cell-plot-panels'),
+    cellPlotPrev: /** @type {HTMLButtonElement} */ (byId('cell-plot-prev')),
+    cellPlotNext: /** @type {HTMLButtonElement} */ (byId('cell-plot-next')),
+    cellPlotClose: /** @type {HTMLButtonElement} */ (byId('cell-plot-close')),
   },
   onPollingChange(polling) {
     if (polling === resultsPolling) return;

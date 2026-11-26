@@ -1585,6 +1585,14 @@ describe('createResultsView', () => {
         <div>
           <details id="table-details"><summary><span id="table-summary-count"></span></summary>
             <table><thead><tr id="table-head-row"></tr></thead><tbody id="table-body"></tbody></table>
+            <div id="cell-plot" hidden>
+              <div>
+                <button type="button" id="cell-plot-prev">‹ Previous row</button>
+                <button type="button" id="cell-plot-next">Next row ›</button>
+                <button type="button" id="cell-plot-close">Close</button>
+              </div>
+              <div id="cell-plot-panels"></div>
+            </div>
             <p id="table-note"></p>
           </details>
           <button type="button" id="export-btn">Export CSV</button>
@@ -1611,6 +1619,11 @@ describe('createResultsView', () => {
       figurePanels: byId('figure-panels'),
       figureNote: byId('figure-note'),
       removeButton: byId('run-remove-btn'),
+      cellPlot: byId('cell-plot'),
+      cellPlotPanels: byId('cell-plot-panels'),
+      cellPlotPrev: byId('cell-plot-prev'),
+      cellPlotNext: byId('cell-plot-next'),
+      cellPlotClose: byId('cell-plot-close'),
     };
   }
 
@@ -2446,6 +2459,184 @@ describe('createResultsView', () => {
     expect(elements.exportNote.classList.contains('error')).toBe(true);
     // A transient bridge failure must not disarm the control permanently.
     expect(elements.exportButton.disabled).toBe(false);
+  });
+
+  /** A run recording a scalar and a 4-element array per row. */
+  const ARRAY_DATA = {
+    run_uid: null,
+    columns: [
+      { name: 'counts', unit: null, shape: null },
+      { name: 'spec', unit: 'counts', shape: [4] },
+    ],
+    rows: [
+      [812, [0, 1, 5, 2]],
+      [790, [0, 3, 1, 0]],
+      [801, [1, 2, 4, null]],
+    ],
+    row_count: 3,
+    truncated: false,
+  };
+
+  /**
+   * The array cells of the rendered table, row by row.
+   *
+   * @param {ReturnType<typeof mountElements>} elements
+   * @returns {HTMLButtonElement[]}
+   */
+  const arrayCells = (elements) =>
+    Array.from(elements.tableBody.querySelectorAll('button.array-cell'));
+
+  /** @param {ReturnType<typeof mountElements>} elements */
+  const cellPlotTitle = (elements) =>
+    elements.cellPlotPanels.querySelector('.figure-panel-title')?.textContent ?? null;
+
+  /**
+   * @param {Record<string, {status: number, body: any}>} [extra]
+   */
+  async function showArrayRun(extra = {}) {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'count' } },
+        '/runs/r1/data': { status: 200, body: ARRAY_DATA },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+        ...extra,
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+    return elements;
+  }
+
+  test('an array cell shows its summary and a sketch', async () => {
+    const elements = await showArrayRun();
+
+    const cells = arrayCells(elements);
+    expect(cells).toHaveLength(3);
+    expect(cells[0].textContent).toBe('[4] 0 … 5');
+    expect(cells[0].querySelector('svg.array-spark polyline')).not.toBeNull();
+    expect(cells[0].getAttribute('aria-label')).toBe('Plot spec, row 1');
+    expect(cells[0].getAttribute('aria-pressed')).toBe('false');
+    expect(elements.cellPlot.hidden).toBe(true);
+  });
+
+  test('clicking an array cell plots it under the table', async () => {
+    const elements = await showArrayRun();
+
+    arrayCells(elements)[1].click();
+
+    expect(elements.cellPlot.hidden).toBe(false);
+    expect(cellPlotTitle(elements)).toBe('spec · row 2 of 3');
+    expect(elements.cellPlotPanels.querySelectorAll('.figure-panel')).toHaveLength(1);
+    // The cell plot states no provenance: the data window carries no source.
+    expect(elements.cellPlotPanels.querySelector('.figure-note')).toBeNull();
+    expect(arrayCells(elements).map((cell) => cell.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'true',
+      'false',
+    ]);
+  });
+
+  test('clicking the open cell again closes the plot', async () => {
+    const elements = await showArrayRun();
+
+    arrayCells(elements)[0].click();
+    expect(elements.cellPlot.hidden).toBe(false);
+    arrayCells(elements)[0].click();
+
+    expect(elements.cellPlot.hidden).toBe(true);
+    expect(arrayCells(elements)[0].getAttribute('aria-pressed')).toBe('false');
+  });
+
+  test('previous and next row step the plot and stop at the ends', async () => {
+    const elements = await showArrayRun();
+
+    arrayCells(elements)[0].click();
+    expect(elements.cellPlotPrev.disabled).toBe(true);
+    expect(elements.cellPlotNext.disabled).toBe(false);
+
+    elements.cellPlotNext.click();
+    expect(cellPlotTitle(elements)).toBe('spec · row 2 of 3');
+    elements.cellPlotNext.click();
+    expect(cellPlotTitle(elements)).toBe('spec · row 3 of 3');
+    expect(elements.cellPlotNext.disabled).toBe(true);
+    expect(arrayCells(elements)[2].getAttribute('aria-pressed')).toBe('true');
+
+    elements.cellPlotPrev.click();
+    expect(cellPlotTitle(elements)).toBe('spec · row 2 of 3');
+    expect(elements.cellPlotPrev.disabled).toBe(false);
+
+    elements.cellPlotClose.click();
+    expect(elements.cellPlot.hidden).toBe(true);
+  });
+
+  test('the open plot follows its row across poll ticks', async () => {
+    vi.useFakeTimers();
+    /** @type {Record<string, {status: number, body: any}>} */
+    const routes = {
+      '/runs/r1': { status: 200, body: { id: 'r1', status: 'running' } },
+      '/runs/r1/data': { status: 200, body: { ...ARRAY_DATA, partial: true } },
+      '/runs/r1/figure': { status: 200, body: { ...FIGURE, partial: true } },
+    };
+    vi.stubGlobal('fetch', stubFetch(routes));
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.advanceTimersByTimeAsync(0);
+
+    arrayCells(elements)[1].click();
+    expect(cellPlotTitle(elements)).toBe('spec · row 2 of 3');
+
+    routes['/runs/r1/data'] = {
+      status: 200,
+      body: {
+        ...ARRAY_DATA,
+        rows: [...ARRAY_DATA.rows, [799, [2, 2, 2, 2]]],
+        row_count: 4,
+        partial: true,
+      },
+    };
+    await vi.advanceTimersByTimeAsync(1100);
+
+    expect(elements.cellPlot.hidden).toBe(false);
+    expect(cellPlotTitle(elements)).toBe('spec · row 2 of 4');
+    expect(arrayCells(elements)[1].getAttribute('aria-pressed')).toBe('true');
+
+    // A window without the column has no cell to plot, so the pane closes.
+    routes['/runs/r1/data'] = { status: 200, body: { ...DATA, partial: true } };
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(elements.cellPlot.hidden).toBe(true);
+  });
+
+  test('following another run closes the plot', async () => {
+    const elements = await showArrayRun({
+      '/runs/r2': { status: 200, body: { id: 'r2', status: 'completed', plan_name: 'count' } },
+      '/runs/r2/data': { status: 200, body: ARRAY_DATA },
+      '/runs/r2/figure': { status: 200, body: FIGURE },
+    });
+    arrayCells(elements)[0].click();
+    expect(elements.cellPlot.hidden).toBe(false);
+
+    view?.follow('r2');
+    expect(elements.cellPlot.hidden).toBe(true);
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    expect(elements.cellPlot.hidden).toBe(true);
+    expect(arrayCells(elements).map((cell) => cell.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'false',
+      'false',
+    ]);
+  });
+
+  test('a scalar cell stays plain text with no button', async () => {
+    const elements = await showArrayRun();
+
+    const firstCell = elements.tableBody.querySelector('tr td');
+    expect(firstCell?.textContent).toBe('812');
+    expect(firstCell?.querySelector('button')).toBeNull();
   });
 
   test('switching runs clears the previous run’s export note', async () => {
