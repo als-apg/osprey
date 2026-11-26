@@ -270,7 +270,7 @@ holding the documents:
        qmd:
          corpora:
            - name: procedures
-             source: ./data/procedures
+             source: ./procedures
 
 ``corpus(name)`` then gives the backend both halves:
 

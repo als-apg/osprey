@@ -154,9 +154,7 @@ def test_validate_refuses_a_derived_key(tmp_path: Path) -> None:
 
 def test_validate_refuses_a_profile_that_states_the_protected_path_set(tmp_path: Path) -> None:
     """The protected-path set is the build's to compute; a profile cannot narrow it."""
-    profile = BuildProfile(
-        name="x", data="data", config={PROTECTED_PATHS_CONFIG_KEY: ["data/plans"]}
-    )
+    profile = BuildProfile(name="x", config={PROTECTED_PATHS_CONFIG_KEY: ["plans"]})
 
     with pytest.raises(BuildProfileError) as excinfo:
         profile.validate(tmp_path)

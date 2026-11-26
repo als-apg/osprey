@@ -53,9 +53,11 @@ from osprey.cli.build_protected_paths import (
     INPUT_ENUMERATION_KEYS,
     PROFILE_PATH_FIELDS,
 )
+from osprey.cli.profile_conventions import convention_source
 from osprey.mcp_server.python_executor.executor import resolve_protected_roots
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey.registry.manager import resolve_registry_path
+from osprey.repo_layout import display_path, rendered_sources, watchdogs_source_dir
 from osprey.services.channel_directory.demo import resolve_replay_file
 from osprey.services.python_executor.execution.path_policy import path_policy_issues
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -178,6 +180,11 @@ def _rooted(relative: str) -> Callable[[Ctx], Path]:
     return lambda ctx: anchored_path(_fill(relative, ctx), ctx.repo).resolve()
 
 
+def _convention(key: str) -> Callable[[Ctx], Path]:
+    """Where the build reads the convention *key* from (``convention_source``)."""
+    return _rooted(convention_source(key))
+
+
 def _config_relative(relative: str) -> Callable[[Ctx], Path]:
     """A location as ``resolve_config_relative_path`` reads it from the root render."""
     return lambda ctx: resolve_config_relative_path(
@@ -209,7 +216,6 @@ STATED: tuple[Stated, ...] = (
         "ResolvedProfileDocument.extends_files",
         _rooted(EXTENDED_FILE),
     ),
-    Stated("data", "data", BASE, "data", "dir", "BuildProfile.resolved_data_root", _rooted("data")),
     Stated(
         "machine",
         "machine",
@@ -246,10 +252,10 @@ STATED: tuple[Stated, ...] = (
         "dependency_package_dirs",
         lambda ctx: dependency_package_dirs(["./packages/chainpkg"], ctx.repo)[0].resolve(),
     ),
-    Stated("hooks", "hooks/", BASE, "hooks", "dir", "CONVENTION_SOURCES", _rooted("hooks")),
-    Stated("rules", "rules/", BASE, "rules", "dir", "CONVENTION_SOURCES", _rooted("rules")),
-    Stated("skills", "skills/", BASE, "skills", "dir", "CONVENTION_SOURCES", _rooted("skills")),
-    Stated("agents", "agents/", BASE, "agents", "dir", "CONVENTION_SOURCES", _rooted("agents")),
+    Stated("hooks", "hooks/", BASE, "hooks", "dir", "CONVENTION_SOURCES", _convention("hooks")),
+    Stated("rules", "rules/", BASE, "rules", "dir", "CONVENTION_SOURCES", _convention("rules")),
+    Stated("skills", "skills/", BASE, "skills", "dir", "CONVENTION_SOURCES", _convention("skills")),
+    Stated("agents", "agents/", BASE, "agents", "dir", "CONVENTION_SOURCES", _convention("agents")),
     Stated(
         "output_styles",
         "output-styles/",
@@ -257,7 +263,7 @@ STATED: tuple[Stated, ...] = (
         "output-styles",
         "dir",
         "CONVENTION_SOURCES",
-        _rooted("output-styles"),
+        _convention("output-styles"),
     ),
     Stated(
         "watchdogs.<name>",
@@ -266,7 +272,7 @@ STATED: tuple[Stated, ...] = (
         {"enabled": True},
         "dir",
         "enabled_watchdogs",
-        _rooted(f"watchdogs/{WATCHDOG}"),
+        lambda ctx: (watchdogs_source_dir(ctx.repo) / WATCHDOG).resolve(),
     ),
     Stated(
         "apps.<name>",
@@ -682,8 +688,8 @@ def _materialise(ctx: Ctx, stated: Stated) -> None:
 def _mount_machine(repo: Path) -> None:
     """Mount a machine root: the bundled example facility's machine facts.
 
-    The deployment's ``data/facility`` keeps only its content directories, as
-    a deployment with a machine root does.
+    The deployment's own facility directory keeps only its content
+    directories, as a deployment with a machine root does.
     """
     machine = repo / _by_key("machine").value
     shutil.copytree(
@@ -692,7 +698,7 @@ def _mount_machine(repo: Path) -> None:
         ignore=lambda _dir, names: [n for n in names if n in DEPLOYMENT_CONTENT_DIRS],
         dirs_exist_ok=True,
     )
-    facility = repo / "data" / "facility"
+    facility = repo / display_path("facility")
     for entry in sorted(facility.iterdir()):
         if entry.name not in DEPLOYMENT_CONTENT_DIRS:
             shutil.rmtree(entry) if entry.is_dir() else entry.unlink()
@@ -775,7 +781,7 @@ def make_deployment(ctx: Ctx) -> None:
     _mount_machine(repo)
     for stated in STATED:
         _materialise(ctx, stated)
-    (repo / "watchdogs" / WATCHDOG / "instructions.md").write_text(
+    (watchdogs_source_dir(repo) / WATCHDOG / "instructions.md").write_text(
         "Flag attempts to work around the guard.\n", encoding="utf-8"
     )
 
@@ -898,6 +904,29 @@ def test_the_location_is_covered_by_the_written_set(
     )
 
 
+def _present_sources(ctx: Ctx) -> list[Path]:
+    """Each declared source the deployment holds, where the build reads it."""
+    found = [
+        (ctx.repo / source.source_rel).resolve()
+        for source in rendered_sources()
+        if (ctx.repo / source.source_rel).exists()
+    ]
+    assert found
+    return found
+
+
+@pytest.mark.parametrize("render", RENDERS)
+def test_every_declared_source_is_covered_by_the_written_set(placeholder: Ctx, render: str) -> None:
+    entries = _written_set(placeholder, render)
+
+    uncovered = [
+        source
+        for source in _present_sources(placeholder)
+        if not _covers(placeholder, entries, source)
+    ]
+    assert not uncovered, f"{render} does not cover {uncovered}"
+
+
 def _write_target(ctx: Ctx, stated: Stated) -> Path:
     """What a literal write aims at: the file, or a new file inside the directory."""
     location = stated.locate(ctx)
@@ -943,6 +972,20 @@ def test_the_pre_run_check_refuses_a_literal_write(executor_on: Ctx, stated: Sta
     )
 
     assert issues, f"{stated.spelling}: a write to {literal!r} passed the pre-run check"
+
+
+def test_the_pre_run_check_refuses_a_literal_write_into_a_declared_source(executor_on: Ctx) -> None:
+    _entries, roots = _run_roots(executor_on)
+
+    for source in _present_sources(executor_on):
+        literal = _literal(executor_on, source / "chain-probe.txt")
+        issues = path_policy_issues(
+            f"open({literal!r}, 'w').write('x')\n",
+            protected_roots=roots,
+            working_directory=executor_on.repo,
+            permitted_roots=(_agent_data(executor_on),),
+        )
+        assert issues, f"a write to {literal!r} passed the pre-run check"
 
 
 #: The child: one write, one read and, for a file key, one neighbour write per

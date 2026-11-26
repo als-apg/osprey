@@ -491,7 +491,7 @@ def test_an_empty_protected_path_list_is_clean(repo):
 
 
 def test_a_populated_protected_path_list_is_clean(repo):
-    _render_config(repo, "project: exemplar\nprotected_paths:\n  - data/tiers\n")
+    _render_config(repo, "project: exemplar\nprotected_paths:\n  - plans/shared\n")
 
     assert staleness.check_drift(repo).state is DriftState.CLEAN
 
@@ -499,7 +499,7 @@ def test_a_populated_protected_path_list_is_clean(repo):
 @pytest.mark.parametrize(
     "config",
     [
-        "project: exemplar\nprotected_paths: data/tiers\n",
+        "project: exemplar\nprotected_paths: plans/shared\n",
         "project: exemplar\nprotected_paths:\n  - 7\n",
         "project: exemplar\nprotected_paths:\n  - ''\n",
         "project: exemplar\nprotected_paths:\n",

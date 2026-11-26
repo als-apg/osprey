@@ -323,14 +323,13 @@ def _server_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
 #: The protected-path set ``osprey build`` writes into every render, per preset:
 #: the inputs the preset's profile names, in its own spelling.
 _PROTECTED_PATHS: dict[str, list[str]] = {
-    "hello-world": ["data", "mcp_servers", "profile.yml"],
+    "hello-world": ["agent/mcp_servers", "facility", "profile.yml"],
     "demo": [
-        "data",
-        "data/canopy/theme/osprey.json",
-        "data/facility/knowledge",
-        "data/landing/working-safely.md",
+        "agent/context",
+        "agent/rules",
+        "facility",
+        "facility/knowledge",
         "profile.yml",
-        "rules",
         "tiers/admin.yml",
         "tiers/channel-finder.yml",
         "tiers/knowledge.yml",
@@ -339,7 +338,12 @@ _PROTECTED_PATHS: dict[str, list[str]] = {
         "tiers/readwrite.yml",
         "triggers.yml",
         "var/ariel_mirror",
-        "web-terminal-context",
+        "web/canopy/collections",
+        "web/canopy/library",
+        "web/canopy/theme",
+        "web/canopy/theme/osprey.json",
+        "web/landing",
+        "web/landing/working-safely.md",
     ],
 }
 

@@ -15,7 +15,7 @@ from osprey.cli.build_profile_load import load_profile_document
 
 QMD = {
     "corpora": [
-        {"name": "procedures", "source": "./data/procedures"},
+        {"name": "procedures", "source": "./procedures"},
         {"name": "papers", "index": "prebuilt", "index_dir": "/srv/papers-index"},
     ]
 }
@@ -60,7 +60,6 @@ def _repo(tmp_path: Path, corpora: list[str], qmd: dict[str, Any]) -> Path:
     manifest = {"name": "knob", "containers": {"knob": {"runtime": "osprey", "corpora": corpora}}}
     profile = {
         "name": "site",
-        "data": "data",
         "apps": {"knob": {}},
         "config": {"services": {"qmd": qmd}},
     }
@@ -70,14 +69,12 @@ def _repo(tmp_path: Path, corpora: list[str], qmd: dict[str, Any]) -> Path:
     return tmp_path
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_profile_that_declares_the_corpus_loads(tmp_path: Path) -> None:
     repo = _repo(tmp_path, ["procedures"], QMD)
 
     load_profile_document(repo / "profile.yml")
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 @pytest.mark.parametrize(
     ("name", "rule"), [("missing", "corpus_unknown"), ("papers", "corpus_without_source")]
 )

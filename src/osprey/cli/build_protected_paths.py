@@ -14,7 +14,10 @@ compare the profile schema and the configuration manifest against them:
 1. :data:`INPUT_ENUMERATION_KEYS` — the profile keys the build's own input
    enumeration (:func:`~osprey.cli.build_profile_merge.profile_inputs`) already
    lists; its entries are emitted as that enumeration keys them, minus the
-   installed applications, which are no repository content.
+   installed applications, which are no repository content. The enumeration
+   also lists the sources the deployment layout declares
+   (:func:`~osprey.repo_layout.rendered_sources`), which no key names; they
+   are emitted with the rest.
 2. :data:`PROFILE_PATH_FIELDS` — path-valued profile fields that enumeration
    does not list.
 3. :data:`CONFIG_PATH_KEYS` — path-valued configuration keys, read from a
@@ -195,7 +198,6 @@ _ROOT = Anchor.PROJECT_ROOT
 INPUT_ENUMERATION_KEYS: Final[frozenset[str]] = frozenset(
     {
         "extends",
-        "data",
         "machine",
         "services.<name>.template",
         "dispatch.triggers",
