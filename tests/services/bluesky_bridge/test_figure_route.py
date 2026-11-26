@@ -987,6 +987,7 @@ def test_a_live_waveform_column_is_left_out_of_the_figure(client: TestClient) ->
     }
     assert "det_wave" not in plotted
     assert plotted == {"motor"}
+    assert any("det_wave" in note for note in figure["panels"][0]["annotations"])
 
 
 def test_tiled_start_doc_without_a_stamp_is_plan_identity_unavailable(
