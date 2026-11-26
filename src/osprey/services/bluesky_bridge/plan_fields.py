@@ -63,6 +63,7 @@ can import it freely.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from types import MappingProxyType
 from typing import Annotated, Any, Final, Literal, get_args, get_origin
 
 from pydantic import BaseModel, Field, RootModel, TypeAdapter, ValidationError
@@ -84,6 +85,23 @@ TRIGGERED_ROLE: Final[ChannelRole] = "triggered"
 
 READABLE_ROLE: Final[ChannelRole] = "readable"
 """Role of a channel the plan records without driving."""
+
+DeviceKind = Literal["settable", "readable", "triggerable", "detector"]
+"""What a plan does to a worker device: moves it, reads it, fires it, or
+triggers it and records its results."""
+
+DEVICE_KINDS: Final[Mapping[str, DeviceKind]] = MappingProxyType(
+    {
+        "ConnectorSettable": "settable",
+        "ConnectorPositioner": "settable",
+        "ConnectorReadable": "readable",
+        "ConnectorTriggerable": "triggerable",
+        "ConnectorDetector": "detector",
+    }
+)
+"""Each worker device's kind, by the name of the class it was built from: the
+``classname`` the queueserver manager reports for a device, and the class the
+worker holds it as. A device of any other class has no kind."""
 
 
 def _role_extra(role: ChannelRole) -> dict[str, str]:

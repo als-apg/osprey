@@ -575,33 +575,43 @@ def test_shipped_permissions_pass_upstream_and_admit_catalog_plans() -> None:
     assert sorted(allowed_devices["primary"]) == ["bpm1", "corr1"]
 
 
-def test_shipped_permissions_allow_only_preview_plan() -> None:
+def test_shipped_permissions_allow_only_preview_plan_and_describe_devices() -> None:
     """`function_execute` runs arbitrary callables in the worker namespace,
     outside the plan path and outside the connector's reference monitor, so
-    this must stay closed except for one deliberate, read-only exception.
+    this must stay closed except for two deliberate, read-only exceptions.
 
     Proved with queueserver's own `check_if_function_allowed` rather than by
     reading the YAML shape, so the assertion tracks upstream's actual
     resolution (root-as-preliminary-filter, allow/forbid pattern matching)
-    instead of our assumptions about it. `preview_plan_in_namespace` and
-    `walk_launch` are sibling worker-namespace callables that share
-    `preview_plan`'s prefix; both must stay denied, which also pins that the
-    entry is an exact-match literal, not an unanchored substring or regex."""
+    instead of our assumptions about it. `preview_plan_in_namespace`,
+    `describe_devices_in_namespace` and `walk_launch` are sibling
+    worker-namespace callables that share the allowed names' prefixes; all
+    must stay denied, which also pins that each entry is an exact-match
+    literal, not an unanchored substring or regex."""
     from bluesky_queueserver.manager.profile_ops import (
         check_if_function_allowed,
         load_user_group_permissions,
     )
 
+    from osprey.services.bluesky_bridge import qserver_startup
+
     permissions = load_user_group_permissions(
         str(TEMPLATE_DIR / "bluesky" / "user_group_permissions.yaml")
     )
+    allowed = (qserver_startup.preview_plan, qserver_startup.describe_devices)
+    denied = (
+        qserver_startup.preview_plan_in_namespace,
+        qserver_startup.describe_devices_in_namespace,
+        qserver_startup.walk_launch,
+    )
     for group in ("root", "primary"):
-        assert check_if_function_allowed(
-            "preview_plan", group_name=group, user_group_permissions=permissions
-        )
-        for other in ("preview_plan_in_namespace", "walk_launch"):
+        for function in allowed:
+            assert check_if_function_allowed(
+                function.__name__, group_name=group, user_group_permissions=permissions
+            )
+        for function in denied:
             assert not check_if_function_allowed(
-                other, group_name=group, user_group_permissions=permissions
+                function.__name__, group_name=group, user_group_permissions=permissions
             )
 
 
