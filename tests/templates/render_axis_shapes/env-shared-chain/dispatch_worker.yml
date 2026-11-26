@@ -1,6 +1,6 @@
 # The dispatch-worker runs the full PROJECT image (<project>:local) that
 # `osprey up` builds from the project root — the same image the web
-# terminal runs, baking the facility overlays and data/ into /app/<project>.
+# terminal runs, baking the whole repo, render included, into /app/<project>.
 # It overrides only `command:` to launch the dispatch-worker MCP server instead
 # of the web UI. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
 #
