@@ -17,9 +17,9 @@ An entry under ``health.plugins`` names that plugin in one of two ways:
   importable; or
 * a **file path** ending in ``.py`` (``./health/facility_checks.py``), loaded
   straight off disk. A relative path is resolved against the **project root**,
-  the same anchor ``data/`` and ``plans/`` paths use, so a deployment can keep
-  its checks next to its profile without packaging them or arranging
-  ``PYTHONPATH`` in every surface that runs the suite.
+  the same anchor ``plans/`` paths use, so a deployment can keep its checks
+  next to its profile without packaging them or arranging ``PYTHONPATH`` in
+  every surface that runs the suite.
 
 A file-path plugin is loaded under a deterministic synthetic module name derived
 from its resolved path (``osprey_health_plugin_<hash>``) and registered in

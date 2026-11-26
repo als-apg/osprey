@@ -248,7 +248,7 @@ class TestAFacilityFileThatDeclaresNoChannels:
     def test_the_remedy_names_the_facility_tree_rather_than_the_build(self, client):
         suggestions = client.get("/api/channels").json()["suggestions"]
 
-        assert any("data/facility" in s for s in suggestions)
+        assert any("project's facility tree" in s for s in suggestions)
         assert not any(_REMEDY in s for s in suggestions)
 
     def test_membership_503s_rather_than_calling_every_channel_invalid(self, client):

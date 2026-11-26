@@ -23,7 +23,7 @@ from typing import NamedTuple
 import pytest
 from tests._builds import BuiltProject
 from tests._facility_file import write_facility_v4, write_facility_views
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 from osprey.cli.templates.claude_code import config_derived_context
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
@@ -166,7 +166,7 @@ def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender
         output_dir=tmp_path_factory.mktemp("texture-only"),
         data_bundle=bundle,
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root(bundle),
+        repo_root=bundle_source_root(bundle),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="demo")
     config_update_fields(project / "config.yml", profile.config)

@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_runner.build_artifacts.catalog import (
     DEFAULT_CLAUDE_MD_TEMPLATE,
     BuildArtifactCatalog,
@@ -2193,6 +2194,11 @@ _DECLARED_HOOK_EXAMPLE = (
 
 
 @lru_cache(maxsize=1)
+def _hooks_dir() -> str:
+    """The repo path of the profile's hook directory, as the layout declares it."""
+    return repo_layout.entry("hooks").path
+
+
 def _framework_hook_filenames() -> frozenset[str]:
     """Filenames of the built-in hook library, whose wiring the framework owns."""
     from osprey.cli.templates.artifact_library import list_artifacts, resolve_artifact
@@ -2216,13 +2222,14 @@ def _declared_hook_filename(ref: str, event: str) -> str:
     if not text:
         raise BuildProfileError(
             f"claude_code.hooks.{event} contains an empty hook reference. Name the "
-            f"file the profile ships in its agent/hooks/ directory, e.g.:\n{_DECLARED_HOOK_EXAMPLE}"
+            f"file the profile ships in its {_hooks_dir()}/ directory, e.g.:\n"
+            f"{_DECLARED_HOOK_EXAMPLE}"
         )
 
     def _refuse(reason: str) -> BuildProfileError:
         return BuildProfileError(
             f"claude_code.hooks.{event} declares {text!r}: {reason}. A declaration may "
-            "only name a hook the profile ships through its agent/hooks/ channel, as "
+            f"only name a hook the profile ships through its {_hooks_dir()}/ channel, as "
             "'facility_guard.py' or 'hooks/facility_guard.py'."
         )
 
@@ -2397,7 +2404,7 @@ def _vet_declared_hook(
     if name not in shipped:
         raise BuildProfileError(
             f"claude_code.hooks.{event} declares {name!r}, which the resolved "
-            "profile does not ship. Either add it to the profile's agent/hooks/ "
+            f"profile does not ship. Either add it to the profile's {_hooks_dir()}/ "
             f"directory, or — if a render excludes 'hooks/{name}' — unwire it "
             "in that same delta by adding this line to the render's `config:`:"
             f"\n    claude_code.hooks.{event}: null\n"

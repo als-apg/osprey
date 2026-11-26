@@ -23,14 +23,14 @@ container is handed to read. Anchored on the render, the qmd exporter wrote
 ``build/var/ariel_mirror`` while the sidecar indexed ``var/ariel_mirror`` — an
 empty tree — and a render's readers opened the image's baked bundle at
 ``build/data/...`` while the deployment's live bundle was mounted at
-``data/...`` one directory over. Same rule as
+``facility/...`` one directory over. Same rule as
 :func:`osprey_connectors.workspace.resolve_project_root` and every other
 relative path the runtime resolves.
 
 One key is the deliberate exception, through :func:`resolve_render_relative_path`:
 ``services.graphdb.ttl_path``. The corpus it names is an artifact OF the
 render: its documented default, ``./data/graph/facility.ttl``, is the graph
-view the build writes into the render from the project's ``data/facility/``
+view the build writes into the render from the project's ``facility/``
 sources, so a facility edit reaches the store on the next build, like every
 other rendered artifact. It therefore resolves against the ``config.yml``
 directory. The store is seeded from it once, by the deploy; nothing writes it

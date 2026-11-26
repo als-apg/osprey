@@ -17,6 +17,7 @@ import it) are each held equal to it here or by the test named beside them.
 
 from __future__ import annotations
 
+import ast
 import functools
 import re
 from collections.abc import Mapping
@@ -28,10 +29,11 @@ from osprey import repo_layout
 from tests._layout_spelling import (
     CATEGORIES,
     EQUAL_TO_SOURCE,
-    GENERATED_SCHEMA,
-    PINNED_COPY,
+    SOURCE_ROOTS,
     TEMPLATE_TREE,
     Site,
+    _division_operands,
+    _is_path_call,
     compare,
     scan,
     scan_source,
@@ -74,26 +76,13 @@ def _keys() -> frozenset[str]:
 
 _CATALOG = "src/osprey/agent_runner/build_artifacts/catalog.py"
 _CONVENTIONS = "src/osprey/cli/profile_conventions.py"
-_GENERATED = "packages/osprey-facility/src/osprey_facility/schema/_generated/core.py"
 _GALLERY = "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py"
 _CLAUDE_CODE_FILES = "src/osprey/interfaces/web_terminal/claude_code_files.py"
-_CANOPY = "src/osprey/integrations/canopy/__init__.py"
 _TEMPLATE_MANAGER = "src/osprey/cli/templates/manager.py"
 
 #: ``(file, constant text) -> (count, category)`` for each site still allowed
 #: to spell a guarded path.
 ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
-    # The facility package names its tree's position in messages; it cannot
-    # import the framework (held equal below).
-    (
-        "packages/osprey-facility/src/osprey_facility/source_tree.py",
-        "data/facility",
-    ): (1, PINNED_COPY),
-    # Canopy's standard-library-only package: the screen library and the
-    # facility collections below the project root (tests/integrations/canopy/
-    # test_layout_copies.py).
-    (_CANOPY, "data/canopy/library"): (1, PINNED_COPY),
-    (_CANOPY, "data/canopy/collections"): (1, PINNED_COPY),
     # The render's facility tree, where the runtime reads it whatever the
     # source layout.
     ("src/osprey/facility/settings.py", "data/facility"): (1, EQUAL_TO_SOURCE),
@@ -111,22 +100,6 @@ ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
     # The framework's own template trees, not laid out as a deployment.
     (_TEMPLATE_MANAGER, "claude_code/web-terminal-context"): (1, TEMPLATE_TREE),
     ("src/osprey/cli/profile_cmd.py", "web-terminal-context"): (1, TEMPLATE_TREE),
-    (
-        "src/osprey/integrations/canopy/repo_checks.py",
-        "src/osprey/templates/apps/demo/data/canopy/**",
-    ): (1, TEMPLATE_TREE),
-    # Field descriptions generated from the facility schema.
-    (
-        _GENERATED,
-        "One facility, described once: its places, devices, channels and groups, the models "
-        "that simulate it and how each model is wired to channels, the write limits and the "
-        "scenarios. `osprey build` combines the sources under data/facility/ into one file of "
-        "this shape. Every list whose order carries meaning sets `list_elements_ordered`; a "
-        "multivalued slot without it is a set, compared and written sorted by its string "
-        "form, or by its key when its entries are keyed (`scheme_names` by name and scheme, "
-        "`citations` by document, version and locator).",
-    ): (1, GENERATED_SCHEMA),
-    (_GENERATED, "Relative to data/facility/."): (1, GENERATED_SCHEMA),
 }
 
 
@@ -164,14 +137,125 @@ def test_every_guarded_spelling_is_a_declared_path() -> None:
         )
 
 
+#: A plain word: a successor spelt so is an ordinary word the guard cannot read.
+_PLAIN_WORD = re.compile(r"[a-z]+")
+
+
 def test_every_guarded_moved_from_path_has_its_successor_guarded() -> None:
-    """A moved-from path is guarded beside the path it moved to, so neither is spelt."""
+    """A moved-from path is guarded beside the path it moved to, so neither is spelt.
+
+    A successor that is a plain word (``facility``) is no spelling the guard
+    can read; its moved-from path stays guarded alone.
+    """
     missing = [
         move.new
         for move in repo_layout.retired_moves()
-        if move.old in GUARDED and move.new not in GUARDED
+        if move.old in GUARDED and move.new not in GUARDED and not _PLAIN_WORD.fullmatch(move.new)
     ]
     assert missing == []
+
+
+# --- no join rebuilds a dissolved directory's old child -----------------------------------
+
+
+def _dissolved_children() -> dict[str, frozenset[str]]:
+    """Each dissolved directory's name beside the names its moved-out children had."""
+    return {
+        name: frozenset(
+            move.old.split("/")[1]
+            for move in repo_layout.retired_moves()
+            if move.old.startswith(f"{name}/")
+        )
+        for name in repo_layout.dissolved_names()
+    }
+
+
+def _operand_text(node: ast.expr) -> str | None:
+    """A join operand's text, an f-string's fields as ``{}``; ``None`` when not constant."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            value.value if isinstance(value, ast.Constant) else "{}" for value in node.values
+        )
+    return None
+
+
+def _segment_is(segment: str, names: frozenset[str]) -> bool:
+    """Whether *segment* spells one of *names*, an f-string field standing for any text."""
+    pattern = "[^/]+".join(re.escape(part) for part in segment.split("{}"))
+    return any(re.fullmatch(pattern, name) for name in names)
+
+
+def dissolved_joins(source: str, file: str) -> list[str]:
+    """Each join in *source* of a dissolved directory followed by one of its old children.
+
+    A join is a ``/`` chain, ``Path(...)``, ``.joinpath(...)`` or
+    ``os.path.join(...)``; its constant operands are split into segments, and
+    an operand that is not constant breaks the run. ``Path("data") /
+    "landing"`` rebuilds a path that no longer exists in a deployment; a
+    render-side path reads its row's ``render`` instead.
+    """
+    dissolved = _dissolved_children()
+    found: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            operands = list(_division_operands(node))
+        elif isinstance(node, ast.Call) and _is_path_call(node.func):
+            operands = list(node.args)
+        else:
+            continue
+        segments: list[str | None] = []
+        for operand in operands:
+            text = _operand_text(operand)
+            segments.extend(text.strip("/").split("/") if text else [None])
+        for parent, child in zip(segments, segments[1:], strict=False):
+            if parent in dissolved and child is not None and _segment_is(child, dissolved[parent]):
+                found.append(f"{file}:{node.lineno}: {parent}/{child}")
+    return sorted(set(found))
+
+
+def test_no_join_spells_a_dissolved_directorys_old_child() -> None:
+    found = []
+    for pattern in SOURCE_ROOTS:
+        for root in sorted(REPO_ROOT.glob(pattern)):
+            for path in sorted(root.rglob("*.py")):
+                file = path.relative_to(REPO_ROOT).as_posix()
+                found.extend(dissolved_joins(path.read_text(encoding="utf-8"), file))
+    assert found == [], (
+        "a dissolved directory's children moved; read the row's path, or its render "
+        "for a render-side path, from the declaration:\n" + "\n".join(found)
+    )
+
+
+def test_the_join_check_knows_the_dissolved_children() -> None:
+    children = _dissolved_children()
+    assert set(children) == set(repo_layout.dissolved_names()) == {"data"}
+    assert {"facility", "canopy", "landing", ".runtime", "code_review"} <= children["data"]
+    assert "bluesky_curve" in children["data"]
+
+
+_PLANTED_JOINS = """
+A = Path("data") / "landing"
+B = root / "data" / "facility" / "records"
+C = os.path.join(root, "data", "canopy", "library")
+D = root.joinpath("data/.runtime")
+E = root / "data" / f"{lane}_curve"
+F = render / entry("facility").render
+G = render / "data" / "graph"
+H = root / "data" / name / "facility"
+I = root / "facility" / "data"
+"""
+
+
+def test_the_join_check_finds_each_planted_join() -> None:
+    assert dissolved_joins(_PLANTED_JOINS, "planted.py") == [
+        "planted.py:2: data/landing",
+        "planted.py:3: data/facility",
+        "planted.py:4: data/canopy",
+        "planted.py:5: data/.runtime",
+        "planted.py:6: data/{}_curve",
+    ]
 
 
 # --- the scanner finds every form a spelling takes ---------------------------------------
@@ -236,7 +320,7 @@ def test_a_key_outside_a_lookup_is_still_a_spelling() -> None:
 def test_the_facility_packages_display_prefix_equals_the_declared_child() -> None:
     from osprey_facility import source_tree
 
-    prefix = repo_layout.child_display_path("data", "facility")
+    prefix = repo_layout.entry("facility").path
     assert source_tree._DISPLAY_PREFIX == prefix
     assert source_tree.display_path("limits.yaml") == f"{prefix}/limits.yaml"
 

@@ -7,7 +7,8 @@ template or a docstring that tells a reader to write one sends them straight
 into that refusal. This sweep reads the shipped text for each retired path in
 its path-shaped spellings, anchored at the facility root:
 
-- ``data/facility/<old>``, the root as messages name it;
+- ``facility/<old>``, the root as messages name it, wherever a tree sits
+  (``build/data/facility/<old>`` is the render's copy of the same tree);
 - a ``deck:`` value beginning with the retired decks directory;
 - a retired directory as a leading segment, ``scenarios/<name>.yaml``, that no
   other path segment precedes (``simulation/scenarios/`` and
@@ -18,7 +19,7 @@ read. The retired paths come from :func:`osprey_facility.source_tree.retired_mov
 alone; the sweep keeps no list of its own.
 
 The swept text is the prose under ``docs/source`` and ``plugins``, the
-non-facility-tree templates, the profiles, the channel-finder static pages and
+templates, the profiles, the channel-finder static pages and
 every docstring under ``src`` and ``packages/*/src``. Code strings are the
 spelling guard's (``test_facility_spelling_guard.py``), and a tree listing
 (a line that is only a path) is checked by hand, not here.
@@ -161,7 +162,9 @@ def _patterns(retired: Iterable[tuple[str, bool]]) -> tuple[re.Pattern[str], ...
     dirs = "|".join(
         re.escape(old) for old, is_dir in sorted(retired, key=lambda r: -len(r[0])) if is_dir
     )
-    rooted = re.compile(rf"{re.escape(source_tree.display_path(''))}(?:{olds})(?![\w.-])")
+    rooted = re.compile(
+        rf"(?<![\w.-]){re.escape(source_tree.display_path(''))}(?:{olds})(?![\w.-])"
+    )
     deck_old, _deck_new = source_tree.retired_deck_prefix()
     deck = re.compile(rf"\bdeck:\s*[\"'`]*{re.escape(deck_old)}")
     patterns = [rooted, deck]
@@ -223,7 +226,7 @@ def _swept_lines(
 
     def skip(path: Path) -> bool:
         rel = path.relative_to(repo_root).as_posix()
-        return rel in exempt_files or path.name in EXEMPT_NAMES or "/data/facility/" in f"/{rel}"
+        return rel in exempt_files or path.name in EXEMPT_NAMES
 
     for path in text_files(repo_root, prose_roots, suffixes=PROSE_SUFFIXES, skip=skip):
         rel = path.relative_to(repo_root).as_posix()
@@ -330,9 +333,9 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
     _plant(
         tmp_path,
         "docs/source/page.rst",
-        "Edit ``data/facility/classes.yaml`` to add a class.\n"
-        "Scenarios sit in ``data/facility/scenarios/`` and models in\n"
-        "``data/facility/models.yaml``.\n"
+        "Edit ``facility/classes.yaml`` to add a class.\n"
+        "Scenarios sit in ``facility/scenarios/`` and models in\n"
+        "``build/data/facility/models.yaml``.\n"
         "Write ``scenarios/<name>.yaml`` beside ``measurement/<model>.yaml``.\n"
         "Queries live in ``benchmarks/cross_paradigm/queries/``.\n",
     )
@@ -343,9 +346,9 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
     _plant(
         tmp_path,
         "src/pkg/mod.py",
-        '"""Reads ``data/facility/seeds.yaml``."""\n'
+        '"""Reads ``facility/seeds.yaml``."""\n'
         "\n"
-        "PATH = 'data/facility/fixes.yaml'\n"
+        "PATH = 'facility/fixes.yaml'\n"
         "\n"
         "\n"
         "def load():\n"
@@ -354,17 +357,17 @@ def test_planted_retired_spellings_fail(tmp_path: Path) -> None:
 
     assert _planted_sweep(tmp_path) == sorted(
         [
-            "docs/source/page.rst:1: data/facility/classes.yaml",
-            "docs/source/page.rst:2: data/facility/scenarios",
-            "docs/source/page.rst:3: data/facility/models.yaml",
+            "docs/source/page.rst:1: facility/classes.yaml",
+            "docs/source/page.rst:2: facility/scenarios",
+            "docs/source/page.rst:3: facility/models.yaml",
             "docs/source/page.rst:4: scenarios/",
             "docs/source/page.rst:4: measurement/",
             "docs/source/page.rst:5: benchmarks/cross_paradigm/queries/",
             "plugins/skill/SKILL.md:1: deck: decks/",
-            "docs/source/_diagrams/map.html:1: data/facility/decks",
+            "docs/source/_diagrams/map.html:1: facility/decks",
             "docs/source/_static/app.js:1: decks/",
             'src/osprey/templates/app/README.md.j2:1: deck: "decks/',
-            "src/pkg/mod.py:1: data/facility/seeds.yaml",
+            "src/pkg/mod.py:1: facility/seeds.yaml",
             "src/pkg/mod.py:7: scenarios/",
         ]
     )
@@ -375,19 +378,19 @@ def test_current_spellings_pass(tmp_path: Path) -> None:
     _plant(
         tmp_path,
         "docs/source/page.rst",
-        "Edit ``data/facility/vocabulary/classes.yaml``; ``classes.yaml`` holds classes.\n"
-        "Scenarios sit in ``data/facility/simulation/scenarios/<name>.yaml``.\n"
+        "Edit ``facility/vocabulary/classes.yaml``; ``classes.yaml`` holds classes.\n"
+        "Scenarios sit in ``facility/simulation/scenarios/<name>.yaml``.\n"
         "A layer's decks sit in ``imported/mml/decks/``, the source's in\n"
         "``simulation/decks/`` and the queries in ``benchmarks/channel_finder/``.\n"
-        "Set ``deck: simulation/decks/SR.json``; ``data/facility/decksets`` is other.\n"
-        "The ``apps/demo/scenarios/`` folder is not a facility root.\n"
+        "Set ``deck: simulation/decks/SR.json``; ``facility/decksets`` is other.\n"
+        "The ``apps/demo/scenarios/`` folder is not a facility root, nor is\n"
+        "``osprey_facility/models.yaml``.\n"
         "\n"
         "   simulation/\n"
         "     decks/                the decks those models name\n"
         "     scenarios/<name>.yaml ways the machine departs from its baseline\n",
     )
-    _plant(tmp_path, "src/osprey/templates/app/data/facility/README.md", "``decks/``\n")
-    _plant(tmp_path, "src/pkg/mod.py", "PATH = 'data/facility/fixes.yaml'\n")
+    _plant(tmp_path, "src/pkg/mod.py", "PATH = 'facility/fixes.yaml'\n")
 
     assert _planted_sweep(tmp_path) == []
 

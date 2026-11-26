@@ -4,7 +4,7 @@
  *
  * No explore renderer imports a write helper from api.js, none renders an add,
  * edit or delete control, and each file-backed view names the corrections route:
- * data/facility/provenance/fixes.yaml, applied by `osprey build`. The pipeline switch in
+ * facility/provenance/fixes.yaml, applied by `osprey build`. The pipeline switch in
  * app.js is not a database write and keeps its call.
  *   npx vitest run tests/interfaces/channel_finder/explore-read-only.test.mjs
  *
@@ -93,7 +93,7 @@ function freshContainer() {
 /** @param {HTMLElement} container */
 function expectReadOnly(container) {
   const text = container.textContent || '';
-  expect(text).toContain('data/facility/provenance/fixes.yaml');
+  expect(text).toContain('Corrections go in facility/provenance/fixes.yaml');
   expect(text).toContain('osprey build');
   for (const sel of EDIT_CONTROLS) {
     expect(container.querySelectorAll(sel), sel).toHaveLength(0);
