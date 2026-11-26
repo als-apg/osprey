@@ -1,10 +1,10 @@
 """A machine repository: one facility, versioned on its own, with a VA-only setup.
 
-A machine repository holds a facility directory at ``data/facility`` and, beside
+A machine repository holds a facility directory at ``facility`` and, beside
 it, ``profile.yml`` — the VA-only setup it builds and serves on its own (the
 file in this package, included verbatim by the docs). A deployment mounts the
 repository (as a submodule or a nested clone) and names its facility directory
-with ``machine: <mount>/data/facility``.
+with ``machine: <mount>/facility``.
 
 The facility is the bundled ``example`` facility without the deployment's
 content directories (``knowledge/``, ``ariel/``, ``benchmarks/``), so it has
@@ -32,7 +32,7 @@ PROFILE = FIXTURE_DIR / PROFILE_FILENAME
 EXAMPLE_FACILITY = Path(osprey.__file__).parent / "templates" / "facilities" / "example"
 
 #: Where a machine repository keeps its facility, relative to its top.
-FACILITY_PATH = "data/facility"
+FACILITY_PATH = "facility"
 
 #: The scenario the fixture machine marks as its start set.
 MARKED_SCENARIO = "rf-thermal"

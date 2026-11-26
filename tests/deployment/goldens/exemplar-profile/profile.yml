@@ -12,7 +12,7 @@
 #
 # The repository is the deployment. One directory, four zones:
 #
-#   SOURCE   tracked, yours to edit — profile.yml, providers.yml, data/,
+#   SOURCE   tracked, yours to edit — profile.yml, providers.yml, facility/,
 #            tiers/, agent/context/, ops/services/, the CI files
 #   SECRETS  .env — git-ignored, durable: provider keys you set, plus the
 #            service tokens `osprey up` mints
@@ -24,7 +24,7 @@
 #   +--------------+  osprey   +--------------+  osprey  +----------------+
 #   |    SOURCE    |  build    |    build/    |    up    |   DEPLOYMENT   |
 #   | profile.yml  +---------->| config.yml   +--------->| agent CLI/web  |
-#   | data/  ...   |           | .mcp.json  … |          | + containers   |
+#   | facility/ …  |           | .mcp.json  … |          | + containers   |
 #   +--------------+           +--------------+          +----------------+
 #          ^                                                     |
 #          +---- edit -> osprey build -> osprey up --------------+
@@ -444,10 +444,10 @@ config:
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
   # reported back as `expanded_terms`. The build turns it on when the facility
-  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # ships facility/ariel/vocabulary.yml. The file is read once at startup;
   # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
   # search 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
+  # `osprey ariel vocab-check facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -533,7 +533,7 @@ config:
   # facility_knowledge server, `osprey knowledge` and the KNOWLEDGE tab.
   # Relative to the project root. Replace with your own bundle once you have
   # customised the example content.
-  facility_knowledge.bundle_path: data/facility/knowledge
+  facility_knowledge.bundle_path: facility/knowledge
   # osprey:panel-port okf
   # The KNOWLEDGE tab's own web server. It launches when `okf` is in
   # `web_panels:` above, on this deployment's knowledge slot. Uncomment to
@@ -621,7 +621,7 @@ config:
   # or a pre-baked image on an air-gapped host.
   services.graphdb.image: neo4j:5.26-community
   # Corpus to seed the store from, relative to the build directory. This is
-  # the graph view the build writes from data/facility/, so graph answers and
+  # the graph view the build writes from facility/, so graph answers and
   # channel search describe the same facility. The build fills this key with
   # the graph view when it is left out.
   services.graphdb.ttl_path: ./data/graph/facility.ttl
@@ -698,12 +698,12 @@ config:
   # Each file below becomes one collapsible section at the bottom of the
   # landing page, in this order. The file's `# H1` is the section label, so
   # adding a section means adding a markdown file and listing it here.
-  # `data/landing/working-safely.md` ships with this preset and is yours to
+  # `web/landing/working-safely.md` ships with this preset and is yours to
   # rewrite; add your own for local procedures, contacts or shift handover.
   # Drop this key entirely and you get OSPREY's built-in safety notice
   # instead; set it to [] for no notices at all.
   modules.web_terminals.landing.notices:
-    - data/landing/working-safely.md
+    - web/landing/working-safely.md
   modules.web_terminals.landing.footer: OSPREY multi-user web terminal stack. Experimental system. Proceed with caution.
   modules.web_terminals.landing.groups:
     - type: users
@@ -753,7 +753,6 @@ deploy:
   # rendered config's `modules.web_terminals.image_source`.
   image_source: local
 
-data: data
 # Minimum OSPREY release that understands this profile's keys. Builds below it abort.
 requires_osprey_version: '>=2026.8.0'
 # true builds its own services stack; false attaches to another project's.

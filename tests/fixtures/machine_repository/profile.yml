@@ -8,7 +8,6 @@
 extends: hello-world
 name: Example Machine
 project_name: example-machine
-data: data
 
 virtual_accelerator:
   port: 5064

@@ -3,7 +3,6 @@
 # shape a projected key takes: `gauge` has a panel and an approval tool, `ledger`
 # has read tools only, an image container and its own error texts.
 extends: hello-world
-data: data
 config:
   control_system.writes: asked
 apps:
