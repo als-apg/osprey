@@ -8,6 +8,11 @@ every file, the same index (``git ls-files -s``) and the same worktree status,
 in the deployment and in any other repository the migration touches. Both
 trees build.
 
+The block's own lines are held to that on a third copy, pasted without the
+closing command: they alone leave nothing at a retired path and bring every
+file ``--revalidate`` leaves at a moved path, so the closing command cannot
+stand in for a move line that is missing or wrong.
+
 Three repositories are taken both ways: the previous release (pre-epic, its
 facility tree at ``data/facility`` with the old facility slots); the same
 release with its rendered sources under a non-default in-repo ``data:`` root;
@@ -29,6 +34,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.init_cmd import init
 from osprey.repo_retired import RetiredRootRefused, find_retired_root, refuse_retired_layout
 from osprey_facility.errors import _PLACE_THESE, _revalidate_command
@@ -76,6 +82,8 @@ class Routes:
 
     Attributes:
         block: The copy the pasted refusal block migrated.
+        moved: The copy the block's lines migrated, pasted without the
+            closing command.
         revalidated: The copy ``osprey init --revalidate`` migrated.
         refusal: What the refusing verb printed on the block's copy.
         revalidate: What ``--revalidate`` printed.
@@ -83,6 +91,7 @@ class Routes:
     """
 
     block: Path
+    moved: Path
     revalidated: Path
     refusal: str
     revalidate: str
@@ -133,16 +142,31 @@ def _elsewhere_steps(output: str) -> str:
     return "\n".join(script) + "\n" if script else ""
 
 
-def _by_both_routes(source: Path, parent: Path, others: tuple[str, ...] = ()) -> Routes:
-    """Take a copy of *source* through each route."""
-    block = _copy(source, parent / "block")
-    revalidated = _copy(source, parent / "revalidated")
-
-    refused = run_build(block)
+def _refused(repo: Path) -> str:
+    """What a build of the retired-layout *repo* prints: the refusal, and nothing built."""
+    refused = run_build(repo)
     assert refused.exit_code == 1, refused.output
     assert "Traceback" not in refused.output, refused.output
-    assert not (block / "build").exists()
-    _sh(refused.output, parent / "elsewhere")
+    assert not (repo / "build").exists()
+    return refused.output
+
+
+def _without_closing_command(refusal: str, repo: Path) -> str:
+    """The refusal block for *repo* up to, and without, its closing command."""
+    lines = refusal.splitlines()
+    assert lines[-1] == _revalidate_command(repo.resolve()), refusal
+    return "\n".join(lines[:-1]) + "\n"
+
+
+def _by_both_routes(source: Path, parent: Path, others: tuple[str, ...] = ()) -> Routes:
+    """Take a copy of *source* through each route, and one through the block's lines alone."""
+    block = _copy(source, parent / "block")
+    moved = _copy(source, parent / "moved")
+    revalidated = _copy(source, parent / "revalidated")
+
+    refusal = _refused(block)
+    _sh(refusal, parent / "elsewhere")
+    _sh(_without_closing_command(_refused(moved), moved), parent / "elsewhere")
 
     result = CliRunner().invoke(init, [str(revalidated), "--revalidate"], catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -150,7 +174,7 @@ def _by_both_routes(source: Path, parent: Path, others: tuple[str, ...] = ()) ->
     assert bool(steps) == bool(others), result.output
     if steps:
         _sh(steps, parent / "elsewhere")
-    return Routes(block, revalidated, refused.output, result.output, others)
+    return Routes(block, moved, revalidated, refusal, result.output, others)
 
 
 def _files(repo: Path) -> dict[str, bytes | str]:
@@ -251,6 +275,33 @@ def test_both_routes_finish_the_migration(routes: Routes) -> None:
         assert find_retired(repo / FACILITY).empty, repo
         assert not (repo / "data").exists(), repo
         assert not (repo / DATA_ROOT).exists(), repo
+
+
+def _moved_paths(repo: Path) -> set[str]:
+    """Every file of *repo* at or below a path a declared root move brings."""
+    successors = [move.new for move in repo_layout.retired_moves()]
+    return {
+        path
+        for path in _files(repo)
+        if any(path == new or path.startswith(f"{new}/") for new in successors)
+    }
+
+
+def test_the_move_lines_alone_leave_nothing_at_a_retired_path(routes: Routes) -> None:
+    repo = routes.moved
+    assert find_retired_root(repo).empty, repo
+    assert find_retired(repo / FACILITY).empty, repo
+    assert not (repo / "data").exists(), repo
+    assert not (repo / DATA_ROOT).exists(), repo
+
+
+def test_the_move_lines_alone_bring_every_file_revalidate_leaves_at_a_moved_path(
+    routes: Routes,
+) -> None:
+    # The rewrite after the moves may drop a file; it brings none to a moved path.
+    expected = _moved_paths(routes.revalidated)
+    assert expected, routes.revalidate
+    assert expected - _moved_paths(routes.moved) == set()
 
 
 def test_both_trees_build(routes: Routes, _git_env: None) -> None:
