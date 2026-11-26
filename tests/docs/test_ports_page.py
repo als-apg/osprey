@@ -40,7 +40,6 @@ _STATED_BASE = 20000
 _MINIMAL_PROFILE: dict[str, Any] = {
     "name": "Ports page example",
     "project_name": "ports-example",
-    "data": "data",
     "provider": "anthropic",
 }
 
@@ -68,7 +67,6 @@ def _yaml_blocks() -> list[tuple[int, str]]:
 
 def _load_over_minimal(block: dict[str, Any], tmp_path: Path):
     """Write the block over a minimal profile into *tmp_path* and load it."""
-    (tmp_path / "data").mkdir()
     # The page names the reader's own trigger file, which the loader looks for
     # beside the profile; supply it there.
     triggers = (block.get("dispatch") or {}).get("triggers")

@@ -4,7 +4,7 @@
 Scenario files
 ==============
 
-A scenario file is one YAML file under ``data/facility/simulation/scenarios/``; the file
+A scenario file is one YAML file under ``facility/simulation/scenarios/``; the file
 name is the scenario name. This page lists what the file may hold. Applying
 and writing scenarios is in :ref:`how-to-run-scenarios`.
 
@@ -42,7 +42,7 @@ Every key is optional.
        optionally ``tags``, ``categories``, ``loto_tag``, ``extra`` and
        ``attachments``. ``attachments`` lists the entry's pictures, each
        ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative
-       to the folder ``data/facility/simulation/scenarios/<name>/``.
+       to the folder ``facility/simulation/scenarios/<name>/``.
    * - ``drivers``, ``couple``
      - Slow shared signals, and the channels that follow them.
    * - ``noise``

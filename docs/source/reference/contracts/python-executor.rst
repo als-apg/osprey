@@ -136,7 +136,7 @@ is refused without asking.
 Each step comes from the measurement file (``corrector_delta``,
 ``frequency_delta``, ``quad_delta``, ``sextu_delta``) and is shrunk until no
 setpoint's largest single write exceeds half its ``max_step`` in
-``data/facility/limits.yaml``; ``delta_limited_by`` and ``rf_limited_by`` name
+``facility/limits.yaml``; ``delta_limited_by`` and ``rf_limited_by`` name
 the setpoint that bounded it. A strength, ``max_step`` or write that is not a
 finite number, or a ``max_step`` not above zero, refuses the measurement before
 any setpoint moves. A group step is first sized from the view's

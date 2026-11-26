@@ -17,7 +17,7 @@ line number), then handed to the code that owns it:
   facility output that build's main render writes is on the tree.
 * ``how-to/deploy-project/compose-templates.rst``: the ``services/`` tree names
   the compose templates the build copies into ``build/services/``.
-* ``how-to/describe-your-facility.rst``: the ``data/facility/`` tree is the one
+* ``how-to/describe-your-facility.rst``: the ``facility/`` tree is the one
   ``osprey init --preset demo`` writes, in the names the facility
   build reads.
 * ``how-to/deploy-project/project-image.rst`` and
@@ -48,6 +48,7 @@ from typing import Any, Literal, NamedTuple
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.profile_conventions import (
     PROJECT_MIRROR_DIR,
     convention_for,
@@ -362,7 +363,7 @@ def test_regenerate_snippet_writes_the_indexes(
 ) -> None:
     """The snippet, run from a project holding the example bundle, leaves it as the CLI would."""
     snippet = _block(OKF_PAGE, "python", "regenerate_indexes(")
-    bundle = tmp_path / "data" / "facility" / KNOWLEDGE_DIR
+    bundle = tmp_path / repo_layout.entry("facility").path / KNOWLEDGE_DIR
     shutil.copytree(_EXAMPLE_BUNDLE, bundle)
     for index in bundle.rglob(okf_index._INDEX_FILE):
         index.unlink()
@@ -390,7 +391,7 @@ def test_regenerate_snippet_writes_the_indexes(
 
 def test_starting_shape_tree_names_the_index_file_and_the_example_directories() -> None:
     root, paths = tree_paths(_block(OKF_PAGE, "text", "← bundle root index"))
-    assert root == f"data/facility/{KNOWLEDGE_DIR}/"
+    assert root == f"{repo_layout.entry('facility').path}/{KNOWLEDGE_DIR}/"
     assert {Path(rel).name for rel in paths if rel.endswith("index.md")} == {okf_index._INDEX_FILE}
     assert "index.md" in paths, "the bundle root holds an index"
     top_dirs = {rel.rstrip("/") for rel in paths if rel.endswith("/") and rel.count("/") == 1}
@@ -492,7 +493,7 @@ def test_compose_tree_names_the_templates_the_build_copies(
 
 def _facility_tree() -> list[str]:
     root, paths = tree_paths(_block(FACILITY_PAGE, "text", "identity.yaml"))
-    assert root == "data/facility/"
+    assert root == f"{repo_layout.entry('facility').path}/"
     return paths
 
 

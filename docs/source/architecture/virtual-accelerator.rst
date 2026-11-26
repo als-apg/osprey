@@ -401,7 +401,7 @@ and served from memory until the next solve, so a setpoint write never pays
 for them.
 
 The imperfections a machine starts from are scenario faults. A scenario under
-``data/facility/simulation/scenarios/`` names them in its ``faults`` block,
+``facility/simulation/scenarios/`` names them in its ``faults`` block,
 keyed by model and then by address, each a value or a map of fault fields to values; the
 composite seeds them into its models when the scenario is active. Channel
 faults, named in the scenario's ``channel_faults`` block, are faults of the

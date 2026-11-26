@@ -5,7 +5,7 @@ Facility File and Its Views
 ===========================
 
 OSPREY keeps one description of a facility and derives everything else from
-it. The sources under ``data/facility/`` are combined by ``osprey build`` into
+it. The sources under ``facility/`` are combined by ``osprey build`` into
 the *facility file*, and each service reads a *view* of that file, a file in
 the shape the service needs. No service keeps a channel list of its own, so
 the channel finder, the limits check, the simulator and the knowledge graph
@@ -255,7 +255,8 @@ derived keys where a stated value is not refused.
      - when ``true`` with no path, have that file in the tree
    * - ``ariel.vocabulary.path``
      - the key
-     - the shipped ``data/facility/ariel/vocabulary.yml``
+     - the render's copy of the shipped file,
+       ``data/facility/ariel/vocabulary.yml``
      - while the vocabulary is on, name a file, resolved against the project
        root
    * - ``channel_finder.benchmark.dataset_path``

@@ -59,7 +59,7 @@ architecture of their own, and how all of it is tested:
       :link-type: doc
       :shadow: md
 
-      One description of the facility under ``data/facility/``, the facility
+      One description of the facility under ``facility/``, the facility
       file the build makes of it, the view each service reads, the schema
       behind it and the simulation models.
 

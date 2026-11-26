@@ -58,7 +58,7 @@ No hardware is involved, so every example below is safe to run; hardware writes
 are still gated behind the human-approval prompt.
 
 Unlike ``hello-world``, the preset ships a **full facility description** under
-``data/facility/`` (places, devices, channels, groups, models and limits), from
+``facility/`` (places, devices, channels, groups, models and limits), from
 which ``osprey build`` writes the facility graph and every other file a
 service reads (:doc:`/how-to/describe-your-facility`), a **seeded electronic
 logbook**, and an **archive of its own** — a real store this project deploys,

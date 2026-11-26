@@ -166,7 +166,7 @@ _ELISION = re.compile(r"^\s*\.\.\.\s*(#.*)?$", re.MULTILINE)
 #: Blocks no content rule can place, keyed by ``(page, block name)`` (see
 #: :attr:`Block.name`), with the file they belong to.
 _NOT_CONFIG: dict[tuple[str, str], str] = {
-    ("how-to/deploy-project/networking.rst", "services/site_api/docker-compose.yml.j2"): (
+    ("how-to/deploy-project/networking.rst", "ops/services/site_api/docker-compose.yml.j2"): (
         "a compose template with no Jinja markup, rendered by the build"
     ),
 }
@@ -391,12 +391,12 @@ def _other_file_roots() -> tuple[tuple[str, frozenset[str], frozenset[str]], ...
 
     vocabulary = yaml.safe_load(_EXAMPLE_VOCABULARY.read_text(encoding="utf-8"))
     return (
-        ("data/facility/identity.yaml", *attributes("Identity")),
-        ("data/facility/limits.yaml", *attributes("Limits")),
-        ("data/facility/simulation/measurement/<model>.yaml", *attributes("Measurement")),
-        ("a scenario under data/facility/simulation/scenarios/", *attributes("Scenario")),
+        ("facility/identity.yaml", *attributes("Identity")),
+        ("facility/limits.yaml", *attributes("Limits")),
+        ("facility/simulation/measurement/<model>.yaml", *attributes("Measurement")),
+        ("a scenario under facility/simulation/scenarios/", *attributes("Scenario")),
         # Read by facility/combine.py: the header and the list of fixes.
-        ("data/facility/provenance/fixes.yaml", frozenset({"schema", "fixes"}), none),
+        ("facility/provenance/fixes.yaml", frozenset({"schema", "fixes"}), none),
         ("the MML import mapping", _MML_TOP_REQUIRED | _MML_TOP_OPTIONAL, none),
         ("build/data/bluesky_devices.yml", frozenset(_BLUESKY_DEVICE_KEYS), none),
         ("an ARIEL vocabulary file", frozenset(vocabulary), none),
@@ -423,7 +423,7 @@ def _other_file(document: Any) -> str | None:
             ]
         )
         if all(isinstance(seed, Mapping) and set(seed) <= seed_keys for seed in document.values()):
-            return "data/facility/simulation/seeds.yaml: seeds keyed by channel address"
+            return "facility/simulation/seeds.yaml: seeds keyed by channel address"
         return None
     known = _sections() | _KNOWN_PROFILE_KEYS
     if all(root.split(".")[0] in known for root in roots):
@@ -630,9 +630,9 @@ def test_a_jinja_template_is_not_checked() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("code: ca\nname: Demo\n", "data/facility/identity.yaml"),
-        ("records:\n  - address: X\n", "data/facility/limits.yaml"),
-        ("SR:BEAM:CURRENT:\n  nominal: 400\n", "data/facility/simulation/seeds.yaml"),
+        ("code: ca\nname: Demo\n", "facility/identity.yaml"),
+        ("records:\n  - address: X\n", "facility/limits.yaml"),
+        ("SR:BEAM:CURRENT:\n  nominal: 400\n", "facility/simulation/seeds.yaml"),
         ("triggers:\n  - name: t\n", "triggers.yml"),
         ("providers:\n  local: {}\n", "providers.yml"),
         ("- id: SR\n", "a list"),

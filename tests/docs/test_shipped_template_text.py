@@ -35,7 +35,7 @@ def _rel(path: Path) -> str:
 def _operator_files() -> list[Path]:
     """Prose that lands in a deployment repo outside ``build/``."""
     files = [_SRC / "cli" / "init_cmd.py"]
-    files += sorted(_TEMPLATES.glob("apps/*/data/**/*.md"))
+    files += sorted(_TEMPLATES.glob("apps/*/web/**/*.md"))
     files += sorted(_TEMPLATES.glob("**/web-terminal-context/*.md"))
     files += sorted(_TEMPLATES.glob("apps/*/agent/context/*.md"))
     return files
