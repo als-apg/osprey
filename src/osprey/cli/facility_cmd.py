@@ -1,7 +1,7 @@
 """Facility description commands.
 
 ``osprey facility validate`` runs every check ``osprey build`` makes of the
-repo's ``data/facility/`` tree and renders every facility view, and writes
+repo's ``facility/`` tree and renders every facility view, and writes
 nothing. The checks are the build's own stages, run to the first that fails;
 every error of that stage is printed, sorted, one line each on stderr. A clean
 tree is then taken through the render of the repo's main profile, made in a
@@ -25,8 +25,8 @@ A profile that states ``machine:`` mounts a machine root: every verb reads and
 writes machine facts there, through
 :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_facility_roots`, and
 keeps the deployment's ``knowledge/``, ``ariel/`` and ``benchmarks/`` under
-``data/facility/``. ``validate`` then stops on any other entry of
-``data/facility/`` (``machine-restated``).
+``facility/``. ``validate`` then stops on any other entry of
+``facility/`` (``machine-restated``).
 
 ``osprey facility show [--json] [TEXT]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the
@@ -58,21 +58,21 @@ The knowledge indexes are then settled, and a blank index is left when no page
 remains.
 
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
-sources under ``data/facility/imported/mml/`` and seeds each authored file that
+sources under ``facility/imported/mml/`` and seeds each authored file that
 does not exist yet. It writes channel, device, group, model, deck, seed, limit,
 identity and measurement records.
 ``--print-exporter`` prints the MATLAB exporter the layer ships and needs
 neither a repo nor an export.
 
 ``osprey facility import list FILE`` writes a CSV channel list as the list
-layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
+layer's sources, ``facility/imported/list/channels.yaml`` and, when a row
 names a device, ``devices.yaml`` beside it. It writes channel and device
 records. Every row the layer refuses prints one ``source-invalid`` line on
 stderr, and the verb then writes no layer file and exits 1.
 
 ``osprey facility import relations TABLE --layer NAME`` writes a relations
 table, and the ``--names``, ``--places`` and ``--members`` tables beside it, as
-the sources of ``data/facility/imported/<NAME>/``. It never runs
+the sources of ``facility/imported/<NAME>/``. It never runs
 :func:`_replace_or_refuse`: bundled and hand-written records stay, the tables
 resolve against them, and no file outside the layer's directory changes. Every
 refusal prints one ``source-invalid`` line on stderr, and the verb then writes
@@ -106,10 +106,10 @@ if TYPE_CHECKING:
 
 @click.group()
 def facility() -> None:
-    """Import into, check and show the facility description under data/facility/.
+    """Import into, check and show the facility description under facility/.
 
     A profile that states machine: reads machine facts from that root and keeps
-    only knowledge/, ariel/ and benchmarks/ under data/facility/.
+    only knowledge/, ariel/ and benchmarks/ under facility/.
     """
 
 
@@ -122,11 +122,11 @@ def facility() -> None:
 )
 @click.pass_context
 def validate(ctx: click.Context, repo: Path | None, all_limits: bool) -> None:
-    """Check data/facility/ and render every facility view in memory; writes nothing.
+    """Check facility/ and render every facility view in memory; writes nothing.
 
     A profile that states machine: validates that machine root, with the
-    deployment's knowledge/, ariel/ and benchmarks/ from data/facility/; any
-    other entry of data/facility/ then stops with machine-restated.
+    deployment's knowledge/, ariel/ and benchmarks/ from facility/; any
+    other entry of facility/ then stops with machine-restated.
 
     Exits 0 when the tree builds, every kept response export passes its check
     and every view renders; otherwise prints each error line to stderr and
@@ -201,8 +201,8 @@ class _InMemoryBuild:
         repo_root: The deployment repo.
         document: The facility file.
         facility_dir: The machine root: ``machine:`` when the profile states
-            it, otherwise the repo's ``data/facility`` directory.
-        content_dir: The deployment's ``data/facility`` when it is apart from
+            it, otherwise the repo's ``facility/`` directory.
+        content_dir: The deployment's ``facility/`` when it is apart from
             ``facility_dir``, otherwise ``None``.
         rendered_config: The main render's ``config.yml``, as a nested mapping;
             empty unless the caller asked for it.
@@ -278,12 +278,10 @@ def _build_in_memory(
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
     build_profile = resolved.profile
-    # The limits guard checks the deployment's data root; a mounted machine
-    # only changes where its remedy says the limits go.
-    data_root = build_profile.resolved_data_root(repo_root)
-    assert data_root is not None  # resolved with the roots above
+    # The limits guard checks the deployment's files; a mounted machine only
+    # changes where its remedy says the limits go.
     limits_stop = handwritten_limits_violation(
-        data_root, repo_root, machine_root=roots.machine if roots.mounted else None
+        repo_root, machine_root=roots.machine if roots.mounted else None
     )
     if limits_stop is not None:
         raise limits_stop
@@ -655,7 +653,7 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
 
 @facility.group("import")
 def import_group() -> None:
-    """Write an export as sources under data/facility/imported/.
+    """Write an export as sources under facility/imported/.
 
     A profile that states machine: imports into that machine root instead.
     """
@@ -703,8 +701,6 @@ def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
     from osprey.repo_retired import refuse_retired_layout
 
     roots = resolved.profile.resolved_facility_roots(repo_root)
-    if roots is None:
-        raise RuntimeError("a resolved profile names no data root")
     refuse_retired_layout(repo_root, roots)
     return roots
 
@@ -722,7 +718,7 @@ KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page p
 
 
 def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
-    """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
+    """Per import verb, what it writes under ``facility/``: (file or directory, kind)."""
     from osprey_facility import source_tree
     from osprey_facility.layers.mml.seed import (
         IDENTITY_FILE,
@@ -947,11 +943,11 @@ def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) ->
 @repo_option
 @click.pass_context
 def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None) -> None:
-    """Write MML exports as sources under data/facility/imported/mml/.
+    """Write MML exports as sources under facility/imported/mml/.
 
     A profile that states machine: imports into that machine root instead:
     imported/mml/ and every seeded file go there, and the knowledge index is
-    settled under data/facility/knowledge/.
+    settled under facility/knowledge/.
 
     EXPORT is an export's <stem>.ao.json file; its sibling files are read from
     beside it. First replaces a bundled facility, saying so in one line, and
@@ -1034,10 +1030,10 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 @repo_option
 @click.pass_context
 def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
-    """Write a CSV channel list as sources under data/facility/imported/list/.
+    """Write a CSV channel list as sources under facility/imported/list/.
 
     A profile that states machine: imports into that machine root instead,
-    and the knowledge stub is seeded under data/facility/knowledge/.
+    and the knowledge stub is seeded under facility/knowledge/.
 
     \b
     FILE is UTF-8 CSV. A header row names its columns, in any order:
@@ -1112,7 +1108,7 @@ def import_relations(
     stub_unknown: bool,
     repo: Path | None,
 ) -> None:
-    """Write relation tables as sources under data/facility/imported/<layer>/.
+    """Write relation tables as sources under facility/imported/<layer>/.
 
     A profile that states machine: imports into that machine root instead.
 

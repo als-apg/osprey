@@ -134,7 +134,7 @@ def classify(facility_dir: Path, template_root: Path) -> Classification:
     Version-control metadata (``.git`` at any depth) is no file of the tree.
 
     Args:
-        facility_dir: The ``data/facility`` directory; a missing one is empty.
+        facility_dir: The ``facility/`` directory; a missing one is empty.
         template_root: The package's template root, which holds the bundled facilities.
 
     Returns:
