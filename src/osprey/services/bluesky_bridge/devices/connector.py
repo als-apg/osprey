@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import numbers
 import os
 import time
 from collections.abc import Callable, Sequence
@@ -139,16 +140,74 @@ def _positive_float(env_var: str, default: float, *, allow_zero: bool) -> float:
     return value
 
 
-def _data_key(address: str, unit: str | None, shape: tuple[int] | None = None) -> DataKey:
-    """The data key for ``address``: a scalar number, or with ``shape`` an array of
-    that length, carrying ``units`` when ``unit`` is known."""
-    key: DataKey = {"source": f"connector:{address}", "dtype": "number", "shape": []}
+#: The data key ``dtype`` a run records each facility value type under: a word
+#: as text, a switch as a boolean, a number as a number. An ``enum`` channel is
+#: recorded as its word (:func:`recorded_value`), so it is text.
+DTYPES: dict[str, str] = {
+    "float": "number",
+    "int": "integer",
+    "bool": "boolean",
+    "enum": "string",
+    "string": "string",
+    "waveform": "array",
+}
+
+
+def data_key(
+    address: str,
+    *,
+    value_type: str | None = None,
+    unit: str | None = None,
+    shape: tuple[int] | None = None,
+    options: Sequence[str] | None = None,
+    scheme: str = "connector",
+) -> DataKey:
+    """The data key a run records ``address`` under, from the channel's kind.
+
+    ``dtype`` is :data:`DTYPES` of ``value_type`` (``None`` is a float); with
+    ``shape`` the key is an array of that length. ``units`` is carried when
+    ``unit`` is known, and an ``enum`` channel's ``options`` as ``choices``.
+    ``source`` is ``<scheme>:<address>``. Reads nothing.
+    """
+    key: DataKey = {
+        "source": f"{scheme}:{address}",
+        "dtype": DTYPES[value_type or "float"],  # type: ignore[typeddict-item]
+        "shape": [],
+    }
     if shape is not None:
         key["dtype"] = "array"
         key["shape"] = list(shape)
     if unit is not None:
         key["units"] = unit
+    if value_type == "enum" and options is not None:
+        key["choices"] = list(options)
     return key
+
+
+def recorded_value(
+    reading: Any, value_type: str | None = None, options: Sequence[str] | None = None
+) -> Any:
+    """The value a run records for ``reading``: an ``enum`` channel's word, any
+    other channel's value as read.
+
+    An enum's word is ``options[index]`` for an option index the facility lists,
+    the value itself when the control system answers a word, and otherwise the
+    reading's own label or the value as text. A reading with no value records
+    ``None``. Only what a run records takes the word: every check of a value
+    reads the raw value.
+    """
+    value = getattr(reading, "value", None)
+    if value_type != "enum" or value is None or isinstance(value, str):
+        return value
+    if (
+        options is not None
+        and isinstance(value, numbers.Integral)
+        and not isinstance(value, bool)
+        and 0 <= int(value) < len(options)
+    ):
+        return options[int(value)]
+    label = getattr(getattr(reading, "metadata", None), "enum_label", None)
+    return label if label is not None else str(value)
 
 
 class ConnectorSettable(StandardReadable):
@@ -220,6 +279,10 @@ class ConnectorSettable(StandardReadable):
         simulated: bool = False,
         unit: str | None = None,
         setpoint_unit: str | None = None,
+        value_type: str | None = None,
+        setpoint_value_type: str | None = None,
+        options: Sequence[str] | None = None,
+        setpoint_options: Sequence[str] | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._setpoint_pv = setpoint_pv
@@ -230,6 +293,10 @@ class ConnectorSettable(StandardReadable):
         self._simulated = simulated
         self._unit = unit
         self._setpoint_unit = setpoint_unit
+        self._value_type = value_type
+        self._setpoint_value_type = setpoint_value_type
+        self._options = options
+        self._setpoint_options = setpoint_options
         super().__init__(name=name)
 
     def set_writes(self, value: float) -> tuple[ChannelWrite, ...]:
@@ -356,26 +423,43 @@ class ConnectorSettable(StandardReadable):
         ``connector.read_channel`` so the document a plan records reflects
         the current mediated state of the readback channel. A device with a
         distinct readback also reads its setpoint channel and reports the
-        demand under :attr:`setpoint_key`.
+        demand under :attr:`setpoint_key`. An enum channel is recorded as its
+        word (:func:`recorded_value`).
         """
         reading = await self._osprey_connector.read_channel(self._readback_pv)
         document: dict[str, Reading[Any]] = {
-            self.name: {"value": reading.value, "timestamp": time.time()}
+            self.name: {
+                "value": recorded_value(reading, self._value_type, self._options),
+                "timestamp": time.time(),
+            }
         }
         if self.has_distinct_readback:
             demand = await self._osprey_connector.read_channel(self._setpoint_pv)
-            document[self.setpoint_key] = {"value": demand.value, "timestamp": time.time()}
+            document[self.setpoint_key] = {
+                "value": recorded_value(demand, self._setpoint_value_type, self._setpoint_options),
+                "timestamp": time.time(),
+            }
         return document
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe the live readback channel as a scalar numeric data key,
-        and the setpoint channel beside it when the two differ, each with the
-        ``units`` the device was given. Reads nothing through the connector."""
+        """Describe the live readback channel, and the setpoint channel beside it
+        when the two differ, each by the value type and with the ``units`` the
+        device was given. Reads nothing through the connector."""
         described: dict[str, DataKey] = {
-            self.name: _data_key(self._readback_pv, self._unit),
+            self.name: data_key(
+                self._readback_pv,
+                value_type=self._value_type,
+                unit=self._unit,
+                options=self._options,
+            ),
         }
         if self.has_distinct_readback:
-            described[self.setpoint_key] = _data_key(self._setpoint_pv, self._setpoint_unit)
+            described[self.setpoint_key] = data_key(
+                self._setpoint_pv,
+                value_type=self._setpoint_value_type,
+                unit=self._setpoint_unit,
+                options=self._setpoint_options,
+            )
         return described
 
     @property
@@ -688,11 +772,15 @@ class ConnectorReadable(StandardReadable):
         name: str = "",
         unit: str | None = None,
         shape: tuple[int] | None = None,
+        value_type: str | None = None,
+        options: Sequence[str] | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._read_pv = read_pv
         self._unit = unit
         self._shape = shape
+        self._value_type = value_type
+        self._options = options
         super().__init__(name=name)
 
     def channel_addresses(self) -> tuple[str, ...]:
@@ -700,14 +788,25 @@ class ConnectorReadable(StandardReadable):
         return (self._read_pv,)
 
     async def read(self) -> dict[str, Reading[Any]]:
-        """Return the live value, read fresh through the connector."""
+        """Return the live value, read fresh through the connector; an enum
+        channel's word (:func:`recorded_value`)."""
         reading = await self._osprey_connector.read_channel(self._read_pv)
-        return {self.name: {"value": reading.value, "timestamp": time.time()}}
+        value = recorded_value(reading, self._value_type, self._options)
+        return {self.name: {"value": value, "timestamp": time.time()}}
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe the live channel as a scalar number, or an array of the length
-        the facility states, with its ``units`` when the device was given one."""
-        return {self.name: _data_key(self._read_pv, self._unit, self._shape)}
+        """Describe the live channel by its value type, or as an array of the
+        length the facility states, with its ``units`` when the device was given
+        one. Reads nothing."""
+        return {
+            self.name: data_key(
+                self._read_pv,
+                value_type=self._value_type,
+                unit=self._unit,
+                shape=self._shape,
+                options=self._options,
+            )
+        }
 
     @property
     def hints(self) -> Hints:
@@ -761,7 +860,8 @@ class ConnectorTriggerable(StandardReadable):
 
     ``read()``/``describe()`` report the status, read fresh through the
     connector, under the device's name: once per trigger, the run records what
-    the act left the status at.
+    the act left the status at, an enum status as its word. The idle check
+    reads the raw value.
 
     :meth:`trigger_writes` states the one write ``trigger()`` makes.
 
@@ -777,9 +877,13 @@ class ConnectorTriggerable(StandardReadable):
         idle: str | int | float | bool,
         timeout_s: float,
         name: str = "",
+        value_type: str | None = None,
+        options: Sequence[str] | None = None,
     ) -> None:
         self._osprey_connector = connector
         self._firing = _Firing(connector, CommandAct(command, status, idle, timeout_s))
+        self._value_type = value_type
+        self._options = options
         super().__init__(name=name)
 
     def trigger_writes(self) -> tuple[ChannelWrite, ...]:
@@ -818,13 +922,19 @@ class ConnectorTriggerable(StandardReadable):
         return (self._firing.act.command, self._firing.act.status)
 
     async def read(self) -> dict[str, Reading[Any]]:
-        """Return the status, read fresh through the connector, under the device's name."""
+        """Return the status, read fresh through the connector, under the device's
+        name; an enum status's word (:func:`recorded_value`)."""
         reading = await self._osprey_connector.read_channel(self._firing.act.status)
-        return {self.name: {"value": reading.value, "timestamp": time.time()}}
+        value = recorded_value(reading, self._value_type, self._options)
+        return {self.name: {"value": value, "timestamp": time.time()}}
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe the status under the device's name. Reads nothing."""
-        return {self.name: _data_key(self._firing.act.status, None)}
+        """Describe the status under the device's name, by its value type. Reads nothing."""
+        return {
+            self.name: data_key(
+                self._firing.act.status, value_type=self._value_type, options=self._options
+            )
+        }
 
     @property
     def hints(self) -> Hints:
@@ -888,6 +998,10 @@ async def build_devices(
             "simulated": simulated,
             "unit": settable_spec.unit,
             "setpoint_unit": settable_spec.setpoint_unit,
+            "value_type": settable_spec.value_type,
+            "setpoint_value_type": settable_spec.setpoint_value_type,
+            "options": settable_spec.options,
+            "setpoint_options": settable_spec.setpoint_options,
         }
         if settable_spec.started_by is not None:
             devices[settable_spec.name] = ConnectorPositioner(
@@ -909,6 +1023,8 @@ async def build_devices(
             name=readable_spec.name,
             unit=readable_spec.unit,
             shape=readable_spec.shape,
+            value_type=readable_spec.value_type,
+            options=readable_spec.options,
         )
     for triggerable_spec in triggerables:
         devices[triggerable_spec.name] = ConnectorTriggerable(
@@ -918,5 +1034,7 @@ async def build_devices(
             triggerable_spec.idle,
             triggerable_spec.timeout_s,
             name=triggerable_spec.name,
+            value_type=triggerable_spec.value_type,
+            options=triggerable_spec.options,
         )
     return await connect_all(devices)

@@ -229,7 +229,7 @@ def test_a_waveform_readable_states_its_shape() -> None:
     )
 
     assert document["readables"] == [
-        {"name": "W:TRACE", "pv": "W:TRACE", "unit": "A", "shape": [500]}
+        {"name": "W:TRACE", "pv": "W:TRACE", "value_type": "waveform", "unit": "A", "shape": [500]}
     ]
     assert validate_device_document(document) == []
 

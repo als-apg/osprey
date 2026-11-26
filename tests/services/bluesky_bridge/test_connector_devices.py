@@ -491,6 +491,161 @@ async def test_a_readable_with_a_shape_describes_an_array() -> None:
     assert fake.read_calls == []
 
 
+@pytest.mark.parametrize(
+    ("value_type", "shape", "dtype"),
+    [
+        (None, None, "number"),
+        ("float", None, "number"),
+        ("int", None, "integer"),
+        ("bool", None, "boolean"),
+        ("enum", None, "string"),
+        ("string", None, "string"),
+        ("waveform", (500,), "array"),
+    ],
+)
+async def test_a_readable_describes_its_value_type(
+    value_type: str | None, shape: tuple[int] | None, dtype: str
+) -> None:
+    fake = FakeConnector()
+    device = ConnectorReadable(fake, "C:1", name="c", value_type=value_type, shape=shape)
+
+    (key,) = (await device.describe()).values()
+
+    assert key["dtype"] == dtype
+    assert fake.read_calls == []
+
+
+def test_every_facility_value_type_has_a_dtype() -> None:
+    from osprey_facility.schema import core
+
+    assert sorted(connector_module.DTYPES) == sorted(member.value for member in core.ValueTypeEnum)
+
+
+async def test_a_settable_and_a_triggerable_describe_their_channels_value_types() -> None:
+    settable = ConnectorSettable(
+        FakeConnector(), "SP", "RB", name="m", value_type="int", setpoint_value_type="float"
+    )
+    triggerable = ConnectorTriggerable(
+        FakeConnector(),
+        _COMMAND,
+        _STATUS,
+        idle="DONE",
+        timeout_s=5.0,
+        name="go",
+        value_type="enum",
+    )
+
+    described = await settable.describe()
+
+    assert (described["m"]["dtype"], described["m_setpoint"]["dtype"]) == ("integer", "number")
+    assert (await triggerable.describe())["go"]["dtype"] == "string"
+
+
+_WORDS = ("IDLE", "ACQUIRING", "DONE")
+"""The words of an enum channel, in option-index order."""
+
+
+async def test_an_enum_channel_is_described_as_text_with_its_words() -> None:
+    fake = FakeConnector()
+    worded = ConnectorReadable(fake, "E:1", name="e", value_type="enum", options=_WORDS)
+    unworded = ConnectorReadable(fake, "E:2", name="f", value_type="enum")
+
+    (key,) = (await worded.describe()).values()
+    (plain,) = (await unworded.describe()).values()
+
+    assert (key["dtype"], key["choices"]) == ("string", list(_WORDS))
+    assert (plain["dtype"], "choices" in plain) == ("string", False)
+    assert fake.read_calls == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "recorded"),
+    [(2, "DONE"), ("ACQUIRING", "ACQUIRING"), (7, "7"), (None, None)],
+    ids=["index", "word", "index-without-a-word", "no-value"],
+)
+async def test_an_enum_channel_is_recorded_as_its_word(raw: Any, recorded: Any) -> None:
+    device = ConnectorReadable(
+        FakeConnector(readbacks={"E:1": raw}), "E:1", name="e", value_type="enum", options=_WORDS
+    )
+
+    assert (await device.read())["e"]["value"] == recorded
+
+
+async def test_a_switch_and_a_number_are_recorded_as_read() -> None:
+    fake = FakeConnector(readbacks={"B:1": True, "N:1": 2})
+    switch = ConnectorReadable(fake, "B:1", name="b", value_type="bool", options=("OFF", "ON"))
+    number = ConnectorReadable(fake, "N:1", name="n", value_type="int")
+
+    assert (await switch.read())["b"]["value"] is True
+    assert (await switch.describe())["b"]["dtype"] == "boolean"
+    assert "choices" not in (await switch.describe())["b"]
+    assert (await number.read())["n"]["value"] == 2
+
+
+async def test_every_device_records_an_enum_channel_as_its_word() -> None:
+    fake = FakeConnector(readbacks={"SP": 0, "RB": 1, "R": 2, _STATUS: 0})
+    devices = await build_devices(
+        [
+            SettableSpec(
+                "m",
+                "SP",
+                "RB",
+                value_type="enum",
+                options=_WORDS,
+                setpoint_value_type="enum",
+                setpoint_options=_WORDS,
+            )
+        ],
+        [ReadableSpec("r", "R", value_type="enum", options=_WORDS)],
+        fake,
+        triggerables=[
+            TriggerableSpec("go", _COMMAND, _STATUS, 0, 5.0, value_type="enum", options=_WORDS)
+        ],
+    )
+
+    settable = await devices["m"].read()
+    assert (settable["m"]["value"], settable["m_setpoint"]["value"]) == ("ACQUIRING", "IDLE")
+    assert (await devices["m"].describe())["m_setpoint"]["choices"] == list(_WORDS)
+    assert (await devices["r"].read())["r"]["value"] == "DONE"
+    assert (await devices["go"].read())["go"]["value"] == "IDLE"
+    assert (await devices["go"].describe())["go"]["choices"] == list(_WORDS)
+
+
+async def test_the_idle_check_reads_the_raw_value_of_an_enum_status() -> None:
+    fake = _acting()
+    device = ConnectorTriggerable(
+        fake,
+        _COMMAND,
+        _STATUS,
+        idle=0,
+        timeout_s=5.0,
+        name="go",
+        value_type="enum",
+        options=("DONE", "BUSY"),
+    )
+
+    status = device.trigger()
+    await status
+
+    assert status.success
+    assert fake.readbacks[_STATUS] == 0
+    assert (await device.read())["go"]["value"] == "DONE"
+
+
+async def test_build_devices_hands_each_device_its_value_types() -> None:
+    devices = await build_devices(
+        [SettableSpec("m", "SP", "RB", value_type="bool", setpoint_value_type="int")],
+        [ReadableSpec("r", "R", value_type="string")],
+        FakeConnector(),
+        triggerables=[TriggerableSpec("go", _COMMAND, _STATUS, 0, 5.0, value_type="bool")],
+    )
+
+    assert (await devices["m"].describe())["m"]["dtype"] == "boolean"
+    assert (await devices["m"].describe())["m_setpoint"]["dtype"] == "integer"
+    assert (await devices["r"].describe())["r"]["dtype"] == "string"
+    assert (await devices["go"].describe())["go"]["dtype"] == "boolean"
+
+
 async def test_build_devices_hands_each_readable_its_shape() -> None:
     fake = FakeConnector(readbacks={"W:1": [0.0] * 500, "S:1": 0.0})
 

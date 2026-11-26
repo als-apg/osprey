@@ -32,7 +32,11 @@ class SettableSpec:
     ``unit`` is the unit of the value the device reports under its own name
     (its readback, or its setpoint when it reads that back); ``setpoint_unit``
     is the unit of its setpoint channel when that is a separate channel. Each
-    is ``None`` when the facility states none.
+    is ``None`` when the facility states none. ``value_type`` and
+    ``setpoint_value_type`` are the facility value types of the same two
+    channels, ``None`` when the facility states none (a float); ``options``
+    and ``setpoint_options`` are the words of each that is an enum, in
+    option-index order, ``None`` when the facility lists none.
 
     ``started_by`` is the command that starts the move, its status, the
     status's idle value and the act's bound, for a setpoint the facility moves
@@ -52,6 +56,10 @@ class SettableSpec:
     setpoint_unit: str | None = None
     started_by: CommandAct | None = None
     stopped_by: str | None = None
+    value_type: str | None = None
+    setpoint_value_type: str | None = None
+    options: tuple[str, ...] | None = None
+    setpoint_options: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -60,13 +68,17 @@ class ReadableSpec:
 
     ``unit`` is the unit of the value it reads, ``None`` when the facility
     states none. ``shape`` is the length of a 1-D array reading, ``None`` for
-    a scalar.
+    a scalar. ``value_type`` is the channel's facility value type, ``None``
+    when the facility states none (a float); ``options`` are the words of an
+    enum channel, in option-index order, ``None`` when the facility lists none.
     """
 
     name: str
     read_pv: str
     unit: str | None = None
     shape: tuple[int] | None = None
+    value_type: str | None = None
+    options: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,7 +87,9 @@ class TriggerableSpec:
 
     ``idle`` is what ``status`` reads while no act runs; ``timeout_s`` is the
     longest one act may take, in seconds. The device records ``status`` under
-    ``name``.
+    ``name``; ``value_type`` is the status's facility value type, ``None`` when
+    the facility states none (a float), and ``options`` the words of an enum
+    status, ``None`` when the facility lists none.
     """
 
     name: str
@@ -83,6 +97,8 @@ class TriggerableSpec:
     status: str
     idle: str | int | float | bool
     timeout_s: float
+    value_type: str | None = None
+    options: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

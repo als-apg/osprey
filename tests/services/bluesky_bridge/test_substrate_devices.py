@@ -354,6 +354,109 @@ class TestTolerancesAndMotionBands:
         assert readables[_RB]["unit"] == units[_RB]
         assert "unit" not in readables["SR:DIAG:MON:01:POSITION:X"]
 
+    def test_an_enum_channel_carries_its_words_and_a_switch_none(self) -> None:
+        """``options`` follows ``value_type`` for an enum channel whose record lists
+        its words -- a settable's readback and setpoint, a readable, a
+        triggerable's status. A switch's labels are not written: it is recorded
+        as a boolean."""
+        command, status, words = "ES1:ACQ:SP", "ES1:ACQ:STATUS", ("IDLE", "BUSY")
+        records = (
+            ChannelRecord(
+                address="SP",
+                source=_SOURCE,
+                direction="write",
+                readback="RB",
+                value_type="enum",
+                options=("OFF", "ON", "AUTO"),
+            ),
+            ChannelRecord(
+                address="RB", source=_SOURCE, direction="read", value_type="enum", options=words
+            ),
+            ChannelRecord(
+                address="SWITCH",
+                source=_SOURCE,
+                direction="read",
+                value_type="bool",
+                options=("OFF", "ON"),
+            ),
+            ChannelRecord(address="ENUM", source=_SOURCE, direction="read", value_type="enum"),
+            ChannelRecord(
+                address=command,
+                source=_SOURCE,
+                direction="write",
+                readback=status,
+                value_type="bool",
+            ),
+            ChannelRecord(
+                address=status,
+                source=_SOURCE,
+                direction="read",
+                value_type="enum",
+                options=words,
+            ),
+        )
+        completions = {command: CommandCompletion(command, status, 0, 5.0)}
+
+        plain = devices_document(records, completions=completions)
+
+        (settable,) = plain["settables"]
+        assert list(settable)[-4:] == [
+            "value_type",
+            "options",
+            "setpoint_value_type",
+            "setpoint_options",
+        ]
+        assert (settable["options"], settable["setpoint_options"]) == (
+            ["IDLE", "BUSY"],
+            ["OFF", "ON", "AUTO"],
+        )
+        (triggerable,) = plain["triggerables"]
+        assert triggerable["options"] == ["IDLE", "BUSY"]
+        readables = {entry["name"]: entry for entry in plain["readables"]}
+        assert list(readables["RB"]) == ["name", "pv", "value_type", "options"]
+        assert "options" not in readables["SWITCH"]
+        assert "options" not in readables["ENUM"]
+        assert validate_device_document(plain) == []
+
+    def test_each_entry_states_the_value_type_of_the_channel_it_reports(self) -> None:
+        """``value_type`` comes from the facility record, beside the unit and the
+        shape: a settable's readback and its setpoint, a readable's channel, a
+        triggerable's status. A record that states none gets no key."""
+        command, status = "ES1:ACQ:SP", "ES1:ACQ:STATUS"
+        records = (
+            ChannelRecord(
+                address="SP", source=_SOURCE, direction="write", readback="RB", value_type="float"
+            ),
+            ChannelRecord(address="RB", source=_SOURCE, direction="read", value_type="int"),
+            ChannelRecord(address="WORD", source=_SOURCE, direction="read", value_type="string"),
+            ChannelRecord(address="PLAIN", source=_SOURCE, direction="read"),
+            ChannelRecord(
+                address=command,
+                source=_SOURCE,
+                direction="write",
+                readback=status,
+                value_type="bool",
+            ),
+            ChannelRecord(address=status, source=_SOURCE, direction="read", value_type="enum"),
+        )
+
+        document = devices_document(
+            records,
+            units={"RB": "mm", "SP": "mm"},
+            completions={command: CommandCompletion(command, status, "DONE", 5.0)},
+        )
+
+        (settable,) = document["settables"]
+        assert list(settable)[-4:] == ["value_type", "unit", "setpoint_value_type", "setpoint_unit"]
+        assert (settable["value_type"], settable["setpoint_value_type"]) == ("int", "float")
+        (triggerable,) = document["triggerables"]
+        assert triggerable["value_type"] == "enum"
+        readables = {entry["name"]: entry for entry in document["readables"]}
+        assert list(readables["RB"]) == ["name", "pv", "value_type", "unit"]
+        assert readables["WORD"]["value_type"] == "string"
+        assert "value_type" not in readables["PLAIN"]
+        assert validate_device_document(document) == []
+
     def test_a_waveform_readable_carries_its_shape(self) -> None:
         """A 1-D read record's shape is written as ``shape: [n]``, after its unit."""
         from osprey.services.bluesky_bridge.devices._specs_from_file import (
