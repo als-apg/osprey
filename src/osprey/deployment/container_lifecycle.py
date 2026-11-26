@@ -545,21 +545,6 @@ def _bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
     return repo_layout.child_path(var_dir, "var", "runtime") / f"{lane_key}_curve"
 
 
-def _legacy_bluesky_curve_dir(lane_key: str = _BLUESKY_LANE_ONE) -> Path:
-    """Where the oldest deployments minted a lane's set, directly under the data tree.
-
-    Kept only so :func:`_migrate_legacy_curve_dir` can find and relocate
-    existing material; nothing reads or writes this path otherwise.
-
-    Args:
-        lane_key: A lane's ``services.<lane>`` key.
-
-    Returns:
-        The legacy certificate directory, relative to the project directory.
-    """
-    return Path(repo_layout.entry("data").path) / f"{lane_key}_curve"
-
-
 # Control-plane (RE Manager 0MQ control socket) CURVE keypair. Unlike the
 # document plane's certificates these are z85 key *strings*, not files:
 # ``start-re-manager`` and ``bluesky-queueserver-api`` both read them straight
@@ -1379,41 +1364,6 @@ def _bluesky_curve_paths(project_dir: Path, lane_key: str = _BLUESKY_LANE_ONE) -
     }
 
 
-def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
-    """Relocate a lane's legacy certificate set into the state zone's ``runtime`` child.
-
-    A move, never a re-mint: the existing keys are what a running stack's
-    bridge and queueserver have pinned, and rotation is exactly what
-    :func:`_ensure_bluesky_document_plane_certs` promises never to do. After
-    the move the normal presence check finds the set complete and keeps it.
-
-    No-op when there is nothing at the legacy path, and — deliberately — when
-    material already exists at BOTH paths: existing material at the new
-    location wins, and deleting the legacy copy is not provisioning's call.
-    That half-state cannot arise from this code (the move is atomic on one
-    filesystem); reaching it takes a hand-copy, and a hand-copy is a human's
-    to clean up. The stale legacy directory keeps reading as data drift until
-    they do, which is the honest report.
-
-    Args:
-        project_dir: Project directory (the parent of the project ``.env``).
-        lane_key: The lane's ``services.<lane>`` key.
-    """
-    legacy = project_dir / _legacy_bluesky_curve_dir(lane_key)
-    target = project_dir / _bluesky_curve_dir(lane_key)
-    if not legacy.is_dir() or target.exists():
-        return
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    os.replace(legacy, target)
-    logger.key_info(
-        f"Relocated the bluesky document-plane CURVE certificates from {legacy} to "
-        f"{target}: runtime-minted material lives under "
-        f"{repo_layout.child_display_path('var', 'runtime')}/, "
-        "which the build never hashes or stages. The keys themselves are unchanged."
-    )
-
-
 def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = None) -> None:
     """Generate the document plane's CURVE certificates into the project tree.
 
@@ -1484,21 +1434,6 @@ def _ensure_bluesky_lane_document_plane_certs(lane_key: str, project_dir: Path) 
     """
     paths = _bluesky_curve_paths(project_dir, lane_key)
     curve_dir = _bluesky_curve_dir(lane_key)
-
-    try:
-        _migrate_legacy_curve_dir(project_dir, lane_key)
-    except OSError:
-        logger.warning(
-            "Could not relocate the pre-existing bluesky CURVE certificates for lane "
-            "%s into %s. Leaving the existing material where it is rather than minting "
-            "a replacement set beside it — rotating keys under a running stack is the "
-            "one thing provisioning must never do. Move the directory by hand and "
-            "rerun `osprey up`.",
-            lane_key,
-            curve_dir,
-            exc_info=True,
-        )
-        return
 
     certs = ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public")
     present = [name for name in certs if paths[name].is_file()]
