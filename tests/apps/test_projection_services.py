@@ -17,35 +17,41 @@ from osprey.apps.projection import (
 from osprey.cli.build_profile_schema import ServiceDef
 from osprey.port_layout import DEFAULT_PORT_BASE
 
+from ._contract import with_contract
+
 FACILITY_BAND = DEFAULT_PORT_BASE + 900
 
-KNOB: dict[str, Any] = {
-    "name": "knob-demo",
-    "containers": {
-        "knob-demo": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_demo.server"],
-            "health": "/health",
-            "drives_target": True,
-            "control_identity": True,
-            "state": "var/knob-demo",
-            "env": ["KNOB_DEMO_MODE"],
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob-demo",
+        "containers": {
+            "knob-demo": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_demo.server"],
+                "health": "/health",
+                "drives_target": True,
+                "control_identity": True,
+                "state": "var/knob-demo",
+                "env": ["KNOB_DEMO_MODE"],
+            },
+            "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
         },
-        "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
-    },
-    "panel": {
-        "label": "Knob",
-        "container": "knob-demo",
-        "launch_token": True,
-        "roster_grant": {},
-    },
-}
+        "panel": {
+            "label": "Knob",
+            "container": "knob-demo",
+            "launch_token": True,
+            "roster_grant": {},
+        },
+    }
+)
 
-VIEWER: dict[str, Any] = {
-    "name": "viewer",
-    "containers": {"viewer": {"image": "ghcr.io/example/viewer:1.0", "port": 18123}},
-    "audit_identity": "viewer-audit",
-}
+VIEWER: dict[str, Any] = with_contract(
+    {
+        "name": "viewer",
+        "containers": {"viewer": {"image": "ghcr.io/example/viewer:1.0", "port": 18123}},
+        "audit_identity": "viewer-audit",
+    }
+)
 
 
 def _manifest(data: dict[str, Any]) -> AppManifest:
@@ -216,7 +222,9 @@ def test_an_exhausted_band_refuses_naming_the_container() -> None:
 
 
 def test_an_application_with_no_container_projects_no_service_and_spends_no_port() -> None:
-    tools_only = _manifest({"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}})
+    tools_only = _manifest(
+        with_contract({"name": "dial", "tools": {"module": "dial.tools", "read": ["read"]}})
+    )
     config = {"apps": {"dial": {}, "knob-demo": {}}}
     with_it = _services(_project([tools_only, _manifest(KNOB)], config))
     without_it = _services(_project([_manifest(KNOB)], {"apps": {"knob-demo": {}}}))

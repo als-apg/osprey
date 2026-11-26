@@ -19,6 +19,8 @@ from tests.fixtures.lifecycle_repo import (  # noqa: F401
     lifecycle_repo_factory,
 )
 
+from ._contract import with_contract
+
 FRONTMATTER: dict[str, Any] = {
     "name": "knob-helper",
     "description": "Reads the knob and explains it.",
@@ -43,12 +45,14 @@ def _refused(**changes: Any) -> list[tuple[str, str, str]]:
 
 
 def _manifest(name: str = "knob", agents: list[str] | None = None, **extra: Any) -> AppManifest:
-    data: dict[str, Any] = {
-        "name": name,
-        "tools": {"module": f"{name.replace('-', '_')}_app.tools", "read": [f"{name}_read"]},
-        "agents": ["knob-helper"] if agents is None else agents,
-        **extra,
-    }
+    data: dict[str, Any] = with_contract(
+        {
+            "name": name,
+            "tools": {"module": f"{name.replace('-', '_')}_app.tools", "read": [f"{name}_read"]},
+            "agents": ["knob-helper"] if agents is None else agents,
+            **extra,
+        }
+    )
     return parse_manifest(data, app=name)
 
 
@@ -180,11 +184,13 @@ def _write(path: Path, text: str) -> None:
 def _app(repo: Path, name: str = "knob", **extra: Any) -> Path:
     """List one application with a read tool and the agents ``extra`` names."""
     app_dir = repo / "apps" / name
-    data = {
-        "name": name,
-        "tools": {"module": f"{name}_app.tools", "read": [f"{name}_read"]},
-        **extra,
-    }
+    data = with_contract(
+        {
+            "name": name,
+            "tools": {"module": f"{name}_app.tools", "read": [f"{name}_read"]},
+            **extra,
+        }
+    )
     _write(app_dir / "app.yml", yaml.safe_dump(data, sort_keys=False))
     profile = yaml.safe_load((repo / "profile.yml").read_text(encoding="utf-8"))
     profile["apps"] = {**(profile.get("apps") or {}), name: {}}
@@ -290,15 +296,17 @@ def test_hooks_in_an_agents_frontmatter_are_refused(lifecycle_repo: Path) -> Non
 
 def test_an_approval_tool_is_a_tool_of_the_app(tmp_path: Path) -> None:
     manifest = parse_manifest(
-        {
-            "name": "knob",
-            "containers": {"knob": {"runtime": "osprey", "drives_target": True}},
-            "tools": {
-                "module": "knob_app.tools",
-                "approval": [{"tool": "knob_write", "prompt": "Write the knob"}],
-            },
-            "agents": ["knob-helper"],
-        },
+        with_contract(
+            {
+                "name": "knob",
+                "containers": {"knob": {"runtime": "osprey", "drives_target": True}},
+                "tools": {
+                    "module": "knob_app.tools",
+                    "approval": [{"tool": "knob_write", "prompt": "Write the knob"}],
+                },
+                "agents": ["knob-helper"],
+            }
+        ),
         app="knob",
     )
     _agent_file(
@@ -346,7 +354,9 @@ def test_a_shown_app_projects_its_agents_note() -> None:
 
 
 def test_an_app_of_agents_only_is_projected() -> None:
-    manifest = parse_manifest({"name": "guide", "agents": ["knob-helper"]}, app="guide")
+    manifest = parse_manifest(
+        with_contract({"name": "guide", "agents": ["knob-helper"]}), app="guide"
+    )
     agent = _parse(tools=["Read"], delegates=[], delegation="Delegate guide questions.")
     projected = project_login([manifest], {}, _login(guide=True), agents={"guide": (agent,)})
     assert projected["apps"] == {

@@ -67,6 +67,7 @@ import json
 import os
 import re
 import shutil
+import statistics
 import subprocess
 import time
 from collections.abc import Iterator
@@ -102,9 +103,16 @@ DEPLOY_UP_TIMEOUT_SEC = 2400
 
 # The measured budgets this lane owns. Both are stated against DEFAULT
 # va_archiver knobs (30-day retention, 48 h hot span) -- see the module
-# docstring for why the fast lanes cannot own them. The seed measures about 200 s
-# on a CI runner, so 300 s leaves room for a slow one without hiding a stall.
-SEED_BUDGET_SEC = 300.0
+# docstring for why the fast lanes cannot own them.
+#
+# The seed's total time measures the runner as much as the seeder: one commit
+# seeded in 148 s and in 306 s on two hosted runners an hour apart. So the total
+# is held only to a ceiling no healthy run comes near, and the seeder itself is
+# judged by its pace: the seconds per document of each progress lap against the
+# run's own median. A runner that is slow throughout keeps an even pace; a stall
+# or a step that degrades does not. Healthy runs spread about 1.2x.
+SEED_CEILING_SEC = 600.0
+SEED_STALL_RATIO = 3.0
 DISK_BUDGET_BYTES = 2 * 1024**3
 
 # From a setpoint write to that value being readable out of the archive. Covers
@@ -156,6 +164,13 @@ _SEED_STEP_RE = re.compile(
     r"(?: \([^()]*\))?"
 )
 
+# One progress line with its lap, which the phase reporter prints as `21.1s`
+# under a minute and `1m05s` from there on.
+_SEED_LAP_RE = re.compile(
+    r"seeding archive: ([\d,]+) documents written across [\d,]+ channels"
+    r" \((?:(\d+)m)?([\d.]+)s\)"
+)
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 # The recorder announces each enablement transition with exactly one line, and
@@ -179,6 +194,25 @@ def _normalize(text: str) -> str:
 def _seed_steps(output: str) -> str:
     """The seed's step lines out of NORMALIZED deploy output, one per line."""
     return "\n".join(_SEED_STEP_RE.findall(output)) or "(no seed step lines)"
+
+
+def _seed_paces(output: str) -> list[float]:
+    """Seconds per document of each progress lap, out of NORMALIZED deploy output.
+
+    A lap is the time since the progress line before it, and the documents it
+    covers are the growth of the running count over that line. Progress is
+    rate-limited, so laps cover unequal document counts; dividing makes them
+    comparable.
+    """
+    paces = []
+    written = 0
+    for count, minutes, seconds in _SEED_LAP_RE.findall(output):
+        documents = int(count.replace(",", ""))
+        lap_s = 60 * int(minutes or 0) + float(seconds)
+        if documents > written:
+            paces.append(lap_s / (documents - written))
+        written = documents
+    return paces
 
 
 def _profile_edits() -> dict[str, Any]:
@@ -602,7 +636,7 @@ def _served_addresses(world: DeployedArchiverWorld) -> list[str]:
 
 
 def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
-    """A first deploy seeds inside the measured budget, and says so while it works.
+    """A first deploy seeds at an even pace under the ceiling, and says so while it works.
 
     The duration is the seeder's OWN reported elapsed time, not the wall time of
     ``osprey up``: that call also builds an image, and folding a cold image cache
@@ -628,22 +662,31 @@ def test_base_seed_completes_within_budget_and_reports_progress(archiver_world):
 
     assert documents > 0, "seed reported zero documents"
     assert channels > 0, "seed reported zero channels"
-    assert elapsed_s <= SEED_BUDGET_SEC, (
+    steps = f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
+    assert elapsed_s <= SEED_CEILING_SEC, (
         f"base seed took {elapsed_s:.1f}s at default knobs, over the "
-        f"{SEED_BUDGET_SEC:.0f}s budget this lane owns "
-        f"({documents:,} documents x {channels:,} channels)\n"
-        # The laps are what tell the two failures apart: one long lap is a stall
-        # and names where it sits, even laps are a seed that is simply this slow.
-        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
+        f"{SEED_CEILING_SEC:.0f}s ceiling this lane owns "
+        f"({documents:,} documents x {channels:,} channels)\n{steps}"
     )
     assert _SEED_PROGRESS_RE.search(output), (
         "seed emitted no progress lines; a silent multi-minute step reads as a hang"
     )
+    # A seed long enough to be worth judging reports several laps; one that
+    # finishes inside two has no pace to compare and is far under the ceiling.
+    paces = _seed_paces(output)
+    spread = max(paces) / statistics.median(paces) if len(paces) >= 3 else None
+    if spread is not None:
+        assert spread <= SEED_STALL_RATIO, (
+            f"one seed lap ran {spread:.1f}x slower per document than the run's "
+            f"median, over the {SEED_STALL_RATIO:.0f}x bound: the seed stalled or "
+            f"a step degraded, whatever the runner's speed\n{steps}"
+        )
     # The steps on a green run too, so a failure has a normal run to be read against.
+    pace = "too few laps to judge" if spread is None else f"{spread:.2f}x"
     print(
-        f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_BUDGET_SEC:.0f}s budget "
-        f"({documents:,} documents x {channels:,} channels)\n"
-        f"--- seed steps, each with the lap since the one before ---\n{_seed_steps(output)}"
+        f"\nMEASURED base seed: {elapsed_s:.1f}s of the {SEED_CEILING_SEC:.0f}s ceiling, "
+        f"slowest lap {pace} of the {SEED_STALL_RATIO:.0f}x pace bound "
+        f"({documents:,} documents x {channels:,} channels)\n{steps}"
     )
 
 

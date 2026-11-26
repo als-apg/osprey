@@ -17,15 +17,19 @@ from tests.fixtures.lifecycle_repo import (  # noqa: F401
     lifecycle_repo_factory,
 )
 
+from ._contract import with_contract
+
 _NAMES_WHAT_TO_DECLARE = ("tools.approval", "tools.deny_in_jobs", "tools.errors")
 
 
 def _data(name: str = "knob", **extra: object) -> dict[str, object]:
-    return {
-        "name": name,
-        "containers": {name: {"runtime": "osprey", "health": "/health"}},
-        **extra,
-    }
+    return with_contract(
+        {
+            "name": name,
+            "containers": {name: {"runtime": "osprey", "health": "/health"}},
+            **extra,
+        }
+    )
 
 
 def _write(path: Path, text: str) -> None:

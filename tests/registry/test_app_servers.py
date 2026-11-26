@@ -36,57 +36,62 @@ from osprey.registry.mcp import (
 )
 from osprey_connectors.errors import BuildProfileError
 from tests._preset_data import create_project_as_built
+from tests.apps._contract import with_contract
 
 PORT = 18951
 
-KNOB: dict[str, Any] = {
-    "name": "knob",
-    "containers": {"knob": {"runtime": "osprey", "health": "/health"}},
-    "panel": {
-        "label": "Knob",
-        "container": "knob",
-        "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
-    },
-    "tools": {
-        "module": "knob_app.tools",
-        "shown_when": "panel",
-        "read": ["knob_read"],
-        "approval": [
-            {
-                "tool": "knob_set",
-                "prompt": "Set the knob to {value}",
-                "state_path": "/api/state",
-                "display_lines_key": "lines",
-                "bind": {
-                    "state_fields": [{"field": "approved_state_sha", "key": "sha"}],
-                    "input_digests": [{"field": "approved_digest", "over": ["value"]}],
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {"knob": {"runtime": "osprey", "health": "/health"}},
+        "panel": {
+            "label": "Knob",
+            "container": "knob",
+            "agent_routes": [["GET", "/api/state"], ["POST", "/api/set"]],
+        },
+        "tools": {
+            "module": "knob_app.tools",
+            "shown_when": "panel",
+            "read": ["knob_read"],
+            "approval": [
+                {
+                    "tool": "knob_set",
+                    "prompt": "Set the knob to {value}",
+                    "state_path": "/api/state",
+                    "display_lines_key": "lines",
+                    "bind": {
+                        "state_fields": [{"field": "approved_state_sha", "key": "sha"}],
+                        "input_digests": [{"field": "approved_digest", "over": ["value"]}],
+                    },
+                    "require": {
+                        "all_of": ["approved_target", "approved_digest"],
+                        "one_of": [["approved_state_sha"]],
+                    },
                 },
-                "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_state_sha"]],
+                {
+                    "tool": "knob_zero",
+                    "prompt": "Zero the knob",
+                    "require": {"all_of": ["approved_target"]},
                 },
-            },
-            {
-                "tool": "knob_zero",
-                "prompt": "Zero the knob",
-                "require": {"all_of": ["approved_target"]},
-            },
-        ],
-        "errors": {"unreachable": "The knob panel is down.", "refused": "Reopen the panel."},
-    },
-}
+            ],
+            "errors": {"unreachable": "The knob panel is down.", "refused": "Reopen the panel."},
+        },
+    }
+)
 
 #: An application with no panel whose every tool is denied in jobs.
-DIAL: dict[str, Any] = {
-    "name": "dial",
-    "containers": {"dial": {"runtime": "osprey"}},
-    "tools": {
-        "module": "dial_app.tools",
-        "deny_in_jobs": True,
-        "read": ["dial_read"],
-        "approval": [{"tool": "dial_turn", "prompt": "Turn the dial"}],
-    },
-}
+DIAL: dict[str, Any] = with_contract(
+    {
+        "name": "dial",
+        "containers": {"dial": {"runtime": "osprey"}},
+        "tools": {
+            "module": "dial_app.tools",
+            "deny_in_jobs": True,
+            "read": ["dial_read"],
+            "approval": [{"tool": "dial_turn", "prompt": "Turn the dial"}],
+        },
+    }
+)
 
 CONFIG: dict[str, Any] = {"services": {"knob": {"port": PORT}}}
 

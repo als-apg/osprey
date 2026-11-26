@@ -9,20 +9,23 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.render_naming import render_project
+from tests.apps._contract import with_contract
 from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
-KNOB: dict[str, Any] = {
-    "name": "knob",
-    "containers": {
-        "knob": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_app.server"],
-            "health": "/health",
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {
+            "knob": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_app.server"],
+                "health": "/health",
+            },
         },
-    },
-    "skills": ["knob-tune"],
-}
+        "skills": ["knob-tune"],
+    }
+)
 
 SKILL_MD = "---\nname: knob-tune\ndescription: Tune the knob.\n---\n\nTurn it gently.\n"
 

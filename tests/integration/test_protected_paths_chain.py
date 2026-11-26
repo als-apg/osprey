@@ -68,6 +68,7 @@ from osprey.utils.workspace import (
 )
 from osprey_connectors.workspace import anchored_path, reset_config_cache
 from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
+from tests.apps._contract import with_contract
 from tests.cli._lifecycle_build import invoke_build_in
 from tests.deployment.test_up_as_built import run_up, started  # noqa: F401 - a fixture
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo, preserved_environ
@@ -106,16 +107,18 @@ RUNTIME_INTERPRETER = "interp/bin/python3-runtime"
 
 #: The application the deployment installs.
 APP_NAME = "knob"
-APP: dict[str, Any] = {
-    "name": APP_NAME,
-    "containers": {
-        APP_NAME: {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_app.server"],
-            "health": "/health",
+APP: dict[str, Any] = with_contract(
+    {
+        "name": APP_NAME,
+        "containers": {
+            APP_NAME: {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_app.server"],
+                "health": "/health",
+            },
         },
-    },
-}
+    }
+)
 
 #: The watchdog the deployment enables, from those the exemplar states.
 WATCHDOG = "guard-circumvention"

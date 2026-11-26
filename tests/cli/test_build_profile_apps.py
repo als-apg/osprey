@@ -27,8 +27,9 @@ from osprey.cli.build_profile_load import (
 )
 from osprey.cli.profile_root import ProfileKind
 from osprey_connectors.errors import BuildProfileError
+from tests.apps._contract import with_contract
 
-_MANIFEST = {"name": "knob", "containers": {"knob": {"runtime": "osprey"}}}
+_MANIFEST = with_contract({"name": "knob", "containers": {"knob": {"runtime": "osprey"}}})
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
