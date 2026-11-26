@@ -30,10 +30,9 @@ def runner() -> CliRunner:
 
 
 def _write_profile(tmp_path: Path, agent_record: Any) -> Path:
-    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world", "data": "data"}
+    body: dict[str, Any] = {"name": "Facility", "extends": "hello-world"}
     if agent_record is not None:
         body["agent_record"] = agent_record
-    (tmp_path / "data").mkdir(exist_ok=True)
     path = tmp_path / "profile.yml"
     path.write_text(yaml.safe_dump(body, sort_keys=False), encoding="utf-8")
     return path

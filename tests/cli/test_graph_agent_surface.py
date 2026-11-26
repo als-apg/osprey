@@ -44,6 +44,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.templates.manager import TemplateManager
 from tests._builds import BuiltProject
 from tests._preset_data import create_project_as_built
@@ -279,7 +280,6 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
                 "project_name": repo.name,
                 # The preset carries the posture floor and names the bundle.
                 "extends": "demo",
-                "data": "data",
                 "provider": "anthropic",
                 "model": "claude-haiku-4-5",
                 "channel_finder_mode": "hierarchical",
@@ -302,10 +302,10 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     # whole rather than stubbed: the Reach Contract refuses a render whose
     # source zone is not there, and the limits validator reads
     # `channel_limits.json` out of the same tree.
-    from tests._preset_data import copy_bundle_data
+    from tests._preset_data import bundle_source_root
 
-    copy_bundle_data(repo / "data")
-    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(bundle_source_root(), repo, dirs_exist_ok=True)
+    (repo / repo_layout.entry("facility").path / "knowledge").mkdir(parents=True, exist_ok=True)
     from osprey.cli.build_profile_presets import _presets_dir
 
     shutil.copytree(_presets_dir() / "tiers", repo / "tiers")

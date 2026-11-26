@@ -36,7 +36,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_HOOKS = "src/osprey/templates/claude_code/claude/hooks"
@@ -82,7 +82,6 @@ PROFILE: dict[str, Any] = {
     "provider": "anthropic",
     "model": "claude-haiku-4-5",
     "channel_finder_mode": "hierarchical",
-    "data": "data",
     "hooks": ["approval", "turn-state", "memory-guard", "writes-check"],
     "config": {
         "control_system.type": "virtual_accelerator",
@@ -237,7 +236,7 @@ def _differing(left: dict[str, str], right: dict[str, str]) -> list[str]:
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     path = tmp_path_factory.mktemp("identity") / "repo"
     path.mkdir()
-    copy_bundle_data(path / "data", "hello_world")
+    shutil.copytree(bundle_source_root("hello_world"), path, dirs_exist_ok=True)
     return path
 
 

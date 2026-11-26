@@ -11,13 +11,15 @@ boot.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.facility.views.simulator import ADDRESSES_FILE
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 
 #: What a hand-written profile has to state to build at all.
 #:
@@ -74,12 +76,11 @@ def _write_profile(
     implies ``deploy_va``.
     """
     repo_dir.mkdir(parents=True, exist_ok=True)
-    copy_bundle_data(repo_dir / "data")
+    shutil.copytree(bundle_source_root(), repo_dir, dirs_exist_ok=True)
 
     profile: dict = {
         "name": "VA Build Step Test",
         "project_name": "repo",
-        "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
@@ -153,7 +154,7 @@ class TestGeneratedFromProfileData:
     def test_facility_data_edit_reaches_the_served_channel_set(self, tmp_path):
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir)
-        records = repo_dir / "data" / "facility" / "records" / "channels.yaml"
+        records = repo_dir / repo_layout.entry("facility").path / "records" / "channels.yaml"
         channels = yaml.safe_load(records.read_text())
         gauge = next(c for c in channels if c["id"] == "SR:VAC:GAUGE:SR01:PRESSURE:RB")
         channels.append(

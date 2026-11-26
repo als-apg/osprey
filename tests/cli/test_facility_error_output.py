@@ -31,6 +31,7 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from tests._builds import init_project
 
@@ -66,7 +67,7 @@ PRE_BUILD = (
 
 #: What an import that replaced the bundled example prints on stdout.
 SEEDED = (
-    "wrote data/facility/knowledge/index.md\n"
+    "wrote facility/knowledge/index.md\n"
     "Put your facility's documentation here: one page per topic.\n"
 )
 
@@ -157,7 +158,7 @@ def _break(repo: Path) -> None:
         "schema": "osprey.facility.fixes/1",
         "fixes": [{"op": "drop", "kind": "device", "id": "SR/Q9", "why": "gone"}],
     }
-    (repo / "data" / "facility" / "provenance" / "fixes.yaml").write_text(
+    (repo / repo_layout.entry("facility").path / "provenance" / "fixes.yaml").write_text(
         yaml.safe_dump(document, sort_keys=False), encoding="utf-8"
     )
 
@@ -181,9 +182,9 @@ def _scenario(
         "when": {"days_ago": 1, "time": "08:00"},
         "parts": [{"title": "Look", "turns": [turn]}],
     }
-    (repo / "data" / "facility" / "simulation" / "scenarios" / "warm.yaml").write_text(
-        yaml.safe_dump({"sessions": [session]}, sort_keys=False), encoding="utf-8"
-    )
+    (
+        repo / repo_layout.entry("facility").path / "simulation" / "scenarios" / "warm.yaml"
+    ).write_text(yaml.safe_dump({"sessions": [session]}, sort_keys=False), encoding="utf-8")
 
 
 # --- a facility build error ---------------------------------------------------------
@@ -392,7 +393,7 @@ def test_deck_lines_then_mapping_problems(repo: Path, tmp_path: Path) -> None:
     facts: dict[str, Any] = json.loads(facts_file.read_text(encoding="utf-8"))
     facts["lattice"] = {"refused": "no THERING in the workspace"}
     facts_file.write_text(json.dumps(facts), encoding="utf-8")
-    mapping = repo / "data" / "facility" / MAPPING
+    mapping = repo / repo_layout.entry("facility").path / MAPPING
     mapping.parent.mkdir(parents=True, exist_ok=True)
     text = (MML_TREE / MAPPING).read_text(encoding="utf-8")
     assert text.count("    name: SR\n") == 1
@@ -408,7 +409,7 @@ def test_deck_lines_then_mapping_problems(repo: Path, tmp_path: Path) -> None:
             "models.SR.name: 'S R' is not PN_LOCAL",
             "section_order[0]: 'SR' is no model name",
             "section_order: leaves out the model S R",
-            f"3 problems in data/facility/{MAPPING}; fix each and check again.",
+            f"3 problems in facility/{MAPPING}; fix each and check again.",
         ],
     )
 

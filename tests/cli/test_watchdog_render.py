@@ -22,7 +22,7 @@ import yaml
 from osprey.cli.templates import artifact_library, claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.utils.workspace import session_hold_dir
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 TRIGGER = "osprey_watchdog_trigger.py"
@@ -68,13 +68,12 @@ def trigger_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         )
     monkeypatch.setattr(TemplateManager, "_get_template_root", lambda self: root)
     monkeypatch.setattr(artifact_library, "_claude_code_root", lambda: root / "claude_code")
-    claude_code._framework_hook_filenames.cache_clear()
 
 
 def _repo(tmp_path: Path, block: dict[str, Any], *, hooks: list[str] | None = None) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    copy_bundle_data(repo / "data", "hello_world")
+    shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
     for name in block:
         directory = repo / "agent" / "watchdogs" / name
         (directory / "references").mkdir(parents=True)
@@ -86,7 +85,6 @@ def _repo(tmp_path: Path, block: dict[str, Any], *, hooks: list[str] | None = No
         "provider": "anthropic",
         "model": "claude-haiku-4-5",
         "channel_finder_mode": "hierarchical",
-        "data": "data",
         "hooks": HOOKS if hooks is None else hooks,
         "config": POSTURE,
         "watchdogs": block,

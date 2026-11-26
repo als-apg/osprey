@@ -1,6 +1,6 @@
 """``osprey facility import relations``: relation tables written as one layer's sources.
 
-Each repo case copies one initialised demo repo, whose ``data/facility/`` holds
+Each repo case copies one initialised demo repo, whose ``facility/`` holds
 the bundled example facility. The verb never runs the import's replace-or-refuse
 step (FR10): the bundled files stay, the tables resolve against them, and no
 file outside ``imported/<layer>/`` changes. The orchestrator's rules are proved
@@ -16,10 +16,11 @@ import pytest
 import yaml
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.cli.main import cli
 from tests._builds import init_project
 
-LAYER = "data/facility/imported/cables"
+LAYER = "facility/imported/cables"
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +132,7 @@ class TestSuccess:
     def test_bundled_example_facility_keeps_its_files_and_resolves_against_them(
         self, repo: Path, tmp_path: Path
     ) -> None:
-        facility = repo / "data" / "facility"
+        facility = repo / repo_layout.entry("facility").path
         bundled = _snapshot(facility / "records")
         assert bundled, "the demo repo holds the bundled example records"
         table = _csv(
@@ -147,7 +148,7 @@ class TestSuccess:
         assert not (repo / LAYER / "devices.yaml").exists()
 
     def test_authored_relations_and_places_coexist(self, repo: Path, tmp_path: Path) -> None:
-        records = repo / "data" / "facility" / "records"
+        records = repo / repo_layout.entry("facility").path / "records"
         places = records / "places.yaml"
         places.write_text(
             places.read_text(encoding="utf-8") + "- id: SR/SECT3/HALL\n", encoding="utf-8"

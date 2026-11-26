@@ -27,14 +27,10 @@ CONFIG_REFUSAL = (
 )
 
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
 def _va_profile(va: dict[str, Any] | None = None, **extra: Any) -> BuildProfile:
     """A minimal profile deploying a virtual accelerator with block ``va``."""
     raw: dict[str, Any] = {
         "name": "pva",
-        "data": "data",
         "virtual_accelerator": {"port": 5064, **(va or {})},
         **extra,
     }
