@@ -878,6 +878,16 @@ class TestEnvironments:
         assert "CANOPY_WAVEFORM_DEFAULT_QUERY" not in CONDITIONAL_FRONT_CANOPY_VARS
         assert "CANOPY_WAVEFORM_DEFAULT_QUERY" not in sidecar.data_env()
 
+    def test_the_pv_details_url_is_rendered_verbatim(self, deployment):
+        url = "https://directory.example.org/#/channel/{pv}"
+        deployment.write_config({"web": {"panels": {"canopy": {"pv_details_url": url}}}})
+        sidecar = deployment.sidecar()
+        sidecar.spawn()
+        assert sidecar.front_env()["CANOPY_PV_DETAILS_URL"] == url
+        assert "CANOPY_PV_DETAILS_URL" in EXPECTED_FRONT_CANOPY_VARS
+        assert "CANOPY_PV_DETAILS_URL" not in CONDITIONAL_FRONT_CANOPY_VARS
+        assert "CANOPY_PV_DETAILS_URL" not in sidecar.data_env()
+
     def test_the_drafts_dir_is_the_personal_store_with_or_without_a_library(self, deployment):
         """The library is a second root; it never takes the personal store's place."""
         sidecar = deployment.sidecar()
@@ -1006,6 +1016,7 @@ class TestEnvironments:
             "CANOPY_TRACE_DEFAULT_QUERY": "pv=SR:DIAG:BPM:03:POSITION:X",
             "CANOPY_CORRELATION_DEFAULT_QUERY": "x=SR:MAG:HCM:01:CURRENT:SP&dt=1",
             "CANOPY_WAVEFORM_DEFAULT_QUERY": "pv=SR:MAG:SEPTUM:01:CURRENT:WAVEFORM",
+            "CANOPY_PV_DETAILS_URL": "",
             "CANOPY_CHANNELS_FILE": "/etc/osprey/channels.json",
             "CANOPY_HOST_STYLESHEETS": (
                 "design-system/css/tokens.css static/fonts/fonts.css"
@@ -1024,6 +1035,7 @@ class TestEnvironments:
         assert sidecar.front_env()["CANOPY_TRACE_DEFAULT_QUERY"] == ""
         assert sidecar.front_env()["CANOPY_CORRELATION_DEFAULT_QUERY"] == ""
         assert sidecar.front_env()["CANOPY_WAVEFORM_DEFAULT_QUERY"] == ""
+        assert sidecar.front_env()["CANOPY_PV_DETAILS_URL"] == ""
 
     def test_the_channel_catalog_path_is_the_one_every_web_container_mounts(self, deployment):
         """FRONT is told the constant path whether or not the build staged a catalog.
