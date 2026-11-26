@@ -523,6 +523,19 @@
     "Device": {
       "description": "One device; its channels point at it through `on`.",
       "properties": {
+        "acquire": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The command that acquires: a command on this device whose status states `idle`; stated with `results`, it makes the device a detector.",
+          "title": "Acquire"
+        },
         "attributes": {
           "anyOf": [
             {},
@@ -714,6 +727,22 @@
             }
           ],
           "default": null
+        },
+        "results": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The readbacks on this device a detector records, in the order its data lists them; stated with `acquire`.",
+          "title": "Results"
         },
         "s": {
           "anyOf": [

@@ -427,6 +427,16 @@ classes:
       attributes:
         range: Any
         description: A free string to scalar or list map, carried verbatim.
+      acquire:
+        description: >-
+          The command that acquires: a command on this device whose status states
+          `idle`; stated with `results`, it makes the device a detector.
+      results:
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          The readbacks on this device a detector records, in the order its data
+          lists them; stated with `acquire`.
       model:
         description: >-
           The model whose deck `s` and `length` are measured in; computed when the

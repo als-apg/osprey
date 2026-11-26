@@ -55,6 +55,7 @@ KINDS: tuple[str, ...] = (
     "class-unknown",
     "pair-invalid",
     "command-invalid",
+    "detector-invalid",
     "value-invalid",
     "seed-invalid",
     "seed-missing",
