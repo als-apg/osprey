@@ -224,6 +224,16 @@ The sidebar lists the library's screens by folder. A library that ships a
 gives, followed by one collapsed group, **All screens**, with the folder tree
 (:ref:`canopy-library-navigation`).
 
+**A channel's menu.** Right-click any widget that shows a channel for a menu
+about that channel: its name (click to copy), description, value, time, alarm
+severity and limits, and entries to copy the name or the value, plot its
+history in the data browser, add it to that plot, and plot it against another
+channel (pick the X on one channel, then the Y on another). A widget with
+several channels has one menu; the chips above the entries pick the channel.
+Hold **Shift** for the browser's own menu. **PV details…** opens the page
+``web.panels.canopy.pv_details_url`` names, with the channel's name in place
+of ``{pv}``; without that key the menu has no such entry.
+
 **Which machine.** A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a
 moment and return with the new machine's values. A click made on a screen

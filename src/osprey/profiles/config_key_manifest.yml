@@ -3797,6 +3797,17 @@ keys:
       CANOPY_WAVEFORM_DEFAULT_QUERY. Unset passes the empty string, and the
       page opens with no channel.
     default: '""'
+  web.panels.canopy.pv_details_url:
+    rendered: false
+    deployment-data: true
+    evidence: 'settings\.get\("pv_details_url"\)'
+    note: >-
+      The page about one channel that a channel's right-click menu opens in
+      the per-user CANOPY panel: an http(s) or panel-relative URL in which
+      `{pv}` stands for the channel name, passed verbatim to the panel's front
+      process as CANOPY_PV_DETAILS_URL. Unset passes the empty string, and the
+      menu has no such entry.
+    default: '""'
   web.panels.canopy.home_screen:
     deployment-data: true
     evidence: 'settings\.get\("home_screen"\)'
