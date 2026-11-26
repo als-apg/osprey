@@ -1,8 +1,8 @@
 .. _how-to-import-mml-export:
 
-==============================
-Import a Middle Layer export
-==============================
+===================================
+Import a MATLAB Middle Layer export
+===================================
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer (MML) export and
 writes it as sources of your facility description, under
@@ -387,6 +387,17 @@ left-out line. If you need a more elaborate BPM calibration in the check, open
 an issue.
 
 .. seealso::
+
+   G. Portmann, J. Corbett and A. Terebilo, "An Accelerator Control Middle
+   Layer Using MATLAB", *Proc. PAC 2005*, Knoxville, pp. 4009--4011 ·
+   `doi:10.1109/PAC.2005.1591699 <https://doi.org/10.1109/PAC.2005.1591699>`_.
+
+   :doc:`/how-to/describe-your-facility`
+      The facility description the import writes into.
+
+   :doc:`/how-to/pyaml/index`
+      The Python Accelerator Middle Layer, which measures on the imported
+      models.
 
    :ref:`cli-osprey-facility`
       Every exit and message of ``osprey facility validate`` and

@@ -1,6 +1,6 @@
-=============
-Bluesky Plans
-=============
+===================
+Bluesky Integration
+===================
 
 The OSPREY agent can run real measurement plans — sweep magnets, read beam
 monitors, and collect the data — through the same chat and panels you already
