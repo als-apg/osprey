@@ -51,6 +51,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
     channel_roles,
     collect_channels,
     declared_channels,
+    device_columns,
     resolve_column,
     scan_metadata,
     validate_field_value,
@@ -680,6 +681,36 @@ def test_resolve_column_accepts_a_data_row_directly() -> None:
     """Callers hold rows, not column lists; iterating a row yields its keys."""
     row = {"seq_num": 1, "motor1-readback": 0.5, "det-value": 7}
     assert resolve_column("motor1", row) == "motor1-readback"
+
+
+# --- device_columns: finding every column a declared device recorded --------
+
+_COUNTS, _SPECTRUM = "DET:COUNTS", "DET:SPECTRUM"
+
+
+def test_a_detector_resolves_to_the_columns_recorded_under_it() -> None:
+    """A device whose data keys are other names reaches the data through the
+    run's map, in the order the map states them; a key the window lacks is
+    left out."""
+    columns = ["motor", _SPECTRUM, _COUNTS]
+    objects = {"det": [_COUNTS, "DET:LATER", _SPECTRUM], "motor": ["motor"]}
+
+    assert device_columns("det", columns, objects) == [_COUNTS, _SPECTRUM]
+
+
+def test_a_name_with_its_own_column_never_reads_the_objects() -> None:
+    """A settable's map lists its readback and its demand; its own column is
+    the one answer, so a figure keeps one x column."""
+    columns = ["sp1", "sp1_setpoint", "det"]
+    objects = {"sp1": ["sp1", "sp1_setpoint"]}
+
+    assert device_columns("sp1", columns, objects) == [resolve_column("sp1", columns)]
+    assert device_columns("rb1", ["rb1-value"], {"rb1": ["other"]}) == ["rb1-value"]
+
+
+def test_a_name_neither_resolves_to_nothing() -> None:
+    assert device_columns("det", ["motor"], {"motor": ["motor"]}) == []
+    assert device_columns("det", ["motor"], {"det": [_COUNTS]}) == []
 
 
 # --- panel tolerance --------------------------------------------------------
