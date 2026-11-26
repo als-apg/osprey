@@ -56,7 +56,7 @@ DEMO_READS = 4094
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
 )
-_SCHEMA = "osprey.facility.bluesky_devices/1"
+_SCHEMA = "osprey.facility.bluesky_devices/2"
 
 
 def _write(address: str, readback: str | None = None) -> ChannelRecord:
@@ -102,6 +102,7 @@ class TestDevicesDocument:
                 }
             ],
             "readables": [{"name": status, "pv": status}],
+            "triggered_readables": [],
         }
         assert validate_device_document(document) == []
 
@@ -216,7 +217,91 @@ class TestDevicesDocument:
     def test_every_top_level_key_is_always_present(self) -> None:
         """Even a facility that yields nothing gets every key, so a caller can
         see WHICH kind came up empty instead of inferring it from a missing key."""
-        assert devices_document(()) == {"settables": [], "triggerables": [], "readables": []}
+        assert devices_document(()) == {
+            "settables": [],
+            "triggerables": [],
+            "readables": [],
+            "triggered_readables": [],
+        }
+
+    _ACQUIRE, _BUSY = "ES1:DET:ACQ:SP", "ES1:DET:STATUS"
+    _COUNTS, _SPECTRUM = "ES1:DET:COUNTS:RB", "ES1:DET:SPECTRUM:WAVEFORM"
+
+    def _detector(self) -> tuple[ChannelRecord, ...]:
+        return (
+            _write(self._ACQUIRE, readback=self._BUSY),
+            _read(self._BUSY),
+            _read(self._COUNTS),
+            ChannelRecord(
+                address=self._SPECTRUM,
+                source=_SOURCE,
+                direction="read",
+                value_type="waveform",
+                shape=(1024,),
+            ),
+        )
+
+    def test_the_document_always_carries_a_detectors_list(self) -> None:
+        completions = {self._ACQUIRE: CommandCompletion(self._ACQUIRE, self._BUSY, "FALSE", 5.0)}
+        detector = ("ES1-MCA01", self._ACQUIRE, [self._COUNTS, self._SPECTRUM])
+
+        document = devices_document(
+            self._detector(),
+            units={self._COUNTS: "counts"},
+            completions=completions,
+            detectors=[detector],
+        )
+
+        assert devices_document(self._detector())["triggered_readables"] == []
+        assert document["triggered_readables"] == [
+            {
+                "name": "ES1-MCA01",
+                "command": self._ACQUIRE,
+                "status": self._BUSY,
+                "idle": "FALSE",
+                "timeout_s": 5.0,
+                "results": [
+                    {"pv": self._COUNTS, "unit": "counts"},
+                    {"pv": self._SPECTRUM, "value_type": "waveform", "shape": [1024]},
+                ],
+            }
+        ]
+        assert document["settables"] == [] and document["triggerables"] == []
+        assert validate_device_document(document) == []
+
+    def test_a_word_result_carries_its_words(self) -> None:
+        state = "ES1:DET:STATE"
+        completions = {self._ACQUIRE: CommandCompletion(self._ACQUIRE, self._BUSY, "FALSE", 5.0)}
+        records = (
+            *self._detector(),
+            ChannelRecord(
+                address=state,
+                source=_SOURCE,
+                direction="read",
+                value_type="enum",
+                options=("OK", "LOW"),
+            ),
+        )
+
+        document = devices_document(
+            records, completions=completions, detectors=[("ES1-MCA01", self._ACQUIRE, [state])]
+        )
+
+        (detector,) = document["triggered_readables"]
+        assert detector["results"] == [
+            {"pv": state, "value_type": "enum", "options": ["OK", "LOW"]}
+        ]
+        assert validate_device_document(document) == []
+
+    def test_a_detector_without_a_completion_writes_no_entry_and_hides_no_command(self) -> None:
+        detector = ("ES1-MCA01", self._ACQUIRE, [self._COUNTS])
+
+        document = devices_document(self._detector(), completions=None, detectors=[detector])
+
+        assert document["triggered_readables"] == []
+        assert document["settables"] == [
+            {"name": self._ACQUIRE, "setpoint": self._ACQUIRE, "readback": self._BUSY}
+        ]
 
     def test_every_write_record_is_a_settable_in_roster_order(self) -> None:
         document = devices_document(_RECORDS)
@@ -265,7 +350,12 @@ class TestDevicesDocument:
         build refuses to stage a derived file rather than guess."""
         document = devices_document((ChannelRecord(address="A:B:C", source=_SOURCE),))
 
-        assert document == {"settables": [], "triggerables": [], "readables": []}
+        assert document == {
+            "settables": [],
+            "triggerables": [],
+            "readables": [],
+            "triggered_readables": [],
+        }
 
     def test_the_build_validator_accepts_what_the_producer_emits(self) -> None:
         """The producer and the build's refusal gate must agree: anything this
@@ -667,7 +757,12 @@ class TestWriteDevicesFile:
 
         document = write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
 
-        assert document == {"settables": [], "triggerables": [], "readables": []}
+        assert document == {
+            "settables": [],
+            "triggerables": [],
+            "readables": [],
+            "triggered_readables": [],
+        }
         assert _SOURCE.describe() in path.read_text(encoding="utf-8")
 
     def test_leaves_no_temp_file_behind(self, tmp_path) -> None:

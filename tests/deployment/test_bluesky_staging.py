@@ -24,7 +24,7 @@ STAGED = "services/bluesky/bluesky_devices.yml"
 def test_the_build_writes_the_view_with_its_schema(built_demo: BuiltProject) -> None:
     text = (built_demo.build_dir / VIEW).read_text(encoding="utf-8")
 
-    assert text.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/1"
+    assert text.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/2"
 
 
 def test_the_build_stages_a_byte_equal_copy(built_demo: BuiltProject) -> None:

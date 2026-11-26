@@ -3,7 +3,7 @@
 Single source of truth for turning the facility's channel roster (the
 :class:`~osprey.channel_roster.records.ChannelRecord` sequence
 :func:`osprey.channel_roster.registered_channels` returns) into the bridge's
-device set, in the three-list device-file format the queueserver worker reads
+device set, in the device-file format the queueserver worker reads
 (see ``osprey.services.bluesky_bridge.devices._specs_from_file`` for the schema
 and the parser).
 
@@ -11,10 +11,12 @@ Every channel the roster enumerated becomes a device: each write-direction
 record a settable -- or, for a command with a completion signal, a triggerable
 a plan fires and never sets -- and each read-direction record a readable,
 except a read channel of more than one dimension, which a run cannot record in
-its table and so is no device, and a command a setpoint names as
-``started_by``, which that setpoint's settable carries as its start act, or as
-``stopped_by``, which it carries as its stop. Nothing here filters by machine, family, field or address
-grammar. Which channels exist and which way
+its table and so is no device, a command a setpoint names as ``started_by``,
+which that setpoint's settable carries as its start act, or as ``stopped_by``,
+which it carries as its stop, and a command a detector names as ``acquire``,
+which that detector fires. A detector is named by its device id. Nothing here
+filters by machine, family, field or address grammar. Which channels exist and
+which way
 they point is the roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
 precisely the divergence that had a build report 144 devices for the bundled
@@ -29,7 +31,9 @@ setpoint address, a readable by its read address -- not by a synthetic
 IS the worker namespace. The addresses an agent discovers are exactly the
 names a plan may reference, so there is no second, agent-invisible namespace
 to translate through and no discovery surface that has to be kept in sync
-with this derivation.
+with this derivation. A detector is the one device named otherwise: by the id
+of the facility device record that states it, while every column it records
+is still a result's address.
 
 The conscious trade-off is in queueserver's device-permission patterns
 (``user_group_permissions.yaml``'s ``allowed_devices``/``forbidden_devices``).
@@ -108,6 +112,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     OPTIONS_KEY,
     READABLES_KEY,
     RELATIVE_KEY,
+    RESULTS_KEY,
     SCHEMA_KEY,
     SETPOINT_OPTIONS_KEY,
     SETPOINT_UNIT_KEY,
@@ -120,6 +125,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     STOPPED_BY_KEY,
     TIMEOUT_KEY,
     TRIGGERABLES_KEY,
+    TRIGGERED_READABLES_KEY,
     UNIT_KEY,
     VALUE_TYPE_KEY,
 )
@@ -166,12 +172,13 @@ def _write_entry(
     """The device one write-direction record becomes: its device-file section and
     entry, or ``None`` for no device.
 
-    The one place a write record's device kind is decided: a command a
-    positioner carries as its start act or its stop (``carried``) is no device,
-    any other command with a completion signal is a triggerable, every other
-    write record a settable. A settable whose ``started_by`` command has a
-    completion signal carries it as ``started_by``, after its ``readback``, and
-    its ``stopped_by`` right after that.
+    The one place a write record's device kind is decided: a command another
+    device carries (``carried``) -- a positioner's start act or its stop, a
+    detector's acquire -- is no device, any other command with a completion
+    signal is a triggerable, every other write record a settable. A settable
+    whose ``started_by`` command has a completion signal carries it as
+    ``started_by``, after its ``readback``, and its ``stopped_by`` right after
+    that.
     """
     if record.address in carried:
         return None
@@ -214,17 +221,28 @@ def devices_document(
     motion_bands: Mapping[str, float] | None = None,
     units: Mapping[str, str] | None = None,
     completions: Mapping[str, CommandCompletion] | None = None,
+    detectors: Sequence[tuple[str, str, Sequence[str]]] = (),
 ) -> dict[str, list[dict[str, Any]]]:
     """Build the worker's device document from the roster's ``records``.
 
-    Returns the three-list mapping ``_specs_from_file`` parses: one
+    Returns the four-list mapping ``_specs_from_file`` parses: one
     ``settables`` entry (``name``/``setpoint``, plus ``readback`` where the
     roster paired one) per write-direction record, one ``triggerables`` entry
     (``name``/``command``/``status``/``idle``/``timeout_s``) per command with a
-    completion signal, and one ``readables`` entry (``name``/``pv``) per
-    read-direction record, in roster order. Every key is always present, even
-    when empty, so a caller can see *which* kind a facility yielded nothing for
-    rather than inferring it from an absent key.
+    completion signal, one ``readables`` entry (``name``/``pv``) per
+    read-direction record, in roster order, and one ``triggered_readables`` entry per
+    detector. Every key is always present, even when empty, so a caller can
+    see *which* kind a facility yielded nothing for rather than inferring it
+    from an absent key.
+
+    ``detectors`` holds each detector as ``(device id, acquire address, result
+    addresses)``. A detector whose acquire command has a completion signal is
+    one ``triggered_readables`` entry named by its id, carrying the act
+    (``command``/``status``/``idle``/``timeout_s``) and ``results``, one
+    ``{pv, value_type?, options?, unit?, shape?}`` per result in order; its
+    acquire command is no device of its own, and each result stays a readable. A
+    detector whose acquire command has no completion signal is no entry, and
+    its command stays the device it was.
 
     ``completions`` maps a command address to its
     :class:`~osprey.channel_roster.records.CommandCompletion`: that write
@@ -293,6 +311,7 @@ def devices_document(
         SETTABLES_KEY: [],
         TRIGGERABLES_KEY: [],
         READABLES_KEY: [],
+        TRIGGERED_READABLES_KEY: [],
     }
     declared = tolerances or {}
     bands = motion_bands or {}
@@ -313,11 +332,18 @@ def devices_document(
         and record.stopped_by is not None
         and record.started_by in started
     )
+    acquired = frozenset(acquire for _id, acquire, _results in detectors if acquire in commands)
 
     for record in records:
         if record.direction == "write":
             device = _write_entry(
-                record, commands, started | stops, declared.get(record.address), bands, stated, kinds
+                record,
+                commands,
+                started | stops | acquired,
+                declared.get(record.address),
+                bands,
+                stated,
+                kinds,
             )
             if device is not None:
                 section, entry = device
@@ -333,7 +359,32 @@ def devices_document(
                 readable[SHAPE_KEY] = list(record.shape)
             document[READABLES_KEY].append(readable)
 
+    for device_id, acquire, results in detectors:
+        if acquire not in acquired:
+            continue
+        document[TRIGGERED_READABLES_KEY].append(
+            {
+                "name": device_id,
+                **_act(commands[acquire]),
+                RESULTS_KEY: [_result(address, kinds, stated) for address in results],
+            }
+        )
+
     return document
+
+
+def _result(
+    address: str, kinds: Mapping[str, ChannelRecord], stated: Mapping[str, str]
+) -> dict[str, Any]:
+    """One detector result as the device file states it: its address, value type,
+    unit and shape, each kind key only where the facility states it."""
+    entry: dict[str, Any] = {"pv": address, **_value_type(kinds.get(address))}
+    if address in stated:
+        entry[UNIT_KEY] = stated[address]
+    record = kinds.get(address)
+    if record is not None and record.shape is not None:
+        entry[SHAPE_KEY] = list(record.shape)
+    return entry
 
 
 _FILE_MODE = 0o644
@@ -351,6 +402,9 @@ _GENERATED_HEADER = """\
 # triggerable a plan fires and waits for, and no settable.
 # A setpoint stating `started_by` carries its start act and its `stopped_by`;
 # neither command is a device.
+# A device that states `acquire` and `results` is a detector, named by its id,
+# that fires its acquire command and records its results; its acquire command
+# is no device of its own.
 # A readback of more than one dimension is no device.
 """
 """Header the written file carries, filled with the roster source's
@@ -367,9 +421,10 @@ def write_devices_file(
     motion_bands: Mapping[str, float] | None = None,
     units: Mapping[str, str] | None = None,
     completions: Mapping[str, CommandCompletion] | None = None,
+    detectors: Sequence[tuple[str, str, Sequence[str]]] = (),
 ) -> dict[str, list[dict[str, Any]]]:
     """Write the document ``devices_document(records, tolerances, motion_bands,
-    units, completions)`` builds to ``path`` as YAML, and return it.
+    units, completions, detectors)`` builds to ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
@@ -389,7 +444,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records, tolerances, motion_bands, units, completions)
+    document = devices_document(records, tolerances, motion_bands, units, completions, detectors)
     body = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True
     )

@@ -804,8 +804,18 @@
     },
     {
       "file": "tests/cli/test_facility_error_output.py",
-      "pin": "text:settable / {value} readable",
+      "pin": "text:settable / {value} triggerable",
+      "value": 0
+    },
+    {
+      "file": "tests/cli/test_facility_error_output.py",
+      "pin": "text:triggerable / {value} readable",
       "value": 4094
+    },
+    {
+      "file": "tests/cli/test_facility_error_output.py",
+      "pin": "text:readable / {value} triggered_readable",
+      "value": 1
     },
     {
       "file": "tests/cli/test_facility_validate.py",

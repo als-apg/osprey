@@ -6335,28 +6335,24 @@ def _discard_staged_devices(staged_path):
 
 
 def _document_counts(document):
-    """Entry counts ``(settables, readables)`` for a parsed device document.
+    """Entry counts per device section of a parsed device document.
 
-    Tolerates every shape :func:`validate_device_document` calls valid,
-    including the empty document and one carrying only a single section.
+    One ``(section, count)`` pair per device section, in the order of
+    ``TOP_LEVEL_KEYS``; a missing or non-list section counts 0. Tolerates every
+    shape :func:`validate_device_document` calls valid, including the empty
+    document and one carrying only a single section.
 
     :param document: Parsed device document
-    :return: Settable and readable entry counts
-    :rtype: tuple[int, int]
+    :return: Each section's name and entry count
+    :rtype: list[tuple[str, int]]
     """
-    from osprey.services.bluesky_bridge.devices._specs_from_file import (
-        READABLES_KEY,
-        SETTABLES_KEY,
-    )
-
-    if not isinstance(document, dict):
-        return 0, 0
+    from osprey.services.bluesky_bridge.devices._specs_from_file import TOP_LEVEL_KEYS
 
     def count(key):
-        section = document.get(key)
+        section = document.get(key) if isinstance(document, dict) else None
         return len(section) if isinstance(section, list) else 0
 
-    return count(SETTABLES_KEY), count(READABLES_KEY)
+    return [(key, count(key)) for key in TOP_LEVEL_KEYS]
 
 
 def _write_staged_devices(source, staged_path):
@@ -6436,10 +6432,9 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
         return False
 
     _write_staged_devices(view, staged_path)
-    settables, readables = _document_counts(yaml_loader.safe_load(view.read_text(encoding="utf-8")))
-    _report_fact(
-        f"bluesky plan devices: {settables} settable / {readables} readable from {view_path}"
-    )
+    counts = _document_counts(yaml_loader.safe_load(view.read_text(encoding="utf-8")))
+    stated = " / ".join(f"{count} {section.removesuffix('s')}" for section, count in counts)
+    _report_fact(f"bluesky plan devices: {stated} from {view_path}")
     logger.debug(f"Staged the bluesky devices view {view} to {staged_path}")
     return True
 
