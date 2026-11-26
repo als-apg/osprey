@@ -10,9 +10,10 @@ here, in this process — the bridge is a client of the manager, not its parent.
 
 Three things are assembled, in this order:
 
-1. **Devices** — connector-mediated ``ConnectorSettable``/``ConnectorReadable``
-   instances built from the device file named by ``BLUESKY_DEVICES_FILE``,
-   exactly as the bridge's in-process wiring built them: every plan read goes
+1. **Devices** — the connector-mediated plan devices
+   ``devices.connector.build_devices`` builds from the device file named by
+   ``BLUESKY_DEVICES_FILE``, exactly as the bridge's in-process wiring built
+   them: every plan read goes
    through ``connector.read_channel`` and every plan write through
    ``connector.write_channel_checked``. Moving execution out of the bridge
    moves the reference monitor here with it — there is no raw Channel Access
@@ -326,7 +327,7 @@ async def build_devices(
     connector_devices.settle_tolerance()
 
     specs = specs_from_file(path)
-    if not specs.settables and not specs.readables and not specs.triggerables:
+    if not (specs.settables or specs.readables or specs.triggerables or specs.detectors):
         logger.warning(
             "qserver_startup: device file %r names no devices; this worker will expose no plans",
             devices_file,
@@ -345,15 +346,17 @@ async def build_devices(
             connector,
             simulated=is_simulated(resolve_control_system_type()),
             triggerables=specs.triggerables,
+            detectors=specs.detectors,
         )
     )
     logger.info(
         "qserver_startup: built %d connector-mediated device(s) "
-        "(%d setpoint(s), %d triggerable(s), %d readback(s))",
+        "(%d setpoint(s), %d triggerable(s), %d readback(s), %d detector(s))",
         len(devices),
         len(specs.settables),
         len(specs.triggerables),
         len(specs.readables),
+        len(specs.detectors),
     )
     return devices
 

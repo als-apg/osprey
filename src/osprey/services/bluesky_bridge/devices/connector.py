@@ -22,8 +22,9 @@ decision D1): ``ConnectorSettable``/``ConnectorReadable``/
 the connector from ``set()``/``trigger()``/``read()``/``describe()``. A
 triggerable fires its command through ``osprey_connectors.command.fire``,
 which writes it once through ``connector.write_channel_checked`` and waits for
-its status to report the act ended; a ``ConnectorPositioner`` fires the
-command that starts its move the same way, after writing its target. This is deliberately NOT a custom
+its status to report the act ended; a ``ConnectorDetector`` fires its acquire
+command the same way and records its results; a ``ConnectorPositioner`` fires
+the command that starts its move the same way, after writing its target. This is deliberately NOT a custom
 ``SignalBackend`` — the ophyd-async ``Signal``/backend protocol is an
 internal extension point, while ``StandardReadable``'s ``set``/``read``/
 ``describe``/``connect`` are the stable public device contract that plans
@@ -63,7 +64,7 @@ from osprey_connectors.errors import ChannelError, ChannelWriteBlockedError
 from osprey_connectors.settle import Landing, SettleTimeoutError, settle, settle_bound
 
 from ._connect import connect_all
-from .specs import ReadableSpec, SettableSpec, TriggerableSpec
+from .specs import DetectorSpec, ReadableSpec, SettableSpec, TriggerableSpec
 
 #: The value written to a command to fire it.
 PRESS_VALUE = 1
@@ -943,6 +944,83 @@ class ConnectorTriggerable(StandardReadable):
         return {"fields": [self.name]}
 
 
+class ConnectorDetector(ConnectorTriggerable):
+    """A detector a plan triggers and records, through the OSPREY connector.
+
+    ``trigger()`` is the triggerable's: it fires the acquire command with
+    :data:`PRESS_VALUE` through ``osprey_connectors.command.fire``, refused
+    while the status is not idle, and completes when the status has left idle
+    and come back within the act's bound.
+
+    A detector is triggered and read, never set: no ``set()``, no ``stop()``
+    and no ``locate()``. An abort begins with a pause (``queue_backend.abort``),
+    and :meth:`pause` cancels a trigger whose write has not been sent, so
+    nothing is written to the detector after an abort; an acquisition already
+    started finishes by itself in the hardware while the run stops waiting for
+    it.
+
+    ``read()`` reads every result fresh through ``connector.read_channel``, in
+    ``results`` order, each under its own address, an enum result as its word;
+    ``describe()`` states each result by its value type, unit, shape and words
+    and reads nothing. The status is not recorded. :attr:`hints` names the
+    scalar results that are no text, so a live plot draws numbers and no
+    waveform or word.
+    """
+
+    def __init__(
+        self,
+        connector: Any,
+        command: str,
+        status: str,
+        idle: str | int | float | bool,
+        timeout_s: float,
+        *,
+        results: Sequence[ReadableSpec],
+        name: str = "",
+    ) -> None:
+        self._results = tuple(results)
+        super().__init__(connector, command, status, idle, timeout_s, name=name)
+
+    def channel_addresses(self) -> tuple[str, ...]:
+        """The addresses a run of this device touches: the acquire command, its
+        status and every result."""
+        return (*super().channel_addresses(), *(result.read_pv for result in self._results))
+
+    async def read(self) -> dict[str, Reading[Any]]:
+        """Return every result, read fresh through the connector, under its address;
+        an enum result's word (:func:`recorded_value`)."""
+        document: dict[str, Reading[Any]] = {}
+        for result in self._results:
+            reading = await self._osprey_connector.read_channel(result.read_pv)
+            value = recorded_value(reading, result.value_type, result.options)
+            document[result.read_pv] = {"value": value, "timestamp": time.time()}
+        return document
+
+    async def describe(self) -> dict[str, DataKey]:
+        """Describe every result under its address, by its kind. Reads nothing."""
+        return {
+            result.read_pv: data_key(
+                result.read_pv,
+                value_type=result.value_type,
+                unit=result.unit,
+                shape=result.shape,
+                options=result.options,
+            )
+            for result in self._results
+        }
+
+    @property
+    def hints(self) -> Hints:
+        """Declare the keys of the scalar results that are no text as the hinted fields."""
+        return {
+            "fields": [
+                result.read_pv
+                for result in self._results
+                if result.shape is None and DTYPES[result.value_type or "float"] != "string"
+            ]
+        }
+
+
 async def build_devices(
     settables: Sequence[SettableSpec] = (),
     readables: Sequence[ReadableSpec] = (),
@@ -950,6 +1028,7 @@ async def build_devices(
     *,
     simulated: bool = False,
     triggerables: Sequence[TriggerableSpec] = (),
+    detectors: Sequence[DetectorSpec] = (),
 ) -> dict[str, Any]:
     """Build and connect connector-mediated devices, keyed by name.
 
@@ -974,6 +1053,7 @@ async def build_devices(
             motion band. False, the fail-safe toward hardware, leaves such a
             device on the profile's floor.
         triggerables: Specs for the ``ConnectorTriggerable`` instances to build.
+        detectors: Specs for the ``ConnectorDetector`` instances to build.
 
     Returns:
         Mapping of device name to connected device instance.
@@ -1036,5 +1116,15 @@ async def build_devices(
             name=triggerable_spec.name,
             value_type=triggerable_spec.value_type,
             options=triggerable_spec.options,
+        )
+    for detector_spec in detectors:
+        devices[detector_spec.name] = ConnectorDetector(
+            connector,
+            detector_spec.command,
+            detector_spec.status,
+            detector_spec.idle,
+            detector_spec.timeout_s,
+            results=detector_spec.results,
+            name=detector_spec.name,
         )
     return await connect_all(devices)
