@@ -818,7 +818,7 @@ def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, A
     not a plan: it is a plain function, so upstream's namespace scan classifies
     it as a callable to invoke directly rather than as a plan to hand the
     RunEngine, and it is the single deliberate exception in an otherwise
-    deny-all function permission list. It moves nothing — see
+    deny-all function permission list beside :func:`describe_devices`. It moves nothing — see
     :func:`walk_launch` for why walking a plan's message stream
     cannot.
 
@@ -859,6 +859,71 @@ def preview_plan(name: str, kwargs: dict[str, Any] | None = None) -> dict[str, A
         no moves, a zero move total, no writes and a ``None`` write total.
     """
     return preview_plan_in_namespace(name, kwargs, globals())
+
+
+def _description(device: Any) -> dict[str, Any] | None:
+    """What ``device.describe()`` states, or ``None`` when it would read.
+
+    A plan device's ``describe()`` reads nothing, so its coroutine finishes on
+    its first step; one that suspends is waiting on I/O and is closed unrun.
+    """
+    coroutine = device.describe()
+    try:
+        coroutine.send(None)
+    except StopIteration as finished:
+        described = finished.value
+        return dict(described) if isinstance(described, Mapping) else None
+    coroutine.close()
+    return None
+
+
+def describe_devices_in_namespace(names: Any, namespace: Mapping[str, Any]) -> dict[str, Any]:
+    """What each of ``names`` is and records, for the devices ``namespace`` holds.
+
+    Each name the namespace holds as a plan device of a known kind
+    (:data:`~osprey.services.bluesky_bridge.plan_fields.DEVICE_KINDS`) is
+    ``{"kind", "data_keys"}``: what a plan does to it, and the data keys a run
+    records for it as its ``describe()`` states them (value type, words, unit,
+    shape), in recorded order. Any other name is left out.
+
+    Returns:
+        Always a JSON mapping, never an exception.
+    """
+    # Absolute and function-local — see the module docstring.
+    from osprey.services.bluesky_bridge.plan_fields import DEVICE_KINDS
+
+    described: dict[str, Any] = {}
+    for name in names if isinstance(names, list) else ():
+        if not isinstance(name, str) or name in described:
+            continue
+        device = namespace.get(name)
+        kind = DEVICE_KINDS.get(type(device).__name__)
+        if kind is None or not callable(getattr(device, "data_keys", None)):
+            continue
+        try:
+            data_keys = _description(device)
+        except Exception:
+            logger.info("qserver_startup: describing device %r failed", name, exc_info=True)
+            continue
+        if data_keys is not None:
+            described[name] = {"kind": kind, "data_keys": data_keys}
+    return described
+
+
+def describe_devices(names: list[str]) -> dict[str, Any]:
+    """Read-only: what each named plan device is and what a run records for it.
+
+    Exposed to the manager as a namespace function (``function_execute``), the
+    second deliberate exception in the function permission list beside
+    :func:`preview_plan`. It reads nothing through the connector: a device's
+    kind is its class, and what it records is its ``describe()``, which states
+    the facility's description of each channel. See
+    :func:`describe_devices_in_namespace` for the answer's shape::
+
+        {"ES1-MCA01": {"kind": "detector",
+                       "data_keys": {"ES1:DET:MCA:01:COUNTS:RB": {"dtype": "number", ...}}}}
+    """
+    return describe_devices_in_namespace(names, globals())
 
 
 class _FaultIsolatedCallback:

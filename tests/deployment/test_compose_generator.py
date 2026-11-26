@@ -1943,13 +1943,17 @@ def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> N
     assert "channel_limits.json" not in rendered_default
 
 
-def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> None:
-    """The staged ``user_group_permissions.yaml`` must name exactly one
-    allowed function, ``preview_plan`` — the read-only pre-flight trajectory
-    summary — in every user group it defines. Everything else `function_execute`
-    could otherwise reach (arbitrary worker-namespace callables, outside the
-    plan path and the connector's reference monitor) must stay denied; this is
-    the one deliberate, documented exception carved out of that deny-all gate.
+def test_bluesky_permissions_file_allows_only_preview_plan_and_describe_devices(
+    tmp_path: Path,
+) -> None:
+    """The staged ``user_group_permissions.yaml`` must name exactly two
+    allowed functions, ``preview_plan`` (the read-only pre-flight trajectory
+    summary) and ``describe_devices`` (what each plan device is and records,
+    read from its class and its description), in every user group it defines.
+    Everything else `function_execute` could otherwise reach (arbitrary
+    worker-namespace callables, outside the plan path and the connector's
+    reference monitor) must stay denied; these are the two deliberate,
+    documented exceptions carved out of that deny-all gate.
 
     The file is shipped verbatim (not Jinja-rendered) and bind-mounted
     read-only at ``/app/qserver/user_group_permissions.yaml`` (see the
@@ -1958,6 +1962,8 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     staging ``test_chat_bridge_template_is_bundled_into_a_declaring_project``
     checks for presence.
     """
+    from osprey.services.bluesky_bridge import qserver_startup
+
     _write_config(tmp_path, deployed_services=["bluesky"])
     # bluesky, plus the always-bundled agent record.
     assert _copy_service_templates(tmp_path) == 2
@@ -1966,13 +1972,13 @@ def test_bluesky_permissions_file_allows_only_preview_plan(tmp_path: Path) -> No
     assert permissions_path.is_file()
     permissions = yaml.safe_load(permissions_path.read_text(encoding="utf-8"))
 
+    expected = [qserver_startup.preview_plan.__name__, qserver_startup.describe_devices.__name__]
     user_groups = permissions["user_groups"]
     assert "root" in user_groups, "'root' is queueserver's required preliminary filter"
     for group, entry in user_groups.items():
         allowed_functions = entry["allowed_functions"]
-        assert allowed_functions == ["preview_plan"], (
-            f"'{group}' group must allow exactly one function, 'preview_plan' "
-            f"(the read-only pre-flight trajectory summary) — got {allowed_functions!r}"
+        assert allowed_functions == expected, (
+            f"'{group}' group must allow exactly {expected!r} — got {allowed_functions!r}"
         )
 
 

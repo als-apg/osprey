@@ -26,7 +26,7 @@
 # change, deliberately and with review; do not widen it as a debugging
 # shortcut.
 #
-# ONE DELIBERATE EXCEPTION: `preview_plan`, the pre-flight trajectory summary.
+# A DELIBERATE EXCEPTION: `preview_plan`, the pre-flight trajectory summary.
 # It is read-only — it iterates the plan's already-built message stream and
 # collects `{channel, target}` moves into a capped, JSON-serializable list; it
 # never issues a `Msg` of its own and never touches hardware. It runs before a
@@ -38,6 +38,15 @@
 # would still be caught by the connector's per-put reference monitor and the
 # bridge's arming + limits facade, the same backstop every other write goes
 # through.
+#
+# A SECOND DELIBERATE EXCEPTION: `describe_devices`, what each named plan
+# device is and what a run records for it. It is read-only — it reads each
+# device's class and its `describe()`, which states the facility's description
+# of each channel and reads nothing through the connector; it never issues a
+# `Msg` and never touches hardware. The device list and the dry run of a
+# session plan ask it, so an agent learns a detector's columns and the dry run
+# rehearses each device with the description the run will record. Naming it in
+# both groups is what makes it reachable through `function_execute`.
 #
 # Script upload (the session-plan path) is a separate API and is NOT gated by
 # these function rules.
@@ -55,7 +64,8 @@ user_groups:
     forbidden_devices:
       - ":^_:?.*"
     allowed_functions:
-      - "preview_plan" # The one deliberate exception. See the note above.
+      - "preview_plan" # A deliberate exception. See the note above.
+      - "describe_devices" # A deliberate exception. See the note above.
     forbidden_functions:
       - null
 
@@ -72,5 +82,6 @@ user_groups:
       - null
     allowed_functions:
       - "preview_plan" # Must match root — root is the preliminary filter.
+      - "describe_devices" # Must match root — root is the preliminary filter.
     forbidden_functions:
       - null

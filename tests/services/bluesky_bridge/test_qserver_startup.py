@@ -2329,3 +2329,104 @@ def test_the_catalog_wrapper_cancels_on_every_end_but_the_plans_own_return(
     next(run)
     run.close()
     assert detector.cancels == 2
+
+
+# ---------------------------------------------------------------------------
+# describe_devices: what each plan device is and records, reading nothing
+# ---------------------------------------------------------------------------
+
+
+class _RefusingConnector:
+    """A connector every read and write of which fails the test."""
+
+    async def read_channel(self, address: str) -> Any:
+        raise AssertionError(f"describe_devices read {address}")
+
+    async def write_channel_checked(self, address: str, value: Any, **_: Any) -> Any:
+        raise AssertionError(f"describe_devices wrote {value!r} to {address}")
+
+
+def _described_namespace() -> dict[str, Any]:
+    from osprey.services.bluesky_bridge.devices.connector import (
+        ConnectorDetector,
+        ConnectorPositioner,
+        ConnectorTriggerable,
+    )
+    from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
+    from osprey_connectors.command import CommandAct
+
+    connector = _RefusingConnector()
+    results = (
+        ReadableSpec("DET:COUNTS", "DET:COUNTS", unit="counts"),
+        ReadableSpec("DET:STATE", "DET:STATE", value_type="enum", options=("OK", "LOW")),
+        ReadableSpec("DET:SPECTRUM", "DET:SPECTRUM", shape=(4,), value_type="waveform"),
+    )
+    return {
+        "RE": object(),
+        "sp1": ConnectorSettable(connector, "SP1:SP", "SP1:RB", name="sp1", unit="mm"),
+        "stage": ConnectorPositioner(
+            connector,
+            "STAGE:SP",
+            "STAGE:RB",
+            name="stage",
+            started_by=CommandAct("STAGE:GO", "STAGE:STATUS", 0, 5.0),
+        ),
+        "rb1": ConnectorReadable(connector, "RB1", name="rb1"),
+        "shutter": ConnectorTriggerable(
+            connector, "SHUT:CMD", "SHUT:STATUS", 0, 5.0, name="shutter"
+        ),
+        "det": ConnectorDetector(
+            connector, "DET:ACQ", "DET:STATUS", 0, 5.0, results=results, name="det"
+        ),
+    }
+
+
+def test_describe_devices_states_each_kind_and_its_keys_and_reads_nothing() -> None:
+    """Each device's kind is its class's, and what it records is its own
+    ``describe()``, in recorded order; the refusing connector proves nothing
+    is read or written."""
+    namespace = _described_namespace()
+    names = ["sp1", "stage", "rb1", "shutter", "det"]
+
+    described = qserver_startup.describe_devices_in_namespace(names, namespace)
+
+    assert {name: entry["kind"] for name, entry in described.items()} == {
+        "sp1": "settable",
+        "stage": "settable",
+        "rb1": "readable",
+        "shutter": "triggerable",
+        "det": "detector",
+    }
+    for name in names:
+        device = namespace[name]
+        assert list(described[name]["data_keys"]) == list(device.data_keys())
+        assert described[name]["data_keys"] == asyncio.run(device.describe())
+    assert described["det"]["data_keys"]["DET:STATE"]["choices"] == ["OK", "LOW"]
+    assert json.loads(json.dumps(described)) == described
+
+
+def test_describe_devices_leaves_out_a_name_it_does_not_hold() -> None:
+    namespace = _described_namespace()
+
+    described = qserver_startup.describe_devices_in_namespace(
+        ["det", "nowhere", "RE", 3, "det"], namespace
+    )
+
+    assert list(described) == ["det"]
+    assert qserver_startup.describe_devices_in_namespace("det", namespace) == {}
+
+
+def test_every_connector_device_class_has_a_kind() -> None:
+    """The kind table names every plan-device class the worker builds."""
+    from osprey.services.bluesky_bridge.devices import connector
+    from osprey.services.bluesky_bridge.plan_fields import DEVICE_KINDS
+
+    built = {
+        name
+        for name, value in vars(connector).items()
+        if inspect.isclass(value)
+        and value.__module__ == connector.__name__
+        and callable(getattr(value, "data_keys", None))
+    }
+
+    assert built == set(DEVICE_KINDS)
