@@ -552,3 +552,39 @@ def test_status_of_an_unconfigured_client_raises_without_a_request() -> None:
     with pytest.raises(QMDUnavailableError):
         client.status()
     assert transport.posts == []
+
+
+def test_the_shipped_transport_dials_the_sidecar_past_a_proxy_in_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A proxy named in the environment is not the way to the sidecar."""
+    import http.server
+    import threading
+
+    class Health(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            body = b'{"status": "ok"}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Health)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        # A proxy nothing listens on: a request sent to it is refused.
+        for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY"):
+            monkeypatch.setenv(name, "http://127.0.0.1:9")
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
+        reply = client_module._UrllibTransport().get(
+            f"http://127.0.0.1:{server.server_port}/health", timeout=5.0
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert reply.status == 200
+    assert reply.body == '{"status": "ok"}'

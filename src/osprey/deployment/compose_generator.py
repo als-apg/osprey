@@ -3149,6 +3149,21 @@ def _inject_project_metadata(config):
     # a wildcard. One derivation for every template that sets such an address.
     config_with_labels["osprey_host_dial_address"] = _host_dial_address(config)
 
+    # Each projected application container's declared corpora, as the
+    # per-service fact its runtime template binds (:func:`app_corpus_mounts`),
+    # from the one corpus list and the one host address derived just above.
+    # Copy-on-write, as for ``state_mounts``.
+    corpus_mounts = app_corpus_mounts(
+        config_with_labels,
+        config_with_labels["osprey_qmd"]["corpora"],
+        config_with_labels["osprey_host_dial_address"],
+    )
+    if corpus_mounts:
+        services = dict(config_with_labels["services"])
+        for key, mounts in corpus_mounts.items():
+            services[key] = {**services[key], "corpus_mounts": mounts}
+        config_with_labels["services"] = services
+
     # The archive service's sources — the volumes it reads, derived from the
     # same roster, worker and lane inputs their owner templates render from —
     # and its two binds. Injected unconditionally, like every derived key here.
@@ -3403,6 +3418,9 @@ APP_RUNTIME_CONTEXT: Mapping[str, str] = {
     ),
     "osprey_container_guarded_run_dir": "the guarded-run directory inside the project image",
     "services.<k>.state_mounts": "the declared state directories, `[{source, target}]`",
+    "services.<k>.corpus_mounts": (
+        "the declared qmd corpora, `[{name, source, target, url_env, url}]`"
+    ),
     "services.<k>.stop_grace_period": "the grace compose gives the container to stop",
     "services.<k>.ca_env": "the Channel Access addressing block",
 }
@@ -4749,6 +4767,77 @@ def app_state_mounts(config, container_project_dir):
                 "target": _app_state_target(container_project_dir, key, declared),
             }
         ]
+    return mounts
+
+
+#: Directory an application container's declared corpora are bound under, read
+#: only. Each lands at ``<root>/<name>``, the path the SDK's ``corpus(name)``
+#: answers.
+APP_CORPUS_ROOT = "/osprey/corpora"
+
+
+def app_corpus_mounts(config, qmd_corpora, host_dial_address):
+    """Each projected service's ``corpus_mounts``, by service key.
+
+    One entry per name in a projected ``services.<k>.corpora``:
+    ``{name, source, target, url_env, url}``. The source is the sidecar's own
+    bind source, taken from *qmd_corpora* so the container reads the directory
+    the sidecar indexes; the target is ``<APP_CORPUS_ROOT>/<name>``. ``url`` is
+    where this container dials the corpus's sidecar, under the variable
+    :func:`~osprey.deployment.qmd_service.corpus_url_env` names: the sidecar's
+    compose service name from the bridge, and the published address (its
+    container port is the published one) from the host network or when this
+    deployment does not run the sidecar itself. The application runtime
+    template binds each entry and names it in ``OSPREY_APP_CORPORA``.
+
+    Only a service named in ``deployed_services`` counts, as for
+    :func:`app_state_mounts`.
+
+    :param config: The build config, ``services.<k>`` as projected
+    :type config: dict
+    :param qmd_corpora: The deployment's corpora, from :func:`_resolve_qmd_corpora`
+    :type qmd_corpora: list[dict]
+    :param host_dial_address: Where a published port is dialled, from
+        :func:`_host_dial_address`
+    :type host_dial_address: str
+    :return: The mounts, keyed by service; services declaring no corpus are absent
+    :rtype: dict[str, list[dict[str, str]]]
+    :raises ValueError: If a service names a corpus the deployment does not
+        declare, or one declared without a source
+    """
+    from osprey.deployment.qmd_service import QMD_SERVICE_NAME, corpus_url_env
+
+    services = config.get("services")
+    if not isinstance(services, dict):
+        return {}
+    deployed = {str(n) for n in config.get("deployed_services") or []}
+    by_name = {corpus["collection"]: corpus for corpus in qmd_corpora}
+    mounts = {}
+    for key, block in services.items():
+        if str(key) not in deployed or not isinstance(block, dict) or not block.get("app"):
+            continue
+        on_bridge = (block.get("network") or "bridge") != "host"
+        entries = []
+        for name in block.get("corpora") or []:
+            corpus = by_name.get(name)
+            if corpus is None or not corpus["source"]:
+                raise ValueError(
+                    f"services.{key}.corpora names {name!r}, which services.qmd.corpora "
+                    "does not declare with a `source`"
+                )
+            in_network = on_bridge and QMD_SERVICE_NAME in deployed
+            host = corpus["service"] if in_network else host_dial_address
+            entries.append(
+                {
+                    "name": name,
+                    "source": corpus["source"],
+                    "target": f"{APP_CORPUS_ROOT}/{name}",
+                    "url_env": corpus_url_env(name),
+                    "url": f"http://{host}:{corpus['port']}",
+                }
+            )
+        if entries:
+            mounts[key] = entries
     return mounts
 
 
@@ -6496,8 +6585,8 @@ def service_render_context(
     return {
         **config,
         "service_key": key,
-        # Injected, because the render's per-service facts (`state_mounts`) are part of
-        # what the service's template reads.
+        # Injected, because the render's per-service facts (`state_mounts`,
+        # `corpus_mounts`) are part of what the service's template reads.
         "service": as_dict(as_dict(_inject_project_metadata(config).get("services")).get(key)),
         "panel_grant": _panel_grant(config, key, layer_root),
         "dev_mode": dev_mode,

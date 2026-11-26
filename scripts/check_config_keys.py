@@ -43,6 +43,9 @@ Failure modes
 10. ``layout``           a ``default:`` line stranded below a comment block
                          instead of sitting inside the entry it belongs to
 11. ``preset-count``     manifest prose, or a page that describes presets, that counts them
+12. ``path-decision``    a key that may name a filesystem path with no ``path:``
+                         decision, a malformed one, or a ``path: protect`` set
+                         that differs from the build's protected-path table
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -255,6 +258,87 @@ REQUIRED_DEFAULT_KEYS = POSTURE_FLOOR_KEYS | {"facility_knowledge.bundle_path"}
 #: leaf is answered by its parent.
 DEFAULT_SENTINELS = frozenset({"required", "n/a", "derived", "no-fallback"})
 DEFAULT_SENTINELS_NEEDING_NOTE = frozenset({"derived", "no-fallback", "required"})
+
+
+#: Words that, as a whole ``_``-separated word of a key's last segment (or its
+#: plural), say the key may name a filesystem location. A key carrying one must
+#: decide whether the build protects it (failure mode 12).
+PATH_TOKENS = frozenset(
+    {
+        "path",
+        "dir",
+        "file",
+        "bundle",
+        "root",
+        "ca",
+        "cert",
+        "mount",
+        "module",
+        "plugins",
+        "corpora",
+        "source",
+        "panels",
+        "notices",
+        "python",
+        "dataset",
+        "schemas",
+        "store",
+        "template",
+        "script",
+        "seed",
+        "folder",
+        "location",
+        "socket",
+        "library",
+    }
+)
+
+#: The reasons the key table exempts a path-valued key with. An exemption may
+#: also give its own words; these are offered in the failure message.
+PATH_EXEMPT_REASONS = (
+    "not-a-path",
+    "already-confined",
+    "derived-not-statable",
+    "runtime-output",
+    "other-container-filesystem",
+)
+
+
+def path_token(key: str) -> str | None:
+    """The path-like word in *key*'s last segment, or ``None``."""
+    for word in key.rsplit(".", 1)[-1].split("_"):
+        for suffix in ("", "s", "es"):
+            if suffix and not word.endswith(suffix):
+                continue
+            stem = word[: len(word) - len(suffix)] if suffix else word
+            if stem in PATH_TOKENS:
+                return word
+    return None
+
+
+def stated_strings(value: Any, *, into_mappings: bool = False) -> list[str]:
+    """The strings a stated value carries: itself, or a list's members."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [s for item in value for s in stated_strings(item, into_mappings=into_mappings)]
+    if into_mappings and isinstance(value, dict):
+        return [s for item in value.values() for s in stated_strings(item, into_mappings=True)]
+    return []
+
+
+def emitter_row_matches(row_key: str, key: str) -> bool:
+    """Whether manifest *key* is the key an emitter row names.
+
+    The row's ``<name>`` stands for any one stated segment. A manifest family
+    placeholder (``services.<app-container>``) describes keys the build derives,
+    never ones a profile states, so it matches only the same placeholder.
+    """
+    wanted, parts = row_key.split("."), key.split(".")
+    return len(wanted) == len(parts) and all(
+        w == p or (w.startswith("<") and not p.startswith("<"))
+        for w, p in zip(wanted, parts, strict=True)
+    )
 
 
 def sentinel_lookalike(value: object) -> str | None:
@@ -1111,6 +1195,106 @@ class ConfigKeyGuard:
                 f"{spec.get('default')!r}, not 'required'",
             )
 
+    # ── failure mode 12: path decision ──────────────────────────────────
+
+    def path_selection(self, key: str, spec: dict[str, Any], is_path_shaped: Any) -> str | None:
+        """Why *key* must carry a ``path:`` decision, or ``None`` when it need not."""
+        token = path_token(key)
+        if token is not None:
+            return f"names a path-like word ({token!r})"
+        if any(is_path_shaped(s) for s in stated_strings(spec.get("default"))):
+            return f"has a path-shaped default ({spec.get('default')!r})"
+        configs = [*self.stated_presets().items()]
+        configs += [(name, cfg) for name, (_profile, cfg) in self.resolved_apps().items()]
+        for source, config in configs:
+            value = dotted_value(config, key)
+            strings = stated_strings(value, into_mappings=bool(spec.get("data-map")))
+            shaped = [s for s in strings if is_path_shaped(s)]
+            if shaped:
+                return f"is stated with a path-shaped value by {source} ({shaped[0]!r})"
+        return None
+
+    def check_path_decisions(self) -> None:
+        """Every key that may name a path says whether the build protects it.
+
+        The build writes the paths a profile names into the deployment's
+        protected-path list from one table
+        (:data:`osprey.cli.build_protected_paths.CONFIG_PATH_KEYS`), and the
+        python executor refuses agent code that writes there. A key that names
+        a path and appears in no table is neither protected nor known to be
+        harmless, so a key is held to a decision when its last segment carries
+        a path-like word, when its default or a shipped value is path-shaped,
+        or when the build's table names it:
+
+        * ``path: protect`` — the build protects what it names;
+        * ``path: {exempt: <reason>}`` — it needs no protection, and why.
+
+        The keys marked ``protect`` are exactly the build's table, both ways:
+        a mark the build does not act on promises a protection nobody gives,
+        and a table row no entry marks is a protection the ledger hides.
+        """
+        from osprey.cli.build_protected_paths import CONFIG_PATH_KEYS, is_path_shaped
+
+        rows = [row.key for row in CONFIG_PATH_KEYS]
+        reasons = ", ".join(PATH_EXEMPT_REASONS)
+        protected_rows: set[str] = set()
+        for key, spec in self.manifest["keys"].items():
+            if not isinstance(spec, dict):
+                continue
+            matched = [row for row in rows if emitter_row_matches(row, key)]
+            decision = spec.get("path")
+            if decision is None:
+                why = (
+                    f"is in the build's protected-path table ({matched[0]})"
+                    if matched
+                    else self.path_selection(key, spec, is_path_shaped)
+                )
+                if why is not None:
+                    self.fail(
+                        "path-decision",
+                        f"{key} {why} but carries no path decision: mark it `path: protect` "
+                        f"(with a row in build_protected_paths.CONFIG_PATH_KEYS) or "
+                        f"`path: {{exempt: <reason>}}` saying why agent code may write "
+                        f"there ({reasons}, or your own words)",
+                    )
+                continue
+            exempt = decision.get("exempt") if isinstance(decision, dict) else None
+            well_formed = decision == "protect" or (
+                isinstance(decision, dict)
+                and set(decision) == {"exempt"}
+                and isinstance(exempt, str)
+                and exempt.strip()
+            )
+            if not well_formed:
+                self.fail(
+                    "path-decision",
+                    f"{key} spells its path decision {decision!r}: write `path: protect` "
+                    f"or `path: {{exempt: <reason>}}` with a non-empty reason",
+                )
+                continue
+            if decision == "protect":
+                if not matched:
+                    self.fail(
+                        "path-decision",
+                        f"{key} is marked `path: protect` but the build protects no such "
+                        f"key: add its row to build_protected_paths.CONFIG_PATH_KEYS, or "
+                        f"mark it `path: {{exempt: <reason>}}`",
+                    )
+                protected_rows.update(matched)
+            elif matched:
+                self.fail(
+                    "path-decision",
+                    f"{key} is exempt ({exempt}) but the build protects it as "
+                    f"{matched[0]}: mark it `path: protect`, or drop the build's row",
+                )
+        for row in rows:
+            if row not in protected_rows:
+                self.fail(
+                    "path-decision",
+                    f"the build protects {row} but no manifest entry spelling it is marked "
+                    f"`path: protect`: add one (rendered: false when nothing ships it)",
+                )
+
     def check_evidence_vacuity(self) -> None:
         """A bare-word regex matching too many files proves nothing.
 
@@ -1742,6 +1926,7 @@ class ConfigKeyGuard:
         self.check_evidence()
         self.check_covered_by_chains()
         self.check_defaults()
+        self.check_path_decisions()
         self.check_evidence_vacuity()
         self.check_deleted()
         self.check_orphan_sites()

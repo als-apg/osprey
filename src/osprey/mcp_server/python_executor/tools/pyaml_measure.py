@@ -47,6 +47,7 @@ from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.tools._execution_gates import (
     enforce_posture_clamp,
+    require_protected_paths,
     run_gated_execution,
 )
 from osprey.mcp_server.python_executor.tools._pyaml_measure_args import (
@@ -368,6 +369,9 @@ async def pyaml_measure(
     from osprey_connectors.workspace import load_osprey_config
 
     enforce_posture_clamp(_EXECUTION_MODE, tool=TOOL_NAME)
+    protected_entries = await require_protected_paths(
+        tool=TOOL_NAME, execution_mode=_EXECUTION_MODE
+    )
 
     config_dir = resolve_config_dir()
     if config_dir is None:
@@ -393,6 +397,7 @@ async def pyaml_measure(
         approved_target=approved_target,
         approved_view_sha256=approved_view_sha256,
         code_review=False,
+        protected_entries=protected_entries,
     )
     _note_writes(exec_result)
 

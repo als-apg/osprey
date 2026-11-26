@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PAGE = REPO_ROOT / "docs/source/how-to/register-a-measurement-kind.rst"
+PAGE = REPO_ROOT / "docs/source/how-to/pyaml/register-a-measurement-kind.rst"
 PACKAGE_DIR = REPO_ROOT / "tests/facility/fixtures/fixture_kind"
 
 #: Where a refusal on the page is spelled: the code that raises it and the test pinning it.

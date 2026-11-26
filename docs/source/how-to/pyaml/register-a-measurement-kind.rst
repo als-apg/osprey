@@ -7,7 +7,7 @@ Register a measurement kind
 A measurement kind is a word a model's measurement file lists under
 ``kinds:`` (:doc:`/how-to/describe-your-facility`). OSPREY ships five:
 ``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``
-(:doc:`/how-to/measure-with-pyaml`). A deployment whose machine needs another adds
+(:doc:`/how-to/pyaml/index`). A deployment whose machine needs another adds
 it from an installable package, through the same registry the five go
 through, with no OSPREY change. The contract, with every declaration field, the member roles
 and what the build writes, is :doc:`/reference/contracts/facility-kinds`.
@@ -23,7 +23,7 @@ The worked example is the package ``fixture-kind-deployment`` under
 A kind is one ``KindDeclaration`` from ``osprey_facility.kinds``, the only
 OSPREY module the package should import:
 
-.. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
+.. literalinclude:: ../../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
    :language: python
    :start-at: FIXTURE_KIND = KindDeclaration(
 
@@ -49,7 +49,7 @@ The package names the declaration under the entry-point group
 ``osprey_facility.kinds``, and an engine of its own, when it has one, under
 ``osprey_connectors.simulation.engines``:
 
-.. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment-0.1.dist-info/entry_points.txt
+.. literalinclude:: ../../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment-0.1.dist-info/entry_points.txt
    :language: ini
 
 In the package's ``pyproject.toml`` these are the
@@ -82,7 +82,7 @@ A kind takes settings of its own from the measurement file, under
 ``kind_blocks.<kind>``, validated by its ``measurement_schema``, a pydantic
 model:
 
-.. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
+.. literalinclude:: ../../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
    :language: python
    :pyobject: FixtureBlock
 
@@ -109,7 +109,7 @@ A step that fires a command must name a channel the facility marks
 describes the record, never the kind: the example's engine marks the record it
 fires, and the kind's ``build_stops`` refuses any other address:
 
-.. literalinclude:: ../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
+.. literalinclude:: ../../../../tests/facility/fixtures/fixture_kind/fixture_kind_deployment/__init__.py
    :language: python
    :pyobject: build_stops
 

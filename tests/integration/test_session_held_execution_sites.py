@@ -489,7 +489,7 @@ def _guard_probe(repo: Path, statement: str) -> str:
     folder.mkdir(parents=True, exist_ok=True)
     wrapper = ExecutionWrapper(
         execution_mode="readwrite",
-        protected_roots=executor.resolve_protected_roots(repo),
+        protected_roots=executor.resolve_protected_roots(repo, entries=()),
         permitted_roots=(agent_data,),
     )
     body = textwrap.dedent(

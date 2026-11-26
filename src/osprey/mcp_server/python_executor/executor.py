@@ -29,7 +29,7 @@ import sys
 import time
 import traceback
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -57,7 +57,12 @@ from osprey.stores.artifact_manifest import (
     is_collectable_file,
 )
 from osprey.utils.execution_method import EXECUTION_METHOD_SUBPROCESS
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIRNAMES, PRESET_TRACKING_DIRNAME
+from osprey.utils.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIRNAMES,
+    NO_PROTECTED_PATHS_CONSEQUENCE,
+    PRESET_TRACKING_DIRNAME,
+)
 from osprey_connectors import posture_store
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.posture_env import POSTURE_ENV_VAR
@@ -218,6 +223,11 @@ FAILURE_KIND_GUARDED_RUN_BUSY = "guarded_run_busy"
 #: run declined, and by the launch the decline no longer held (a switch landed,
 #: the target moved). Nothing ran, and calling again reviews it.
 FAILURE_KIND_UNREVIEWED = "unreviewed"
+#: :attr:`ExecutionResult.failure_kind` for a run refused because the
+#: deployment's build output does not carry the protected-path list (see
+#: :func:`read_run_protected_entries`). Nothing ran, and calling again cannot
+#: help: the fix is ``osprey build``.
+FAILURE_KIND_NO_PROTECTED_PATHS = "no_protected_paths"
 
 #: The refusal for :data:`FAILURE_KIND_UNREVIEWED`.
 UNREVIEWED_REFUSAL = (
@@ -234,6 +244,7 @@ NOT_STARTED_FAILURE_KINDS = frozenset(
         FAILURE_KIND_APPROVAL_CONFIG_INVALID,
         FAILURE_KIND_GUARDED_RUN_BUSY,
         FAILURE_KIND_UNREVIEWED,
+        FAILURE_KIND_NO_PROTECTED_PATHS,
     }
 )
 
@@ -278,8 +289,9 @@ class ExecutionResult:
     #: :data:`FAILURE_KIND_SWITCH_IN_PROGRESS`,
     #: :data:`FAILURE_KIND_APPROVAL_MISSING`,
     #: :data:`FAILURE_KIND_APPROVAL_CONFIG_INVALID`,
-    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY` or
-    #: :data:`FAILURE_KIND_UNREVIEWED`. ``None`` for
+    #: :data:`FAILURE_KIND_GUARDED_RUN_BUSY`,
+    #: :data:`FAILURE_KIND_UNREVIEWED` or
+    #: :data:`FAILURE_KIND_NO_PROTECTED_PATHS`. ``None`` for
     #: a run that started and whose own code raised — the only failure the
     #: submitted code can be blamed for. The response builder reads this to
     #: class the error envelope: a dead backend is an infrastructure outage,
@@ -375,13 +387,91 @@ def _resolve_project_root() -> Path:
     return resolve_project_root(load_osprey_config())
 
 
+class ProtectedPathsRefusal(Exception):
+    """A deployment's build output does not carry the protected-path list.
+
+    Raised by :func:`read_run_protected_entries` before any child process
+    starts. ``str(exc)`` is the whole refusal, naming ``osprey build``.
+    """
+
+
+def read_run_protected_entries(project_root: Path | None = None) -> tuple[str, ...]:
+    """Return the protected-path entries one run is guarded by, or refuse.
+
+    Called once per execution request, at its outermost entry, and the result
+    is handed on to the pre-run check and to the guard. For a deployment — a
+    resolved project root that holds ``profile.yml`` — the configuration file
+    at the resolved location is read and parsed directly, never taken from the
+    process-lifetime configuration cache, so a rebuild is seen by the next run
+    without a restart. Outside a deployment there is no build to refuse, and
+    the loaded configuration's entries are used when it carries a well-formed
+    list; otherwise none.
+
+    Args:
+        project_root: The project root when the caller has already resolved
+            one; ``None`` resolves it with :func:`_resolve_project_root`.
+
+    Returns:
+        The entries as written, possibly empty — an empty list is a valid set.
+
+    Raises:
+        ProtectedPathsRefusal: The project is a deployment and its
+            configuration file is missing, unreadable or unparseable, or
+            lacks the key, or carries it malformed.
+    """
+    from osprey.utils.workspace import (
+        PROFILE_FILENAME,
+        load_protected_paths,
+        read_protected_paths,
+    )
+    from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+
+    root = project_root if project_root is not None else _resolve_project_root()
+    if not (Path(root) / PROFILE_FILENAME).is_file():
+        reading = read_protected_paths(load_osprey_config())
+        return reading.entries if reading.present else ()
+
+    entries, what = load_protected_paths(resolve_config_path())
+    if what is None:
+        return entries
+    raise ProtectedPathsRefusal(
+        f"not run: {what}, so the paths this deployment's profile names cannot be "
+        f"protected; {NO_PROTECTED_PATHS_CONSEQUENCE}. Run `osprey build`, then call again."
+    )
+
+
+def _backstop_protected_entries(
+    project_root: Path | None,
+) -> tuple[tuple[str, ...], ExecutionResult | None]:
+    """Read the entries for a run that was not handed any.
+
+    Returns:
+        ``(entries, None)`` to proceed, or ``((), result)`` with the
+        :data:`FAILURE_KIND_NO_PROTECTED_PATHS` result to return instead.
+    """
+    try:
+        return read_run_protected_entries(project_root), None
+    except ProtectedPathsRefusal as refusal:
+        message = str(refusal)
+        return (), ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=message,
+            execution_method_used=EXECUTION_METHOD_SUBPROCESS,
+            error_message=message,
+            failure_kind=FAILURE_KIND_NO_PROTECTED_PATHS,
+        )
+
+
 def resolve_protected_roots(
     project_root: Path | None = None,
-    config: Mapping[str, Any] | None = None,  # noqa: ARG001 - shares the root-resolver signature; protected roots come from the project root
+    *,
+    entries: Iterable[str],
+    permitted_roots: Iterable[Path] | None = None,
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
-    Four groups, all anchored on the deployment repo root:
+    Five groups, all anchored on the deployment repo root:
 
     * The **render zone** (``build/``). Every ``osprey build`` re-creates it
       wholesale, so a write there is either lost at the next build or, worse,
@@ -401,6 +491,15 @@ def resolve_protected_roots(
       trail, holding the same facts as the record. Each is written by OSPREY
       processes and never by executed code, which could otherwise forge or
       erase entries.
+    * The **paths the profile names** (*entries*, the build-written
+      :data:`~osprey.utils.workspace.PROTECTED_PATHS_CONFIG_KEY` set): every
+      input the deployment's agent reads its instructions, code or data from.
+      Each is anchored by
+      :func:`~osprey.utils.workspace.protected_roots_from_entries`; one that
+      holds an unset placeholder or lands in a permitted root protects
+      nothing. They are a separate argument rather than additions to
+      :data:`PROFILE_SOURCE_ENTRIES`, which also bounds where
+      ``code_review.prompt`` may sit and must not widen with them.
 
     Entries that do not exist yet are included on purpose: a repo without a
     ``tiers/`` directory is one where creating it is exactly the write to
@@ -412,8 +511,12 @@ def resolve_protected_roots(
 
     Args:
         project_root: Repo root. Defaults to the resolved project root.
-        config: Loaded config mapping, only used to resolve *project_root* when
-            that is not given.
+        entries: The entries of the deployment's protected-path set, as
+            :func:`~osprey.utils.workspace.read_protected_paths` returned them;
+            empty for a project that carries none.
+        permitted_roots: The roots agent code may write, against which the
+            entries are anchored. Resolved by :func:`resolve_permitted_roots`
+            when not given and there are entries to anchor.
 
     Returns:
         Absolute, resolved paths — de-duplicated, order preserved. The child
@@ -425,6 +528,7 @@ def resolve_protected_roots(
         RECORD_DIR_RELPATH,
         SPOOL_DIR_RELPATH,
         STATE_DIR_RELPATH,
+        protected_roots_from_entries,
     )
     from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -440,6 +544,12 @@ def resolve_protected_roots(
         root / ARCHIVE_DIR_RELPATH,
     ]
     candidates += [root / entry for entry in PROFILE_SOURCE_ENTRIES]
+    entries = tuple(entries)
+    if entries:
+        permitted = (
+            tuple(permitted_roots) if permitted_roots is not None else resolve_permitted_roots(root)
+        )
+        candidates += protected_roots_from_entries(entries, root, permitted)
     return tuple(dict.fromkeys(path.resolve() for path in candidates))
 
 
@@ -1166,6 +1276,7 @@ async def _execute_via_local(
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
     expect_declined: bool = False,
+    protected_entries: tuple[str, ...] | None = None,
 ) -> ExecutionResult:
     """Execute code in a host subprocess with the ExecutionWrapper.
 
@@ -1176,6 +1287,9 @@ async def _execute_via_local(
     spawned. *expect_declined* says a code review was skipped on the word of
     :func:`admission_refusal`, so a run admitted here after all is refused
     (:data:`FAILURE_KIND_UNREVIEWED`) instead of launched unreviewed.
+    *protected_entries* are the entries :func:`read_run_protected_entries`
+    returned for this run; ``None`` (not handed) reads them here, and a refusal
+    comes back as a :data:`FAILURE_KIND_NO_PROTECTED_PATHS` result.
     """
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
     from osprey_connectors.workspace import load_osprey_config
@@ -1186,6 +1300,10 @@ async def _execute_via_local(
     # script are anchored on it: the child is handed absolute literals and
     # never re-derives the layout for itself.
     project_root = _resolve_project_root()
+    if protected_entries is None:
+        protected_entries, refused = _backstop_protected_entries(project_root)
+        if refused is not None:
+            return refused
     osprey_config = load_osprey_config()
 
     # The child gets the allowlist plus the deployment's passthrough names, with
@@ -1263,11 +1381,16 @@ async def _execute_via_local(
         )
     limits_validator = _load_limits_validator(target=control_target)
 
+    permitted_roots = resolve_permitted_roots(project_root, osprey_config)
     wrapper = ExecutionWrapper(
         limits_validator=limits_validator,
         execution_mode=execution_mode,
-        protected_roots=resolve_protected_roots(project_root, osprey_config),
-        permitted_roots=resolve_permitted_roots(project_root, osprey_config),
+        protected_roots=resolve_protected_roots(
+            project_root,
+            entries=protected_entries,
+            permitted_roots=permitted_roots,
+        ),
+        permitted_roots=permitted_roots,
         secret_roots=resolve_secret_roots(project_root),
         # Resolved by the parent and passed down as literals, exactly like the
         # guard roots above and for the same reason: the child is handed the
@@ -1616,6 +1739,7 @@ async def execute_code(
     approved_target: str | None = None,
     approved_view_sha256: str | None = None,
     expect_declined: bool = False,
+    protected_entries: tuple[str, ...] | None = None,
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 
@@ -1638,12 +1762,21 @@ async def execute_code(
         expect_declined: The caller skipped a blocking code review because
             :func:`admission_refusal` said this run would be declined; a run
             admitted after all is refused rather than launched unreviewed.
+        protected_entries: The entries the caller's one
+            :func:`read_run_protected_entries` call returned — an empty tuple
+            is an empty set. ``None`` means not handed: they are read here,
+            before an execution folder is created, and a deployment without
+            the list is refused with :data:`FAILURE_KIND_NO_PROTECTED_PATHS`.
 
     Returns:
         :class:`ExecutionResult` with stdout, stderr, success status, figures,
         and the execution method that was actually used.
     """
     try:
+        if protected_entries is None:
+            protected_entries, refused = _backstop_protected_entries(None)
+            if refused is not None:
+                return refused
         config = _read_config()
         execution_folder = _create_execution_folder()
 
@@ -1656,6 +1789,7 @@ async def execute_code(
             approved_target=approved_target,
             approved_view_sha256=approved_view_sha256,
             expect_declined=expect_declined,
+            protected_entries=protected_entries,
         )
     except Exception as exc:
         logger.error(

@@ -26,6 +26,7 @@
 {%- set on_host = (svc.network | default('bridge', true)) == 'host' %}
 {%- set config_file = svc.config_file | default('', true) %}
 {%- set state_mounts = svc.state_mounts | default([], true) %}
+{%- set corpus_mounts = svc.corpus_mounts | default([], true) %}
 {%- set identity = svc.audit_identity | default('', true) %}
 {#- The drives_target section: the staged config carrying the login map and the
     read-only control tree are what make an owned write judgeable here, and the
@@ -80,6 +81,15 @@ services:
       # entry by entry before it drops privileges.
       OSPREY_APP_STATE_DIRS: "{{ state_mounts | map(attribute='target') | join(':') }}"
 {%- endif %}
+{%- if corpus_mounts %}
+      # The qmd corpora the application declared, bound read-only below, as
+      # `<name>=<directory>` entries; then where this container dials each
+      # corpus's sidecar. The SDK's `corpus(name)` reads both.
+      OSPREY_APP_CORPORA: "{% for mount in corpus_mounts %}{{ mount.name }}={{ mount.target }}{{ ':' if not loop.last }}{% endfor %}"
+{%- for mount in corpus_mounts %}
+      {{ mount.url_env }}: {{ mount.url }}
+{%- endfor %}
+{%- endif %}
 {%- if identity %}
       # WHO this container's records are written as, and its own spool
       # directory, bound below; the entrypoint joins its group before it drops
@@ -116,7 +126,7 @@ services:
       TZ: {{ system.timezone }}
 {{- hostenv.passthrough(svc) }}
 {{- net.ports(svc, ['127.0.0.1:' ~ svc.port ~ ':' ~ svc.port] if svc.port else []) }}
-{%- if config_file or state_mounts or identity or svc.drives_target %}
+{%- if config_file or state_mounts or corpus_mounts or identity or svc.drives_target %}
     # Bind-mount sources are relative to the pinned compose project directory,
     # which is the deployment REPO ROOT.
     volumes:
@@ -125,6 +135,9 @@ services:
 {%- endif %}
 {%- for mount in state_mounts %}
       - {{ mount.source }}:{{ mount.target }}
+{%- endfor %}
+{%- for mount in corpus_mounts %}
+      - {{ mount.source }}:{{ mount.target }}:ro
 {%- endfor %}
 {%- if identity %}
       - {{ osprey_spool_mount_source }}/{{ identity }}:{{ osprey_container_spool_dir }}/{{ identity }}

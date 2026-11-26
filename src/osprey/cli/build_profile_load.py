@@ -67,7 +67,11 @@ from .build_profile_document import (
     _normalize_empty_collections,
     _read_profile_document,
 )
-from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
+from .build_profile_merge import (
+    ResolvedProfileDocument,
+    refuse_inputs_outside_repository,
+    resolve_profile_document,
+)
 from .build_profile_model import SERVICE_AXES, BuildProfile
 from .build_profile_presets import (
     PRESET_DATA_BUNDLE_KEY,
@@ -116,10 +120,16 @@ class LoadedProfile:
         excluded_artifacts: Convention-dir artifacts to omit, as
             ``"<source>/<name>"``. The build skips these files and derives
             ownership from what remains.
+        document: The fully resolved document ``profile`` was parsed from —
+            the ``extends`` chain, the selected host variant and any command
+            line edits folded in, with the files the chain read. It is what
+            the protected-path emitter reads, because the parsed model drops
+            the ``config:`` spellings and the extends files it needs.
     """
 
     profile: BuildProfile
     profile_dir: Path
+    document: ResolvedProfileDocument
     is_layer: bool = False
     excluded_artifacts: frozenset[str] = field(default_factory=frozenset)
 
@@ -189,6 +199,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
     return LoadedProfile(
         profile=profile,
         profile_dir=document.root_dir,
+        document=document,
         is_layer=document.is_layer,
         excluded_artifacts=document.excluded_artifacts,
     )

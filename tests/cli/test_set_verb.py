@@ -78,6 +78,9 @@ def _stamp_build(repo: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    # The rendered config beside it carries the protected-path list every real
+    # build writes; without it the verdict is that, not drift.
+    (manifest.parent / "config.yml").write_text("protected_paths: []\n", encoding="utf-8")
     return manifest
 
 

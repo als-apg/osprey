@@ -17,12 +17,23 @@ guessed at here:
   The runtime guard refuses it if it turns out to be a write, so nothing is
   lost by staying quiet.
 
-Matching is by *function name* (``.rmtree``, ``.copy``, ``os.remove``), not by
-the module the caller happened to bind, so ``import shutil as sh`` is still
-seen. That breadth is safe because an issue also requires the resolved literal
-path to land inside a protected root; aliasing games that defeat name matching
-entirely (``getattr(shutil, 'rmtree')``) fall through to the runtime guard like
-any other dynamic call.
+Matching is by *function name* (``.rmtree``, ``.makedirs``, ``os.unlink``),
+not by the module the caller happened to bind, so ``import shutil as sh`` is
+still seen. That breadth is safe because an issue also requires the resolved
+literal path to land inside a protected root; aliasing games that defeat name
+matching entirely (``getattr(shutil, 'rmtree')``) fall through to the runtime
+guard like any other dynamic call. The exception is the names ordinary
+non-path types share — ``remove``, ``replace``, ``rename``, ``copy``,
+``move`` — which a list or a string answers to as readily as ``os`` does:
+those are matched only when the receiver is known to be ``os``, ``shutil``
+(``posix``, or an alias any of them was imported under), or a ``Path(...)``
+expression, so ``names.remove('profile.yml')`` stays clean.
+
+A relative literal is resolved against the child's working directory, which
+the caller passes in; existence is never required. The calls that remove or
+relocate what a path names — the deletes, both sides of a rename, replace or
+move, a link's destination — are also refused when the literal *contains* a
+protected root, as the runtime guard refuses them.
 
 The policy is applied in **every** execution mode. Readonly and readwrite runs
 alike may not write into the render zone or the profile sources — that is the
@@ -63,26 +74,66 @@ from osprey.services.python_executor.execution.fs_guard import GUARDED_MODULES
 # file". Anything else ('r', 'rb', 'rt') is a read and is never an issue.
 _WRITE_MODE_CHARS = frozenset("wax+")
 
-# Write-intent call names, mapped to the argument positions that name a path
-# the call may create, overwrite, or delete. Sources of a copy are reads and
-# are not listed; ``move`` and ``rename``/``replace`` list both sides because
-# they remove the original as well.
-_PATH_ARG_POSITIONS: dict[str, tuple[int, ...]] = {
+# Write-intent call names, mapped to ``(position, contains)`` per argument that
+# names a path the call may create, overwrite, or delete. Sources of a copy are
+# reads and are not listed; ``move`` and ``rename``/``replace`` list both sides
+# because they remove the original as well; ``symlink``/``link`` list the link
+# being created. ``contains`` marks a call that removes or relocates what the
+# path names, so a literal holding a protected root is refused too.
+_PATH_ARG_POSITIONS: dict[str, tuple[tuple[int, bool], ...]] = {
     # shutil
-    "copy": (1,),
-    "copy2": (1,),
-    "copyfile": (1,),
-    "move": (0, 1),
-    "rmtree": (0,),
+    "copy": ((1, False),),
+    "copy2": ((1, False),),
+    "copyfile": ((1, False),),
+    "move": ((0, True), (1, True)),
+    "rmtree": ((0, True),),
     # os
-    "remove": (0,),
-    "unlink": (0,),
-    "rename": (0, 1),
-    "replace": (0, 1),
-    "makedirs": (0,),
-    "mkdir": (0,),
-    "truncate": (0,),
+    "remove": ((0, True),),
+    "unlink": ((0, True),),
+    "rmdir": ((0, True),),
+    "removedirs": ((0, True),),
+    "rename": ((0, True), (1, True)),
+    "replace": ((0, True), (1, True)),
+    "symlink": ((1, True),),
+    "link": ((1, True),),
+    "makedirs": ((0, False),),
+    "mkdir": ((0, False),),
+    "truncate": ((0, False),),
 }
+
+# Call names that lists, strings, dicts and other non-path types answer to as
+# well (``list.remove``, ``str.replace``, ``dict.copy``). Matched only when the
+# receiver is known to be a path module or a path object.
+_SHARED_CALL_NAMES = frozenset({"remove", "replace", "rename", "copy", "move"})
+
+# The modules whose functions take paths under the shared names above.
+_PATH_MODULES = frozenset({"os", "shutil", "posix"})
+
+# ``pathlib`` constructors: a call to one of these is a path object.
+_PATH_CONSTRUCTORS = frozenset({"Path", "PurePath", "PosixPath", "WindowsPath"})
+
+# ``Path`` methods that act on the receiver's own path, by ``contains``: the
+# deletes and relocations remove what it names, ``mkdir``/``touch`` create it.
+_PATH_RECEIVER_METHODS: dict[str, bool] = {
+    "unlink": True,
+    "rmdir": True,
+    "rename": True,
+    "replace": True,
+    "move": True,
+    "mkdir": False,
+    "touch": False,
+}
+
+# ``Path`` methods whose first argument is a destination path, by ``contains``.
+_PATH_DESTINATION_METHODS: dict[str, bool] = {
+    "rename": True,
+    "replace": True,
+    "move": True,
+    "copy": False,
+}
+
+#: One write target of a call: ``(literal path, call spelling, contains)``.
+_WriteTarget = tuple[str, str, bool]
 
 # ``pathlib.Path`` methods that write unconditionally — no mode to inspect.
 _PATH_WRITE_METHODS = frozenset({"write_text", "write_bytes"})
@@ -116,6 +167,7 @@ def path_policy_issues(
     code: str,
     *,
     protected_roots: Iterable[str | os.PathLike[str]],
+    working_directory: str | os.PathLike[str],
     permitted_roots: Iterable[str | os.PathLike[str]] = (),
 ) -> list[str]:
     """Return an issue per literal write aimed at a protected root.
@@ -125,6 +177,8 @@ def path_policy_issues(
         protected_roots: Absolute paths (files or directories) that user code
             may not write into, in any execution mode. Resolved by the caller
             in the parent process — never re-derived here.
+        working_directory: The directory the child runs in; a relative
+            literal is resolved against it, as the child would resolve it.
         permitted_roots: Absolute paths carved back out of the protected set
             (the agent's own data zone, the execution folder). A path inside
             one of these is clean even when it also sits inside a protected
@@ -137,6 +191,7 @@ def path_policy_issues(
     """
     protected = tuple(_resolve_root(root) for root in protected_roots)
     permitted = tuple(_resolve_root(root) for root in permitted_roots)
+    cwd = _resolve_root(working_directory)
 
     try:
         tree = ast.parse(code)
@@ -149,17 +204,49 @@ def path_policy_issues(
     if not protected:
         return issues
 
+    receivers = _path_module_names(tree)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        for raw, spelling in _write_targets(node):
-            hit = _protected_hit(raw, protected, permitted)
+        for raw, spelling, contains in _write_targets(node, receivers):
+            path = _anchor(raw, cwd)
+            if any(path.is_relative_to(root) for root in permitted):
+                continue
+            hit = _protected_hit(path, protected)
             if hit is not None:
                 issues.append(
                     f"Write to '{raw}' via {spelling} is not allowed: "
                     f"the path is inside the protected location '{hit}'"
                 )
+                continue
+            held = _contained_root(path, protected) if contains else None
+            if held is not None:
+                issues.append(
+                    f"Write to '{raw}' via {spelling} is not allowed: "
+                    f"the path contains the protected location '{held}'"
+                )
     return issues
+
+
+def _path_module_names(tree: ast.AST) -> dict[str, str | None]:
+    """Names that are known to reach a path module, and what each one is.
+
+    The module names themselves and every alias one of them is imported under
+    (``import shutil as sh``) map to ``None``; every function imported out of
+    one maps to the function's own name (``from os import replace as swap``
+    maps ``swap`` to ``replace``). A shared call name spelled through any of
+    them is a path call, and the same name on anything else is not.
+    """
+    names: dict[str, str | None] = dict.fromkeys(_PATH_MODULES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in _PATH_MODULES:
+                    names[alias.asname or alias.name] = None
+        elif isinstance(node, ast.ImportFrom) and node.module in _PATH_MODULES:
+            for alias in node.names:
+                names[alias.asname or alias.name] = alias.name
+    return names
 
 
 def _guard_tamper_issues(tree: ast.AST) -> list[str]:
@@ -265,12 +352,19 @@ def _identifiers(node: ast.AST) -> tuple[str, ...]:
     return ()
 
 
-def _write_targets(node: ast.Call) -> list[tuple[str, str]]:
-    """Return ``(literal path, call spelling)`` per write target of one call."""
+def _write_targets(node: ast.Call, receivers: dict[str, str | None]) -> list[_WriteTarget]:
+    """Return ``(literal path, call spelling, contains)`` per write target of one call.
+
+    *receivers* are the names known to call a path module
+    (:func:`_path_module_names`); ``contains`` marks a target the call removes
+    or relocates.
+    """
     func = node.func
     name = _called_name(func)
     if name is None:
         return []
+    if isinstance(func, ast.Name) and (imported := receivers.get(func.id)):
+        name = imported
 
     # open(...) / io.open(...) — path first, mode second.
     builtin_open = isinstance(func, ast.Name) and name == "open"
@@ -288,29 +382,68 @@ def _write_targets(node: ast.Call) -> list[tuple[str, str]]:
             if keyword.arg == "file":  # open(file='...', mode='w')
                 target = keyword.value
         path = _literal_path(target)
-        return [(path, "open()")] if path else []
+        return [(path, "open()", False)] if path else []
 
     if isinstance(func, ast.Attribute):
         receiver = _literal_path(func.value)
         if receiver:
             # Path('...').write_text(...) / .write_bytes(...)
             if name in _PATH_WRITE_METHODS:
-                return [(receiver, f"Path.{name}()")]
+                return [(receiver, f"Path.{name}()", False)]
             # Path('...').open('w') — mode is the first argument here.
             if name == "open":
                 if not _has_write_mode(node, mode_index=0):
                     return []
-                return [(receiver, "Path.open()")]
+                return [(receiver, "Path.open()", False)]
+        if _is_path_object(func.value):
+            return _path_method_targets(node, name, receiver)
 
+    if name in _SHARED_CALL_NAMES and not _is_path_module_call(func, receivers):
+        return []
     positions = _PATH_ARG_POSITIONS.get(name)
     if positions is None:
         return []
-    targets: list[tuple[str, str]] = []
-    for index in positions:
+    targets: list[_WriteTarget] = []
+    for index, contains in positions:
         path = _literal_path(_positional(node, index))
         if path:
-            targets.append((path, f"{name}()"))
+            targets.append((path, f"{name}()", contains))
     return targets
+
+
+def _path_method_targets(node: ast.Call, name: str, receiver: str | None) -> list[_WriteTarget]:
+    """Write targets of a method called on a ``Path(...)`` expression."""
+    targets: list[_WriteTarget] = []
+    if receiver and name in _PATH_RECEIVER_METHODS:
+        targets.append((receiver, f"Path.{name}()", _PATH_RECEIVER_METHODS[name]))
+    if name in _PATH_DESTINATION_METHODS:
+        destination = _literal_path(_positional(node, 0))
+        for keyword in node.keywords:
+            if keyword.arg in {"target", "dst"}:
+                destination = _literal_path(keyword.value)
+        if destination:
+            targets.append((destination, f"Path.{name}()", _PATH_DESTINATION_METHODS[name]))
+    return targets
+
+
+def _is_path_object(node: ast.expr) -> bool:
+    """True for a ``Path(...)`` call or a ``/`` join with one on the left.
+
+    A bare string is not a path object: ``'a,b'.replace(...)`` is a string
+    method, whatever the string spells.
+    """
+    if isinstance(node, ast.Call):
+        return _called_name(node.func) in _PATH_CONSTRUCTORS
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return _is_path_object(node.left)
+    return False
+
+
+def _is_path_module_call(func: ast.expr, receivers: dict[str, str | None]) -> bool:
+    """True when *func* is a path module's function, by a name known to be one."""
+    if isinstance(func, ast.Attribute):
+        return isinstance(func.value, ast.Name) and func.value.id in receivers
+    return isinstance(func, ast.Name) and func.id in receivers
 
 
 def _called_name(func: ast.expr) -> str | None:
@@ -358,7 +491,7 @@ def _literal_path(node: ast.expr | None) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.Call):
-        if _called_name(node.func) in {"Path", "PurePath", "PosixPath", "WindowsPath"}:
+        if _called_name(node.func) in _PATH_CONSTRUCTORS:
             parts = [_literal_path(arg) for arg in node.args]
             if parts and all(part is not None for part in parts):
                 return os.path.join(*parts)  # type: ignore[arg-type]
@@ -375,39 +508,22 @@ def _resolve_root(root: str | os.PathLike[str]) -> Path:
     return Path(root).expanduser().resolve()
 
 
-def _protected_hit(raw: str, protected: Sequence[Path], permitted: Sequence[Path]) -> Path | None:
-    """Return the protected root ``raw`` lands in, or None if it is clean."""
-    if any(_is_inside(raw, root) for root in permitted):
-        return None
+def _anchor(raw: str, cwd: Path) -> Path:
+    """Resolve the literal *raw* the way the child would, from *cwd*."""
+    return (cwd / os.path.expanduser(raw)).resolve()
+
+
+def _protected_hit(path: Path, protected: Sequence[Path]) -> Path | None:
+    """Return the protected root *path* lands in, or None."""
     for root in protected:
-        if _is_inside(raw, root):
+        if path.is_relative_to(root):
             return root
     return None
 
 
-def _is_inside(raw: str, root: Path) -> bool:
-    """True when the literal path ``raw`` names ``root`` or something under it.
-
-    Absolute paths are compared after resolution; existence is never required.
-    A *relative* path has no cwd to resolve against here — the child process
-    supplies that — so it is matched structurally instead: it is inside ``root``
-    when some trailing run of ``root``'s components prefixes it, which is what
-    ``build/config.yml`` means for a render zone at ``<project>/build``. A
-    relative path that climbs out with ``..`` is undecidable and is left to the
-    runtime guard.
-    """
-    candidate = os.path.expanduser(raw)
-    if os.path.isabs(candidate):
-        return Path(candidate).resolve().is_relative_to(root)
-
-    parts = Path(os.path.normpath(candidate)).parts
-    if not parts or ".." in parts:
-        return False
-    root_parts = root.parts
-    for length in range(1, len(root_parts) + 1):
-        tail = root_parts[-length:]
-        if tail[0] == root.anchor:
-            break  # a relative path can never match root's anchor
-        if len(tail) <= len(parts) and parts[: len(tail)] == tail:
-            return True
-    return False
+def _contained_root(path: Path, protected: Sequence[Path]) -> Path | None:
+    """Return the first protected root that lies inside *path*, or None."""
+    for root in protected:
+        if root.is_relative_to(path):
+            return root
+    return None

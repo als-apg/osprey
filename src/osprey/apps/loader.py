@@ -512,6 +512,74 @@ def _refuse_unbuildable_services(
         raise AppManifestError.from_violations(found)
 
 
+def corpus_violations(manifests: Iterable[AppManifest], qmd_block: Any) -> list[Violation]:
+    """Every ``containers.<key>.corpora`` name the profile's qmd block cannot serve.
+
+    A container reads a corpus the profile declares under ``services.qmd.corpora``
+    with a ``source``: the declaration is where the host path lives, and the
+    source is the directory bound into the container. ``okf`` and ``ariel`` are
+    not declared there, so they are not an application's to name.
+
+    Args:
+        manifests: The applications the profile names.
+        qmd_block: The profile's ``services.qmd`` block, or anything else when it
+            spells none.
+
+    Returns:
+        One violation per unservable name: ``corpus_unknown`` for a name the
+        block does not declare (or a block that does not resolve),
+        ``corpus_without_source`` for a prebuilt corpus with no ``source``.
+    """
+    from osprey.deployment.qmd_service import (
+        CORPORA_CONFIG_KEY,
+        QMD_SERVICE_NAME,
+        resolve_qmd_service_config,
+    )
+
+    named = [
+        (manifest.name, key, position, name)
+        for manifest in manifests
+        for key, container in manifest.containers.items()
+        for position, name in enumerate(container.corpora)
+    ]
+    if not named:
+        return []
+    unresolved = ""
+    declared: dict[str, str | None] = {}
+    try:
+        resolved = resolve_qmd_service_config({"services": {QMD_SERVICE_NAME: qmd_block}})
+    except ValueError as exc:
+        unresolved = f" ({exc})"
+    else:
+        declared = {c.name: c.source for c in resolved.corpora} if resolved is not None else {}
+    known = ", ".join(sorted(declared)) or "none"
+    found: list[Violation] = []
+    for app, key, position, name in named:
+        at = f"containers.{key}.corpora.{position}"
+        if name not in declared:
+            found.append(
+                Violation(
+                    app,
+                    at,
+                    "corpus_unknown",
+                    f"{name!r} is not a corpus {CORPORA_CONFIG_KEY} declares{unresolved}; "
+                    f"the profile declares: {known}. Declare it there with its `source`, "
+                    "the host directory the container reads",
+                )
+            )
+        elif declared[name] is None:
+            found.append(
+                Violation(
+                    app,
+                    at,
+                    "corpus_without_source",
+                    f"{CORPORA_CONFIG_KEY} declares {name!r} with no `source`, so there are "
+                    "no files to bind into the container; give the corpus its `source`",
+                )
+            )
+    return found
+
+
 SKILL_FRONTMATTER_MESSAGE = (
     "the frontmatter of SKILL.md does not parse as a YAML mapping; "
     "OSPREY cannot tell what the skill declares"

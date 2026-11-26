@@ -675,13 +675,15 @@ class BuildProfile:
             violations whole, so each is printed with its rule as ``osprey app
             check`` prints it, never folded into a profile error. A refused
             application is checked no further and is not reported as naming no
-            application; the others are checked as usual. Both empty when the
+            application; the others are checked as usual. A ``corpora`` name the
+            profile's ``services.qmd.corpora`` cannot serve is a violation too
+            (:func:`~osprey.apps.loader.corpus_violations`). Both empty when the
             block is valid.
         """
         if not self.apps:
             return [], ()
         from osprey.apps.errors import AppManifestError
-        from osprey.apps.loader import MANIFEST_FILE
+        from osprey.apps.loader import MANIFEST_FILE, corpus_violations
         from osprey.apps.loader import load as load_apps
         from osprey.apps.origin import installed_apps
 
@@ -730,7 +732,10 @@ class BuildProfile:
                     errors.extend(network_mode_errors(axes.network, f"{where}.network"))
                 if axes.env is not None:
                     errors.extend(env_names_errors(axes.env, f"{where}.env"))
-        return errors, refused
+        unservable = corpus_violations(
+            manifests.values(), _config_service_block(self.config, QMD_SERVICE_NAME)
+        )
+        return errors, (*refused, *unservable)
 
     def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:
         """Resolve where this deployment reads machine facts and its own content.

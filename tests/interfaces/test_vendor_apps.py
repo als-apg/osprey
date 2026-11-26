@@ -423,6 +423,111 @@ def test_a_url_version_counts_only_as_a_whole_token(tmp_path: Path, stub: _Stub)
     assert stub.hits == []
 
 
+# --- or one of its directories does, for a library that loads siblings by fixed names ---
+
+
+def test_a_package_entry_whose_directory_carries_its_version_is_fetched(
+    tmp_path: Path, stub: _Stub
+) -> None:
+    _write_app(
+        tmp_path,
+        "knob",
+        [
+            "  - package: uplot",
+            "    version: 1.6.30",
+            "    file: dist/uPlot.iife.min.js",
+            "    into: panel/vendor/uplot-1.6.30/dist/uPlot.iife.min.js",
+            f"    sha256: {UPLOT_SHA}",
+        ],
+    )
+
+    vendor.fetch_app_vendor(tmp_path, load(tmp_path), offline=False, quiet=True)
+
+    dest = tmp_path / "apps/knob/panel/vendor/uplot-1.6.30/dist/uPlot.iife.min.js"
+    assert dest.read_bytes() == UPLOT
+    assert stub.hits == ["/npm/uplot@1.6.30/dist/uPlot.iife.min.js"]
+
+
+def test_a_url_entry_whose_directory_carries_the_urls_version_is_fetched(
+    tmp_path: Path, stub: _Stub
+) -> None:
+    manifests = _deployment(tmp_path, stub, into="panel/vendor/lib-1.0.0/wasm/lib.js")
+
+    vendor.fetch_app_vendor(tmp_path, manifests, offline=False, quiet=True)
+
+    assert (tmp_path / "apps/knob/panel/vendor/lib-1.0.0/wasm/lib.js").read_bytes() == LIB
+    assert LIB_PATH in stub.hits
+
+
+@pytest.mark.parametrize(
+    "into",
+    [
+        "panel/vendor/uplot-11.6.30/uPlot.js",
+        "panel/vendor/uplot-1.6.300/uPlot.js",
+        "panel/vendor/uplot-1.6.30.1/uPlot.js",
+        "panel/vendor/uplot-1.6/30/uPlot.js",
+        "panel/vendor/uplot/uPlot.js",
+    ],
+    ids=["longer-major", "longer-patch", "extra-part", "split-across-directories", "nowhere"],
+)
+def test_a_package_version_in_a_directory_counts_only_as_a_whole_token(
+    tmp_path: Path, stub: _Stub, into: str
+) -> None:
+    _write_app(
+        tmp_path,
+        "knob",
+        [
+            "  - package: uplot",
+            "    version: 1.6.30",
+            "    file: dist/uPlot.iife.min.js",
+            f"    into: {into}",
+            f"    sha256: {UPLOT_SHA}",
+        ],
+    )
+
+    with pytest.raises(vendor.AppVendorError, match="carry the version") as exc:
+        vendor.fetch_app_vendor(tmp_path, load(tmp_path), offline=False, quiet=True)
+
+    assert into in str(exc.value) and "one of its directories" in str(exc.value)
+    assert stub.hits == []
+
+
+@pytest.mark.parametrize(
+    "into",
+    [
+        "panel/vendor/lib-11.0.0/lib.js",
+        "panel/vendor/lib-1.0.00/lib.js",
+        "panel/vendor/lib-2.0.0/lib.js",
+        "panel/vendor/lib/lib.js",
+    ],
+    ids=["longer-major", "longer-patch", "other-version", "nowhere"],
+)
+def test_a_url_version_in_a_directory_counts_only_as_a_whole_token(
+    tmp_path: Path, stub: _Stub, into: str
+) -> None:
+    manifests = _deployment(tmp_path, stub, into=into)
+
+    with pytest.raises(vendor.AppVendorError, match="carry the version"):
+        vendor.fetch_app_vendor(tmp_path, manifests, offline=False, quiet=True)
+
+    assert stub.hits == []
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_a_file_under_a_versioned_vendor_directory_is_cached_as_immutable(method: str) -> None:
+    app = FastAPI()
+    app.add_middleware(NoCacheStaticMiddleware)
+
+    @app.api_route("/vendor/pdfjs-6.5.438/wasm/jbig2.wasm", methods=["GET", "HEAD"])
+    async def sibling() -> Response:
+        return Response(content=b"\0asm", media_type="application/wasm")
+
+    resp = TestClient(app).request(method, "/vendor/pdfjs-6.5.438/wasm/jbig2.wasm")
+
+    assert resp.status_code == 200
+    assert resp.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+
+
 def test_a_destination_that_cannot_be_created_fails_naming_the_app(
     tmp_path: Path, stub: _Stub
 ) -> None:

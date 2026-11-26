@@ -1507,3 +1507,148 @@ def test_an_app_host_outside_the_root_presets_is_refused():
 
     with pytest.raises(ValueError, match="render_contexts.host"):
         make_guard(host_an_app).resolved_apps()
+
+
+# ── failure mode 12: path decisions ──────────────────────────────────────
+
+
+def test_every_path_valued_key_carries_a_path_decision():
+    """The live manifest decides every key that may name a path, and its
+    ``path: protect`` set is the build's protected-path table, both ways."""
+    guard = make_guard()
+    guard.check_path_decisions()
+    assert guard.result.ok, details(guard)
+
+
+@pytest.mark.parametrize(
+    ("segment", "token"),
+    [
+        ("ca_name_servers", "ca"),
+        ("cache_dir", "dir"),
+        ("max_file_mb", "file"),
+        ("parameter_schemas_env", "schemas"),
+        ("plugins", "plugins"),
+        ("corpora", "corpora"),
+        ("search_modules", "modules"),
+        ("capacity", None),
+        ("directory_name", None),
+        ("profile", None),
+    ],
+)
+def test_a_path_token_is_a_whole_word_of_the_last_segment(segment: str, token: str | None):
+    assert guard_module.path_token(f"some.block.{segment}") == token
+    assert guard_module.path_token(f"{segment}.enabled") is None, "only the last segment counts"
+
+
+def drop_path_decision(key: str) -> Mutation:
+    def drop(manifest: dict[str, Any]) -> None:
+        manifest["keys"][key].pop("path")
+
+    return drop
+
+
+def set_path_decision(key: str, decision: Any) -> Mutation:
+    def mark(manifest: dict[str, Any]) -> None:
+        manifest["keys"][key]["path"] = decision
+
+    return mark
+
+
+def test_a_key_named_like_a_path_without_a_decision_goes_red():
+    guard = make_guard(drop_path_decision("phoebus.snapshot_dir"))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    text = details(guard)
+    assert "phoebus.snapshot_dir" in text
+    assert "'dir'" in text
+    assert "path: protect" in text and "exempt" in text, "the failure must say what to decide"
+
+
+def test_a_path_shaped_default_without_a_decision_goes_red():
+    def default_to_a_file(manifest):
+        manifest["keys"]["cli.theme"]["default"] = "themes/dark.json"
+
+    guard = make_guard(default_to_a_file)
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "cli.theme has a path-shaped default" in details(guard)
+
+
+def test_a_path_shaped_preset_value_without_a_decision_goes_red():
+    clean = make_guard()
+    clean.check_path_decisions()
+    assert clean.result.ok, details(clean)
+
+    guard = make_guard()
+    set_stated(guard, "hello-world", "system.timezone", "./zones/local.tz")
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    text = details(guard)
+    assert "system.timezone" in text
+    assert "hello-world" in text
+
+
+def test_a_url_or_a_word_is_not_path_shaped():
+    """The value rule never selects a URL, ``n/a`` or prose."""
+    for value in ("https://example.org/a/b.json", "n/a", "see the docs/a.md file", "local"):
+        guard = make_guard()
+        set_stated(guard, "hello-world", "system.timezone", value)
+        guard.check_path_decisions()
+        assert guard.result.ok, f"{value!r}: {details(guard)}"
+
+
+def test_a_protected_key_losing_its_mark_goes_red():
+    guard = make_guard(drop_path_decision("images.site_ca"))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    text = details(guard)
+    assert "images.site_ca is in the build's protected-path table" in text
+    assert "the build protects images.site_ca but no manifest entry" in text
+
+
+def test_a_key_the_build_protects_marked_exempt_goes_red():
+    guard = make_guard(set_path_decision("images.site_ca", {"exempt": "not-a-path"}))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "images.site_ca is exempt (not-a-path) but the build protects it" in details(guard)
+
+
+def test_a_protect_mark_the_build_does_not_act_on_goes_red():
+    guard = make_guard(set_path_decision("phoebus.snapshot_dir", "protect"))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "phoebus.snapshot_dir is marked `path: protect` but the build protects no such key" in (
+        details(guard)
+    )
+
+
+def test_a_family_placeholder_does_not_stand_for_a_stated_service():
+    """``services.<app-container>.path`` is derived from ``apps/``; the build's
+    ``services.<name>.path`` row reads stated services, so a protect mark on the
+    family row is a protection the build does not give."""
+    guard = make_guard(set_path_decision("services.<app-container>.path", "protect"))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "services.<app-container>.path is marked `path: protect`" in details(guard)
+
+
+def test_a_build_row_with_no_manifest_entry_goes_red():
+    def forget_the_row(manifest):
+        del manifest["keys"]["bluesky.plan_module"]
+
+    guard = make_guard(forget_the_row)
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "the build protects bluesky.plan_module but no manifest entry" in details(guard)
+
+
+@pytest.mark.parametrize(
+    "decision",
+    ["protected", "exempt", {"exempt": ""}, {"exempt": "  "}, {"exempt": "x", "why": "y"}, None],
+    ids=["misspelled", "bare-exempt", "empty-reason", "blank-reason", "extra-field", "null"],
+)
+def test_a_malformed_path_decision_goes_red(decision: Any):
+    guard = make_guard(set_path_decision("phoebus.snapshot_dir", decision))
+    guard.check_path_decisions()
+    assert "path-decision" in modes(guard)
+    assert "phoebus.snapshot_dir" in details(guard)

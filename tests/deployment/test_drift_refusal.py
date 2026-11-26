@@ -70,7 +70,7 @@ def repo(tmp_path):
     root = tmp_path / "exemplar"
     _write(root / "profile.yml", PROFILE_YAML)
     _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
-    _write(root / "build" / "config.yml", "project: exemplar\n")
+    _write(root / "build" / "config.yml", "project: exemplar\nprotected_paths: []\n")
     _write_manifest(root)
     return root
 
@@ -450,3 +450,114 @@ def test_check_drift_never_raises_on_a_hostile_repo(tmp_path):
     _write(staleness.build_manifest_path(root), json.dumps({"creation": "not-a-dict"}))
 
     assert staleness.check_drift(root).refuses
+
+
+# --- a render without the protected-path list ------------------------------
+
+_CONSEQUENCE = "the python executor refuses agent code until `osprey build`"
+
+
+def _render_config(repo: Path, text: str) -> None:
+    _write(repo / "build" / "config.yml", text)
+
+
+def test_a_render_without_the_protected_path_list_is_refused(repo):
+    """The fingerprint matches, but the render predates the list: refused, not CLEAN."""
+    _render_config(repo, "project: exemplar\n")
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.NO_PROTECTED_PATHS
+    assert report.refuses
+    assert "without the protected-path list" in report.message
+    assert _CONSEQUENCE in report.message
+    assert "osprey build" in report.remedy
+    assert "--as-built" in report.remedy
+
+
+def test_an_empty_protected_path_list_is_clean(repo):
+    """An empty list is a list: the build decided there was nothing to protect."""
+    _render_config(repo, "project: exemplar\nprotected_paths: []\n")
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.CLEAN
+    assert not report.refuses
+
+
+def test_a_populated_protected_path_list_is_clean(repo):
+    _render_config(repo, "project: exemplar\nprotected_paths:\n  - data/tiers\n")
+
+    assert staleness.check_drift(repo).state is DriftState.CLEAN
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        "project: exemplar\nprotected_paths: data/tiers\n",
+        "project: exemplar\nprotected_paths:\n  - 7\n",
+        "project: exemplar\nprotected_paths:\n  - ''\n",
+        "project: exemplar\nprotected_paths:\n",
+    ],
+    ids=["a-string", "a-number", "an-empty-entry", "null"],
+)
+def test_a_malformed_protected_path_list_is_refused(repo, config):
+    _render_config(repo, config)
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.NO_PROTECTED_PATHS
+    assert "not a list of paths" in report.message
+    assert _CONSEQUENCE in report.message
+
+
+@pytest.mark.parametrize(
+    "config",
+    ["project: [unclosed\n", "- just\n- a list\n"],
+    ids=["unparseable", "not-a-mapping"],
+)
+def test_a_config_that_cannot_carry_the_list_is_refused(repo, config):
+    _render_config(repo, config)
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.NO_PROTECTED_PATHS
+    assert _CONSEQUENCE in report.message
+
+
+def test_a_build_without_a_config_carries_no_list(repo):
+    (repo / "build" / "config.yml").unlink()
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.NO_PROTECTED_PATHS
+    assert "does not exist" in report.message
+
+
+def test_the_missing_list_is_judged_after_the_vocabulary_release(repo):
+    """Decision order: no build, then the vocabulary release, then the list."""
+    _render_config(repo, "project: exemplar\n")
+    _write_manifest(repo, osprey_version="2026.6.2")
+
+    report = staleness.check_drift(repo)
+
+    assert report.state is DriftState.UNRESOLVABLE
+    assert "before the login vocabulary" in report.message
+
+
+def test_the_missing_list_is_judged_before_the_fingerprint(repo):
+    """A drifted or unfingerprinted render without the list names the list."""
+    _render_config(repo, "project: exemplar\n")
+    _write(repo / "profile.yml", PROFILE_YAML.replace("anthropic", "cborg"))
+    assert staleness.check_drift(repo).state is DriftState.NO_PROTECTED_PATHS
+
+    _write_manifest(repo, preset_hash="")
+    assert staleness.check_drift(repo).state is DriftState.NO_PROTECTED_PATHS
+
+
+def test_the_missing_list_has_its_own_status_line(repo):
+    _render_config(repo, "project: exemplar\n")
+
+    line = staleness.check_drift(repo).status_line
+
+    assert line == f"build: no protected-path list — {_CONSEQUENCE}"
