@@ -86,7 +86,9 @@ class Corpus:
             limit: The most hits to return.
 
         Returns:
-            The hits, best first; empty when nothing matched.
+            The hits, best first; empty when nothing matched. They are ranked
+            by keyword and vector match, without the sidecar's LLM reranker,
+            so a search answers in the time a page waits.
 
         Raises:
             CorpusUnavailable: The sidecar gave no answer.
@@ -138,7 +140,12 @@ def _declared() -> dict[str, Path]:
 
 
 def _sidecar_search(name: str, directory: Path) -> Callable[[str, int], list[CorpusHit]]:
-    """The search of *name*'s sidecar, dialled at the URL the render handed over."""
+    """The search of *name*'s sidecar, dialled at the URL the render handed over.
+
+    The keyword and vector legs rank the hits; the sidecar's LLM reranker is
+    left out. It reads every candidate, which on a host without a GPU takes
+    tens of seconds a query, longer than a page or a tool call waits.
+    """
     from osprey.services.qmd.client import QMDClient, QMDClientError
 
     env = corpus_url_env(name)
@@ -149,7 +156,7 @@ def _sidecar_search(name: str, directory: Path) -> Callable[[str, int], list[Cor
         if client is None:
             raise CorpusUnavailable(f"corpus {name!r} has no sidecar address ({env} is unset)")
         try:
-            results = client.query(name, query, limit=limit)
+            results = client.query(name, query, limit=limit, rerank=False)
         except QMDClientError as exc:
             raise CorpusUnavailable(f"corpus {name!r} cannot be searched: {exc}") from exc
         on_disk = _files_by_reported_name(directory)
