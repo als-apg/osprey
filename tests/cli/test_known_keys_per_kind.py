@@ -36,7 +36,6 @@ from osprey_connectors.errors import BuildProfileError
 _DEPLOYMENT_KEYS = frozenset(
     {
         "extends",
-        "data",
         "machine",
         "project_name",
         "deploy",
@@ -61,8 +60,7 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> Path:
 
 def _repo(tmp_path: Path, root: dict[str, Any] | None = None) -> Path:
     """A deployment repo with a root profile and its data tree."""
-    (tmp_path / "data").mkdir(exist_ok=True)
-    _write_yaml(tmp_path / "profile.yml", root or {"name": "site", "data": "data"})
+    _write_yaml(tmp_path / "profile.yml", root or {"name": "site"})
     return tmp_path
 
 
@@ -215,7 +213,7 @@ def test_the_loader_accepts_a_tier_that_only_adds(tmp_path: Path) -> None:
 
 
 def test_a_root_profile_still_spells_deployment_keys(tmp_path: Path) -> None:
-    repo = _repo(tmp_path, {"name": "site", "data": "data", "deploy_services": False})
+    repo = _repo(tmp_path, {"name": "site", "deploy_services": False})
 
     load_profile_document(repo / "profile.yml")
 

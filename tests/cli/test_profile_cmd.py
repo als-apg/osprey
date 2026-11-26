@@ -17,11 +17,12 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.build_profile import list_presets
 from osprey.cli.main import LazyGroup
 from osprey.cli.profile_cmd import _materialize_profile_directory, profile
 
-MINIMAL_PROFILE = "name: Minimal\nextends: hello-world\ndata: data\n"
+MINIMAL_PROFILE = "name: Minimal\nextends: hello-world\n"
 
 
 def _write_profile(directory: Path, text: str) -> Path:
@@ -126,13 +127,12 @@ def test_validate_reports_all_errors_and_exits_2(runner: CliRunner, tmp_path: Pa
     """Every problem is reported at once, not just the first (SC7)."""
     _write_profile(
         tmp_path / "p",
-        "name: Broken\nextends: hello-world\ndata: data\ndata: ./nowhere\n"
-        "channel_finder_mode: in-context\n",
+        "name: Broken\nextends: hello-world\nmachine: ''\nchannel_finder_mode: in-context\n",
     )
     result = runner.invoke(profile, ["validate", str(tmp_path / "p")])
 
     assert result.exit_code == 2, result.output
-    assert "data directory not found" in result.output
+    assert "machine must be a non-empty directory path" in result.output
     assert "channel_finder_mode must be one of" in result.output
 
 
@@ -172,7 +172,6 @@ def test_validate_does_not_build_a_project(runner: CliRunner, tmp_path: Path) ->
 LINT_FAILING_PROFILE = """\
 name: Lint Fail
 extends: hello-world
-data: data
 config:
   modules.web_terminals:
     enabled: true
@@ -260,7 +259,7 @@ class TestTopLevelSpellingIsTheSameVerb:
 
 
 def test_materialize_helper_writes_the_source_zone(tmp_path: Path) -> None:
-    """The helper writes the profile and the data tree it names.
+    """The helper writes the profile and the facility tree beside it.
 
     Not the README: a deployment repo's README describes its four zones, which
     is the caller's document to write — this helper owns the source zone only.
@@ -269,7 +268,7 @@ def test_materialize_helper_writes_the_source_zone(tmp_path: Path) -> None:
     _materialize_profile_directory(target, "hello-world")
 
     assert (target / "profile.yml").is_file()
-    assert (target / "data").is_dir()
+    assert (target / repo_layout.entry("facility").path).is_dir()
 
 
 def test_emit_helper_leaves_nothing_behind_on_an_invalid_override(tmp_path: Path) -> None:

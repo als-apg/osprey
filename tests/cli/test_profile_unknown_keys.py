@@ -122,10 +122,9 @@ def test_extends_and_exclude_are_not_unknown(fake_presets: Path, tmp_path: Path)
     """Both are consumed during resolution but stay allowlisted for the
     pre-resolution callers that parse a raw layer."""
     _write_yaml(fake_presets / "base.yml", {"name": "base", "skills": ["a", "b"]})
-    (tmp_path / "data").mkdir(exist_ok=True)
     child = _write_yaml(
         tmp_path / "child.yml",
-        {"name": "child", "extends": "base", "data": "data", "exclude": {"skills": ["b"]}},
+        {"name": "child", "extends": "base", "exclude": {"skills": ["b"]}},
     )
 
     profile, _dir = resolve_build_profile(child, None)
@@ -260,7 +259,7 @@ def test_schema_floor_covers_the_keys_it_gates() -> None:
     ``config:`` carries the whole declarative statement a release older than
     the floor would read only in part, and ``data:`` names the tree it copies.
     """
-    assert {"config", "data"} <= _KNOWN_PROFILE_KEYS
+    assert {"config"} <= _KNOWN_PROFILE_KEYS
 
 
 def test_schema_floor_covers_the_layer_kinds_it_gates() -> None:

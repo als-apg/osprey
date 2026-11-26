@@ -266,9 +266,8 @@ def test_a_top_level_dotted_key_edits_one_leaf() -> None:
 
 def test_a_literal_key_inherited_from_a_parent_is_shadowed_too(tmp_path: Path) -> None:
     """The prune runs post-``extends``: a parent's key is inherited content."""
-    (tmp_path / "data").mkdir()
     child = tmp_path / "profile.yml"
-    child.write_text("name: Child\nextends: demo\ndata: data\n", encoding="utf-8")
+    child.write_text("name: Child\nextends: demo\n", encoding="utf-8")
     inherited, _dir = resolve_build_profile(child, None)
     assert CONNECTOR_CONFIG_KEY in inherited.config
 

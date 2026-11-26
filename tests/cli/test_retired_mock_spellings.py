@@ -27,7 +27,7 @@ NEW_SPELLING = "control_system.connector.virtual_accelerator.serving: in_process
 
 def test_the_connector_shorthand_is_refused() -> None:
     with pytest.raises(BuildProfileError) as caught:
-        _parse_profile({"name": "x", "data": "data", "connector": "mock"})
+        _parse_profile({"name": "x", "connector": "mock"})
 
     assert str(caught.value) == retired_type_message("mock")
     assert NEW_SPELLING in str(caught.value)
@@ -127,10 +127,10 @@ def test_osprey_set_refuses_the_retired_type_before_writing(tmp_path: Path, pair
     repo = tmp_path / "repo"
     repo.mkdir()
     profile = repo / "profile.yml"
-    profile.write_text("name: x\ndata: data\n", encoding="utf-8")
+    profile.write_text("name: x\n", encoding="utf-8")
 
     result = CliRunner().invoke(set_command, ["--repo", str(repo), pair])
 
     assert result.exit_code != 0
     assert NEW_SPELLING in result.output
-    assert profile.read_text(encoding="utf-8") == "name: x\ndata: data\n"
+    assert profile.read_text(encoding="utf-8") == "name: x\n"

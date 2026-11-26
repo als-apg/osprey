@@ -23,6 +23,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.agent_record.config import (
     RETIRED_CONFIG_KEYS,
     RETIRED_DEPLOYED_SERVICES,
@@ -33,7 +34,7 @@ from osprey.cli.build_profile_load import _parse_profile, manifest_rows
 from osprey.cli.channel_finder_cmd import FILE_DATABASE_PARADIGMS
 from osprey.cli.config_cmd import packaged_manifest_path
 from osprey_connectors.errors import BuildProfileError
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 #: One leaf the tests spell under each retired key, and the text of its
 #: replacement the refusal must carry.
@@ -218,7 +219,6 @@ def _repo(tmp_path: Path, config: dict[str, Any]) -> Path:
             {
                 "name": "Retired Keys",
                 "project_name": "retired-keys",
-                "data": "data",
                 "provider": "cborg",
                 "model": "claude-haiku-4-5",
                 "channel_finder_mode": FILE_DATABASE_PARADIGMS[0],
@@ -227,8 +227,8 @@ def _repo(tmp_path: Path, config: dict[str, Any]) -> Path:
             default_flow_style=False,
         )
     )
-    shutil.copytree(bundle_data_root("demo"), repo / "data")
-    (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(bundle_source_root("demo"), repo, dirs_exist_ok=True)
+    (repo / repo_layout.entry("facility").path / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 
 
