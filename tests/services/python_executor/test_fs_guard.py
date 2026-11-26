@@ -561,6 +561,127 @@ class TestDenylistPosture:
 
 
 # ---------------------------------------------------------------------------
+# Removing what contains a protected root, and descriptor-relative names
+# ---------------------------------------------------------------------------
+class TestContainingDirectoryAndDescriptors:
+    """The rules a protected entry nested below an ordinary directory needs."""
+
+    @staticmethod
+    def _nested(roots: _Roots) -> tuple[str, Path]:
+        """A guard protecting ``outside/lib/seed.ttl``, and that file's parent."""
+        lib = roots.outside / "lib"
+        lib.mkdir()
+        (lib / "seed.ttl").write_text("SEED")
+        return _denylist_guard(roots, protected_roots=(lib / "seed.ttl",)), lib
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            "shutil.rmtree({lib!r})",
+            "os.rename({lib!r}, {moved!r})",
+            "os.replace({lib!r}, {moved!r})",
+            "shutil.move({lib!r}, {moved!r})",
+        ],
+    )
+    def test_removing_or_moving_a_directory_that_holds_an_entry_is_refused(
+        self, roots: _Roots, call: str
+    ):
+        guard, lib = self._nested(roots)
+        statement = call.format(lib=str(lib), moved=str(roots.permitted / "lib"))
+        out = roots.run(
+            guard,
+            f"""
+            import os, shutil
+            try:
+                {statement}
+                print("ALLOWED")
+            except PermissionError as exc:
+                print("REFUSED:", exc)
+            """,
+        )
+        assert "REFUSED:" in out and "contains the protected location" in out, out
+        assert (lib / "seed.ttl").read_text() == "SEED"
+
+    def test_a_link_onto_the_missing_parent_of_an_entry_is_refused(self, roots: _Roots):
+        target = roots.outside / "absent" / "seed.ttl"
+        guard = _denylist_guard(roots, protected_roots=(target,))
+        out = roots.run(
+            guard,
+            f"""
+            import os
+            try:
+                os.symlink({str(roots.permitted)!r}, {str(target.parent)!r})
+                print("ALLOWED")
+            except PermissionError as exc:
+                print("REFUSED:", exc)
+            """,
+        )
+        assert "REFUSED:" in out, out
+        assert not os.path.lexists(target.parent)
+
+    def test_creating_the_parent_of_an_entry_is_allowed(self, roots: _Roots):
+        target = roots.outside / "absent" / "seed.ttl"
+        out = roots.run(
+            _denylist_guard(roots, protected_roots=(target,)),
+            f"""
+            import os
+            os.makedirs({str(target.parent)!r})
+            print("CREATED")
+            """,
+        )
+        assert "CREATED" in out
+        assert target.parent.is_dir()
+
+    def test_a_name_relative_to_a_descriptor_is_judged_at_that_directory(self, roots: _Roots):
+        out = roots.run(
+            _denylist_guard(roots),
+            f"""
+            import os
+            fd = os.open({str(roots.protected)!r}, os.O_RDONLY)
+            try:
+                os.unlink("victim.txt", dir_fd=fd)
+                print("ALLOWED")
+            except PermissionError as exc:
+                print("REFUSED:", exc)
+            """,
+        )
+        assert "REFUSED:" in out, out
+        assert (roots.protected / "victim.txt").exists()
+
+    @pytest.mark.skipif(
+        os.path.isdir("/proc/self/fd"), reason="needs a host without the proc filesystem"
+    )
+    def test_without_either_mechanism_a_descriptor_relative_call_passes(self, roots: _Roots):
+        """The one fallback: no proc filesystem and no file-control path query."""
+        out = roots.run(
+            "import sys\nsys.modules['fcntl'] = None\n" + _denylist_guard(roots),
+            f"""
+            import os
+            fd = os.open({str(roots.protected)!r}, os.O_RDONLY)
+            os.unlink("victim.txt", dir_fd=fd)
+            print("PASSED")
+            """,
+        )
+        assert "PASSED" in out
+        assert not (roots.protected / "victim.txt").exists()
+
+    def test_the_allowlist_posture_is_unchanged_by_the_containing_rule(self, roots: _Roots):
+        """No protected roots there, so deleting a permitted tree is still allowed."""
+        tree = roots.permitted / "tree"
+        (tree / "inner").mkdir(parents=True)
+        out = roots.run(
+            _allowlist_guard(roots),
+            f"""
+            import shutil
+            shutil.rmtree({str(tree)!r})
+            print("REMOVED")
+            """,
+        )
+        assert "REMOVED" in out
+        assert not tree.exists()
+
+
+# ---------------------------------------------------------------------------
 # write_modes_only_targets — the pathlib asymmetry the sandbox depends on
 # ---------------------------------------------------------------------------
 class TestWriteModesOnlyTargets:

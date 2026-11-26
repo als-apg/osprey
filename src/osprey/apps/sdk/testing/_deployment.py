@@ -543,10 +543,14 @@ def _mounts(root: Path, volumes: list[Any]) -> list[tuple[str, Path]]:
 
 
 def _host_value(value: str, mounts: list[tuple[str, Path]]) -> str:
-    """*value* with each colon-separated container path read as the host path that backs it."""
-    if not value.startswith("/"):
+    """*value* with each colon-separated container path read as the host path that backs it.
+
+    A ``<name>=<path>`` entry (``OSPREY_APP_CORPORA``) keeps its name.
+    """
+    if not value.startswith("/") and "=/" not in value:
         return value
-    return ":".join(_host_path(part, mounts) for part in value.split(":"))
+    entries = (part.rpartition("=") for part in value.split(":"))
+    return ":".join(f"{name}{equals}{_host_path(path, mounts)}" for name, equals, path in entries)
 
 
 def _host_path(path: str, mounts: list[tuple[str, Path]]) -> str:

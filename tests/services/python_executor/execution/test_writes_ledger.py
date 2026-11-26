@@ -46,6 +46,11 @@ def deployment(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from osprey.mcp_server.python_executor import executor
 
     (tmp_path / "profile.yml").write_text("name: probe\n", encoding="utf-8")
+    # A deployment's build output carries the protected-path list; this one's is empty.
+    rendered = tmp_path / "build" / "config.yml"
+    rendered.parent.mkdir()
+    rendered.write_text("protected_paths: []\n", encoding="utf-8")
+    monkeypatch.setenv("OSPREY_CONFIG", str(rendered))
     monkeypatch.setattr(executor, "_resolve_project_root", lambda: tmp_path)
 
 

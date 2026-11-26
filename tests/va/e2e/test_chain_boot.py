@@ -190,8 +190,9 @@ def _measuring(served: Any) -> gm.Deployment:
     The chain renders the facility outputs alone; this adds what a build
     renders beside them for an agent: a ``config.yml`` naming the container
     the chain booted as its one control target, armed for writes, every
-    guarded tool asking, and the approval hook with the ``measurement`` block
-    the build writes for it.
+    guarded tool asking, the protected-path list the python executor refuses
+    to run without, and the approval hook with the ``measurement`` block the
+    build writes for it.
     """
     import json
     import shutil as files
@@ -199,6 +200,7 @@ def _measuring(served: Any) -> gm.Deployment:
     import yaml
 
     from osprey.facility.views.facts import FACTS_FILE, hook_measurement
+    from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
 
     repo = served.tree.repo
     render = repo / "build"
@@ -225,6 +227,9 @@ def _measuring(served: Any) -> gm.Deployment:
         },
         "approval": {"enabled": True, "default_policy": "always"},
         "python_executor": {"execution_timeout_seconds": gm.EXECUTION_TIMEOUT_S},
+        # The chain's profile names no path beyond the data tree, which the
+        # guard holds by name.
+        PROTECTED_PATHS_CONFIG_KEY: [],
     }
     (render / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
     hooks = render / gm.APPROVAL_HOOK.parent

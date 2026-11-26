@@ -10,7 +10,9 @@ What is load-bearing about its shape:
 - it reads its container's block through the per-service names ``service`` /
   ``service_key`` and the panel's grant through ``panel_grant``, and nothing
   keyed by an application or panel name;
-- each declared state directory is bound and named in ``OSPREY_APP_STATE_DIRS``.
+- each declared state directory is bound and named in ``OSPREY_APP_STATE_DIRS``;
+- each declared qmd corpus is bound read-only, named in ``OSPREY_APP_CORPORA``
+  and given the address its sidecar answers at from where the container runs.
 """
 
 from __future__ import annotations
@@ -62,16 +64,35 @@ def _alias_credential(suffix: str, owner: str) -> dict[str, Any]:
     return {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": owner, "required": True}
 
 
+#: A profile's qmd block declaring the two corpora the corpus tests name.
+QMD = {
+    "corpora": [
+        {"name": "procedures", "source": "./data/procedures"},
+        {"name": "ops_notes", "source": "/srv/ops-notes", "embed": False},
+    ]
+}
+
+
 def _render(
-    row: dict[str, Any] | None = None, *, panel_grant: dict[str, Any] | None = None
+    row: dict[str, Any] | None = None,
+    *,
+    panel_grant: dict[str, Any] | None = None,
+    qmd: dict[str, Any] | None = None,
+    qmd_deployed: bool = True,
+    deployment: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     block = row if row is not None else _row()
+    services = {KEY: copy.deepcopy(block)}
+    deployed = [KEY]
+    if qmd is not None:
+        services["qmd"] = copy.deepcopy(qmd)
+        deployed += ["qmd"] if qmd_deployed else []
     config = _inject_project_metadata(
         {
             "project_name": "fixture",
-            "services": {KEY: copy.deepcopy(block)},
-            "deployed_services": [KEY],
-            "deployment": {},
+            "services": services,
+            "deployed_services": deployed,
+            "deployment": deployment or {},
             "system": {"timezone": "UTC"},
         }
     )
@@ -138,6 +159,82 @@ def test_no_declared_state_renders_neither_variable_nor_mount() -> None:
 
     assert "OSPREY_APP_STATE_DIRS" not in svc["environment"]
     assert not any("/var/state/" in v for v in svc["volumes"])
+
+
+def test_each_declared_corpus_is_bound_read_only_and_named() -> None:
+    _, svc = _render(_row(corpora=["procedures", "ops_notes"]), qmd=QMD)
+
+    assert svc["environment"]["OSPREY_APP_CORPORA"] == (
+        "procedures=/osprey/corpora/procedures:ops_notes=/osprey/corpora/ops_notes"
+    )
+    assert "./data/procedures:/osprey/corpora/procedures:ro" in svc["volumes"]
+    assert "/srv/ops-notes:/osprey/corpora/ops_notes:ro" in svc["volumes"]
+
+
+def test_a_bridge_container_dials_each_sidecar_by_its_service_name() -> None:
+    _, svc = _render(_row(corpora=["procedures", "ops_notes"]), qmd=QMD)
+
+    assert svc["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://qmd-procedures:10062"
+    assert svc["environment"]["OSPREY_QMD_OPS_NOTES_URL"] == "http://qmd-ops_notes:10063"
+
+
+def test_a_host_network_container_dials_each_sidecar_where_it_publishes() -> None:
+    row = _row(corpora=["procedures"], network="host")
+
+    _, loopback = _render(row, qmd=QMD)
+    _, pinned = _render(row, qmd=QMD, deployment={"bind_address": "10.0.0.5"})
+    _, wildcard = _render(row, qmd=QMD, deployment={"bind_address": "0.0.0.0"})
+
+    assert loopback["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+    assert pinned["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://10.0.0.5:10062"
+    assert wildcard["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+    assert "./data/procedures:/osprey/corpora/procedures:ro" in loopback["volumes"]
+
+
+def test_a_sidecar_this_deployment_does_not_run_is_dialled_where_it_publishes() -> None:
+    _, svc = _render(_row(corpora=["procedures"]), qmd=QMD, qmd_deployed=False)
+
+    assert svc["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+
+
+def test_no_declared_corpus_renders_neither_variable_nor_mount() -> None:
+    _, svc = _render(qmd=QMD)
+
+    assert "OSPREY_APP_CORPORA" not in svc["environment"]
+    assert not any(name.startswith("OSPREY_QMD_") for name in svc["environment"])
+    assert not any("/osprey/corpora/" in v for v in svc["volumes"])
+
+
+def test_a_corpus_the_deployment_cannot_serve_stops_the_render() -> None:
+    prebuilt = {"corpora": [{"name": "papers", "index": "prebuilt", "index_dir": "/srv/idx"}]}
+
+    with pytest.raises(ValueError, match="services.knob_backend.corpora names 'missing'"):
+        _render(_row(corpora=["missing"]), qmd=QMD)
+    with pytest.raises(ValueError, match="services.knob_backend.corpora names 'papers'"):
+        _render(_row(corpora=["papers"]), qmd=prebuilt)
+
+
+def test_the_corpus_fact_does_not_mutate_the_shared_config() -> None:
+    config = {
+        "project_name": "fixture",
+        "services": {KEY: _row(corpora=["procedures"]), "qmd": copy.deepcopy(QMD)},
+        "deployed_services": [KEY, "qmd"],
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+    }
+
+    context = _inject_project_metadata(config)
+
+    assert context["services"][KEY]["corpus_mounts"] == [
+        {
+            "name": "procedures",
+            "source": "./data/procedures",
+            "target": "/osprey/corpora/procedures",
+            "url_env": "OSPREY_QMD_PROCEDURES_URL",
+            "url": "http://qmd-procedures:10062",
+        }
+    ]
+    assert "corpus_mounts" not in config["services"][KEY], "the input was mutated"
 
 
 def test_its_own_spool_directory_is_bound() -> None:
@@ -213,6 +310,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
     row = _row(
         network="bridge",
         state="var/knob",
+        corpora=["procedures"],
         launch_token_env="CORRECTOR_TRIM_LAUNCH_TOKEN",
         roster_grant={"panel_id": "corrector-trim"},
     )
@@ -222,6 +320,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         "command",
         "config_file",
         "control_identity",
+        "corpora",
         "drives_target",
         "env",
         "health",
@@ -232,9 +331,10 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         "state",
     }
 
-    _, svc = _render(row)
+    _, svc = _render(row, qmd=QMD)
 
     assert svc["environment"]["OSPREY_APP_STATE_DIRS"]
+    assert svc["environment"]["OSPREY_APP_CORPORA"]
 
 
 def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) -> None:

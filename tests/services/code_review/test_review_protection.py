@@ -104,6 +104,7 @@ def deployment(tmp_path, monkeypatch) -> Path:
             {
                 "code_review": {"enabled": True, "level": "block"},
                 "ui": {"theme": "light"},
+                "protected_paths": [],
             }
         ),
     }
