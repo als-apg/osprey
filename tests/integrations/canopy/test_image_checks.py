@@ -255,7 +255,7 @@ class TestWithoutCanopy:
         assert result.stderr == ""
 
     def test_a_library_in_the_tree_changes_nothing(self, rendered_check, bare_bin, tmp_path):
-        (tmp_path / "data" / "canopy" / "library" / "screens").mkdir(parents=True)
+        (tmp_path / "web" / "canopy" / "library" / "screens").mkdir(parents=True)
         result = _run(rendered_check, bare_bin, tmp_path)
         assert result.returncode == 0, result.stderr
         assert result.stdout == f"{NOT_INSTALLED}\n"
@@ -280,7 +280,7 @@ class TestWithCanopy:
     def test_a_passing_check_passes(self, rendered_check, stand_in_bin, tmp_path):
         result = _run(rendered_check, stand_in_bin, tmp_path, STAND_IN_EXIT="0")
         assert result.returncode == 0, result.stderr
-        assert result.stdout == "report data/canopy/library --served-at library --check\n"
+        assert result.stdout == "report web/canopy/library --served-at library --check\n"
 
     @pytest.mark.parametrize("code", [1, 2, 3])
     def test_a_failing_check_fails_the_build(self, rendered_check, stand_in_bin, tmp_path, code):
@@ -364,7 +364,7 @@ class TestAStaleReport:
 
 
 def _with_collections(deployment: Path) -> Path:
-    directory = deployment / "data" / "canopy" / "collections"
+    directory = deployment / "web" / "canopy" / "collections"
     directory.mkdir(parents=True)
     return directory
 
@@ -412,8 +412,8 @@ class TestTheCollectionsCheckWithCanopy:
     def test_a_file_where_the_directory_belongs_is_not_a_directory(
         self, collections_check, stand_in_bin, tmp_path
     ):
-        (tmp_path / "data" / "canopy").mkdir(parents=True)
-        (tmp_path / "data" / "canopy" / "collections").write_text("", encoding="utf-8")
+        (tmp_path / "web" / "canopy").mkdir(parents=True)
+        (tmp_path / "web" / "canopy" / "collections").write_text("", encoding="utf-8")
         result = _run(collections_check, stand_in_bin, tmp_path, STAND_IN_EXIT="9")
         assert result.returncode == 0, result.stderr
         assert result.stdout == f"{NO_COLLECTIONS}\n"
@@ -423,7 +423,7 @@ class TestTheCollectionsCheckWithCanopy:
         result = _run(collections_check, stand_in_bin, tmp_path, STAND_IN_EXIT="0")
         assert result.returncode == 0, result.stderr
         assert result.stdout == (
-            "collections data/canopy/collections --library data/canopy/library\n"
+            "collections web/canopy/collections --library web/canopy/library\n"
         )
 
     @pytest.mark.parametrize("code", [1, 2, 3])
@@ -463,7 +463,7 @@ class TestTheCollectionsCheckWhenTheProbeCannotAnswer:
 #: The facility collection the template ships, over the template library.
 _COLLECTION = json.loads(
     (
-        Path(TemplateManager().template_root) / "apps/demo/data/canopy/collections/demo.json"
+        Path(TemplateManager().template_root) / "apps/demo/web/canopy/collections/demo.json"
     ).read_text(encoding="utf-8")
 )
 

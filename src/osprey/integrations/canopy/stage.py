@@ -58,7 +58,7 @@ without the pin check. It is a development switch for building an image with no
 CANOPY payload; a deployment that serves the CANOPY panel leaves it unset.
 
 Before any of that, and whatever that switch says, the step checks the
-deployment's screen library (``data/canopy/library``) against its write-binding
+deployment's screen library (``web/canopy/library``) against its write-binding
 report with :func:`~osprey.integrations.canopy.library.library_is_fresh`. A
 library whose files changed since the report was written stops the build
 here, with one line per difference and the command that regenerates the

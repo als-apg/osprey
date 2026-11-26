@@ -599,7 +599,7 @@ def make_library(repo: Path, *, report: bool = True) -> Path:
     root = repo / LIBRARY_SUBPATH
     (root / "screens" / "sr").mkdir(parents=True)
     (root / "screens" / "sr" / "overview.screen.json").write_bytes(b"{}\n")
-    for path in [repo / "data", repo / "data" / "canopy", root, *root.rglob("*")]:
+    for path in [repo / "web", repo / "web" / "canopy", root, *root.rglob("*")]:
         path.chmod(0o755 if path.is_dir() else 0o644)
     if report:
         write_report(root)
@@ -647,7 +647,7 @@ def test_a_stale_library_is_refused_before_anything_is_staged(
     lines = captured.err.splitlines()
     assert all(line.startswith("canopy library: ") for line in lines)
     assert lines[0] == (
-        "canopy library: data/canopy/library does not match its write-binding report"
+        "canopy library: web/canopy/library does not match its write-binding report"
     )
     assert lines[1].startswith("canopy library: digest mismatch: ")
     assert lines[2] == (

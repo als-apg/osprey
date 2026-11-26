@@ -1,6 +1,6 @@
 """The demo template ships its screen library together with its report.
 
-A project scaffolded from the template holds ``data/canopy/library`` with the
+A project scaffolded from the template holds ``web/canopy/library`` with the
 orbit-feedback screen ``sr/orbit-feedback``, the generated landing page ``facility/overview``,
 booster screen ``br/overview`` and storage-ring sector screens ``sr/sector-NN``, the
 transfer-line panels ``gtl/GTL``
@@ -11,7 +11,7 @@ fresh project has to pass both without anyone regenerating anything:
 * ``osprey build`` compares the library with the report before it stages the
   payload (``library_is_fresh``, standard library only);
 * the image build recomputes the whole report with the CANOPY it ships
-  (``python -I -m canopy_mcp.report data/canopy/library --served-at library
+  (``python -I -m canopy_mcp.report web/canopy/library --served-at library
   --check``).
 
 The second runs here against the real ``canopy_mcp.report``, as a command under

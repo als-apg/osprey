@@ -31,6 +31,7 @@ import pytest
 import test_push_show as harness
 import yaml
 
+from osprey import repo_layout
 from osprey.integrations.canopy import push
 from osprey.integrations.canopy.library import (
     REPORT_JSON,
@@ -70,7 +71,7 @@ HOST_IDS = (501, 20)
 NONCE = "0badf00d"
 IMAGE = "proj-readonly:local"
 PAYLOAD = "/app/proj-readonly/canopy_payload"
-LIBRARY = "data/canopy/library"
+LIBRARY = repo_layout.child_display_path("web", "canopy-library")
 LOG_FIELDS = {
     "rid",
     "volume_user",

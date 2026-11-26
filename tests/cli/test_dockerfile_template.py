@@ -1177,13 +1177,15 @@ class TestPrivilegeSplit:
 
     def test_bundle_chown_follows_the_configured_path(self):
         """The bundle chown names the directory the profile's bundle path says,
-        guarded on the directory because a chown of a missing path fails."""
-        text = _render_template(knowledge_bundle_dir="data/facility/knowledge")
-        assert "if [ -d /app/synthetic/build/data/facility/knowledge ]; then" in text
-        assert "chown -R osprey:osprey /app/synthetic/build/data/facility/knowledge;" in text
+        under the project root where every reader resolves it, guarded on the
+        directory because a chown of a missing path fails."""
+        text = _render_template(knowledge_bundle_dir="facility/knowledge")
+        assert "if [ -d /app/synthetic/facility/knowledge ]; then" in text
+        assert "chown -R osprey:osprey /app/synthetic/facility/knowledge;" in text
+        assert "/app/synthetic/build/facility" not in text
 
         moved = _render_template(knowledge_bundle_dir="docs/pages")
-        assert "chown -R osprey:osprey /app/synthetic/build/docs/pages;" in moved
+        assert "chown -R osprey:osprey /app/synthetic/docs/pages;" in moved
         assert "facility/knowledge" not in moved
 
     def test_no_bundle_chown_without_a_bundle_path(self):
@@ -1196,8 +1198,8 @@ class TestPrivilegeSplit:
         ("config", "expected"),
         [
             (
-                {"facility_knowledge.bundle_path": "data/facility/knowledge"},
-                "data/facility/knowledge",
+                {"facility_knowledge.bundle_path": "facility/knowledge"},
+                "facility/knowledge",
             ),
             ({"facility_knowledge": {"bundle_path": "./docs//pages/"}}, "docs/pages"),
             ({}, ""),
@@ -1208,7 +1210,7 @@ class TestPrivilegeSplit:
         ],
     )
     def test_the_profile_names_the_bundle_directory(self, config, expected):
-        """Only a bundle path inside the render reaches the image's chown."""
+        """Only a bundle path inside the project reaches the image's chown."""
         from osprey.cli.build_cmd import _profile_knowledge_bundle_dir
 
         class _Profile:
@@ -1497,7 +1499,7 @@ class TestTieredPresetConfigChown:
         name = tiered_render.parent.name
         project = name if tier is None else f"{name}-{tier}"
         text = self._dockerfile(tiered_render, project)
-        bundle = f"/app/{project}/build/data/facility/knowledge"
+        bundle = f"/app/{project}/facility/knowledge"
         assert f"if [ -d {bundle} ]; then" in text
         assert f"chown -R osprey:osprey {bundle};" in text
 

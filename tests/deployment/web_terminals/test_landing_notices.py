@@ -55,7 +55,7 @@ def test_empty_notices_list_renders_none(tmp_path: Path) -> None:
 def test_h1_becomes_the_summary_and_the_rest_becomes_the_body(tmp_path: Path) -> None:
     rel = _write(
         tmp_path,
-        "data/landing/local-procedures.md",
+        "web/landing/local-procedures.md",
         "# Local procedures\n\nCall the CR first.\n",
     )
     html = _landing(_config(tmp_path, notices=[rel]))
@@ -69,7 +69,7 @@ def test_markdown_body_is_rendered_as_html_not_escaped(tmp_path: Path) -> None:
     """The body is the one value on the page injected with `|safe`."""
     rel = _write(
         tmp_path,
-        "data/landing/n.md",
+        "web/landing/n.md",
         "# N\n\n- first point\n- second point\n\n**bold**\n",
     )
     html = _landing(_config(tmp_path, notices=[rel]))
@@ -82,28 +82,28 @@ def test_missing_path_is_skipped_without_falling_back(tmp_path: Path) -> None:
     """A listed-but-missing file leaves a gap; it is never silently replaced by
     the packaged default, which would show OSPREY's safety text in place of a
     facility's own missing document."""
-    rel = _write(tmp_path, "data/landing/present.md", "# Present\n\nHere.\n")
-    html = _landing(_config(tmp_path, notices=["data/landing/gone.md", rel]))
+    rel = _write(tmp_path, "web/landing/present.md", "# Present\n\nHere.\n")
+    html = _landing(_config(tmp_path, notices=["web/landing/gone.md", rel]))
     assert "<summary>Present</summary>" in html
     assert "Before you start: working safely with the agent" not in html
 
 
 def test_notices_render_in_config_order(tmp_path: Path) -> None:
-    a = _write(tmp_path, "data/landing/a.md", "# Alpha\n\nA.\n")
-    b = _write(tmp_path, "data/landing/b.md", "# Beta\n\nB.\n")
+    a = _write(tmp_path, "web/landing/a.md", "# Alpha\n\nA.\n")
+    b = _write(tmp_path, "web/landing/b.md", "# Beta\n\nB.\n")
     html = _landing(_config(tmp_path, notices=[b, a]))
     assert html.index("<summary>Beta</summary>") < html.index("<summary>Alpha</summary>")
 
 
 def test_notice_id_slugs_from_the_filename(tmp_path: Path) -> None:
     """Each notice gets a stable deep-link target."""
-    rel = _write(tmp_path, "data/landing/Who Is On Call.md", "# On call\n\nX.\n")
+    rel = _write(tmp_path, "web/landing/Who Is On Call.md", "# On call\n\nX.\n")
     html = _landing(_config(tmp_path, notices=[rel]))
     assert 'id="who-is-on-call"' in html
 
 
 def test_document_without_h1_keeps_its_text(tmp_path: Path) -> None:
-    rel = _write(tmp_path, "data/landing/no-heading.md", "Just a paragraph.\n")
+    rel = _write(tmp_path, "web/landing/no-heading.md", "Just a paragraph.\n")
     html = _landing(_config(tmp_path, notices=[rel]))
     assert "Just a paragraph." in html
     assert "<summary>no heading</summary>" in html
@@ -140,13 +140,13 @@ def _lint(cfg: dict) -> list:
 
 
 def test_lint_warns_on_a_missing_notice(tmp_path: Path) -> None:
-    cfg = _config(tmp_path, notices=["data/landing/gone.md"])
+    cfg = _config(tmp_path, notices=["web/landing/gone.md"])
     codes = [(f.severity, f.code) for f in _lint(cfg)]
     assert ("warn", "notice-missing") in codes
 
 
 def test_lint_is_quiet_when_every_notice_exists(tmp_path: Path) -> None:
-    rel = _write(tmp_path, "data/landing/here.md", "# Here\n\nX.\n")
+    rel = _write(tmp_path, "web/landing/here.md", "# Here\n\nX.\n")
     cfg = _config(tmp_path, notices=[rel])
     assert [f for f in _lint(cfg) if f.code.startswith("notice-")] == []
 

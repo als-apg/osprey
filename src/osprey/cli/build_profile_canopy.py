@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.integrations.canopy.library import HOME_SCREEN_KEY, find_home_screen
-from osprey.repo_layout import child_path
+from osprey.repo_layout import child_path, entry
 
 CANOPY_PANEL = "canopy"
 #: The skills that go with the panel and leave the deployment with it.
@@ -38,7 +38,7 @@ def canopy_home_screen_errors(
         config: The profile's merged ``config:`` block.
         selected_panels: The profile's ``web_panels``, as resolved.
         library_root: The project's screen library,
-            ``<data root>/canopy/library``.
+            ``web/canopy/library`` below the repo root.
 
     Returns:
         list[str]: Messages naming the key as written, the id, the path looked
@@ -84,7 +84,7 @@ def repo_home_screen_errors(
 
     Each layer file (:func:`~osprey.cli.build_cmd._layer_files`) is judged on
     the resolution the build renders it from, with the same overlays, and
-    against the library under ``repo_root``'s data root; its messages are
+    against the library under ``repo_root``'s ``web`` root; its messages are
     headed by the file's path. A layer that does not resolve on its own is not
     judged here: whether it resolves is the build's question, asked where it
     renders the layer, and ``osprey validate`` does not ask it of a repo.
@@ -120,14 +120,12 @@ def repo_home_screen_errors(
 def profile_home_screen_errors(profile: Any, root: Path) -> list[str]:
     """:func:`canopy_home_screen_errors` for one resolved profile.
 
-    The library is the one under the profile's data root, resolved against
-    ``root``; a profile with no data root has no library to judge against.
+    The library is the web row's canopy library under ``root``.
     """
-    data_root = profile.resolved_data_root(root)
-    if data_root is None:
-        return []
     return canopy_home_screen_errors(
-        profile.config, profile.web_panels, child_path(data_root, "data", "canopy-library")
+        profile.config,
+        profile.web_panels,
+        child_path(root / entry("web").path, "web", "canopy-library"),
     )
 
 
