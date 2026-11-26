@@ -24,8 +24,6 @@ from osprey.cli.build_injectors import _inject_bluesky_web
 from osprey.cli.build_profile import BlueskyWebConfig, BuildProfile
 from osprey.port_layout import default_port
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def _write_config(project_path: Path, *, panels: dict | None = None) -> None:
     """Write a minimal config.yml, optionally pre-seeded with web.panels entries."""
@@ -79,7 +77,6 @@ def test_profile_listing_bluesky_validates_without_warning(tmp_path: Path) -> No
     """``bluesky`` is url-less-legal (its URL is derived post-build) — and silent."""
     profile = BuildProfile(
         name="modern",
-        data="data",
         web_panels=["bluesky"],
         bluesky_web=BlueskyWebConfig(),
     )

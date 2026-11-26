@@ -45,7 +45,7 @@ from osprey.facility.views.channel_finder import hierarchical_document, middle_l
 from osprey.facility.views.facts import FACTS_FILE, zero_source_facts
 from osprey_facility import FACILITY_FILE
 from osprey_facility.records import FacilityRecords
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests._vocabulary import PROTOCOL_WORDS, facility_strings, mask_facility_text
 
 
@@ -66,7 +66,7 @@ def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> P
 
     bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    kwargs.setdefault("repo_root", bundle_source_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

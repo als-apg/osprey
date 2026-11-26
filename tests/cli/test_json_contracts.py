@@ -65,6 +65,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner, Result
 
+from osprey import repo_layout
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.cli import output
 from osprey.cli.ariel import ariel_group
@@ -363,7 +364,7 @@ def facility_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
     lines = profile.read_text(encoding="utf-8").splitlines()
     lines = [line for line in lines if not line.startswith("channel_finder_mode:")]
     profile.write_text("\n".join([*lines, "channel_finder_mode: middle_layer", ""]), "utf-8")
-    records = repo / "data" / "facility" / "records"
+    records = repo / repo_layout.entry("facility").path / "records"
     for name, record in (("devices", _UNGROUPED_DEVICE), ("channels", _UNGROUPED_CHANNEL)):
         with (records / f"{name}.yaml").open("a", encoding="utf-8") as stream:
             stream.write(yaml.safe_dump([record], sort_keys=False))
@@ -572,7 +573,13 @@ def pyaml_omitted_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """
     repo = init_project(tmp_path_factory.mktemp("pyaml-omitted"), "demo", "demo")
     for model in _DECK_MODELS:
-        (repo / "data" / "facility" / "simulation" / "measurement" / f"{model}.yaml").unlink()
+        (
+            repo
+            / repo_layout.entry("facility").path
+            / "simulation"
+            / "measurement"
+            / f"{model}.yaml"
+        ).unlink()
     return repo
 
 

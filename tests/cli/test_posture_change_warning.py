@@ -66,10 +66,7 @@ def _write_yaml(path: Path, document: dict) -> Path:
 def _repo(tmp_path: Path, root_config: dict, layer_config: dict | None, layer="tiers/ops.yml"):
     """A deployment repo; returns the layer's path (or the root's when no layer)."""
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True, exist_ok=True)
-    root = _write_yaml(
-        repo / "profile.yml", {"name": "Facility", "data": "data", "config": root_config}
-    )
+    root = _write_yaml(repo / "profile.yml", {"name": "Facility", "config": root_config})
     if layer_config is None:
         return root
     return _write_yaml(repo / layer, {"name": "Ops", "config": layer_config})
@@ -196,7 +193,6 @@ def test_a_tier_with_nothing_new_to_compare_or_arm_stays_silent(
 def test_root_only_render_reads_its_extends_chain(tmp_path, caplog):
     """A root whose base spells flat ``true`` with its one machine ``false`` was never."""
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
     _write_yaml(
         repo / "base.yml",
         {

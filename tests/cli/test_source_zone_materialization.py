@@ -1,8 +1,8 @@
 """Contract tests for the SOURCE ZONE ``osprey init`` materializes.
 
 The materializer that turns a bundled preset into an editable deployment repo:
-an explicit standalone ``profile.yml`` at the repo root, the bundle's data tree
-copied verbatim beside it, the layers, the trigger config, the per-user
+an explicit standalone ``profile.yml`` at the repo root, the bundle's facility
+and web trees copied verbatim beside it, the layers, the trigger config, the per-user
 context slots, and the secret channel. These are the properties of what gets
 WRITTEN, asserted per preset — including the parity checks that prove nothing is
 lost on the way from a bundled preset to a repo a facility can edit and build.
@@ -23,6 +23,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.build_profile import list_presets, resolve_build_profile
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_root import ProfileKind, layer_files
@@ -31,6 +32,11 @@ from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 from tests._scoped_stdlib import scoped
 from tests.cli._lifecycle_build import invoke_build, rendered_config
+
+#: The facility source tree, relative to the deployment root.
+FACILITY = repo_layout.entry("facility").path
+#: The web source tree, relative to the deployment root.
+WEB = repo_layout.entry("web").path
 
 
 def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
@@ -76,7 +82,9 @@ def test_writes_expected_tree(runner: CliRunner, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert (target / "profile.yml").is_file()
     assert (target / "README.md").is_file()
-    assert (target / "data").is_dir()
+    assert (target / FACILITY).is_dir()
+    # The preset ships no web content, so no web tree is written.
+    assert not (target / WEB).exists()
 
 
 @pytest.mark.parametrize(
@@ -115,20 +123,8 @@ def test_profile_is_standalone(runner: CliRunner, tmp_path: Path) -> None:
     assert "app_template" not in parsed
     assert parsed["provenance"]["preset"] == "hello-world"
     assert parsed["provider"] == "anthropic"
-
-
-def test_data_key_is_active_and_points_at_the_materialized_tree(
-    runner: CliRunner, tmp_path: Path
-) -> None:
-    """The whole point of the verb: the profile reads its own data tree."""
-    target = tmp_path / "my-facility"
-
-    assert _new(runner, target, "hello-world").exit_code == 0
-
-    parsed = yaml.safe_load((target / "profile.yml").read_text())
-    assert parsed["data"] == "data"
-    resolved, profile_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.resolved_data_root(profile_dir) == (target / "data").resolve()
+    # The facility and web trees sit at fixed paths: the profile names neither.
+    assert "data" not in parsed
 
 
 def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
@@ -666,65 +662,61 @@ def test_materialized_profile_records_the_preset_it_came_from(
 
 
 # ---------------------------------------------------------------------------
-# Data materialization (D1/FR2: literal copy, no render steps)
+# Source-tree materialization (D1/FR2: literal copy, no render steps)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("preset", list_presets())
-def test_data_tree_is_byte_identical_to_the_bundle(
+def test_source_trees_are_byte_identical_to_the_bundle(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:
     """Verbatim copy — every bundled file arrives unchanged, staging included.
 
-    The sole exception is build exhaust the wheel does not ship either
-    (``_EXCLUDED_DATA_SUBTREES``), so that a source checkout which has run the
-    benchmarks materializes the same tree a wheel install does. The facility the
-    preset names arrives unchanged too, where it lands.
+    The app template's web tree lands at ``web/`` and the facility the preset
+    names at ``facility/``; the two trees hold those files and nothing else.
     """
-    from pathlib import PurePath
-
-    from osprey.cli.profile_cmd import _EXCLUDED_DATA_SUBTREES, _preset_data
+    from osprey.cli.profile_cmd import _preset_data
     from osprey.cli.templates.manager import TemplateManager
 
     target = tmp_path / "p-facility"
     assert _new(runner, target, preset).exit_code == 0
 
     composed = _preset_data(TemplateManager(), preset)
-    source = composed.app_data
+    expected: dict[str, Path] = {}
+    if composed.app_web.is_dir():
+        for path in composed.app_web.rglob("*"):
+            rel = path.relative_to(composed.app_web)
+            if path.is_file():
+                expected[f"{WEB}/{rel.as_posix()}"] = path
+    placed = composed.placed_files()
+    expected.update(
+        {rel: src for rel, src in placed.items() if rel.split("/")[0] in (FACILITY, WEB)}
+    )
 
-    placed = {PurePath(rel): src for rel, src in composed.placed_files().items()}
-    shared = {
-        Path(rel.relative_to("data")): src for rel, src in placed.items() if rel.parts[0] == "data"
-    }
-
-    copied = sorted(p.relative_to(target / "data") for p in (target / "data").rglob("*"))
-    own = {
-        rel
-        for rel in (p.relative_to(source) for p in source.rglob("*"))
-        if not any(rel.parts[: len(excluded)] == excluded for excluded in _EXCLUDED_DATA_SUBTREES)
-    }
-    shared_dirs = {Path(parent) for rel in shared for parent in PurePath(rel).parents}
-    original = sorted(own | set(shared) | (shared_dirs - {Path(".")}))
-    assert copied == original
-    for rel in original:
-        src, dst = shared.get(rel, source / rel), target / "data" / rel
-        if src.is_file():
-            assert src.read_bytes() == dst.read_bytes(), rel
+    copied = sorted(
+        path.relative_to(target).as_posix()
+        for tree in (FACILITY, WEB)
+        for path in (target / tree).rglob("*")
+        if path.is_file()
+    )
+    assert copied == sorted(expected)
+    for rel, src in expected.items():
+        assert (target / rel).read_bytes() == src.read_bytes(), rel
     for rel, src in placed.items():
         assert (target / rel).read_bytes() == src.read_bytes(), rel
 
 
-def test_stray_j2_in_bundle_data_is_not_rendered(
+def test_stray_j2_in_bundle_web_tree_is_not_rendered(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Profile data is content, never templates (D5): a `.j2` file keeps its
+    """A source tree is content, never templates (D5): a `.j2` file keeps its
     name and its unrendered body."""
     from osprey.cli.templates import manager as manager_mod
 
     fake_root = tmp_path / "templates"
     real_root = manager_mod.TemplateManager().template_root
     shutil.copytree(real_root, fake_root, ignore=shutil.ignore_patterns("__pycache__"))
-    stray = fake_root / "apps" / "hello_world" / "data" / "stray.txt.j2"
+    stray = fake_root / "apps" / "hello_world" / WEB / "stray.txt.j2"
     stray.parent.mkdir(parents=True, exist_ok=True)
     stray.write_text("{{ never_rendered }}\n", encoding="utf-8")
     monkeypatch.setattr(manager_mod.TemplateManager, "_get_template_root", lambda self: fake_root)
@@ -732,7 +724,7 @@ def test_stray_j2_in_bundle_data_is_not_rendered(
     target = tmp_path / "p-facility"
     assert _new(runner, target, "hello-world").exit_code == 0
 
-    landed = target / "data" / "stray.txt.j2"
+    landed = target / WEB / "stray.txt.j2"
     assert landed.is_file()
     assert landed.read_text(encoding="utf-8") == "{{ never_rendered }}\n"
 
@@ -757,17 +749,18 @@ def test_materialize_then_build_succeeds_for_every_preset(
 
 
 def test_built_project_data_comes_from_the_profile(runner: CliRunner, tmp_path: Path) -> None:
-    """An edit to the repo's data tree reaches the render — proof the build
+    """An edit to the repo's facility tree reaches the render — proof the build
     sources data from the repo the facility edits rather than the package."""
     repo = tmp_path / "facility"
     assert _new(runner, repo, "hello-world").exit_code == 0
 
-    marker = repo / "data" / "facility_marker.txt"
+    marker = repo / FACILITY / "facility_marker.txt"
     marker.write_text("edited by the facility\n", encoding="utf-8")
 
     assert invoke_build(repo).exit_code == 0
 
-    landed = repo / "build" / "data" / "facility_marker.txt"
+    (rendered,) = (s for s in repo_layout.rendered_sources() if s.key == "facility")
+    landed = repo / "build" / rendered.render_rel / "facility_marker.txt"
     assert landed.is_file()
     assert landed.read_text(encoding="utf-8") == "edited by the facility\n"
 
@@ -903,14 +896,14 @@ def test_force_replaces_existing_profile_directory(runner: CliRunner, tmp_path: 
     assert _new(runner, target, "hello-world").exit_code == 0
     # User edits + stray files that a re-materialization must not keep.
     (target / "profile.yml").write_text("name: Edited Away\n", encoding="utf-8")
-    (target / "data" / "stray.txt").write_text("stale\n", encoding="utf-8")
+    (target / FACILITY / "stray.txt").write_text("stale\n", encoding="utf-8")
 
     result = _new(runner, target, "hello-world", "--force")
 
     assert result.exit_code == 0, result.output
     profile_text = (target / "profile.yml").read_text(encoding="utf-8")
     assert "Edited Away" not in profile_text
-    assert not (target / "data" / "stray.txt").exists(), "stale file survived --force"
+    assert not (target / FACILITY / "stray.txt").exists(), "stale file survived --force"
 
 
 def test_force_bakes_new_set_pairs(runner: CliRunner, tmp_path: Path) -> None:
@@ -959,7 +952,7 @@ def test_force_with_a_rejected_layer_leaves_the_whole_zone_untouched(
 ) -> None:
     """The same property for the directory entries, and for a rejected ``--set``.
 
-    ``profile.yml`` is one file; ``data/`` and ``tiers/`` are trees that a
+    ``profile.yml`` is one file; ``facility/`` and ``tiers/`` are trees that a
     replacement has to move whole. A facility's edits live in all of them, so
     the guarantee is asserted over every entry a re-materialization owns.
     """
@@ -967,7 +960,7 @@ def test_force_with_a_rejected_layer_leaves_the_whole_zone_untouched(
 
     target = tmp_path / "p-facility"
     assert _new(runner, target, "hello-world").exit_code == 0
-    edited = target / "data" / "facility-notes.md"
+    edited = target / FACILITY / "facility-notes.md"
     edited.write_text("# ours\n", encoding="utf-8")
     before = _zone_snapshot(target, MATERIALIZED_SOURCE_ENTRIES)
 
@@ -1027,7 +1020,7 @@ def test_a_killed_force_run_has_its_zone_reinstated(runner: CliRunner, tmp_path:
     stash = target / HELD_SOURCE_ZONE_DIRNAME
     stash.mkdir()
     (target / "profile.yml").rename(stash / "profile.yml")
-    (target / "data").rename(stash / "data")
+    (target / FACILITY).rename(stash / FACILITY)
 
     result = _new(runner, target, "hello-world")
 
@@ -1035,7 +1028,7 @@ def test_a_killed_force_run_has_its_zone_reinstated(runner: CliRunner, tmp_path:
     assert result.exit_code == 2
     assert "--force" in result.output
     assert (target / "profile.yml").read_text(encoding="utf-8") == edited
-    assert (target / "data").is_dir()
+    assert (target / FACILITY).is_dir()
     assert not stash.exists()
 
 
@@ -1055,23 +1048,23 @@ def test_a_partially_replaced_zone_reinstates_the_held_copy(
     assert _new(runner, target, "hello-world").exit_code == 0
     edited = "name: Ours, Edited\n"
     (target / "profile.yml").write_text(edited, encoding="utf-8")
-    (target / "data" / "facility-notes.md").write_text("# ours\n", encoding="utf-8")
+    (target / FACILITY / "facility-notes.md").write_text("# ours\n", encoding="utf-8")
 
     stash = target / HELD_SOURCE_ZONE_DIRNAME
     stash.mkdir()
     (target / "profile.yml").rename(stash / "profile.yml")
-    (target / "data").rename(stash / "data")
+    (target / FACILITY).rename(stash / FACILITY)
     # …and the killed run had already written part of its replacement.
     (target / "profile.yml").write_text("name: Half Written\n", encoding="utf-8")
-    (target / "data").mkdir()
-    (target / "data" / "half-copied.json").write_text("{}\n", encoding="utf-8")
+    (target / FACILITY).mkdir()
+    (target / FACILITY / "half-copied.json").write_text("{}\n", encoding="utf-8")
 
     result = _new(runner, target, "hello-world")
 
     assert result.exit_code == 2
     assert (target / "profile.yml").read_text(encoding="utf-8") == edited
-    assert (target / "data" / "facility-notes.md").read_text(encoding="utf-8") == "# ours\n"
-    assert not (target / "data" / "half-copied.json").exists()
+    assert (target / FACILITY / "facility-notes.md").read_text(encoding="utf-8") == "# ours\n"
+    assert not (target / FACILITY / "half-copied.json").exists()
     assert not stash.exists()
 
 
@@ -1178,8 +1171,8 @@ def test_an_invalid_edit_leaves_no_partial_directory(
 
 
 def test_a_data_edit_is_rejected(runner: CliRunner, tmp_path: Path) -> None:
-    """`osprey init` materializes the tree, so pointing `data:` elsewhere is a
-    mistake — and the preset-mode guard catches it before anything is written."""
+    """`data:` names no tree a profile reads, so setting it is refused before
+    anything is written."""
     target = tmp_path / "p-facility"
 
     result = _new(runner, target, "hello-world", "--set", "data=/somewhere/else")
@@ -1388,8 +1381,8 @@ def _take_dispatch_triggers(resolved: dict) -> str | None:
 @pytest.mark.parametrize("preset", list_presets())
 def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, preset: str) -> None:
     """Full-field parity: the materialized profile resolves to the same
-    ``BuildProfile`` as the preset itself (display name, schema stamp, and the
-    now-local data root aside). This is the self-sufficiency guarantee —
+    ``BuildProfile`` as the preset itself (display name and schema stamp
+    aside). This is the self-sufficiency guarantee —
     services, MCP servers, dispatch, env wiring, artifact lists, everything the
     preset configures survives materialization.
 
@@ -1398,8 +1391,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     schema floor a future reader needs. Presets carry no stamp because they ship
     with the release that understands them. ``provenance`` is the same shape of
     exclusion — a preset was not materialized from anything — and is asserted
-    rather than merely dropped. ``data`` differs by design: the profile reads
-    its own copied tree, which is the point of the verb.
+    rather than merely dropped.
 
     ``config`` is compared by what it writes rather than key-for-key: emission
     collapses a key pair like ``modules.web_terminals`` +
@@ -1436,7 +1428,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
     # the profile lists what init copied beside it.
     assert d_preset.pop("apps") == {}
     assert set(d_new.pop("apps")) == set(preset_apps(preset))
-    for stamped in ("name", "requires_osprey_version", "data"):
+    for stamped in ("name", "requires_osprey_version"):
         d_preset.pop(stamped)
         d_new.pop(stamped)
     # A preset names no deployment; the materialized profile names the one it

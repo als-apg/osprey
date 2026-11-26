@@ -41,6 +41,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.cli.deploy_scaffold import scaffold_deploy_files
 from osprey.cli.deploy_scaffold_templates import CI_MARKER, VERIFY_MARKER
 from osprey.cli.main import cli
@@ -181,7 +182,7 @@ def test_the_verb_needs_no_arguments_inside_the_repo(
     Position-independence is the resolver's contract, and it is what lets the
     emitted pipeline run the same commands a laptop does.
     """
-    monkeypatch.chdir(repo / "data" / "facility" / "knowledge")
+    monkeypatch.chdir(repo / repo_layout.entry("facility").path / "knowledge")
 
     result = runner.invoke(scaffold, ["ci"])
 
@@ -779,7 +780,7 @@ def test_a_claim_needs_no_arguments_inside_the_repo(
     rendered = built_repo / "build" / ".claude" / "rules" / "safety.md"
     rendered.parent.mkdir(parents=True)
     rendered.write_text("# my safety rules\n", encoding="utf-8")
-    monkeypatch.chdir(built_repo / "data")
+    monkeypatch.chdir(built_repo / repo_layout.entry("facility").path)
 
     result = runner.invoke(scaffold, ["claim", "rules/safety"])
 

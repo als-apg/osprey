@@ -17,12 +17,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.agent_runner.provider_env import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.manifest import recorded_claude_md_template
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.cli._template_projects import create_project_with_manifest
 
@@ -48,7 +49,7 @@ def _render_project(manager: TemplateManager, tmp_path: Path, name: str, recorde
         output_dir=tmp_path,
         data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "claude_md_template": render},
-        data_root=bundle_data_root("demo"),
+        repo_root=bundle_source_root("demo"),
     )
     manager.generate_manifest(
         project,
@@ -113,7 +114,7 @@ class TestBuildClaudeCodeContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -136,7 +137,7 @@ class TestBuildClaudeCodeContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -162,7 +163,7 @@ class TestBuildClaudeCodeContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         # Generate manifest so build_claude_code_context can discover the preset
         manager.generate_manifest(project_dir, "ctx-control", "demo", {})
@@ -185,7 +186,7 @@ class TestBuildClaudeCodeContext:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         # Generate manifest
         manager.generate_manifest(project_dir, "ctx-manifest", "demo", {})
@@ -347,7 +348,6 @@ class TestManifestPresetStamp:
                 {
                     "name": "Hand Written",
                     "project_name": "hand-written",
-                    "data": "data",
                     "provider": "cborg",
                     "model": "claude-haiku-4-5",
                     "channel_finder_mode": "in_context",
@@ -363,8 +363,8 @@ class TestManifestPresetStamp:
             ),
             encoding="utf-8",
         )
-        shutil.copytree(bundle_data_root(), repo / "data", dirs_exist_ok=True)
-        (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
+        shutil.copytree(bundle_source_root(), repo, dirs_exist_ok=True)
+        (repo / repo_layout.entry("facility").path / "knowledge").mkdir(parents=True, exist_ok=True)
 
         result = invoke_build(repo)
         assert result.exit_code == 0, (
@@ -454,7 +454,7 @@ class TestManifestPresetStamp:
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical", "preset": preset},
             artifacts=selection,
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.generate_manifest(project, "preset-named", preset, {}, artifacts=selection)
 
@@ -505,7 +505,7 @@ class TestRegenerationCorrectness:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         profile, _profile_dir = resolve_build_profile(None, preset="demo")
         config_update_fields(project_dir / "config.yml", profile.config)
@@ -537,7 +537,7 @@ class TestRegenerationCorrectness:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Set timezone to an env-var pattern in config.yml
@@ -563,7 +563,7 @@ class TestRegenerationCorrectness:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -591,7 +591,7 @@ class TestSafetyPreservation:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -606,7 +606,7 @@ class TestSafetyPreservation:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config_path = project_dir / "config.yml"
         config = yaml.safe_load(config_path.read_text())
@@ -847,7 +847,7 @@ class TestUserFilePreservation:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -874,7 +874,7 @@ class TestErrorHandling:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Record file mtimes
@@ -901,7 +901,7 @@ class TestErrorHandling:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -921,7 +921,7 @@ class TestErrorHandling:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         safety_file = project_dir / ".claude" / "rules" / "safety.md"
         safety_file.write_text("# My Custom Safety Rules\n")
@@ -944,7 +944,7 @@ class TestErrorHandling:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Disable a core server in config (will cause .mcp.json to change)
@@ -969,7 +969,7 @@ class TestGitignore:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -1001,7 +1001,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle=template,
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root(template),
+            repo_root=bundle_source_root(template),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1212,7 +1212,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.generate_manifest(project_dir, "override-test", "demo", {})
 
@@ -1272,7 +1272,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1300,7 +1300,7 @@ class TestDisableServers:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1333,7 +1333,7 @@ class TestRegenRelocation:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
     def test_a_relocated_render_records_no_interpreter_path(self, tmp_path):
@@ -1442,7 +1442,7 @@ class TestFacilityMd:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
@@ -1460,7 +1460,7 @@ class TestFacilityMd:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1479,7 +1479,7 @@ class TestFacilityMd:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Customize facility.md in-place
@@ -1502,7 +1502,7 @@ class TestFacilityMd:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Delete facility.md and remove from user_owned
@@ -1538,7 +1538,7 @@ class TestUserOwned:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1561,7 +1561,7 @@ class TestUserOwned:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Customize safety.md
@@ -1593,7 +1593,7 @@ class TestUserOwned:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         # Regen with some user_owned entries
@@ -1649,7 +1649,7 @@ class TestInstructionsRender:
                 output_dir=tmp_path / label,
                 data_bundle="demo",
                 context=context,
-                data_root=bundle_data_root("demo"),
+                repo_root=bundle_source_root("demo"),
             )
             manifest = manager.generate_manifest(
                 project,
@@ -1735,7 +1735,7 @@ class TestSettingsJsonValidity:
             output_dir=tmp_path,
             data_bundle=data_bundle,
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root(data_bundle),
+            repo_root=bundle_source_root(data_bundle),
         )
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
@@ -1765,7 +1765,7 @@ class TestSettingsJsonValidity:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1792,7 +1792,7 @@ class TestSettingsJsonValidity:
                 "channel_finder_pipeline": "hierarchical",
                 "channel_finder_mode": "hierarchical",
             },
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
@@ -1808,7 +1808,7 @@ class TestSettingsJsonValidity:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1834,7 +1834,7 @@ class TestSettingsJsonValidity:
                 output_dir=tmp_path,
                 data_bundle=data_bundle,
                 context={"channel_finder_mode": "hierarchical"},
-                data_root=bundle_data_root(data_bundle),
+                repo_root=bundle_source_root(data_bundle),
             )
             mcp_path = project_dir / ".mcp.json"
             data = json.loads(mcp_path.read_text())
@@ -1864,7 +1864,7 @@ class TestWritesToggleRegen:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         config_path = project_dir / "config.yml"
 
@@ -1892,7 +1892,7 @@ class TestWritesToggleRegen:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -1939,7 +1939,7 @@ class TestWritesToggleRegen:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
 
@@ -1966,7 +1966,7 @@ class TestWritesToggleRegen:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         # A project with config.yml but no rendered settings.json (never built/regenerated).
         settings = project_dir / ".claude" / "settings.json"
@@ -1985,7 +1985,7 @@ class TestWritesToggleRegen:
             output_dir=tmp_path,
             data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
-            data_root=bundle_data_root("demo"),
+            repo_root=bundle_source_root("demo"),
         )
         manager.regenerate_claude_code(project_dir)
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
