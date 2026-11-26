@@ -416,6 +416,11 @@ previous build exactly as it was and still able to stop the stack it started.
 It renders files, never containers: rebuild while the stack is up and the change
 takes effect at the next ``osprey up`` or ``osprey restart``.
 
+Before rendering, in every mode, it refuses an application the ``apps:`` block
+names whose ``contract`` number differs from this OSPREY's, or whose Python
+imports OSPREY outside the modules apps may use, or a module or name that does
+not exist (:doc:`/reference/contracts/app-contract`).
+
 ``-s, --stream`` — Stream lifecycle step output in real time.
 
 ``--skip-lifecycle`` — Skip the profile's ``pre_build``, ``post_build``, and
@@ -1192,8 +1197,9 @@ is :doc:`/how-to/apps/index`.
 
 ``osprey app check [--repo DIRECTORY]``
    Run what ``osprey build`` checks of the applications the ``apps:`` block of
-   ``profile.yml`` names, then the import boundary over each of their Python
-   packages, that ``panel/index.html`` passes the panel validator's rules (the
+   ``profile.yml`` names — the contract number, the manifest and the import
+   rules over each of their Python packages — then that ``panel/index.html``
+   passes the panel validator's rules (the
    three design-system sheets, the theme boot script, the font sheet, no raw hex
    colour, the page-ready mark, no module of its own loaded ``async``), ESLint
    over ``panel/`` when it holds JS, and

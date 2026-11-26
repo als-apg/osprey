@@ -815,9 +815,11 @@ file, the state directory, the installation of skills and subagents per
 login.</p></li>
 </ul>
 <p>App code imports OSPREY only through <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk</span></code> (plus
-<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> and the public <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> modules). Every
-name in the SDK keeps its meaning across releases; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> reports
-any other import, so an app built today still builds on the next OSPREY.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> and the public <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> modules);
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuse any other import. What an app
+relies on is numbered: <code class="docutils literal notranslate"><span class="pre">app.yml</span></code> declares the contract number the app is
+written for, and OSPREY refuses a different one, so an app a later OSPREY
+would break stops at the build.</p>
 </section>
 <section id="how-writes-stay-safe">
 <h2>How writes stay safe<a class="headerlink" href="#how-writes-stay-safe" title="Link to this heading">#</a></h2>
@@ -871,6 +873,8 @@ refuses it and names the package that installs the app.</p>
 tools on your deployment: the manifest, the backend, the tool server, the
 panel, writes and approvals, logins, skills and subagents.</p></li>
 <li><p><a class="reference internal" href="../../reference/cli.html#cli-osprey-app"><span class="std std-ref">osprey app</span></a> — the command reference.</p></li>
+<li><p><a class="reference internal" href="../../reference/contracts/app-contract.html"><span class="doc">The Application Contract</span></a> — what the contract number covers
+and what each number broke.</p></li>
 </ul>
 <div class="toctree-wrapper compound">
 </div>

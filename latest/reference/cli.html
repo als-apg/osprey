@@ -404,6 +404,7 @@
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/facility-kinds.html">Facility Kinds Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="contracts/app-contract.html">The Application Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/guarded-run.html">Guarded Run Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/audit-trail.html">Audit Trail Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="contracts/watchdog.html">Watchdog Contract</a></li>
@@ -854,6 +855,10 @@ once it has succeeded, so a build that fails, or one you interrupt, leaves the
 previous build exactly as it was and still able to stop the stack it started.</p>
 <p>It renders files, never containers: rebuild while the stack is up and the change
 takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">restart</span></code>.</p>
+<p>Before rendering, in every mode, it refuses an application the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block
+names whose <code class="docutils literal notranslate"><span class="pre">contract</span></code> number differs from this OSPREY’s, or whose Python
+imports OSPREY outside the modules apps may use, or a module or name that does
+not exist (<a class="reference internal" href="contracts/app-contract.html"><span class="doc">The Application Contract</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">-s,</span> <span class="pre">--stream</span></code> — Stream lifecycle step output in real time.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--skip-lifecycle</span></code> — Skip the profile’s <code class="docutils literal notranslate"><span class="pre">pre_build</span></code>, <code class="docutils literal notranslate"><span class="pre">post_build</span></code>, and
 <code class="docutils literal notranslate"><span class="pre">validate</span></code> steps; deployment-package wheels are still built and installed.</p>
@@ -1531,8 +1536,9 @@ package would be a Python keyword or shadow a standard-library or OSPREY module
 is refused, and whatever exists at <code class="docutils literal notranslate"><span class="pre">apps/NAME/</span></code> unless <code class="docutils literal notranslate"><span class="pre">--force</span></code> replaces it.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span> <span class="pre">[--repo</span> <span class="pre">DIRECTORY]</span></code></dt><dd><p>Run what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of the applications the <code class="docutils literal notranslate"><span class="pre">apps:</span></code> block of
-<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> names, then the import boundary over each of their Python
-packages, that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code> passes the panel validator’s rules (the
+<code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> names — the contract number, the manifest and the import
+rules over each of their Python packages — then that <code class="docutils literal notranslate"><span class="pre">panel/index.html</span></code>
+passes the panel validator’s rules (the
 three design-system sheets, the theme boot script, the font sheet, no raw hex
 colour, the page-ready mark, no module of its own loaded <code class="docutils literal notranslate"><span class="pre">async</span></code>), ESLint
 over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> when it holds JS, and

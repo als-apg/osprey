@@ -1,0 +1,814 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>The Application Contract &#8212; Osprey Framework dev documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../_static/custom.css?v=ef4de9ba" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../_static/documentation_options.js?v=632f9628"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/app-contract';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = 'dev';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/app-contract.html" />
+    <link rel="icon" href="../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="Guarded Run Contract" href="guarded-run.html" />
+    <link rel="prev" title="Facility Kinds Contract" href="facility-kinds.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="dev" />
+    <meta name="docbuild:last-update" content="Nov 26, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../how-to/index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../cli.html">CLI Reference</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../osprey-panels.html">osprey-panels</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../configuration/index.html">Configuration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/profile.html">Build Profile — profile.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/config.html">Runtime Configuration — config.yml</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/environment-variables.html">Environment Variables</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../configuration/scenario-files.html">Scenario files</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Contracts</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="health-json.html">The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span> <span class="pre">--json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="connectors.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="partial-answers.html">Partial Answers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-json.html">The <code class="docutils literal notranslate"><span class="pre">facility.json</span></code> Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-kinds.html">Facility Kinds Contract</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">The Application Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="guarded-run.html">Guarded Run Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="watchdog.html">Watchdog Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2"><a class="reference internal" href="dock-engine.html">Dock Engine Contract</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../connectors-api/index.html">osprey-connectors API</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/contracts.html">Connector Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/building.html">Building Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/errors-logging.html">Errors and Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/configuration.html">Configuration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/write-safety.html">Write Safety</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/deployment.html">A Deployment’s Machines</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/supervision.html">Supervising Connector Processes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/simulation.html">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/services.html">Directory, alarms and put log</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../connectors-api/utilities.html">Utilities</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../osprey-panels.html">osprey-panels</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">The Application Contract</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="the-application-contract">
+<span id="reference-app-contract"></span><h1>The Application Contract<a class="headerlink" href="#the-application-contract" title="Link to this heading">#</a></h1>
+<p>An application relies on names OSPREY may change. So that such a change stops an app at
+the build, not while it runs, the app declares in its <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>, with <code class="docutils literal notranslate"><span class="pre">contract:</span> <span class="pre">N</span></code>,
+the version of the application contract it is written for, and OSPREY refuses any
+manifest whose number differs from the one it implements: contract <strong>1</strong>, the value of
+<code class="docutils literal notranslate"><span class="pre">osprey.apps.contract.APP_CONTRACT</span></code>.</p>
+<section id="what-the-contract-covers">
+<h2>What the contract covers<a class="headerlink" href="#what-the-contract-covers" title="Link to this heading">#</a></h2>
+<p>One number covers four layers. The list is exhaustive: what this page does not list is
+not promised.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 40.0%" />
+<col style="width: 35.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Layer</p></th>
+<th class="head"><p>What it holds</p></th>
+<th class="head"><p>Where it is defined</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Manifest</p></td>
+<td><p>The keys of <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>, with their types; the frontmatter keys of an app’s
+<code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">AppManifest</span></code> in <code class="docutils literal notranslate"><span class="pre">src/osprey/apps/manifest.py</span></code>; <code class="docutils literal notranslate"><span class="pre">AppAgent</span></code> in
+<code class="docutils literal notranslate"><span class="pre">src/osprey/apps/agents.py</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Python</p></td>
+<td><p>The names of <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.__all__</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey.apps.sdk.testing.__all__</span></code>
+and <code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds.__all__</span></code>; the public modules of
+<code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">src/osprey/apps/sdk/</span></code>; <code class="docutils literal notranslate"><span class="pre">packages/osprey-facility/src/osprey_facility/kinds.py</span></code>;
+<code class="docutils literal notranslate"><span class="pre">packages/osprey-connectors</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>Panel</p></td>
+<td><p>The panel rules; the exports of <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code>; the <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> primitive
+classes; the design tokens; the <code class="docutils literal notranslate"><span class="pre">type</span></code> of each <code class="docutils literal notranslate"><span class="pre">osprey-*</span></code> message the
+terminal posts to a panel</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey.interfaces.design_system.panels.validator</span></code>; <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code>,
+<code class="docutils literal notranslate"><span class="pre">primitives.css</span></code> and <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> under
+<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/design_system/static/</span></code>; <code class="docutils literal notranslate"><span class="pre">panel-iframe-sync.js</span></code> under
+<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/web_terminal/static/js/</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Process</p></td>
+<td><p>The headers an app’s server receives (<code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code>,
+<code class="docutils literal notranslate"><span class="pre">X-Osprey-Session</span></code>, <code class="docutils literal notranslate"><span class="pre">X-Osprey-Caller</span></code>, <code class="docutils literal notranslate"><span class="pre">X-Launch-Token</span></code>); the <code class="docutils literal notranslate"><span class="pre">OSPREY_*</span></code>
+environment variables handed to its container and tool server</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">src/osprey/utils/owner_header.py</span></code>, <code class="docutils literal notranslate"><span class="pre">src/osprey/utils/launch_token.py</span></code>;
+<code class="docutils literal notranslate"><span class="pre">APP_ENVIRONMENT</span></code> in <code class="docutils literal notranslate"><span class="pre">src/osprey/apps/projection.py</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_*</span></code> variables are <code class="docutils literal notranslate"><span class="pre">OSPREY_APP_BIND</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_APP_CONFIG</span></code>,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_APP_CORPORA</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_APP_NAME</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_APP_PORT</span></code>,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_APP_STATE_DIRS</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_AUDIT_IDENTITY</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_CONFIG</span></code>,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_CONTROL_CONTEXT_TREE</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_GUARDED_RUN_DIR</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_&lt;NAME&gt;_URL</span></code>,
+one per corpus a container declares, <code class="docutils literal notranslate"><span class="pre">OSPREY_SESSION_ID</span></code> (inherited by the tool
+server from the agent’s session), <code class="docutils literal notranslate"><span class="pre">OSPREY_SPOOL_DIR</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS</span></code>,
+<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_ROSTER_OWNERS</span></code> and <code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_SECRET_&lt;user&gt;</span></code>, one per roster
+user of a panel grant. Names an app declares under <code class="docutils literal notranslate"><span class="pre">env:</span></code> are its own.</p>
+<p>Not promised:</p>
+<ul class="simple">
+<li><p>environment variables without the <code class="docutils literal notranslate"><span class="pre">OSPREY_</span></code> prefix (<code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code>,
+<code class="docutils literal notranslate"><span class="pre">EPICS_CA_*</span></code>, <code class="docutils literal notranslate"><span class="pre">TZ</span></code>, <code class="docutils literal notranslate"><span class="pre">&lt;APP&gt;_LAUNCH_TOKEN</span></code>);</p></li>
+<li><p>mount paths and the shape of mounted files;</p></li>
+<li><p>the template context of a container’s compose fragment;</p></li>
+<li><p>underscore-led modules.</p></li>
+</ul>
+</section>
+<section id="the-bump-rule">
+<h2>The bump rule<a class="headerlink" href="#the-bump-rule" title="Link to this heading">#</a></h2>
+<p>Removing, renaming or retyping anything this page lists, or changing what it means,
+raises the number by one in the same change. Adding does not. A rule that newly refuses
+something an app could do before is a breaking change. The change adds its row to the
+<a class="reference internal" href="#history">History</a>. The rule is the one <a class="reference internal" href="facility-json.html"><span class="doc">The facility.json Contract</span></a> follows for its header.</p>
+</section>
+<section id="the-refusal">
+<h2>The refusal<a class="headerlink" href="#the-refusal" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> read the number before
+anything else in the manifest. A mismatch is the only finding reported for that
+manifest, beside the profile’s own errors. The line names the file, then
+<code class="docutils literal notranslate"><span class="pre">contract:</span></code>, then one of four forms, each followed by this page’s address:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Declared</p></th>
+<th class="head"><p>Message</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Nothing</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">declared;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">contract</span> <span class="pre">N.</span> <span class="pre">Add</span> <span class="pre">&quot;contract:</span> <span class="pre">N&quot;</span> <span class="pre">to</span> <span class="pre">app.yml.</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Not an integer</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;value&gt;</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">an</span> <span class="pre">integer;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">contract</span> <span class="pre">N.</span> <span class="pre">Add</span> <span class="pre">&quot;contract:</span> <span class="pre">N&quot;</span>
+<span class="pre">to</span> <span class="pre">app.yml.</span></code> <code class="docutils literal notranslate"><span class="pre">true</span></code>, <code class="docutils literal notranslate"><span class="pre">1.0</span></code> and <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> are not integers.</p></td>
+</tr>
+<tr class="row-even"><td><p>Lower</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">app</span> <span class="pre">is</span> <span class="pre">written</span> <span class="pre">for</span> <span class="pre">contract</span> <span class="pre">M;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">N.</span> <span class="pre">Update</span> <span class="pre">the</span> <span class="pre">app</span> <span class="pre">to</span>
+<span class="pre">contract</span> <span class="pre">N.</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>Higher</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">app</span> <span class="pre">is</span> <span class="pre">written</span> <span class="pre">for</span> <span class="pre">contract</span> <span class="pre">M;</span> <span class="pre">this</span> <span class="pre">OSPREY</span> <span class="pre">implements</span> <span class="pre">N.</span> <span class="pre">Upgrade</span> <span class="pre">OSPREY.</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>For an installed app the file named is <code class="docutils literal notranslate"><span class="pre">&lt;module</span> <span class="pre">path&gt;/app.yml</span> <span class="pre">(installed</span> <span class="pre">by</span> <span class="pre">&lt;dist&gt;</span>
+<span class="pre">&lt;version&gt;)</span></code>.</p>
+</section>
+<section id="what-holds-the-contract">
+<h2>What holds the contract<a class="headerlink" href="#what-holds-the-contract" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 50.0%" />
+<col style="width: 50.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Held by a test</p></th>
+<th class="head"><p>Held by review</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Every manifest key keeps its name and type; every agent frontmatter key, SDK
+name, <code class="docutils literal notranslate"><span class="pre">kinds</span></code> name, <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code> export, primitive class, panel message
+type, header and <code class="docutils literal notranslate"><span class="pre">OSPREY_*</span></code> variable is still there</p></td>
+<td><p>The <code class="docutils literal notranslate"><span class="pre">osprey_connectors</span></code> modules; the token names; the signature and meaning of
+a name that stays; a stricter rule</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="the-build-s-import-check">
+<h2>The build’s import check<a class="headerlink" href="#the-build-s-import-check" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> refuse an app that imports OSPREY outside the
+modules above (rule <code class="docutils literal notranslate"><span class="pre">import_boundary</span></code>), imports from them a module that does not
+exist (<code class="docutils literal notranslate"><span class="pre">import_missing_module</span></code>) or a name its module does not define
+(<code class="docutils literal notranslate"><span class="pre">import_missing_name</span></code>), or has a relative import that leaves its package
+(<code class="docutils literal notranslate"><span class="pre">relative_import_escape</span></code>). A source file that does not parse cannot be checked and
+is refused too (<code class="docutils literal notranslate"><span class="pre">unreadable_source</span></code>). They judge the packages installed where the
+build runs. A release image pins <code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code> to the build’s version but
+resolves <code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey-facility</span></code> from the index, the newest the
+framework admits, so an app can still fail at start in an image whose packages differ
+from those the build judged.</p>
+</section>
+<section id="history">
+<h2>History<a class="headerlink" href="#history" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 10.0%" />
+<col style="width: 90.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Number</p></th>
+<th class="head"><p>What it broke</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>1</p></td>
+<td><p>Every app: <code class="docutils literal notranslate"><span class="pre">contract</span></code> is a required key of <code class="docutils literal notranslate"><span class="pre">app.yml</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<section id="before-contract-1">
+<h3>Before contract 1<a class="headerlink" href="#before-contract-1" title="Link to this heading">#</a></h3>
+<p>These changes broke apps before the number existed:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">require.one_of</span></code> accepts readback names only (2026-11-09).</p></li>
+<li><p>Hook code in an app is refused (2026-11-11).</p></li>
+<li><p>A panel must load <code class="docutils literal notranslate"><span class="pre">page-ready.js</span></code> and call <code class="docutils literal notranslate"><span class="pre">markPageReady()</span></code>; a missing
+<code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>, a missing fonts link and raw hex colours are refused (2026.11.1).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">single_user_alias</span></code> is removed; <code class="docutils literal notranslate"><span class="pre">roster_grant:</span> <span class="pre">{}</span></code> names the one operator
+(2026-11-21).</p></li>
+<li><p>The measurement-kinds module moved out of the framework to
+<code class="docutils literal notranslate"><span class="pre">osprey_facility.kinds</span></code> (2026-11-23).</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="facility-kinds.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Facility Kinds Contract</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="guarded-run.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Guarded Run Contract</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-contract-covers">What the contract covers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-bump-rule">The bump rule</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-refusal">The refusal</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-holds-the-contract">What holds the contract</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-build-s-import-check">The build’s import check</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#history">History</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#before-contract-1">Before contract 1</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/app-contract.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

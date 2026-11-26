@@ -616,11 +616,12 @@ the code.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>app<span class="w"> </span>check
 </pre></div>
 </div>
-<p>This runs what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of every listed app — the manifest,
-each login’s selection, ports, pinned versions — and then what only the app’s
-own source can tell: the import rule over its Python, ESLint over <code class="docutils literal notranslate"><span class="pre">panel/</span></code>
-and its JavaScript tests under <code class="docutils literal notranslate"><span class="pre">tests/</span></code>. It builds nothing and prints every
-violation with the app and the field it is in. The scaffold passes as copied.
+<p>This runs what <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> checks of every listed app — the contract
+number, the manifest, each login’s selection, ports, pinned versions, the
+import rules over its Python — and then its panel: the panel rules, ESLint
+over <code class="docutils literal notranslate"><span class="pre">panel/</span></code> and its JavaScript tests under <code class="docutils literal notranslate"><span class="pre">tests/</span></code>. It builds nothing
+and prints every violation with the app and the field it is in. The scaffold
+passes as copied.
 The first run installs a pinned JavaScript toolchain into your user cache,
 which needs <code class="docutils literal notranslate"><span class="pre">npm</span></code> and network access once.</p>
 <p>An app an installed package ships (<a class="reference internal" href="index.html"><span class="doc">Build Your Own OSPREY Apps</span></a>) is checked the same way, and
@@ -676,6 +677,7 @@ terminal.</p>
 copied:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># The starting point of a new application: one panel over one channel, one read tool,</span>
 <span class="c1"># one write tool. The channel is the deployment&#39;s: apps.scaffold-app.config.channel.</span>
+<span class="nt">contract</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">scaffold-app</span>
 <span class="nt">summary</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Shows one channel of the control target and sets it on approval.</span>
 <span class="nt">containers</span><span class="p">:</span>
@@ -711,6 +713,10 @@ copied:</p>
 <span class="nt">skills</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">scaffold-app</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">contract</span></code> is the version of the application contract the app is written
+for — the manifest keys, SDK names and panel rules it relies on. OSPREY
+refuses an app whose number differs from its own, so an app a change would
+break stops at the build (<a class="reference internal" href="../../reference/contracts/app-contract.html"><span class="doc">The Application Contract</span></a>).</p>
 <p>The first three blocks describe one part each:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">containers</span></code></dt><dd><p>The backend. <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> runs the app’s Python package on the
@@ -1394,124 +1400,128 @@ app’s root and a <code class="docutils literal notranslate"><span class="pre">
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">contract</span></code></p></td>
+<td><p>Required. The application contract number the app is written for
+(<a class="reference internal" href="#the-manifest">The manifest</a>).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">name</span></code></p></td>
 <td><p>The app’s name, <code class="docutils literal notranslate"><span class="pre">[a-z0-9-]+</span></code>; also its directory, its panel id and
 its tool server’s name.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">summary</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">summary</span></code></p></td>
 <td><p>One sentence about the app.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers</span></code></p></td>
 <td><p>Optional. Required by <code class="docutils literal notranslate"><span class="pre">panel</span></code>, and by a <code class="docutils literal notranslate"><span class="pre">tools.approval</span></code> entry on
 a login whose tier writes.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;</span></code></p></td>
 <td><p>One container; the key is its service name. Exactly one of
 <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> (the app’s package on the project image) or
 <code class="docutils literal notranslate"><span class="pre">image:</span></code> (any image, with its compose fragment under
 <code class="docutils literal notranslate"><span class="pre">compose/&lt;key&gt;/</span></code>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.command</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.command</span></code></p></td>
 <td><p>What a <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> container runs.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.health</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.health</span></code></p></td>
 <td><p>The health route, polled by the terminal.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.drives_target</span></code> [false]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.drives_target</span></code> [false]</p></td>
 <td><p>The container reaches the control system.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.control_identity</span></code> [false]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.control_identity</span></code> [false]</p></td>
 <td><p>The container’s process identity names the person behind the write
 to the control system (the Channel Access user), instead of the
 shared <code class="docutils literal notranslate"><span class="pre">osprey</span></code> account.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.state</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.state</span></code></p></td>
 <td><p>A directory kept across restarts, relative to the deployment’s state
 zone.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.corpora</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.corpora</span></code></p></td>
 <td><p>The qmd corpora a <code class="docutils literal notranslate"><span class="pre">runtime:</span> <span class="pre">osprey</span></code> container reads and searches,
 each declared under <code class="docutils literal notranslate"><span class="pre">services.qmd.corpora</span></code> with a <code class="docutils literal notranslate"><span class="pre">source</span></code>
 (<a class="reference internal" href="#read-a-document-corpus">Read a document corpus</a>).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.env</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.env</span></code></p></td>
 <td><p>Host environment variable names passed into the container.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.port</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">containers.&lt;key&gt;.port</span></code></p></td>
 <td><p>A fixed port; otherwise the build assigns one.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.label</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.label</span></code></p></td>
 <td><p>The sidebar row’s text.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.icon</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.icon</span></code></p></td>
 <td><p>The sidebar row’s icon, one of the names the terminal draws (see
 <a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>). Without it the row wears the generic
 one.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.description</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.description</span></code></p></td>
 <td><p>The sentence the sidebar row’s tooltip shows under its text.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.help</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.help</span></code></p></td>
 <td><p>The panel’s Help page: a path under the deployment’s docs root
 (no <code class="docutils literal notranslate"><span class="pre">..</span></code>), or an <code class="docutils literal notranslate"><span class="pre">https://</span></code> URL.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.container</span></code></p></td>
 <td><p>The container that serves the panel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.entry</span></code> [<code class="docutils literal notranslate"><span class="pre">/</span></code>]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.entry</span></code> [<code class="docutils literal notranslate"><span class="pre">/</span></code>]</p></td>
 <td><p>The route the panel opens at.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.launch_token</span></code> [false]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.launch_token</span></code> [false]</p></td>
 <td><p>The write routes demand a token the terminal adds on an armed login.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.read_timeout_s</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.read_timeout_s</span></code></p></td>
 <td><p>Seconds a proxied request may take; for a route that performs a long
 action, such as a write of many setpoints with read-back.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.agent_routes</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.agent_routes</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">[METHOD,</span> <span class="pre">/path]</span></code> pairs the agent’s tools may call; <code class="docutils literal notranslate"><span class="pre">GET</span></code>,
 <code class="docutils literal notranslate"><span class="pre">HEAD</span></code> and <code class="docutils literal notranslate"><span class="pre">OPTIONS</span></code> read, every other method writes.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel.roster_grant</span></code></p></td>
 <td><p>Required when a roster card shows the panel: <code class="docutils literal notranslate"><span class="pre">{}</span></code> hands each such
 card’s secret to the panel’s container, and on a single-user
 deployment it names the one operator, so the panel’s writes are
 recorded under <code class="docutils literal notranslate"><span class="pre">deployment.host_identity</span></code>. The build refuses the
 panel without it.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.module</span></code></p></td>
 <td><p>The Python module run as the tool server.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.read</span></code></p></td>
 <td><p>Tools that only read.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.approval</span></code></p></td>
 <td><p>Write tools, each with its approval entry (<a class="reference internal" href="#writes-and-approvals">Writes and approvals</a>).</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.deny_in_jobs</span></code> [false]</p></td>
 <td><p>No dispatch job runs any of the app’s tools.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.shown_when</span></code> [<code class="docutils literal notranslate"><span class="pre">always</span></code>]</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">panel</span></code>: the tool server is present only where the login shows the
 panel.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tools.errors.unreachable</span></code>, <code class="docutils literal notranslate"><span class="pre">tools.errors.refused</span></code></p></td>
 <td><p>The sentences the agent sees for a backend that does not answer, and
 for a refused call.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">audit_identity</span></code> [<code class="docutils literal notranslate"><span class="pre">name</span></code>]</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">audit_identity</span></code> [<code class="docutils literal notranslate"><span class="pre">name</span></code>]</p></td>
 <td><p>The name the containers’ spool and state directories file under;
 refused on an app with no container.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vendor</span></code></p></td>
 <td><p>Files fetched into the app at build: <code class="docutils literal notranslate"><span class="pre">{url,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> or
 <code class="docutils literal notranslate"><span class="pre">{package,</span> <span class="pre">version,</span> <span class="pre">file,</span> <span class="pre">into,</span> <span class="pre">sha256}</span></code> (an npm package through
 the CDN).</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">skills</span></code></p></td>
 <td><p>The skills the app carries, each <code class="docutils literal notranslate"><span class="pre">skills/&lt;name&gt;/SKILL.md</span></code>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">agents</span></code></p></td>
 <td><p>The subagents the app carries, each <code class="docutils literal notranslate"><span class="pre">agents/&lt;name&gt;.md</span></code>
 (<a class="reference internal" href="#subagents">Subagents</a>).</p></td>
 </tr>
