@@ -858,6 +858,33 @@ def list_session_plans() -> list[dict[str, Any]]:
     return entries
 
 
+def _named_strings(value: Any) -> list[str]:
+    """Every string *value* holds, at any depth, once each, in first-seen order."""
+    found: dict[str, None] = {}
+    stack = [value]
+    while stack:
+        item = stack.pop(0)
+        if isinstance(item, str):
+            found.setdefault(item, None)
+        elif isinstance(item, Mapping):
+            stack[:0] = list(item.values())
+        elif isinstance(item, (list, tuple)):
+            stack[:0] = list(item)
+    return list(found)
+
+
+async def _describe_devices(names: list[str]) -> Any:
+    """The worker's description of the devices among *names*, or ``None``
+    when no worker answers (`qserver_startup.describe_devices`)."""
+    if not names:
+        return None
+    try:
+        return await get_queue_backend().function_execute(_DESCRIBE_FUNCTION, names)
+    except Exception as exc:
+        logger.debug("the worker described no devices: %s", exc)
+        return None
+
+
 @app.post("/plans/validate")
 async def validate_session_plan(request: PlanValidateRequest) -> dict:
     """Validate the CURRENT on-disk content of a session plan file.
@@ -884,6 +911,13 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     would give, and nothing is recorded or uploaded. With no manager, or one
     that cannot be read, the pass stands.
 
+    The dry run rehearses each device the sample arguments name with what the
+    worker says that device records (`qserver_startup.describe_devices`, asked
+    for every string the sample arguments hold), so a detector's stand-in
+    records the run's own columns. ``stand_ins`` names each declared channel
+    the worker did not describe — every one, when no worker answers — whose
+    rehearsal recorded under its own name instead.
+
     Raises 404 if no session plan named ``request.name`` has been written, and
     400 ``unknown_device`` if the sample arguments name a device the worker did
     not build.
@@ -899,6 +933,7 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
         plan_name=name,
         sample_args=request.sample_args,
         dry_run_timeout=request.dry_run_timeout,
+        described=await _describe_devices(_named_strings(request.sample_args)),
     )
     upload: dict[str, Any] = {"uploaded": False, "reason": None, "detail": None}
     if result.passed:
@@ -924,6 +959,7 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
         "reasons": result.reasons,
         "content_hash": result.content_hash,
         "upload": upload,
+        "stand_ins": list(result.stand_ins),
     }
 
 
@@ -1184,10 +1220,12 @@ async def get_plan_source(
 # `preview_plan`), which reads the trajectory without driving it, and this
 # process only relays the summary.
 
-# The worker-namespace function that produces the trajectory summary. Called by
-# name, and permitted by name in the manager's function permissions — the one
-# deliberate exception in an otherwise deny-all list.
+# The worker-namespace functions that produce the trajectory summary and the
+# description of each named plan device. Called by name, and permitted by name
+# in the manager's function permissions — the two deliberate exceptions in an
+# otherwise deny-all list.
 _PREVIEW_FUNCTION = "preview_plan"
+_DESCRIBE_FUNCTION = "describe_devices"
 
 # Length bound on any explanatory sentence this route puts on the wire. The
 # approval hook embeds the response verbatim in a prompt a human reads, so an

@@ -1512,6 +1512,61 @@ def test_validation_passes_sample_args_drawn_from_the_workers_devices(client: Te
     assert validation_records.has_passing_record(content_hash) is True
 
 
+def test_validation_rehearses_with_what_the_worker_describes(client: TestClient) -> None:
+    """The route asks the worker to describe every name the sample arguments
+    hold, and a pass whose channels it described names no stand-in."""
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    from osprey.services.bluesky_bridge import qserver_startup
+
+    number = {"source": "connector:X", "dtype": "number", "shape": []}
+    described = {
+        "COR1": {"kind": "settable", "data_keys": {"COR1": number}},
+        "BPM1": {"kind": "readable", "data_keys": {"BPM1": number}},
+    }
+    manager = FakeManager(
+        status=status_doc(),
+        devices_allowed=_devices(*_WORKER_DEVICES),
+        function_execute={"success": True, "task_uid": "t-1"},
+        task_result={
+            "success": True,
+            "status": "completed",
+            "result": {"success": True, "return_value": described},
+        },
+    )
+    install_backend(manager)
+    _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": _SWEEP_PLAN, "sample_args": {"correctors": ["COR1"], "monitors": ["BPM1"]}},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert resp.json()["stand_ins"] == []
+    (call,) = manager.kwargs_for("function_execute")
+    assert call["item"]["name"] == qserver_startup.describe_devices.__name__
+    assert call["item"]["args"] == [["COR1", "BPM1"]]
+
+
+def test_a_validation_no_worker_describes_names_its_stand_ins(client: TestClient) -> None:
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+    manager = FakeManager(status=status_doc(), devices_allowed=_devices(*_WORKER_DEVICES))
+    install_backend(manager)
+    _write_sweep(client)
+
+    resp = client.post(
+        "/plans/validate",
+        json={"name": _SWEEP_PLAN, "sample_args": {"correctors": ["COR1"], "monitors": ["BPM1"]}},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["passed"] is True, resp.json()["reasons"]
+    assert resp.json()["stand_ins"] == ["BPM1", "COR1"]
+
+
 def test_validation_stands_when_the_worker_cannot_list_its_devices(client: TestClient) -> None:
     """Fail-open, as at enqueue: a worker that cannot answer leaves the pass as it was."""
     pytest.importorskip("bluesky")

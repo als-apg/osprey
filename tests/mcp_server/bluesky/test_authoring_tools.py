@@ -196,6 +196,32 @@ async def test_validate_plan_posts_name_and_sample_args(tmp_path, monkeypatch):
     assert data["passed"] is True
 
 
+async def test_validate_plan_relays_the_stand_ins_it_rehearsed_against(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    body = {"passed": True, "reasons": [], "content_hash": "deadbeef", "stand_ins": ["ES1-MCA01"]}
+    with patch(f"{_MOD}._http_post_json", return_value=(200, body)):
+        result = await _validate_fn()(name="tiny", sample_args={"detector": "ES1-MCA01"})
+
+    data = extract_response_dict(result)
+    assert data["stand_ins"] == ["ES1-MCA01"]
+    assert (
+        data["note"] == "Rehearsed against a stand-in for ES1-MCA01; its columns are not the run's."
+    )
+
+
+async def test_validate_plan_with_no_stand_in_adds_no_note(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    initialize_server_context()
+
+    body = {"passed": True, "reasons": [], "content_hash": "deadbeef", "stand_ins": []}
+    with patch(f"{_MOD}._http_post_json", return_value=(200, body)):
+        result = await _validate_fn()(name="tiny")
+
+    assert "note" not in extract_response_dict(result)
+
+
 @pytest.mark.parametrize("dry_run_timeout", [30.0, 90.0])
 async def test_validate_plan_waits_for_the_dry_run_it_asked_for(
     tmp_path, monkeypatch, dry_run_timeout

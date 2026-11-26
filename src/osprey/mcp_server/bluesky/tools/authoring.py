@@ -184,7 +184,7 @@ async def validate_plan(
             (300); a sample run that needs longer should sleep less.
 
     Returns:
-        JSON ``{"passed", "reasons", "content_hash", "upload"}``. ``reasons``
+        JSON ``{"passed", "reasons", "content_hash", "upload", "stand_ins"}``. ``reasons``
         is empty on a pass; on a failure it names every rejection from
         whichever stage stopped the plan. ``upload`` is
         ``{"uploaded", "reason", "detail"}`` and reports whether the bytes that
@@ -193,6 +193,10 @@ async def validate_plan(
         server has nowhere to upload to), but the plan is not enqueueable until
         an upload lands, so ``reason``/``detail`` are what to relay if a later
         queue_add is refused with ``session_plan_not_in_namespace``.
+        ``stand_ins`` names each channel the dry run rehearsed against a
+        stand-in recording under its own name, because no worker described it;
+        a ``"note"`` then says so — relay it, since a pass there says nothing
+        about the columns those channels record.
 
     Refusals:
         - unknown_device: ``sample_args`` name a device the queue worker did not
@@ -229,6 +233,13 @@ async def validate_plan(
         )
     if status != 200:
         return _relay_refusal(resp_body, status, fallback_hints=[])
+
+    stand_ins = resp_body.get("stand_ins") or []
+    if stand_ins:
+        resp_body["note"] = (
+            f"Rehearsed against a stand-in for {', '.join(map(str, stand_ins))}; "
+            f"{'its' if len(stand_ins) == 1 else 'their'} columns are not the run's."
+        )
 
     # A pass is what changes the plan's standing (loadable, enqueueable) and
     # what the panel re-renders; a failed validation leaves everything as it
