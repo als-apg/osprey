@@ -1,7 +1,8 @@
 """Control-room-neutral device specs: plain dataclasses, no CA/ophyd imports.
 
 These describe *what* a device is (a settable setpoint/readback pair, a
-command a plan triggers, or a read-only value) without naming the control
+command a plan triggers, a detector a plan triggers and records, or a
+read-only value) without naming the control
 system that backs it. Kept in their own module, free of ``ophyd_async``
 imports and any raw Channel Access client library, so consumers that only need
 the shape (e.g. env parsing) can import it without pulling in ``ophyd_async``
@@ -102,9 +103,29 @@ class TriggerableSpec:
 
 
 @dataclass(frozen=True)
+class DetectorSpec:
+    """One detector a plan triggers and records: its device-mapping name, its act
+    and its results.
+
+    ``command``, ``status``, ``idle`` and ``timeout_s`` are the acquire command's
+    act, as on a :class:`TriggerableSpec`. ``results`` are the channels the
+    detector records, in order, each recorded under its own address; the status
+    is not recorded.
+    """
+
+    name: str
+    command: str
+    status: str
+    idle: str | int | float | bool
+    timeout_s: float
+    results: tuple[ReadableSpec, ...]
+
+
+@dataclass(frozen=True)
 class DeviceSpecs:
     """Every device a device file names, one list per kind."""
 
     settables: list[SettableSpec]
     readables: list[ReadableSpec]
     triggerables: list[TriggerableSpec]
+    detectors: list[DetectorSpec]
