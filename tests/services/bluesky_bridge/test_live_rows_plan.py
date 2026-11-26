@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.document_plane import RunDocumentRouter
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
@@ -146,3 +148,87 @@ def test_router_keeps_the_stamps_of_interleaved_runs_apart() -> None:
 
     assert live_rows.get("run-a")["plan"] == _STAMP
     assert live_rows.get("run-b")["plan"] == orm
+
+
+# =========================================================================
+# A real run: the device a plan declared names each of its result entries
+# =========================================================================
+
+_DETECTOR = "ES1-MCA01"
+_COUNTS, _SPECTRUM = "ES1:DET:MCA:01:COUNTS:RB", "ES1:DET:MCA:01:SPECTRUM:WAVEFORM"
+
+
+def test_a_detector_run_names_its_device_on_each_result_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scan triggering a detector, recorded by the real recorder from a real
+    RunEngine's documents, serves the detector's results as columns, and the
+    analysis names the declared detector on each result's entry."""
+    from bluesky import RunEngine
+    from bluesky import plans as bp
+    from fastapi.testclient import TestClient
+    from ophyd_async.core import AsyncStatus, StandardReadable
+    from pydantic import BaseModel
+
+    from osprey.services.bluesky_bridge.app import app
+    from osprey.services.bluesky_bridge.devices.mock import MockSettable
+    from osprey.services.bluesky_bridge.plan_fields import (
+        MovableChannel,
+        TriggeredChannel,
+        channel_roles,
+    )
+    from osprey.services.bluesky_bridge.plan_loader import FacilityPlans
+    from osprey.services.bluesky_bridge.plan_types import PlanSpec
+
+    class _Detector(StandardReadable):
+        """Records a count and a three-point spectrum under their addresses."""
+
+        def __init__(self, name: str) -> None:
+            self._count = 0
+            super().__init__(name=name)
+
+        @AsyncStatus.wrap
+        async def trigger(self) -> None:
+            self._count += 1
+
+        async def read(self) -> dict[str, Any]:
+            return {
+                _COUNTS: {"value": float(self._count), "timestamp": 0.0},
+                _SPECTRUM: {"value": [float(self._count)] * 3, "timestamp": 0.0},
+            }
+
+        async def describe(self) -> dict[str, Any]:
+            return {
+                _COUNTS: {"source": "test", "dtype": "number", "shape": []},
+                _SPECTRUM: {"source": "test", "dtype": "array", "shape": [3]},
+            }
+
+    class _Params(BaseModel):
+        axis: MovableChannel
+        detector: TriggeredChannel
+
+    spec = PlanSpec(
+        name="detector_scan",
+        plan=lambda devices, params: None,
+        schema=_Params,
+        roles=tuple(channel_roles(_Params)),
+    )
+    plans = FacilityPlans(plans={spec.name: spec})
+    monkeypatch.setattr(
+        "osprey.services.bluesky_bridge.plan_loader.get_facility_plans", lambda: plans
+    )
+    stamp = {"name": spec.name, "kwargs": {"axis": "motor", "detector": _DETECTOR}}
+    run_engine = RunEngine(context_managers=[])
+    run_engine.subscribe(LiveRowRecorder(key="run-det", plan=stamp))
+    motor, detector = MockSettable(name="motor"), _Detector(name=_DETECTOR)
+
+    run_engine(bp.scan([detector], motor, -1.0, 1.0, 5))
+
+    body = TestClient(app).get("/runs/run-det/data").json()
+    names = [column["name"] for column in body["columns"]]
+    assert {_COUNTS, _SPECTRUM} <= set(names)
+    entries = body["analysis"]["channels"]
+    assert [(entry["channel"], entry["column"]) for entry in entries] == [
+        (_DETECTOR, _COUNTS),
+        (_DETECTOR, _SPECTRUM),
+    ]
