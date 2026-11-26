@@ -209,7 +209,6 @@ def test_known_root_entries_derive_from_the_profile():
 
     profile = BuildProfile(
         name="p",
-        data="facility-data/channels",
         dispatch=DispatchConfig(triggers="dispatch/triggers.yml"),
         services={"beam-logger": ServiceDef(template="service-templates/beam-logger")},
     )
@@ -218,7 +217,6 @@ def test_known_root_entries_derive_from_the_profile():
 
     assert known == [
         "my-profile.yml",
-        "facility-data",
         "dispatch",
         "service-templates",
     ]
@@ -288,8 +286,9 @@ def test_root_directories_named_by_service_keys_are_known_and_a_stray_is_not(tmp
 def test_known_root_entries_skip_paths_above_the_profile():
     from osprey.cli.build_persistence import _profile_known_root_entries
     from osprey.cli.build_profile_model import BuildProfile
+    from osprey.cli.build_profile_schema import DispatchConfig
 
-    profile = BuildProfile(name="p", data="../data")
+    profile = BuildProfile(name="p", dispatch=DispatchConfig(triggers="../dispatch/triggers.yml"))
 
     assert _profile_known_root_entries(profile, None) == []
 

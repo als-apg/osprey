@@ -38,12 +38,10 @@ from osprey.port_layout import default_port
 from osprey_connectors.errors import BuildProfileError
 from tests._builds import BuiltProject
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 def test_no_bluesky_web_validates(tmp_path: Path) -> None:
     """A profile with no bluesky_web block validates without raising."""
-    _profile(name="x").validate(tmp_path)
+    BuildProfile(name="x").validate(tmp_path)
 
 
 def test_bluesky_web_ids_validate_without_url_when_bluesky_web_present(
@@ -52,7 +50,7 @@ def test_bluesky_web_ids_validate_without_url_when_bluesky_web_present(
     """The bluesky-panel ids need no manual web.panels.<id>.url override
     when a bluesky_web block is present — the urls are derived post-build by
     _inject_bluesky_web, which runs after this validator."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["bluesky"],
         bluesky_web=BlueskyWebConfig(),
@@ -64,7 +62,7 @@ def test_bluesky_web_ids_without_bluesky_web_still_require_url(tmp_path: Path) -
     """The escape hatch is narrow: the bluesky-panel ids with no bluesky_web
     block and no url override are still rejected (nothing would derive their
     URL)."""
-    profile = _profile(name="x", web_panels=["plan"])
+    profile = BuildProfile(name="x", web_panels=["plan"])
     with pytest.raises(BuildProfileError, match="plan"):
         profile.validate(tmp_path)
 
@@ -75,7 +73,7 @@ def test_unbacked_custom_panel_still_requires_url_even_with_bluesky_web(
     """The bluesky_web escape hatch applies only to the three known ids — any
     other url-less custom panel is still rejected even when a bluesky_web
     block is present."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["grafana"],
         bluesky_web=BlueskyWebConfig(),
@@ -86,7 +84,7 @@ def test_unbacked_custom_panel_still_requires_url_even_with_bluesky_web(
 
 def test_bluesky_web_port_overflow_raises(tmp_path: Path) -> None:
     """An out-of-range bluesky_web.port fails validation."""
-    profile = _profile(name="x", bluesky_web=BlueskyWebConfig(port=70000))
+    profile = BuildProfile(name="x", bluesky_web=BlueskyWebConfig(port=70000))
     with pytest.raises(BuildProfileError, match="bluesky_web.port"):
         profile.validate(tmp_path)
 
@@ -159,7 +157,7 @@ def test_bluesky_web_parse_defaults_when_empty_mapping() -> None:
 def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
     """A preset whose members are the universal panel and a SELECTED built-in
     validates without raising."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["ariel"],
         panel_presets={
@@ -175,7 +173,7 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
 def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
     """A built-in the profile never selected renders no tab, so a preset naming
     it would open on nothing."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         panel_presets={
             "Machine setup": {
@@ -191,7 +189,7 @@ def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
 def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
     """A preset member that is not a known panel id fails validation."""
     layout = {"split": "row", "items": [{"tabs": ["artifacts"]}, {"tabs": ["ghost"]}]}
-    profile = _profile(name="x", panel_presets={"Setup": layout})
+    profile = BuildProfile(name="x", panel_presets={"Setup": layout})
     with pytest.raises(BuildProfileError, match="ghost"):
         profile.validate(tmp_path)
 
@@ -199,7 +197,7 @@ def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
 def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
     """A member backed by a web.panels.<id>.url override is a known id once
     web_panels selects it."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["grafana"],
         panel_presets={"Dash": {"tabs": ["grafana"]}},
@@ -225,12 +223,12 @@ def test_a_dotted_custom_panel_is_backed_by_the_url_its_block_renders(
     tmp_path: Path, config: dict[str, Any]
 ) -> None:
     """A dotted id is one key under ``web.panels``, and its url there backs it."""
-    profile = _profile(name="x", web_panels=["beam.viewer"], config=config)
+    profile = BuildProfile(name="x", web_panels=["beam.viewer"], config=config)
     profile.validate(tmp_path)  # must not raise
 
 
 def test_a_custom_panel_is_backed_by_a_nested_url(tmp_path: Path) -> None:
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["grafana"],
         config={"web": {"panels": {"grafana": {"url": "http://grafana.local:3000"}}}},
@@ -240,7 +238,7 @@ def test_a_custom_panel_is_backed_by_a_nested_url(tmp_path: Path) -> None:
 
 def test_a_dotted_custom_panel_spelled_as_one_dotted_key_is_refused(tmp_path: Path) -> None:
     """The render splits that key at every dot, so it never reaches the dotted block."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["beam.viewer"],
         config={"web.panels.beam.viewer.url": "http://beam.local:9000"},
@@ -250,14 +248,14 @@ def test_a_dotted_custom_panel_spelled_as_one_dotted_key_is_refused(tmp_path: Pa
 
 
 def test_a_panels_key_inside_a_web_mapping_fails_validation(tmp_path: Path) -> None:
-    profile = _profile(name="x", config={"web": {"panels.okf.enabled": True}})
+    profile = BuildProfile(name="x", config={"web": {"panels.okf.enabled": True}})
     with pytest.raises(BuildProfileError, match="literally named 'panels.okf.enabled'"):
         profile.validate(tmp_path)
 
 
 def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
     """A member declared in web_panels is a known id."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x", web_panels=["ariel"], panel_presets={"L": {"tabs": ["ariel"], "showing": "ariel"}}
     )
     profile.validate(tmp_path)  # must not raise
@@ -265,14 +263,14 @@ def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
 
 def test_panel_presets_non_layout_value_raises(tmp_path: Path) -> None:
     """A preset whose value is neither a layout nor the retired list is rejected."""
-    profile = _profile(name="x", panel_presets={"Bad": "artifacts"})  # type: ignore[dict-item]
+    profile = BuildProfile(name="x", panel_presets={"Bad": "artifacts"})  # type: ignore[dict-item]
     with pytest.raises(BuildProfileError, match="must be a layout"):
         profile.validate(tmp_path)
 
 
 def test_panel_presets_old_list_shape_says_how_to_rewrite(tmp_path: Path) -> None:
     """The retired ``label: [ids]`` form fails the build and names the layout to write."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["ariel"],
         panel_presets={"Ops": ["artifacts", "ariel"]},  # type: ignore[dict-item]
@@ -299,7 +297,7 @@ def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> N
             },
         ],
     }
-    profile = _profile(
+    profile = BuildProfile(
         name="x", web_panels=["ariel", "okf", "system-health"], panel_presets={"L": layout}
     )
     profile.validate(tmp_path)  # must not raise
@@ -334,7 +332,7 @@ def test_panel_presets_invalid_layout_raises(
     tmp_path: Path, layout: dict[str, Any], fragment: str
 ) -> None:
     """A preset breaking a dock-layout collection-form rule fails with its named reason."""
-    profile = _profile(name="x", panel_presets={"L": layout})
+    profile = BuildProfile(name="x", panel_presets={"L": layout})
     with pytest.raises(BuildProfileError, match=re.escape(fragment)):
         profile.validate(tmp_path)
 
@@ -342,7 +340,7 @@ def test_panel_presets_invalid_layout_raises(
 def test_is_known_panel_id_shared_predicate() -> None:
     """_is_known_panel_id means "a tab this render shows": universal, or selected
     in web_panels — a url-backed custom panel counts only once it is selected."""
-    profile = _profile(
+    profile = BuildProfile(
         name="x",
         web_panels=["ariel"],
         config={"web.panels.grafana.url": "http://x:3000"},
@@ -352,7 +350,7 @@ def test_is_known_panel_id_shared_predicate() -> None:
     assert not profile._is_known_panel_id("grafana")  # url-backed but not selected
     assert not profile._is_known_panel_id("okf")  # built-in but not selected
     assert not profile._is_known_panel_id("nope")
-    assert _profile(name="x", web_panels=["grafana"])._is_known_panel_id("grafana")
+    assert BuildProfile(name="x", web_panels=["grafana"])._is_known_panel_id("grafana")
 
 
 def test_demo_profile_validates() -> None:
@@ -501,7 +499,7 @@ class TestEnvironmentSchema:
     def test_environment_absent_is_all_defaults(self, tmp_path: Path) -> None:
         """A profile with no environment block still exposes a usable config —
         consumers never need a None check."""
-        profile = _parse_profile({"name": "x", "data": "data"})
+        profile = _parse_profile({"name": "x"})
         assert profile.environment.python is None
         assert profile.environment.packages == []
         assert profile.environment.inherit_exclude == []
@@ -587,7 +585,6 @@ class TestEnvironmentSchema:
             yaml.safe_dump(
                 {
                     "name": "facility",
-                    "data": "data",
                     "environment": {
                         "python": str(venv_interpreter),
                         "packages": ["numpy"],
@@ -611,7 +608,6 @@ class TestEnvironmentSchema:
             yaml.safe_dump(
                 {
                     "name": "base",
-                    "data": "data",
                     "environment": {"python": str(venv_interpreter), "packages": ["numpy"]},
                 }
             ),
@@ -667,14 +663,16 @@ class TestEnvironmentValidation:
     """The rules BuildProfile.validate enforces on the block."""
 
     def test_bare_interpreter_base_validates(self, tmp_path: Path, bare_interpreter: Path) -> None:
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             environment=EnvironmentConfig(python=str(bare_interpreter), packages=["numpy"]),
         )
         profile.validate(tmp_path)  # must not raise
 
     def test_venv_base_validates(self, tmp_path: Path, venv_interpreter: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python=str(venv_interpreter)))
+        profile = BuildProfile(
+            name="x", environment=EnvironmentConfig(python=str(venv_interpreter))
+        )
         profile.validate(tmp_path)  # must not raise
 
     @pytest.mark.parametrize(
@@ -689,7 +687,7 @@ class TestEnvironmentValidation:
         ids=["missing", "relative", "empty"],
     )
     def test_an_unusable_python_raises(self, tmp_path: Path, python: str, message: str) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python=python))
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python=python))
         with pytest.raises(BuildProfileError, match=message):
             profile.validate(tmp_path)
 
@@ -697,31 +695,31 @@ class TestEnvironmentValidation:
         python = tmp_path / "python"
         python.write_text("#!/bin/sh\n", encoding="utf-8")
         python.chmod(0o644)
-        profile = _profile(name="x", environment=EnvironmentConfig(python=str(python)))
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python=str(python)))
         with pytest.raises(BuildProfileError, match="is not an executable file"):
             profile.validate(tmp_path)
 
     def test_directory_python_raises(self, tmp_path: Path) -> None:
         """A directory is traversable-executable but is not an interpreter."""
-        profile = _profile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
         with pytest.raises(BuildProfileError, match="is not an executable file"):
             profile.validate(tmp_path)
 
     @pytest.mark.parametrize("bad", ["", "   "])
     def test_empty_package_entry_raises(self, tmp_path: Path, bad: str) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(packages=["numpy", bad]))
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages=["numpy", bad]))
         with pytest.raises(BuildProfileError, match="environment.packages entries must be"):
             profile.validate(tmp_path)
 
     def test_non_string_package_entry_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(packages=[3]))  # type: ignore[list-item]
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages=[3]))  # type: ignore[list-item]
         with pytest.raises(BuildProfileError, match="environment.packages entries must be"):
             profile.validate(tmp_path)
 
     def test_empty_inherit_exclude_entry_raises(
         self, tmp_path: Path, venv_interpreter: Path
     ) -> None:
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             environment=EnvironmentConfig(python=str(venv_interpreter), inherit_exclude=[""]),
         )
@@ -731,13 +729,13 @@ class TestEnvironmentValidation:
     def test_non_list_packages_reported_not_crashed(self, tmp_path: Path) -> None:
         """A directly-constructed profile that bypasses the parser still gets a
         legible error rather than iterating a string character by character."""
-        profile = _profile(name="x", environment=EnvironmentConfig(packages="numpy"))  # type: ignore[arg-type]
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(packages="numpy"))  # type: ignore[arg-type]
         with pytest.raises(BuildProfileError, match="environment.packages must be a list"):
             profile.validate(tmp_path)
 
     def test_inherit_exclude_without_any_base_raises(self, tmp_path: Path) -> None:
         """No environment.python at all: nothing to exclude from."""
-        profile = _profile(name="x", environment=EnvironmentConfig(inherit_exclude=["pip"]))
+        profile = BuildProfile(name="x", environment=EnvironmentConfig(inherit_exclude=["pip"]))
         with pytest.raises(BuildProfileError, match="inherit_exclude requires environment.python"):
             profile.validate(tmp_path)
 
@@ -746,7 +744,7 @@ class TestEnvironmentValidation:
     ) -> None:
         """A bare interpreter carries no installed set to freeze, so an
         inherit_exclude would be a silent no-op."""
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             environment=EnvironmentConfig(python=str(bare_interpreter), inherit_exclude=["pip"]),
         )
@@ -756,7 +754,7 @@ class TestEnvironmentValidation:
     def test_inherit_exclude_with_venv_base_validates(
         self, tmp_path: Path, venv_interpreter: Path
     ) -> None:
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             environment=EnvironmentConfig(
                 python=str(venv_interpreter),
@@ -769,7 +767,7 @@ class TestEnvironmentValidation:
     def test_inherit_exclude_quiet_when_python_already_bad(self, tmp_path: Path) -> None:
         """One root cause, one error: a missing interpreter is not also reported
         as a missing venv base."""
-        profile = _profile(
+        profile = BuildProfile(
             name="x",
             environment=EnvironmentConfig(python="/nope/bin/python", inherit_exclude=["pip"]),
         )
@@ -789,18 +787,6 @@ class TestEnvironmentValidation:
 
 
 SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
-
-
-def _profile(**fields: Any) -> BuildProfile:
-    """A :class:`BuildProfile` carrying the keys every deployment must spell.
-
-    Only ``data:`` so far: it names the facility data tree a build copies, and
-    a profile without it is refused before any of the per-field rules below is
-    reached. ``tests/cli/test_profile_data_key.py`` owns the ``data:`` rules
-    themselves.
-    """
-    fields.setdefault("data", "data")
-    return BuildProfile(**fields)
 
 
 def _profile_with_config(config: dict) -> dict:

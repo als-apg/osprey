@@ -46,12 +46,10 @@ def _catalog() -> dict[str, Any]:
 def _repo(tmp_path: Path, provider: str | None, catalog: dict[str, Any] | None = None) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "data").mkdir()
     profile = {
         "name": "Demo Facility",
         "project_name": "repo",
         "extends": "hello-world",
-        "data": "data",
         "provider": provider,
     }
     (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")

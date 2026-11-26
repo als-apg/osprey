@@ -67,9 +67,7 @@ def _write_profile(base: Path, block: dict[str, Any], hooks: list[str]) -> Path:
     (base / "data").mkdir()
     path = base / "profile.yml"
     path.write_text(
-        yaml.safe_dump(
-            {"name": "w", "data": "data", "hooks": hooks, "watchdogs": block}, sort_keys=False
-        ),
+        yaml.safe_dump({"name": "w", "hooks": hooks, "watchdogs": block}, sort_keys=False),
         encoding="utf-8",
     )
     return path
@@ -608,11 +606,9 @@ def test_profile_classification_takes_in_the_denied_builtins(tmp_path: Path, too
 
 def test_a_clean_agent_watchdog_validates_against_the_full_classification(tmp_path: Path) -> None:
     _files(tmp_path, "a")
-    (tmp_path / "data").mkdir()
     profile = _parse_profile(
         {
             "name": "w",
-            "data": "data",
             "config": {"claude_code.servers.phoebus2": {"extends": "phoebus"}},
             "watchdogs": {"a": _agent(tools=["Read", "mcp__controls__channel_read"])},
         }

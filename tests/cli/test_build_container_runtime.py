@@ -35,7 +35,6 @@ PROFILE = """\
 extends: hello-world
 name: Runtime Pin
 project_name: repo
-data: data
 provider: anthropic
 """
 
@@ -43,7 +42,6 @@ provider: anthropic
 def _build_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str = ""):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "data").mkdir(exist_ok=True)
     body = PROFILE + (f"config:\n{override}" if override else "")
     (repo / "profile.yml").write_text(body)
     monkeypatch.chdir(repo)

@@ -23,8 +23,6 @@ from osprey.cli.build_profile import BuildProfile
 from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 from osprey_connectors.errors import BuildProfileError
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 
 class _EP:
     """Stub entry point loading ``obj``, homed in an importable module."""
@@ -46,7 +44,7 @@ def no_entry_points(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _profile(**artifact_server: Any) -> BuildProfile:
-    return BuildProfile(name="T", data="data", artifact_server=artifact_server)
+    return BuildProfile(name="T", artifact_server=artifact_server)
 
 
 def _errors(profile: BuildProfile, profile_dir: Path) -> list[str]:

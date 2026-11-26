@@ -39,8 +39,6 @@ from osprey.cli.build_profile import ServiceDef, _parse_profile, load_profile
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.errors import BuildProfileError
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
 # ── mcp_servers: ─────────────────────────────────────────────────────────────
 
 
@@ -97,14 +95,12 @@ pytestmark = pytest.mark.usefixtures("facility_data_tree")
 def test_a_malformed_mcp_server_is_refused(servers: dict, match: str) -> None:
     """A malformed ``mcp_servers`` entry raises at parse time, naming the server."""
     with pytest.raises(BuildProfileError, match=match):
-        _parse_profile({"name": "x", "data": "data", "mcp_servers": servers})
+        _parse_profile({"name": "x", "mcp_servers": servers})
 
 
 def test_mcp_server_transport_defaults_to_http() -> None:
     """A URL server without a transport key parses as streamable-HTTP."""
-    profile = _parse_profile(
-        {"name": "x", "data": "data", "mcp_servers": {"api": {"url": "http://host:9000/mcp"}}}
-    )
+    profile = _parse_profile({"name": "x", "mcp_servers": {"api": {"url": "http://host:9000/mcp"}}})
     assert profile.mcp_servers["api"].transport == "http"
 
 
@@ -125,7 +121,7 @@ def test_mcp_server_transport_sse_parses() -> None:
 def test_service_entry_must_be_a_mapping() -> None:
     """A non-mapping services entry raises, naming the service."""
     with pytest.raises(BuildProfileError, match="Service 'postgresql' must be a mapping"):
-        _parse_profile({"name": "x", "data": "data", "services": {"postgresql": "not-a-mapping"}})
+        _parse_profile({"name": "x", "services": {"postgresql": "not-a-mapping"}})
 
 
 def test_service_entry_builds_a_servicedef() -> None:
@@ -149,7 +145,7 @@ def test_service_entry_builds_a_servicedef() -> None:
 
 def test_service_entry_defaults_when_empty_mapping() -> None:
     """An empty services mapping parses to an empty template and an empty config."""
-    profile = _parse_profile({"name": "x", "data": "data", "services": {"bare": {}}})
+    profile = _parse_profile({"name": "x", "services": {"bare": {}}})
     assert profile.services["bare"] == ServiceDef(template="", config={})
 
 
@@ -169,7 +165,7 @@ def test_multiple_service_entries_are_all_parsed() -> None:
 
 def test_no_services_block_parses_to_empty_dict() -> None:
     """A profile without a services block gets an empty services mapping."""
-    assert _parse_profile({"name": "x", "data": "data"}).services == {}
+    assert _parse_profile({"name": "x"}).services == {}
 
 
 # ── bluesky: / virtual_accelerator: ──────────────────────────────────────────
@@ -218,7 +214,7 @@ def test_no_services_block_parses_to_empty_dict() -> None:
 def test_a_malformed_block_is_refused(key: str, value: object, match: str) -> None:
     """A malformed ``bluesky:`` or ``virtual_accelerator:`` block raises during parsing."""
     with pytest.raises(BuildProfileError, match=match):
-        _parse_profile({"name": "x", "data": "data", key: value})
+        _parse_profile({"name": "x", key: value})
 
 
 @pytest.mark.parametrize(
@@ -236,16 +232,14 @@ def test_virtual_accelerator_live_standin_lands_on_the_parsed_config(
     live_standin: object, expected: int
 ) -> None:
     """A live_standin lands on the parsed VAConfig."""
-    profile = _parse_profile(
-        {"name": "x", "data": "data", "virtual_accelerator": {"live_standin": live_standin}}
-    )
+    profile = _parse_profile({"name": "x", "virtual_accelerator": {"live_standin": live_standin}})
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin == expected
 
 
 def test_virtual_accelerator_without_live_standin_parses_to_none() -> None:
     """Omitting live_standin leaves the deployment with no stand-in lane."""
-    profile = _parse_profile({"name": "x", "data": "data", "virtual_accelerator": {"port": 5064}})
+    profile = _parse_profile({"name": "x", "virtual_accelerator": {"port": 5064}})
     assert profile.virtual_accelerator is not None
     assert profile.virtual_accelerator.live_standin is None
 
@@ -296,7 +290,7 @@ def test_dispatch_ports_default_to_the_layout_slots() -> None:
     `deployment.port_base` publishes. The stride defaults to the layout's own
     spacing of one.
     """
-    profile = _parse_profile({"name": "x", "data": "data", "dispatch": {"triggers": "t.yml"}})
+    profile = _parse_profile({"name": "x", "dispatch": {"triggers": "t.yml"}})
     assert profile.dispatch is not None
     assert profile.dispatch.dispatcher_port == 10010
     assert profile.dispatch.worker_port_base == 10011
@@ -306,7 +300,7 @@ def test_dispatch_ports_default_to_the_layout_slots() -> None:
 def test_dispatch_worker_port_stride_is_a_recognised_key() -> None:
     """A profile may widen the worker spacing, and the value parses through."""
     profile = _parse_profile(
-        {"name": "x", "data": "data", "dispatch": {"triggers": "t.yml", "worker_port_stride": 10}}
+        {"name": "x", "dispatch": {"triggers": "t.yml", "worker_port_stride": 10}}
     )
     assert profile.dispatch is not None
     assert profile.dispatch.worker_port_stride == 10
@@ -337,40 +331,33 @@ def test_empty_collection_key_parses_to_the_empty_collection(key, empty) -> None
     a bare ``TypeError`` — a traceback where the author should have got a build
     that simply selects no panels.
     """
-    profile = _parse_profile({"name": "x", "data": "data", key: None})
+    profile = _parse_profile({"name": "x", key: None})
     assert getattr(profile, key) == empty
 
 
-def test_empty_web_panels_validates_without_a_traceback() -> None:
+def test_empty_web_panels_validates_without_a_traceback(tmp_path: Path) -> None:
     """The empty selection reaches validation as a selection, not as ``None``.
 
     ``validate`` reports what it finds as a ``BuildProfileError``; the crash
     this pins was a ``TypeError`` raised past it, which the build surfaced as
     an unexpected-error traceback rather than as anything an author could act
-    on.
+    on. A profile selecting no panels has nothing to report, so it validates.
     """
     profile = _parse_profile({"name": "x", "web_panels": None})
-    # The directory deliberately does not exist: what this pins is that
-    # `validate` REPORTS rather than crashes, so its findings are beside the
-    # point and a missing `data:` tree is one more of them.
-    with pytest.raises(BuildProfileError):
-        profile.validate(Path("/nonexistent-profile-root"))
+    profile.validate(tmp_path)
     assert profile.web_panels == []
 
 
 def test_empty_default_panel_is_the_same_as_an_unset_one() -> None:
     """``default_panel:`` is a scalar, so its empty spelling is already ``None``."""
-    assert (
-        _parse_profile({"name": "x", "data": "data", "default_panel": None}).default_panel is None
-    )
+    assert _parse_profile({"name": "x", "default_panel": None}).default_panel is None
 
 
 def _write_render_repo(root: Path, delta_body: str) -> Path:
     """Write a profile root selecting one panel, plus a layer under it."""
     root.mkdir(parents=True, exist_ok=True)
-    (root / "data").mkdir(exist_ok=True)
     (root / "profile.yml").write_text(
-        "name: hello\ndata: data\nweb_panels:\n  - ariel\n",
+        "name: hello\nweb_panels:\n  - ariel\n",
         encoding="utf-8",
     )
     (root / TIERS_DIRNAME).mkdir()
@@ -411,14 +398,14 @@ def test_emptied_and_bracketed_web_panels_agree_in_a_delta(tmp_path: Path) -> No
 def test_a_connector_block_that_still_spells_timeout_is_refused(config) -> None:
     """The connector call bound is ``timeout_s``; the build refuses the old key."""
     with pytest.raises(BuildProfileError, match=r"timeout is renamed to timeout_s"):
-        _parse_profile({"name": "x", "data": "data", "config": config})
+        _parse_profile({"name": "x", "config": config})
 
 
 # ── claude_md_template: ──────────────────────────────────────────────────────
 
 
 def _with_template(value: object) -> dict:
-    return {"name": "x", "data": "data", "claude_md_template": value}
+    return {"name": "x", "claude_md_template": value}
 
 
 @pytest.mark.parametrize("value", ["", None], ids=["empty", "null"])
@@ -450,7 +437,7 @@ def test_a_non_string_claude_md_template_is_refused(value) -> None:
 
 def test_an_absent_claude_md_template_is_the_default() -> None:
     """A profile that names no render builds the default one."""
-    profile = _parse_profile({"name": "x", "data": "data"})
+    profile = _parse_profile({"name": "x"})
     assert profile.claude_md_template == DEFAULT_CLAUDE_MD_TEMPLATE
 
 

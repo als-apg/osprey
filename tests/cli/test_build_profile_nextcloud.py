@@ -80,14 +80,10 @@ triggers:
     return tmp_path
 
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
 def _bridge_profile(bridge: Bridge, **kwargs: object) -> BuildProfile:
     """A profile declaring ``bridge`` plus a dispatch block, overridable per test."""
     fields: dict = {
         "name": "x",
-        "data": "data",
         "dispatch": DispatchConfig(triggers="triggers.yml"),
         bridge.key: bridge.config_cls(),
     }

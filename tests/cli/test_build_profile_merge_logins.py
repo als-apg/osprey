@@ -29,7 +29,6 @@ _SETUP_PATCH = "mcp__osprey_workspace__setup_patch"
 
 _HOST: dict[str, Any] = {
     "name": "Facility",
-    "data": "data",
     "model": "opus",
     "hooks": ["approval", "limits", "turn-state"],
     "skills": ["diagnose"],
@@ -63,7 +62,6 @@ def _repo(tmp_path: Path, login: dict[str, Any], *, shared: bool, host: dict | N
     if shared:
         config["modules.web_terminals.shared"] = ["narrow"]
     root["config"] = config
-    (tmp_path / "data").mkdir(exist_ok=True)
     _write_yaml(tmp_path / "profile.yml", root)
     return _write_yaml(tmp_path / "tiers" / "narrow.yml", login)
 
@@ -130,7 +128,6 @@ def test_a_shared_login_authoring_allowed_is_refused_naming_shared() -> None:
     assert "modules.web_terminals.shared" in message
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_set_edit_cannot_unseal_a_shared_login(tmp_path: Path) -> None:
     login = _repo(tmp_path, _NARROW, shared=True)
 
@@ -139,7 +136,6 @@ def test_a_set_edit_cannot_unseal_a_shared_login(tmp_path: Path) -> None:
     assert loaded.profile.config[_WRITES] == "never"
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_set_edit_on_a_narrow_login_nobody_shares_is_its_own(tmp_path: Path) -> None:
     login = _repo(tmp_path, {**_NARROW, "config": {_WRITES: "never"}}, shared=False)
 
@@ -170,7 +166,6 @@ def test_a_login_naming_a_model_runs_it(lists: str) -> None:
 # ── lists is login-only, the root included ───────────────────────────────────
 
 
-@pytest.mark.usefixtures("facility_data_tree")
 def test_a_set_edit_spelling_lists_on_the_root_is_refused_like_the_file(tmp_path: Path) -> None:
     _repo(tmp_path, _NARROW, shared=False)
 
@@ -197,16 +192,14 @@ _GUARD_WIRING = "claude_code.hooks.PreToolUse"
 def _guarded_repo(tmp_path: Path, *, shared: bool, lists: str = "own") -> Path:
     """A host that selects library guards and wires a facility guard, and one login."""
     repo = tmp_path / "repo"
-    (repo / "data").mkdir(parents=True)
-    (repo / "hooks").mkdir()
+    (repo / "hooks").mkdir(parents=True)
     (repo / _HOUSE_GUARD).write_text("import sys\nsys.exit(0)\n", encoding="utf-8")
     config: dict[str, Any] = {_WRITES: "allowed", _GUARD_WIRING: [_HOUSE_GUARD]}
     if shared:
         config["modules.web_terminals.shared"] = ["logbook"]
     _write_yaml(
         repo / "profile.yml",
-        {"name": "Facility", "data": "data", "hooks": ["hook-log", "approval", "limits"]}
-        | {"config": config},
+        {"name": "Facility", "hooks": ["hook-log", "approval", "limits"]} | {"config": config},
     )
     return _write_yaml(
         repo / "tiers" / "logbook.yml",

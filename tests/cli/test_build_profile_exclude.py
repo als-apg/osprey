@@ -45,7 +45,7 @@ def test_child_excludes_inherited_skill(tmp_path: Path) -> None:
     """A child ``exclude`` removes an entry contributed by its ``extends`` base."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [alpha, beta, gamma]\n",
+        "name: Base\nskills: [alpha, beta, gamma]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -61,7 +61,7 @@ def test_exclude_works_across_multiple_fields(tmp_path: Path) -> None:
     """Every declared excludable field is subtracted independently."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [s1, s2]\nrules: [r1, r2]\ndependencies: [pkg-a, pkg-b]\n",
+        "name: Base\nskills: [s1, s2]\nrules: [r1, r2]\ndependencies: [pkg-a, pkg-b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -83,7 +83,7 @@ def test_deeper_layer_readds_excluded_entry_and_wins(tmp_path: Path) -> None:
     """base [a,b,c] → parent excludes b → child re-adds b: b survives."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a, b, c]\n",
+        "name: Base\nskills: [a, b, c]\n",
     )
     _write(
         tmp_path / "parent.yml",
@@ -115,7 +115,7 @@ def test_a_host_variant_overlay_readd_does_not_win(tmp_path: Path) -> None:
     """
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a, b, c]\n",
+        "name: Base\nskills: [a, b, c]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -136,7 +136,7 @@ def test_a_set_readd_wins_over_the_exclusion(tmp_path: Path) -> None:
     """
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a, b, c]\n",
+        "name: Base\nskills: [a, b, c]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -155,8 +155,7 @@ def test_exclude_config_subtracts_from_a_list_valued_key(tmp_path: Path) -> None
     """``exclude: config:`` names a dotted config key and removes entries from its list."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nconfig:\n"
-        "  deployed_services: [alpha, beta, gamma]\n  facility.name: Ring\n",
+        "name: Base\nconfig:\n  deployed_services: [alpha, beta, gamma]\n  facility.name: Ring\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -176,7 +175,7 @@ def test_a_host_variant_overlay_narrows_the_services_it_deploys(tmp_path: Path) 
     """
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nconfig:\n  deployed_services: [alpha, beta, gamma]\n",
+        "name: Base\nconfig:\n  deployed_services: [alpha, beta, gamma]\n",
     )
     child = _write(tmp_path / "child.yml", "extends: ./base.yml\nname: Child\n")
     overlay = _write(
@@ -189,7 +188,7 @@ def test_a_host_variant_overlay_narrows_the_services_it_deploys(tmp_path: Path) 
 
 def test_exclude_config_of_an_absent_key_is_a_silent_noop(tmp_path: Path) -> None:
     """Nothing inherited under that key means nothing to take away."""
-    _write(tmp_path / "base.yml", "name: Base\ndata: data\nconfig:\n  facility.name: Ring\n")
+    _write(tmp_path / "base.yml", "name: Base\nconfig:\n  facility.name: Ring\n")
     child = _write(
         tmp_path / "child.yml",
         "extends: ./base.yml\nname: Child\nexclude:\n  config:\n    nothing.here: [x]\n",
@@ -224,7 +223,7 @@ def test_a_malformed_exclude_config_is_refused(
     """``exclude: config:`` maps dotted keys to the lists of entries to take out."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\n" + (f"config:\n{base_config}" if base_config else ""),
+        "name: Base\n" + (f"config:\n{base_config}" if base_config else ""),
     )
     child = _write(tmp_path / "child.yml", f"extends: ./base.yml\nname: Child\nexclude:\n{exclude}")
     with pytest.raises(BuildProfileError, match=match):
@@ -243,7 +242,7 @@ def test_exclude_is_not_an_unknown_key(tmp_path: Path) -> None:
     """
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a, b]\n",
+        "name: Base\nskills: [a, b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -264,7 +263,7 @@ def test_exclude_nonexistent_entry_is_silent_noop(tmp_path: Path) -> None:
     """Excluding an entry the base never declared changes nothing and raises nothing."""
     _write(
         tmp_path / "base.yml",
-        "name: Base\ndata: data\nskills: [a, b]\n",
+        "name: Base\nskills: [a, b]\n",
     )
     child = _write(
         tmp_path / "child.yml",
@@ -285,7 +284,7 @@ def test_exclude_without_extends_applies_to_self(
     """Base-less ``exclude`` only touches the file's own declarations (with a debug log)."""
     profile = _write(
         tmp_path / "p.yml",
-        "name: Solo\ndata: data\nskills: [a, b]\nexclude:\n  skills: [b]\n",
+        "name: Solo\nskills: [a, b]\nexclude:\n  skills: [b]\n",
     )
     with caplog.at_level(logging.DEBUG, logger="osprey.cli.build_profile_merge"):
         resolved, _ = resolve_build_profile(profile.resolve(), preset=None)
@@ -306,7 +305,7 @@ def test_a_malformed_exclude_is_refused(
     tmp_path: Path, base_skills: str, exclude: str, match: str
 ) -> None:
     """Excluding an unknown field, or with a non-list value, is rejected with a clear error."""
-    _write(tmp_path / "base.yml", f"name: Base\ndata: data\n{base_skills}")
+    _write(tmp_path / "base.yml", f"name: Base\n{base_skills}")
     child = _write(tmp_path / "child.yml", f"extends: ./base.yml\nname: Child\nexclude:\n{exclude}")
     with pytest.raises(BuildProfileError, match=match):
         resolve_build_profile(child.resolve(), preset=None)
@@ -394,7 +393,7 @@ def test_resolve_extends_by_bundled_preset_name(tmp_path: Path, monkeypatch) -> 
     """``extends`` resolves a bundled preset by name before falling back to a sibling path."""
     presets_dir = tmp_path / "presets"
     presets_dir.mkdir()
-    _write(presets_dir / "demo-base.yml", "name: Base\ndata: data\nskills: [a]\n")
+    _write(presets_dir / "demo-base.yml", "name: Base\nskills: [a]\n")
     monkeypatch.setattr(build_profile_presets, "_presets_dir", lambda: presets_dir)
 
     profiles_dir = tmp_path / "profiles"

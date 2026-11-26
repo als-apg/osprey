@@ -22,7 +22,6 @@ _PROFILE = """\
 extends: hello-world
 name: Archive Fixture
 project_name: archive-fixture
-data: data
 services:
   archive:
     template: osprey.archive
@@ -32,7 +31,6 @@ services:
 def test_declared_service_renders_its_compose_and_registers(tmp_path: Path) -> None:
     repo = tmp_path / "archive-fixture"
     repo.mkdir()
-    (repo / "data").mkdir()
     (repo / "profile.yml").write_text(_PROFILE, encoding="utf-8")
 
     result = invoke_build(repo)
