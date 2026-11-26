@@ -91,6 +91,7 @@ __all__ = [
     "child",
     "child_display_path",
     "child_path",
+    "child_render_path",
     "convention_rows",
     "display_path",
     "dissolved_names",
@@ -102,6 +103,7 @@ __all__ = [
     "moved_from_top_level_names",
     "non_convention_source_rows",
     "paths",
+    "render_path",
     "rendered_sources",
     "retired_moves",
     "retired_paths",
@@ -761,6 +763,30 @@ def _rendered(
             if item.parent in parents and item.render is not None
         ),
     )
+
+
+def render_path(key: str) -> str:
+    """Where the build copies the row *key*, relative to the render directory.
+
+    Raises:
+        KeyError: No row has the key, or the row is not copied into the render.
+    """
+    render = entry(key).render
+    if render is None:
+        raise KeyError(f"{key} is not copied into the render")
+    return render
+
+
+def child_render_path(parent: str, key: str) -> str:
+    """Where the build copies the child *key* of *parent*, relative to the render directory.
+
+    Raises:
+        KeyError: No such child, or the child is not copied into the render.
+    """
+    render = child(parent, key).render
+    if render is None:
+        raise KeyError(f"{parent}:{key} is not copied into the render")
+    return render
 
 
 def dissolved_names() -> tuple[str, ...]:

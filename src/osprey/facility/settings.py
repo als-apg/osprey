@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from osprey.facility.views.benchmarks import BENCHMARK_DATASET_KEY, QUERY_SOURCES
-from osprey.repo_layout import display_path, entry
+from osprey.repo_layout import display_path, entry, render_path
 from osprey.simulation import DEFAULT_SCENARIOS_KEY
 from osprey.utils.config_paths import resolve_config_relative_path
 from osprey_connectors.simulation.servers import server_addresses
@@ -73,7 +73,7 @@ VOCABULARY_PATH_KEY = "ariel.vocabulary.path"
 
 #: The render's facility tree, relative to the render root. A render path: the
 #: runtime reads the facility there whatever the source tree's layout.
-_RENDER_FACILITY_DIR = "data/facility"
+_RENDER_FACILITY_DIR = render_path("facility")
 
 #: The vocabulary a facility tree ships, relative to the render root.
 VOCABULARY_SOURCE = f"{_RENDER_FACILITY_DIR}/{source_tree.path('ariel_vocabulary')}"

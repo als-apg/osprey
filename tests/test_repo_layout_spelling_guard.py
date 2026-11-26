@@ -83,10 +83,6 @@ _TEMPLATE_MANAGER = "src/osprey/cli/templates/manager.py"
 #: ``(file, constant text) -> (count, category)`` for each site still allowed
 #: to spell a guarded path.
 ALLOWED: Mapping[tuple[str, str], tuple[int, str]] = {
-    # The render's facility tree, where the runtime reads it whatever the
-    # source layout.
-    ("src/osprey/facility/settings.py", "data/facility"): (1, EQUAL_TO_SOURCE),
-    (_CONVENTIONS, "data/facility"): (1, EQUAL_TO_SOURCE),
     # The render's per-user context tree. It is named by the convention key a
     # profile spells (``exclude: {web-terminal-context: ...}``), which is not a
     # path and did not move; the source tree it renders from is agent/context.

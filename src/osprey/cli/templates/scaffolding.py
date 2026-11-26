@@ -432,9 +432,7 @@ def copy_template_data(
     # and cannot reach a tree outside the osprey package at all.
     root = Path(repo_root)
     facility = repo_layout.entry("facility")
-    rendered = repo_layout.rendered_sources()
-    facility_render = next(source.render_rel for source in rendered if source.key == facility.key)
-    for source in rendered:
+    for source in repo_layout.rendered_sources():
         src = root.joinpath(*source.source_rel.split("/"))
         if not src.is_dir():
             continue
@@ -445,6 +443,7 @@ def copy_template_data(
         logger.debug("Copied profile data files from %s to %s", src, dst)
 
     if facility_roots is not None and facility_roots.mounted:
+        facility_render = repo_layout.render_path(facility.key)
         copy_machine_tree(facility_roots, project_dir.joinpath(*facility_render.split("/")))
 
 

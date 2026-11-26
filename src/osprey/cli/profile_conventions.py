@@ -50,6 +50,7 @@ from osprey.repo_layout import (
     display_path,
     non_convention_source_rows,
     paths,
+    render_path,
     retired_paths,
     rows_in_zone,
     top_level_names,
@@ -485,7 +486,7 @@ FACILITY_AUTHORING_ROUTE = f"{display_path('facility')}/"
 #: The render's facility tree, relative to the project root: where the build
 #: lays the facility down and the runtime reads it. A render path, which does
 #: not follow :data:`FACILITY_AUTHORING_ROUTE`.
-_RENDER_FACILITY_DIR = "data/facility"
+_RENDER_FACILITY_DIR = render_path("facility")
 
 #: Project paths no agent-side writer may touch, matched by shape. These are
 #: whole classes of artifact rather than named files, which is why they cannot

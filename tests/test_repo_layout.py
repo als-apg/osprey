@@ -494,6 +494,15 @@ def test_the_rendered_sources_are_the_facility_and_web_rows() -> None:
     )
 
 
+def test_a_render_path_is_the_one_its_row_or_child_declares() -> None:
+    assert repo_layout.render_path("facility") == "data/facility"
+    assert repo_layout.child_render_path("web", "landing") == "data/landing"
+    with pytest.raises(KeyError):
+        repo_layout.render_path("web")
+    with pytest.raises(KeyError):
+        repo_layout.child_render_path("scripts", "verify")
+
+
 def test_each_rendered_source_moved_from_its_render_name() -> None:
     """Each source's old home is where the render has always put it."""
     for source in repo_layout.rendered_sources():

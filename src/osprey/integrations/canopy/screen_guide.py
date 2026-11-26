@@ -149,16 +149,14 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
         ``None`` when the panel is not declared.
     """
     from osprey.deployment.web_terminals.roster import config_declares_panel
-    from osprey.repo_layout import rendered_sources
+    from osprey.repo_layout import child_render_path
 
     if not config_declares_panel(config, "canopy"):
         return None
 
-    renders = {source.key: source.render_rel for source in rendered_sources()}
-
     try:
         guide = build_screen_guide(
-            project_dir / renders["web:canopy-library"],
+            project_dir / child_render_path("web", "canopy-library"),
             _guide_facility(project_dir / "facility.json"),
         )
     except Exception as exc:  # pragma: no cover - defensive; the builder is fail-soft
@@ -174,7 +172,9 @@ def screen_guide_context(config: Mapping[str, Any], project_dir: Path) -> dict |
         if isinstance(panel.get(key), str) and panel[key]
     ]
     collections = []
-    for path in sorted((project_dir / renders["web:canopy-collections"]).glob("*.json")):
+    for path in sorted(
+        (project_dir / child_render_path("web", "canopy-collections")).glob("*.json")
+    ):
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
