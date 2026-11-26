@@ -356,7 +356,7 @@ def _app_vendor_dest(app_dir: Path, app: str, entry: UrlVendorEntry | PackageVen
     return dest
 
 
-#: A version as a vendored file name spells it: dotted numbers, optionally
+#: A version as a vendored path spells it: dotted numbers, optionally
 #: followed by a pre-release or build suffix (``1.6.30``, ``3.0.0-rc.1``).
 _VERSION_TOKEN = re.compile(r"(?<![\d.])\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]*[0-9A-Za-z])?")
 
@@ -372,24 +372,28 @@ def _names_version(name: str, version: str) -> bool:
 
 
 def _check_versioned_name(app: str, entry: UrlVendorEntry | PackageVendorEntry) -> None:
-    """Refuse an entry whose ``into`` file name does not carry the version it fetches.
+    """Refuse an entry whose ``into`` path does not carry the version it fetches.
 
     A panel's vendor files are served as immutable, so a new version must reach
-    the browser under a new name, the convention of OSPREY's own ``/static/``
-    vendor trees (``plotly-3.3.1.min.js``). A package entry's file name carries
+    the browser under a new URL. The version sits in the file name, the
+    convention of OSPREY's own ``/static/`` vendor trees
+    (``plotly-3.3.1.min.js``), or in one of its directories, for a library
+    that loads sibling files by fixed names
+    (``pdfjs-6.5.438/wasm/jbig2.wasm``). It counts as a whole token of one
+    path component, never across components. A package entry's path carries
     its ``version``; a url entry's carries a version its URL names.
     """
     from osprey.apps.manifest import PackageVendorEntry
 
-    name = Path(entry.into).name
+    parts = Path(entry.into).parts
     if isinstance(entry, PackageVendorEntry):
-        if _names_version(name, entry.version):
+        if any(_names_version(part, entry.version) for part in parts):
             return
         wanted = f"version {entry.version}"
     else:
         url_path = urllib.parse.urlsplit(entry.url).path
         versions = {m.group() for m in _VERSION_TOKEN.finditer(url_path)}
-        if any(_names_version(name, v) for v in versions):
+        if any(_names_version(part, v) for part in parts for v in versions):
             return
         wanted = (
             "a version its URL names (" + ", ".join(sorted(versions)) + ")"
@@ -399,8 +403,9 @@ def _check_versioned_name(app: str, entry: UrlVendorEntry | PackageVendorEntry) 
     raise AppVendorError(
         app,
         _entry_source(entry),
-        f"into file name {name!r} must carry the version it fetches ({wanted}): "
-        "a vendor file is cached as immutable, so a new version needs a new name",
+        f"into {entry.into!r} must carry the version it fetches ({wanted}) in its "
+        "file name or one of its directories: a vendor file is cached as immutable, "
+        "so a new version needs a new path",
     )
 
 
@@ -417,8 +422,9 @@ def fetch_app_vendor(
     Each entry lands at ``apps/<name>/<into>`` under ``deployment_root``,
     fetched from the source it names (its ``url``, or a package file through
     the one CDN template). Every destination is checked before anything is
-    downloaded; one outside the application's directory, or whose file name
-    does not carry the version it fetches, is refused. An installed
+    downloaded; one outside the application's directory, or that does not
+    carry the version it fetches in its file name or one of its directories,
+    is refused. An installed
     application's files are verified where its package holds them and never
     fetched: the build does not write into an installed package.
 
@@ -442,9 +448,10 @@ def fetch_app_vendor(
         The files actually downloaded (not those already verified).
 
     Raises:
-        AppVendorError: An entry's target is outside its application or its
-            file name lacks its version, or its file is missing or unverified and could not be fetched; the error
-            names the application and the package (or URL).
+        AppVendorError: An entry's target is outside its application, or
+            neither its file name nor one of its directories carries its
+            version, or its file is missing or unverified and could not be
+            fetched; the error names the application and the package (or URL).
     """
     if offline is None:
         offline = is_offline()

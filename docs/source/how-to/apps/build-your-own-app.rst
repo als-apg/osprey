@@ -360,7 +360,11 @@ ends at ``true`` or ``failed``; ``failed`` means the page cannot be driven.
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
 committed: list it under ``vendor`` with its exact version and SHA-256, and the
 build fetches it to the path you name — ``panel/vendor/…``, which
-``.gitignore`` already covers.
+``.gitignore`` already covers. The path carries the version, because the
+browser caches a vendor file for good: in the file name
+(``panel/vendor/uplot-1.6.30.min.js``), or in a directory when the library
+loads its other files by fixed names
+(``panel/vendor/pdfjs-6.5.438/wasm/jbig2.wasm``).
 
 .. _how-to-apps-writes:
 
