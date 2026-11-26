@@ -17,6 +17,7 @@ from typing import Any
 
 from osprey.services.bluesky_bridge import devices as devices_package
 from osprey.services.bluesky_bridge.devices.connector import (
+    ConnectorDetector,
     ConnectorPositioner,
     ConnectorSettable,
     ConnectorTriggerable,
@@ -26,6 +27,7 @@ from osprey.services.bluesky_bridge.devices.mock import (
     MockSettable,
     MockTriggerable,
 )
+from osprey.services.bluesky_bridge.devices.specs import ReadableSpec
 from osprey_connectors.command import CommandAct
 
 #: The verbs a plan device may write from, each with its statement.
@@ -66,11 +68,24 @@ def _connector_triggerable(connector: Any) -> Any:
     )
 
 
+def _connector_detector(connector: Any) -> Any:
+    return ConnectorDetector(
+        connector,
+        "PLAN:DEVICES:ACQUIRE",
+        "PLAN:DEVICES:ACQUIRE:STATUS",
+        0,
+        1.0,
+        results=[ReadableSpec("PLAN:DEVICES:COUNTS", "PLAN:DEVICES:COUNTS")],
+        name="detector",
+    )
+
+
 #: One builder per shipped plan device class, each taking the connector it drives.
 ONE_OF_EACH: dict[type, Callable[[Any], Any]] = {
     ConnectorSettable: _connector_settable,
     ConnectorPositioner: _connector_positioner,
     ConnectorTriggerable: _connector_triggerable,
+    ConnectorDetector: _connector_detector,
     MockSettable: lambda _connector: MockSettable(name="PLAN:DEVICES:MOCK:SP"),
     MockReadable: lambda _connector: MockReadable(name="PLAN:DEVICES:MOCK:RB"),
     MockTriggerable: lambda _connector: MockTriggerable(name="PLAN:DEVICES:MOCK:CMD"),

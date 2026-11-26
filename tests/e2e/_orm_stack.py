@@ -10,7 +10,7 @@ override is needed to get the agent armed. The queueserver worker's device
 file is the build's Bluesky view of the deployment's facility file, staged
 unchanged into ``build/services/bluesky/bluesky_devices.yml``
 (``compose_generator._stage_bluesky_devices``) and bind-mounted into the
-worker: every setpoint channel a settable, every readback channel a readable.
+worker: its entries are the plan devices ``osprey.facility.views.bluesky`` writes.
 A lane chooses the correctors and BPMs its plans drive from that staged view
 (:func:`select_correctors`/:func:`select_bpms`), never from a hardcoded preset
 channel, restricted to the channels the repo's simulator view wires as a
