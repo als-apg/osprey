@@ -23,7 +23,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env).
+      # their plain names (var/, .env).
       context: ./build/services/virtual_accelerator
       dockerfile: Dockerfile
       args:
@@ -77,7 +77,7 @@ services:
     # the deployment repo root — so each is spelled from there.
     #
     # The simulator view comes from the OUTPUT zone, `build/data`, and not from
-    # a source `data/` tree: `osprey build` writes `simulator/addresses.json`
+    # the source zone: `osprey build` writes `simulator/addresses.json`
     # and `simulator/served_models.json` into the render, and the entrypoint
     # reads them under VA_DATA_DIR (default `/data`). Read-only: the IOC never
     # writes the view.
