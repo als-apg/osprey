@@ -49,7 +49,8 @@ When in doubt, EVALUATE — surface it rather than silently discard.
 Do not memorize target paths — open the live repo and read its profile.yml
 comments — but the general destinations are:
 
-- Data files → the repo's `facility/` tree (same formats).
+- Facility data files (records, limits, knowledge, benchmarks) → the repo's
+  `facility/` tree (same formats).
 - Config values (gateways, archiver URLs, timezone, provider/model) →
   `osprey set key=value` into the live profile.
 - Custom code and assets (rules, skills, agents, MCP servers, services,

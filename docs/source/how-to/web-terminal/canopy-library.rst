@@ -62,7 +62,7 @@ They are a starting point to replace with your facility's own.
 
 .. warning::
 
-   ``osprey init --force`` replaces the deployment's ``data/`` directory, the
+   ``osprey init --force`` replaces the deployment's ``web/`` directory, the
    library included. Commit the library first.
 
 Accept a screen a user shared

@@ -1376,7 +1376,7 @@ directory per operator, plus the shared ``base.md``. Move the file into the
 directory of the operator it belongs to, or rename it to ``base.md`` if it is
 the text everyone starts from (see :ref:`profile-context-baseline`).
 
-**"project/ mirror writes N build-owned path(s)"** — the mirror targets a path
+**"ops/project/ mirror writes N build-owned path(s)"** — the mirror targets a path
 another channel owns. The message names the channel, and the exact move where
 one exists.
 

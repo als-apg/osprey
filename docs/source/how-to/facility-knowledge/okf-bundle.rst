@@ -178,7 +178,7 @@ Working with a Bundle
       Two consequences are worth knowing before you debug either of them.
 
       *The mounted bundle hides the one baked into the image.* Each build copies
-      the profile's ``data/`` tree into the terminal image, so the image ships a
+      the deployment's ``facility/`` tree into the terminal image, so the image ships a
       bundle of its own — and the mount covers it. That is intended: the bundle is
       operational knowledge that changes between image builds. Edit the
       deployment's bundle to change what a running terminal sees; edit the

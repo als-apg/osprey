@@ -212,7 +212,7 @@ process that runs the suite, or a path to a ``.py`` file, which does not:
        - my_package.health_checks      # an installed module
 
 A relative file path is resolved against your project root — the directory
-holding ``profile.yml`` — the same way ``data/`` and ``plans/`` paths are, so a
+holding ``profile.yml`` — the same way ``facility/`` and ``plans/`` paths are, so a
 checks file kept beside your profile is found by the CLI, the dashboard and the
 health MCP server alike, with no ``PYTHONPATH`` to arrange. A plugin that will
 not load never takes the suite down: it reports one ``error`` row under the

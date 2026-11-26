@@ -77,14 +77,14 @@ root:
    notebooks/
    *.h5
 
-Here ``*.h5`` drops ``x.h5`` at the root but not ``data/x.h5``. Write
+Here ``*.h5`` drops ``x.h5`` at the root but not ``scans/x.h5``. Write
 ``**/*.h5`` to match at every depth. Two rules hold whatever the file says:
 
 #. It cannot bring back what OSPREY excludes. ``.env`` files, ``.git``,
    ``build/``, ``var/`` and the repo's Claude Code files stay out.
 #. It cannot remove a file the build reads. Such a pattern fails the build,
-   and the error names it. The build reads ``profile.yml``, ``data/``,
-   ``tiers/``, ``apps/``, the convention directories and the trigger file. It
+   and the error names it. The build reads ``profile.yml``, ``facility/``,
+   the ``web/`` content, ``tiers/``, ``apps/``, the convention directories and the trigger file. It
    also reads a repo-local ``extends:`` base, the selected host-variant profile
    and an enabled watchdog's directory.
 

@@ -45,7 +45,8 @@ scaffolding that goes with it:
 
    demo-facility/
    ├── profile.yml                       the manifest you own — edit this
-   ├── data/                             channel databases, knowledge, lattice
+   ├── facility/                         the facility tree: records, limits, knowledge
+   ├── web/                              the CANOPY screens and the landing notices
    ├── tiers/                            one file per login, shared cards included
    ├── ops/services/facility-mcp/        the facility's own container
    ├── ops/scripts/verify.sh             the post-deploy health check
@@ -178,9 +179,9 @@ Step 1 — Create the facility repository
    cd demo-facility
 
 The command writes the whole repository, runs ``git init`` at its root, and
-commits nothing. It prints the handful of entries you edit: the profile, the
-data directory, the six login files it wrote in ``tiers/``, the two env files,
-and the README.
+commits nothing. It prints the handful of entries you edit: the profile,
+``facility/`` and ``web/``, the six login files it wrote in ``tiers/``, the two
+env files, and the README.
 
 The folder name is read once, here. ``osprey init`` records it in
 ``profile.yml`` as the deployment's name on a host:

@@ -68,7 +68,9 @@ QUOTED_MESSAGES = {
         "Move it into the repository.",
     ],
     "agent/context/<name> is a file": ["{}/{} is a file: {}/ holds one "],
-    "project/ mirror writes N build-owned path(s)": ["{}/ mirror writes {} build-owned path(s)"],
+    "ops/project/ mirror writes N build-owned path(s)": [
+        "{}/ mirror writes {} build-owned path(s)"
+    ],
     "Repo root has N unrecognized top-level entry/entries": [
         "Repo root has %d unrecognized top-level entry/entries: %s",
     ],

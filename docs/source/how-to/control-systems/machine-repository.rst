@@ -60,8 +60,9 @@ same) and name its facility directory in the root ``profile.yml``:
 
    machine: vendor/example-machine/facility
 
-``machine:`` resolves and is folded into the profile hash like ``data:``
-(:doc:`/how-to/build-profiles`), so a new machine commit reports the build out of date.
+``machine:`` resolves against the repository root, and the tree it names is
+folded into the profile hash like ``facility/`` (:doc:`/how-to/build-profiles`),
+so a new machine commit reports the build out of date.
 Only the root ``profile.yml`` states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted,
 except for a measurement kind only the mounting deployment's package registers:
@@ -88,7 +89,7 @@ fix, on:
    ``ariel/`` and ``benchmarks/``. Edit the fact in the machine repository and
    remove the deployment's copy.
 ``profile-invalid``
-   ``machine:`` and ``data:`` overlap; a login file states ``machine:``; or the
+   ``machine:`` and ``facility/`` overlap; a login file states ``machine:``; or the
    profile states ``simulation.default_scenarios`` beside ``start: true`` or
    ``start_on`` marks or a mounted machine. ``simulation.default_scenarios: null`` cancels a
    preset's value.

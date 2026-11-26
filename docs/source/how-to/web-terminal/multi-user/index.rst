@@ -182,7 +182,7 @@ The config block
 
          Each ``tier`` and each ``shared:`` entry names a file in the
          repository's ``tiers/``, written by ``osprey init``. Every render
-         shares one data tree, one set of secrets and one set of your own
+         shares one facility tree, one set of secrets and one set of your own
          artifacts. The build renders each into
          ``build/<project_name>-<name>`` and records it in
          ``build/config.yml``; nothing here names a path. An unknown login is
@@ -366,7 +366,7 @@ What ``osprey build`` and ``osprey up`` do for the web tier
    ``build/demo-readwrite``, ``build/demo-admin``,
    ``build/demo-logbook``, ``build/demo-knowledge``
    and ``build/demo-channel-finder``). Every render shares the
-   profile's data tree, secrets and artifacts, and inherits the choices
+   profile's facility tree, secrets and artifacts, and inherits the choices
    recorded there (provider, model): edit the profile once and every terminal
    picks the change up. A start renders none of this — ``build/`` is the
    whole account of what will run — so a render missing at start time is
