@@ -211,9 +211,10 @@ and Markdown. What OSPREY supplies, so the app does not have to:
 
 App code imports OSPREY only through ``osprey.apps.sdk`` (plus
 ``osprey_facility.kinds`` and the public ``osprey_connectors`` modules);
-``osprey build`` and ``osprey app check`` refuse any other import. The app
-declares the contract number it is written for, and
-:doc:`/reference/contracts/app-contract` lists what that number covers.
+``osprey build`` and ``osprey app check`` refuse any other import. What an app
+relies on is numbered: ``app.yml`` declares the contract number the app is
+written for, and OSPREY refuses a different one, so an app a later OSPREY
+would break stops at the build.
 
 How writes stay safe
 ====================

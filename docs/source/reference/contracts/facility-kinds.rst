@@ -247,6 +247,6 @@ no command. The engine contract is in :doc:`/contributing/extending-osprey`.
 Stability
 =========
 
-The names in ``osprey_facility.kinds.__all__`` are part of the app contract
-(:doc:`app-contract`). The measurement-file and facts keys this page names keep
+The names in ``osprey_facility.kinds.__all__`` are part of the
+application contract (:doc:`app-contract`). The measurement-file and facts keys this page names keep
 their name and meaning across releases.

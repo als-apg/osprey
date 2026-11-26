@@ -4,11 +4,10 @@
 The Application Contract
 =========================
 
-An application declares in its ``app.yml``, with ``contract: N``, the version of the
-application contract it is written for, and OSPREY refuses any manifest whose number
-differs from the one it implements.
-
-This OSPREY implements contract **1**, the value of
+An application relies on names OSPREY may change. So that such a change stops an app at
+the build, not while it runs, the app declares in its ``app.yml``, with ``contract: N``,
+the version of the application contract it is written for, and OSPREY refuses any
+manifest whose number differs from the one it implements: contract **1**, the value of
 ``osprey.apps.contract.APP_CONTRACT``.
 
 What the contract covers
@@ -37,8 +36,8 @@ not promised.
        ``packages/osprey-connectors``
    * - Panel
      - The panel rules; the exports of ``page-ready.js``; the ``osprey-*`` primitive
-       classes; the design tokens; the ``type`` of each theme and session message a
-       panel receives
+       classes; the design tokens; the ``type`` of each ``osprey-*`` message the
+       terminal posts to a panel
      - ``osprey.interfaces.design_system.panels.validator``; ``page-ready.js``,
        ``primitives.css`` and ``tokens.css`` under
        ``src/osprey/interfaces/design_system/static/``; ``panel-iframe-sync.js`` under
@@ -80,7 +79,7 @@ The refusal
 ``osprey build``, ``osprey app check`` and ``osprey validate`` read the number before
 anything else in the manifest. A mismatch is the only finding reported for that
 manifest, beside the profile's own errors. The line names the file, then
-``contract:``, then one of four forms, each ending ``See <this page>.``:
+``contract:``, then one of four forms, each followed by this page's address:
 
 .. list-table::
    :header-rows: 1
@@ -99,7 +98,8 @@ manifest, beside the profile's own errors. The line names the file, then
    * - Higher
      - ``the app is written for contract M; this OSPREY implements N. Upgrade OSPREY.``
 
-For an installed app the file named is the distribution and its version.
+For an installed app the file named is ``<module path>/app.yml (installed by <dist>
+<version>)``.
 
 What holds the contract
 =======================
