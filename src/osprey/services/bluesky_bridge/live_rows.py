@@ -70,6 +70,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections import OrderedDict
 from datetime import UTC, date, datetime
 from threading import Lock
@@ -231,6 +232,8 @@ def json_cell(value: Any) -> Any:
 
     - ``None``, a boolean, a number or text (numpy scalars of kind ``b i u f
       U`` included) is itself; NaN and infinity stay floats.
+    - A missing value of any kind (numpy ``NaT``, pandas ``NaT``, pandas
+      ``NA``) is ``None``, like a missing number.
     - A numpy array of kind ``b i u f U`` is ``tolist()``: nested lists of
       Python scalars, never walked element by element.
     - A list, a tuple, or a numpy array of kind ``S`` or ``O`` is a list, each
@@ -266,6 +269,8 @@ class _Refused(Exception):
 
 def _plain(value: Any) -> Any:
     """*value* as a JSON reading value, or raise `_Refused`."""
+    if _is_pandas_missing(value):
+        return None
     kind = getattr(getattr(value, "dtype", None), "kind", None)
     if isinstance(kind, str) and kind:
         return _plain_numpy(value, kind)
@@ -282,10 +287,21 @@ def _plain(value: Any) -> Any:
     raise _Refused(REFUSED_NOT_A_READING)
 
 
+def _is_pandas_missing(value: Any) -> bool:
+    """Whether *value* is pandas' ``NaT`` or ``NA``; never imports pandas."""
+    pandas = sys.modules.get("pandas")
+    return pandas is not None and (value is pandas.NaT or value is pandas.NA)
+
+
 def _plain_numpy(value: Any, kind: str) -> Any:
     """A numpy scalar or array of dtype *kind* as a JSON reading value."""
     if kind in _READING_KINDS:
         return value.tolist()
+    if kind in "Mm" and not getattr(value, "ndim", 0):
+        import numpy as np
+
+        if np.isnat(value):
+            return None
     if kind not in "MSO":
         raise _Refused(REFUSED_NOT_A_READING)
     if getattr(value, "ndim", 0):
@@ -308,8 +324,6 @@ def _utc_text(moment: datetime, extra_nanoseconds: int = 0) -> str:
     *extra_nanoseconds* are those below the microsecond a `datetime` cannot
     hold; a ``pandas.Timestamp`` carries its own as ``nanosecond``.
     """
-    if moment != moment:  # a missing timestamp (pandas.NaT) equals nothing
-        raise _Refused(REFUSED_NOT_A_READING)
     if moment.utcoffset() is not None:
         moment = moment.astimezone(UTC)
     nanoseconds = moment.microsecond * 1000 + getattr(moment, "nanosecond", 0) + extra_nanoseconds
@@ -324,8 +338,6 @@ def _datetime64_text(value: Any) -> str:
     """A `numpy.datetime64` scalar as ISO 8601 text in UTC (see :func:`json_cell`)."""
     import numpy as np
 
-    if np.isnat(value):
-        raise _Refused(REFUSED_NOT_A_READING)
     unit, _ = np.datetime_data(value.dtype)
     if unit in _DATE_UNITS:
         day = value.astype("datetime64[D]").item()
