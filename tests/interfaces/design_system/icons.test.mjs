@@ -99,6 +99,8 @@ const CONTRACT_NAMES = [
   'circle-x',
   'link',
   'corner-down-right',
+  // Procedure and checklist panels.
+  'clipboard-list',
 ];
 
 describe('icons.js', () => {
