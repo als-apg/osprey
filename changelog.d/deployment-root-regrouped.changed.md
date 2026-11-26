@@ -16,8 +16,8 @@ move:
 Profile keys and list prefixes such as `rules/safety` or `skills/orbit-check`
 name a row and do not change. The canopy payload and the two canopy wheels are
 no longer staged at the repo root: `osprey build` writes them to
-`build/canopy_payload/` and `build/*.whl`, so the copies left at the root are
-deleted.
+`build/canopy_payload/` and `build/*.whl`, and the migration deletes the
+copies left at the root.
 
 Every command that reads the deployment root now stops before reading anything
 when a retired path is present. It prints the `mkdir -p`, `git mv` (or `mv`)
