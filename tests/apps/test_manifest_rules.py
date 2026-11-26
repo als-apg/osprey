@@ -29,50 +29,54 @@ from osprey.apps.rules import (
     validate,
 )
 
+from ._contract import CONTRACT, with_contract
+
 HOOKS = Path(__file__).resolve().parents[2] / "src/osprey/templates/claude_code/claude/hooks"
 
-KNOB: dict[str, Any] = {
-    "name": "knob",
-    "containers": {
-        "knob": {
-            "runtime": "osprey",
-            "port": 8100,
-            "drives_target": True,
-            "control_identity": True,
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {
+            "knob": {
+                "runtime": "osprey",
+                "port": 8100,
+                "drives_target": True,
+                "control_identity": True,
+            },
+            "knob-cache": {"image": "redis:7.2"},
         },
-        "knob-cache": {"image": "redis:7.2"},
-    },
-    "panel": {
-        "label": "KNOB",
-        "container": "knob",
-        "launch_token": True,
-        "agent_routes": [["GET", "/api/state"], ["POST", "/api/write"]],
-    },
-    "tools": {
-        "module": "knob.tools",
-        "shown_when": "panel",
-        "deny_in_jobs": True,
-        "read": ["read_knob"],
-        "approval": [
-            {
-                "tool": "set_knob",
-                "prompt": "Set {{ input.value }}",
-                "state_path": "/api/state",
-                "bind": {
-                    "state_fields": [{"field": "approved_readback", "key": "readback"}],
-                    "input_digests": [{"field": "approved_digest", "over": ["value"]}],
-                },
-                "require": {
-                    "all_of": ["approved_target", "approved_digest"],
-                    "one_of": [["approved_readback"]],
-                },
-            }
+        "panel": {
+            "label": "KNOB",
+            "container": "knob",
+            "launch_token": True,
+            "agent_routes": [["GET", "/api/state"], ["POST", "/api/write"]],
+        },
+        "tools": {
+            "module": "knob.tools",
+            "shown_when": "panel",
+            "deny_in_jobs": True,
+            "read": ["read_knob"],
+            "approval": [
+                {
+                    "tool": "set_knob",
+                    "prompt": "Set {{ input.value }}",
+                    "state_path": "/api/state",
+                    "bind": {
+                        "state_fields": [{"field": "approved_readback", "key": "readback"}],
+                        "input_digests": [{"field": "approved_digest", "over": ["value"]}],
+                    },
+                    "require": {
+                        "all_of": ["approved_target", "approved_digest"],
+                        "one_of": [["approved_readback"]],
+                    },
+                }
+            ],
+        },
+        "vendor": [
+            {"url": "https://example.org/lib.js", "into": "panel/vendor/lib.js", "sha256": "a" * 64}
         ],
-    },
-    "vendor": [
-        {"url": "https://example.org/lib.js", "into": "panel/vendor/lib.js", "sha256": "a" * 64}
-    ],
-}
+    }
+)
 
 EMPTY = Reserved(services=frozenset(), panels=frozenset(), servers=frozenset(), names=frozenset())
 
@@ -160,7 +164,9 @@ def test_control_identity_needs_drives_target() -> None:
 
 
 def test_container_keys_are_unique_across_apps_and_services() -> None:
-    other = _manifest({"name": "other", "containers": {"knob-cache": {"image": "redis:7.2"}}})
+    other = _manifest(
+        with_contract({"name": "other", "containers": {"knob-cache": {"image": "redis:7.2"}}})
+    )
     err = _refused([_manifest(), other])
     assert _rules(err) == ["container_key_unique"]
     assert err.app == "other" and "knob" in err.message
@@ -193,11 +199,13 @@ def test_a_panel_container_needs_no_port_pin() -> None:
 
 def test_panel_ids_are_unique_across_apps_and_web_panels() -> None:
     other = _manifest(
-        {
-            "name": "other",
-            "containers": {"other": {"runtime": "osprey"}},
-            "panel": {"id": "knob", "label": "O", "container": "other"},
-        }
+        with_contract(
+            {
+                "name": "other",
+                "containers": {"other": {"runtime": "osprey"}},
+                "panel": {"id": "knob", "label": "O", "container": "other"},
+            }
+        )
     )
     assert _rules(_refused([_manifest(), other])) == ["panel_id_unique"]
     err = _refused(
@@ -238,7 +246,9 @@ def test_fixed_names_cover_servers_panels_and_services() -> None:
 
 def test_an_app_named_like_a_framework_server_is_refused_without_enabling_it() -> None:
     reserved = Reserved(frozenset(), frozenset(), frozenset(), fixed_names())
-    phoebus = _manifest({"name": "phoebus", "containers": {"phoebus": {"runtime": "osprey"}}})
+    phoebus = _manifest(
+        with_contract({"name": "phoebus", "containers": {"phoebus": {"runtime": "osprey"}}})
+    )
     err = _refused([phoebus], reserved=reserved)
     assert _rules(err) == ["reserved_name"]
     assert err.app == "phoebus" and err.field == "name"
@@ -419,17 +429,21 @@ def test_builtin_credential_names_include_the_lane_tokens() -> None:
 
 def test_a_launch_token_may_not_collide_with_a_builtin_credential() -> None:
     m = _manifest(
-        {
-            "name": "bluesky",
-            "containers": {"bluesky-app": {"runtime": "osprey"}},
-            "panel": {"label": "B", "container": "bluesky-app", "launch_token": True},
-        }
+        with_contract(
+            {
+                "name": "bluesky",
+                "containers": {"bluesky-app": {"runtime": "osprey"}},
+                "panel": {"label": "B", "container": "bluesky-app", "launch_token": True},
+            }
+        )
     )
     assert launch_token_env("bluesky") in builtin_credential_names()
     err = _refused([m])
     assert _rules(err) == ["launch_token_env"]
     assert "BLUESKY_LAUNCH_TOKEN" in err.message
-    m = _manifest({"name": "bluesky", "containers": {"bluesky-app": {"runtime": "osprey"}}})
+    m = _manifest(
+        with_contract({"name": "bluesky", "containers": {"bluesky-app": {"runtime": "osprey"}}})
+    )
     validate([m], logins={}, reserved=EMPTY)
 
 
@@ -663,7 +677,13 @@ def test_an_audit_identity_a_service_keeps_for_itself_is_refused(identity: str) 
 
 def test_two_applications_may_not_share_an_audit_identity() -> None:
     dial = _manifest(
-        {"name": "dial", "audit_identity": "knob", "containers": {"dial": {"runtime": "osprey"}}}
+        with_contract(
+            {
+                "name": "dial",
+                "audit_identity": "knob",
+                "containers": {"dial": {"runtime": "osprey"}},
+            }
+        )
     )
     err = _refused([_manifest(), dial])
     assert _rules(err) == ["audit_identity_unique"]
@@ -697,12 +717,14 @@ def test_an_application_with_no_container_is_not_checked_for_its_audit_identity(
     reserved = Reserved(
         frozenset(), frozenset(), frozenset(), frozenset(), roster_users=frozenset({"guide"})
     )
-    guide = _manifest({"name": "guide", "skills": ["guide"]})
+    guide = _manifest(with_contract({"name": "guide", "skills": ["guide"]}))
     validate([guide], logins={}, reserved=reserved)
 
 
 def test_an_audit_identity_spelled_with_no_container_is_refused() -> None:
-    guide = _manifest({"name": "guide", "skills": ["guide"], "audit_identity": "guide-audit"})
+    guide = _manifest(
+        with_contract({"name": "guide", "skills": ["guide"], "audit_identity": "guide-audit"})
+    )
     err = _refused([guide])
     assert _rules(err) == ["audit_identity_container"]
     assert err.field == "audit_identity"
@@ -775,7 +797,8 @@ def _origin(module: str = OWN_PACKAGE) -> AppOrigin:
 def _deployment_dir(root: Path, name: str) -> None:
     (root / "apps" / name).mkdir(parents=True)
     (root / "apps" / name / "app.yml").write_text(
-        f"name: {name}\ncontainers:\n  {name}:\n    runtime: osprey\n", encoding="utf-8"
+        f"contract: {CONTRACT}\nname: {name}\ncontainers:\n  {name}:\n    runtime: osprey\n",
+        encoding="utf-8",
     )
 
 
