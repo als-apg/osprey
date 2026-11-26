@@ -10,7 +10,9 @@ first, and no ``pre_build`` step runs.
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,7 +22,7 @@ from click.testing import CliRunner
 from osprey import repo_layout
 from osprey.cli.main import cli
 from osprey_facility import source_tree
-from osprey_facility.errors import RetiredLayoutRefused
+from osprey_facility.errors import RetiredLayoutRefused, _revalidate_command
 from osprey_facility.retired import refuse_retired
 from tests._builds import init_project
 
@@ -161,6 +163,34 @@ def test_scaffold_pull_refuses_whatever_is_pulled(repo: Path) -> None:
         ],
     )
     assert not index.exists()
+
+
+def test_scaffold_pull_names_the_deployment_when_its_profile_does_not_resolve(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The deployment sits inside another work tree, which is not the repo to migrate.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    shutil.rmtree(repo / ".git", ignore_errors=True)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    profile = repo / "profile.yml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8") + "not_a_profile_key: true\n", encoding="utf-8"
+    )
+    result = CliRunner().invoke(
+        cli,
+        [
+            "scaffold",
+            "pull",
+            f"demo:{repo_layout.entry('facility').path}/{source_tree.path('knowledge')}",
+            "--force",
+            "--repo",
+            str(repo),
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert result.output.count("still holds sources at retired paths") == 1, result.output
+    assert result.output.splitlines()[-1] == _revalidate_command(repo.resolve()), result.output
 
 
 def test_scaffold_pull_list_does_not_refuse(repo: Path) -> None:

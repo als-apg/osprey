@@ -345,7 +345,7 @@ def refuse_retired_layouts(repo_root: Path) -> None:
     try:
         _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, FacilityBuildError, OSError, ValueError, RuntimeError):
-        refuse_retired(repo_root / repo_layout.entry("facility").path)
+        refuse_retired(repo_root / repo_layout.entry("facility").path, repo=repo_root)
 
 
 # ---------------------------------------------------------------------------
