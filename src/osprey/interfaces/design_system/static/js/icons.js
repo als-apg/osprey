@@ -370,6 +370,15 @@ const SHAPES = Object.freeze({
     'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
   ],
   'corner-down-right': ['m15 10 5 5-5 5', 'M4 4v7a4 4 0 0 0 4 4h12'],
+  // A procedure or checklist panel, apart from the document `file-text` draws.
+  'clipboard-list': [
+    ['rect', { width: '8', height: '4', x: '8', y: '2', rx: '1' }],
+    'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2',
+    'M12 11h4',
+    'M12 16h4',
+    'M8 11h.01',
+    'M8 16h.01',
+  ],
 });
 
 /** Icons drawn heavier than the 1.75 default, set on each child. */

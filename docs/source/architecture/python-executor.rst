@@ -10,7 +10,8 @@ enforcement. It is a process boundary on the host, not a sandbox or container.
 The code runs with an allowlisted copy of the executor's environment, not the
 executor's own (see :ref:`python-executor-secrets-zone`). It does not run
 inside an isolated machine. Code it runs can write anywhere the executor
-process can, apart from the deployment's own sources and render.
+process can, apart from the deployment's own sources and render and the
+paths its profile names under the keys the build protects.
 :ref:`python-executor-protected-paths` covers those, and also says plainly how
 far that protection goes.
 The OSPREY agent uses it via the ``execute`` MCP tool to perform data analysis,
@@ -36,7 +37,7 @@ detection (for example ``"figure"``, ``"dataframe"``); ``category`` is a free-fo
 grouping label used by the gallery UI.
 
 A render that carries a pyAML view adds two tools to the same server. A render
-without one registers neither (see :doc:`/how-to/measure-with-pyaml`):
+without one registers neither (see :doc:`/how-to/pyaml/index`):
 
 - ``pyaml_measure`` measures a response matrix or the chromaticity on the
   control target through a generated script. Every write of one measurement
@@ -120,7 +121,8 @@ Ten safety layers are applied in sequence:
 
 2. **Protected-path policy** (``path_policy_issues``)---reads the submitted
    source and refuses code that aims a write at the deployment's own
-   sources or render. Applied in **every** execution mode; see
+   sources or render, or at a path a protected profile key names. Applied in **every**
+   execution mode; see
    :ref:`python-executor-protected-paths`.
 
 3. **Readonly import denylist** (``check_readonly_imports``)---a
@@ -468,9 +470,15 @@ Reads are unchanged: ``read_channel()``, and a client library's own reads in a
 What executed code may not change
 ---------------------------------
 
-Refusing control-system writes is one boundary; this is a different one. Whatever
+Refusing control-system writes is one boundary; this is a different one. It
+applies to code run through the python-executor tools (``execute``,
+``execute_file``, ``pyaml_measure`` and ``model_response_matrix``). Whatever
 mode a run is submitted in, it may not rewrite the deployment that runs it.
-Five locations are protected:
+
+Two lists make up what it may not change: a fixed list of names at the
+deployment root, and the paths the profile names.
+
+**The fixed list.** These names are protected in every deployment:
 
 - **The render zone** (``build/``) --- rebuilt wholesale by every
   ``osprey build``, and the rendered ``config.yml`` inside it is where the next
@@ -505,18 +513,52 @@ Five locations are protected:
   mints for the containers it starts. A run that could replace them could
   swap the keys a running stack trusts.
 
-A protected entry that does not exist yet is protected all the same: in a repo
-with no ``apps/`` directory, creating one is exactly the write to refuse.
+**The paths the profile names.** A profile can name locations outside those
+names that the build or a service reads: a plan directory, a CA bundle, a
+registry module, a search corpus, a panel file. ``osprey build`` reads the
+resolved profile --- the ``extends`` chain, the selected host variant and every
+login file --- and writes those paths as one list, ``protected_paths``, into
+every configuration file it renders. That list in ``build/config.yml`` is the
+exact set for a deployment. Keys that name where a run writes its output, such
+as screen captures and plots, are left out, as are ``extra_mounts`` in a login
+file, ``apps.<name>.config`` and ``modules.shared_disk.host_path``.
 
-This boundary is about *zones* — whole trees, wherever inside them a path lands.
-A companion boundary, :ref:`the protected set <config-protected-set>`, closes
+**What an entry covers.** A directory entry protects its whole tree; a file
+entry protects that file only. Removing, renaming or moving a directory that
+contains a protected location is refused. A protected location that does not
+exist yet is protected all the same: in a repo with no ``apps/`` directory,
+creating one is exactly the write to refuse.
+
+**A deployment without the list.** The list reaches the executor only through
+the build output. When the rendered ``config.yml`` lacks it --- a build made
+before the list existed, for example --- the python-executor tools run no agent
+code and say: run ``osprey build``. The refusal is audited with its own reason,
+``no_protected_paths``. ``osprey up`` and ``osprey restart`` refuse to start
+such a build; ``osprey up --as-built`` starts it with a warning. The executor
+reads the list once per run, so a rebuild takes effect at the next run without
+a restart.
+
+**Limits.** These are known and not covered:
+
+- Notebook cells run in a kernel, not through the executor, and the
+  executor's file refusals do not bind it
+  (:ref:`architecture-safety-chain-residual`).
+- An absolute host path is protected at that path. Code running inside a
+  container sees the host location under the container's own path, and the
+  entry does not follow it there.
+- A path stated under a configuration key the build has not decided is only
+  warned about at build, naming the key; it is not protected.
+- ``environment.python`` and ``python_env`` protect the interpreter file, not
+  its library tree.
+
+This boundary is about locations, wherever inside them a path lands. A
+companion boundary, :ref:`the protected set <config-protected-set>`, closes
 named files and config keys to every agent-side writer (the settings panels,
 the galleries, the ``setup_patch`` tool) rather than to executed code.
 
 The agent's own data zone (``var/agent_data/``) and the run's execution folder
 are carved back out. As a result, analysis output, figures and saved
-artifacts keep working normally, as does everything else on disk the executor
-process can reach.
+artifacts keep working normally.
 
 **Both modes, same answer.** ``readwrite`` buys a run human approval to move a
 magnet; it buys no approval to rewrite ``profile.yml``. Only the wording of the
@@ -533,8 +575,10 @@ Two layers enforce the set:
    ``open()`` in a write mode, ``Path.write_text``/``Path.open``, the
    ``shutil`` copy/move/remove family, ``os.remove``/``rename``/``mkdir`` and
    friends. Any call whose path is written out as a literal landing inside a
-   protected location is refused before anything is spawned. That way the
-   agent gets a readable message instead of a traceback. A path the code computes at
+   protected location, or containing one for a remove or a move, is refused
+   before anything is spawned. A relative literal is resolved against the
+   run's working directory, the deployment root. That way the agent gets a
+   readable message instead of a traceback. A path the code computes at
    runtime is deliberately *not* guessed at here; it is left to layer 2.
    The same pass refuses code that names the runtime guard's own internals,
    which is the one thing that guard cannot police for itself.
@@ -543,12 +587,14 @@ Two layers enforce the set:
    submitted code. It intercepts the filesystem entry points (``open``,
    ``io.open``, ``os.open``, ``os.truncate``, ``os.remove``, ``os.unlink``,
    ``os.rmdir``, ``os.removedirs``, ``os.rename``, ``os.replace``,
-   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, and
-   ``shutil.copy``, ``copy2``, ``copyfile``, ``move`` and ``rmtree``). It
-   raises ``PermissionError`` for a write landing in a protected location,
-   however the path was assembled. The protected locations are resolved by
-   the parent process and baked into the guard as fixed strings; the
-   subprocess never works them out for itself.
+   ``os.makedirs``, ``os.mkdir``, ``os.symlink``, ``os.link``, their
+   ``posix`` counterparts, and ``shutil.copy``, ``copy2``, ``copyfile``,
+   ``move`` and ``rmtree``). It raises ``PermissionError`` for a write landing
+   in a protected location, however the path was assembled. A name given
+   relative to a directory descriptor is judged against that descriptor's
+   directory, where the platform can name it (Linux and macOS). The protected
+   locations are resolved by the parent process and baked into the guard as
+   fixed strings; the subprocess never works them out for itself.
 
 .. warning::
 

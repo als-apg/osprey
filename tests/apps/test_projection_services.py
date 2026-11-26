@@ -82,6 +82,16 @@ def test_runtime_container_projects_the_bundled_template() -> None:
     assert block["config_file"] == f"./services/knob-demo/{APP_CONFIG_FILE}"
 
 
+def test_declared_corpora_are_carried_and_absent_when_none_is_declared() -> None:
+    data = copy.deepcopy(KNOB)
+    data["containers"]["knob-demo"]["corpora"] = ["procedures", "ops_notes"]
+    block = _services(_project([_manifest(data)], {"apps": {"knob-demo": {}}}))["knob-demo"]
+    assert block["config"]["corpora"] == ["procedures", "ops_notes"]
+    plain = _services(_project([_manifest(KNOB)], {"apps": {"knob-demo": {}}}))
+    assert "corpora" not in plain["knob-demo"]["config"]
+    assert "corpora" not in plain["knob-cache"]["config"]
+
+
 def test_panel_container_carries_the_roster_grant_and_launch_token_name() -> None:
     services = _services(_project([_manifest(KNOB)], {"apps": {"knob-demo": {}}}))
     panel = services["knob-demo"]["config"]

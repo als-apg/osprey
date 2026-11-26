@@ -48,14 +48,8 @@ SDK_NAMES = {
     "POSTURE_SOURCE_APP",
     "startup_timer",
     "tool_keys",
-    "closed_orbit_models",
-    "model_members",
     "model_response_matrix",
-    "Member",
-    "ModelMembers",
     "ResponseMatrix",
-    "prewrite_verdict",
-    "WriteVerdictView",
     "bridges_for_target",
     "audit_surface",
     "canonical_json",
@@ -64,6 +58,10 @@ SDK_NAMES = {
     "caller_from_header",
     "caller_kind",
     "launch_token_env",
+    "corpus",
+    "Corpus",
+    "CorpusHit",
+    "CorpusUnavailable",
 }
 
 

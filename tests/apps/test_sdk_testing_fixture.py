@@ -512,3 +512,31 @@ def test_a_deployments_kind_is_built_through_the_fixture(tmp_path: Path) -> None
     assert set(sr["kinds"]) == {"trm", KIND}
     assert sr["kinds"][KIND]["facts"] == FACTS
     assert KIND in rendered.facts["measurement_kinds"]
+
+
+def test_a_declared_corpus_is_bound_and_served_as_the_host_directory(
+    rendered_tree, tmp_path: Path
+) -> None:
+    """A real build of an application that lists a corpus, read through ``serve``."""
+    from osprey.apps.sdk import corpus
+
+    source = _new_app(tmp_path, APP)
+    manifest = yaml.safe_load((source / "app.yml").read_text(encoding="utf-8"))
+    manifest["containers"][APP]["corpora"] = ["procedures"]
+    (source / "app.yml").write_text(yaml.safe_dump(manifest, sort_keys=False), encoding="utf-8")
+    documents = tmp_path / "procedures"
+    documents.mkdir()
+    (documents / "bakeout.md").write_text("# Bakeout\n", encoding="utf-8")
+    qmd = {"corpora": [{"name": "procedures", "source": str(documents)}]}
+
+    tree = rendered_tree(apps={APP: source}, profile={"config": {"services": {"qmd": qmd}}})
+    compose = yaml.safe_load(
+        (tree.root / "build" / "services" / APP / "docker-compose.yml").read_text(encoding="utf-8")
+    )["services"][APP]
+    served = tree.serve("operator")
+
+    assert f"{documents}:/osprey/corpora/procedures:ro" in compose["volumes"]
+    assert compose["environment"]["OSPREY_APP_CORPORA"] == "procedures=/osprey/corpora/procedures"
+    assert compose["environment"]["OSPREY_QMD_PROCEDURES_URL"].startswith("http://")
+    with served.environment():
+        assert (corpus("procedures").path / "bakeout.md").read_text() == "# Bakeout\n"

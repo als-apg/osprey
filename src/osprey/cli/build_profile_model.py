@@ -644,10 +644,13 @@ class BuildProfile:
             AppManifestError: A listed application's manifest is refused; :meth:`validate`
                 keeps its violations whole, so each is printed with its rule as
                 ``osprey app check`` prints it, never folded into a profile error.
+                So is a ``corpora`` name the profile's ``services.qmd.corpora``
+                cannot serve (:func:`~osprey.apps.loader.corpus_violations`).
         """
         if not self.apps:
             return []
-        from osprey.apps.loader import MANIFEST_FILE
+        from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import MANIFEST_FILE, corpus_violations
         from osprey.apps.loader import load as load_apps
         from osprey.apps.origin import installed_apps
 
@@ -687,6 +690,11 @@ class BuildProfile:
                     errors.extend(network_mode_errors(axes.network, f"{where}.network"))
                 if axes.env is not None:
                     errors.extend(env_names_errors(axes.env, f"{where}.env"))
+        unservable = corpus_violations(
+            manifests.values(), _config_service_block(self.config, QMD_SERVICE_NAME)
+        )
+        if unservable:
+            raise AppManifestError.from_violations(unservable)
         return errors
 
     def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:

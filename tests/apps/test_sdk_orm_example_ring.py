@@ -1,8 +1,7 @@
 """The example ring's full orbit response, solved for real through the SDK.
 
-The orbit-bump application builds its response matrix with
-``model_response_matrix`` over every storage-ring corrector of the example
-render. The shape test runs in the parallel lane; the wall-clock budget is
+``model_response_matrix`` is asked for every storage-ring corrector of the
+example render. The shape test runs in the parallel lane; the wall-clock budget is
 marked ``wallclock`` and timed alone in the serial step, where no other worker
 distorts the clock it reads.
 """
@@ -30,49 +29,55 @@ def example_render(built_demo: Any) -> Path:
 
 
 @pytest.fixture(scope="module")
-def members(example_render: Path) -> sdk.ModelMembers:
-    """The ring's members; holds no response matrix."""
-    return sdk.model_members(RING, example_render)
+def wired(example_render: Path) -> dict[str, dict[str, str]]:
+    """The ring's wired addresses by engine role, each mapped to its plane."""
+    from osprey_connectors.simulation.view import SimulatorView
+
+    [model] = [
+        m for m in SimulatorView.of_render(example_render).physics_models() if m.name == RING
+    ]
+    roles: dict[str, dict[str, str]] = {"monitor": {}, "setpoint": {}}
+    for binding in model.bindings:
+        if binding.engine_role in roles and binding.plane in ("x", "y") and binding.element:
+            roles[binding.engine_role][binding.address] = binding.plane
+    return roles
 
 
-def _asked(members: sdk.ModelMembers) -> list[str]:
-    """Every corrector setpoint, asked in reverse ring order.
+def _asked(wired: dict[str, dict[str, str]]) -> list[str]:
+    """Every corrector setpoint, asked in reverse wiring order.
 
     Reversed so the columns cannot follow ring order or the default
     horizontal-then-vertical order by accident.
     """
-    setpoints = [m.setpoint_addr for m in members.correctors if m.setpoint_addr is not None]
-    return list(reversed(setpoints))
+    return list(reversed(wired["setpoint"]))
 
 
 def test_the_full_example_orm_has_one_row_per_bpm_plane_and_one_column_per_asked_corrector(
-    example_render, members
+    example_render, wired
 ):
-    asked = _asked(members)
+    asked = _asked(wired)
     assert asked, "the example ring wires no corrector"
 
     orm = sdk.model_response_matrix(RING, asked, render_root=example_render)
 
-    expected_rows = [m.position_addr for m in members.bpms]
+    monitors = wired["monitor"]
     assert orm.model == RING
     assert orm.unsolved == {}
-    assert orm.rows == expected_rows
+    assert sorted(orm.rows) == sorted(monitors)
     assert orm.columns == asked
-    assert len(orm.matrix) == len(expected_rows)
+    assert len(orm.matrix) == len(monitors)
     assert all(len(row) == len(asked) for row in orm.matrix)
 
     # Each BPM contributes its x row, then its y row, by lattice index.
-    pairs = list(zip(members.bpms[0::2], members.bpms[1::2], strict=True))
-    for x_row, y_row in pairs:
-        assert x_row.element == y_row.element
-        assert (x_row.plane, y_row.plane) == ("x", "y")
-    indices = [x_row.index for x_row, _ in pairs]
-    assert indices == sorted(indices)
+    assert orm.row_positions is not None
+    assert [monitors[row] for row in orm.rows] == ["x", "y"] * (len(monitors) // 2)
+    assert orm.row_positions[0::2] == orm.row_positions[1::2]
+    assert orm.row_positions[0::2] == sorted(orm.row_positions[0::2])
 
 
 @pytest.mark.wallclock
-def test_the_full_example_orm_builds_within_its_budget(example_render, members):
-    asked = _asked(members)
+def test_the_full_example_orm_builds_within_its_budget(example_render, wired):
+    asked = _asked(wired)
 
     started = time.perf_counter()
     orm = sdk.model_response_matrix(RING, asked, render_root=example_render)

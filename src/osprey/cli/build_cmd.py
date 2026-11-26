@@ -74,7 +74,12 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
+from osprey.utils.workspace import (
+    IMAGE_DIR_NAME,
+    PROTECTED_PATHS_CONFIG_KEY,
+    STATE_DIR_NAME,
+    STATE_ZONE_DIRS,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -1589,6 +1594,28 @@ class _SharedRenderInputs(NamedTuple):
     (:func:`~osprey.cli.build_profile_canopy.without_unstaged_panel`).
     """
 
+    logins: tuple[tuple[Path, str, Any], ...] | None = None
+    """Every login file of the build, resolved once: ``(file, project, resolved)``.
+
+    Resolved before the deployment's render, because the protected-path set is
+    computed across the deployment and every login, and reused by each render
+    that is made from a login — the host-side one and its image copy — so all
+    of them render what the set was computed from. ``None`` for a render that
+    belongs to no build; each render then resolves its login itself
+    (:func:`_layer_render`).
+    """
+
+    protected_paths: tuple[str, ...] | None = None
+    """The deployment's protected-path entries, written into every render.
+
+    The union across the deployment's profile and each login
+    (:func:`~osprey.cli.build_protected_paths.emit_protected_paths`), written
+    under :data:`~osprey.utils.workspace.PROTECTED_PATHS_CONFIG_KEY` — an empty
+    list when the profile names none. ``None`` for a render that belongs to no
+    build, which writes no key: a set it did not compute would read as one the
+    build vouches for.
+    """
+
 
 #: Parsed ``config.yml`` documents by (path, content digest); see
 #: :func:`_rendered_config`. Cleared at the start of every ``osprey build``.
@@ -2676,6 +2703,12 @@ def _render_project(
                 {**build_profile.config, **facility_fill},
                 _rendered_config(render_dir),
             ),
+            # One set for the whole deployment, written into every render of it.
+            "protected_paths": (
+                {}
+                if shared.protected_paths is None
+                else {PROTECTED_PATHS_CONFIG_KEY: list(shared.protected_paths)}
+            ),
         }
         derived = {
             key: value for block in derived_by_block.values() for key, value in block.items()
@@ -3232,6 +3265,68 @@ def _layer_render(
     return project, resolved
 
 
+def _with_protected_paths(
+    shared: _SharedRenderInputs, resolved: Any, *, project_name: str
+) -> _SharedRenderInputs:
+    """*shared* carrying the build's logins and the deployment's protected-path set.
+
+    The logins are resolved once, here, before any render, and the set is the
+    union across the deployment's profile (*resolved*) and every login, so each
+    render of the build writes the same set. Each note and each undecided key
+    the emitter reports is printed; neither stops the build.
+
+    Raises:
+        BuildProfileError: When a protected path lies inside the agent data
+            zone, or a login does not resolve.
+    """
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
+    from . import output
+    from .build_protected_paths import emit_protected_paths
+
+    logins = _logins(shared, project_name=project_name, host_profile=resolved.profile)
+    found = emit_protected_paths(
+        [resolved, *(login for _file, _project, login in logins)],
+        deployment_root=shared.repo_root,
+        agent_data_root=Path(DEFAULT_AGENT_DATA_BASE_DIR),
+    )
+    for note in found.notes:
+        output.note(note)
+    values_by_key: dict[str, list[str]] = {}
+    for undecided in found.undecided:
+        values_by_key.setdefault(undecided.key, []).append(undecided.value)
+    for key, values in values_by_key.items():
+        output.note(
+            f"⚠ {key} states a path ({', '.join(values)}) that OSPREY does not know "
+            "as a path, so it is not protected: agent code the python executor runs "
+            "may write to it."
+        )
+    return shared._replace(logins=logins, protected_paths=found.entries)
+
+
+def _logins(
+    shared: _SharedRenderInputs,
+    *,
+    project_name: str,
+    host_profile: BuildProfile,
+) -> tuple[tuple[Path, str, Any], ...]:
+    """Every login file of the build as ``(file, project, resolved)``.
+
+    The build's own resolution when it has one (:attr:`_SharedRenderInputs.logins`),
+    so every render made from a login renders what the protected-path set was
+    computed from; otherwise each file is resolved here by :func:`_layer_render`.
+
+    Raises:
+        BuildProfileError: As :func:`_layer_files` and :func:`_layer_render` do.
+    """
+    if shared.logins is not None:
+        return shared.logins
+    return tuple(
+        (layer, *_layer_render(shared, layer, project_name=project_name, host_profile=host_profile))
+        for _kind, layer in _layer_files(shared.repo_root)
+    )
+
+
 def _render_projects(
     shared: _SharedRenderInputs,
     zones: _RenderZones,
@@ -3264,8 +3359,8 @@ def _render_projects(
     """
     from .profile_conventions import render_convention_selections, unknown_root_entries
 
-    layers = _layer_files(shared.repo_root)
-    if not layers:
+    logins = _logins(shared, project_name=project_name, host_profile=host_profile)
+    if not logins:
         return []
 
     # Already warned about once, by the deployment's own render. The entries are
@@ -3274,10 +3369,7 @@ def _render_projects(
     already_warned = unknown_root_entries(shared.repo_root)
 
     rendered: list[Path] = []
-    for _kind, layer in layers:
-        project, resolved = _layer_render(
-            shared, layer, project_name=project_name, host_profile=host_profile
-        )
+    for layer, project, resolved in logins:
         logger.debug("  Rendering tier %r → %s/", layer.stem, project)
         if selections_out is not None:
             selections_out.update(render_convention_selections(resolved.profile))
@@ -3994,10 +4086,9 @@ def _render_container_projects(
             deployment=True,
         )
     ]
-    for _kind, layer in _layer_files(shared.repo_root):
-        project, layer_resolved = _layer_render(
-            shared, layer, project_name=project_name, host_profile=resolved.profile
-        )
+    for layer, project, layer_resolved in _logins(
+        shared, project_name=project_name, host_profile=resolved.profile
+    ):
         contexts.append(
             _render_container_project(
                 shared,
@@ -4495,6 +4586,7 @@ def _build_repo(
             host_identity_said=set(),
             staging_runs=not skip_lifecycle,
         )
+        shared = _with_protected_paths(shared, resolved, project_name=name)
 
         # One reported phase over every render pass this build makes — the
         # deployment, the compose files, one per layer, one per image

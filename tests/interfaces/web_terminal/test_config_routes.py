@@ -263,6 +263,7 @@ PROTECTED_CASES = [
     pytest.param("approval.mode", "disabled", id="approval-gate"),
     pytest.param("claude_code.permissions.deny", [], id="permission-surface"),
     pytest.param("agent_data.base_dir", "/tmp/elsewhere", id="agent-data-root"),
+    pytest.param("protected_paths", [], id="profile-named-paths"),
     pytest.param(
         "control_system",
         {

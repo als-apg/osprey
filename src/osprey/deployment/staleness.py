@@ -22,7 +22,10 @@ is the documented escape from both refusals — ``build/`` is self-contained, so
 starting it as rendered stays a valid, knowing choice. A render stamped by a
 release older than the login vocabulary is refused the same way, ahead of the
 fingerprint, because an old-spelled profile hashes identically to its rewrite
-and the hash alone would call that render clean.
+and the hash alone would call that render clean. So is a render whose
+``config.yml`` carries no protected-path list (``NO_PROTECTED_PATHS``): the
+fingerprint cannot see it either, and the python executor refuses agent code
+against such a render until ``osprey build`` writes the list.
 
 The fingerprint is ``compute_profile_hash`` over the resolved profile document,
 the file material it names, and the host-variant overlay ``.env.variant``
@@ -43,6 +46,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeGuard
 
+from osprey.utils.workspace import NO_PROTECTED_PATHS_CONSEQUENCE, load_protected_paths
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
@@ -127,6 +131,8 @@ class DriftState(StrEnum):
     the two honest ways of having no verdict, kept apart because their remedies
     are opposites: ``--as-built`` is the escape from an unverifiable profile,
     and is no escape at all when there is nothing built to start.
+    ``NO_PROTECTED_PATHS`` is a finding about the render itself rather than
+    about its source, and has a consequence of its own to say.
     """
 
     #: Recomputed fingerprint equals the stamp — ``build/`` is what the profile
@@ -139,6 +145,10 @@ class DriftState(StrEnum):
     UNRESOLVABLE = "unresolvable"
     #: No ``build/`` (or no manifest inside it) to compare against.
     NO_BUILD = "no_build"
+    #: ``build/config.yml`` carries no well-formed protected-path list — absent,
+    #: malformed, or the file itself unreadable. Judged before the fingerprint,
+    #: which would call such a render clean.
+    NO_PROTECTED_PATHS = "no_protected_paths"
 
 
 @dataclass(frozen=True)
@@ -216,7 +226,11 @@ class DriftReport:
     @property
     def refuses(self) -> bool:
         """Whether a start verb must stop unless the operator passed ``--as-built``."""
-        return self.state in (DriftState.DRIFT, DriftState.UNRESOLVABLE)
+        return self.state in (
+            DriftState.DRIFT,
+            DriftState.UNRESOLVABLE,
+            DriftState.NO_PROTECTED_PATHS,
+        )
 
     @property
     def status_line(self) -> str:
@@ -231,6 +245,8 @@ class DriftReport:
             )
         if self.state is DriftState.NO_BUILD:
             return "build: none — run `osprey build`"
+        if self.state is DriftState.NO_PROTECTED_PATHS:
+            return f"build: no protected-path list — {NO_PROTECTED_PATHS_CONSEQUENCE}"
         return f"build: unverifiable — {UNVERIFIABLE_MESSAGE}"
 
 
@@ -445,6 +461,10 @@ def check_drift(repo_root: Path) -> DriftReport:
     exists to prevent. ``--as-built`` remains the operator's way through, since
     ``build/`` is self-contained.
 
+    Order: no build, then a render older than the login vocabulary, then a
+    render without the protected-path list, then the fingerprint — each of the
+    middle two is invisible to the hash.
+
     Args:
         repo_root: The deployment repo root — the directory holding
             ``profile.yml``, ``build/`` and ``var/``.
@@ -503,6 +523,20 @@ def check_drift(repo_root: Path) -> DriftReport:
             DriftState.UNRESOLVABLE,
             pre_vocabulary_message(stamped_version),
             remedy=_AS_BUILT_REMEDY,
+        )
+
+    # Also ahead of the fingerprint: the list is derived from the profile, so a
+    # render without it hashes exactly like one with it. The executor reads the
+    # list through the same reader, so "carries the list" means one thing.
+    _, missing_set = load_protected_paths(build_dir / "config.yml")
+    if missing_set is not None:
+        return report(
+            DriftState.NO_PROTECTED_PATHS,
+            f"{missing_set}; {NO_PROTECTED_PATHS_CONSEQUENCE}.",
+            remedy=(
+                "Run `osprey build` to re-render build/ with the protected-path list, "
+                "or `osprey up --as-built` to start the existing build without it."
+            ),
         )
 
     if not isinstance(stamped_hash, str) or not stamped_hash:

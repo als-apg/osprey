@@ -122,6 +122,9 @@ redirects: dict[str, str] = {
     "how-to/facility-rules": "facility-knowledge/facility-rules.html",
     "how-to/search-sidecar": "ariel/search-sidecar.html",
     "how-to/ariel/osprey-integration": "../../reference/contracts/ariel.html",
+    # Integrations
+    "how-to/measure-with-pyaml": "pyaml/index.html",
+    "how-to/register-a-measurement-kind": "pyaml/register-a-measurement-kind.html",
     # Developer material
     "how-to/use-python-executor": "../architecture/python-executor.html",
     # Contract reference pages

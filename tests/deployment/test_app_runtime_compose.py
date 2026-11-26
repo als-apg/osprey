@@ -10,7 +10,9 @@ What is load-bearing about its shape:
 - it reads its container's block through the per-service names ``service`` /
   ``service_key`` and the panel's grant through ``panel_grant``, and nothing
   keyed by an application or panel name;
-- each declared state directory is bound and named in ``OSPREY_APP_STATE_DIRS``.
+- each declared state directory is bound and named in ``OSPREY_APP_STATE_DIRS``;
+- each declared qmd corpus is bound read-only, named in ``OSPREY_APP_CORPORA``
+  and given the address its sidecar answers at from where the container runs.
 """
 
 from __future__ import annotations
@@ -35,15 +37,15 @@ def _row(**overrides: Any) -> dict[str, Any]:
     """A projected ``services.<k>`` row, as ``osprey.apps.projection`` writes it."""
     row: dict[str, Any] = {
         "template": "osprey.app_runtime",
-        "app": "orbit-bump",
-        "command": ["python", "-m", "orbit_bump.server"],
+        "app": "corrector-trim",
+        "command": ["python", "-m", "corrector_trim.server"],
         "port": 10950,
         "url": "http://127.0.0.1:10950",
         "health": "/health",
         "env": ["KNOB_SITE_URL"],
         "drives_target": False,
         "control_identity": False,
-        "audit_identity": "app-orbit-bump",
+        "audit_identity": "app-corrector-trim",
         "config_file": f"./services/{KEY}/app-config.yml",
     }
     row.update(overrides)
@@ -62,16 +64,35 @@ def _alias_credential(suffix: str, owner: str) -> dict[str, Any]:
     return {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": owner, "required": True}
 
 
+#: A profile's qmd block declaring the two corpora the corpus tests name.
+QMD = {
+    "corpora": [
+        {"name": "procedures", "source": "./data/procedures"},
+        {"name": "ops_notes", "source": "/srv/ops-notes", "embed": False},
+    ]
+}
+
+
 def _render(
-    row: dict[str, Any] | None = None, *, panel_grant: dict[str, Any] | None = None
+    row: dict[str, Any] | None = None,
+    *,
+    panel_grant: dict[str, Any] | None = None,
+    qmd: dict[str, Any] | None = None,
+    qmd_deployed: bool = True,
+    deployment: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     block = row if row is not None else _row()
+    services = {KEY: copy.deepcopy(block)}
+    deployed = [KEY]
+    if qmd is not None:
+        services["qmd"] = copy.deepcopy(qmd)
+        deployed += ["qmd"] if qmd_deployed else []
     config = _inject_project_metadata(
         {
             "project_name": "fixture",
-            "services": {KEY: copy.deepcopy(block)},
-            "deployed_services": [KEY],
-            "deployment": {},
+            "services": services,
+            "deployed_services": deployed,
+            "deployment": deployment or {},
             "system": {"timezone": "UTC"},
         }
     )
@@ -89,7 +110,7 @@ def test_it_runs_the_project_image_with_the_containers_command() -> None:
     _, svc = _render()
 
     assert svc["image"].startswith("${OSPREY_WORKER_IMAGE:-")
-    assert svc["command"] == ["python", "-m", "orbit_bump.server"]
+    assert svc["command"] == ["python", "-m", "corrector_trim.server"]
     assert "build" not in svc
 
 
@@ -97,7 +118,7 @@ def test_it_names_the_application_and_its_config() -> None:
     _, svc = _render()
 
     env = svc["environment"]
-    assert env["OSPREY_APP_NAME"] == "orbit-bump"
+    assert env["OSPREY_APP_NAME"] == "corrector-trim"
     assert env["OSPREY_APP_CONFIG"] == "/osprey/app/config.yml"
     assert f"./build/services/{KEY}/app-config.yml:/osprey/app/config.yml:ro" in svc["volumes"]
 
@@ -140,19 +161,95 @@ def test_no_declared_state_renders_neither_variable_nor_mount() -> None:
     assert not any("/var/state/" in v for v in svc["volumes"])
 
 
+def test_each_declared_corpus_is_bound_read_only_and_named() -> None:
+    _, svc = _render(_row(corpora=["procedures", "ops_notes"]), qmd=QMD)
+
+    assert svc["environment"]["OSPREY_APP_CORPORA"] == (
+        "procedures=/osprey/corpora/procedures:ops_notes=/osprey/corpora/ops_notes"
+    )
+    assert "./data/procedures:/osprey/corpora/procedures:ro" in svc["volumes"]
+    assert "/srv/ops-notes:/osprey/corpora/ops_notes:ro" in svc["volumes"]
+
+
+def test_a_bridge_container_dials_each_sidecar_by_its_service_name() -> None:
+    _, svc = _render(_row(corpora=["procedures", "ops_notes"]), qmd=QMD)
+
+    assert svc["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://qmd-procedures:10062"
+    assert svc["environment"]["OSPREY_QMD_OPS_NOTES_URL"] == "http://qmd-ops_notes:10063"
+
+
+def test_a_host_network_container_dials_each_sidecar_where_it_publishes() -> None:
+    row = _row(corpora=["procedures"], network="host")
+
+    _, loopback = _render(row, qmd=QMD)
+    _, pinned = _render(row, qmd=QMD, deployment={"bind_address": "10.0.0.5"})
+    _, wildcard = _render(row, qmd=QMD, deployment={"bind_address": "0.0.0.0"})
+
+    assert loopback["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+    assert pinned["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://10.0.0.5:10062"
+    assert wildcard["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+    assert "./data/procedures:/osprey/corpora/procedures:ro" in loopback["volumes"]
+
+
+def test_a_sidecar_this_deployment_does_not_run_is_dialled_where_it_publishes() -> None:
+    _, svc = _render(_row(corpora=["procedures"]), qmd=QMD, qmd_deployed=False)
+
+    assert svc["environment"]["OSPREY_QMD_PROCEDURES_URL"] == "http://127.0.0.1:10062"
+
+
+def test_no_declared_corpus_renders_neither_variable_nor_mount() -> None:
+    _, svc = _render(qmd=QMD)
+
+    assert "OSPREY_APP_CORPORA" not in svc["environment"]
+    assert not any(name.startswith("OSPREY_QMD_") for name in svc["environment"])
+    assert not any("/osprey/corpora/" in v for v in svc["volumes"])
+
+
+def test_a_corpus_the_deployment_cannot_serve_stops_the_render() -> None:
+    prebuilt = {"corpora": [{"name": "papers", "index": "prebuilt", "index_dir": "/srv/idx"}]}
+
+    with pytest.raises(ValueError, match="services.knob_backend.corpora names 'missing'"):
+        _render(_row(corpora=["missing"]), qmd=QMD)
+    with pytest.raises(ValueError, match="services.knob_backend.corpora names 'papers'"):
+        _render(_row(corpora=["papers"]), qmd=prebuilt)
+
+
+def test_the_corpus_fact_does_not_mutate_the_shared_config() -> None:
+    config = {
+        "project_name": "fixture",
+        "services": {KEY: _row(corpora=["procedures"]), "qmd": copy.deepcopy(QMD)},
+        "deployed_services": [KEY, "qmd"],
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+    }
+
+    context = _inject_project_metadata(config)
+
+    assert context["services"][KEY]["corpus_mounts"] == [
+        {
+            "name": "procedures",
+            "source": "./data/procedures",
+            "target": "/osprey/corpora/procedures",
+            "url_env": "OSPREY_QMD_PROCEDURES_URL",
+            "url": "http://qmd-procedures:10062",
+        }
+    ]
+    assert "corpus_mounts" not in config["services"][KEY], "the input was mutated"
+
+
 def test_its_own_spool_directory_is_bound() -> None:
     _, svc = _render()
 
     env = svc["environment"]
-    assert env["OSPREY_AUDIT_IDENTITY"] == "app-orbit-bump"
-    assert env["OSPREY_SPOOL_DIR"].endswith("/var/spool/app-orbit-bump")
-    assert f"./var/spool/app-orbit-bump:{env['OSPREY_SPOOL_DIR']}" in svc["volumes"]
+    assert env["OSPREY_AUDIT_IDENTITY"] == "app-corrector-trim"
+    assert env["OSPREY_SPOOL_DIR"].endswith("/var/spool/app-corrector-trim")
+    assert f"./var/spool/app-corrector-trim:{env['OSPREY_SPOOL_DIR']}" in svc["volumes"]
 
 
 def test_the_launch_token_is_named_with_no_default() -> None:
-    _, svc = _render(_row(launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN"))
+    _, svc = _render(_row(launch_token_env="CORRECTOR_TRIM_LAUNCH_TOKEN"))
 
-    assert svc["environment"]["ORBIT_BUMP_LAUNCH_TOKEN"] == "${ORBIT_BUMP_LAUNCH_TOKEN}"
+    assert svc["environment"]["CORRECTOR_TRIM_LAUNCH_TOKEN"] == "${CORRECTOR_TRIM_LAUNCH_TOKEN}"
 
 
 def test_the_panel_grant_lists_each_roster_secret() -> None:
@@ -213,8 +310,9 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
     row = _row(
         network="bridge",
         state="var/knob",
-        launch_token_env="ORBIT_BUMP_LAUNCH_TOKEN",
-        roster_grant={"panel_id": "orbit-bump"},
+        corpora=["procedures"],
+        launch_token_env="CORRECTOR_TRIM_LAUNCH_TOKEN",
+        roster_grant={"panel_id": "corrector-trim"},
     )
     assert set(row) - {"template", "url"} == {
         "app",
@@ -222,6 +320,7 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         "command",
         "config_file",
         "control_identity",
+        "corpora",
         "drives_target",
         "env",
         "health",
@@ -232,9 +331,10 @@ def test_it_renders_with_every_key_it_reads_set() -> None:
         "state",
     }
 
-    _, svc = _render(row)
+    _, svc = _render(row, qmd=QMD)
 
     assert svc["environment"]["OSPREY_APP_STATE_DIRS"]
+    assert svc["environment"]["OSPREY_APP_CORPORA"]
 
 
 def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) -> None:
@@ -257,15 +357,15 @@ def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) ->
 
 @pytest.mark.slow
 def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
-    built_demo_orbit_bump,
+    built_demo_app,
 ) -> None:
-    """The demo preset with orbit bump on, pointed at a Channel Access facility with no gateway.
+    """The demo preset with an application on, pointed at a Channel Access facility with no gateway.
 
     The refusal stands, and its remedy names only keys ``profile.yml`` can
     spell: the gateway address, the application's projected network axis, or
     dropping the application. ``services.<key>`` itself is a projected key.
     """
-    config = yaml.safe_load((built_demo_orbit_bump.repo / "build" / "config.yml").read_text())
+    config = yaml.safe_load((built_demo_app.repo / "build" / "config.yml").read_text())
     config["control_system"]["type"] = "epics"
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:
@@ -273,10 +373,14 @@ def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
 
     remedy = excinfo.value.remedy
     assert "control_system.connector.epics.gateways." in remedy
-    assert "apps.orbit-bump.services.orbit-bump.network: host" in remedy
-    assert "apps.orbit-bump" in remedy.replace("apps.orbit-bump.services.orbit-bump.network", "")
-    assert "services.orbit-bump" not in remedy.replace("apps.orbit-bump.services.orbit-bump", "")
-    assert " on orbit-bump" not in remedy
+    assert "apps.corrector-trim.services.corrector-trim.network: host" in remedy
+    assert "apps.corrector-trim" in remedy.replace(
+        "apps.corrector-trim.services.corrector-trim.network", ""
+    )
+    assert "services.corrector-trim" not in remedy.replace(
+        "apps.corrector-trim.services.corrector-trim", ""
+    )
+    assert " on corrector-trim" not in remedy
 
 
 def test_it_renders_with_none_of_the_keys_it_reads() -> None:

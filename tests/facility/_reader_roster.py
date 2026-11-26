@@ -88,11 +88,6 @@ ROSTER: tuple[Reader, ...] = (
         "tests/facility/test_records.py::test_from_file_refuses_a_v3_document",
     ),
     Reader(
-        "osprey.apps.sdk._model.model_members",
-        "refuse",
-        "tests/apps/test_sdk_model.py::TestModelMembers::test_a_v3_facility_file_is_refused",
-    ),
-    Reader(
         "osprey.services.ariel_search.ingestion.facility_references.load_facility_records",
         "degrade-absent",
         "tests/services/ariel_search/test_facility_references.py::"
@@ -203,12 +198,6 @@ ROSTER: tuple[Reader, ...] = (
         "refuse",
         "tests/cli/test_claude_code_templates.py::"
         "test_a_v3_facility_file_refuses_the_context_naming_the_rebuild",
-    ),
-    Reader(
-        "osprey.apps.sdk._model.closed_orbit_models",
-        "refuse",
-        "tests/facility/test_identity_fallback_readers.py::"
-        "test_the_closed_orbit_models_refuse_a_v3_facility_file_as_a_value_error",
     ),
     Reader(
         "osprey.apps.sdk._facts.read_facts",

@@ -117,7 +117,7 @@ DARWIN_VENUE = "darwin"
 #: lazily depends on the OS and the interpreter.
 READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.py"
 
-#: The bundled applications, each with its own panel and Vitest tests.
+#: Where an application bundled beside the presets lives, with its own panel and Vitest tests.
 PRESET_APPS_ROOT = "src/osprey/profiles/presets/apps/"
 
 #: The template `osprey app new` copies, with its own panel and Vitest tests.
@@ -2108,7 +2108,6 @@ CHECKS: tuple[Check, ...] = (
         scope=(
             "src/osprey/apps/js_check/**",
             "src/osprey/cli/app_cmd.py",
-            f"{PRESET_APPS_ROOT}orbit-bump/**",
             f"{SCAFFOLD_APP_ROOT}**",
             "tests/cli/test_app_cmd.py",
             "tests/cli/test_app_new.py",

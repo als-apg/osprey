@@ -792,6 +792,11 @@ restart of a terminal.
      - ``""``
      - The view the waveform page opens with when its URL carries none
        (``pv=…``). Empty opens the page with no channel.
+   * - ``web.panels.canopy.pv_details_url``
+     - ``""``
+     - The page about one channel, opened from a channel's right-click menu
+       on a screen: an http(s) or panel-relative URL in which ``{pv}`` stands
+       for the channel name. Empty leaves the entry out of the menu.
    * - ``web.panels.canopy.home_screen``
      - ``""``
      - The screen CANOPY opens first, by its id in the deployment's library:

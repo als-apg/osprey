@@ -169,6 +169,8 @@ def _project_container(
         block["network"] = axes["network"]
     if container.state is not None:
         block["state"] = container.state
+    if container.corpora:
+        block["corpora"] = list(container.corpora)
     block["drives_target"] = container.drives_target
     block["control_identity"] = container.control_identity
     block["audit_identity"] = manifest.audit_identity

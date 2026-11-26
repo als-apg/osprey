@@ -30,6 +30,7 @@ would never match a resolved ``/private/var/...`` candidate.
 """
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -80,17 +81,23 @@ class _Project:
     execution_folder: Path
     source_file: Path
 
-    def wrapper(self, execution_mode: str = "readonly") -> ExecutionWrapper:
+    def wrapper(
+        self, execution_mode: str = "readonly", entries: tuple[str, ...] = ()
+    ) -> ExecutionWrapper:
         return ExecutionWrapper(
             execution_mode=execution_mode,
-            protected_roots=resolve_protected_roots(self.root),
+            protected_roots=resolve_protected_roots(
+                self.root, entries=entries, permitted_roots=(self.agent_data,)
+            ),
             permitted_roots=(self.agent_data,),
         )
 
-    def guard(self, execution_mode: str = "readonly") -> str:
-        return self.wrapper(execution_mode)._get_filesystem_guard(self.execution_folder)
+    def guard(self, execution_mode: str = "readonly", entries: tuple[str, ...] = ()) -> str:
+        return self.wrapper(execution_mode, entries)._get_filesystem_guard(self.execution_folder)
 
-    def probe(self, statement: str, execution_mode: str = "readonly") -> str:
+    def probe(
+        self, statement: str, execution_mode: str = "readonly", entries: tuple[str, ...] = ()
+    ) -> str:
         """Run the guard plus one write *statement* in a child; return its stdout.
 
         The child's cwd is the repo root, as it is in production, so a relative
@@ -113,7 +120,9 @@ class _Project:
         ).format(statement=textwrap.indent(textwrap.dedent(statement).strip(), "    "))
 
         script = self.root / "probe_script.py"
-        script.write_text(self.guard(execution_mode) + "\n" + body + "\n", encoding="utf-8")
+        script.write_text(
+            self.guard(execution_mode, entries) + "\n" + body + "\n", encoding="utf-8"
+        )
         proc = subprocess.run(  # fixed argv, test-authored script
             [sys.executable, str(script)],
             capture_output=True,
@@ -588,7 +597,7 @@ def test_full_wrapper_refuses_render_zone_write_in_readwrite_too(project: _Proje
 
 
 def test_protected_roots_cover_render_zone_sources_and_ledger(project: _Project):
-    protected = resolve_protected_roots(project.root)
+    protected = resolve_protected_roots(project.root, entries=())
     for expected in (
         project.root / "build",
         project.root / PRE_UPGRADE_AUDIT_RELPATH,
@@ -621,12 +630,12 @@ def test_content_row_and_dissolved_name_writes_are_refused(project: _Project, na
 
 
 def test_protected_roots_exclude_the_agent_data_zone(project: _Project):
-    protected = resolve_protected_roots(project.root)
+    protected = resolve_protected_roots(project.root, entries=())
     assert project.agent_data not in protected
 
 
 def test_protected_roots_are_absolute_resolved_and_unique(project: _Project):
-    protected = resolve_protected_roots(project.root)
+    protected = resolve_protected_roots(project.root, entries=())
     assert len(protected) == len(set(protected))
     assert all(path.is_absolute() and path == path.resolve() for path in protected)
 
@@ -690,3 +699,243 @@ def test_executor_loads_no_cli_module():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == []
+
+
+# --------------------------------------------------------------------------
+# The paths the profile names (the build-written protected-path set)
+# --------------------------------------------------------------------------
+
+_BOTH_MODES = pytest.mark.parametrize("mode", ["readonly", "readwrite"])
+
+
+def _refused(out: str) -> bool:
+    """A guard refusal, in either mode's wording, as the probe prints it."""
+    return out.startswith("REFUSED:") and "write denied for" in out
+
+
+@_BOTH_MODES
+def test_a_directory_entry_refuses_writes_into_its_tree(project: _Project, mode: str):
+    (project.root / "plans").mkdir()
+    out = project.probe("open('plans/scan.py', 'w').close()", mode, entries=("plans",))
+    assert _refused(out), out
+    assert not (project.root / "plans" / "scan.py").exists()
+
+
+@_BOTH_MODES
+def test_a_profile_named_entry_stays_readable(project: _Project, mode: str):
+    (project.root / "plans").mkdir()
+    (project.root / "plans" / "scan.py").write_text("STATED-PLAN\n", encoding="utf-8")
+    out = project.probe("print(open('plans/scan.py').read().strip())", mode, entries=("plans",))
+    assert out.splitlines() == ["STATED-PLAN", "ALLOWED"], out
+
+
+@_BOTH_MODES
+def test_a_file_entry_protects_the_file_and_not_its_neighbours(project: _Project, mode: str):
+    graph = project.root / "graph"
+    graph.mkdir()
+    (graph / "seed.ttl").write_text("seed\n", encoding="utf-8")
+    entries = ("graph/seed.ttl",)
+    assert _refused(project.probe("open('graph/seed.ttl', 'w').close()", mode, entries)), mode
+    assert project.probe("open('graph/notes.ttl', 'w').close()", mode, entries) == "ALLOWED"
+    assert (graph / "seed.ttl").read_text(encoding="utf-8") == "seed\n"
+
+
+@_BOTH_MODES
+def test_an_entry_outside_the_root_is_refused_at_its_location(project: _Project, mode: str):
+    elsewhere = project.root.parent / "shared" / "plans"
+    elsewhere.mkdir(parents=True)
+    out = project.probe(
+        f"open({str(elsewhere / 'scan.py')!r}, 'w').close()", mode, entries=(str(elsewhere),)
+    )
+    assert _refused(out), out
+
+
+@_BOTH_MODES
+def test_an_entry_that_does_not_exist_yet_cannot_be_created(project: _Project, mode: str):
+    """No existence test: creating the entry is exactly the write to refuse."""
+    out = project.probe("os.makedirs('plans')", mode, entries=("plans",))
+    assert _refused(out), out
+    assert not (project.root / "plans").exists()
+
+
+@_BOTH_MODES
+def test_an_entry_naming_an_absent_location_allows_creating_its_parent(
+    project: _Project, mode: str
+):
+    entries = ("deep/nested/seed.ttl",)
+    assert project.probe("os.makedirs('deep/nested')", mode, entries) == "ALLOWED"
+    out = project.probe("open('deep/nested/seed.ttl', 'w').close()", mode, entries)
+    assert _refused(out), out
+
+
+@_BOTH_MODES
+def test_the_agent_data_zone_stays_writable_under_a_protected_parent(project: _Project, mode: str):
+    entries = ("var",)
+    assert project.probe("open('var/agent_data/out.txt', 'w').close()", mode, entries) == (
+        "ALLOWED"
+    )
+    assert _refused(project.probe("open('var/other.txt', 'w').close()", mode, entries))
+
+
+@_BOTH_MODES
+def test_an_entry_stated_through_a_placeholder_is_refused_where_it_expands(
+    project: _Project, mode: str, monkeypatch: pytest.MonkeyPatch
+):
+    target_dir = project.root.parent / "facility" / "plans"
+    target_dir.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_TEST_PLAN_HOME", str(target_dir.parent))
+    out = project.probe(
+        f"open({str(target_dir / 'scan.py')!r}, 'w').close()",
+        mode,
+        entries=("${OSPREY_TEST_PLAN_HOME}/plans",),
+    )
+    assert _refused(out), out
+
+
+_PARENT_REMOVALS = (
+    pytest.param("shutil.rmtree('lib')", id="rmtree"),
+    pytest.param("os.rmdir('lib')", id="rmdir"),
+    pytest.param("os.removedirs('lib')", id="removedirs"),
+    pytest.param("os.rename('lib', 'var/agent_data/lib')", id="rename"),
+    pytest.param("os.replace('lib', 'var/agent_data/lib')", id="replace"),
+    pytest.param("shutil.move('lib', 'var/agent_data/lib')", id="move"),
+)
+
+
+@_BOTH_MODES
+@pytest.mark.parametrize("entry", ["lib/plans", "lib/seed.ttl"], ids=["directory", "file"])
+@pytest.mark.parametrize("statement", _PARENT_REMOVALS)
+def test_removing_or_moving_the_parent_of_an_entry_is_refused(
+    project: _Project, mode: str, entry: str, statement: str
+):
+    lib = project.root / "lib"
+    lib.mkdir()
+    if entry.endswith(".ttl"):
+        (project.root / entry).write_text("seed\n", encoding="utf-8")
+    else:
+        (project.root / entry).mkdir()
+    out = project.probe(statement, mode, entries=(entry,))
+    assert _refused(out), out
+    assert "contains the protected location" in out
+    assert (project.root / entry).exists()
+
+
+@_BOTH_MODES
+@pytest.mark.parametrize(
+    "statement",
+    [
+        pytest.param("os.rename('var/agent_data/prep', 'absent')", id="rename"),
+        pytest.param("os.replace('var/agent_data/prep', 'absent')", id="replace"),
+        pytest.param("shutil.move('var/agent_data/prep', 'absent')", id="move"),
+        pytest.param("os.symlink('var/agent_data/prep', 'absent')", id="symlink"),
+    ],
+)
+def test_a_prepared_directory_cannot_land_on_the_missing_parent_of_an_entry(
+    project: _Project, mode: str, statement: str
+):
+    prep = project.agent_data / "prep" / "plans"
+    prep.mkdir(parents=True)
+    (prep / "scan.py").write_text("planted\n", encoding="utf-8")
+    out = project.probe(statement, mode, entries=("absent/plans",))
+    assert _refused(out), out
+    assert not os.path.lexists(project.root / "absent")
+
+
+@_BOTH_MODES
+def test_removing_an_agent_tree_holding_names_like_protected_entries_is_allowed(
+    project: _Project, mode: str
+):
+    """``shutil.rmtree`` removes by descriptor-relative names; they are judged there."""
+    scratch = project.agent_data / "scratch"
+    for relpath in ("profile.yml", "plans/scan.py", "build/config.yml", "tiers/operator.yml"):
+        (scratch / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (scratch / relpath).write_text("copy\n", encoding="utf-8")
+    out = project.probe("shutil.rmtree('var/agent_data/scratch')", mode, entries=("plans",))
+    assert out == "ALLOWED", out
+    assert not scratch.exists()
+
+
+_THROUGH_A_DESCRIPTOR = (
+    pytest.param("os.close(os.open('new.py', os.O_WRONLY | os.O_CREAT, dir_fd=fd))", id="os.open"),
+    pytest.param("os.unlink('scan.py', dir_fd=fd)", id="os.unlink"),
+    pytest.param("os.remove('scan.py', dir_fd=fd)", id="os.remove"),
+    pytest.param("os.mkdir('sub', dir_fd=fd)", id="os.mkdir"),
+    pytest.param("os.rmdir('empty', dir_fd=fd)", id="os.rmdir"),
+    pytest.param("os.symlink('/tmp', 'link', dir_fd=fd)", id="os.symlink"),
+    pytest.param("os.rename('scan.py', 'moved.py', src_dir_fd=fd, dst_dir_fd=fd)", id="rename"),
+    pytest.param("os.replace('scan.py', 'moved.py', src_dir_fd=fd, dst_dir_fd=fd)", id="replace"),
+    pytest.param("shutil.rmtree('empty', dir_fd=fd)", id="shutil.rmtree"),
+)
+
+
+def _descriptor_statement(directory: str, statement: str) -> str:
+    return f"fd = os.open({directory!r}, os.O_RDONLY)\n{statement}"
+
+
+@_BOTH_MODES
+@pytest.mark.parametrize("statement", _THROUGH_A_DESCRIPTOR)
+@pytest.mark.parametrize("directory", ["plans", "build"], ids=["entry", "render-zone"])
+def test_writes_through_a_descriptor_of_a_protected_directory_are_refused(
+    project: _Project, mode: str, statement: str, directory: str
+):
+    target = project.root / directory
+    target.mkdir(exist_ok=True)
+    (target / "scan.py").write_text("x\n", encoding="utf-8")
+    (target / "empty").mkdir()
+    before = sorted(path.name for path in target.iterdir())
+    out = project.probe(_descriptor_statement(directory, statement), mode, entries=("plans",))
+    assert _refused(out), out
+    assert sorted(path.name for path in target.iterdir()) == before
+
+
+@_BOTH_MODES
+@pytest.mark.parametrize("statement", _THROUGH_A_DESCRIPTOR)
+def test_the_same_writes_through_a_descriptor_of_the_agent_zone_are_allowed(
+    project: _Project, mode: str, statement: str
+):
+    work = project.agent_data / "work"
+    work.mkdir()
+    (work / "scan.py").write_text("x\n", encoding="utf-8")
+    (work / "empty").mkdir()
+    # Every name the statements spell is also protected at the working
+    # directory, so judging them there instead of at the descriptor refuses.
+    entries = ("new.py", "scan.py", "sub", "empty", "link", "moved.py")
+    statement_in_work = _descriptor_statement("var/agent_data/work", statement)
+    assert project.probe(statement_in_work, mode, entries=entries) == "ALLOWED"
+
+
+def test_entries_are_unioned_anchored_and_leave_the_fixed_constant_alone(project: _Project):
+    before = PROFILE_SOURCE_ENTRIES
+    elsewhere = project.root.parent / "elsewhere"
+    protected = resolve_protected_roots(
+        project.root,
+        entries=("plans", "graph/seed.ttl", str(elsewhere), "~/osprey-test-plans"),
+        permitted_roots=(project.agent_data,),
+    )
+    assert PROFILE_SOURCE_ENTRIES == before
+    for expected in (
+        project.root / "plans",
+        project.root / "graph" / "seed.ttl",
+        elsewhere,
+        Path("~/osprey-test-plans").expanduser(),
+        project.root / "build",
+    ):
+        assert expected.resolve() in protected, expected
+    assert protected == resolve_protected_roots(
+        project.root,
+        entries=("plans", "graph/seed.ttl", str(elsewhere), "~/osprey-test-plans"),
+        permitted_roots=(project.agent_data,),
+    )
+
+
+def test_an_entry_inside_a_permitted_root_or_unresolved_protects_nothing(
+    project: _Project, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("OSPREY_TEST_UNSET_HOME", raising=False)
+    base = resolve_protected_roots(project.root, entries=())
+    protected = resolve_protected_roots(
+        project.root,
+        entries=("var/agent_data/notes", "${OSPREY_TEST_UNSET_HOME}/plans"),
+        permitted_roots=(project.agent_data,),
+    )
+    assert protected == base

@@ -243,6 +243,24 @@ def test_force_replaces_the_application_with_the_presets_copy(
     assert not (repo / "apps" / APP / "mine.txt").exists()
 
 
+def test_force_drops_an_application_the_preset_does_not_list(repo: Path, runner: CliRunner) -> None:
+    stale = repo / "apps" / "stale"
+    shutil.copytree(repo / "apps" / APP, stale)
+    profile = repo / "profile.yml"
+    profile.write_text(
+        profile.read_text(encoding="utf-8").replace(f"\n  {APP}: {{}}\n", "\n  stale: {}\n"),
+        encoding="utf-8",
+    )
+    assert sorted(yaml.safe_load(profile.read_text(encoding="utf-8"))["apps"]) == ["stale"]
+
+    result = _init(runner, repo, "--force")
+
+    assert result.exit_code == 0, result.output
+    assert sorted(path.name for path in (repo / "apps").iterdir()) == [APP]
+    assert sorted(yaml.safe_load(profile.read_text(encoding="utf-8"))["apps"]) == [APP]
+    assert "stale" not in result.output
+
+
 def test_the_copied_application_is_not_a_convention_artifact(repo: Path) -> None:
     assert not [
         name for name in unselected_convention_artifacts(repo, ()) if name.startswith("apps")

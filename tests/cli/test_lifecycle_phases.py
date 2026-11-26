@@ -264,6 +264,7 @@ class TestBuildPhases:
         from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
+        from osprey.cli.build_profile_merge import ResolvedProfileDocument
         from osprey_facility.roots import FacilityRoots
 
         class _Lifecycle:
@@ -312,6 +313,13 @@ class TestBuildPhases:
         class _Resolved:
             profile = _Profile()
             excluded_artifacts: list[str] = []
+            # The document the build reads the protected-path list from.
+            document = ResolvedProfileDocument(
+                raw={"name": "probe"},
+                root_dir=tmp_path,
+                is_layer=False,
+                excluded_artifacts=frozenset(),
+            )
 
         (tmp_path / "profile.yml").write_text("name: probe\n")
         monkeypatch.setattr(build_cmd, "find_repo_root", lambda repo=None: tmp_path)

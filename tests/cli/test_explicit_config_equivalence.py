@@ -320,18 +320,62 @@ def _server_fleet_deltas(*documents: str) -> tuple[Delta, ...]:
     return tuple(deltas)
 
 
+#: The protected-path set ``osprey build`` writes into every render, per preset:
+#: the inputs the preset's profile names, in its own spelling.
+_PROTECTED_PATHS: dict[str, list[str]] = {
+    "hello-world": ["data", "mcp_servers", "profile.yml"],
+    "demo": [
+        "data",
+        "data/canopy/theme/osprey.json",
+        "data/facility/knowledge",
+        "data/landing/working-safely.md",
+        "profile.yml",
+        "rules",
+        "tiers/admin.yml",
+        "tiers/channel-finder.yml",
+        "tiers/knowledge.yml",
+        "tiers/logbook.yml",
+        "tiers/readonly.yml",
+        "tiers/readwrite.yml",
+        "triggers.yml",
+        "var/ariel_mirror",
+        "web-terminal-context",
+    ],
+}
+
+
+def _protected_paths_deltas(preset: str, *documents: str) -> tuple[Delta, ...]:
+    """The protected-path set each of *documents* gains, the same set in every one.
+
+    Args:
+        preset: The preset the cell builds.
+        documents: The rendered documents the cell emits.
+
+    Returns:
+        The deltas of every document.
+    """
+    return tuple(
+        Delta(document=document, path="protected_paths", live=_PROTECTED_PATHS[preset])
+        for document in documents
+    )
+
+
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    "hello-world/unset": _catalog_addition_deltas("root"),
+    "hello-world/unset": (
+        *_catalog_addition_deltas("root"),
+        *_protected_paths_deltas("hello-world", "root"),
+    ),
     **{
         f"demo/{mode}": (
             *_catalog_addition_deltas(*_DEMO_RENDERS),
             *_canopy_theme_deltas(*_DEMO_RENDERS),
             *_server_fleet_deltas(*_DEMO_RENDERS),
+            *_protected_paths_deltas("demo", *_DEMO_RENDERS),
         )
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },

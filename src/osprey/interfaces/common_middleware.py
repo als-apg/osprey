@@ -157,8 +157,9 @@ def _is_served_vendor_path(path: str) -> bool:
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     """Control browser caching for static assets and API responses.
 
-    Vendor files (versioned names like plotly-3.3.1.min.js) are cached
-    aggressively — they never change without a name bump. That holds only for
+    Vendor files (versioned paths like plotly-3.3.1.min.js or
+    pdfjs-6.5.438/wasm/jbig2.wasm) are cached aggressively — they never change
+    without a path bump. That holds only for
     the vendor files this process serves (:func:`_is_served_vendor_path`), only
     for a ``GET``/``HEAD`` answered 200, and never over a route's own
     ``no-store``: an error or redirect on a vendor path is uncached, so it

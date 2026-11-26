@@ -34,10 +34,11 @@ from osprey.utils.workspace import RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import (
-    ENABLE_ORBIT_BUMP,
     EXEMPLAR_DIRNAME,
+    LISTED_APP,
     SHARED_LOGIN_PRESETS,
     TIER_PRESETS,
+    add_scaffold_app,
     exemplar_source_files,
 )
 
@@ -252,11 +253,10 @@ def test_only_the_logins_the_roster_names_are_written(runner: CliRunner, tmp_pat
         shared=["logbook"],
     )
 
-    result = _new(runner, target, "demo", *edit, "--set", ENABLE_ORBIT_BUMP)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "logbook"}
-    assert _layer_names(target, "apps") == {"orbit-bump"}
 
 
 def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
@@ -271,11 +271,10 @@ def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
         shared=[],
     )
 
-    result = _new(runner, target, "demo", *edit, "--set", ENABLE_ORBIT_BUMP)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "readwrite"}
-    assert _layer_names(target, "apps") == {"orbit-bump"}
 
 
 def test_role_and_dispatch_tiers_are_named_too() -> None:
@@ -332,19 +331,12 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
     init writes that tier's file, and the build renders it and names it."""
 
     target = tmp_path / "backend-only"
-    result = _new(
-        runner,
-        target,
-        "demo",
-        "--set",
-        "config.modules.web_terminals.enabled=false",
-        "--set",
-        ENABLE_ORBIT_BUMP,
-    )
+    result = _new(runner, target, "demo", "--set", "config.modules.web_terminals.enabled=false")
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly"}
-    assert _layer_names(target, "apps") == {"orbit-bump"}
+    add_scaffold_app(target)
+    assert _layer_names(target, "apps") == {LISTED_APP}
 
     built = invoke_build(target)
 

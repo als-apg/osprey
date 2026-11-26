@@ -66,7 +66,7 @@ Only the root ``profile.yml`` states it; every login drives the same
 machine. A machine builds to the same facility file standalone and mounted,
 except for a measurement kind only the mounting deployment's package registers:
 standalone, the kind is deferred with a ``kind-deferred`` warning and the
-deployment judges its block (:doc:`/how-to/register-a-measurement-kind`).
+deployment judges its block (:doc:`/how-to/pyaml/register-a-measurement-kind`).
 
 With ``machine:`` set, ``osprey facility import`` writes into the machine root,
 except the knowledge index, which goes under the deployment's

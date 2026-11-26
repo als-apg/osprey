@@ -231,16 +231,76 @@ that changed since is a new decision.
 
 Reading the machine is ``read_channel`` on the connector. For more than one
 channel, ``read_multiple_channels``. The facility description — which elements
-exist, their channels, a model's BPMs and correctors — comes from the SDK
-(``facility_file``, ``read_facts``, ``model_members``,
-``model_response_matrix``), so the app carries no facility knowledge of its
-own and moves to another facility with the deployment. The Bluesky bridges the
+exist, their channels, a model's response to its correctors — comes from the SDK
+(``facility_file``, ``read_facts``, ``model_response_matrix``), so the app
+carries no facility knowledge of its own and moves to another facility with the
+deployment. The Bluesky bridges the
 deployment runs for a target come from ``bridges_for_target(target)``: lane
 name to bridge URL, empty when none.
 
 A backend that writes its own audit records files them under
 ``audit_surface()``: the app's name, which its tool server's records already
 carry.
+
+.. _how-to-apps-corpora:
+
+Read a document corpus
+----------------------
+
+A backend that shows or searches a set of documents --- procedures, meeting
+notes, a manual --- reads them from a corpus the deployment already indexes
+(:ref:`qmd-add-a-corpus`). The container lists the corpora it reads:
+
+.. code-block:: yaml
+   :caption: apps/procedures/app.yml
+
+   containers:
+     procedures:
+       runtime: osprey
+       corpora: [procedures]
+
+and the profile declares each one with its ``source``, the host directory
+holding the documents:
+
+.. code-block:: yaml
+   :caption: profile.yml
+
+   config:
+     services:
+       qmd:
+         corpora:
+           - name: procedures
+             source: ./data/procedures
+
+``corpus(name)`` then gives the backend both halves:
+
+.. code-block:: python
+
+   from osprey.apps.sdk import CorpusUnavailable, corpus
+
+   procedures = corpus("procedures")
+   text = (procedures.path / "vacuum" / "bakeout.md").read_text()
+   try:
+       hits = procedures.search("bakeout temperature", limit=5)
+   except CorpusUnavailable:
+       hits = []  # the page still lists and opens documents
+
+``path`` is the corpus's source directory, mounted read-only. ``search``
+returns ranked hits, each with ``path`` (relative to the corpus's ``path``),
+``title``, ``score``, ``line`` and ``snippet``; the score orders one result
+list and means nothing across queries. The hits are ranked by keyword and
+vector match, without the sidecar's LLM reranker, so a search box answers at
+once on a host with no GPU. ``search`` raises ``CorpusUnavailable``
+while the sidecar is down or still building its first index, which on a large
+corpus takes a while and does not hold the app's container back; reading
+``path`` works throughout.
+
+``osprey validate``, ``osprey app check`` and ``osprey build`` refuse a name
+the profile does not declare, and one declared without a ``source`` (a
+``prebuilt`` index has no documents to read). The built-in ``okf`` and
+``ariel`` corpora are not declared there and cannot be listed. An ``image:``
+container binds the directory in its own compose file instead. Only the
+backend is handed a corpus: a tool server asks the backend for it.
 
 The tool server
 ===============
@@ -302,7 +362,11 @@ ends at ``true`` or ``failed``; ``failed`` means the page cannot be driven.
 ``osprey app check`` runs it. A JavaScript library the panel needs is not
 committed: list it under ``vendor`` with its exact version and SHA-256, and the
 build fetches it to the path you name — ``panel/vendor/…``, which
-``.gitignore`` already covers.
+``.gitignore`` already covers. The path carries the version, because the
+browser caches a vendor file for good: in the file name
+(``panel/vendor/uplot-1.6.30.min.js``), or in a directory when the library
+loads its other files by fixed names
+(``panel/vendor/pdfjs-6.5.438/wasm/jbig2.wasm``).
 
 .. _how-to-apps-writes:
 
@@ -573,8 +637,9 @@ Test your app
 
 The app's own tests build a deployment the way ``osprey build`` does and run
 the backend against one login's render. Installing the framework gives them
-two pytest fixtures from ``osprey.apps.sdk.testing``: ``synthetic_deployment``
-makes a deployment, ``rendered_tree`` makes one and builds it. Both take:
+three pytest fixtures from ``osprey.apps.sdk.testing``: ``synthetic_deployment``
+makes a deployment, ``rendered_tree`` makes one and builds it, and
+``corpus_stand_in`` stands in for a document corpus (below). The first two take:
 
 - ``apps`` — each app's name and its source directory;
 - ``facility`` — the ``facility`` tree. The default, ``plain_tree()``, is
@@ -664,6 +729,28 @@ A shot lives in the connector that took the request, so read its outcome
 through the same backend; :ref:`Shots in process <va-in-process-evolve>` says
 what a second connector sees.
 
+A backend that reads a corpus (`Read a document corpus`_) is tested with no
+sidecar: ``corpus_stand_in`` makes ``corpus(name)`` answer from a directory
+of your own and a list of hits until the test ends.
+
+.. code-block:: python
+
+   from osprey.apps.sdk import CorpusHit
+
+   def test_search_lists_the_matching_procedure(corpus_stand_in, tmp_path):
+       (tmp_path / "bakeout.md").write_text("# Bakeout\n")
+       corpus_stand_in(
+           "procedures",
+           tmp_path,
+           [CorpusHit("bakeout.md", "Bakeout", 1.0, 1, "1: # Bakeout")],
+       )
+       ...
+
+Every search returns those hits, cut to the asked ``limit``;
+``unavailable=True`` makes every search raise ``CorpusUnavailable`` instead.
+Outside pytest the same thing is the context manager
+``osprey.apps.sdk.testing.corpus_stand_in``.
+
 Dependencies
 ============
 
@@ -721,6 +808,10 @@ Every level refuses unknown keys. Defaults in brackets.
    * - ``containers.<key>.state``
      - A directory kept across restarts, relative to the deployment's state
        zone.
+   * - ``containers.<key>.corpora``
+     - The qmd corpora a ``runtime: osprey`` container reads and searches,
+       each declared under ``services.qmd.corpora`` with a ``source``
+       (`Read a document corpus`_).
    * - ``containers.<key>.env``
      - Host environment variable names passed into the container.
    * - ``containers.<key>.port``

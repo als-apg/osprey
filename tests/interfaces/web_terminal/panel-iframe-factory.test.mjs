@@ -203,19 +203,19 @@ describe('panelUiUrl joins the base and the UI path on one slash', () => {
   test('a panel whose UI path is "/" is framed as a directory', async () => {
     stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
     const { createPanelIframe } = await load();
-    const state = { url: '/panel/orbit-bump', pendingUrl: null, iframe: null };
+    const state = { url: '/panel/corrector-trim', pendingUrl: null, iframe: null };
     createPanelIframe(
-      { id: 'orbit-bump', label: 'Orbit Bump', path: '/' },
-      'orbit-bump',
+      { id: 'corrector-trim', label: 'Corrector Trim', path: '/' },
+      'corrector-trim',
       state,
       document.createElement('div')
     );
     await flush();
     const iframe = /** @type {HTMLIFrameElement} */ (/** @type {unknown} */ (state.iframe));
-    expect(path(iframe)).toBe('/panel/orbit-bump/');
+    expect(path(iframe)).toBe('/panel/corrector-trim/');
     // A relative asset resolves inside the mount, not one segment above it.
     expect(new URL('static/panel.js', iframe.src).pathname).toBe(
-      '/panel/orbit-bump/static/panel.js'
+      '/panel/corrector-trim/static/panel.js'
     );
   });
 });

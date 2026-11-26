@@ -82,7 +82,9 @@ Two ways to add a plan
       Facility plans are trusted at **facility** tier. They need no
       per-session validation, and they are available in every deployment
       built from the profile. They are listed in BLUESKY's Plans view and the
-      agent's catalog like the shipped plans.
+      agent's catalog like the shipped plans. Agent code run through the
+      python executor may not write into the plan directory; see
+      :ref:`python-executor-protected-paths`.
 
       To *remove* a plan from the catalog, shipped or otherwise, list it
       under ``excluded_plans`` in the same block. The plan becomes invisible

@@ -63,7 +63,11 @@ from osprey.repo_layout import (
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
-from osprey.utils.workspace import RUNTIME_WRITE_PATH_KEYS, STATE_DIR_NAME
+from osprey.utils.workspace import (
+    PROTECTED_PATHS_CONFIG_KEY,
+    RUNTIME_WRITE_PATH_KEYS,
+    STATE_DIR_NAME,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -625,6 +629,9 @@ RESERVED_MIRROR_PATTERNS: tuple[str, ...] = tuple(
 #: would drift the moment a key is added there. Those keys qualify under the
 #: second clause of the inclusion rule — repointing one moves the area a safety
 #: layer treats as writable. Pinned by test_every_runtime_write_path_key_is_protected.
+#: :data:`~osprey.utils.workspace.PROTECTED_PATHS_CONFIG_KEY` is imported the
+#: same way and qualifies under the same clause, from the other side: it lists
+#: the areas the executor treats as not writable.
 PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
     "config.yml": (
         # Trailing ``*`` on a scalar key, deliberately: it keeps the key
@@ -657,6 +664,11 @@ PROTECTED_CONFIG_KEYS: dict[str, tuple[str, ...]] = {
         # off, downgrade its verdict, repoint its prompt or shrink its modes.
         "code_review.*",
         *RUNTIME_WRITE_PATH_KEYS,
+        # The paths the profile names, which the executor refuses agent code
+        # writes to: dropping an entry hands the agent its own instructions.
+        # Imported like the runtime-write keys; trailing ``*`` because the
+        # value is a list, and a block planted there must not pass as a child.
+        f"{PROTECTED_PATHS_CONFIG_KEY}.*",
     ),
     ".mcp.json": (
         "mcpServers.*.command",

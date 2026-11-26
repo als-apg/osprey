@@ -259,7 +259,7 @@ same sandbox as the agent's Python, under the same guards, and each setpoint it 
 ordinary write through the connector --- under the target's run lock; the result lists each
 setpoint the call moved with its value before the call
 (:ref:`Guarded Runs <architecture-safety-chain-guarded-run>`). A pyAML write anywhere else,
-``execute`` included, is refused. See :doc:`/how-to/measure-with-pyaml`.
+``execute`` included, is refused. See :doc:`/how-to/pyaml/index`.
 
 A Bluesky plan
 --------------

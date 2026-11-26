@@ -68,7 +68,7 @@ def test_a_channel_database_edit_makes_a_built_repo_refuse_to_start(profile):
     from osprey.deployment.staleness import DriftState
 
     repo = profile.parent
-    _write(repo / "build" / "config.yml", "project: facility\n")
+    _write(repo / "build" / "config.yml", "project: facility\nprotected_paths: []\n")
     fingerprint = staleness.profile_fingerprint(profile)
     assert fingerprint is not None, "fixture profile must resolve"
     _write(

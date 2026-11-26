@@ -738,9 +738,9 @@ def app_build(build_dir: Path) -> Path:
         "command": "knowledge-app-mcp",
         "env": {APP_NAME_ENV: "knowledge"},
     }
-    document["mcpServers"]["orbit-bump"] = {
+    document["mcpServers"]["corrector-trim"] = {
         "command": "orbit-mcp",
-        "env": {APP_NAME_ENV: "orbit-bump"},
+        "env": {APP_NAME_ENV: "corrector-trim"},
     }
     (build_dir / ".mcp.json").write_text(json.dumps(document))
     return build_dir
@@ -760,12 +760,12 @@ def _judge_with(grants, build, defn, stream, monkeypatch, **kw):
     )
 
 
-_PANELS = {"knowledge": "knowledge-panel", "orbit-bump": "orbit"}
+_PANELS = {"knowledge": "knowledge-panel", "corrector-trim": "orbit"}
 
 
 def _app_definition(tmp_path: Path, **overrides) -> WatchdogDefinition:
-    """A judge whose ``tools`` name the orbit-bump application's tool server."""
-    return _definition(tmp_path, tools=(READ_TOOL, "mcp__orbit-bump__state"), **overrides)
+    """A judge whose ``tools`` name the corrector-trim application's tool server."""
+    return _definition(tmp_path, tools=(READ_TOOL, "mcp__corrector-trim__state"), **overrides)
 
 
 class TestJudgeReadCredential:
@@ -795,7 +795,7 @@ class TestJudgeReadCredential:
         assert panels == frozenset({"orbit"})
         servers = stream.kwargs["mcp_servers"]
         assert "knowledge" not in servers
-        assert servers["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == token
+        assert servers["corrector-trim"]["env"]["OSPREY_PANEL_TOKEN"] == token
         for name in ("controls", "osprey_facility_knowledge"):
             assert servers[name]["env"]["OSPREY_PANEL_TOKEN"] == ""
         assert stream.kwargs["env"]["OSPREY_PANEL_TOKEN"] == ""
@@ -814,12 +814,12 @@ class TestJudgeReadCredential:
         stream = _Scripted(_result())
         _judge_with(grants, app_build, _app_definition(tmp_path), stream, monkeypatch)
         assert grants.minted == []
-        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+        assert stream.kwargs["mcp_servers"]["corrector-trim"]["env"]["OSPREY_PANEL_TOKEN"] == ""
 
     def test_without_grants_an_app_server_stays_blank(self, app_build, tmp_path, monkeypatch):
         stream = _Scripted(_result())
         _judge(app_build, _app_definition(tmp_path), stream, monkeypatch)
-        assert stream.kwargs["mcp_servers"]["orbit-bump"]["env"]["OSPREY_PANEL_TOKEN"] == ""
+        assert stream.kwargs["mcp_servers"]["corrector-trim"]["env"]["OSPREY_PANEL_TOKEN"] == ""
 
     @pytest.mark.parametrize(
         ("stream_args", "error"),

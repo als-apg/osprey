@@ -1175,3 +1175,44 @@ def test_restart_help_states_the_build_flag_orphan_limit():
     help_text = restart_verb.__doc__ or ""
     assert "no longer named in them and" in help_text
     assert "osprey down` before `osprey build" in help_text
+
+
+# ---------------------------------------------------------------------------
+# restart: a build without the protected-path list
+# ---------------------------------------------------------------------------
+
+_NO_LIST_CONSEQUENCE = "the python executor refuses agent code until `osprey build`"
+
+
+@pytest.mark.usefixtures("no_web")
+def test_a_build_without_the_protected_path_list_refuses_the_restart(lifecycle_repo, runtime):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo, protected_paths=None)
+
+    result = run_restart(lifecycle_repo, "-d")
+
+    assert result.exit_code != 0
+    assert runtime["cmds"] == []
+    assert "without the protected-path list" in result.stderr
+    assert _NO_LIST_CONSEQUENCE in result.stderr
+    assert "osprey restart --build" in result.stderr
+    assert (
+        f"osprey restart --as-built   start build/ as it was rendered; {_NO_LIST_CONSEQUENCE}"
+        in result.stderr
+    )
+    assert "osprey up --build" not in result.output
+    assert "without the protected-path list" not in result.stdout
+
+
+@pytest.mark.usefixtures("no_web")
+def test_as_built_restarts_a_build_without_the_list_and_warns(lifecycle_repo, runtime):
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
+    render_build(lifecycle_repo, protected_paths=None)
+
+    result = run_restart(lifecycle_repo, "-d", "--as-built")
+
+    assert result.exit_code == 0, result.output
+    assert verbs_in_order(runtime).index("down") < verbs_in_order(runtime).index("up")
+    assert "⚠ Starting build/ as it was rendered (--as-built)" in result.stderr
+    assert _NO_LIST_CONSEQUENCE in result.stderr
+    assert _NO_LIST_CONSEQUENCE not in result.stdout

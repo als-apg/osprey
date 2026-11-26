@@ -17,6 +17,7 @@ import pytest
 
 from osprey.cli.build_profile import BuildProfile
 from osprey.cli.derived_keys import DERIVED_KEYS, derived_key_errors, is_derived_key
+from osprey.utils.workspace import PROTECTED_PATHS_CONFIG_KEY
 from osprey_connectors.errors import BuildProfileError
 
 
@@ -149,6 +150,31 @@ def test_validate_refuses_a_derived_key(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "claude_code.provider" in message
     assert "`provider:`" in message
+
+
+def test_validate_refuses_a_profile_that_states_the_protected_path_set(tmp_path: Path) -> None:
+    """The protected-path set is the build's to compute; a profile cannot narrow it."""
+    profile = BuildProfile(
+        name="x", data="data", config={PROTECTED_PATHS_CONFIG_KEY: ["data/plans"]}
+    )
+
+    with pytest.raises(BuildProfileError) as excinfo:
+        profile.validate(tmp_path)
+
+    message = str(excinfo.value)
+    assert f"config: {PROTECTED_PATHS_CONFIG_KEY} is rendered by the build" in message
+    assert "the build derives it from the paths the profile names" in message
+    assert "Remove it from profile.yml." in message
+
+
+def test_a_login_file_stating_the_protected_path_set_is_refused_by_name() -> None:
+    """A login file is judged on its own block, and the fix names that file."""
+    errors = derived_key_errors({PROTECTED_PATHS_CONFIG_KEY: []}, source="logins/ops.yml")
+
+    assert errors == [
+        f"config: {PROTECTED_PATHS_CONFIG_KEY} is rendered by the build; "
+        "the build derives it from the paths the profile names. Remove it from logins/ops.yml."
+    ]
 
 
 def test_validate_accepts_a_profile_that_states_nothing_derived(tmp_path: Path) -> None:

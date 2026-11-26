@@ -237,7 +237,15 @@ class TestDeclaredEnvironmentIsRecordedVerbatim:
         """The declared base is an input, recorded as provenance. Nothing else —
         in particular no build-machine path — joins it."""
         interpreter, config = declared
-        assert _interpreter_paths(config) == [("execution.environment.python", str(interpreter))]
+        recorded = _interpreter_paths(config)
+        assert ("execution.environment.python", str(interpreter)) in recorded
+        # The protected-path list names the same declared interpreter, so agent
+        # code cannot rewrite it; it records no second interpreter.
+        assert {value for _, value in recorded} == {str(interpreter)}
+        assert all(
+            path == "execution.environment.python" or path.startswith("protected_paths[")
+            for path, _ in recorded
+        )
 
 
 class TestRetiredPythonEnvPathIsIgnored:

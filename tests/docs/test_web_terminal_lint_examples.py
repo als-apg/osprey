@@ -165,7 +165,8 @@ def _profile(case: _Case) -> dict[str, Any]:
 def _lint(profile: dict[str, Any], repo: Path, extra_logins: tuple[str, ...] = ()) -> list[str]:
     """Every web-stack code and message ``osprey profile validate`` would draw for *profile*."""
     for dirname in ("tiers", "apps"):
-        shutil.copytree(_presets_dir() / dirname, repo / dirname)
+        if (_presets_dir() / dirname).is_dir():  # no application ships beside the presets
+            shutil.copytree(_presets_dir() / dirname, repo / dirname)
     for login in extra_logins:
         shutil.copy(repo / "tiers" / "logbook.yml", repo / "tiers" / f"{login}.yml")
     profile_file = repo / "profile.yml"

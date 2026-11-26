@@ -4,7 +4,8 @@ How-To Guides
 Task-oriented guides that walk you through common OSPREY operations step by step.
 Each guide focuses on a single goal and assumes you already have a working OSPREY installation.
 The sections follow the natural journey: build and deploy a project, operate the
-agent day to day, then work with the bundled facility services.
+agent day to day, describe the facility and serve it to the agent, then connect
+the tools around it.
 
 Build & deploy
 --------------
@@ -41,21 +42,6 @@ Build & deploy
       runs, including open-weight and self-hosted models behind the
       translation proxy.
 
-   .. grid-item-card:: Build Your Own OSPREY Apps
-      :link: apps/index
-      :link-type: doc
-
-      A panel for the operator and tools for the agent over one backend:
-      what an app is and how to make one.
-
-   .. grid-item-card:: Register a Measurement Kind
-      :link: register-a-measurement-kind
-      :link-type: doc
-
-      Add a measurement of your own from an installable package: its
-      declaration, its block in the measurement file, and what the build
-      refuses.
-
 Operate
 -------
 
@@ -77,13 +63,6 @@ Operate
       The CLI agent, event-driven dispatch, external MCP servers, and chat
       bridges — the four ways to reach the agent.
 
-   .. grid-item-card:: Health and Monitoring
-      :link: health-and-monitoring/index
-      :link-type: doc
-
-      Is it up, and what is it doing — facility health checks you can extend,
-      plus the agent record of what the agent was asked and did.
-
    .. grid-item-card:: Control Systems
       :link: control-systems/index
       :link-type: doc
@@ -98,8 +77,15 @@ Operate
       Have facility-written checks judge each operator prompt, hold the agent's
       writes when one flags it, and ask the operator to stop or continue.
 
-Facility services
------------------
+   .. grid-item-card:: Health and Monitoring
+      :link: health-and-monitoring/index
+      :link-type: doc
+
+      Is it up, and what is it doing — facility health checks you can extend,
+      plus the agent record of what the agent was asked and did.
+
+Facility
+--------
 
 .. grid:: 1 1 2 3
    :gutter: 3
@@ -111,14 +97,6 @@ Facility services
       The source tree under ``facility/`` — records, layers and
       importers, fixes, limits, seeds, models and measurement — that every
       facility service is built from.
-
-   .. grid-item-card:: Measure with the pyAML Tools
-      :link: measure-with-pyaml
-      :link-type: doc
-
-      Measure orbit, dispersion, tune and chromaticity responses on the
-      control target, every write under the control target's run lock, and read the
-      model's orbit response.
 
    .. grid-item-card:: Use the Channel Finder
       :link: use-channel-finder
@@ -143,7 +121,21 @@ Facility services
       semantic retrieval modes, plus multi-step reasoning delegated to the
       OSPREY agent.
 
-   .. grid-item-card:: Bluesky Plans
+Integrations
+------------
+
+.. grid:: 1 1 2 3
+   :gutter: 3
+
+   .. grid-item-card:: Python Accelerator Middle Layer
+      :link: pyaml/index
+      :link-type: doc
+
+      pyAML on the OSPREY connector: measure orbit, dispersion, tune and
+      chromaticity responses through the agent, and add measurement kinds
+      of your own.
+
+   .. grid-item-card:: Bluesky Integration
       :link: bluesky/index
       :link-type: doc
 
@@ -151,24 +143,45 @@ Facility services
       agent, review, start and stop in the BLUESKY panel, and add plans
       of your own.
 
+   .. grid-item-card:: Build Your Own OSPREY Apps
+      :link: apps/index
+      :link-type: doc
+
+      A panel for the operator and tools for the agent over one backend:
+      what an app is and how to make one.
+
 .. toctree::
    :hidden:
+   :caption: Build & deploy
 
    build-profiles
    deploy-a-facility
    deploy-project/index
    llm-providers/index
-   apps/index
-   register-a-measurement-kind
+
+.. toctree::
+   :hidden:
+   :caption: Operate
+
    web-terminal/index
    agent-interfaces/index
-   health-and-monitoring/index
    control-systems/index
-   safety-watchdogs
-   describe-your-facility
-   measure-with-pyaml
-   use-channel-finder
-   import-mml-export
+   Safety Watchdogs <safety-watchdogs>
+   health-and-monitoring/index
+
+.. toctree::
+   :hidden:
+   :caption: Facility
+
+   Describe Your Facility <describe-your-facility>
+   Channel Finder <use-channel-finder>
    facility-knowledge/index
-   ariel/index
+   ARIEL Logbook Search <ariel/index>
+
+.. toctree::
+   :hidden:
+   :caption: Integrations
+
+   pyaml/index
    bluesky/index
+   OSPREY Apps <apps/index>

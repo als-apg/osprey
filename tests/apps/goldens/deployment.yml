@@ -1,46 +1,46 @@
 services:
-  orbit-bump:
-    path: ./services/orbit-bump
-    app: orbit-bump
+  corrector-trim:
+    path: ./services/corrector-trim
+    app: corrector-trim
     command:
     - python
     - -m
-    - orbit_bump.server
+    - corrector_trim.server
     port: 10900
     url: http://127.0.0.1:10900
     health: /health
     env: []
-    state: var/orbit-bump
+    state: var/corrector-trim
     drives_target: true
-    control_identity: true
-    audit_identity: orbit-bump
-    config_file: ./services/orbit-bump/app-config.yml
-    launch_token_env: ORBIT_BUMP_LAUNCH_TOKEN
+    control_identity: false
+    audit_identity: corrector-trim
+    config_file: ./services/corrector-trim/app-config.yml
+    launch_token_env: CORRECTOR_TRIM_LAUNCH_TOKEN
     roster_grant:
-      panel_id: orbit-bump
+      panel_id: corrector-trim
 deployed_services:
-- orbit-bump
+- corrector-trim
 compose:
-  orbit-bump:
+  corrector-trim:
     image: ${OSPREY_WORKER_IMAGE:-my-facility:local}
-    container_name: my-facility-orbit-bump
+    container_name: my-facility-corrector-trim
     command:
     - python
     - -m
-    - orbit_bump.server
+    - corrector_trim.server
     security_opt:
     - no-new-privileges:true
     restart: unless-stopped
     stop_grace_period: 15s
     environment:
-      OSPREY_APP_NAME: orbit-bump
+      OSPREY_APP_NAME: corrector-trim
       OSPREY_APP_CONFIG: /osprey/app/config.yml
       OSPREY_APP_PORT: '10900'
       OSPREY_APP_BIND: 0.0.0.0
-      OSPREY_APP_STATE_DIRS: /app/my-facility/var/orbit-bump
-      OSPREY_AUDIT_IDENTITY: orbit-bump
-      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/orbit-bump
-      ORBIT_BUMP_LAUNCH_TOKEN: ${ORBIT_BUMP_LAUNCH_TOKEN}
+      OSPREY_APP_STATE_DIRS: /app/my-facility/var/corrector-trim
+      OSPREY_AUDIT_IDENTITY: corrector-trim
+      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/corrector-trim
+      CORRECTOR_TRIM_LAUNCH_TOKEN: ${CORRECTOR_TRIM_LAUNCH_TOKEN}
       OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: '1'
       OSPREY_TERMINAL_SECRET_ALICE: ${OSPREY_TERMINAL_SECRET_ALICE:-}
       OSPREY_TERMINAL_SECRET_BOB: ${OSPREY_TERMINAL_SECRET_BOB:-}
@@ -56,10 +56,10 @@ compose:
     ports:
     - 127.0.0.1:10900:10900
     volumes:
-    - ./build/services/orbit-bump/app-config.yml:/osprey/app/config.yml:ro
-    - ./var/state/orbit-bump/orbit-bump:/app/my-facility/var/orbit-bump
-    - ./var/spool/orbit-bump:/app/my-facility/var/spool/orbit-bump
-    - ./build/services/orbit-bump/config.yml:/app/my-facility/build/config.yml:ro
+    - ./build/services/corrector-trim/app-config.yml:/osprey/app/config.yml:ro
+    - ./var/state/corrector-trim/corrector-trim:/app/my-facility/var/corrector-trim
+    - ./var/spool/corrector-trim:/app/my-facility/var/spool/corrector-trim
+    - ./build/services/corrector-trim/config.yml:/app/my-facility/build/config.yml:ro
     - ./var/guarded_run:/app/my-facility/var/guarded_run
     - ./var/agent_data/control_target:/osprey/control_tree:ro
     networks:
@@ -74,28 +74,28 @@ compose:
       retries: 5
 app-config.yml: {}
 roster_grant:
-  service: orbit-bump
+  service: corrector-trim
   names_single_user_operator: true
 reach_contract:
-  service: orbit-bump
+  service: corrector-trim
   consumers:
-  - name: The orbit-bump panel
-    switch_key: web.panels.orbit-bump
+  - name: The corrector-trim panel
+    switch_key: web.panels.corrector-trim
     refuse: true
   credentials:
-  - ORBIT_BUMP_LAUNCH_TOKEN
+  - CORRECTOR_TRIM_LAUNCH_TOKEN
   no_client_reach: false
   derived_by: osprey.apps.projection.project_login
 application_token_renders:
-  ORBIT_BUMP_LAUNCH_TOKEN:
+  CORRECTOR_TRIM_LAUNCH_TOKEN:
   - admin
   - readwrite
 web_terminal_env:
   web-alice:
-  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
+  - CORRECTOR_TRIM_LAUNCH_TOKEN=${CORRECTOR_TRIM_LAUNCH_TOKEN:-}
   web-bob: []
   web-carol:
-  - ORBIT_BUMP_LAUNCH_TOKEN=${ORBIT_BUMP_LAUNCH_TOKEN:-}
+  - CORRECTOR_TRIM_LAUNCH_TOKEN=${CORRECTOR_TRIM_LAUNCH_TOKEN:-}
   web-logbook: []
   web-knowledge: []
   web-channel-finder: []

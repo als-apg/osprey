@@ -61,7 +61,7 @@ def repo(tmp_path):
     root = tmp_path / "exemplar"
     _write(root / "profile.yml", PROFILE_YAML)
     _write(root / "data" / "channel_databases" / "als.json", '{"channels": []}\n')
-    _write(root / "build" / "config.yml", "project: exemplar\n")
+    _write(root / "build" / "config.yml", "project: exemplar\nprotected_paths: []\n")
     _write_manifest(root)
     return root
 

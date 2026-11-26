@@ -346,8 +346,8 @@ as two layers.
 The importers are ``osprey facility import mml``,
 ``osprey facility import list`` and ``osprey facility import relations``.
 
-A Middle Layer export
----------------------
+A MATLAB Middle Layer export
+----------------------------
 
 ``osprey facility import mml`` reads a MATLAB Middle Layer export into
 ``facility/imported/mml/``. From the export to a served model it is five
@@ -947,7 +947,7 @@ the other plane pairs with:
        ``sleep_between_meas``
 
 A measurement OSPREY does not ship is a kind an installed package registers
-(:doc:`register-a-measurement-kind`). It is listed under ``kinds`` like the
+(:doc:`pyaml/register-a-measurement-kind`). It is listed under ``kinds`` like the
 five, may name roles of its own under ``groups`` and ``instruments``, and
 takes its own settings under ``kind_blocks.<kind>``.
 
@@ -955,7 +955,7 @@ A model solved in a single pass allows only the kinds that run single pass;
 of the shipped ones, ``orm`` alone. A group plays one role;
 only ``hcor`` and ``vcor`` may name the same group. A role naming several
 groups is one pyAML array named after the role. The tools
-that run these measurements are in :doc:`measure-with-pyaml`.
+that run these measurements are in :doc:`pyaml/index`.
 
 Scenarios
 =========
@@ -996,3 +996,8 @@ login and image render.
    :ref:`cli-osprey-facility`
       Every exit and message of ``osprey facility validate``, ``show`` and
       the importers.
+
+.. toctree::
+   :hidden:
+
+   import-mml-export

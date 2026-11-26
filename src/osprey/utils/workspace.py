@@ -21,7 +21,10 @@ each pair equal.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import enum
+import logging
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
@@ -32,6 +35,7 @@ from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     DEFAULT_AGENT_DATA_BASE_DIR,
     SIMULATION_STATE_DIR_CONFIG_KEY,
+    anchored_path,
     repo_root_for_config,
 )
 
@@ -45,6 +49,8 @@ __all__ = [
     "PRESET_TRACKING_DIRNAME",
     "PRE_UPGRADE_AUDIT_RELPATH",
     "PROFILE_FILENAME",
+    "NO_PROTECTED_PATHS_CONSEQUENCE",
+    "PROTECTED_PATHS_CONFIG_KEY",
     "RECORD_DIR_RELPATH",
     "RETIRED_LAYER_DIRS",
     "RUNTIME_DIR_RELPATH",
@@ -55,9 +61,16 @@ __all__ = [
     "STATE_DIR_RELPATH",
     "STATE_ZONE_DIRS",
     "TIERS_DIRNAME",
+    "AnchoredEntry",
+    "ProtectedPathsReading",
+    "ProtectedPathsState",
+    "anchor_protected_entry",
     "container_image_context",
     "deployment_env_chain",
     "layer_dir_kind",
+    "load_protected_paths",
+    "protected_roots_from_entries",
+    "read_protected_paths",
     "repo_root_for_agent_data",
     "session_hold_dir",
 ]
@@ -189,6 +202,240 @@ CHAT_UPLOADS_SUBDIR = "uploads"
 #: package warns about the same keys when it loads a config, from its own
 #: private copy; a test holds the two equal.
 RUNTIME_WRITE_PATH_KEYS = (SIMULATION_STATE_DIR_CONFIG_KEY,)
+
+#: The rendered config key carrying the paths the profile names: every input
+#: the deployment's agent reads its instructions, code or data from. It is the
+#: opposite of :data:`RUNTIME_WRITE_PATH_KEYS` — nothing writes these at run
+#: time, so the python executor adds them to the roots agent code may not
+#: write. The value is a list of strings, each absolute or relative to the
+#: rendered ``project_root``; ``~`` and ``${VAR}`` placeholders are written
+#: verbatim and expanded by :func:`anchor_protected_entry`, because the build's
+#: environment is not the run-time one. An empty list is a valid set. Only the
+#: build writes it, every config file one build writes carries the same set,
+#: and only :func:`read_protected_paths` interprets it. Spelled here, below
+#: ``osprey.cli``, because the executor reads it and must not import the CLI.
+PROTECTED_PATHS_CONFIG_KEY: Final = "protected_paths"
+
+#: What a render without the protected-path list costs, in the words every
+#: place that reports it repeats: the executor's refusal, and the start verbs,
+#: ``status``, ``chat`` and ``query`` that predict it, so an operator meets the
+#: refusal already explained.
+NO_PROTECTED_PATHS_CONSEQUENCE: Final = (
+    "the python executor refuses agent code until `osprey build`"
+)
+
+_logger = logging.getLogger(__name__)
+
+
+class ProtectedPathsState(enum.Enum):
+    """What a config says about :data:`PROTECTED_PATHS_CONFIG_KEY`."""
+
+    #: The key holds a list of strings — possibly empty, which is a valid set.
+    PRESENT = "present"
+    #: The key is not in the config at all: a build that predates it.
+    ABSENT = "absent"
+    #: The key is there but is not a list of non-empty strings.
+    MALFORMED = "malformed"
+
+
+@dataclass(frozen=True)
+class ProtectedPathsReading:
+    """The verdict of :func:`read_protected_paths`.
+
+    Attributes:
+        state: Whether the key is present, absent or malformed.
+        entries: The entries as written, in order; empty unless ``state`` is
+            :attr:`ProtectedPathsState.PRESENT`.
+    """
+
+    state: ProtectedPathsState
+    entries: tuple[str, ...] = ()
+
+    @property
+    def present(self) -> bool:
+        """Whether the config carries a well-formed set."""
+        return self.state is ProtectedPathsState.PRESENT
+
+
+def read_protected_paths(config: object) -> ProtectedPathsReading:
+    """Read :data:`PROTECTED_PATHS_CONFIG_KEY` from a loaded config.
+
+    The one interpreter of the key: the executor and the drift check both ask
+    it, so "carries the set" means one thing. Anything but a list of strings
+    is malformed — ``null``, a bare string, a mapping, a list holding a
+    non-string. An empty string is malformed too: anchored, it would name the
+    project root itself, which the build never emits.
+
+    Args:
+        config: The parsed config document. ``None`` is a config with no keys;
+            any other non-mapping cannot carry the key and is malformed.
+
+    Returns:
+        The state, and the entries when the state is present.
+    """
+    if config is None:
+        return ProtectedPathsReading(ProtectedPathsState.ABSENT)
+    if not isinstance(config, Mapping):
+        return ProtectedPathsReading(ProtectedPathsState.MALFORMED)
+    if PROTECTED_PATHS_CONFIG_KEY not in config:
+        return ProtectedPathsReading(ProtectedPathsState.ABSENT)
+    value = config[PROTECTED_PATHS_CONFIG_KEY]
+    if not isinstance(value, list) or not all(isinstance(e, str) and e for e in value):
+        return ProtectedPathsReading(ProtectedPathsState.MALFORMED)
+    return ProtectedPathsReading(ProtectedPathsState.PRESENT, tuple(value))
+
+
+def load_protected_paths(config_path: Path) -> tuple[tuple[str, ...], str | None]:
+    """Read :data:`PROTECTED_PATHS_CONFIG_KEY` from a rendered config file.
+
+    The file is read and parsed directly, never through a configuration cache,
+    and judged by :func:`read_protected_paths`.
+
+    Args:
+        config_path: The rendered ``config.yml``.
+
+    Returns:
+        ``(entries, None)`` when the file carries a well-formed list, possibly
+        empty; ``((), finding)`` otherwise, *finding* a clause naming the file
+        and what is wrong: it does not exist, cannot be read or parsed, lacks
+        the key, or carries it malformed.
+    """
+    import yaml
+
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return (), f"{config_path} does not exist"
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return (), f"{config_path} could not be read"
+    reading = read_protected_paths(config)
+    if reading.present:
+        return reading.entries, None
+    if reading.state is ProtectedPathsState.MALFORMED:
+        return (), (
+            f"{config_path} has a `{PROTECTED_PATHS_CONFIG_KEY}` that is not a list of paths"
+        )
+    return (), f"{config_path} was rendered without the protected-path list"
+
+
+@dataclass(frozen=True)
+class AnchoredEntry:
+    """One protected-path entry, anchored.
+
+    Attributes:
+        entry: The entry as the config spells it.
+        path: The resolved location it names, or ``None`` when a placeholder
+            in it names a variable the environment does not have.
+        unresolved: The placeholders left after expansion; empty when none.
+        inside_permitted: The permitted root the location lies in, when it
+            lies in one; ``None`` otherwise.
+    """
+
+    entry: str
+    path: Path | None
+    unresolved: tuple[str, ...] = ()
+    inside_permitted: Path | None = None
+
+    @property
+    def protects(self) -> bool:
+        """Whether the entry adds a protected root.
+
+        An entry with an unresolved placeholder names no location, and one
+        inside a permitted root names a place agent code is meant to write.
+        """
+        return self.path is not None and self.inside_permitted is None
+
+
+def anchor_protected_entry(
+    entry: str,
+    project_root: Path | str,
+    permitted_roots: Iterable[Path | str] = (),
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> AnchoredEntry:
+    """Anchor one :data:`PROTECTED_PATHS_CONFIG_KEY` entry at a deployment.
+
+    Expands environment placeholders with the configuration loader's own
+    function, then ``~``, then anchors a relative entry at *project_root*
+    (:func:`~osprey_connectors.workspace.anchored_path`). There is no
+    existence test: a location that does not exist yet is still protected,
+    so creating it is refused too. Used at run time by the executor and at
+    build time by the emitter, which is why the permitted roots are passed
+    in rather than computed here.
+
+    Args:
+        entry: One entry, as :func:`read_protected_paths` returned it.
+        project_root: The rendered ``project_root`` relative entries anchor at.
+        permitted_roots: The roots agent code may write; an entry that lands
+            in one (or on one) protects nothing.
+        environ: The environment placeholders expand against; the process
+            environment when ``None``.
+
+    Returns:
+        The anchored entry, saying whether and why it protects nothing.
+    """
+    # Deferred: the loader module pulls in yaml and the config builder, and
+    # this module is imported by the executor at start-up.
+    from osprey_connectors.config import resolve_env_vars, unresolved_placeholders
+
+    expanded = resolve_env_vars(entry, environ=environ)
+    left = tuple(unresolved_placeholders(expanded))
+    if left:
+        return AnchoredEntry(entry=entry, path=None, unresolved=left)
+    path = anchored_path(expanded, Path(project_root)).resolve()
+    for root in permitted_roots:
+        resolved_root = Path(root).resolve()
+        if path == resolved_root or resolved_root in path.parents:
+            return AnchoredEntry(entry=entry, path=path, inside_permitted=resolved_root)
+    return AnchoredEntry(entry=entry, path=path)
+
+
+#: Entries already reported as protecting nothing, so a server process says
+#: so once per entry rather than once per execution request.
+_reported_unprotecting: set[tuple[str, str]] = set()
+
+
+def protected_roots_from_entries(
+    entries: Iterable[str],
+    project_root: Path | str,
+    permitted_roots: Iterable[Path | str] = (),
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[Path, ...]:
+    """The protected roots a set of entries adds, in entry order.
+
+    Each entry goes through :func:`anchor_protected_entry`. One that protects
+    nothing raises no error: it is logged as a warning, once per entry per
+    process, and left out.
+
+    Args:
+        entries: The entries of a present :class:`ProtectedPathsReading`.
+        project_root: The rendered ``project_root``.
+        permitted_roots: The roots agent code may write.
+        environ: The environment placeholders expand against; the process
+            environment when ``None``.
+
+    Returns:
+        The anchored location of every entry that protects something.
+    """
+    permitted = tuple(permitted_roots)
+    roots: list[Path] = []
+    for stated in entries:
+        anchored = anchor_protected_entry(stated, project_root, permitted, environ=environ)
+        if anchored.path is not None and anchored.inside_permitted is None:
+            roots.append(anchored.path)
+            continue
+        if anchored.path is None:
+            reason = f"it holds an unset placeholder ({', '.join(anchored.unresolved)})"
+        else:
+            reason = f"it lies inside the writable root {anchored.inside_permitted}"
+        marker = (stated, reason)
+        if marker not in _reported_unprotecting:
+            _reported_unprotecting.add(marker)
+            _logger.warning(
+                "%s entry %r protects nothing: %s.", PROTECTED_PATHS_CONFIG_KEY, stated, reason
+            )
+    return tuple(roots)
 
 
 def session_hold_dir(project_root: Path | str) -> Path:

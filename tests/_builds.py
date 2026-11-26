@@ -208,8 +208,8 @@ SHARED_BUILD_RECORD = "built-ca.pickle"
 #: Under xdist, the same for the build with the preset's watchdog on.
 SHARED_WATCHDOG_BUILD_RECORD = "built-ca-watchdog-on.pickle"
 
-#: Under xdist, the same for the build with orbit bump turned on.
-SHARED_ORBIT_BUMP_BUILD_RECORD = "built-ca-orbit-bump.pickle"
+#: Under xdist, the same for the build with an application turned on.
+SHARED_APP_BUILD_RECORD = "built-ca-app.pickle"
 
 #: Under xdist, the same for the build in the hierarchical channel-finder mode.
 SHARED_HIERARCHICAL_BUILD_RECORD = "built-ca-hierarchical.pickle"
@@ -226,12 +226,14 @@ def _exclusive(lock_path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def build_demo(parent: Path, *sets: str) -> BuiltProject:
+def build_demo(parent: Path, *sets: str, with_app: bool = False) -> BuiltProject:
     """Initialise and build the demo preset under ``parent``.
 
     Args:
         parent: The directory the repo is created in.
         sets: ``--set`` assignments for the init, each ``KEY=VALUE``.
+        with_app: Whether ``osprey app new`` adds the scaffold application
+            between the init and the build.
 
     Returns:
         The built repo and what each render's facility outputs were.
@@ -239,6 +241,10 @@ def build_demo(parent: Path, *sets: str) -> BuiltProject:
     from osprey.facility.views import outputs as facility_outputs
 
     repo = init_project(parent, "demo", "demo", *sets)
+    if with_app:
+        from tests.fixtures.lifecycle_repo import add_scaffold_app
+
+        add_scaffold_app(repo)
     built = BuiltProject(repo)
     real = facility_outputs.render_facility_outputs
 
@@ -389,19 +395,18 @@ def built_demo(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
 
 
 @pytest.fixture(scope="session")
-def built_demo_orbit_bump(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
-    """The demo preset with orbit bump turned on at init, built once per run.
+def built_demo_app(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The demo preset with the scaffold application added, built once per run.
 
-    The demo preset ships no application; this is the build its tests read.
-    Tests read it and never write to it.
+    The demo preset ships no application; this is the build its tests read:
+    ``osprey init``, then ``osprey app new``, then the build. Tests read it and
+    never write to it.
     """
-    from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP
-
     built: BuiltProject = _built_once(
         tmp_path_factory,
-        "built-ca-orbit-bump",
-        SHARED_ORBIT_BUMP_BUILD_RECORD,
-        lambda parent: build_demo(parent, ENABLE_ORBIT_BUMP),
+        "built-ca-app",
+        SHARED_APP_BUILD_RECORD,
+        lambda parent: build_demo(parent, with_app=True),
     )
     return built
 

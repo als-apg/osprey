@@ -46,7 +46,7 @@ def test_relpaths_are_under_the_state_zone():
 
 
 def test_existing_roots_stay_protected(repo: Path):
-    protected = resolve_protected_roots(repo)
+    protected = resolve_protected_roots(repo, entries=())
     for relpath in (BUILD_DIR_NAME, SPOOL_DIR_RELPATH, RECORD_DIR_RELPATH, STATE_DIR_RELPATH):
         assert (repo / relpath).resolve() in protected
 
@@ -64,7 +64,7 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.mark.parametrize("relpath", RECORD_ROOTS)
 def test_root_is_protected(repo: Path, relpath: str):
-    assert (repo / relpath).resolve() in resolve_protected_roots(repo)
+    assert (repo / relpath).resolve() in resolve_protected_roots(repo, entries=())
 
 
 @pytest.mark.parametrize("relpath", RECORD_ROOTS)
@@ -79,8 +79,9 @@ def test_static_policy_refuses_a_write(repo: Path, relpath: str):
     target = repo / relpath / "alice" / "forged.jsonl"
     issues = path_policy_issues(
         f"open({str(target)!r}, 'a').write('x')",
-        protected_roots=resolve_protected_roots(repo),
+        protected_roots=resolve_protected_roots(repo, entries=()),
         permitted_roots=resolve_permitted_roots(repo, {}),
+        working_directory=repo,
     )
     assert len(issues) == 1
     assert relpath in issues[0]
@@ -89,7 +90,7 @@ def test_static_policy_refuses_a_write(repo: Path, relpath: str):
 @pytest.mark.parametrize("relpath", RECORD_ROOTS)
 def test_container_root_is_protected(relpath: str):
     root = CONTAINER_PROJECT_ROOT.resolve()
-    assert (root / relpath).resolve() in resolve_protected_roots(root)
+    assert (root / relpath).resolve() in resolve_protected_roots(root, entries=())
 
 
 @pytest.mark.parametrize("relpath", RECORD_ROOTS)
@@ -98,8 +99,9 @@ def test_static_policy_refuses_a_container_write(relpath: str):
     target = root / relpath / "alice" / "forged.jsonl"
     issues = path_policy_issues(
         f"open({str(target)!r}, 'a').write('x')",
-        protected_roots=resolve_protected_roots(root),
+        protected_roots=resolve_protected_roots(root, entries=()),
         permitted_roots=resolve_permitted_roots(root, {}),
+        working_directory=root,
     )
     assert len(issues) == 1
     assert relpath in issues[0]
@@ -112,7 +114,7 @@ def _probe(repo: Path, statement: str, execution_mode: str) -> str:
     execution_folder.mkdir(parents=True, exist_ok=True)
     wrapper = ExecutionWrapper(
         execution_mode=execution_mode,
-        protected_roots=resolve_protected_roots(repo),
+        protected_roots=resolve_protected_roots(repo, entries=()),
         permitted_roots=(agent_data,),
     )
     body = textwrap.dedent(
@@ -171,3 +173,46 @@ def test_runtime_guard_still_allows_the_agent_data_zone(repo: Path):
     out = _probe(repo, f"Path({str(target)!r}).write_text('fine')", "readwrite")
     assert out == "ALLOWED"
     assert target.read_text(encoding="utf-8") == "fine"
+
+
+async def _pre_run_refusal(repo: Path, code: str, monkeypatch: pytest.MonkeyPatch, config: dict):
+    """Drive the gate chain's pre-run check; return the refusal it raised, or None."""
+    from unittest.mock import AsyncMock
+
+    import osprey_connectors.workspace as connectors_workspace
+    from osprey.mcp_server.python_executor.tools import _execution_gates as gates
+    from osprey.utils.workspace import read_protected_paths
+
+    monkeypatch.setattr(connectors_workspace, "load_osprey_config", lambda: config)
+    refuse = AsyncMock()
+    monkeypatch.setattr(gates, "refuse_readonly_write", refuse)
+    await gates.enforce_path_policy(
+        tool="execute",
+        code=code,
+        description=None,
+        execution_mode="readwrite",
+        entries=read_protected_paths(config).entries,
+        project_root=repo,
+    )
+    return refuse.await_args.kwargs if refuse.await_args else None
+
+
+async def test_the_pre_run_check_refuses_a_path_the_profile_names(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The entries reach the pre-run check, relative literals resolve at the root."""
+    refusal = await _pre_run_refusal(
+        repo, "open('plans/scan.py', 'w')", monkeypatch, {"protected_paths": ["plans"]}
+    )
+    assert refusal is not None
+    assert "a path the profile names" in refusal["message"]
+    assert any(str(repo / "plans") in issue for issue in refusal["trigger"])
+
+
+async def test_the_pre_run_check_leaves_a_write_the_set_does_not_name(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    refusal = await _pre_run_refusal(
+        repo, "open('notes/scan.py', 'w')", monkeypatch, {"protected_paths": ["plans"]}
+    )
+    assert refusal is None
