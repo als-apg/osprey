@@ -13,13 +13,14 @@ The files you own live one level up, beside `profile.yml`:
   rebuild (`.env.example` beside it lists the ones this deployment supplies)
 - `facility/` — your facility's authored sources: its records, limits,
   vocabulary, simulation, knowledge and benchmark queries
-- `web/` — the web content, when the deployment ships any: CANOPY screens,
-  collections and theme, and the landing page's notices
-
+{% if ships_web -%}
+- `web/` — the web content: CANOPY screens, collections and theme, and the
+  landing page's notices
+{% endif %}
 What is rendered here: `config.yml` (the resolved settings), the agent's
 `.claude/` tree (rules, hooks, and MCP server wiring), `facility.json`, and
-under `data/` the views the build writes from `facility/` and a working copy
-of your `web/` content.
+under `data/` the views the build writes from `facility/`{% if ships_web %} and a working copy
+of your `web/` content{% endif %}.
 
 ## Your source tree
 
@@ -46,12 +47,14 @@ facility/                             # The facility's authored sources
 │   └── channel_finder/               # Benchmark query sources, one per channel-finder pipeline
 └── ariel/
     └── vocabulary.yml                # Logbook shorthand -> the words entries use
-web/                                  # Only when the preset ships web content
+{% if ships_web -%}
+web/                                  # The web content
 ├── canopy/
 │   ├── library/screens/              # CANOPY screens
 │   ├── collections/                  # CANOPY collections: screens and views opened together
 │   └── theme/                        # CANOPY colour theme
 └── landing/                          # Notices on the web terminal's landing page
+{% endif -%}
 ```
 
 A facility file holds data only. An importer writes its own layer under
@@ -72,6 +75,7 @@ The benchmarks view writes `benchmarks/queries.json` from
 `in_context`, `tree_queries.json` for every other mode. The query sources do
 not reach this directory.
 
+{% if ships_canopy_library -%}
 ## CANOPY screens
 
 `web/canopy/library/` is the deployment's CANOPY screen library: the control
@@ -82,6 +86,7 @@ one file per screen, addressed by their path without the suffix.
 The library is baked into the image: after editing a screen, run
 `osprey build` and then `osprey up`; `osprey up` alone does not refresh it.
 
+{% endif -%}
 ## Database paradigms
 
 `channel_finder_mode` in the build profile picks one of three ways to organize

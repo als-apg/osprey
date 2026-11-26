@@ -239,6 +239,13 @@ class TemplateManager:
         # effective selection the context was built from.
         artifacts = self._effective_artifacts(data_bundle, artifacts)
         ctx = self._project_context(project_name, project_dir, context, artifacts)
+        # What the README says of the web content follows what the deployment
+        # holds: a section on a tree it does not ship would send its reader to
+        # files that are not there.
+        web_dir = repo_root / repo_layout.entry("web").path
+        library_dir = repo_layout.child_path(web_dir, "web", "canopy-library")
+        ctx.setdefault("ships_web", web_dir.is_dir())
+        ctx.setdefault("ships_canopy_library", library_dir.is_dir())
 
         # 4. Create project structure
         scaffolding.create_project_structure(
