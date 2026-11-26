@@ -59,7 +59,7 @@ def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def facility(initialised: Path, tmp_path: Path) -> Path:
     copy = tmp_path / initialised.name
     shutil.copytree(initialised, copy, symlinks=True)
-    return copy / "data" / "facility"
+    return copy / "facility"
 
 
 def _drop_header(path: Path) -> None:

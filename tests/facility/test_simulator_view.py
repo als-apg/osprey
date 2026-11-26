@@ -252,7 +252,7 @@ def test_two_in_process_renders_differing_only_in_the_key_render_different_lists
     repo = tmp_path / "repo"
     (repo / "data").mkdir(parents=True)
     (repo / "profile.yml").write_text(
-        "name: demo\ndata: data\nconfig:\n  control_system.type: virtual_accelerator\n"
+        "name: demo\nconfig:\n  control_system.type: virtual_accelerator\n"
         "  control_system.connector.virtual_accelerator.serving: in_process\n"
         "  simulation.models: null\n"
     )

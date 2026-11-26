@@ -1,11 +1,11 @@
 """The smallest facility trees through ``osprey build``.
 
-A project whose ``data/facility/`` holds only two authored channel addresses
+A project whose ``facility/`` holds only two authored channel addresses
 builds a facility file with those two channels and nothing else, each a
 readback by default; the same two addresses imported as a header-less channel
 list build the same channels. A channel list that states the position of a
 device the tree declares nowhere else creates that device at its position, and
-the span containing it places it. A project whose ``data/facility/`` is empty builds one
+the span containing it places it. A project whose ``facility/`` is empty builds one
 with no records at all: only the built-in ``texture`` model, no classes, and an
 identity folded from the project name. Both render a simulator view that serves
 texture alone, with no status address. The mock connector serving a minimal
@@ -120,16 +120,16 @@ def test_two_authored_addresses_build_two_readbacks(build_project: Build) -> Non
 def _import_list(
     tmp_path: Path, text: str, tree: dict[str, Any] | None = None
 ) -> tuple[BuiltProject, Result]:
-    """Init a repo whose ``data/facility/`` holds ``tree``, import a channel list and build."""
+    """Init a repo whose ``facility/`` holds ``tree``, import a channel list and build."""
     from osprey.cli.main import cli
     from tests._builds import init_project, run_build
     from tests.facility._synthetic_trees import write_tree
     from tests.facility.conftest import BuiltProject
 
     repo = init_project(tmp_path, "hello-world", "demo")
-    shutil.rmtree(repo / "data" / "facility")
+    shutil.rmtree(repo / "facility")
     if tree is not None:
-        write_tree(repo / "data" / "facility", tree)
+        write_tree(repo / "facility", tree)
     listing = tmp_path / "two.csv"
     listing.write_text(text, encoding="utf-8")
     imported = CliRunner().invoke(
@@ -231,7 +231,7 @@ def test_import_list_refuses_beside_a_hand_written_device_list(tmp_path: Path) -
 
     pytest.importorskip("at")
     repo = init_project(tmp_path, "hello-world", "demo")
-    facility = repo / "data" / "facility"
+    facility = repo / "facility"
     shutil.rmtree(facility)
     write_tree(
         facility,
@@ -248,9 +248,9 @@ def test_import_list_refuses_beside_a_hand_written_device_list(tmp_path: Path) -
     assert result.exit_code == 1
     lines = result.stderr.splitlines()
     assert lines[0] == (
-        "import list: data/facility/ holds hand-written device records, which this import writes:"
+        "import list: facility/ holds hand-written device records, which this import writes:"
     )
-    assert lines[1] == "data/facility/records/devices.yaml"
+    assert lines[1] == "facility/records/devices.yaml"
     assert {path: path.read_bytes() for path in facility.rglob("*") if path.is_file()} == before
 
 

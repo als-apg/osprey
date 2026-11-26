@@ -131,7 +131,7 @@ def test_without_the_policy_the_rack_claims_are_contested(
 
 def test_a_fresh_init_stays_wholly_bundled(tmp_path: Path) -> None:
     project = init_project(tmp_path, "demo", "demo")
-    facility = project / "data" / "facility"
+    facility = project / "facility"
     assert (facility / "provenance" / "documents.yaml").is_file()
     assert (facility / "records" / "relations.yaml").is_file()
     assert (facility / "provenance" / "policy.yaml").is_file()

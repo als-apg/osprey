@@ -69,7 +69,7 @@ def test_a_periodic_model_references_its_lattice_beside_the_configuration(
         "name": "design",
         "lattice": f"${{path:{LATTICE_FILE}}}",
     }
-    deck = tmp_path / "data" / "facility" / "simulation" / "decks" / "sr.json"
+    deck = tmp_path / "facility" / "simulation" / "decks" / "sr.json"
     lattice = (directory / "SR" / LATTICE_FILE).read_text(encoding="utf-8")
     assert lattice == polynomial_kicks(deck, [])
 

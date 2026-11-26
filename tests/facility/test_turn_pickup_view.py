@@ -60,7 +60,7 @@ def _statement(table: str, **more: Any) -> dict[str, Any]:
 
 
 def _tree(root: Path, **block: Any) -> Path:
-    facility_dir = root / "data" / "facility"
+    facility_dir = root / "facility"
     shutil.copytree(FIXTURE, facility_dir)
     models_file = facility_dir / source_tree.path("models")
     models = yaml.safe_load(models_file.read_text())

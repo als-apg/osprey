@@ -85,7 +85,7 @@ def fingerprint(document: dict[str, Any], facility: Path) -> dict[str, Any]:
 
     Args:
         document: The facility file ``build_facility`` returned.
-        facility: The ``data/facility`` directory it was built from.
+        facility: The ``facility`` directory it was built from.
 
     Returns:
         The identity, the record counts, the channel roles and one digest per

@@ -76,7 +76,7 @@ def _tree(variant: str) -> dict[str, Any]:
 
 @pytest.fixture(scope="module", params=VARIANTS)
 def built(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Any:
-    root = tmp_path_factory.mktemp(f"appendix-a-{request.param}") / "data" / "facility"
+    root = tmp_path_factory.mktemp(f"appendix-a-{request.param}") / "facility"
     document = build_appendix_a(root, tree=_tree(request.param))
     return FacilityRecords(document)
 

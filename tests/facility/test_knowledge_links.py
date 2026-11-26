@@ -2,7 +2,7 @@
 
 A page links the facility two ways: ``device_id`` in its frontmatter names a
 device, and a ``[label](facility:ADDRESS)`` link in its body names a channel or
-a device. The reader names every link under ``data/facility/knowledge`` that
+a device. The reader names every link under ``facility/knowledge`` that
 the facility file does not resolve; the facility build states each once, as a
 warning, and never stops on one.
 """
@@ -194,7 +194,7 @@ def _hello_world(root: Path, pages: dict[str, str]) -> Path:
     smallest preset's tree proves what a demo tree would.
     """
     repo = init_project(root, "hello-world", "demo")
-    knowledge = repo / "data" / "facility" / "knowledge"
+    knowledge = repo / "facility" / "knowledge"
     knowledge.mkdir(parents=True, exist_ok=True)
     for name, text in pages.items():
         (knowledge / name).write_text(text, encoding="utf-8")

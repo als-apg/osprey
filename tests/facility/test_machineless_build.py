@@ -40,7 +40,7 @@ def test_a_repo_with_no_facility_tree_builds(built_machineless: MachinelessBuild
         assert node is None, key
     assert "archiver" not in ((config.get("health") or {}).get("categories") or {})
 
-    facility = repo / "data" / "facility"
+    facility = repo / "facility"
     assert [
         path.relative_to(facility).as_posix() for path in facility.rglob("*") if path.is_file()
     ] == ["knowledge/index.md"]
