@@ -330,7 +330,7 @@ boundary with limits enforcement and timeout protection, not a sandbox; see
 - ``execute_file`` -- Execute a Python file from the workspace with the same safety envelope as ``execute``.
 
 Two more tools are registered only when the render's facility facts record a pyAML view
-(see :doc:`/how-to/measure-with-pyaml`):
+(see :doc:`/how-to/pyaml/index`):
 
 - ``pyaml_measure`` -- Measure a response matrix or the chromaticity with pyAML on the
   control target. It steps setpoints, so it is a write: see :ref:`A pyAML tool

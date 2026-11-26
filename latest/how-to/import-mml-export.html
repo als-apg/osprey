@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Import a Middle Layer export &#8212; Osprey Framework dev documentation</title>
+    <title>Import a MATLAB Middle Layer export &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -61,8 +61,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Facility Knowledge" href="facility-knowledge/index.html" />
-    <link rel="prev" title="How to Use the Channel Finder" href="use-channel-finder.html" />
+    <link rel="next" title="How to Use the Channel Finder" href="use-channel-finder.html" />
+    <link rel="prev" title="Describe your facility" href="describe-your-facility.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -382,7 +382,8 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Build &amp; deploy</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -397,11 +398,9 @@
 <li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="register-a-measurement-kind.html">Register a measurement kind</a></li>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Operate</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -430,11 +429,6 @@
 </details></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">The Agent Record</a></li>
-</ul>
-</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
@@ -447,18 +441,27 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Facility</span></p>
+<ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="describe-your-facility.html">Describe Your Facility</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Import a MATLAB Middle Layer export</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">ARIEL Logbook Search</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
@@ -466,10 +469,21 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Integrations</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="pyaml/index.html">Python Accelerator Middle Layer (pyAML)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="pyaml/register-a-measurement-kind.html">Register a measurement kind</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Integration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Plan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Plans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
 </ul>
@@ -515,7 +529,10 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Import a Middle Layer export</span></li>
+    
+    <li class="breadcrumb-item"><a href="describe-your-facility.html" class="nav-link">Describe your facility</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Import a MATLAB Middle Layer export</span></li>
   </ul>
 </nav>
 </div>
@@ -532,8 +549,8 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="import-a-middle-layer-export">
-<span id="how-to-import-mml-export"></span><h1>Import a Middle Layer export<a class="headerlink" href="#import-a-middle-layer-export" title="Link to this heading">#</a></h1>
+  <section id="import-a-matlab-middle-layer-export">
+<span id="how-to-import-mml-export"></span><h1>Import a MATLAB Middle Layer export<a class="headerlink" href="#import-a-matlab-middle-layer-export" title="Link to this heading">#</a></h1>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code> reads a MATLAB Middle Layer (MML) export and
 writes it as sources of your facility description, under
 <code class="docutils literal notranslate"><span class="pre">data/facility/imported/mml/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> merges those sources with
@@ -548,7 +565,7 @@ once per sub-machine:</p>
 <p>Each run writes six files that share a stem. The import is given the
 <code class="docutils literal notranslate"><span class="pre">&lt;stem&gt;.ao.json</span></code> and reads the other five from beside it.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span> <span class="pre">--help</span></code> lists the six files and what a run needs
-of the Middle Layer.</p>
+of the MML.</p>
 <section id="what-the-files-contain">
 <h3>What the files contain<a class="headerlink" href="#what-the-files-contain" title="Link to this heading">#</a></h3>
 <p>The lattice is saved first, before the export samples anything. Reading a
@@ -560,7 +577,7 @@ its correctors on a copy, so what it leaves behind is what its own readings
 needed rather than the columns it built.</p>
 <p>Each file opens with an <code class="docutils literal notranslate"><span class="pre">_export</span></code> block recording the exporter version, the
 MATLAB version, the machine, the sub-machine and when the export ran. After it
-come the AO families (or the AD fields) as the Middle Layer holds them, with a
+come the AO families (or the AD fields) as the MML holds them, with a
 few values rewritten so JSON can carry them faithfully:</p>
 <ul class="simple">
 <li><p>function handles become <code class="docutils literal notranslate"><span class="pre">{&quot;$fn&quot;:</span> <span class="pre">&quot;&lt;name&gt;&quot;,</span> <span class="pre">&quot;file&quot;:</span> <span class="pre">&quot;&lt;path&gt;&quot;}</span></code>;</p></li>
@@ -570,9 +587,9 @@ few values rewritten so JSON can carry them faithfully:</p>
 <li><p>logicals become <code class="docutils literal notranslate"><span class="pre">0</span></code>/<code class="docutils literal notranslate"><span class="pre">1</span></code>, and the <code class="docutils literal notranslate"><span class="pre">Handles</span></code> field (plot handles) is left
 out.</p></li>
 </ul>
-<p>Everything else is written as is. The script only reads from the Middle Layer;
+<p>Everything else is written as is. The script only reads from the MML;
 it sets nothing on the machine.</p>
-<p><code class="docutils literal notranslate"><span class="pre">va.json</span></code> is the part the Middle Layer cannot state as stored data. It opens
+<p><code class="docutils literal notranslate"><span class="pre">va.json</span></code> is the part the MML cannot state as stored data. It opens
 with a fingerprint of the lattice the file belongs to: element count, a digest
 of the family names in lattice order, the model energy, and where any parameter
 element sits. The importer recomputes it from the lattice file: a lattice that
@@ -581,7 +598,7 @@ reported. Then one block per family: the Setpoint’s and the Monitor’s own
 hardware-to-physics calibrations, and the Monitor’s physics-to-hardware
 inverse, each sampled through the facility’s own conversion functions rather
 than read out of their stored parameters; whether the Setpoint’s conversion
-carries the beam’s rigidity; the per-device nominal the Middle Layer’s model
+carries the beam’s rigidity; the per-device nominal the MML’s model
 read gives; what the family’s own readings are corrected by, where it states
 it; and, for a family the beam energy is read from, the energy table its
 current maps to. The exporter’s own header lists every key.</p>
@@ -596,7 +613,7 @@ the file is negligible. The offset is in the family’s own <strong>hardware</st
 physics units of the conversion beside it. A number the facility states nowhere
 is left out rather than defaulted, and one written in a shape that is not one
 per device is refused by name and costs that family only that number.</p>
-<p>The numbers are looked up in the three places the Middle Layer looks: the
+<p>The numbers are looked up in the three places the MML looks: the
 family’s <code class="docutils literal notranslate"><span class="pre">Monitor</span></code> field, the family itself, then the facility’s physics data
 file, which a facility fills from an orbit fit and copies into the Accelerator
 Objects at operating-mode set-up. Run the export from a session where that
@@ -608,9 +625,9 @@ device.</p>
 <p>A family whose conversions refuse a sample keeps the facts already in hand and
 records the MATLAB message under <code class="docutils literal notranslate"><span class="pre">refused</span></code>; it costs the export nothing else.
 The same holds for the response matrix. A file the Accelerator Data names but
-the Middle Layer cannot find ends in its own measurement of the model, and so
+the MML cannot find ends in its own measurement of the model, and so
 does an Accelerator Data that names no file at all: naming nothing is the one
-state the Middle Layer answers with a file-chooser dialog, and an export runs
+state the MML answers with a file-chooser dialog, and an export runs
 unattended, so the measurement is asked for directly instead. Each block’s
 <code class="docutils literal notranslate"><span class="pre">origin</span></code> says whether the matrix was measured on the machine or computed from
 a model, which is not the same question as whether a file answered, since a
@@ -618,7 +635,7 @@ facility may keep a computed matrix in a file like any other. A matrix computed
 from a model says nothing about the machine: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> then
 compares a deck against a deck.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">&lt;stem&gt;.model.json</span></code> file is not imported: it is what a check of OSPREY’s
-model against the Middle Layer’s reads.</p>
+model against the MML’s reads.</p>
 </section>
 </section>
 <section id="run-the-import">
@@ -885,7 +902,15 @@ left-out line. If you need a more elaborate BPM calibration in the check, open
 an issue.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
+<p>G. Portmann, J. Corbett and A. Terebilo, “An Accelerator Control Middle
+Layer Using MATLAB”, <em>Proc. PAC 2005</em>, Knoxville, pp. 4009–4011 ·
+<a class="reference external" href="https://doi.org/10.1109/PAC.2005.1591699">doi:10.1109/PAC.2005.1591699</a>.</p>
 <dl class="simple">
+<dt><a class="reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a></dt><dd><p>The facility description the import writes into.</p>
+</dd>
+<dt><a class="reference internal" href="pyaml/index.html"><span class="doc">Python Accelerator Middle Layer (pyAML)</span></a></dt><dd><p>The Python Accelerator Middle Layer, which measures on the imported
+models.</p>
+</dd>
 <dt><a class="reference internal" href="../reference/cli.html#cli-osprey-facility"><span class="std std-ref">osprey facility</span></a></dt><dd><p>Every exit and message of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">validate</span></code> and
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">facility</span> <span class="pre">import</span> <span class="pre">mml</span></code>.</p>
 </dd>
@@ -905,20 +930,20 @@ an issue.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="use-channel-finder.html"
+       href="describe-your-facility.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">How to Use the Channel Finder</p>
+        <p class="prev-next-title">Describe your facility</p>
       </div>
     </a>
     <a class="right-next"
-       href="facility-knowledge/index.html"
+       href="use-channel-finder.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Facility Knowledge</p>
+        <p class="prev-next-title">How to Use the Channel Finder</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

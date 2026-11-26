@@ -382,7 +382,8 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Build &amp; deploy</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -397,11 +398,9 @@
 <li class="toctree-l2"><a class="reference internal" href="llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="register-a-measurement-kind.html">Register a measurement kind</a></li>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Operate</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
@@ -430,11 +429,6 @@
 </details></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">The Agent Record</a></li>
-</ul>
-</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
@@ -447,18 +441,27 @@
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety watchdogs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="measure-with-pyaml.html">Measure with the pyAML tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Facility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="describe-your-facility.html">Describe Your Facility</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="import-mml-export.html">Import a MATLAB Middle Layer export</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">ARIEL Logbook Search</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
@@ -466,10 +469,21 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/picture-search.html">Picture Captions and Picture Search</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Integrations</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="pyaml/index.html">Python Accelerator Middle Layer (pyAML)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="pyaml/register-a-measurement-kind.html">Register a measurement kind</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="bluesky/index.html">Bluesky Integration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/run-first-plan.html">Run Your First Plan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/queue.html">Plans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="apps/index.html">OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
 </ul>
@@ -534,7 +548,8 @@
 <p>Task-oriented guides that walk you through common OSPREY operations step by step.
 Each guide focuses on a single goal and assumes you already have a working OSPREY installation.
 The sections follow the natural journey: build and deploy a project, operate the
-agent day to day, then work with the bundled facility services.</p>
+agent day to day, describe the facility and serve it to the agent, then connect
+the tools around it.</p>
 <section id="build-deploy">
 <h2>Build &amp; deploy<a class="headerlink" href="#build-deploy" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
@@ -580,27 +595,6 @@ translation proxy.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="llm-providers/index.html"><span class="doc">LLM Providers</span></a></div>
 </div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Build Your Own OSPREY Apps</div>
-<p class="sd-card-text">A panel for the operator and tools for the agent over one backend:
-what an app is and how to make one.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Register a Measurement Kind</div>
-<p class="sd-card-text">Add a measurement of your own from an installable package: its
-declaration, its block in the measurement file, and what the build
-refuses.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="register-a-measurement-kind.html"><span class="doc">Register a measurement kind</span></a></div>
-</div>
 </div>
 </div>
 </section>
@@ -633,16 +627,6 @@ bridges — the four ways to reach the agent.</p>
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Health and Monitoring</div>
-<p class="sd-card-text">Is it up, and what is it doing — facility health checks you can extend,
-plus the agent record of what the agent was asked and did.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="health-and-monitoring/index.html"><span class="doc">Health and Monitoring</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
 Control Systems</div>
 <p class="sd-card-text">Connectors for your control system, the virtual accelerator to rehearse
 on, switching to the live machine, and what the agent may not touch.</p>
@@ -659,11 +643,21 @@ writes when one flags it, and ask the operator to stop or continue.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="safety-watchdogs.html"><span class="doc">Safety watchdogs</span></a></div>
 </div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Health and Monitoring</div>
+<p class="sd-card-text">Is it up, and what is it doing — facility health checks you can extend,
+plus the agent record of what the agent was asked and did.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="health-and-monitoring/index.html"><span class="doc">Health and Monitoring</span></a></div>
+</div>
 </div>
 </div>
 </section>
-<section id="facility-services">
-<h2>Facility services<a class="headerlink" href="#facility-services" title="Link to this heading">#</a></h2>
+<section id="facility">
+<h2>Facility<a class="headerlink" href="#facility" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
 <div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
@@ -676,17 +670,6 @@ importers, fixes, limits, seeds, models and measurement — that every
 facility service is built from.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-Measure with the pyAML Tools</div>
-<p class="sd-card-text">Measure orbit, dispersion, tune and chromaticity responses on the
-control target, every write under the control target’s run lock, and read the
-model’s orbit response.</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="measure-with-pyaml.html"><span class="doc">Measure with the pyAML tools</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
@@ -720,18 +703,52 @@ OSPREY agent.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="ariel/index.html"><span class="doc">Logbook Search Service (ARIEL)</span></a></div>
 </div>
+</div>
+</div>
+</section>
+<section id="integrations">
+<h2>Integrations<a class="headerlink" href="#integrations" title="Link to this heading">#</a></h2>
+<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
-Bluesky Plans</div>
+Python Accelerator Middle Layer</div>
+<p class="sd-card-text">pyAML on the OSPREY connector: measure orbit, dispersion, tune and
+chromaticity responses through the agent, and add measurement kinds
+of your own.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="pyaml/index.html"><span class="doc">Python Accelerator Middle Layer (pyAML)</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Bluesky Integration</div>
 <p class="sd-card-text">Run measurement plans through a durable queue — compose with the OSPREY
 agent, review, start and stop in the BLUESKY panel, and add plans
 of your own.</p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="bluesky/index.html"><span class="doc">Bluesky Plans</span></a></div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="bluesky/index.html"><span class="doc">Bluesky Integration</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Build Your Own OSPREY Apps</div>
+<p class="sd-card-text">A panel for the operator and tools for the agent over one backend:
+what an app is and how to make one.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="apps/index.html"><span class="doc">Build Your Own OSPREY Apps</span></a></div>
 </div>
 </div>
+</div>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
+</div>
+<div class="toctree-wrapper compound">
 </div>
 <div class="toctree-wrapper compound">
 </div>
@@ -787,7 +804,10 @@ of your own.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-deploy">Build &amp; deploy</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#operate">Operate</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-services">Facility services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility">Facility</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#integrations">Integrations</a><ul class="visible nav section-nav flex-column">
+</ul>
+</li>
 </ul>
   </nav></div>
 

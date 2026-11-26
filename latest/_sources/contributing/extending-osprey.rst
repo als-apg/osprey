@@ -446,7 +446,7 @@ through the profile's ``dependencies``. Pinning test:
 ``tests/facility/test_fixture_kind_deployment.py``, whose package under
 ``tests/facility/fixtures/fixture_kind/`` registers a kind and an engine. The
 contract: :doc:`/reference/contracts/facility-kinds`; step by step:
-:doc:`/how-to/register-a-measurement-kind`.
+:doc:`/how-to/pyaml/register-a-measurement-kind`.
 
 .. _extending-agent-harness:
 

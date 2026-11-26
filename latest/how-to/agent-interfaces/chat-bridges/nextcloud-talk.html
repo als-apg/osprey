@@ -382,7 +382,8 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><p aria-level="2" class="caption" role="heading"><span class="caption-text">Build &amp; deploy</span></p>
+<ul class="nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../../build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../deploy-a-facility.html">Deploy a Facility</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -397,11 +398,9 @@
 <li class="toctree-l2"><a class="reference internal" href="../../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../../apps/index.html">Build Your Own OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
-</details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../register-a-measurement-kind.html">Register a measurement kind</a></li>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Operate</span></p>
+<ul class="current nav bd-sidenav">
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../web-terminal/theming.html">Theming</a></li>
@@ -430,11 +429,6 @@
 </details></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">The Agent Record</a></li>
-</ul>
-</details></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
@@ -447,18 +441,27 @@
 <li class="toctree-l2"><a class="reference internal" href="../../control-systems/code-review.html">Review the Agent’s Code</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety watchdogs</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../describe-your-facility.html">Describe your facility</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../measure-with-pyaml.html">Measure with the pyAML tools</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../import-mml-export.html">Import a Middle Layer export</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../safety-watchdogs.html">Safety Watchdogs</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/agent-record.html">The Agent Record</a></li>
+</ul>
+</details></li>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Facility</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../describe-your-facility.html">Describe Your Facility</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../import-mml-export.html">Import a MATLAB Middle Layer export</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../ariel/index.html">ARIEL Logbook Search</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
@@ -466,10 +469,21 @@
 <li class="toctree-l2"><a class="reference internal" href="../../ariel/picture-search.html">Picture Captions and Picture Search</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+</ul>
+<p aria-level="2" class="caption" role="heading"><span class="caption-text">Integrations</span></p>
+<ul class="nav bd-sidenav">
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../pyaml/index.html">Python Accelerator Middle Layer (pyAML)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../pyaml/register-a-measurement-kind.html">Register a measurement kind</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Integration</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../../bluesky/run-first-plan.html">Run Your First Plan</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../bluesky/queue.html">Plans and the Queue</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../apps/index.html">OSPREY Apps</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../apps/build-your-own-app.html">Build Your Own App</a></li>
 </ul>
 </details></li>
 </ul>
