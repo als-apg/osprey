@@ -475,6 +475,8 @@ you. The **default view** plots every numeric column the run recorded against
 the channel the plan drives. When a plan drives more than one channel, the
 default view plots the columns in the order the readings were taken. For a straightforward
 measurement, the default view is honest and enough.
+A column that holds an array per row is not drawn; the view names it and the
+data table plots it.
 
 A plan that measures something the raw columns cannot show can bring its own
 view instead. The view is a small ``render`` function. It receives the run's
