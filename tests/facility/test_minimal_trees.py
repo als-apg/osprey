@@ -305,8 +305,8 @@ def test_two_authored_addresses_are_two_read_only_bluesky_signals(build_project:
     document = _bluesky_view(project)
     assert document["settables"] == []
     assert document["readables"] == [
-        {"name": "LAB:TEMP:01", "pv": "LAB:TEMP:01"},
-        {"name": "LAB:TEMP:02", "pv": "LAB:TEMP:02"},
+        {"name": "LAB:TEMP:01", "pv": "LAB:TEMP:01", "value_type": "float"},
+        {"name": "LAB:TEMP:02", "pv": "LAB:TEMP:02", "value_type": "float"},
     ]
     assert not _staged(project), "a mock control system stages no device file"
 

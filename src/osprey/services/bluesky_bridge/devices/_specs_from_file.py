@@ -17,8 +17,14 @@ line naming the document and its version::
         setpoint: SR:C01:QF:1:SP
         readback: SR:C01:QF:1:RB   # optional; omitted => reads the setpoint PV
         settle_tolerance: 0.05     # optional; or {relative: 1.0e-4} of the demand
+        value_type: float          # optional; the value type of the value under `name`
         unit: A                    # optional; the unit of the value under `name`
+        setpoint_value_type: float # optional; the setpoint's value type, with a readback
         setpoint_unit: A           # optional; the setpoint's unit, with a readback
+      - name: SR:C01:RF:MODE:SP
+        setpoint: SR:C01:RF:MODE:SP
+        value_type: enum
+        options: [OFF, ON, AUTO]   # optional; an enum's words, in option-index order
       - name: SR:C01:QD:1
         setpoint: SR:C01:QD:1:SP
         motion_band: 0.011         # optional; the readback's simulated motion
@@ -37,12 +43,15 @@ line naming the document and its version::
         status: ES1:MCA01:STATUS   # the channel that reports the act
         idle: Idle                 # what the status reads while no act runs
         timeout_s: 5.0             # the longest one act may take
+        value_type: enum           # optional; the status's value type
+        options: [Idle, Busy]      # optional; the status's words
     readables:
       - name: SR:C01:BPM:1:X
         pv: SR:C01:BPM:1:X:RB
         unit: mm                   # optional
       - name: SR:INJ:SEPTUM:WAVEFORM
         pv: SR:INJ:SEPTUM:WAVEFORM
+        value_type: waveform       # optional
         shape: [500]               # optional; the length of a 1-D array reading
 
 ``yaml.safe_load`` parses it, so a ``.json`` file is read by the same code
@@ -110,8 +119,26 @@ STOPPED_BY_KEY = "stopped_by"
 """Optional settable key, only beside ``started_by``: the command that stops the
 setpoint's move, a non-empty address. A run that stops the move while it is
 unfinished writes it."""
+VALUE_TYPE_KEY = "value_type"
+"""Optional key of every entry: the facility value type of the value a device
+reports under its own name, one of :data:`VALUE_TYPES`. A device without one
+reports a float."""
+SETPOINT_VALUE_TYPE_KEY = "setpoint_value_type"
+"""Optional settable key: the facility value type of the setpoint channel of a
+device with a separate readback, one of :data:`VALUE_TYPES`."""
+OPTIONS_KEY = "options"
+"""Optional key of every entry, beside ``value_type``: the words of an enum
+channel, in option-index order, a non-empty list of non-empty strings. A run
+records the channel as its word."""
+SETPOINT_OPTIONS_KEY = "setpoint_options"
+"""Optional settable key, beside ``setpoint_value_type``: the words of an enum
+setpoint channel, as ``options``."""
+VALUE_TYPES = ("float", "int", "bool", "enum", "string", "waveform")
+"""The facility value types a channel carries."""
 _SETTABLE_REQUIRED = ("name", "setpoint")
 _SETTABLE_OPTIONAL = ("readback", UNIT_KEY, SETPOINT_UNIT_KEY, STOPPED_BY_KEY)
+_SETTABLE_VALUE_TYPES = (VALUE_TYPE_KEY, SETPOINT_VALUE_TYPE_KEY)
+_SETTABLE_OPTIONS = (OPTIONS_KEY, SETPOINT_OPTIONS_KEY)
 SETTLE_TOLERANCE_KEY = "settle_tolerance"
 """Optional settable key: how far the readback may sit from the demand once settled.
 
@@ -131,6 +158,8 @@ _SETTABLE_TOLERANCE_OPTIONAL = (SETTLE_TOLERANCE_KEY,)
 _READABLE_REQUIRED = ("name", "pv")
 _READABLE_OPTIONAL = (UNIT_KEY,)
 _READABLE_SHAPE_OPTIONAL = (SHAPE_KEY,)
+_ONE_VALUE_TYPE = (VALUE_TYPE_KEY,)
+_ONE_OPTIONS = (OPTIONS_KEY,)
 IDLE_KEY = "idle"
 """Required triggerable key: what the status reads while no act runs, a
 non-null scalar (text, a number or a bool)."""
@@ -189,6 +218,63 @@ def _optional_strings(
         if values[key] is None:
             logger.warning(
                 "skipping %s (%r): %r is present but not a non-empty string", where, name, key
+            )
+            return None
+    return values
+
+
+def _value_types(
+    entry: dict[str, Any], keys: tuple[str, ...], where: str, name: str
+) -> dict[str, str | None] | None:
+    """Each optional value-type key of ``entry``, or ``None`` when one is malformed.
+
+    Absent or null leaves the key ``None``; present but not one of
+    :data:`VALUE_TYPES` is a malformed entry, warned about by name.
+    """
+    values: dict[str, str | None] = {}
+    for key in keys:
+        values[key] = entry.get(key)
+        if values[key] is not None and values[key] not in VALUE_TYPES:
+            logger.warning(
+                "skipping %s (%r): %r is present but not one of %r",
+                where,
+                name,
+                key,
+                list(VALUE_TYPES),
+            )
+            return None
+    return values
+
+
+def _words(value: Any) -> tuple[str, ...] | None:
+    """Return ``options`` as a tuple, or ``None`` if it is not a non-empty list of
+    non-empty strings."""
+    if not isinstance(value, list) or not value:
+        return None
+    words = tuple(_clean(word) for word in value)
+    return None if None in words else words  # type: ignore[return-value]
+
+
+def _options(
+    entry: dict[str, Any], keys: tuple[str, ...], where: str, name: str
+) -> dict[str, tuple[str, ...] | None] | None:
+    """Each optional words key of ``entry``, or ``None`` when one is malformed.
+
+    Absent or null leaves the key ``None``; present but not a non-empty list of
+    non-empty strings is a malformed entry, warned about by name.
+    """
+    values: dict[str, tuple[str, ...] | None] = {}
+    for key in keys:
+        values[key] = None
+        if entry.get(key) is None:
+            continue
+        values[key] = _words(entry[key])
+        if values[key] is None:
+            logger.warning(
+                "skipping %s (%r): %r is present but not a non-empty list of non-empty strings",
+                where,
+                name,
+                key,
             )
             return None
     return values
@@ -316,11 +402,15 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     number >= 0 or ``{relative: <number >= 0>}``, or a ``motion_band`` that is
     not a number >= 0, is a malformed entry. ``unit`` and ``setpoint_unit`` are
     optional strings: absent or null declares no unit; present but not a
-    non-empty string is a malformed entry. ``started_by`` is optional: absent
-    or null leaves the setpoint moving on its own write; present but not a
-    well-formed act (see ``_start_act``) is a malformed entry. ``stopped_by``
-    is an optional string, and an entry that states it without ``started_by``
-    is malformed.
+    non-empty string is a malformed entry. ``value_type`` and
+    ``setpoint_value_type`` are optional: absent or null states a float;
+    present but not one of :data:`VALUE_TYPES` is a malformed entry.
+    ``options`` and ``setpoint_options`` are optional: absent or null lists no
+    words; present but not a non-empty list of non-empty strings is a
+    malformed entry. ``started_by`` is optional: absent or null leaves the
+    setpoint moving on its own write; present but not a well-formed act (see
+    ``_start_act``) is a malformed entry. ``stopped_by`` is an optional string, and an entry that
+    states it without ``started_by`` is malformed.
     """
     specs: list[SettableSpec] = []
     for index, entry in enumerate(_entries(section, SETTABLES_KEY)):
@@ -377,6 +467,12 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
         units = _optional_strings(entry, (UNIT_KEY, SETPOINT_UNIT_KEY, STOPPED_BY_KEY), where, name)
         if units is None:
             continue
+        kinds = _value_types(entry, _SETTABLE_VALUE_TYPES, where, name)
+        if kinds is None:
+            continue
+        words = _options(entry, _SETTABLE_OPTIONS, where, name)
+        if words is None:
+            continue
 
         started_by: CommandAct | None = None
         if entry.get(STARTED_BY_KEY) is not None:
@@ -406,6 +502,10 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
                 setpoint_unit=units[SETPOINT_UNIT_KEY],
                 started_by=started_by,
                 stopped_by=units[STOPPED_BY_KEY],
+                value_type=kinds[VALUE_TYPE_KEY],
+                setpoint_value_type=kinds[SETPOINT_VALUE_TYPE_KEY],
+                options=words[OPTIONS_KEY],
+                setpoint_options=words[SETPOINT_OPTIONS_KEY],
             )
         )
     return specs
@@ -414,8 +514,8 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
 def _parse_readables(section: Any) -> list[ReadableSpec]:
     """Parse the ``readables`` section, skipping malformed entries with a warning.
 
-    An entry needs a non-empty ``name`` and ``pv``; ``unit`` is optional, as
-    on a settable. ``shape`` is optional: absent or null reads a scalar;
+    An entry needs a non-empty ``name`` and ``pv``; ``unit`` and
+    ``value_type`` are optional, as on a settable. ``shape`` is optional: absent or null reads a scalar;
     present but not a list of one int >= 1 is a malformed entry. See
     ``_parse_settables``.
     """
@@ -439,6 +539,9 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
         units = _optional_strings(entry, (UNIT_KEY,), where, name)
         if units is None:
             continue
+        kinds = _value_types(entry, _ONE_VALUE_TYPE, where, name)
+        if kinds is None:
+            continue
 
         shape: tuple[int] | None = None
         if entry.get(SHAPE_KEY) is not None:
@@ -452,7 +555,15 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
                 )
                 continue
 
-        specs.append(ReadableSpec(name=name, read_pv=read_pv, unit=units[UNIT_KEY], shape=shape))
+        specs.append(
+            ReadableSpec(
+                name=name,
+                read_pv=read_pv,
+                unit=units[UNIT_KEY],
+                shape=shape,
+                value_type=kinds[VALUE_TYPE_KEY],
+            )
+        )
     return specs
 
 
@@ -461,7 +572,8 @@ def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
 
     An entry needs a non-empty ``name``, ``command`` and ``status``, an
     ``idle`` that is a non-null scalar and a ``timeout_s`` that is a finite
-    number > 0. See ``_parse_settables``.
+    number > 0; ``value_type`` and ``options``, the status's, are optional, as
+    on a settable. See ``_parse_settables``.
     """
     specs: list[TriggerableSpec] = []
     for index, entry in enumerate(_entries(section, TRIGGERABLES_KEY)):
@@ -493,9 +605,22 @@ def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
             )
             continue
 
+        kinds = _value_types(entry, _ONE_VALUE_TYPE, where, name)
+        if kinds is None:
+            continue
+        words = _options(entry, _ONE_OPTIONS, where, name)
+        if words is None:
+            continue
+
         specs.append(
             TriggerableSpec(
-                name=name, command=command, status=status, idle=idle, timeout_s=timeout_s
+                name=name,
+                command=command,
+                status=status,
+                idle=idle,
+                timeout_s=timeout_s,
+                value_type=kinds[VALUE_TYPE_KEY],
+                options=words[OPTIONS_KEY],
             )
         )
     return specs
@@ -588,6 +713,8 @@ def _validate_section(
     scalars: tuple[str, ...] = (),
     positives: tuple[str, ...] = (),
     acts: tuple[str, ...] = (),
+    value_types: tuple[str, ...] = (),
+    options: tuple[str, ...] = (),
 ) -> list[str]:
     """Return the problems in one device section (empty list ⇒ none).
 
@@ -596,7 +723,9 @@ def _validate_section(
     <number >= 0>}`` when present; ``shapes`` keys are lists of one int >= 1
     when present. ``scalars`` keys are required non-null scalars, and
     ``positives`` keys required finite numbers > 0. ``acts`` keys are start
-    acts (see ``_start_act``) when present.
+    acts (see ``_start_act``) when present. ``value_types`` keys are one of
+    :data:`VALUE_TYPES` when present, and ``options`` keys non-empty lists of
+    non-empty strings.
     """
     if section is None:
         return []
@@ -612,6 +741,8 @@ def _validate_section(
         | set(scalars)
         | set(positives)
         | set(acts)
+        | set(value_types)
+        | set(options)
     )
     problems: list[str] = []
     for index, entry in enumerate(section):
@@ -658,6 +789,16 @@ def _validate_section(
             f"{where}: {field!r} must be a mapping of {_START_ACT_TEXT} when present"
             for field in acts
             if entry.get(field) is not None and _start_act(entry[field]) is None
+        )
+        problems.extend(
+            f"{where}: {field!r} must be one of {list(VALUE_TYPES)!r} when present"
+            for field in value_types
+            if entry.get(field) is not None and entry[field] not in VALUE_TYPES
+        )
+        problems.extend(
+            f"{where}: {field!r} must be a non-empty list of non-empty strings when present"
+            for field in options
+            if entry.get(field) is not None and _words(entry[field]) is None
         )
         unknown = [name for name in entry if name not in known]
         if unknown:
@@ -742,6 +883,8 @@ def validate_device_document(doc: Any) -> list[str]:
         _SETTABLE_NUMERIC_OPTIONAL,
         _SETTABLE_TOLERANCE_OPTIONAL,
         acts=_SETTABLE_ACT_OPTIONAL,
+        value_types=_SETTABLE_VALUE_TYPES,
+        options=_SETTABLE_OPTIONS,
     )
     problems += _stop_without_start_problems(doc.get(SETTABLES_KEY))
     problems += _validate_section(
@@ -751,6 +894,8 @@ def validate_device_document(doc: Any) -> list[str]:
         (),
         scalars=_TRIGGERABLE_SCALARS,
         positives=_TRIGGERABLE_POSITIVES,
+        value_types=_ONE_VALUE_TYPE,
+        options=_ONE_OPTIONS,
     )
     problems += _validate_section(
         doc.get(READABLES_KEY),
@@ -758,6 +903,8 @@ def validate_device_document(doc: Any) -> list[str]:
         _READABLE_REQUIRED,
         _READABLE_OPTIONAL,
         shapes=_READABLE_SHAPE_OPTIONAL,
+        value_types=_ONE_VALUE_TYPE,
+        options=_ONE_OPTIONS,
     )
     problems += _duplicate_name_problems(doc)
     return problems

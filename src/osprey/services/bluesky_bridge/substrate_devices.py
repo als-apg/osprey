@@ -105,10 +105,13 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     COMMAND_KEY,
     IDLE_KEY,
     MOTION_BAND_KEY,
+    OPTIONS_KEY,
     READABLES_KEY,
     RELATIVE_KEY,
     SCHEMA_KEY,
+    SETPOINT_OPTIONS_KEY,
     SETPOINT_UNIT_KEY,
+    SETPOINT_VALUE_TYPE_KEY,
     SETTABLES_KEY,
     SETTLE_TOLERANCE_KEY,
     SHAPE_KEY,
@@ -118,6 +121,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     TIMEOUT_KEY,
     TRIGGERABLES_KEY,
     UNIT_KEY,
+    VALUE_TYPE_KEY,
 )
 from osprey_connectors import yaml_loader
 from osprey_connectors.safety_file import atomic_replace
@@ -133,6 +137,23 @@ def _act(completion: CommandCompletion) -> dict[str, Any]:
     }
 
 
+def _value_type(
+    record: ChannelRecord | None,
+    type_key: str = VALUE_TYPE_KEY,
+    options_key: str = OPTIONS_KEY,
+) -> dict[str, Any]:
+    """The value type ``record`` states, under ``type_key``, and an enum's words
+    under ``options_key`` when the record lists them; empty for a record that
+    states no value type. A switch's labels are not written: it is recorded as a
+    boolean."""
+    if record is None or record.value_type is None:
+        return {}
+    kind: dict[str, Any] = {type_key: record.value_type}
+    if record.value_type == "enum" and record.options is not None:
+        kind[options_key] = list(record.options)
+    return kind
+
+
 def _write_entry(
     record: ChannelRecord,
     completions: Mapping[str, CommandCompletion],
@@ -140,6 +161,7 @@ def _write_entry(
     tolerance: Mapping[str, float] | None,
     bands: Mapping[str, float],
     stated: Mapping[str, str],
+    kinds: Mapping[str, ChannelRecord],
 ) -> tuple[str, dict[str, Any]] | None:
     """The device one write-direction record becomes: its device-file section and
     entry, or ``None`` for no device.
@@ -155,7 +177,11 @@ def _write_entry(
         return None
     completion = completions.get(record.address)
     if completion is not None:
-        return TRIGGERABLES_KEY, {"name": record.address, **_act(completion)}
+        return TRIGGERABLES_KEY, {
+            "name": record.address,
+            **_act(completion),
+            **_value_type(kinds.get(completion.status)),
+        }
     entry: dict[str, Any] = {"name": record.address, "setpoint": record.address}
     readback = record.address
     if record.readback is not None and record.readback != record.address:
@@ -172,10 +198,13 @@ def _write_entry(
         entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
     elif band > 0:
         entry[MOTION_BAND_KEY] = float(band)
+    entry.update(_value_type(kinds.get(readback)))
     if readback in stated:
         entry[UNIT_KEY] = stated[readback]
-    if readback != record.address and record.address in stated:
-        entry[SETPOINT_UNIT_KEY] = stated[record.address]
+    if readback != record.address:
+        entry.update(_value_type(record, SETPOINT_VALUE_TYPE_KEY, SETPOINT_OPTIONS_KEY))
+        if record.address in stated:
+            entry[SETPOINT_UNIT_KEY] = stated[record.address]
     return SETTABLES_KEY, entry
 
 
@@ -222,6 +251,15 @@ def devices_document(
     has a band above zero carries it as ``motion_band``. Either key follows
     ``readback``; with no mappings no settable carries one.
 
+    Each device carries ``value_type``, the facility value type of the value
+    it reports under its name -- a settable's readback, a readable's channel, a
+    triggerable's status -- and a paired settable also carries
+    ``setpoint_value_type``, its setpoint's; each is written only for a record
+    that states one, just before the unit of the same channel. An enum channel
+    whose record lists its words carries them right after its value type, as
+    ``options`` (``setpoint_options`` for a paired settable's setpoint), so a
+    run records the same word on every control system.
+
     ``units`` maps a channel address to the unit the facility states for it.
     A device carries ``unit``, the unit of the value it reports under its name
     -- a settable's readback (its pair, or its own setpoint when unpaired), a
@@ -260,6 +298,7 @@ def devices_document(
     bands = motion_bands or {}
     stated = units or {}
     commands = completions or {}
+    kinds = {record.address: record for record in records}
     started = frozenset(
         record.started_by
         for record in records
@@ -278,7 +317,7 @@ def devices_document(
     for record in records:
         if record.direction == "write":
             device = _write_entry(
-                record, commands, started | stops, declared.get(record.address), bands, stated
+                record, commands, started | stops, declared.get(record.address), bands, stated, kinds
             )
             if device is not None:
                 section, entry = device
@@ -287,6 +326,7 @@ def devices_document(
             if record.shape is not None and len(record.shape) > 1:
                 continue
             readable: dict[str, Any] = {"name": record.address, "pv": record.address}
+            readable.update(_value_type(record))
             if record.address in stated:
                 readable[UNIT_KEY] = stated[record.address]
             if record.shape is not None:

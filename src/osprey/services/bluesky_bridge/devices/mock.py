@@ -50,6 +50,7 @@ from ophyd_async.core import (
 
 from ..plan_writes import ChannelWrite
 from ._connect import connect_all
+from .connector import data_key
 
 
 class MockSettable(StandardReadable):
@@ -144,7 +145,7 @@ class MockTriggerable(StandardReadable):
 
     async def describe(self) -> dict[str, DataKey]:
         """One scalar number under the device's own name."""
-        return {self.name: {"source": f"mock:{self.name}", "dtype": "number", "shape": []}}
+        return {self.name: data_key(self.name, scheme="mock")}
 
     @property
     def hints(self) -> Hints:

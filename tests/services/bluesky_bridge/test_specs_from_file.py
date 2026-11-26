@@ -21,6 +21,7 @@ import pytest
 import yaml
 
 from osprey.services.bluesky_bridge.devices._specs_from_file import (
+    VALUE_TYPES,
     specs_from_file,
     validate_device_document,
 )
@@ -444,6 +445,144 @@ def test_validate_accepts_units() -> None:
         "readables": [{"name": "t", "pv": "T", "unit": "u"}],
     }
     assert validate_device_document(doc) == []
+
+
+# --- value type -------------------------------------------------------------
+
+
+def test_each_entry_reads_its_value_type(tmp_path: Path) -> None:
+    """``value_type`` is read onto every spec; absent leaves ``None``."""
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {
+                    "name": "p",
+                    "setpoint": "A:SP",
+                    "readback": "A:RB",
+                    "value_type": "int",
+                    "setpoint_value_type": "float",
+                },
+                {"name": "q", "setpoint": "B:SP"},
+            ],
+            "triggerables": [
+                {
+                    "name": "go",
+                    "command": "GO",
+                    "status": "BUSY",
+                    "idle": "DONE",
+                    "timeout_s": 5.0,
+                    "value_type": "enum",
+                }
+            ],
+            "readables": [
+                {"name": "w", "pv": "W", "value_type": "string"},
+                {"name": "s", "pv": "S"},
+            ],
+        },
+    )
+    found = specs_from_file(path)
+
+    assert [(s.name, s.value_type, s.setpoint_value_type) for s in found.settables] == [
+        ("p", "int", "float"),
+        ("q", None, None),
+    ]
+    assert [t.value_type for t in found.triggerables] == ["enum"]
+    assert [(r.name, r.value_type) for r in found.readables] == [("w", "string"), ("s", None)]
+
+
+@pytest.mark.parametrize(
+    ("section", "entry", "key"),
+    [
+        ("settables", _SETTABLE, "value_type"),
+        ("settables", _SETTABLE, "setpoint_value_type"),
+        ("readables", _READABLE, "value_type"),
+    ],
+)
+def test_a_value_type_that_is_no_value_type_skips_the_entry(
+    tmp_path: Path, caplog, section: str, entry: dict[str, Any], key: str
+) -> None:
+    path = _write(tmp_path, {section: [{**entry, key: "complex"}, {**entry, "name": "ok"}]})
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(path)
+    kept = found.settables if section == "settables" else found.readables
+    assert [spec.name for spec in kept] == ["ok"]
+    assert key in caplog.text
+    assert validate_device_document({section: [{**entry, key: "complex"}]}) == [
+        f"{section}[0]: {key!r} must be one of {list(VALUE_TYPES)!r} when present"
+    ]
+
+
+def test_each_entry_reads_the_words_of_an_enum_channel(tmp_path: Path) -> None:
+    """``options`` and ``setpoint_options`` are read onto every spec as tuples;
+    absent leaves ``None``."""
+    words = ["IDLE", "BUSY"]
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {
+                    "name": "p",
+                    "setpoint": "A:SP",
+                    "readback": "A:RB",
+                    "value_type": "enum",
+                    "options": words,
+                    "setpoint_value_type": "enum",
+                    "setpoint_options": ["OFF", "ON", "AUTO"],
+                },
+                {"name": "q", "setpoint": "B:SP"},
+            ],
+            "triggerables": [
+                {
+                    "name": "go",
+                    "command": "GO",
+                    "status": "BUSY",
+                    "idle": 0,
+                    "timeout_s": 5.0,
+                    "value_type": "enum",
+                    "options": words,
+                }
+            ],
+            "readables": [{"name": "w", "pv": "W", "value_type": "enum", "options": words}],
+        },
+    )
+    found = specs_from_file(path)
+
+    assert [(s.options, s.setpoint_options) for s in found.settables] == [
+        (("IDLE", "BUSY"), ("OFF", "ON", "AUTO")),
+        (None, None),
+    ]
+    assert [t.options for t in found.triggerables] == [("IDLE", "BUSY")]
+    assert [r.options for r in found.readables] == [("IDLE", "BUSY")]
+
+
+@pytest.mark.parametrize("words", [[], ["IDLE", ""], "IDLE", [1, 2]])
+@pytest.mark.parametrize(
+    ("section", "entry", "key"),
+    [
+        ("settables", _SETTABLE, "options"),
+        ("settables", _SETTABLE, "setpoint_options"),
+        ("readables", _READABLE, "options"),
+    ],
+)
+def test_options_that_are_no_list_of_words_skip_the_entry(
+    tmp_path: Path, caplog, section: str, entry: dict[str, Any], key: str, words: Any
+) -> None:
+    path = _write(tmp_path, {section: [{**entry, key: words}, {**entry, "name": "ok"}]})
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(path)
+    kept = found.settables if section == "settables" else found.readables
+    assert [spec.name for spec in kept] == ["ok"]
+    assert key in caplog.text
+    assert validate_device_document({section: [{**entry, key: words}]}) == [
+        f"{section}[0]: {key!r} must be a non-empty list of non-empty strings when present"
+    ]
+
+
+def test_the_value_types_are_the_facility_value_types() -> None:
+    from osprey_facility.schema import core
+
+    assert list(VALUE_TYPES) == [member.value for member in core.ValueTypeEnum]
 
 
 # --- shape ------------------------------------------------------------------
