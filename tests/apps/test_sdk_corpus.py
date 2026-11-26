@@ -73,6 +73,7 @@ def test_search_asks_the_corpus_sidecar_and_returns_its_hits(
     (call,) = sidecar.tool_calls
     assert call["arguments"]["collections"] == ["procedures"]
     assert call["arguments"]["limit"] == 3
+    assert call["arguments"]["rerank"] is False
     assert sidecar.posts[0][1] is not None
     assert all(URL in url for url in sidecar.health_calls)
 
