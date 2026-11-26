@@ -11,7 +11,7 @@ that ``devices/connector.py`` builds from.
 The document has four device keys, all optional, and an optional ``schema``
 line naming the document and its version::
 
-    schema: osprey.facility.bluesky_devices/1
+    schema: osprey.facility.bluesky_devices/2
     settables:
       - name: SR:C01:QF:1          # device name; also the event-data column key
         setpoint: SR:C01:QF:1:SP

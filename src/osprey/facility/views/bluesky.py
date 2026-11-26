@@ -2,7 +2,7 @@
 
 Written to ``<render>/data/bluesky_devices.yml``::
 
-    schema: osprey.facility.bluesky_devices/1
+    schema: osprey.facility.bluesky_devices/2
     # generated-file header
     settables:
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <x>,
@@ -14,8 +14,12 @@ Written to ``<render>/data/bluesky_devices.yml``::
     triggerables:
       - {name: <command>, command: <command>, status: <pair>, idle: <idle>, timeout_s: <bound>}
     readables:
-      - {name: <readback>, pv: <readback>, unit: <unit>}
-      - {name: <waveform>, pv: <waveform>, unit: <unit>, shape: [<n>]}
+      - {name: <readback>, pv: <readback>, value_type: <type>, unit: <unit>}
+      - {name: <waveform>, pv: <waveform>, value_type: waveform, unit: <unit>, shape: [<n>]}
+    triggered_readables:
+      - {name: <device id>, command: <acquire>, status: <its pair>, idle: <idle>,
+         timeout_s: <bound>, results: [{pv: <result>, value_type: <type>, unit: <unit>,
+         shape: [<n>]}]}
 
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
@@ -25,6 +29,9 @@ triggerable, a plan fires it and waits for its act, and it is no settable; its
 status stays a readable.
 A setpoint stating ``started_by`` carries its start act and its ``stopped_by``;
 neither command is a device.
+A device that states ``acquire`` and ``results`` is a detector, named by its
+id, that fires its acquire command and records its results; its acquire command
+is no device of its own.
 A settable carries ``settle_tolerance`` when its setpoint declares a
 ``tolerance``, a further address of a wiring record (under ``also``) its
 record's: the number of an absolute one, ``{relative: <f>}`` of a relative
@@ -38,7 +45,8 @@ A device carries ``unit`` when the channel it reports under its name states a
 non-empty ``unit``: a paired settable's readback, an unpaired settable's
 setpoint, a readable's channel. A paired settable whose setpoint states one
 also carries ``setpoint_unit``. A device whose channel states no unit carries
-no unit key.
+no unit key. Beside each unit, a device carries the ``value_type`` its
+channel's record states, and a paired settable ``setpoint_value_type``.
 
 A readable on a waveform channel of one dimension carries ``shape: [<n>]``,
 the channel's ``shape``, and each run records it as an array of that length.
@@ -50,7 +58,7 @@ toleranced readback beyond its tolerance, and, per lane that does not serve
 the simulator, of the setpoints that declare no ``tolerance`` and so settle
 within the lane's floor; a render whose inputs turn the tolerance warnings off
 writes the same file and prints none.
-A device's name is its address. Entries follow the facility file's channel
+A device's name is its address, a detector's its device id. Entries follow the facility file's channel
 order. A render carries the view when it runs a Bluesky lane, under every
 control system: the compose generator stages it for a control system that
 talks to the network and leaves it unstaged for the simulator served in
@@ -76,7 +84,7 @@ __all__ = [
 ]
 
 BLUESKY_DEVICES_FILE = "bluesky_devices.yml"
-BLUESKY_DEVICES_SCHEMA = "osprey.facility.bluesky_devices/1"
+BLUESKY_DEVICES_SCHEMA = "osprey.facility.bluesky_devices/2"
 
 
 def _source(facility_file: Path) -> Any:
@@ -137,6 +145,15 @@ def _completions(records: list[Any], facility_file: Path) -> dict[str, Any]:
     return completions
 
 
+def _detectors(records: FacilityRecords) -> list[tuple[str, str, list[str]]]:
+    """Each device that states ``acquire`` and ``results``, as ``(id, acquire, results)``."""
+    return [
+        (str(device["id"]), str(device["acquire"]), [str(r) for r in device["results"]])
+        for device in records.of_kind("device")
+        if "acquire" in device and "results" in device
+    ]
+
+
 def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]]:
     """The device document of one facility file.
 
@@ -144,8 +161,8 @@ def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]
         records: The facility file's records.
 
     Returns:
-        ``{settables, triggerables, readables}`` as the worker's device file
-        holds them.
+        ``{settables, triggerables, readables, triggered_readables}`` as the worker's
+        device file holds them.
     """
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
@@ -156,6 +173,7 @@ def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]
         _motion_bands(records),
         _units(records),
         _completions(roster, Path(FACILITY_FILE)),
+        _detectors(records),
     )
 
 
@@ -255,6 +273,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         motion_bands=_motion_bands(inputs.records),
         units=_units(inputs.records),
         completions=_completions(records, facility_file),
+        detectors=_detectors(inputs.records),
     )
     for warning in tolerance_warnings(inputs.records, _lanes(inputs)):
         _warn_once(inputs, warning)

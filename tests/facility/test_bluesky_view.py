@@ -1,10 +1,11 @@
 """The Bluesky devices view: the facility's channels as the worker's device file.
 
-``data/bluesky_devices.yml`` opens with ``schema: osprey.facility.bluesky_devices/1``
+``data/bluesky_devices.yml`` opens with ``schema: osprey.facility.bluesky_devices/2``
 and holds one settable per setpoint (its readback the pair when the pair is
-another channel) and one readable per readback; a channel whose role is
-``none`` is no device, and a device's name is its address. A render carries
-the view when it runs a Bluesky lane.
+another channel), one readable per readback and one detector per device that
+states ``acquire`` and ``results``; a channel whose role is ``none`` is no
+device, and a device's name is its address, a detector's its device id. A
+render carries the view when it runs a Bluesky lane.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ def test_a_setpoint_is_a_settable_reading_its_pair_back() -> None:
         "settables": [{"name": "A:SP", "setpoint": "A:SP", "readback": "A:RB"}],
         "triggerables": [],
         "readables": [{"name": "A:RB", "pv": "A:RB"}],
+        "triggered_readables": [],
     }
 
 
@@ -124,13 +126,19 @@ def test_an_unpaired_readback_is_a_readable() -> None:
         "settables": [],
         "triggerables": [],
         "readables": [{"name": "T:01", "pv": "T:01"}],
+        "triggered_readables": [],
     }
 
 
 def test_a_channel_with_role_none_is_no_device() -> None:
     document = bluesky_document(FacilityRecords({"channels": [_channel("S:01", "none")]}))
 
-    assert document == {"settables": [], "triggerables": [], "readables": []}
+    assert document == {
+        "settables": [],
+        "triggerables": [],
+        "readables": [],
+        "triggered_readables": [],
+    }
 
 
 def test_no_channel_is_an_empty_document() -> None:
@@ -138,6 +146,7 @@ def test_no_channel_is_an_empty_document() -> None:
         "settables": [],
         "triggerables": [],
         "readables": [],
+        "triggered_readables": [],
     }
 
 
@@ -439,6 +448,70 @@ def test_the_view_carries_a_triggerable_command(tmp_path: Path) -> None:
     assert [spec.name for spec in found.readables] == [status]
 
 
+#: A detector: its acquire command, the command's status and two results.
+_ACQUIRE, _BUSY = "ES1:DET:ACQ:SP", "ES1:DET:STATUS"
+_COUNTS, _SPECTRUM = "ES1:DET:COUNTS:RB", "ES1:DET:SPECTRUM:WAVEFORM"
+
+
+def _detector_records() -> FacilityRecords:
+    on = {"device": "ES1-MCA01"}
+    return FacilityRecords(
+        {
+            "devices": [
+                {"id": "ES1-MCA01", "acquire": _ACQUIRE, "results": [_COUNTS, _SPECTRUM]},
+                {"id": "ES1-OTHER"},
+            ],
+            "channels": [
+                {
+                    **_channel(_ACQUIRE, "setpoint", _BUSY),
+                    "command": True,
+                    "timeout_s": 5.0,
+                    "value_type": "bool",
+                    "on": on,
+                },
+                {**_channel(_BUSY, "readback"), "value_type": "bool", "idle": "FALSE", "on": on},
+                {**_channel(_COUNTS, "readback"), "unit": "counts", "on": on},
+                {**_waveform(_SPECTRUM, [1024]), "on": on},
+            ],
+        }
+    )
+
+
+def test_a_detector_is_named_by_its_device_and_carries_its_act_and_results() -> None:
+    document = bluesky_document(_detector_records())
+
+    (detector,) = document["triggered_readables"]
+    assert detector["name"] == "ES1-MCA01"
+    assert {key: detector[key] for key in ("command", "status", "idle", "timeout_s")} == {
+        "command": _ACQUIRE,
+        "status": _BUSY,
+        "idle": "FALSE",
+        "timeout_s": 5.0,
+    }
+    assert [result["pv"] for result in detector["results"]] == [_COUNTS, _SPECTRUM]
+    assert detector["results"][0]["unit"] == "counts"
+    assert validate_device_document(document) == []
+
+
+def test_the_acquire_command_is_no_device_of_its_own() -> None:
+    document = bluesky_document(_detector_records())
+
+    assert document["settables"] == []
+    assert document["triggerables"] == []
+
+
+def test_a_result_stays_a_readable_of_its_own() -> None:
+    document = bluesky_document(_detector_records())
+
+    assert [entry["name"] for entry in document["readables"]] == [_BUSY, _COUNTS, _SPECTRUM]
+
+
+def test_a_waveform_result_carries_its_shape() -> None:
+    (detector,) = bluesky_document(_detector_records())["triggered_readables"]
+
+    assert detector["results"][1] == {"pv": _SPECTRUM, "value_type": "waveform", "shape": [1024]}
+
+
 def test_a_setpoint_started_by_a_command_is_a_positioner(tmp_path: Path) -> None:
     from osprey.channel_roster import RosterResult, RosterSource, RosterSourceKind, channel_record
     from osprey_connectors.command import CommandAct
@@ -564,15 +637,18 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
 
     # A command with a completion signal is a triggerable, not a settable;
     # its status stays a readable. A command a positioner starts or stops its
-    # move with is that positioner's, and no device.
+    # move with is that positioner's, one a detector acquires with is that
+    # detector's, and none is a device.
     started = {spec.started_by.command for spec in settables if spec.started_by is not None}
     stopped = {spec.stopped_by for spec in settables if spec.stopped_by is not None}
     assert started == {"ES1:MOT:STAGE:01:MOVE:SP"}
     assert stopped == {"ES1:MOT:STAGE:01:STOP:SP"}
+    (detector,) = found.detectors
+    assert (detector.name, detector.command) == ("ES1-MCA01", "ES1:DET:MCA:01:ACQUIRE:SP")
     devices = sorted(spec.name for spec in (*settables, *found.triggerables))
-    assert devices == sorted(set(setpoints) - started - stopped)
-    assert found.triggerables
-    assert {spec.status for spec in found.triggerables} <= set(readbacks)
+    assert devices == sorted(set(setpoints) - started - stopped - {detector.command})
+    assert {spec.status for spec in (*found.triggerables, detector)} <= set(readbacks)
+    assert {result.read_pv for result in detector.results} <= set(readbacks)
     assert sorted(spec.name for spec in readables) == readbacks
     assert all(spec.name == spec.setpoint_pv for spec in settables)
     assert all(spec.name == spec.read_pv for spec in readables)
@@ -622,9 +698,9 @@ def test_the_guide_shows_devices_as_the_demo_build_writes_them(
     built = yaml.safe_load((built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text())
 
     assert documented["schema"] == built["schema"]
-    for kind in ("settables", "triggerables", "readables"):
+    for kind in ("settables", "triggerables", "readables", "triggered_readables"):
         by_name = {device["name"]: device for device in built[kind]}
-        assert documented[kind]
+        assert bool(documented[kind]) == bool(built[kind]), kind
         for device in documented[kind]:
             emitted = by_name[device["name"]]
             assert {key: emitted.get(key) for key in device} == device

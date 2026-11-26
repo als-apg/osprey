@@ -288,7 +288,7 @@ def _bluesky_view(project: BuiltProject) -> dict[str, Any]:
     from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
 
     text = (project.build_dir / "data" / "bluesky_devices.yml").read_text(encoding="utf-8")
-    assert text.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/1"
+    assert text.split("\n", 1)[0] == "schema: osprey.facility.bluesky_devices/2"
     document = yaml.safe_load(text)
     assert validate_device_document(document) == []
     return document

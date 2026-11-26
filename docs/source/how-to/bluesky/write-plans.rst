@@ -172,12 +172,14 @@ mounts that file unchanged.
 .. code-block:: yaml
 
    # build/data/bluesky_devices.yml
-   schema: osprey.facility.bluesky_devices/1
+   schema: osprey.facility.bluesky_devices/2
    settables:
      - name: SR:MAG:HCM:01:CURRENT:SP
        setpoint: SR:MAG:HCM:01:CURRENT:SP
        readback: SR:MAG:HCM:01:CURRENT:RB
+       value_type: float
        unit: A
+       setpoint_value_type: float
        setpoint_unit: A
      - name: ES1:MOT:STAGE:01:POSITION:SP
        setpoint: ES1:MOT:STAGE:01:POSITION:SP
@@ -188,20 +190,31 @@ mounts that file unchanged.
          idle: DONE
          timeout_s: 10.0
        stopped_by: ES1:MOT:STAGE:01:STOP:SP
+       value_type: float
        unit: mm
-   triggerables:
-     - name: ES1:DET:MCA:01:ACQUIRE:SP
+       setpoint_value_type: float
+   triggerables: []
+   readables:
+     - name: SR:MAG:HCM:01:CURRENT:RB
+       pv: SR:MAG:HCM:01:CURRENT:RB
+       value_type: float
+       unit: A
+     - name: SR:DIAG:BPM:01:POSITION:X
+       pv: SR:DIAG:BPM:01:POSITION:X
+       value_type: float
+       unit: mm
+   triggered_readables:
+     - name: ES1-MCA01
        command: ES1:DET:MCA:01:ACQUIRE:SP
        status: ES1:DET:MCA:01:STATUS:ACQUIRE
        idle: 'FALSE'
        timeout_s: 5.0
-   readables:
-     - name: SR:MAG:HCM:01:CURRENT:RB
-       pv: SR:MAG:HCM:01:CURRENT:RB
-       unit: A
-     - name: SR:DIAG:BPM:01:POSITION:X
-       pv: SR:DIAG:BPM:01:POSITION:X
-       unit: mm
+       results:
+         - pv: ES1:DET:MCA:01:COUNTS:RB
+           value_type: float
+         - pv: ES1:DET:MCA:01:SPECTRUM:WAVEFORM
+           value_type: waveform
+           shape: [1024]
 
 The file has three lists:
 
