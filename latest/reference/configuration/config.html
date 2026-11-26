@@ -1288,19 +1288,25 @@ no channel.</p></td>
 <td><p>The view the waveform page opens with when its URL carries none
 (<code class="docutils literal notranslate"><span class="pre">pv=…</span></code>). Empty opens the page with no channel.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.home_screen</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.pv_details_url</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>The page about one channel, opened from a channel’s right-click menu
+on a screen: an http(s) or panel-relative URL in which <code class="docutils literal notranslate"><span class="pre">{pv}</span></code> stands
+for the channel name. Empty leaves the entry out of the menu.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.home_screen</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
 <td><p>The screen CANOPY opens first, by its id in the deployment’s library:
 its path under <code class="docutils literal notranslate"><span class="pre">screens/</span></code> without <code class="docutils literal notranslate"><span class="pre">.screen.json</span></code>, such as
 <code class="docutils literal notranslate"><span class="pre">facility/overview</span></code>. Empty opens CANOPY’s first screen. <code class="docutils literal notranslate"><span class="pre">osprey</span>
 <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuse an id the library does not hold.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.vole_bytes_max</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.vole_bytes_max</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code></p></td>
 <td><p>Ceiling in bytes on the live-value buffers one user’s CANOPY keeps in
 memory (256 MiB). A value that is not an integer keeps the default.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.theme_file</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.panels.canopy.theme_file</span></code></p></td>
 <td><p>unset</p></td>
 <td><p>A colour theme for the panel. A relative path is read from the project
 root; an absolute path is used as written. Unset keeps CANOPY’s own
