@@ -39,7 +39,7 @@ from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
-from .plan_fields import resolve_column
+from .plan_fields import device_columns
 
 # --- Reason vocabulary -------------------------------------------------------
 #
@@ -632,17 +632,22 @@ def _numeric_value(value: Any) -> float | None:
     return as_float if math.isfinite(as_float) else None
 
 
-def _role_columns(names: Sequence[str], columns: Sequence[str]) -> list[str]:
+def _role_columns(
+    names: Sequence[str],
+    columns: Sequence[str],
+    objects: Mapping[str, Sequence[str]] = MappingProxyType({}),
+) -> list[str]:
     """The distinct data columns *names* resolve to, in the order they are named.
 
-    A channel that has no column in this window -- never read, or read after
-    the window was taken -- contributes nothing, so the result is shorter than
-    the input rather than carrying a hole.
+    Each name resolves through `plan_fields.device_columns`: its own column, or
+    the columns the run recorded under it (*objects*, the run's map of each
+    device to its data keys). A channel that has no column in this window --
+    never read, or read after the window was taken -- contributes nothing, so
+    the result is shorter than the input rather than carrying a hole.
     """
     ordered: dict[str, None] = {}
     for name in names:
-        column = resolve_column(name, columns)
-        if column is not None:
+        for column in device_columns(name, columns, objects):
             ordered.setdefault(column, None)
     return list(ordered)
 
@@ -680,6 +685,7 @@ def default_figure(
     source: Literal["live", "tiled"],
     movable: Sequence[str] = (),
     readable: Sequence[str] = (),
+    objects: Mapping[str, Sequence[str]] = MappingProxyType({}),
 ) -> Figure:
     """Build the bridge's stand-in view: every numeric column against the run's x.
 
@@ -705,7 +711,7 @@ def default_figure(
     reading a column's values can do it -- so ``movable``/``readable`` are the
     channel names the run's parameters supplied for those roles
     (`plan_fields.collect_channels`), matched to columns by
-    `plan_fields.resolve_column`. Pass nothing and the figure is exactly what it
+    `plan_fields.device_columns`. Pass nothing and the figure is exactly what it
     was before roles existed: every numeric column against row index, in column
     order. See `_x_axis_column` for when a declaration is *not* usable.
 
@@ -747,8 +753,14 @@ def default_figure(
         movable: Channel names the run's parameters supplied for the movable
             role, in declaration order. Empty -- the default -- means no
             declaration reached here and x is the row index.
-        readable: Channel names supplied for the readable role. Used only to
-            order the panels, and only when ``movable`` yielded an x column.
+        readable: Channel names supplied for the readable role, then the
+            triggered one. Used only to order the panels, and only when
+            ``movable`` yielded an x column.
+        objects: The run's map of each device to the columns it recorded, as
+            its descriptors state it. A declared name with no column of its
+            own (a detector) leads with the columns recorded under it
+            (`plan_fields.device_columns`). Empty, the default, resolves each
+            name to its own column only.
 
     Returns:
         A `Figure` of one single-series lines `Panel` per drawn column, each
@@ -764,7 +776,9 @@ def default_figure(
     ]
     if x_column is not None:
         drawable = set(drawn)
-        leading = [name for name in _role_columns(readable, window.columns) if name in drawable]
+        leading = [
+            name for name in _role_columns(readable, window.columns, objects) if name in drawable
+        ]
         led = set(leading)
         drawn = leading + [name for name in drawn if name not in led]
     omitted = len(drawn) - MAX_DEFAULT_SERIES

@@ -272,6 +272,44 @@ def test_declared_readable_columns_are_drawn_before_the_rest():
     assert [panel.title for panel in figure.panels] == ["bpm1", "temperature"]
 
 
+_COUNTS, _SPECTRUM, _STATE = "DET:COUNTS", "DET:SPECTRUM", "DET:STATE"
+
+
+def test_a_declared_detectors_results_lead_the_panels():
+    """A detector has no column of its own; the columns the run recorded under
+    it lead, in the order it recorded them, and its waveform is not drawn."""
+    figure = default_figure(
+        _window(
+            ["motor1", "temperature", _SPECTRUM, _COUNTS],
+            [[1.0, 300.0, [1.0, 2.0], 5.0], [2.0, 301.0, [3.0, 4.0], 6.0]],
+        ),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["DET"],
+        objects={"DET": [_COUNTS, _SPECTRUM], "motor1": ["motor1"]},
+    )
+
+    assert [panel.title for panel in figure.panels] == [_COUNTS, "temperature"]
+    assert all(panel.x_label == "motor1" for panel in figure.panels)
+
+
+def test_a_word_result_of_a_declared_detector_is_not_drawn():
+    """A detector's word column goes the way of any text column: no panel."""
+    figure = default_figure(
+        _window(["motor1", _STATE, _COUNTS], [[1.0, "IDLE", 5.0], [2.0, "BUSY", 6.0]]),
+        reason=REASON_NO_RENDER,
+        partial=False,
+        source="live",
+        movable=["motor1"],
+        readable=["DET"],
+        objects={"DET": [_STATE, _COUNTS]},
+    )
+
+    assert [panel.title for panel in figure.panels] == [_COUNTS]
+
+
 def test_a_channel_read_through_a_child_signal_resolves_to_its_column():
     # A mock device reads back under "<channel>-<signal>"; the connector reads
     # back under the bare channel name. Both must find their column.

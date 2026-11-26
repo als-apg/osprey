@@ -33,6 +33,12 @@ error and never a fabricated number:
   imported, or computing raised. Logged, and reported as an absence like any
   other: this route must not turn a library problem into a failed read.
 
+A declared readable whose data keys are other names -- a detector, recorded
+under its results' addresses -- is found through the run's map of each device
+to its columns (`plan_fields.device_columns`) and gives one entry per column it
+recorded: ``channel`` the declared name, ``column`` that column, each with its
+own statistics or reason.
+
 Per channel, the same discipline with its own words -- ``channel_column_missing``,
 ``channel_is_the_x_axis`` (a channel declared both movable and readable is its
 own axis, not a peak in it), ``insufficient_points`` (fewer than `MIN_POINTS`
@@ -56,11 +62,12 @@ from __future__ import annotations
 import logging
 import math
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from threading import Lock
+from types import MappingProxyType
 from typing import Any
 
-from .plan_fields import resolve_column
+from .plan_fields import device_columns, resolve_column
 
 logger = logging.getLogger(__name__)
 
@@ -213,11 +220,27 @@ def _channel_absent(channel: str, column: str | None, reason: str) -> dict[str, 
     }
 
 
+def _readable_columns(
+    readable: Sequence[str], columns: Sequence[str], objects: Mapping[str, Sequence[str]]
+) -> list[tuple[str, str | None]]:
+    """Each declared readable paired with each column it reached, or with
+    ``None`` when it reached none, in declaration order."""
+    pairs: list[tuple[str, str | None]] = []
+    for channel in readable:
+        reached = device_columns(channel, columns, objects)
+        if reached:
+            pairs.extend((channel, column) for column in reached)
+        else:
+            pairs.append((channel, None))
+    return pairs
+
+
 def analyze(
     columns: Sequence[str],
     rows: Sequence[Any],
     movable: Sequence[str],
     readable: Sequence[str],
+    objects: Mapping[str, Sequence[str]] = MappingProxyType({}),
 ) -> dict[str, Any]:
     """Peak statistics for one settled run's rows. Total -- never raises.
 
@@ -229,7 +252,10 @@ def analyze(
         movable: Channel names the plan's recorded parameters supplied for the
             movable role (``plan_fields.collect_channels``), in declaration
             order.
-        readable: The same for the readable role.
+        readable: The same for the readable role, then the triggered one.
+        objects: The run's map of each device to the columns it recorded, as
+            its descriptors state it. A readable name with no column of its
+            own is analyzed once per column recorded under it.
 
     Returns:
         ``{"available", "reason", "x_channel", "x_column", "points",
@@ -277,8 +303,7 @@ def analyze(
         return absent(REASON_STATISTICS_UNAVAILABLE)
 
     channels: list[dict[str, Any]] = []
-    for channel in readable:
-        column = resolve_column(channel, columns)
+    for channel, column in _readable_columns(readable, columns, objects):
         if column is None:
             channels.append(_channel_absent(channel, None, REASON_CHANNEL_COLUMN_MISSING))
             continue

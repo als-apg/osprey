@@ -228,6 +228,70 @@ def test_a_channel_that_reads_back_as_text_has_too_few_pairs() -> None:
     assert det["points"] == 0
 
 
+_COUNTS, _SPECTRUM, _STATE = "DET:COUNTS", "DET:SPECTRUM", "DET:STATE"
+
+
+def test_each_result_of_a_declared_detector_is_its_own_entry() -> None:
+    """A detector has no column of its own: each column the run recorded under
+    it is one entry, named by the declared device, in recorded order."""
+    rows = [[x, y, 2 * y] for x, y in _gaussian_rows()]
+
+    payload = analysis.analyze(
+        ["motor", _SPECTRUM, _COUNTS],
+        rows,
+        ["motor"],
+        ["DET"],
+        {"DET": [_COUNTS, _SPECTRUM]},
+    )
+
+    assert [(entry["channel"], entry["column"]) for entry in payload["channels"]] == [
+        ("DET", _COUNTS),
+        ("DET", _SPECTRUM),
+    ]
+    counts, spectrum = payload["channels"]
+    assert counts["reason"] is None and spectrum["reason"] is None
+    assert counts["center"] == pytest.approx(0.0, abs=0.05)
+    assert spectrum["center"] == pytest.approx(0.0, abs=0.05)
+
+
+def test_a_waveform_result_reports_insufficient_points_not_a_failure() -> None:
+    rows = [[x, [y, y], y] for x, y in _gaussian_rows()]
+
+    payload = analysis.analyze(
+        ["motor", _SPECTRUM, _COUNTS], rows, ["motor"], ["DET"], {"DET": [_COUNTS, _SPECTRUM]}
+    )
+
+    assert payload["available"] is True
+    entries = {entry["column"]: entry for entry in payload["channels"]}
+    assert entries[_COUNTS]["reason"] is None
+    assert entries[_SPECTRUM]["reason"] == analysis.REASON_INSUFFICIENT_POINTS
+
+
+def test_a_word_result_of_a_declared_detector_reads_as_any_text_column() -> None:
+    """A detector's word column takes the entry and the reason a plain text
+    readable column of the same run takes."""
+    rows = [[x, "IDLE", y, "OPEN"] for x, y in _gaussian_rows()]
+
+    payload = analysis.analyze(
+        ["motor", _STATE, _COUNTS, "shutter"],
+        rows,
+        ["motor"],
+        ["DET", "shutter"],
+        {"DET": [_STATE, _COUNTS]},
+    )
+
+    by_column = {entry["column"]: entry for entry in payload["channels"]}
+    assert by_column[_STATE]["channel"] == "DET"
+    assert by_column[_STATE]["reason"] == by_column["shutter"]["reason"]
+    assert by_column[_COUNTS]["reason"] is None
+
+
+def test_a_declared_detector_with_no_recorded_column_is_missing() -> None:
+    payload = analysis.analyze(["motor", "det"], _gaussian_rows(), ["motor"], ["DET"], {})
+
+    assert _channel(payload, "DET")["reason"] == analysis.REASON_CHANNEL_COLUMN_MISSING
+
+
 def test_a_boolean_reading_is_a_state_not_a_coordinate() -> None:
     rows = [[x, index % 2 == 0] for index, (x, _) in enumerate(_gaussian_rows())]
     payload = _analyze(["motor", "shutter"], rows, ["motor"], ["shutter"])
@@ -572,6 +636,7 @@ def test_a_run_read_back_from_storage_carries_the_same_statistics(
         "run_uid": "engine-stored",
         "units": {},
         "shapes": {},
+        "objects": {},
     }
     monkeypatch.setattr(app_module, "_tiled_run_snapshot", lambda run_id: snapshot)
 
@@ -598,6 +663,7 @@ def test_a_stored_run_still_in_flight_after_a_restart_is_not_fitted(
         "run_uid": "engine-stored",
         "units": {},
         "shapes": {},
+        "objects": {},
     }
     monkeypatch.setattr(app_module, "_tiled_run_snapshot", lambda run_id: snapshot)
 
