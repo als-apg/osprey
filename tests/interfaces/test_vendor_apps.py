@@ -23,6 +23,7 @@ from osprey.interfaces._serving import run_app_server
 from osprey.interfaces.common_middleware import NoCacheStaticMiddleware
 from osprey.interfaces.design_system.panels.page_ready import WRITER_TAG
 from osprey.interfaces.design_system.panels.validator import validate_panel
+from tests.apps._contract import CONTRACT
 
 LIB = b"/* lib 1.0 */ var lib = 1;\n"
 UPLOT = b"/* uplot */ var uPlot = function () { return '#123456'; };\n"
@@ -76,6 +77,7 @@ def _write_app(root: Path, name: str, vendor_entries: list[str]) -> None:
     app_dir = root / "apps" / name
     app_dir.mkdir(parents=True)
     lines = [
+        f"contract: {CONTRACT}",
         f"name: {name}",
         "containers:",
         "  backend:",

@@ -32,6 +32,7 @@ from osprey.cli.build_profile_updates import (
 )
 from osprey.cli.init_cmd import init
 from osprey.cli.profile_conventions import unselected_convention_artifacts
+from tests.apps._contract import with_contract
 
 pytestmark = pytest.mark.usefixtures("container_runtime_is_up")
 
@@ -62,7 +63,9 @@ def app_preset(fake_presets: Path) -> Path:
         {"name": "Knob Demo", "extends": "demo", "apps": {APP: {}}},
     )
     knob = fake_presets / "apps" / APP
-    _write_yaml(knob / "app.yml", {"name": APP, "containers": {APP: {"runtime": "osprey"}}})
+    _write_yaml(
+        knob / "app.yml", with_contract({"name": APP, "containers": {APP: {"runtime": "osprey"}}})
+    )
     (knob / "panel").mkdir()
     (knob / "panel" / "index.html").write_text("<p>knob</p>\n", encoding="utf-8")
     (knob / "__pycache__").mkdir()
@@ -70,7 +73,7 @@ def app_preset(fake_presets: Path) -> Path:
     (knob / "stray.pyc").write_bytes(b"\0bytecode")
     _write_yaml(
         fake_presets / "apps" / "other" / "app.yml",
-        {"name": "other", "containers": {"other": {"runtime": "osprey"}}},
+        with_contract({"name": "other", "containers": {"other": {"runtime": "osprey"}}}),
     )
     return fake_presets
 

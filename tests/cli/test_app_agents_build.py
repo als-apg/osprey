@@ -16,26 +16,29 @@ from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_cmd import _copy_app_agents
 from osprey.deployment.web_terminals.render_naming import render_project
 from osprey_connectors.errors import BuildProfileError
+from tests.apps._contract import with_contract
 from tests.cli._lifecycle_build import invoke_build
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
-KNOB: dict[str, Any] = {
-    "name": "knob",
-    "containers": {
-        "knob": {
-            "runtime": "osprey",
-            "command": ["python", "-m", "knob_app.server"],
-            "health": "/health",
-            "drives_target": True,
+KNOB: dict[str, Any] = with_contract(
+    {
+        "name": "knob",
+        "containers": {
+            "knob": {
+                "runtime": "osprey",
+                "command": ["python", "-m", "knob_app.server"],
+                "health": "/health",
+                "drives_target": True,
+            },
         },
-    },
-    "tools": {
-        "module": "knob_app.tools",
-        "read": ["knob_read"],
-        "approval": [{"tool": "knob_write", "prompt": "Write the knob"}],
-    },
-    "agents": ["knob-helper"],
-}
+        "tools": {
+            "module": "knob_app.tools",
+            "read": ["knob_read"],
+            "approval": [{"tool": "knob_write", "prompt": "Write the knob"}],
+        },
+        "agents": ["knob-helper"],
+    }
+)
 
 AGENT_MD = (
     "---\n"
