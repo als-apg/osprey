@@ -201,49 +201,63 @@ def test_profile_dir_inside_the_osprey_package_is_refused(project_path: Path):
     assert not (presets_dir / "agent" / "context").exists()
 
 
-def test_known_root_entries_derive_from_the_profile():
-    """Every profile-relative path the profile declares exempts its root entry."""
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import DispatchConfig, ServiceDef
+def _named_root_entries(repo: Path, **profile: object) -> tuple[str, ...]:
+    """The root entries the paths a profile at *repo* names lie under, as a render reads them."""
+    from osprey.cli.build_profile_resolve import resolve_build_document
+    from osprey.cli.build_protected_paths import emit_protected_paths, root_entry_names
 
-    profile = BuildProfile(
-        name="p",
-        dispatch=DispatchConfig(triggers="dispatch/triggers.yml"),
-        services={"beam-logger": ServiceDef(template="service-templates/beam-logger")},
+    repo.mkdir(parents=True, exist_ok=True)
+    (repo / "profile.yml").write_text(
+        yaml.safe_dump({"name": "p", **profile}, sort_keys=False), encoding="utf-8"
+    )
+    loaded = resolve_build_document(repo / "profile.yml", None, ())
+    emitted = emit_protected_paths(
+        [loaded], deployment_root=repo, agent_data_root=Path("var/agent_data")
+    )
+    return root_entry_names(emitted.entries)
+
+
+def _package(directory: Path) -> None:
+    directory.mkdir(parents=True)
+    (directory / "pyproject.toml").write_text(
+        f'[project]\nname = "{directory.name}"\nversion = "0"\n', encoding="utf-8"
     )
 
-    known = _profile_known_root_entries(profile, Path("/somewhere/my-profile.yml"))
 
-    assert known == [
-        "my-profile.yml",
-        "dispatch",
-        "service-templates",
-    ]
+def test_known_root_entries_derive_from_the_profile(tmp_path: Path):
+    """Every profile-relative path the profile declares exempts its root entry."""
+    _write(tmp_path / "dispatch" / "triggers.yml", "triggers: []\n")
+    _write(
+        tmp_path / "service-templates" / "beam-logger" / "docker-compose.yml.j2", "services: {}\n"
+    )
+
+    known = _named_root_entries(
+        tmp_path,
+        dispatch={"triggers": "dispatch/triggers.yml"},
+        services={"beam-logger": {"template": "service-templates/beam-logger", "config": {}}},
+    )
+
+    assert {"profile.yml", "dispatch", "service-templates"} <= set(known)
 
 
 def test_a_local_path_dependency_exempts_its_root_directory_and_nothing_else(tmp_path: Path):
     """A package source the profile's ``dependencies`` points into is no typo; a stray is."""
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
     from osprey.cli.profile_conventions import unknown_root_entries
 
-    (tmp_path / "kinds" / "fixture_kind").mkdir(parents=True)
-    (tmp_path / "vendored").mkdir()
+    _package(tmp_path / "kinds" / "fixture_kind")
+    _package(tmp_path / "vendored")
     (tmp_path / "strayed").mkdir()
-    profile = BuildProfile(
-        name="p",
+
+    known = _named_root_entries(
+        tmp_path,
         dependencies=[
             "./kinds/fixture_kind",
             f"vendored-pkg @ file://{tmp_path / 'vendored'}",
             "numpy>=2",
-            "../outside",
         ],
     )
 
-    known = _profile_known_root_entries(profile, tmp_path / "profile.yml")
-
-    assert known == ["profile.yml", "kinds", "vendored"]
+    assert {"kinds", "vendored"} <= set(known)
     assert unknown_root_entries(tmp_path, known) == ["strayed"]
 
 
@@ -252,45 +266,60 @@ def test_root_directories_named_by_service_keys_are_known_and_a_stray_is_not(tmp
     ``bluesky.external.parameter_schemas`` host path name root directories the
     build mounts; they are not typos. A stray beside them still is, and a path
     above the root exempts nothing."""
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import (
-        BlueskyConfig,
-        BlueskyExternalConfig,
-        OptimizerConfig,
-    )
     from osprey.cli.profile_conventions import unknown_root_entries
 
     for directory in ("optimizer/environments", "facility-plans", "plan-schemas", "strayed"):
-        (tmp_path / directory).mkdir(parents=True)
-    profile = BuildProfile(
-        name="p",
-        optimizer=OptimizerConfig(environments_dir="optimizer/environments"),
-        bluesky=BlueskyConfig(
-            plan_dir="./facility-plans",
-            external=BlueskyExternalConfig(
-                parameter_schemas={
+        (tmp_path / "repo" / directory).mkdir(parents=True)
+    _write(tmp_path / "repo" / "plan-schemas" / "trajectory.json", "{}\n")
+    _write(tmp_path / "outside" / "detector.json", "{}\n")
+
+    known = _named_root_entries(
+        tmp_path / "repo",
+        optimizer={"environments_dir": "optimizer/environments"},
+        bluesky={
+            "plan_dir": "./facility-plans",
+            "external": {
+                "zmq_control_addr": "tcp://qserver:60615",
+                "insecure_plaintext": True,
+                "parameter_schemas": {
                     "scan.trajectory": "plan-schemas/trajectory.json",
                     "scan.detector": "../outside/detector.json",
                 },
-            ),
-        ),
+            },
+        },
     )
 
-    known = _profile_known_root_entries(profile, tmp_path / "profile.yml")
-
-    assert unknown_root_entries(tmp_path, known) == ["strayed"]
+    assert unknown_root_entries(tmp_path / "repo", known) == ["strayed"]
     assert ".." not in known
 
 
-def test_known_root_entries_skip_paths_above_the_profile():
-    from osprey.cli.build_persistence import _profile_known_root_entries
-    from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import DispatchConfig
+def test_a_root_directory_named_by_a_configuration_key_is_known(tmp_path: Path):
+    """A path a ``config:`` key names is read by the build or a service; it is no typo."""
+    from osprey.cli.profile_conventions import unknown_root_entries
 
-    profile = BuildProfile(name="p", dispatch=DispatchConfig(triggers="../dispatch/triggers.yml"))
+    (tmp_path / "night-plans").mkdir()
+    (tmp_path / "strayed").mkdir()
 
-    assert _profile_known_root_entries(profile, None) == []
+    known = _named_root_entries(tmp_path, config={"bluesky.plan_dirs": ["night-plans"]})
+
+    assert unknown_root_entries(tmp_path, known) == ["strayed"]
+
+
+def test_only_a_path_anchored_at_the_root_names_a_root_entry():
+    from osprey.cli.build_protected_paths import root_entry_names
+
+    entries = [
+        "../dispatch/triggers.yml",
+        "plans/../../elsewhere",
+        "/srv/plans",
+        "~/plans",
+        "${PLAN_ROOT}/plans",
+        "./plans/",
+        "plans/night",
+        "profile.yml",
+    ]
+
+    assert root_entry_names(entries) == ("plans", "profile.yml")
 
 
 def test_unknown_root_entry_warns_as_a_candidate_typo(

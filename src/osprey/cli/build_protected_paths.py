@@ -71,6 +71,7 @@ __all__ = [
     "UndecidedPath",
     "emit_protected_paths",
     "is_path_shaped",
+    "root_entry_names",
 ]
 
 
@@ -354,6 +355,23 @@ def is_path_shaped(value: str) -> bool:
         return True
     segments = value.split("/")
     return len(segments) > 1 and all(segments) and bool(PurePosixPath(segments[-1]).suffix)
+
+
+def root_entry_names(entries: Iterable[str]) -> tuple[str, ...]:
+    """The deployment-root entries the root-relative *entries* lie under, once each.
+
+    The first segment of each entry anchored at the project root, in entry
+    order. An absolute entry, one that begins with ``~`` or a placeholder, and
+    one that climbs out of the root name no root entry.
+    """
+    names: dict[str, None] = {}
+    for entry in entries:
+        if entry.startswith(("/", "~", "$")):
+            continue
+        first = posixpath.normpath(entry).split("/", 1)[0]
+        if first not in (".", ".."):
+            names[first] = None
+    return tuple(names)
 
 
 def _key_matches(pattern: str, key: str) -> bool:

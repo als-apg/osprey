@@ -126,7 +126,6 @@ from .build_persistence import (
     _apply_conventions,
     _persist_artifact_server,
     _persist_mcp_servers,
-    _profile_known_root_entries,
     _register_convention_artifacts,
     _resolve_context_roster,
 )
@@ -193,7 +192,6 @@ __all__ = [
     "_persist_artifact_server",
     "_persist_mcp_servers",
     "_plan_project_venv",
-    "_profile_known_root_entries",
     "_register_convention_artifacts",
     "_resolve_context_roster",
     "_resolve_osprey_spec",
@@ -2495,6 +2493,7 @@ def _render_project(
         enabled_watchdogs,
         watchdog_config_overrides,
     )
+    from .build_protected_paths import root_entry_names
     from .profile_conventions import (
         convention_selections,
         library_selection,
@@ -2914,7 +2913,8 @@ def _render_project(
             render_dir,
             _resolve_context_roster(render_dir) if repair else None,
             extra_known=[
-                *_profile_known_root_entries(build_profile, profile_path),
+                profile_path.name,
+                *root_entry_names(_profile_named_paths(shared, resolved)),
                 *extra_known,
             ],
             excluded=resolved.excluded_artifacts,
@@ -3263,6 +3263,31 @@ def _layer_render(
     if canopy_kept is not resolved.profile:
         resolved = replace(resolved, profile=canopy_kept)
     return project, resolved
+
+
+def _profile_named_paths(shared: _SharedRenderInputs, resolved: Any) -> tuple[str, ...]:
+    """The protected-path entries a render's unknown-entry warning reads.
+
+    A root entry a profile key names is no typo, and the emitter is the one
+    enumeration of those keys. The build's set covers the deployment and every
+    login; a render that belongs to no build has none, so its own profile's
+    entries are computed here.
+
+    Raises:
+        BuildProfileError: For a render that belongs to no build, when a
+            protected path lies inside the agent data zone.
+    """
+    if shared.protected_paths is not None:
+        return shared.protected_paths
+    from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+
+    from .build_protected_paths import emit_protected_paths
+
+    return emit_protected_paths(
+        [resolved],
+        deployment_root=shared.repo_root,
+        agent_data_root=Path(DEFAULT_AGENT_DATA_BASE_DIR),
+    ).entries
 
 
 def _with_protected_paths(

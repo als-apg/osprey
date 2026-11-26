@@ -21,8 +21,8 @@ from typing import Any, NoReturn
 import pytest
 import yaml
 
-from osprey.cli.build_persistence import _profile_known_root_entries
-from osprey.cli.build_profile_model import BuildProfile
+from osprey.cli.build_profile_resolve import resolve_build_document
+from osprey.cli.build_protected_paths import emit_protected_paths, root_entry_names
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from osprey_facility.roots import DEPLOYMENT_CONTENT_DIRS
 from tests._builds import init_project, run_build
@@ -172,10 +172,13 @@ def test_a_mounted_build_prints_no_unrecognized_root_entry_warning(
     assert "unrecognized top-level" not in result.output
 
 
-def test_the_machine_root_is_a_known_root_entry() -> None:
-    profile = BuildProfile(name=PROJECT, machine="vendor/als-machine/facility")
+def test_the_machine_root_is_a_known_root_entry(initialised: Path) -> None:
+    loaded = resolve_build_document(initialised / "profile.yml", None, ())
+    emitted = emit_protected_paths(
+        [loaded], deployment_root=initialised, agent_data_root=Path("var/agent_data")
+    )
 
-    assert "vendor" in _profile_known_root_entries(profile, None)
+    assert Path(MACHINE_DIR).parts[0] in root_entry_names(emitted.entries)
 
 
 # --- stops ----------------------------------------------------------------------------
