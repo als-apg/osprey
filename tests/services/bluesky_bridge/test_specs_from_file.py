@@ -25,10 +25,15 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
-from osprey.services.bluesky_bridge.devices.specs import DeviceSpecs, TriggerableSpec
+from osprey.services.bluesky_bridge.devices.specs import (
+    DetectorSpec,
+    DeviceSpecs,
+    ReadableSpec,
+    TriggerableSpec,
+)
 from osprey_connectors.command import CommandAct
 
-_NO_DEVICES = DeviceSpecs([], [], [])
+_NO_DEVICES = DeviceSpecs([], [], [], [])
 
 
 def _write(tmp_path: Path, doc: object, name: str = "devices.yml") -> Path:
@@ -1071,3 +1076,130 @@ def test_a_stop_without_a_start_act_is_refused_by_the_build_and_skipped_by_the_l
     assert "'bad'" in caplog.text
     (problem,) = validate_device_document(doc)
     assert problem.startswith("settables[0]: 'stopped_by' ")
+
+
+# --- a detector ---------------------------------------------------------------
+
+_DETECTOR = {
+    "name": "ES1-MCA01",
+    "command": "ES1:MCA01:ACQ",
+    "status": "ES1:MCA01:ACQ_STATUS",
+    "idle": "FALSE",
+    "timeout_s": 5.0,
+    "results": [
+        {"pv": "ES1:MCA01:COUNTS", "value_type": "float", "unit": "counts"},
+        {"pv": "ES1:MCA01:SPECTRUM", "value_type": "waveform", "shape": [1024]},
+    ],
+}
+
+
+def test_a_detector_entry_parses_with_its_results(tmp_path: Path) -> None:
+    path = _write(tmp_path, {"triggered_readables": [_DETECTOR]})
+
+    (detector,) = specs_from_file(path).detectors
+
+    assert detector == DetectorSpec(
+        "ES1-MCA01",
+        "ES1:MCA01:ACQ",
+        "ES1:MCA01:ACQ_STATUS",
+        "FALSE",
+        5.0,
+        results=(
+            ReadableSpec("ES1:MCA01:COUNTS", "ES1:MCA01:COUNTS", unit="counts", value_type="float"),
+            ReadableSpec(
+                "ES1:MCA01:SPECTRUM", "ES1:MCA01:SPECTRUM", shape=(1024,), value_type="waveform"
+            ),
+        ),
+    )
+    assert validate_device_document(yaml.safe_load(path.read_text())) == []
+
+
+def test_a_detector_result_reads_the_words_of_an_enum_channel(tmp_path: Path) -> None:
+    state = {"pv": "ES1:MCA01:STATE", "value_type": "enum", "options": ["OK", "LOW"]}
+    path = _write(tmp_path, {"triggered_readables": [{**_DETECTOR, "results": [state]}]})
+
+    (detector,) = specs_from_file(path).detectors
+
+    assert [result.options for result in detector.results] == [("OK", "LOW")]
+
+
+@pytest.mark.parametrize("results", [None, []])
+def test_a_detector_with_no_result_is_skipped_and_reported(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, results: Any
+) -> None:
+    doc = {"triggered_readables": [{**_DETECTOR, "name": "bad", "results": results}, _DETECTOR]}
+
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(_write(tmp_path, doc))
+
+    assert [spec.name for spec in found.detectors] == ["ES1-MCA01"]
+    assert "'bad'" in caplog.text
+    assert "triggered_readables[0]: 'results' must be a non-empty list of result entries" in (
+        validate_device_document(doc)
+    )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"pv": ""},
+        {"unit": "counts"},
+        {"pv": "X", "shape": [2, 3]},
+        {"pv": "X", "value_type": "complex"},
+        "X",
+    ],
+)
+def test_a_malformed_result_skips_its_detector(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, result: Any
+) -> None:
+    bad = {**_DETECTOR, "name": "bad", "results": [_DETECTOR["results"][0], result]}
+
+    with caplog.at_level("WARNING"):
+        found = specs_from_file(_write(tmp_path, {"triggered_readables": [bad, _DETECTOR]}))
+
+    assert [spec.name for spec in found.detectors] == ["ES1-MCA01"]
+    assert "'bad'" in caplog.text
+
+
+def test_validate_reports_each_detector_problem_by_index() -> None:
+    doc = {
+        "triggered_readables": [
+            _DETECTOR,
+            {
+                **_DETECTOR,
+                "name": "b",
+                "timeout_s": 0,
+                "extra": 1,
+                "results": [{"pv": "X", "shape": [0]}, {"pv": "", "colour": "red"}, "Y"],
+            },
+        ]
+    }
+
+    assert validate_device_document(doc) == [
+        "triggered_readables[1]: 'timeout_s' must be a finite number > 0",
+        "triggered_readables[1]: unknown key(s) ['extra']; expected only ['command', 'idle', 'name', "
+        "'results', 'status', 'timeout_s']",
+        "triggered_readables[1].results[0]: 'shape' must be a list of one int >= 1 when present",
+        "triggered_readables[1].results[1]: 'pv' must be a non-empty string",
+        "triggered_readables[1].results[1]: unknown key(s) ['colour']; expected only ['options', "
+        "'pv', 'shape', 'unit', 'value_type']",
+        "triggered_readables[1].results[2]: entry must be a mapping, got str",
+    ]
+
+
+def test_a_detector_name_claimed_twice_is_reported(tmp_path: Path) -> None:
+    doc = {
+        "readables": [{"name": "ES1-MCA01", "pv": "B:RB"}],
+        "triggered_readables": [_DETECTOR, _DETECTOR],
+    }
+
+    found = specs_from_file(_write(tmp_path, doc))
+
+    assert [spec.name for spec in found.readables] == ["ES1-MCA01"]
+    assert found.detectors == []
+    assert [p for p in validate_device_document(doc) if "already claimed" in p] == [
+        "triggered_readables[0]: device name 'ES1-MCA01' is already claimed by an earlier entry and "
+        "would be dropped",
+        "triggered_readables[1]: device name 'ES1-MCA01' is already claimed by an earlier entry and "
+        "would be dropped",
+    ]

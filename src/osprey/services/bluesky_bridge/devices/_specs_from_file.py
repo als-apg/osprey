@@ -5,10 +5,10 @@ virtual-accelerator manifest, the channel-finder database, or anything else
 host-side to discover which channels are scan devices. So the device set
 arrives as a file, mounted into the container and named by
 ``BLUESKY_DEVICES_FILE``, and is parsed here into the control-room-neutral
-``SettableSpec``/``TriggerableSpec``/``ReadableSpec`` shapes that
-``devices/connector.py`` builds from.
+``SettableSpec``/``TriggerableSpec``/``ReadableSpec``/``DetectorSpec`` shapes
+that ``devices/connector.py`` builds from.
 
-The document has three device keys, all optional, and an optional ``schema``
+The document has four device keys, all optional, and an optional ``schema``
 line naming the document and its version::
 
     schema: osprey.facility.bluesky_devices/1
@@ -53,6 +53,18 @@ line naming the document and its version::
         pv: SR:INJ:SEPTUM:WAVEFORM
         value_type: waveform       # optional
         shape: [500]               # optional; the length of a 1-D array reading
+    triggered_readables:
+      - name: ES1-MCA01            # device name; its results are recorded under their pvs
+        command: ES1:MCA01:ACQ     # the channel a trigger writes 1 to
+        status: ES1:MCA01:STATUS   # the channel that reports the acquisition
+        idle: Idle                 # what the status reads while none runs
+        timeout_s: 5.0             # the longest one acquisition may take
+        results:                   # the channels it records, each as a readable's
+          - pv: ES1:MCA01:COUNTS
+            unit: counts           # optional
+          - pv: ES1:MCA01:SPECTRUM
+            value_type: waveform   # optional
+            shape: [1024]          # optional
 
 ``yaml.safe_load`` parses it, so a ``.json`` file is read by the same code
 path. Nothing here splits a value on any character, which is the point of the
@@ -77,6 +89,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +97,7 @@ import yaml
 
 from osprey_connectors.command import CommandAct
 
-from .specs import DeviceSpecs, ReadableSpec, SettableSpec, TriggerableSpec
+from .specs import DetectorSpec, DeviceSpecs, ReadableSpec, SettableSpec, TriggerableSpec
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.devices._specs_from_file")
 
@@ -97,10 +110,17 @@ READABLES_KEY = "readables"
 TRIGGERABLES_KEY = "triggerables"
 """Top-level key holding the entries of commands a plan triggers."""
 
+TRIGGERED_READABLES_KEY = "triggered_readables"
+"""Top-level key holding the entries of detectors a plan triggers and records."""
+
+RESULTS_KEY = "results"
+"""Required detector key: the channels the detector records, a non-empty list of
+``{pv, value_type?, unit?, shape?}`` entries, each read as a readable's."""
+
 SCHEMA_KEY = "schema"
 """Top-level key naming the document and its version; the parser does not read it."""
 
-TOP_LEVEL_KEYS = (SETTABLES_KEY, TRIGGERABLES_KEY, READABLES_KEY)
+TOP_LEVEL_KEYS = (SETTABLES_KEY, TRIGGERABLES_KEY, READABLES_KEY, TRIGGERED_READABLES_KEY)
 """The device keys the document may carry, in the order names are claimed."""
 
 ACCEPTED_KEYS = (SCHEMA_KEY, *TOP_LEVEL_KEYS)
@@ -511,13 +531,48 @@ def _parse_settables(section: Any) -> list[SettableSpec]:
     return specs
 
 
+def _readable(entry: dict[str, Any], where: str, name: str, read_pv: str) -> ReadableSpec | None:
+    """The readable ``entry`` states under ``name``, or ``None`` when its kind is malformed.
+
+    ``unit``, ``value_type`` and ``options`` are optional, as on a settable.
+    ``shape`` is optional: absent or null reads a scalar; present but not a
+    list of one int >= 1 is a malformed entry, warned about by name.
+    """
+    units = _optional_strings(entry, (UNIT_KEY,), where, name)
+    if units is None:
+        return None
+    kinds = _value_types(entry, _ONE_VALUE_TYPE, where, name)
+    if kinds is None:
+        return None
+    words = _options(entry, _ONE_OPTIONS, where, name)
+    if words is None:
+        return None
+    shape: tuple[int] | None = None
+    if entry.get(SHAPE_KEY) is not None:
+        shape = _shape(entry[SHAPE_KEY])
+        if shape is None:
+            logger.warning(
+                "skipping %s (%r): %r is present but not a list of one int >= 1",
+                where,
+                name,
+                SHAPE_KEY,
+            )
+            return None
+    return ReadableSpec(
+        name=name,
+        read_pv=read_pv,
+        unit=units[UNIT_KEY],
+        shape=shape,
+        value_type=kinds[VALUE_TYPE_KEY],
+        options=words[OPTIONS_KEY],
+    )
+
+
 def _parse_readables(section: Any) -> list[ReadableSpec]:
     """Parse the ``readables`` section, skipping malformed entries with a warning.
 
-    An entry needs a non-empty ``name`` and ``pv``; ``unit`` and
-    ``value_type`` are optional, as on a settable. ``shape`` is optional: absent or null reads a scalar;
-    present but not a list of one int >= 1 is a malformed entry. See
-    ``_parse_settables``.
+    An entry needs a non-empty ``name`` and ``pv``; its kind is read as
+    ``_readable`` reads it. See ``_parse_settables``.
     """
     specs: list[ReadableSpec] = []
     for index, entry in enumerate(_entries(section, READABLES_KEY)):
@@ -536,44 +591,48 @@ def _parse_readables(section: Any) -> list[ReadableSpec]:
             )
             continue
 
-        units = _optional_strings(entry, (UNIT_KEY,), where, name)
-        if units is None:
-            continue
-        kinds = _value_types(entry, _ONE_VALUE_TYPE, where, name)
-        if kinds is None:
-            continue
-
-        shape: tuple[int] | None = None
-        if entry.get(SHAPE_KEY) is not None:
-            shape = _shape(entry[SHAPE_KEY])
-            if shape is None:
-                logger.warning(
-                    "skipping %s (%r): %r is present but not a list of one int >= 1",
-                    where,
-                    name,
-                    SHAPE_KEY,
-                )
-                continue
-
-        specs.append(
-            ReadableSpec(
-                name=name,
-                read_pv=read_pv,
-                unit=units[UNIT_KEY],
-                shape=shape,
-                value_type=kinds[VALUE_TYPE_KEY],
-            )
-        )
+        spec = _readable(entry, where, name, read_pv)
+        if spec is not None:
+            specs.append(spec)
     return specs
+
+
+def _act_entry(entry: dict[str, Any], where: str) -> tuple[str, CommandAct] | None:
+    """The name and the act an entry states, or ``None`` when either is malformed.
+
+    The entry needs a non-empty ``name``, ``command`` and ``status``, an ``idle``
+    that is a non-null scalar and a ``timeout_s`` that is a finite number > 0;
+    a malformed one is warned about by name.
+    """
+    name = _clean(entry.get("name"))
+    command = _clean(entry.get(COMMAND_KEY))
+    status = _clean(entry.get(STATUS_KEY))
+    if name is None or command is None or status is None:
+        logger.warning(
+            "skipping malformed %s (%r): needs a non-empty 'name', 'command' and 'status'",
+            where,
+            entry.get("name"),
+        )
+        return None
+
+    idle = _scalar(entry.get(IDLE_KEY))
+    if idle is None:
+        logger.warning("skipping %s (%r): %r must be a non-null scalar", where, name, IDLE_KEY)
+        return None
+
+    timeout_s = _positive_seconds(entry.get(TIMEOUT_KEY))
+    if timeout_s is None:
+        logger.warning("skipping %s (%r): %r must be a finite number > 0", where, name, TIMEOUT_KEY)
+        return None
+    return name, CommandAct(command, status, idle, timeout_s)
 
 
 def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
     """Parse the ``triggerables`` section, skipping malformed entries with a warning.
 
-    An entry needs a non-empty ``name``, ``command`` and ``status``, an
-    ``idle`` that is a non-null scalar and a ``timeout_s`` that is a finite
-    number > 0; ``value_type`` and ``options``, the status's, are optional, as
-    on a settable. See ``_parse_settables``.
+    An entry states its name and act as ``_act_entry`` reads them;
+    ``value_type`` and ``options``, the status's, are optional, as on a
+    settable. See ``_parse_settables``.
     """
     specs: list[TriggerableSpec] = []
     for index, entry in enumerate(_entries(section, TRIGGERABLES_KEY)):
@@ -582,28 +641,10 @@ def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
             logger.warning("skipping %s: entry is not a mapping (%r)", where, entry)
             continue
 
-        name = _clean(entry.get("name"))
-        command = _clean(entry.get("command"))
-        status = _clean(entry.get("status"))
-        if name is None or command is None or status is None:
-            logger.warning(
-                "skipping malformed %s (%r): needs a non-empty 'name', 'command' and 'status'",
-                where,
-                entry.get("name"),
-            )
+        stated = _act_entry(entry, where)
+        if stated is None:
             continue
-
-        idle = _scalar(entry.get(IDLE_KEY))
-        if idle is None:
-            logger.warning("skipping %s (%r): %r must be a non-null scalar", where, name, IDLE_KEY)
-            continue
-
-        timeout_s = _positive_seconds(entry.get(TIMEOUT_KEY))
-        if timeout_s is None:
-            logger.warning(
-                "skipping %s (%r): %r must be a finite number > 0", where, name, TIMEOUT_KEY
-            )
-            continue
+        name, act = stated
 
         kinds = _value_types(entry, _ONE_VALUE_TYPE, where, name)
         if kinds is None:
@@ -615,12 +656,77 @@ def _parse_triggerables(section: Any) -> list[TriggerableSpec]:
         specs.append(
             TriggerableSpec(
                 name=name,
-                command=command,
-                status=status,
-                idle=idle,
-                timeout_s=timeout_s,
+                command=act.command,
+                status=act.status,
+                idle=act.idle,
+                timeout_s=act.timeout_s,
                 value_type=kinds[VALUE_TYPE_KEY],
                 options=words[OPTIONS_KEY],
+            )
+        )
+    return specs
+
+
+def _results(value: Any, where: str, name: str) -> tuple[ReadableSpec, ...] | None:
+    """A detector's ``results`` as readable specs, or ``None`` when they are malformed.
+
+    ``results`` is a non-empty list of mappings, each with a non-empty ``pv``
+    and its kind read as ``_readable`` reads it; the result is named by its
+    address. One malformed result makes the whole list malformed.
+    """
+    if not isinstance(value, list) or not value:
+        logger.warning(
+            "skipping %s (%r): %r must be a non-empty list of result entries",
+            where,
+            name,
+            RESULTS_KEY,
+        )
+        return None
+    results: list[ReadableSpec] = []
+    for index, entry in enumerate(value):
+        place = f"{where}.{RESULTS_KEY}[{index}]"
+        read_pv = _clean(entry.get("pv")) if isinstance(entry, dict) else None
+        if read_pv is None:
+            logger.warning("skipping %s (%r): %s needs a non-empty 'pv'", where, name, place)
+            return None
+        result = _readable(entry, where, name, read_pv)
+        if result is None:
+            return None
+        results.append(replace(result, name=read_pv))
+    return tuple(results)
+
+
+def _parse_detectors(section: Any) -> list[DetectorSpec]:
+    """Parse the ``triggered_readables`` section, skipping malformed entries with a warning.
+
+    An entry states its name and act as a triggerable does (``_act_entry``)
+    and its ``results`` as ``_results`` reads them; a malformed act or result,
+    or an entry with no result, skips the detector. See ``_parse_settables``.
+    """
+    specs: list[DetectorSpec] = []
+    for index, entry in enumerate(_entries(section, TRIGGERED_READABLES_KEY)):
+        where = f"{TRIGGERED_READABLES_KEY}[{index}]"
+        if not isinstance(entry, dict):
+            logger.warning("skipping %s: entry is not a mapping (%r)", where, entry)
+            continue
+
+        stated = _act_entry(entry, where)
+        if stated is None:
+            continue
+        name, act = stated
+
+        results = _results(entry.get(RESULTS_KEY), where, name)
+        if results is None:
+            continue
+
+        specs.append(
+            DetectorSpec(
+                name=name,
+                command=act.command,
+                status=act.status,
+                idle=act.idle,
+                timeout_s=act.timeout_s,
+                results=results,
             )
         )
     return specs
@@ -630,9 +736,10 @@ def _drop_duplicate_names(
     setpoints: list[SettableSpec],
     triggerables: list[TriggerableSpec],
     readbacks: list[ReadableSpec],
+    detectors: list[DetectorSpec],
 ) -> DeviceSpecs:
     """Drop any spec whose device name was already seen (setpoints first, then
-    triggerables, then readbacks), warning on each collision.
+    triggerables, readbacks and detectors), warning on each collision.
 
     Device names become ophyd-async device names *and* event-data column keys;
     two devices sharing a name would make the scanned column ambiguous (see the
@@ -656,11 +763,12 @@ def _drop_duplicate_names(
 
     settables = _keep(setpoints)
     kept_triggerables = _keep(triggerables)
-    return DeviceSpecs(settables, _keep(readbacks), kept_triggerables)
+    kept_readables = _keep(readbacks)
+    return DeviceSpecs(settables, kept_readables, kept_triggerables, _keep(detectors))
 
 
 def specs_from_file(path: str | Path) -> DeviceSpecs:
-    """Read the device file at ``path`` into settable, readable and triggerable specs.
+    """Read the device file at ``path`` into settable, triggerable, readable and detector specs.
 
     Returns no devices — never raises — when the file is unreadable, empty,
     unparseable, not a mapping, or carries an unknown top-level key. The last
@@ -669,9 +777,10 @@ def specs_from_file(path: str | Path) -> DeviceSpecs:
     a deployment that looks healthy while quietly exposing no readbacks.
     Individual malformed entries are skipped with their own warning, and any
     device name that collides with an earlier one is dropped
-    (``_drop_duplicate_names``, settables resolving first, then triggerables).
+    (``_drop_duplicate_names``, settables resolving first, then triggerables,
+    readables and detectors).
     """
-    nothing = DeviceSpecs([], [], [])
+    nothing = DeviceSpecs([], [], [], [])
     doc = _load_document(Path(path))
     if doc is None:
         return nothing
@@ -699,6 +808,7 @@ def specs_from_file(path: str | Path) -> DeviceSpecs:
         _parse_settables(doc.get(SETTABLES_KEY)),
         _parse_triggerables(doc.get(TRIGGERABLES_KEY)),
         _parse_readables(doc.get(READABLES_KEY)),
+        _parse_detectors(doc.get(TRIGGERED_READABLES_KEY)),
     )
 
 
@@ -715,6 +825,7 @@ def _validate_section(
     acts: tuple[str, ...] = (),
     value_types: tuple[str, ...] = (),
     options: tuple[str, ...] = (),
+    nested: tuple[str, ...] = (),
 ) -> list[str]:
     """Return the problems in one device section (empty list ⇒ none).
 
@@ -725,7 +836,8 @@ def _validate_section(
     ``positives`` keys required finite numbers > 0. ``acts`` keys are start
     acts (see ``_start_act``) when present. ``value_types`` keys are one of
     :data:`VALUE_TYPES` when present, and ``options`` keys non-empty lists of
-    non-empty strings.
+    non-empty strings. ``nested`` keys are known here and checked by the
+    caller.
     """
     if section is None:
         return []
@@ -743,6 +855,7 @@ def _validate_section(
         | set(acts)
         | set(value_types)
         | set(options)
+        | set(nested)
     )
     problems: list[str] = []
     for index, entry in enumerate(section):
@@ -817,6 +930,43 @@ def _stop_without_start_problems(section: Any) -> list[str]:
         and entry.get(STOPPED_BY_KEY) is not None
         and entry.get(STARTED_BY_KEY) is None
     ]
+
+
+def _detector_problems(section: Any) -> list[str]:
+    """Return the problems in the ``triggered_readables`` section, its results included.
+
+    An entry is checked as a triggerable is, and its ``results`` is a non-empty
+    list of entries each checked as a readable's, with ``pv`` and no ``name``.
+    """
+    problems = _validate_section(
+        section,
+        TRIGGERED_READABLES_KEY,
+        _TRIGGERABLE_REQUIRED,
+        (),
+        scalars=_TRIGGERABLE_SCALARS,
+        positives=_TRIGGERABLE_POSITIVES,
+        nested=(RESULTS_KEY,),
+    )
+    if not isinstance(section, list):
+        return problems
+    for index, entry in enumerate(section):
+        if not isinstance(entry, dict):
+            continue
+        where = f"{TRIGGERED_READABLES_KEY}[{index}]"
+        results = entry.get(RESULTS_KEY)
+        if not isinstance(results, list) or not results:
+            problems.append(f"{where}: {RESULTS_KEY!r} must be a non-empty list of result entries")
+            continue
+        problems += _validate_section(
+            results,
+            f"{where}.{RESULTS_KEY}",
+            ("pv",),
+            _READABLE_OPTIONAL,
+            shapes=_READABLE_SHAPE_OPTIONAL,
+            value_types=_ONE_VALUE_TYPE,
+            options=_ONE_OPTIONS,
+        )
+    return problems
 
 
 def _duplicate_name_problems(doc: dict) -> list[str]:
@@ -906,5 +1056,6 @@ def validate_device_document(doc: Any) -> list[str]:
         value_types=_ONE_VALUE_TYPE,
         options=_ONE_OPTIONS,
     )
+    problems += _detector_problems(doc.get(TRIGGERED_READABLES_KEY))
     problems += _duplicate_name_problems(doc)
     return problems
