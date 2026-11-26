@@ -50,10 +50,11 @@ not promised.
        ``APP_ENVIRONMENT`` in ``src/osprey/apps/projection.py``
 
 The ``OSPREY_*`` variables are ``OSPREY_APP_BIND``, ``OSPREY_APP_CONFIG``,
-``OSPREY_APP_NAME``, ``OSPREY_APP_PORT``, ``OSPREY_APP_STATE_DIRS``,
-``OSPREY_AUDIT_IDENTITY``, ``OSPREY_CONFIG``, ``OSPREY_CONTROL_CONTEXT_TREE``,
-``OSPREY_GUARDED_RUN_DIR``, ``OSPREY_SESSION_ID`` (inherited by the tool server from the
-agent's session), ``OSPREY_SPOOL_DIR``, ``OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS``,
+``OSPREY_APP_CORPORA``, ``OSPREY_APP_NAME``, ``OSPREY_APP_PORT``,
+``OSPREY_APP_STATE_DIRS``, ``OSPREY_AUDIT_IDENTITY``, ``OSPREY_CONFIG``,
+``OSPREY_CONTROL_CONTEXT_TREE``, ``OSPREY_GUARDED_RUN_DIR``, ``OSPREY_QMD_<NAME>_URL``,
+one per corpus a container declares, ``OSPREY_SESSION_ID`` (inherited by the tool
+server from the agent's session), ``OSPREY_SPOOL_DIR``, ``OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS``,
 ``OSPREY_TERMINAL_ROSTER_OWNERS`` and ``OSPREY_TERMINAL_SECRET_<user>``, one per roster
 user of a panel grant. Names an app declares under ``env:`` are its own.
 
@@ -120,11 +121,15 @@ The build's import check
 ========================
 
 ``osprey build`` and ``osprey app check`` refuse an app that imports OSPREY outside the
-modules above (rule ``import_boundary``), or imports from them a module that does not
+modules above (rule ``import_boundary``), imports from them a module that does not
 exist (``import_missing_module``) or a name its module does not define
-(``import_missing_name``). They judge the packages installed where the build runs.
-The project image resolves ``osprey-connectors`` and ``osprey-facility`` on its own, so
-an app can still fail at start in an image built from other versions.
+(``import_missing_name``), or has a relative import that leaves its package
+(``relative_import_escape``). A source file that does not parse cannot be checked and
+is refused too (``unreadable_source``). They judge the packages installed where the
+build runs. A release image pins ``osprey-framework`` to the build's version but
+resolves ``osprey-connectors`` and ``osprey-facility`` from the index, the newest the
+framework admits, so an app can still fail at start in an image whose packages differ
+from those the build judged.
 
 History
 =======
