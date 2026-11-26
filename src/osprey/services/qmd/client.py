@@ -169,12 +169,21 @@ class QMDTransport(Protocol):
         ...
 
 
+#: Opens a connection straight to the sidecar. The sidecar is one of the
+#: deployment's own services, on the loopback or the compose network, so a
+#: proxy named in the environment is never the way to it: a container handed
+#: ``HTTP_PROXY`` by its host and no matching ``NO_PROXY`` would send the query
+#: to the proxy, which answers for a name only the compose network resolves.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 class _UrllibTransport:
     """The shipped transport: the standard library, and nothing else.
 
-    urllib is enough for two request shapes against a loopback endpoint, and
-    keeping it means the search client adds no dependency to any deployment
-    that never turns the sidecar on.
+    urllib is enough for two request shapes against a deployment-internal
+    endpoint, and keeping it means the search client adds no dependency to any
+    deployment that never turns the sidecar on. It dials the sidecar directly
+    and ignores the environment's proxy variables.
     """
 
     def post(
@@ -229,7 +238,7 @@ class _UrllibTransport:
             QMDUnavailableError: If the endpoint could not be reached.
         """
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with _DIRECT.open(request, timeout=timeout) as response:
                 return QMDResponse(
                     status=int(response.status),
                     body=response.read().decode("utf-8", errors="replace"),
