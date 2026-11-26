@@ -216,7 +216,7 @@ mounts that file unchanged.
            value_type: waveform
            shape: [1024]
 
-The file has three lists:
+The file has four lists:
 
 - **Settables** are devices a plan may drive. There is one per setpoint
   channel of the facility file. A settable is written to that channel and read
@@ -235,18 +235,34 @@ The file has three lists:
   command whose status states ``idle`` and which states ``timeout_s``; such a
   command is no settable. A plan triggers it and never sets it, and it records
   its status under its own address.
+- **Detectors** are triggered and recorded: the plan names the device id, the
+  trigger fires its acquire command and waits for its status, and each result
+  is recorded under its address. Its acquire command is no device of its own;
+  each result is also a readable, and a plan that declares both a detector and
+  one of its results is refused before it writes.
 - **Readables** are recorded and never written. There is one per readback
   channel. A readback on a waveform channel carries the ``shape`` the facility
   file states, and each run records it as an array of that length. A waveform
   of more than one dimension is no plan device; the build names each one.
 
-A device's name is its address, which is also the column heading in the run's
-data.
+A settable's and a readable's name is its address, a detector's its device id;
+every column heading is an address.
 
-A device carries the ``unit`` its channel states in the facility file. A
-settable with a separate readback also carries its setpoint's unit, as
-``setpoint_unit``. Every run records them, so ``get_run_data`` and the run's
-figure state each column's unit, and an array column its shape.
+An abort ends the run; an acquisition already started finishes by itself, and
+nothing is written to the detector after the abort.
+
+A device carries the ``value_type`` and the ``unit`` its channel states in the
+facility file, and an enum channel carries its ``options``, the words it reads.
+A settable with a separate readback also carries its setpoint's, as
+``setpoint_value_type``, ``setpoint_options`` and ``setpoint_unit``. A run
+describes a text channel as text, a switch as a boolean and a number as a
+number. An enum channel is recorded as its word, for example ``DONE``, and
+described as text with its words as the column's choices; the words come from
+the facility file, so the word is the same on every control system. A
+command's idle check and every write check read the raw value. The default
+figure draws no word column, as it draws no text. Every run records these
+descriptions, so ``get_run_data`` and the run's figure state each column's
+unit, and an array column its shape.
 
 Don't edit this file: the build rewrites it every time. To change the device
 set, change the channels under ``data/facility/`` and build again.

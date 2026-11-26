@@ -212,6 +212,7 @@ SUBSETS: dict[str, str] = {
     "SR:DIAG:DCCT:01:CURRENT:RB:": "seeds.yaml",
     "ES1:MOT:STAGE:01:STATUS:MOVE:": "seeds.yaml",
     "- name: BTS": "models.yaml",
+    "- id: ES1-MCA01": "records/devices.yaml",
 }
 
 #: The fixes block, applied on top of the imported channel list.
@@ -290,9 +291,10 @@ def test_a_partial_block_is_a_subset_of_the_preset_record(first: str) -> None:
         assert _subset(block, preset), f"{first} states what the preset's record does not"
     else:
         for record in block:
-            named = [row for row in preset if row.get("name") == record["name"]]
-            assert len(named) == 1, f"the preset has no single model {record['name']}"
-            assert _subset(record, named[0]), f"{first} states what the preset's model does not"
+            key = "name" if "name" in record else "id"
+            named = [row for row in preset if row.get(key) == record[key]]
+            assert len(named) == 1, f"the preset has no single record {record[key]}"
+            assert _subset(record, named[0]), f"{first} states what the preset's record does not"
 
 
 def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> None:

@@ -122,6 +122,20 @@ in ``classes.yaml``. A device may state its ``place``, a ``label``, other
 ``names`` people use for it, and a position: ``s`` in metres along the deck of
 its ``model``. A device a model wires takes its position from the deck.
 
+A device that states ``acquire``, a command on it whose status states
+``idle``, and ``results``, readbacks on it, is a detector a plan triggers and
+records. Its id is its plan name and holds no ``/`` or ``.``.
+
+.. code-block:: yaml
+
+   - id: ES1-MCA01
+     class: Detector
+     place: ES1
+     acquire: ES1:DET:MCA:01:ACQUIRE:SP
+     results:
+     - ES1:DET:MCA:01:COUNTS:RB
+     - ES1:DET:MCA:01:SPECTRUM:WAVEFORM
+
 **Channels** are the control-system addresses. A channel's id is its full
 address, written exactly as the control system serves it; no part of the
 address means anything to OSPREY. A setpoint may be a command: a channel

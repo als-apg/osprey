@@ -201,7 +201,8 @@ stages and a stage runs only when every earlier one is clean:
        checks each command's ``timeout_s`` and its status's ``idle``, and each
        setpoint's ``started_by``, as :doc:`/how-to/describe-your-facility`
        states them, and stops with
-       ``command-invalid`` when one is wrong.
+       ``command-invalid`` when one is wrong; and each detector's ``acquire``
+       and ``results``, and stops with ``detector-invalid``.
    * - compute
      - Positions, places, ordinals and groups, read off the decks, and the
        checks only a deck can answer.
@@ -357,12 +358,14 @@ tree with device counts, the device classes with their aliases, the signals in
 use and the models. It is how an agent knows the facility's own words without
 a prompt written by hand.
 
-**Bluesky.** One settable per setpoint and one readable per readback, except
-that a command whose status states ``idle`` and which states ``timeout_s`` is
-one triggerable and no settable. A settable reads back its pair when the pair
-is another channel, and settles within the setpoint's ``tolerance``, else
-within the motion its readback's seed declares, else within the profile's
-floor.
+**Bluesky.** One settable per setpoint and one readable per readback. A
+command whose status states ``idle`` and which states ``timeout_s`` is one
+triggerable and no settable. A device that states ``acquire`` and ``results``
+is one detector, named by its id. A command that a setpoint names under
+``started_by`` or ``stopped_by``, or a device names under ``acquire``, is no
+device of its own. A settable reads back its pair when the pair is another
+channel, and settles within the setpoint's ``tolerance``, else within the
+motion its readback's seed declares, else within the profile's floor.
 
 **Channel finder.** Three indexes, one per file-backed pipeline; a render
 carries the one its profile's ``channel_finder_mode`` selects. The fourth
