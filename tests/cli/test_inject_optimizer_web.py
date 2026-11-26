@@ -126,7 +126,7 @@ def test_an_explicit_panel_override_wins(project_path: Path) -> None:
 def _profile(raw: dict):
     from osprey.cli.build_profile_load import _parse_profile
 
-    return _parse_profile({"name": "x", "data": "data", **raw})
+    return _parse_profile({"name": "x", **raw})
 
 
 def test_the_block_parses_onto_the_layout_slot(tmp_path: Path) -> None:
@@ -140,7 +140,6 @@ def test_the_block_parses_onto_the_layout_slot(tmp_path: Path) -> None:
 def test_the_block_is_refused_without_an_optimizer(tmp_path: Path) -> None:
     from osprey_connectors.errors import BuildProfileError
 
-    (tmp_path / "data").mkdir()
     profile = _profile({"optimizer_web": {}})
 
     with pytest.raises(BuildProfileError, match="optimizer_web needs an optimizer"):

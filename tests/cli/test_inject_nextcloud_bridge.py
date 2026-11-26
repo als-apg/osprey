@@ -45,7 +45,6 @@ _PROFILE_YAML = """\
 extends: hello-world
 name: NcBridgeTest
 project_name: ncproj
-data: data
 provider: anthropic
 model: claude-haiku-4-5
 dispatch:
@@ -423,7 +422,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     repo_dir.mkdir()
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
-        "extends: hello-world\nname: NcNoDispatch\nproject_name: ncproj\ndata: data\nprovider: anthropic\n"
+        "extends: hello-world\nname: NcNoDispatch\nproject_name: ncproj\nprovider: anthropic\n"
         "model: claude-haiku-4-5\nnextcloud_bridge: {}\n",
         encoding="utf-8",
     )

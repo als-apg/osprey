@@ -53,7 +53,6 @@ def _repo(tmp_path: Path, name: str, profile: dict[str, Any], catalog: Any = Non
     """A deployment repo holding *profile*, and *catalog* when one is given."""
     repo = tmp_path / name
     repo.mkdir()
-    (repo / "data").mkdir()
     (repo / "profile.yml").write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
     if catalog is not None:
         (repo / PROVIDERS_FILENAME).write_text(
@@ -68,7 +67,6 @@ def _hello_world(**overrides: Any) -> dict[str, Any]:
         "name": "Demo Facility",
         "project_name": "demo-facility",
         "extends": "hello-world",
-        "data": "data",
         "provider": "anthropic",
         **overrides,
     }

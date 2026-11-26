@@ -45,9 +45,6 @@ from osprey_connectors.types import (
 )
 from tests._text import flat
 
-pytestmark = pytest.mark.usefixtures("facility_data_tree")
-
-
 # ── the shorthand is part of the schema ──────────────────────────────────────
 
 
@@ -71,14 +68,14 @@ def test_connector_joins_the_shorthand_override_keys() -> None:
 
 def test_parse_folds_shorthand_into_dotted_config_key() -> None:
     """``connector:`` resolves to ``config['control_system.type']``."""
-    profile = _parse_profile({"name": "x", "data": "data", "connector": "virtual_accelerator"})
+    profile = _parse_profile({"name": "x", "connector": "virtual_accelerator"})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
 
 
 def test_parse_consumes_the_shorthand_key() -> None:
     """The raw mapping is left with the literal spelling only."""
-    raw = {"name": "x", "data": "data", "connector": "epics"}
+    raw = {"name": "x", "connector": "epics"}
     _parse_profile(raw)
 
     assert CONNECTOR_PROFILE_KEY not in raw
@@ -90,7 +87,6 @@ def test_shorthand_overrides_an_existing_literal_key() -> None:
     profile = _parse_profile(
         {
             "name": "x",
-            "data": "data",
             "connector": "doocs",
             "config": {CONNECTOR_CONFIG_KEY: "epics"},
         }
@@ -104,7 +100,6 @@ def test_parse_without_shorthand_leaves_config_untouched() -> None:
     profile = _parse_profile(
         {
             "name": "x",
-            "data": "data",
             "config": {
                 "control_system.type": "virtual_accelerator",
                 "control_system.connector.virtual_accelerator.serving": "in_process",
@@ -121,9 +116,7 @@ def test_parse_without_shorthand_leaves_config_untouched() -> None:
 def test_config_must_be_a_mapping_to_carry_the_shorthand() -> None:
     """A scalar ``config:`` cannot hold the folded key, and says so."""
     with pytest.raises(BuildProfileError, match="must be a mapping to carry"):
-        _parse_profile(
-            {"name": "x", "data": "data", "connector": "epics", "config": "not-a-mapping"}
-        )
+        _parse_profile({"name": "x", "connector": "epics", "config": "not-a-mapping"})
 
 
 # ── --set edits ──────────────────────────────────────────────────────────────
@@ -138,7 +131,7 @@ def test_a_cli_edit_folds_the_set_shorthand() -> None:
 
 def test_the_set_shorthand_replaces_the_documents_connector() -> None:
     """The resolved document's connector is replaced, not merged alongside."""
-    base = {"name": "x", "data": "data", "config": {CONNECTOR_CONFIG_KEY: "epics"}}
+    base = {"name": "x", "config": {CONNECTOR_CONFIG_KEY: "epics"}}
     edited = apply_cli_edits(base, ("connector=virtual_accelerator",))
 
     assert edited["config"][CONNECTOR_CONFIG_KEY] == "virtual_accelerator"
@@ -151,7 +144,7 @@ def test_a_shorthand_already_in_the_document_is_folded() -> None:
     path — a preset, a hand-written profile — carries a shorthand past this
     point and has it silently ignored.
     """
-    edited = apply_cli_edits({"name": "x", "data": "data", "connector": "doocs"}, ())
+    edited = apply_cli_edits({"name": "x", "connector": "doocs"}, ())
 
     assert edited["config"][CONNECTOR_CONFIG_KEY] == "doocs"
     assert CONNECTOR_PROFILE_KEY not in edited
@@ -167,9 +160,7 @@ def test_a_set_pair_outranks_the_documents_own_shorthand() -> None:
     writes the config key while leaving the shorthand beside it would be undone
     on the next read.
     """
-    edited = apply_cli_edits(
-        {"name": "x", "data": "data", "connector": "doocs"}, ("connector=epics",)
-    )
+    edited = apply_cli_edits({"name": "x", "connector": "doocs"}, ("connector=epics",))
 
     assert edited["config"][CONNECTOR_CONFIG_KEY] == "epics"
     assert CONNECTOR_PROFILE_KEY not in edited
@@ -177,9 +168,9 @@ def test_a_set_pair_outranks_the_documents_own_shorthand() -> None:
 
 def test_an_edit_without_the_shorthand_invents_no_config_block() -> None:
     """No ``connector`` anywhere means no ``config:`` block is invented."""
-    edited = apply_cli_edits({"name": "x", "data": "data"}, ("model=claude-sonnet-5",))
+    edited = apply_cli_edits({"name": "x"}, ("model=claude-sonnet-5",))
 
-    assert edited == {"name": "x", "data": "data", "model": "claude-sonnet-5"}
+    assert edited == {"name": "x", "model": "claude-sonnet-5"}
 
 
 # ── extends parents and plain file loads ─────────────────────────────────────
@@ -198,8 +189,7 @@ def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
     parent.write_text("name: Parent\nconnector: virtual_accelerator\n", encoding="utf-8")
     child = tmp_path / "child.yml"
     child.write_text(
-        "name: Child\nextends: parent.yml\ndata: data\n"
-        "config:\n  archiver.type: mongodb_archiver\n",
+        "name: Child\nextends: parent.yml\nconfig:\n  archiver.type: mongodb_archiver\n",
         encoding="utf-8",
     )
 
@@ -211,8 +201,7 @@ def test_shorthand_in_an_extends_parent_is_folded(tmp_path: Path) -> None:
 def test_shorthand_in_a_plain_profile_file_is_folded(tmp_path: Path) -> None:
     """``load_profile`` folds it too — not only the preset/edit path."""
     profile_file = tmp_path / "profile.yml"
-    (tmp_path / "data").mkdir(exist_ok=True)
-    profile_file.write_text("name: Plain\ndata: data\nconnector: doocs\n", encoding="utf-8")
+    profile_file.write_text("name: Plain\nconnector: doocs\n", encoding="utf-8")
 
     profile = load_profile(profile_file)
 
@@ -225,7 +214,7 @@ def test_shorthand_in_a_plain_profile_file_is_folded(tmp_path: Path) -> None:
 @pytest.mark.parametrize("connector", CLI_CONTROL_SYSTEM_TYPES)
 def test_every_cli_connector_type_is_accepted(connector: str) -> None:
     """The shorthand accepts exactly the types the config CLI offers."""
-    profile = _parse_profile({"name": "x", "data": "data", "connector": connector})
+    profile = _parse_profile({"name": "x", "connector": connector})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == connector
 
@@ -233,7 +222,7 @@ def test_every_cli_connector_type_is_accepted(connector: str) -> None:
 def test_misspelled_connector_suggests_the_nearest_type() -> None:
     """A typo names the intended type rather than failing later in the build."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "connector": "virtal_accelerator"})
+        _parse_profile({"name": "x", "connector": "virtal_accelerator"})
 
     message = str(excinfo.value)
     assert "Unknown connector 'virtal_accelerator'" in message
@@ -243,13 +232,13 @@ def test_misspelled_connector_suggests_the_nearest_type() -> None:
 def test_wrong_case_connector_suggests_the_exact_spelling() -> None:
     """Case is not silently normalized — the exact spelling is suggested."""
     with pytest.raises(BuildProfileError, match="did you mean 'epics'"):
-        _parse_profile({"name": "x", "data": "data", "connector": "EPICS"})
+        _parse_profile({"name": "x", "connector": "EPICS"})
 
 
 def test_unrecognizable_connector_lists_every_valid_choice() -> None:
     """With nothing close enough to suggest, the full choice list still lands."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "connector": "site"})
+        _parse_profile({"name": "x", "connector": "site"})
 
     message = str(excinfo.value)
     assert "Valid connectors are:" in message
@@ -260,7 +249,7 @@ def test_unrecognizable_connector_lists_every_valid_choice() -> None:
 def test_custom_connector_path_is_pointed_at_the_literal_key() -> None:
     """A dotted module path is not a shorthand value; the error says what is."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "connector": "mypackage.SiteConnector"})
+        _parse_profile({"name": "x", "connector": "mypackage.SiteConnector"})
 
     assert CONNECTOR_CONFIG_KEY in str(excinfo.value)
 
@@ -269,7 +258,7 @@ def test_custom_connector_path_is_pointed_at_the_literal_key() -> None:
 def test_non_string_connector_values_are_rejected(value: object) -> None:
     """``--set connector=`` and friends fail rather than resolving to nothing."""
     with pytest.raises(BuildProfileError, match="must name a connector type"):
-        _parse_profile({"name": "x", "data": "data", "connector": value})
+        _parse_profile({"name": "x", "connector": value})
 
 
 def test_invalid_set_value_is_rejected_when_the_edit_is_parsed() -> None:
@@ -413,7 +402,7 @@ def test_the_stand_in_stays_out_of_the_init_list() -> None:
 
 def test_parse_accepts_the_stand_in() -> None:
     """``connector: live_standin`` folds to the literal key like any other type."""
-    profile = _parse_profile({"name": "x", "data": "data", "connector": LIVE_STANDIN})
+    profile = _parse_profile({"name": "x", "connector": LIVE_STANDIN})
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == LIVE_STANDIN
 
@@ -428,7 +417,7 @@ def test_a_cli_edit_accepts_the_stand_in() -> None:
 def test_misspelled_stand_in_suggests_the_stand_in() -> None:
     """The suggestion draws from the settable list, so a stand-in typo lands."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "connector": "live_standn"})
+        _parse_profile({"name": "x", "connector": "live_standn"})
 
     message = str(excinfo.value)
     assert "Unknown connector 'live_standn'" in message
@@ -438,7 +427,7 @@ def test_misspelled_stand_in_suggests_the_stand_in() -> None:
 def test_invalid_connector_lists_the_stand_in_among_the_choices() -> None:
     """The refusal names every settable type, the stand-in included."""
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "connector": "site"})
+        _parse_profile({"name": "x", "connector": "site"})
 
     assert LIVE_STANDIN in str(excinfo.value)
 

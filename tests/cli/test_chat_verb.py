@@ -25,6 +25,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from osprey import repo_layout
 from osprey.agent_runner import launcher
 from osprey.cli.chat_cmd import chat
 from tests._scoped_stdlib import patch_subprocess
@@ -237,7 +238,7 @@ class TestLaunch:
     ):
         """No --repo: chat acts on the repo enclosing wherever the operator is."""
         build = stub_build(lifecycle_repo)
-        monkeypatch.chdir(lifecycle_repo / "data")
+        monkeypatch.chdir(lifecycle_repo / repo_layout.entry("facility").path)
 
         result = runner.invoke(chat, [])
 

@@ -54,7 +54,6 @@ _PROFILE_YAML = """\
 extends: hello-world
 name: SlackBridgeTest
 project_name: tmproj
-data: data
 provider: anthropic
 model: claude-haiku-4-5
 dispatch:
@@ -600,7 +599,7 @@ def test_full_build_bridge_without_dispatch_block_aborts(
     repo_dir.mkdir()
     (repo_dir / "data").mkdir(exist_ok=True)
     (repo_dir / "profile.yml").write_text(
-        "extends: hello-world\nname: SlackNoDispatch\nproject_name: tmproj\ndata: data\n"
+        "extends: hello-world\nname: SlackNoDispatch\nproject_name: tmproj\n"
         "provider: anthropic\nmodel: claude-haiku-4-5\nslack_bridge: {}\n",
         encoding="utf-8",
     )
