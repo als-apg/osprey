@@ -24,7 +24,7 @@ def build(facility_dir: Path, **kw: Any) -> FacilityDocument:
     """Build a facility file in memory with no checks beyond the description's own.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         **kw: The keywords of :func:`osprey_facility.build.build_facility`;
             ``extra_checks`` defaults to :data:`NO_EXTRA_CHECKS`.
 

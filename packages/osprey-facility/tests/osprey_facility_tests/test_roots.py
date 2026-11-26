@@ -20,10 +20,8 @@ from osprey_facility.roots import (
     is_vcs_metadata,
 )
 
-SINGLE = FacilityRoots.single(Path("/repo/data/facility"))
-MOUNTED = FacilityRoots(
-    machine=Path("/repo/machine/data/facility"), content=Path("/repo/data/facility")
-)
+SINGLE = FacilityRoots.single(Path("/repo/facility"))
+MOUNTED = FacilityRoots(machine=Path("/repo/machine/facility"), content=Path("/repo/facility"))
 
 
 def test_the_content_directories_are_exactly_the_three_deployment_ones() -> None:

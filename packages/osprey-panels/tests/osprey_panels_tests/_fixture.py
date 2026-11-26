@@ -1,6 +1,6 @@
 """The panels fixture: an invented two-sector ring and its rule tables.
 
-The ``data/facility`` tree is a description, so it lives in the facility
+The ``facility`` tree is a description, so it lives in the facility
 package suite (``packages/osprey-facility/tests/osprey_facility_tests/panel_fixture/``);
 ``fixture/facility.json`` is that tree built, checked in, so the panel tests read a document without running the build (the
 package suite's ``rebuild_panel_fixture.py`` regenerates it, and a package test
