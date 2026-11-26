@@ -662,7 +662,7 @@ def test_every_convention_source_is_a_path_executed_code_may_not_write(tmp_path:
     from osprey.cli.profile_conventions import CONVENTION_DIRS  # test-only import
 
     root = tmp_path.resolve()
-    protected = set(resolve_protected_roots(tmp_path))
+    protected = set(resolve_protected_roots(tmp_path, entries=()))
     for convention in CONVENTION_DIRS:
         target = root / convention.source
         assert any(target.is_relative_to(entry) for entry in protected), convention.key
@@ -674,7 +674,7 @@ def test_every_path_a_row_moved_from_stays_protected(tmp_path: Path):
     from osprey.repo_layout import retired_moves
 
     root = tmp_path.resolve()
-    protected = set(resolve_protected_roots(tmp_path))
+    protected = set(resolve_protected_roots(tmp_path, entries=()))
     moves = retired_moves()
     assert moves
     for move in moves:

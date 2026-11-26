@@ -86,7 +86,7 @@ def deployment(tmp_path: Path) -> Path:
 
 
 def test_executed_code_may_not_write_exactly_these_paths(deployment: Path) -> None:
-    protected = resolve_protected_roots(deployment)
+    protected = resolve_protected_roots(deployment, entries=())
     relative = [path.relative_to(deployment).as_posix() for path in protected]
 
     assert len(relative) == len(set(relative)), f"duplicate protected roots: {relative}"
@@ -168,7 +168,9 @@ def test_executed_code_write_boundary_includes_entries_not_yet_on_disk(tmp_path:
     empty = (tmp_path / "empty").resolve()
     empty.mkdir()
 
-    relative = {path.relative_to(empty).as_posix() for path in resolve_protected_roots(empty)}
+    relative = {
+        path.relative_to(empty).as_posix() for path in resolve_protected_roots(empty, entries=())
+    }
 
     assert {"tiers", "personas", "var/audit", ".osprey"} <= relative  # retired-spelling
 

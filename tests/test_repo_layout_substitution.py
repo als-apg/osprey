@@ -210,7 +210,7 @@ print(json.dumps({
     },
     "unknown_moved": profile_conventions.unknown_root_entries(moved),
     "unknown_old": profile_conventions.unknown_root_entries(old),
-    "protected": sorted(rel(p, moved) for p in executor.resolve_protected_roots(moved)),
+    "protected": sorted(rel(p, moved) for p in executor.resolve_protected_roots(moved, entries=())),
     "planned": planned,
     "applied": {
         "owned": sorted(applied.owned_artifacts),
