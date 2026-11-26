@@ -884,7 +884,11 @@ ends at <code class="docutils literal notranslate"><span class="pre">true</span>
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">app</span> <span class="pre">check</span></code> runs it. A JavaScript library the panel needs is not
 committed: list it under <code class="docutils literal notranslate"><span class="pre">vendor</span></code> with its exact version and SHA-256, and the
 build fetches it to the path you name — <code class="docutils literal notranslate"><span class="pre">panel/vendor/…</span></code>, which
-<code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> already covers.</p>
+<code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> already covers. The path carries the version, because the
+browser caches a vendor file for good: in the file name
+(<code class="docutils literal notranslate"><span class="pre">panel/vendor/uplot-1.6.30.min.js</span></code>), or in a directory when the library
+loads its other files by fixed names
+(<code class="docutils literal notranslate"><span class="pre">panel/vendor/pdfjs-6.5.438/wasm/jbig2.wasm</span></code>).</p>
 </section>
 <section id="writes-and-approvals">
 <span id="how-to-apps-writes"></span><h2>Writes and approvals<a class="headerlink" href="#writes-and-approvals" title="Link to this heading">#</a></h2>
