@@ -3,8 +3,8 @@
 An application's processes receive two environments: its container's, rendered
 by the bundled ``app_runtime`` compose template, and its tool server's, written
 by the projection. ``APP_ENVIRONMENT`` is the promised list of the ``OSPREY_*``
-names in them, exact names plus the one prefix entry for roster secrets. A
-variable added to the template only fails here until the tuple names it, and a
+names in them: exact names, and two patterns, one per roster secret and one per
+declared corpus's sidecar URL. A variable added to the template only fails here until the tuple names it, and a
 tuple entry neither environment carries fails too, except the one name a tool
 server inherits from the agent's session.
 """
@@ -12,6 +12,7 @@ server inherits from the agent's session.
 from __future__ import annotations
 
 import copy
+from fnmatch import fnmatchcase
 from typing import Any
 
 import pytest
@@ -19,7 +20,7 @@ import pytest
 from osprey.apps.manifest import parse_manifest
 from osprey.apps.projection import APP_ENVIRONMENT, _project_server
 from osprey.runtime.session import SESSION_KEY_ENV_VAR
-from tests.deployment.test_app_runtime_compose import _render, _roster_credential, _row
+from tests.deployment.test_app_runtime_compose import QMD, _render, _roster_credential, _row
 
 from ._contract import with_contract
 
@@ -48,6 +49,7 @@ def _every_branch_row() -> dict[str, Any]:
         roster_grant={"panel_id": "corrector-trim"},
         drives_target=True,
         control_identity=True,
+        corpora=["procedures"],
     )
 
 
@@ -55,7 +57,7 @@ def _container_environment(row: dict[str, Any]) -> dict[str, Any]:
     grant = {
         "credentials": [_roster_credential("ALICE", "alice"), _roster_credential("BOB", "bob")]
     }
-    _, svc = _render(row, panel_grant=grant)
+    _, svc = _render(row, panel_grant=grant, qmd=QMD)
     return svc["environment"]
 
 
@@ -66,15 +68,15 @@ def _server_environment() -> dict[str, Any]:
 
 
 def _exact() -> set[str]:
-    return {name for name in APP_ENVIRONMENT if not name.endswith("*")}
+    return {name for name in APP_ENVIRONMENT if "*" not in name}
 
 
-def _prefixes() -> list[str]:
-    return [name[:-1] for name in APP_ENVIRONMENT if name.endswith("*")]
+def _patterns() -> list[str]:
+    return sorted(name for name in APP_ENVIRONMENT if "*" in name)
 
 
 def _promised(name: str) -> bool:
-    return name in _exact() or any(name.startswith(prefix) for prefix in _prefixes())
+    return name in _exact() or any(fnmatchcase(name, pattern) for pattern in _patterns())
 
 
 def _unpromised(environment: dict[str, Any], declared: set[str]) -> list[str]:
@@ -90,10 +92,10 @@ def container() -> dict[str, Any]:
     return _container_environment(_every_branch_row())
 
 
-def test_the_tuple_holds_only_osprey_names_and_one_prefix():
+def test_the_tuple_holds_only_osprey_names_and_two_patterns():
     assert all(name.startswith(PREFIX) for name in APP_ENVIRONMENT)
     assert len(set(APP_ENVIRONMENT)) == len(APP_ENVIRONMENT)
-    assert _prefixes() == ["OSPREY_TERMINAL_SECRET_"]
+    assert _patterns() == ["OSPREY_QMD_*_URL", "OSPREY_TERMINAL_SECRET_*"]
 
 
 def test_the_every_branch_render_turns_on_each_branch(container):
@@ -101,10 +103,12 @@ def test_the_every_branch_render_turns_on_each_branch(container):
     for name in (
         "OSPREY_APP_NAME",
         "OSPREY_APP_CONFIG",
+        "OSPREY_APP_CORPORA",
         "OSPREY_APP_PORT",
         "OSPREY_APP_STATE_DIRS",
         "OSPREY_AUDIT_IDENTITY",
         "OSPREY_GUARDED_RUN_DIR",
+        "OSPREY_QMD_PROCEDURES_URL",
         "OSPREY_TERMINAL_ROSTER_OWNERS",
         "OSPREY_TERMINAL_SECRET_ALICE",
         "OSPREY_TERMINAL_SECRET_BOB",

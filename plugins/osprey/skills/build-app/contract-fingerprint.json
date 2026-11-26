@@ -1,6 +1,6 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.11.1-228-g0866439142",
+  "reviewed_against": "2026.11.1-265-gdfe4fbb9f3",
   "files": {
     "apps/contract.py": "298c1b0e6f470ba57461c6ec4a8a5aded0ed50b1e16d5f5a9305ff162923771e",
     "apps/manifest.py": "16295fa02ecb335fa2b5ea083c19720271dba0680700c16ae9ffc1c89b530757",
@@ -27,7 +27,7 @@
     "apps/sdk/testing/__init__.py": "9ff665f654bdae7af959631c7aaa991b74116e84357184a4d9c1763423911c92",
     "interfaces/design_system/static/js/page-ready.js": "0a482b8e83b202b026371f8df3bc7f42ea5795271196bc6a2a116dc873012049",
     "interfaces/web_terminal/static/js/panel-iframe-sync.js": "3bdbe2bbb5eb24413d0cc7935479beb0b559b9e94afb2d5689fad968dedea0d0",
-    "apps/projection.py": "539bb7e66016cd47949f8b2c0e9a24274dd15a73cb3a2a92c7fe3c38462b87f5",
+    "apps/projection.py": "7720f530422d18690e34b41562f5dee1d0be00aa1c8b09b407e82275ec797c42",
     "utils/owner_header.py": "6e4fd138c9252cf91becd0afc30b42307f8c539aa6db2fef48c108bdd67c3497",
     "utils/launch_token.py": "96bf265e19bfabed444d9a63b555039ed57eb65b332ea4bc7db6d8df81c6fabb"
   }

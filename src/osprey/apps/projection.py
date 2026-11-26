@@ -42,10 +42,12 @@ APP_NAME_ENV = "OSPREY_APP_NAME"
 #: its container's (the ``app_runtime`` template), its tool server's (written
 #: here), and ``OSPREY_SESSION_ID``, which a tool server inherits from the
 #: agent's session. ``OSPREY_TERMINAL_SECRET_*`` is a prefix: one variable per
-#: roster user of a panel grant. Names an app declares under ``env:`` are its own.
+#: roster user of a panel grant; ``OSPREY_QMD_*_URL`` is one variable per corpus a
+#: container declares. Names an app declares under ``env:`` are its own.
 APP_ENVIRONMENT: tuple[str, ...] = (
     "OSPREY_APP_BIND",
     "OSPREY_APP_CONFIG",
+    "OSPREY_APP_CORPORA",
     APP_NAME_ENV,
     "OSPREY_APP_PORT",
     "OSPREY_APP_STATE_DIRS",
@@ -53,6 +55,7 @@ APP_ENVIRONMENT: tuple[str, ...] = (
     "OSPREY_CONFIG",
     "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_GUARDED_RUN_DIR",
+    "OSPREY_QMD_*_URL",
     "OSPREY_SESSION_ID",
     "OSPREY_SPOOL_DIR",
     "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS",
