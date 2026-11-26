@@ -2537,6 +2537,15 @@ describe('createResultsView', () => {
       'true',
       'false',
     ]);
+    // The open cell sits on the design system's selected surface, the one the
+    // chosen plan row sits on, not on the hover's neutral tint.
+    const css = readFileSync(
+      `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/panel.css`,
+      'utf-8'
+    );
+    expect(css).toMatch(
+      /\.array-cell\[aria-pressed='true'\]\s*\{\s*background:\s*var\(--surface-selected\);\s*\}/
+    );
   });
 
   test('clicking the open cell again closes the plot', async () => {

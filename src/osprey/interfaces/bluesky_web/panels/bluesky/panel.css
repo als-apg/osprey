@@ -1557,8 +1557,10 @@ button.queue-label:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 1px;
 }
+/* The cell whose plot is open sits on the selected surface, as the chosen
+   plan row does. */
 .array-cell[aria-pressed='true'] {
-  background: var(--neutral-tint-08);
+  background: var(--surface-selected);
 }
 .array-spark {
   width: 64px;
