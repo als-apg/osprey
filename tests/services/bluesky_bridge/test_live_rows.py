@@ -548,6 +548,34 @@ def test_a_malformed_descriptor_does_not_raise() -> None:
     assert live_rows.get("run-1")["units"] == {}
 
 
+def test_a_descriptor_states_which_device_recorded_each_column() -> None:
+    """``object_keys`` maps each device to its columns; a later descriptor adds
+    columns to a device and never removes one, and the snapshot is a copy."""
+    counts, spectrum = "DET:COUNTS", "DET:SPECTRUM"
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", {"data_keys": {}, "object_keys": {"det": [counts], "sp1": ["sp1"]}})
+    recorder("descriptor", {"data_keys": {}, "object_keys": {"det": [spectrum, counts]}})
+
+    objects = live_rows.get("run-1")["objects"]
+    objects["det"].append("bogus")
+
+    assert live_rows.get("run-1")["objects"] == {"det": [counts, spectrum], "sp1": ["sp1"]}
+
+
+@pytest.mark.parametrize(
+    "object_keys",
+    [None, ["det"], {"det": "DET:COUNTS"}, {"det": ["DET:COUNTS", 3]}, {"det": None}],
+)
+def test_a_malformed_object_keys_declares_nothing(object_keys: object) -> None:
+    recorder = LiveRowRecorder()
+    recorder("start", _start_doc("run-1"))
+    recorder("descriptor", {"data_keys": {}, "object_keys": object_keys})
+
+    assert live_rows.get("run-1")["objects"] == {}
+    assert live_rows.declared_objects(object_keys) == {}
+
+
 # =========================================================================
 # The two caps are read from the environment, not fixed in the module
 # =========================================================================
