@@ -246,7 +246,9 @@ The file has four lists:
   of more than one dimension is no plan device; the build names each one.
 
 A settable's and a readable's name is its address, a detector's its device id;
-every column heading is an address.
+every column heading is an address. The run records which device recorded each
+column, so the run's figure and ``get_run_data``'s analysis find a detector's
+results under the device id the plan named.
 
 An abort ends the run; an acquisition already started finishes by itself, and
 nothing is written to the detector after the abort.
@@ -268,7 +270,9 @@ Don't edit this file: the build rewrites it every time. To change the device
 set, change the channels under ``data/facility/`` and build again.
 
 A plan the agent writes during a session names channels from this same set.
-``list_devices`` reads it. When the queue worker is running, two checks refuse
+``list_devices`` reads it, and states each device's kind (``settable``,
+``readable``, ``triggerable`` or ``detector``) and, for a detector, the columns
+it records as its ``records``. When the queue worker is running, two checks refuse
 a device the file does not declare, and both answer ``unknown_device``:
 
 - validation refuses such a device in the sample arguments;
