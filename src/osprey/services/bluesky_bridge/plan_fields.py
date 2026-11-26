@@ -45,7 +45,8 @@ Reading the declaration back is `channel_roles` (what a model declares) and
 `collect_channels` (what one set of parameters supplies for a role) -- the
 single authority every consumer uses instead of inspecting field names.
 `resolve_column` is the matching lookup on the other end, finding a channel's
-column in a run's data.
+column in a run's data, and `device_columns` finds every column a declared
+device recorded.
 
 Vocabulary: this module speaks only capability language -- a channel is
 *movable* (the plan drives it to a value), *triggered* (the plan fires it,
@@ -417,6 +418,27 @@ def resolve_column(channel_name: str, columns: Iterable[str]) -> str | None:
         if fallback is None and column.startswith(prefix):
             fallback = column
     return fallback
+
+
+def device_columns(
+    name: str, columns: Iterable[str], objects: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """The data columns holding declared *name*'s readings, in recorded order.
+
+    A declared name reaches the data as its own column (a settable, a readable,
+    a mock: `resolve_column`), or, for a device whose data keys are other names
+    (a detector, recorded under its results' addresses), as the columns the run
+    recorded under it: *objects* is the run's map of each device to its data
+    keys, as its descriptors state it (``object_keys``). A name with its own
+    column never reads *objects*. ``[]`` means the run's data holds nothing for
+    *name*.
+    """
+    columns = list(columns)
+    own = resolve_column(name, columns)
+    if own is not None:
+        return [own]
+    present = set(columns)
+    return [key for key in objects.get(name, ()) if key in present]
 
 
 SETPOINT_KEY_SUFFIX: Final = "_setpoint"
