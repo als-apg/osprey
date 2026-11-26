@@ -1,0 +1,1 @@
+The Bluesky results table plots an array cell, such as a detector's spectrum: each array cell shows a small sketch, and clicking it opens its plot under the table. The CSV export writes an array cell as one field holding its list, and the default figure names each array column it does not draw.
