@@ -62,7 +62,7 @@ services:
     # the deployment repo root — so each is spelled from there.
     #
     # The simulator view comes from the OUTPUT zone, `build/data`, and not from
-    # a source `data/` tree: `osprey build` writes `simulator/addresses.json`
+    # the source zone: `osprey build` writes `simulator/addresses.json`
     # and `simulator/served_models.json` into the render, and the entrypoint
     # reads them under VA_DATA_DIR (default `/data`). Read-only: the IOC never
     # writes the view.

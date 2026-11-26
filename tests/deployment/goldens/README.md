@@ -32,7 +32,7 @@ says.
 ## Regenerating the profile fixture
 
 `exemplar-profile/` is a trimmed materialization of the bundled
-`demo` preset — `data/` is empty on purpose (the fixture is
+`demo` preset with no `facility/` or `web/` tree on purpose (the fixture is
 validated and parsed, never built). It carries no `provenance:` block: trimmed
 by hand, it is not the preset's materialization, so `osprey validate` has no
 preset to compare it with. `providers.yml` sits beside the profile as a copy of

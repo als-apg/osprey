@@ -120,7 +120,7 @@ services:
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
       # compose_generator.compose_base_cmd) — never this file's own subdir. So
       # render output is addressed under build/, and the repo's own zones by
-      # their plain names (data/, .env). Same convention in the volumes below.
+      # their plain names (var/, .env). Same convention in the volumes below.
       context: ./build/services/bluesky
       dockerfile: Dockerfile
       args:
@@ -911,7 +911,7 @@ services:
 {% if bluesky_devices | default(false) %}
       # The device file the env var above names. Unlike the limits DB, the
       # SOURCE is a literal staged path rather than a computed one: `osprey
-      # build` writes the devices view from the channels under data/facility/,
+      # build` writes the devices view from the channels under facility/,
       # and the staging step copies it unchanged into this service's build
       # context under a fixed basename it owns (`BLUESKY_DEVICES_FILENAME`), so
       # no configured path is left here to resolve. Both plan lanes declare the
