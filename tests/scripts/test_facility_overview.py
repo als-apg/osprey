@@ -21,6 +21,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey import repo_layout
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "facility_demo" / "facility_overview.py"
 _SPEC = importlib.util.spec_from_file_location("facility_overview", SCRIPT)
@@ -31,8 +33,10 @@ gen = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = gen
 _SPEC.loader.exec_module(gen)
 
-LIBRARY = (
-    REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
+LIBRARY = repo_layout.child_path(
+    REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / repo_layout.entry("web").path,
+    "web",
+    "canopy-library",
 )
 # The straights whose absorbers carry thermocouples, each with an absorber detail.
 ABSORBER_STRAIGHTS = (2, 4, 5, 6, 7, 8, 9, 10, 11, 12)

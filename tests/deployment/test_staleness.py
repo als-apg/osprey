@@ -23,7 +23,6 @@ from osprey.deployment.staleness import DriftState
 PROFILE_YAML = """\
 name: Exemplar
 provider: anthropic
-data: data
 """
 
 PRE_VOCABULARY = "2026.6.2"

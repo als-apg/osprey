@@ -92,7 +92,7 @@ def _repo(tmp_path: Path, connector: str, renders: dict[str, str]) -> Path:
         else f"  control_system.type: {connector}\n"
     )
     (tmp_path / "profile.yml").write_text(
-        f"name: demo\ndata: data\nconfig:\n{control_system}  simulation.models: null\n"
+        f"name: demo\nconfig:\n{control_system}  simulation.models: null\n"
     )
     (tmp_path / TIERS_DIRNAME).mkdir()
     for name, body in renders.items():

@@ -65,7 +65,7 @@ from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 from tests._renders import tier_render
 from tests._scoped_stdlib import scoped
 from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
@@ -89,7 +89,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    kwargs.setdefault("repo_root", bundle_source_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

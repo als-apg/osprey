@@ -734,7 +734,6 @@ BARE_PROFILE = """\
 name: Bare
 provider: anthropic
 model: claude-haiku-4-5
-data: data
 channel_finder_mode: hierarchical
 config:
   control_system.type: virtual_accelerator

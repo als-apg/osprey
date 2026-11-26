@@ -67,7 +67,7 @@ from osprey.mcp_server import startup
 from osprey.registry.mcp import FRAMEWORK_SERVERS, TOOL_PREFIX_ENV, resolve_servers
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR
-from tests._preset_data import bundle_data_root
+from tests._preset_data import bundle_source_root
 
 
 def _create_project(manager: TemplateManager, **kwargs) -> Path:
@@ -88,7 +88,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
 
     bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
-    kwargs.setdefault("data_root", bundle_data_root(bundle))
+    kwargs.setdefault("repo_root", bundle_source_root(bundle))
     project = manager.create_project(**kwargs)
     profile, _preset_dir = resolve_build_profile(None, preset=preset)
     config_update_fields(project / "config.yml", profile.config)

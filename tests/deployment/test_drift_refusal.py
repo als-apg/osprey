@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey import repo_layout
 from osprey.deployment import staleness
 from osprey.deployment.staleness import DriftState
 from osprey.utils.workspace import TIERS_DIRNAME
@@ -39,7 +40,6 @@ PROFILE_YAML = """\
 # The facility's build profile.
 name: Exemplar
 provider: anthropic
-data: data
 """
 
 
@@ -90,8 +90,7 @@ def test_comment_only_profile_edit_is_clean(repo):
         "# The facility's build profile.\n"
         "# Reviewed 2026-08-10 — no functional change.\n"
         "name: Exemplar\n"
-        "provider: anthropic   # which model answers\n"
-        "data: data\n",
+        "provider: anthropic   # which model answers\n",
         encoding="utf-8",
     )
 
@@ -108,13 +107,16 @@ def test_data_tree_edit_is_drift(repo):
     The profile YAML is byte-identical here. Only the tree it names moved —
     which is what a facility editing its channel database actually does.
     """
-    _write(repo / "data" / "channel_databases" / "als.json", '{"channels": ["SR:BPM1"]}\n')
+    _write(
+        repo / repo_layout.entry("facility").path / "records" / "channels.yaml",
+        "channels: [SR:BPM1]\n",
+    )
 
     report = staleness.check_drift(repo)
 
     assert report.state is DriftState.DRIFT
     assert report.refuses
-    assert report.changed_keys == ("data/",)
+    assert report.changed_keys == (f"{repo_layout.entry('facility').path}/",)
     assert "--as-built" in report.remedy
 
 
@@ -239,7 +241,10 @@ def test_material_change_is_named_once(repo):
     Reporting it beside the input that explains it would say the same edit
     twice, once vaguely — which is how the old message read.
     """
-    _write(repo / "data" / "channel_databases" / "als.json", '{"channels": ["SR:BPM1"]}\n')
+    _write(
+        repo / repo_layout.entry("facility").path / "records" / "channels.yaml",
+        "channels: [SR:BPM1]\n",
+    )
 
     assert staleness.MATERIAL_DISPLAY not in staleness.check_drift(repo).changed_keys
 

@@ -1,9 +1,9 @@
 """A machine repository builds on its own and mounted, to the same facility.
 
-A machine repository versions one facility (``data/facility``) with the VA-only
+A machine repository versions one facility (``facility/``) with the VA-only
 profile it builds and serves by itself. A deployment mounts it, as a nested
 clone or as a git submodule, and names its facility directory with
-``machine: <mount>/data/facility``.
+``machine: <mount>/facility``.
 
 The shapes the docs describe hold on every PR:
 
@@ -86,20 +86,19 @@ def _clone(source: Path, destination: Path) -> Path:
 def _deployment(parent: Path, name: str, source: Path, mount: str, *, submodule: bool) -> Path:
     """A committed deployment mounting *source* at *mount*.
 
-    Its own ``data/facility`` is empty: a mounted deployment's facility directory
+    Its own ``facility/`` is empty: a mounted deployment's facility directory
     holds only its content directories, and this one has none (a ``.gitkeep``
     keeps the directory in a clone, and dot-entries are not content). A nested clone
     keeps the working copy's ``.git``, ``build/``, ``var/`` and ``.env``; a
     submodule gets them written into its checkout after ``git submodule add``.
     """
     repo = parent / name
-    (repo / "data" / "facility").mkdir(parents=True)
-    (repo / "data" / "facility" / ".gitkeep").write_text("", encoding="utf-8")
+    (repo / FACILITY_PATH).mkdir(parents=True)
+    (repo / FACILITY_PATH / ".gitkeep").write_text("", encoding="utf-8")
     (repo / PROFILE_FILENAME).write_text(
         "extends: hello-world\n"
         "name: Mounted Deployment\n"
         f"project_name: {name}\n"
-        "data: data\n"
         f"machine: {mount}/{FACILITY_PATH}\n",
         encoding="utf-8",
     )
@@ -259,15 +258,14 @@ def test_the_repository_top_reaches_neither_the_render_nor_the_staged_sources(
     assert (top / ".git").is_dir() is (mount == CLONE_MOUNT)
 
     # The render is the machine's facts beside the deployment's own files.
-    rendered = machine_facts | _files(repo / "data" / "facility")
+    rendered = machine_facts | _files(repo / FACILITY_PATH)
     for root in _render_roots(repo):
         assert _files(root / "data" / "facility") == rendered, root
 
     staged = build_dir / IMAGE_DIR_NAME / repo.name
     staged_mount = staged / mount
-    assert sorted(path.name for path in staged_mount.iterdir()) == ["data"]
-    assert sorted(path.name for path in (staged_mount / "data").iterdir()) == ["facility"]
-    assert _files(staged_mount / "data" / "facility") == machine_facts
+    assert sorted(path.name for path in staged_mount.iterdir()) == [FACILITY_PATH]
+    assert _files(staged_mount / FACILITY_PATH) == machine_facts
     assert not [path for path in build_dir.rglob(".git") if path != build_dir / ".git"]
     assert not [rel for rel, data in _files(build_dir).items() if SECRET.encode() in data]
 
@@ -278,7 +276,7 @@ def test_the_repository_top_reaches_neither_the_render_nor_the_staged_sources(
 def _fingerprints(repo: Path, mount: str) -> tuple[str, str]:
     machine = repo / mount / FACILITY_PATH
     return (
-        facility_digest(machine, content_dir=repo / "data" / "facility"),
+        facility_digest(machine, content_dir=repo / FACILITY_PATH),
         profile_hash(repo),
     )
 
@@ -359,7 +357,7 @@ def test_a_mounted_deployment_validates(mounted: tuple[Path, str]) -> None:
 def test_a_restated_record_stops_validate(mounted: tuple[Path, str]) -> None:
     repo, mount = mounted
     record = Path("records") / "channels.yaml"
-    restated = repo / "data" / "facility" / record
+    restated = repo / FACILITY_PATH / record
     restated.parent.mkdir(parents=True)
     shutil.copy2(repo / mount / FACILITY_PATH / record, restated)
 
@@ -367,7 +365,7 @@ def test_a_restated_record_stops_validate(mounted: tuple[Path, str]) -> None:
 
     assert result.exit_code == 1, result.output
     assert result.stderr.startswith(
-        f"facility: machine-restated: path data/facility/{record.as_posix()} — "
+        f"facility: machine-restated: path {FACILITY_PATH}/{record.as_posix()} — "
     )
     assert f"{mount}/{FACILITY_PATH}/{record.as_posix()}" in result.stderr
 

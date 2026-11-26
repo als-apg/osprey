@@ -533,64 +533,15 @@ class TestDocumentPlaneCerts:
             assert public.decode() not in caplog.text
 
 
-class TestLegacyCurveDirMigration:
-    """Certificates minted directly under the data tree relocate into ``var/runtime/``.
+class TestCurveDirHome:
+    """The writer mints into ``var/runtime/`` and nowhere else.
 
-    The oldest deployments wrote each lane's set to ``data/<lane>_curve/`` —
-    inside the folded build input. The writer relocates that material on the next ``up`` rather than leaving
-    readers to check two paths: a move preserves the keys (rotation would break
-    a running stack's pinned pairs), and afterwards exactly one spelling exists.
+    A tree still holding ``data/<lane>_curve/`` is a retired layout, refused at
+    verb entry before provisioning runs; the writer itself reads one path only.
     """
 
-    _LEGACY_LAYOUT = (
-        ("bridge", "proxy.key_secret"),
-        ("bridge", "clients", "publisher.key"),
-        ("queueserver", "publisher.key_secret"),
-        ("queueserver", "proxy.key"),
-    )
-
-    @classmethod
-    def _write_legacy_set(cls, project_dir, lane_key="bluesky", parts_subset=None):
-        legacy = project_dir / "data" / f"{lane_key}_curve"
-        written = {}
-        for parts in parts_subset or cls._LEGACY_LAYOUT:
-            path = legacy.joinpath(*parts)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            body = f"legacy {'/'.join(parts)}\n".encode()
-            path.write_bytes(body)
-            written["/".join(parts)] = body
-        return legacy, written
-
-    def test_complete_legacy_set_is_relocated_not_rotated(self, env_path):
-        """The exact key bytes survive the move; nothing is re-minted."""
-        legacy, written = self._write_legacy_set(env_path.parent)
-
-        _ensure_bluesky_document_plane_certs({"deployed_services": ["bluesky"]}, env_path=env_path)
-
-        base = env_path.parent / "var" / "runtime" / "bluesky_curve"
-        for rel, body in written.items():
-            assert base.joinpath(*rel.split("/")).read_bytes() == body, rel
-        assert not legacy.exists()
-
-    def test_partial_legacy_set_is_relocated_then_repaired(self, env_path, caplog):
-        """Relocation and the existing incomplete-set repair compose."""
-        legacy, _ = self._write_legacy_set(
-            env_path.parent, parts_subset=(("bridge", "proxy.key_secret"),)
-        )
-
-        with caplog.at_level("WARNING"):
-            _ensure_bluesky_document_plane_certs(
-                {"deployed_services": ["bluesky"]}, env_path=env_path
-            )
-
-        assert not legacy.exists()
-        paths = _bluesky_curve_paths(env_path.parent)
-        for role in ("proxy_secret", "publisher_secret", "proxy_public", "publisher_public"):
-            assert paths[role].is_file(), role
-        assert "incomplete" in caplog.text
-
-    def test_fresh_mint_is_untouched_by_migration(self, env_path):
-        """No legacy directory, no relocation: the normal mint path still runs."""
+    def test_a_fresh_mint_writes_the_state_zone_only(self, env_path):
+        """The set lands under the state zone and no data tree appears."""
         _ensure_bluesky_document_plane_certs({"deployed_services": ["bluesky"]}, env_path=env_path)
 
         assert _bluesky_curve_paths(env_path.parent)["proxy_secret"].is_file()

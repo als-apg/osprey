@@ -191,7 +191,6 @@ def _build(tmp_path: Path, config: dict[str, Any]):
             {
                 "name": "Demo Facility",
                 "project_name": "demo-facility",
-                "data": "data",
                 "config": config,
             },
             sort_keys=False,

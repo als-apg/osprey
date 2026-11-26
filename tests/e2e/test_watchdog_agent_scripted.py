@@ -38,7 +38,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
 )
 from osprey_connectors.simulation.view import VIEW_RELPATH
-from tests._preset_data import copy_bundle_data
+from tests._preset_data import bundle_source_root
 from tests.e2e.scripted_model import ScriptedCall, ScriptedModel
 from tests.e2e.sdk_helpers import enable_writes_in_project, render_dir
 
@@ -82,7 +82,7 @@ def build_deployment(
     """
     repo = root / "repo"
     shutil.copytree(FIXTURES / "agent-profile", repo)
-    copy_bundle_data(repo / "data", "hello_world")
+    shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
     records_path = repo / "data" / "facility" / "records" / "channels.yaml"
     records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
     records.append(

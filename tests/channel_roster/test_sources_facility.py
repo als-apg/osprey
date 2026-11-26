@@ -277,7 +277,7 @@ class TestAbsence:
         assert roster.absence.reason is RosterAbsenceReason.FACILITY_EMPTY
         assert roster.absence.message() == (
             "The facility file facility.json declares no channels: the project's "
-            "data/facility tree holds no channel records."
+            "facility tree holds no channel records."
         )
 
     def test_an_empty_facility_is_logged_as_information(

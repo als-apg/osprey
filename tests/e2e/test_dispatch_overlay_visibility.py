@@ -18,8 +18,8 @@ hollow/degraded worker could not satisfy:
   * an OVERLAY SKILL (``agent/skills/facility-marker`` -> rendered to
     ``build/.claude/skills/facility-marker``) that is NOT an OSPREY built-in,
     whose instructions produce an observable marker token;
-  * ``data/overlay_visibility.json``, a small fixture carrying a distinctive
-    sentinel value, which the render copies verbatim to ``build/data/``;
+  * ``facility/overlay_visibility.json``, a small fixture carrying a distinctive
+    sentinel value, which the render copies verbatim to ``build/data/facility/``;
   * a custom ``overlay-visibility`` trigger that routes to the worker, invokes
     the overlay skill, and carries a ``surface_prompt`` fragment.
 
@@ -121,10 +121,16 @@ WORKER_ARTIFACT_DIR = f"{WORKER_AGENT_DATA}/artifacts"
 OVERLAY_TRIGGER = "overlay-visibility"
 OVERLAY_MARKER = "OVERLAY_MARKER_OK"  # produced only by the overlay skill
 DATA_SENTINEL = "CHANLIM_SENTINEL_7F3A"  # lives only in the render's data/ file
-# The profile ``data/`` file carrying the sentinel. No build view writes this
+# The facility-tree file carrying the sentinel. No build view writes this
 # name and no reserved path pattern covers it, so the build copies it verbatim
-# from the source zone into ``build/data/``.
+# from the source zone's ``facility/`` into the render's ``data/facility/``.
 DATA_FILE = "overlay_visibility.json"
+SOURCE_REL = f"{repo_layout.entry('facility').path}/{DATA_FILE}"
+RENDERED_REL = next(
+    f"{source.render_rel}/{DATA_FILE}"
+    for source in repo_layout.rendered_sources()
+    if source.key == "facility"
+)
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
@@ -158,7 +164,7 @@ allowed-tools: Read, mcp__osprey_workspace__artifact_register
 
 When this skill is invoked, do exactly the following, in order:
 
-1. Read the file `build/data/{DATA_FILE}` from the working directory.
+1. Read the file `build/{RENDERED_REL}` from the working directory.
 2. Note the value of its top-level `_sentinel` field.
 3. Save a short markdown report using the workspace artifact tool
    (`mcp__osprey_workspace__artifact_register`) with `content` (inline markdown)
@@ -197,7 +203,7 @@ _OVERLAY_TRIGGER_ENTRY = {
     "action": {
         "prompt": (
             "Invoke the facility-marker skill now using the Skill tool, and follow "
-            f"its steps exactly: read the file build/data/{DATA_FILE} from "
+            f"its steps exactly: read the file build/{RENDERED_REL} from "
             "the working directory, then save a markdown report via the workspace "
             "artifact_register tool. Do not skip any step."
         ),
@@ -244,7 +250,7 @@ def _mutate_source(repo: Path) -> None:
 
       * ``agent/skills/<name>/`` -> ``build/.claude/skills/<name>/``, named by
         ``skills/<name>`` in the profile's ``skills:`` list;
-      * ``data/<DATA_FILE>`` -> ``build/data/<DATA_FILE>``;
+      * ``facility/<DATA_FILE>`` -> ``build/data/facility/<DATA_FILE>``;
       * ``triggers.yml`` (named by the profile's ``dispatch.triggers``) ->
         ``build/triggers.yml`` AND the copy under
         ``build/services/event_dispatcher/`` that the dispatcher container
@@ -268,7 +274,7 @@ def _mutate_source(repo: Path) -> None:
         encoding="utf-8",
     )
 
-    data_path = repo / "data" / DATA_FILE
+    data_path = repo / SOURCE_REL
     data_path.parent.mkdir(parents=True, exist_ok=True)
     data_path.write_text(json.dumps(_DATA_FIXTURE, indent=2), encoding="utf-8")
 
@@ -347,19 +353,19 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # fixture must sit in build/data/ verbatim. A miss here is a render failure,
     # never an image one, and it surfaces in seconds rather than after the
     # image build.
-    rendered_data = repo / "build" / "data" / DATA_FILE
+    rendered_data = repo / "build" / RENDERED_REL
     assert rendered_data.is_file(), (
-        f"osprey build did not copy data/{DATA_FILE} into build/data/; "
-        "the profile's data/ bundle is missing from the render"
+        f"osprey build did not copy {SOURCE_REL} into build/{RENDERED_REL}; "
+        "the facility tree is missing from the render"
     )
     assert DATA_SENTINEL in rendered_data.read_text(encoding="utf-8"), (
-        f"build/data/{DATA_FILE} does not carry {DATA_SENTINEL!r}; "
-        "the build did not copy the source data/ file verbatim"
+        f"build/{RENDERED_REL} does not carry {DATA_SENTINEL!r}; "
+        "the build did not copy the source facility/ file verbatim"
     )
     # The worker's image is built from the dispatch tier's render, so the
     # overlay skill and the data fixture must sit there too.
     tier_render = repo / "build" / WORKER_TIER_PROJECT
-    for relpath in (f"data/{DATA_FILE}", ".claude/skills/facility-marker/SKILL.md"):
+    for relpath in (RENDERED_REL, ".claude/skills/facility-marker/SKILL.md"):
         assert (tier_render / relpath).is_file(), (
             f"osprey build did not render {relpath} into the dispatch tier's "
             f"render build/{WORKER_TIER_PROJECT}/; the worker image would lack it"
@@ -835,7 +841,7 @@ def test_overlay_skill_and_data_visible_in_worker() -> None:
     )
     assert DATA_SENTINEL in haystack, (
         f"data sentinel {DATA_SENTINEL!r} (present only in the baked-in data file) did "
-        f"not surface in what the agent read; build/data/{DATA_FILE} was absent "
+        f"not surface in what the agent read; build/{RENDERED_REL} was absent "
         f"in-container or was not the baked-in file.\n{diag}"
     )
 
