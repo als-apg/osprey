@@ -131,9 +131,9 @@ Integrations
       :link: pyaml/index
       :link-type: doc
 
-      The pyAML integration: pyAML on the OSPREY connector, the pyAML view
-      the build writes per model, the measurement tools the agent gets, and
-      measurement kinds of your own.
+      pyAML on the OSPREY connector: measure orbit, dispersion, tune and
+      chromaticity responses through the agent, and add measurement kinds
+      of your own.
 
    .. grid-item-card:: Bluesky Integration
       :link: bluesky/index

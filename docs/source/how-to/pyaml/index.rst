@@ -5,19 +5,14 @@ Python Accelerator Middle Layer (pyAML)
 =======================================
 
 `pyAML <https://pyaml.readthedocs.io>`_, the Python Accelerator Middle Layer,
-is a multi-laboratory library for accelerator control, tuning and
-optimization, intended as the successor to the MATLAB Middle Layer. OSPREY
-integrates it in three places:
-
-- **The control-system backend.** ``pyaml-cs-osprey``, installed with OSPREY,
-  implements pyAML's control system on the OSPREY connector. Every pyAML read
-  and write passes through it, so channel limits, the control target, write
-  verification and the audit record all apply. pyAML's own backends are not
-  used.
-- **The pyAML view.** ``osprey build`` writes one pyAML configuration per
-  served model from the facility description; see `When the tools are there`_.
-- **The measurement tools.** The agent measures through pyAML, under approval
-  and the control target's run lock.
+is a joint platform of several laboratories for the design, commissioning and
+operation of particle accelerators. Under OSPREY it runs on
+``pyaml-cs-osprey``, a control-system backend installed with OSPREY that sends
+every pyAML read and write through the OSPREY connector instead of pyAML's own
+backends. A pyAML write is therefore an ordinary write: checked against the
+channel limits, verified and recorded. ``osprey build`` writes the pyAML
+configuration of each measured model from the facility description, and the
+agent measures through it.
 
 This page shows how to take a measurement on the control target through the
 agent, and what happens to the machine while it runs. It also says when the
