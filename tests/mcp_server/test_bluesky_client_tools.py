@@ -349,6 +349,28 @@ async def test_list_devices_request_response_mapping(monkeypatch):
     assert "note" not in data
 
 
+async def test_list_devices_relays_kind_and_records(monkeypatch):
+    """Each entry's ``kind`` and a detector's ``records`` reach the agent as
+    the bridge states them, and the bridge's note rides beside the page's."""
+    counts = "ES1:DET:MCA:01:COUNTS:RB"
+    devices = [
+        {"name": "ES1-MCA01", "is_readable": True, "kind": "detector", "records": [counts]},
+        {"name": counts, "is_readable": True, "kind": "readable"},
+    ]
+    bridge_note = "The worker did not state what ES1-MCA02 records."
+
+    def fake_get(_path, **_kwargs):
+        return 200, {"devices": devices, "total": 3, "offset": 0, "limit": 2, "note": bridge_note}
+
+    monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
+
+    data = extract_response_dict(await _fn("list_devices")(limit=2))
+
+    assert data["devices"] == devices
+    assert data["note"].startswith(bridge_note + " ")
+    assert "1 of the 3 matching devices" in data["note"]
+
+
 # ---------------------------------------------------------------------------
 # list_runs — GET /runs
 # ---------------------------------------------------------------------------

@@ -241,12 +241,18 @@ async def list_devices(prefix: str = "", limit: int | None = None, offset: int =
         ``is_readable`` one that can be read as a readback. A missing flag
         means the worker did not say, not "no".
 
+        ``kind`` says what the plan does to it: a settable is moved, a readable
+        read, a triggerable fired, a detector triggered and recorded; a
+        detector's ``records`` are the columns its run records. Name a detector
+        in a triggered parameter, and read its results under its ``records``.
+
         ``total`` counts the matches before the page cut; ``offset`` and
         ``limit`` are the EFFECTIVE values the bridge used after clamping, not
         necessarily the ones asked for. A ``"note"`` appears whenever this page
         holds fewer than ``total`` entries, saying how many are missing and how
         to reach them — relay that rather than describing the page as the whole
-        set. ``devices: []`` with ``total: 0`` means nothing matched: for an
+        set; it also names a detector whose ``records`` the worker did not
+        state. ``devices: []`` with ``total: 0`` means nothing matched: for an
         empty ``prefix`` the worker built no devices at all, and otherwise no
         name starts with it (check the spelling and the case).
     """
@@ -278,19 +284,22 @@ async def list_devices(prefix: str = "", limit: int | None = None, offset: int =
         "offset": effective_offset,
         "limit": body["limit"],
     }
+    notes = [body["note"]] if isinstance(body.get("note"), str) else []
     if len(devices) < total:
         if effective_offset >= total:
-            result["note"] = (
+            notes.append(
                 f"This page is empty because offset {effective_offset} is past the end of "
                 f"the namespace, which holds {total} matching devices — read again from a "
                 "lower offset."
             )
         else:
-            result["note"] = (
+            notes.append(
                 f"{total - effective_offset - len(devices)} of the {total} matching devices "
                 "are not on this page — narrow the search with prefix, or read the next page "
                 "with offset."
             )
+    if notes:
+        result["note"] = " ".join(notes)
     return json.dumps(result)
 
 

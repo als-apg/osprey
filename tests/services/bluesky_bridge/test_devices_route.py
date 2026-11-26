@@ -260,6 +260,94 @@ def test_worker_internal_description_detail_stays_off_the_wire(bridge) -> None:
     ]
 
 
+class _DescribingManager(_ScriptedManager):
+    """A manager whose worker answers ``describe_devices`` with ``described``."""
+
+    def __init__(self, reply: Any, described: Any) -> None:
+        super().__init__(reply)
+        self._described = described
+        self.described_names: list[Any] = []
+
+    async def function_execute(self, *, item: dict[str, Any], **_kwargs: Any) -> dict[str, Any]:
+        self.calls.append("function_execute")
+        self.described_names.append(item["args"][0])
+        return {"success": True, "task_uid": "t-1"}
+
+    async def task_result(self, **_kwargs: Any) -> dict[str, Any]:
+        self.calls.append("task_result")
+        return {
+            "success": True,
+            "status": "completed",
+            "result": {"success": True, "return_value": self._described},
+        }
+
+
+_COUNTS, _SPECTRUM = "ES1:DET:MCA:01:COUNTS:RB", "ES1:DET:MCA:01:SPECTRUM:WAVEFORM"
+
+#: The manager's description of one device of each kind, by the class the
+#: worker built it from.
+_CLASSED = {
+    "ES1-MCA01": {"is_readable": True, "classname": "ConnectorDetector"},
+    "ES1:STAGE:SP": {"is_movable": True, "classname": "ConnectorPositioner"},
+    "SHUTTER": {"is_readable": True, "classname": "ConnectorTriggerable"},
+    _COUNTS: {"is_readable": True, "classname": "ConnectorReadable"},
+    "COR1": {"is_movable": True, "classname": "ConnectorSettable"},
+}
+
+
+def test_a_detector_entry_states_its_kind_and_records() -> None:
+    """Every entry states what a plan does to it; a detector also lists the
+    columns its run records, read with one worker call over the page's
+    detectors, and its first result stays listed as a readable."""
+    from osprey.services.bluesky_bridge import qserver_startup
+
+    number = {"dtype": "number", "shape": []}
+    described = {
+        "ES1-MCA01": {
+            "kind": "detector",
+            "data_keys": {_COUNTS: number, _SPECTRUM: {"dtype": "array", "shape": [4]}},
+        }
+    }
+    manager = _DescribingManager(_allowed(**_CLASSED), described)
+    app_module.set_queue_backend(QueueBackend(manager))
+
+    payload = TestClient(app).get("/devices").json()
+
+    kinds = {entry["name"]: entry["kind"] for entry in payload["devices"]}
+    assert kinds == {
+        "COR1": "settable",
+        "ES1-MCA01": "detector",
+        "ES1:STAGE:SP": "settable",
+        _COUNTS: "readable",
+        "SHUTTER": "triggerable",
+    }
+    (detector,) = [entry for entry in payload["devices"] if entry["kind"] == "detector"]
+    assert detector["records"] == [_COUNTS, _SPECTRUM]
+    assert all("records" not in entry for entry in payload["devices"] if entry is not detector)
+    assert manager.described_names == [["ES1-MCA01"]]
+    assert "note" not in payload
+    assert app_module._DESCRIBE_FUNCTION == qserver_startup.describe_devices.__name__
+
+
+def test_a_worker_that_does_not_describe_leaves_records_out_and_says_so(bridge) -> None:
+    client, _ = bridge(_allowed(**_CLASSED))
+
+    payload = client.get("/devices").json()
+
+    (detector,) = [entry for entry in payload["devices"] if entry["kind"] == "detector"]
+    assert "records" not in detector
+    assert payload["note"] == "The worker did not state what ES1-MCA01 records."
+
+
+def test_a_page_without_a_detector_asks_the_worker_nothing(bridge) -> None:
+    client, manager = bridge(_allowed(COR1=_CLASSED["COR1"]))
+
+    payload = client.get("/devices").json()
+
+    assert payload["devices"] == [{"name": "COR1", "is_movable": True, "kind": "settable"}]
+    assert manager.calls == ["devices_allowed"]
+
+
 def test_a_flag_the_manager_did_not_report_stays_absent(bridge) -> None:
     """A flag the manager did not report is not a "no" — a fabricated `False`
     would read as a device that cannot be driven, a different claim entirely."""

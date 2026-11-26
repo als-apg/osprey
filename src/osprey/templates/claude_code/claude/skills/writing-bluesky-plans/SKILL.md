@@ -323,6 +323,14 @@ and refuses one it never built with `unknown_device`; the pre-enqueue check
 holds the draft's own arguments to the same rule. Choose the channels a plan
 moves and reads from `list_devices` before you validate with them.
 
+Each `list_devices` entry states its `kind`: a `settable` is moved, a
+`readable` read, a `triggerable` fired, a `detector` triggered and recorded.
+Name a detector under a triggered field by its `list_devices` name; its
+columns are its `records`, the result addresses a reading of it is keyed by.
+The dry run rehearses each channel with the columns the worker says it
+records; one the worker did not describe is a stand-in recording under its
+own name, and `validate_plan` names it in `stand_ins`.
+
 ---
 
 ## Stamp the run: `scan_metadata`
