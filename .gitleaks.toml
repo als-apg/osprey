@@ -12,6 +12,15 @@ condition = "AND"
 paths = ['''^tests/dock_engine/cases-pin\.json$''']
 regexes = ['''^[0-9a-f]{40}$''']
 
+# The build-app contract fingerprint maps each contract source file to its SHA-256.
+# File names such as utils/launch_token.py make generic-api-key read the hash as a
+# key; only a bare 64-hex hash in that file is exempt.
+[[allowlists]]
+description = "source-file hashes in the build-app contract fingerprint"
+condition = "AND"
+paths = ['''^plugins/osprey/skills/build-app/contract-fingerprint\.json$''']
+regexes = ['''^[0-9a-f]{64}$''']
+
 # The optimizer's cancellation tests pass `redis_key=test_key, poll_interval=0.05`
 # on one line; generic-api-key reads the `key` keyword and takes the next
 # argument, `poll_interval=0.05`, as its value. Only that text in that file is

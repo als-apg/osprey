@@ -45,7 +45,9 @@ order: a checkout around the working directory, the interpreter's installed
 package, the package behind the `osprey` command on `PATH`. `--root <dir>`
 names one explicitly.
 
-The first block is the verdict:
+The first block names the OSPREY it read and its contract number, `contract:
+<N>`: the number your `app.yml` declares (step 3). `contract: none` means
+that OSPREY predates the number; declare none. Then the verdict:
 
 - **contract unchanged since review**: the snapshot and steps below hold.
 - **contract CHANGED in N file(s)**: each changed file is listed with what it
@@ -143,8 +145,8 @@ osprey app new <name>     # lower-case letters, digits, dashes
 osprey app check          # the scaffold passes as copied
 ```
 
-`new` copies the scaffold to `apps/<name>/`, renames the app and its Python
-package, lists it under `apps:` in `profile.yml` (listing turns it on) and
+`new` copies the scaffold to `apps/<name>/` (its `app.yml` already declares
+the current contract number), renames the app and its Python package, lists it under `apps:` in `profile.yml` (listing turns it on) and
 git-ignores fetched panel files. A name an installed package already gives an
 application is refused. Read the copied files before changing them:
 they are the reference implementation of every pattern below.
@@ -168,6 +170,13 @@ Edit `app.yml` last-to-first as you add things, but understand it first: a
 route the tools call must be in `panel.agent_routes`; a tool must be under
 `tools.read` or `tools.approval`; the backend container that writes needs
 `drives_target: true`. Take keys and defaults from the summary.
+
+`contract` is checked before anything else in the file: it must be the number
+step 0 printed. A missing key, or another number, is refused alone, with a
+message saying whether the app or OSPREY has to move. Keep the number the
+scaffold wrote unless the app is being moved to a newer contract. What the
+number covers and when it changes is the documentation's reference page *The
+Application Contract*; this skill does not restate it.
 
 ### 4. Backend (`<package>/server.py`)
 
@@ -242,7 +251,9 @@ osprey build && osprey up -d      # to see it in the terminal
 osprey health
 ```
 
-`check` is done when it prints the pass line and exits 0. It needs Node and
+`check` is done when it prints the pass line and exits 0. `osprey build`
+applies the same import rules before it starts anything, so an import `check`
+refuses also stops the build. It needs Node and
 npm for the panel's lint and tests; the first run installs a pinned toolchain
 into the user cache and needs network once. Then in the terminal: the panel
 shows state for the session's machine and follows the control-target chip;
@@ -292,6 +303,10 @@ Hold to these, and take their exact rule names from the summary:
 - Importing `osprey.<anything else>` or an underscore-prefixed name. The
   allowed modules are in the summary; if the SDK lacks what you need, that is
   a request to OSPREY, not a reason to reach in.
+- Importing a name an allowed module does not define, or an
+  `osprey_connectors` module that does not exist (rules `import_missing_name`
+  and `import_missing_module`). Take names from the summary's SDK list, not
+  from memory or an older release.
 - Renaming the app by hand. `name`, the directory, the package, the panel id
   and the tool server share the name; make a new one with `osprey app new`
   and move the code.
@@ -304,6 +319,7 @@ Orientation only, as of the OSPREY this skill was reviewed against (step 0
 names it, and says when this has moved). The summary is the authority.
 
 ```yaml
+contract: <N>                 # the number step 0 prints; checked first
 name: <name>                  # = directory = panel id = tool server name
 summary: <one sentence>
 containers:                   # optional; a panel and armed write tools need one
@@ -339,8 +355,8 @@ Files of an app: `app.yml`, `pyproject.toml`, `<package>/{__init__,server,tools}
 `panel/{index.html,panel.js,panel.css}`, `tests/panel.test.js`,
 `skills/<name>/SKILL.md`, `agents/<name>.md`. Application code imports `osprey.apps.sdk`,
 `osprey_facility.kinds` and the public `osprey_connectors` modules, nothing else of OSPREY:
-`osprey app check` refuses any other `osprey_facility` import, `osprey_facility.records`
-included.
+`osprey app check` and `osprey build` refuse any other `osprey_facility` import,
+`osprey_facility.records` included, and an import of a name or module these do not provide.
 
 The narrative version of all this, with the worked example, is the
 documentation's *How-to: Apps* section (*Build Your Own App*).
@@ -350,8 +366,10 @@ documentation's *How-to: Apps* section (*Build Your Own App*).
 `contract-fingerprint.json` records a hash of each file the contract lives in
 (the list is `WATCHED` in the script). When one changes in the OSPREY
 repository, `tests/plugins/test_build_app_contract.py` fails and names it.
-Re-read this file against the change, correct what it made wrong, then record
-the review:
+The failure first asks whether the change breaks apps; if it does, the
+number and its history row change as the reference page *The Application
+Contract* says. Then re-read this file against the change, correct what it
+made wrong, and record the review:
 
 ```bash
 uv run python plugins/osprey/skills/build-app/scripts/app_contract.py --refresh
