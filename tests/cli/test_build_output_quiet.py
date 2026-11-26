@@ -427,25 +427,17 @@ class TestStdoutDemotions:
 
 
 class TestStdoutDataCopyQuiet:
-    """The two data-copy branches no build exercises together."""
-
-    def _tree(self, root: Path) -> Path:
-        root.mkdir(parents=True, exist_ok=True)
-        (root / "channels.json").write_text("{}", encoding="utf-8")
-        return root
+    """The declared-source copy, called on its own."""
 
     def test_stdout_profile_data_copy_is_quiet(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture
     ) -> None:
-        """The profile branch — the one a facility build takes.
-
-        Not reachable from :func:`rendered_project`: a profile's ``data:`` tree
-        fully replaces the bundle's, so the two branches are alternatives and
-        only the bundle one runs in a bundle render.
-        """
+        """A deployment's facility source lands in the render with nothing on stdout."""
         from osprey.cli.templates.scaffolding import copy_template_data
 
-        data_root = self._tree(tmp_path / "profile" / "data")
+        repo = tmp_path / "profile"
+        (repo / "facility").mkdir(parents=True)
+        (repo / "facility" / "channels.json").write_text("{}", encoding="utf-8")
         project = tmp_path / "project"
         project.mkdir()
 
@@ -457,9 +449,9 @@ class TestStdoutDataCopyQuiet:
                 package_name="quiet_project",
                 data_bundle="demo",
                 ctx={},
-                data_root=data_root,
+                repo_root=repo,
             )
 
-        assert (project / "data" / "channels.json").exists()
+        assert (project / "data" / "facility" / "channels.json").exists()
         assert "Copied profile data files" in caplog.text
         assert "Copied profile data" not in plain(capsys.readouterr().out)

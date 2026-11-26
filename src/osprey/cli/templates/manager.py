@@ -160,7 +160,7 @@ class TemplateManager:
         self,
         project_name: str,
         output_dir: Path,
-        data_root: Path,
+        repo_root: Path,
         data_bundle: str,
         context: dict[str, Any] | None = None,
         force: bool = False,
@@ -179,18 +179,17 @@ class TemplateManager:
         Args:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
-            data_root: Facility data tree to copy, already resolved by
-                ``BuildProfile.resolved_data_root``. Copied verbatim, with no
-                Jinja rendering. Required: every profile declares ``data:``
-                and there is no packaged tree to fall back to, so a render
-                without one would produce a project with no data at all.
+            repo_root: The deployment root. Every source the layout declares
+                a render path for is copied from here into the project, with
+                no Jinja rendering; a declared source absent on disk renders
+                nothing.
             data_bundle: Data bundle — the ``apps/`` directory this render
                 takes its artifact defaults from, along with the optional
                 ``services/`` and ``machine_data/`` trees a bundle may ship.
                 Required, with no fallback: which bundle a build renders is
                 settled once, from the profile's preset lineage, by
                 ``_render_project``. Not the source of the project's ``data/``:
-                that is *data_root*.
+                that is the declared sources under *repo_root*.
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
@@ -198,8 +197,8 @@ class TemplateManager:
                 are mounted, the machine root's facts are copied into the
                 project's ``data/facility`` beside the deployment's own content,
                 so the render holds one facility tree as a single-tree
-                deployment does. ``None`` (or a single tree) copies *data_root*
-                alone.
+                deployment does. ``None`` (or a single tree) copies the declared
+                sources alone.
 
         Returns:
             Path to created project directory
@@ -266,8 +265,7 @@ class TemplateManager:
                         self.template_root, project_dir, service_names
                     )
 
-        # 6. Copy data files from template (no src/ package), or from the
-        # profile's own data tree when one was resolved. Either way this lands
+        # 6. Assemble data/ from the deployment's declared sources. This lands
         # before step 6b's benchmark queries and the Claude Code render in
         # step 7, which reads the rendered config.yml.
         scaffolding.copy_template_data(
@@ -277,7 +275,7 @@ class TemplateManager:
             data_bundle,
             ctx,
             jinja_env=self.jinja_env,
-            data_root=data_root,
+            repo_root=repo_root,
             facility_roots=facility_roots,
         )
 

@@ -66,7 +66,8 @@ from osprey.profiles.providers import (
     PROVIDERS_FILENAME,
     load_provider_catalog,
 )
-from osprey.repo_layout import child_path, image_excluded_rows, paths
+from osprey.repo_layout import entry as root_entry
+from osprey.repo_layout import image_excluded_rows, paths
 from osprey.utils.config_writer import (
     config_edit_session,
     flush_config_edits,
@@ -1438,8 +1439,8 @@ class _SharedRenderInputs(NamedTuple):
     Keyed on the digest of the corpus TEXT
     (:func:`~osprey.services.graph_store.seeder.ttl_sha256`),
     which is the same number the index's ``meta`` row and the store's seed
-    marker carry. A file key would not work: each render pass re-copies the
-    profile's ``data/`` tree, so the staged corpus is a different file with a
+    marker carry. A file key would not work: each render pass re-assembles the
+    render's ``data/`` tree, so the staged corpus is a different file with a
     fresh mtime every time, and a stat key would miss on every pass. Hashing a
     few megabytes costs milliseconds, and the builder reads the text anyway.
     """
@@ -1462,22 +1463,22 @@ class _SharedRenderInputs(NamedTuple):
     """
 
     facility: FacilityDocument
-    """The facility file, built once from ``data/facility/`` before any render.
+    """The facility file, built once from ``facility/`` before any render.
 
-    Every render of one build copies the same profile ``data/`` tree, so the
+    Every render of one build copies the same profile ``facility/`` tree, so the
     file is a fact about the build: built once, identified by the sha256 of the
     tree, and written byte-equal at the root of every render.
     """
 
     facility_sha256: str
-    """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
+    """The sha256 of the ``facility/`` tree :attr:`facility` was built from."""
 
     facility_roots: FacilityRoots | None = None
     """Where the build read machine facts and the deployment's own content.
 
     Resolved once from the profile (``BuildProfile.resolved_facility_roots``)
     before any render, so every render reads the same two roots. ``None``
-    means the single tree ``<data>/facility`` playing both roles, as for every
+    means the single tree ``facility/`` playing both roles, as for every
     deployment without ``machine:``.
     """
 
@@ -2152,7 +2153,7 @@ def _build_graph_index(
 
     The corpus is read here for that digest and read again by the builder. Two
     reads of a file this build staged itself and nothing else writes, in
-    exchange for a memo key that survives the ``data/`` tree being re-copied
+    exchange for a memo key that survives the render's ``data/`` tree being re-copied
     with fresh mtimes for every pass.
 
     A corpus that cannot be turned into an index is a warning and no index.
@@ -2348,7 +2349,7 @@ def _stated_machine_route(profile_path: Path) -> str | None:
     Read straight from the profile file, because the mirror guard that names
     it runs before the profile is resolved. ``machine:`` is root-only, so the
     file itself is the one place it can be stated. ``None`` when the file is
-    unreadable or states none, so the remedy falls back to ``data/facility/``.
+    unreadable or states none, so the remedy falls back to ``facility/``.
     """
     import yaml
 
@@ -2553,16 +2554,12 @@ def _render_project(
     if FACILITY_RULE_PATH_ENTRY in convention_selections(profile_artifact_lists(build_profile)):
         context["profile_owns_facility_rule"] = True
 
-    # The profile's own tree is the only one there is: `data:` is required of
-    # every profile file, so nothing falls back to a packaged bundle here.
-    data_root = build_profile.resolved_data_root(repo_root)
-    assert data_root is not None  # `data:` required; narrows for type-checkers
     # The facility roots the build resolved once. A render outside a build
     # (no roots handed over) reads the single tree, as before `machine:`.
     from osprey_facility.roots import FacilityRoots
 
     facility_roots = shared.facility_roots or FacilityRoots.single(
-        child_path(data_root, "data", "facility")
+        repo_root / root_entry("facility").path
     )
 
     # Every edit of the render's config.yml — the template's own ownership
@@ -2588,7 +2585,7 @@ def _render_project(
             context=context,
             force=True,
             artifacts=effective_artifacts,
-            data_root=data_root,
+            repo_root=repo_root,
             facility_roots=facility_roots,
         )
         progress("  ✓ Base template rendered")
@@ -3665,7 +3662,7 @@ def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
     profile hash that ``osprey status`` and the drift gate re-check inside the
     container. The hash folds the profile's file inputs
     (:func:`~osprey.cli.build_profile_merge.profile_inputs`), and those
-    patterns are ``**/``-anchored, so a stray ``data/ingest.log`` or a ``__pycache__/`` under a
+    patterns are ``**/``-anchored, so a stray ``facility/ingest.log`` or a ``__pycache__/`` under a
     convention directory would be folded into the stamp here and then be missing
     from the image there. The container would recompute a different hash and
     report its own untouched build as drifted — the exact failure the whole
@@ -3674,7 +3671,7 @@ def _prune_ignored_entries(image_root: Path, patterns: Sequence[str]) -> None:
     So the exclusion is applied to the tree, once, BEFORE the stamp: what the
     build fingerprints is then byte for byte what the image gets, for every fold
     input, by construction rather than by two lists agreeing. It also stops the
-    same files being silently absent from a shipped ``data/`` tree the profile
+    same files being silently absent from a shipped source tree the profile
     says is there.
 
     Negations (``!**/.env.example``) are honored, so what the list keeps, this
@@ -4209,12 +4206,11 @@ def _build_repo(
 
         # Where machine facts and the deployment's own content are read,
         # resolved once for the whole build. A named machine root that is
-        # missing (an uninitialised submodule) or overlaps `data:` stops here,
-        # and so does a facility tree holding sources at retired paths: before
-        # any output directory exists or a lifecycle step runs.
+        # missing (an uninitialised submodule) or overlaps the facility tree
+        # stops here, and so does a facility tree holding sources at retired
+        # paths: before any output directory exists or a lifecycle step runs.
         facility_roots = build_profile.resolved_facility_roots(repo_root)
-        if facility_roots is not None:
-            refuse_retired_layout(repo_root, facility_roots)
+        refuse_retired_layout(repo_root, facility_roots)
 
         # The deployment's name is the profile's: every host-visible name — the
         # compose project, volumes, image tags, each render — derives
@@ -4388,15 +4384,11 @@ def _build_repo(
         from osprey_facility.build import build_facility_with_warnings
         from osprey_facility.render import facility_digest
 
-        data_root = build_profile.resolved_data_root(repo_root)
-        assert data_root is not None  # `data:` required; narrows for type-checkers
-        assert facility_roots is not None  # resolved from the same `data:`
-        # A limits file the profile ships itself is a stop: the build writes
+        # A limits file the deployment ships itself is a stop: the build writes
         # that file from the facility's limits.yaml. The guard checks the
         # deployment's files; a mounted machine only changes where the remedy
         # says the limits go.
         limits_stop = handwritten_limits_violation(
-            data_root,
             repo_root,
             machine_root=facility_roots.machine if facility_roots.mounted else None,
         )
@@ -4882,19 +4874,20 @@ def _profile_image_checks_context(build_profile: Any) -> dict[str, Any]:
 
 
 def _profile_knowledge_bundle_dir(build_profile: Any) -> str:
-    """The knowledge bundle *build_profile* names, relative to its render.
+    """The knowledge bundle *build_profile* names, relative to the project root.
 
     Read from the ``config:`` overrides the rendered config is about to be
     written from, in every spelling ``facility_knowledge.bundle_path`` can take.
-    The image owns only what the render carries, so an absolute path, or one
-    that climbs out of the render, names nothing here.
+    A relative bundle path anchors at the project root, which the image carries
+    whole, so an absolute path, or one that climbs out of the project, names
+    nothing here.
 
     Args:
         build_profile: The resolved profile for the render being built.
 
     Returns:
         The normalized project-relative posix path, or ``""`` when the profile
-        names no bundle inside the render.
+        names no bundle inside the project.
     """
     import posixpath
     import re
@@ -4957,10 +4950,10 @@ def _profile_preset(build_profile: BuildProfile) -> str | None:
 def _profile_data_bundle(build_profile: BuildProfile) -> str:
     """The packaged app bundle whose non-config trees this build copies.
 
-    The bundle names a directory under ``templates/apps/`` holding a ``data/``
+    The bundle names a directory under ``templates/apps/`` holding a ``web/``
     tree, an optional ``services/`` tree and the per-user context baseline. It
     is NOT a profile key: what a deployment configures is stated by its own
-    ``config:`` block, and the packaged tree its ``data/`` was seeded from is a
+    ``config:`` block, and the packaged tree its ``web/`` was seeded from is a
     fact about the preset ``osprey init`` materialized. So it is read back from
     the preset the profile records — see :func:`_profile_preset` for which
     record answers — not from the profile's own keys.
@@ -5193,7 +5186,7 @@ def _repo_render_context(
         # selects a sidecar panel asking for them.
         **_profile_image_checks_context(build_profile),
         # The directory Dockerfile.j2 hands to the agent's user beside `var/`:
-        # the knowledge bundle the profile names, relative to the render.
+        # the knowledge bundle the profile names, relative to the project root.
         "knowledge_bundle_dir": _profile_knowledge_bundle_dir(build_profile),
         # The base this deployment's whole port block hangs off, resolved from
         # the profile ONCE and handed down: every framework port the render

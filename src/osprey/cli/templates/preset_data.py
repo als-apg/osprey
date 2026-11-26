@@ -1,11 +1,11 @@
-"""The packaged files a preset materializes into a profile's ``data/`` and beside it.
+"""The packaged files a preset materializes into a deployment's source trees.
 
 A preset names two packaged sources: an app template (``app_template:``,
 ``templates/apps/<name>/``) and a bundled facility (``facility:``,
 ``templates/facilities/<name>/``). A facility is owned by no app template and
-no preset; it lands in the profile at ``data/facility/``, beside the app
-template's own ``data/`` tree, so the operator's layout is the same whichever
-preset produced it. The starter reviewer prompt (``templates/code_review/``) is
+no preset; it lands in the deployment at ``facility/``, beside the trees the
+app template ships itself (its ``web/`` content), so the operator's layout is
+the same whichever preset produced it. The starter reviewer prompt (``templates/code_review/``) is
 owned by no preset either: every composition lands it in the code reviewer's
 directory (``agent/code_review/reviewer.md``), and no preset names it.
 
@@ -20,7 +20,6 @@ except the knowledge indexes ``osprey knowledge regen-index`` writes.
 from __future__ import annotations
 
 import shutil
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -30,8 +29,8 @@ from osprey_connectors.errors import BuildProfileError
 #: The directory under the template root holding the bundled facilities.
 FACILITIES_DIRNAME = "facilities"
 
-#: Where a facility lands inside a profile's ``data/`` tree.
-FACILITY_DATA_DIRNAME = repo_layout.child("data", "facility").path
+#: Where a facility lands, relative to the deployment root.
+FACILITY_DATA_DIRNAME = repo_layout.entry("facility").path
 
 #: The starter reviewer prompt under the template root.
 _STARTER_PROMPT_TEMPLATE = "code_review/reviewer.md"
@@ -44,25 +43,20 @@ STARTER_PROMPT_PATH = repo_layout.display_path(
 )
 
 
-def _data_dir(root: Path) -> Path:
-    """The data tree of *root*, a tree laid out as a deployment root (an app template)."""
-    return root / repo_layout.entry("data").path
-
-
-def _data_path(relative: str) -> str:
-    """*relative*, a path inside the data tree, as the repo root names it."""
-    return repo_layout.display_path("data", relative)
+def _web_dir(root: Path) -> Path:
+    """The web tree of *root*, a tree laid out as a deployment root (an app template)."""
+    return root.joinpath(*repo_layout.entry("web").path.split("/"))
 
 
 @dataclass(frozen=True)
 class PresetData:
-    """One preset's packaged data: an app template's ``data/``, its facility, the starter prompt.
+    """One preset's packaged data: an app template's own trees, its facility, the starter prompt.
 
     Attributes:
         app_root: The app template directory (``templates/apps/<name>``). Its
-            ``data/`` tree, when it ships one, is copied as it stands.
+            ``web/`` tree, when it ships one, is copied as it stands.
         facility_root: The bundled facility directory
-            (``templates/facilities/<name>``), landed at ``data/facility/``;
+            (``templates/facilities/<name>``), landed at ``facility/``;
             ``None`` when the preset names no facility.
         starter_prompt: The packaged starter reviewer prompt, landed at
             :data:`STARTER_PROMPT_PATH`; ``None`` for a bare tree that was not
@@ -74,14 +68,14 @@ class PresetData:
     starter_prompt: Path | None = None
 
     @property
-    def app_data(self) -> Path:
-        """The app template's own ``data/`` tree; it may not exist."""
-        return _data_dir(self.app_root)
+    def app_web(self) -> Path:
+        """The app template's own ``web/`` tree; it may not exist."""
+        return _web_dir(self.app_root)
 
     def placed_files(self) -> dict[str, Path]:
-        """The files that land in the repo from outside the app template's ``data/``.
+        """The files that land in the repo from outside the app template's own trees.
 
-        The facility's files, at ``data/facility/<path>``, and the starter
+        The facility's files, at ``facility/<path>``, and the starter
         reviewer prompt at :data:`STARTER_PROMPT_PATH`.
 
         Returns:
@@ -93,29 +87,23 @@ class PresetData:
             for path in sorted(self.facility_root.rglob("*")):
                 if path.is_file():
                     relative = path.relative_to(self.facility_root).as_posix()
-                    files[_data_path(f"{FACILITY_DATA_DIRNAME}/{relative}")] = path
+                    files[f"{FACILITY_DATA_DIRNAME}/{relative}"] = path
         if self.starter_prompt is not None:
             files[STARTER_PROMPT_PATH] = self.starter_prompt
         return dict(sorted(files.items()))
 
-    def copy_into(
-        self,
-        repo_root: Path,
-        ignore: Callable[[str, list[str]], set[str]] | None = None,
-    ) -> None:
-        """Write the composition into *repo_root*, whose ``data/`` must not exist.
+    def copy_into(self, repo_root: Path) -> None:
+        """Write the composition into *repo_root*, which must hold none of its trees.
 
-        The app template's ``data/`` is copied as it stands (filtered by
-        *ignore*, a :func:`shutil.copytree` ignore callable), then every
-        :meth:`placed_files` entry lands at its repo-relative path,
-        byte-identical.
+        The app template's ``web/``, when it ships one, is copied as it stands,
+        the facility directory is created, then every :meth:`placed_files` entry
+        lands at its repo-relative path, byte-identical. No ``web/`` is
+        created for a template that ships none.
         """
         placed = self.placed_files()
-        destination = _data_dir(repo_root)
-        if self.app_data.is_dir():
-            shutil.copytree(self.app_data, destination, ignore=ignore)
-        else:
-            destination.mkdir(parents=True)
+        if self.app_web.is_dir():
+            shutil.copytree(self.app_web, _web_dir(repo_root))
+        (repo_root / FACILITY_DATA_DIRNAME).mkdir(parents=True)
         for relative, source in placed.items():
             target = repo_root.joinpath(*relative.split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -183,8 +171,8 @@ def compose_preset_data(template_root: Path, app_template: str, facility: str | 
 
     Raises:
         BuildProfileError: If a packaged source is absent, the preset names a
-            facility while its app template still ships a ``data/facility/`` of
-            its own — two facilities for one ``data/facility/`` — or the app
+            facility while its app template still ships a ``facility/`` of
+            its own — two facilities for one ``facility/`` — or the app
             template ships a file at the starter prompt's path, which landing
             the starter would silently overwrite.
     """
@@ -197,10 +185,10 @@ def compose_preset_data(template_root: Path, app_template: str, facility: str | 
         )
     if facility is None:
         return PresetData(app_root, starter_prompt=starter)
-    if repo_layout.child_path(_data_dir(app_root), "data", "facility").exists():
+    if (app_root / FACILITY_DATA_DIRNAME).exists():
         raise BuildProfileError(
             f"App template {app_template!r} ships "
-            f"{repo_layout.child_display_path('data', 'facility')}/ and its "
+            f"{repo_layout.display_path('facility')}/ and its "
             f"preset names facility {facility!r}: remove the app template's copy."
         )
     return PresetData(app_root, facility_root(template_root, facility), starter)
