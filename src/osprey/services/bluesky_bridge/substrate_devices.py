@@ -69,19 +69,15 @@ the namespace would add no gate; it would only make the channels an agent is
 allowed to read invisible to it, and push operators back to hand-authored
 device files that nothing keeps in step with the facility.
 
-Two consumers share this module (DRY, one derivation):
-
-- ``osprey.facility.views.bluesky``, which ``osprey build`` runs to write
-  ``data/bluesky_devices.yml`` from the facility file in every render that runs
-  a Bluesky lane; the compose generator stages that file unchanged, so the
-  worker starts with real channel names, turn-key.
-- ``tests/e2e/_orm_stack.py``, which selects the subset of records its plans
-  need and hands them here for the document and its atomic write, rather than
-  assembling a device file of its own.
+Its consumer is ``osprey.facility.views.bluesky``, which ``osprey build`` runs
+to write ``data/bluesky_devices.yml`` from the facility file in every render
+that runs a Bluesky lane; the compose generator stages that file unchanged, so
+the worker starts with real channel names, turn-key. Every fact a device
+carries is read off the channel roster: each record's own facts and each
+command's completion.
 
 There is exactly one producer of the derived document -- ``devices_document``
-below -- so the build path and the e2e harness can never drift on what the
-worker is handed.
+below -- so nothing that hands the worker a device file can drift from it.
 
 Host/deploy-side only — NOT part of the bridge's own container import
 surface. This module consumes :mod:`osprey.channel_roster`, which reads the
@@ -99,7 +95,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from osprey.channel_roster import ChannelRecord, RosterSource
+from osprey.channel_roster import ChannelRecord, RosterResult, RosterSource
 from osprey.channel_roster.records import CommandCompletion
 
 # Key names of the device-file document the worker parses. Imported rather
@@ -164,9 +160,7 @@ def _write_entry(
     record: ChannelRecord,
     completions: Mapping[str, CommandCompletion],
     carried: frozenset[str],
-    tolerance: Mapping[str, float] | None,
     bands: Mapping[str, float],
-    stated: Mapping[str, str],
     kinds: Mapping[str, ChannelRecord],
 ) -> tuple[str, dict[str, Any]] | None:
     """The device one write-direction record becomes: its device-file section and
@@ -199,31 +193,30 @@ def _write_entry(
         if record.stopped_by is not None:
             entry[STOPPED_BY_KEY] = record.stopped_by
     band = bands.get(readback, 0.0)
+    tolerance = record.tolerance
     if tolerance is not None and RELATIVE_KEY in tolerance:
         entry[SETTLE_TOLERANCE_KEY] = {RELATIVE_KEY: float(tolerance[RELATIVE_KEY])}
     elif tolerance is not None:
         entry[SETTLE_TOLERANCE_KEY] = float(tolerance["absolute"])
     elif band > 0:
         entry[MOTION_BAND_KEY] = float(band)
-    entry.update(_value_type(kinds.get(readback)))
-    if readback in stated:
-        entry[UNIT_KEY] = stated[readback]
+    reported = kinds.get(readback)
+    entry.update(_value_type(reported))
+    if reported is not None and reported.unit is not None:
+        entry[UNIT_KEY] = reported.unit
     if readback != record.address:
         entry.update(_value_type(record, SETPOINT_VALUE_TYPE_KEY, SETPOINT_OPTIONS_KEY))
-        if record.address in stated:
-            entry[SETPOINT_UNIT_KEY] = stated[record.address]
+        if record.unit is not None:
+            entry[SETPOINT_UNIT_KEY] = record.unit
     return SETTABLES_KEY, entry
 
 
 def devices_document(
-    records: Sequence[ChannelRecord],
-    tolerances: Mapping[str, Mapping[str, float]] | None = None,
+    roster: RosterResult,
     motion_bands: Mapping[str, float] | None = None,
-    units: Mapping[str, str] | None = None,
-    completions: Mapping[str, CommandCompletion] | None = None,
     detectors: Sequence[tuple[str, str, Sequence[str]]] = (),
 ) -> dict[str, list[dict[str, Any]]]:
-    """Build the worker's device document from the roster's ``records``.
+    """Build the worker's device document from the ``roster``'s records.
 
     Returns the four-list mapping ``_specs_from_file`` parses: one
     ``settables`` entry (``name``/``setpoint``, plus ``readback`` where the
@@ -244,10 +237,10 @@ def devices_document(
     detector whose acquire command has no completion signal is no entry, and
     its command stays the device it was.
 
-    ``completions`` maps a command address to its
-    :class:`~osprey.channel_roster.records.CommandCompletion`: that write
-    record is a triggerable a plan fires and waits for, and no settable. A
-    command without one stays a settable. A setpoint whose ``started_by``
+    A command the roster states a completion for
+    (:meth:`~osprey.channel_roster.records.RosterResult.completion`) is a
+    triggerable a plan fires and waits for, and no settable. A command without
+    one stays a settable. A setpoint whose ``started_by``
     names a command with one is a positioner: its settable carries
     ``started_by: {command, status, idle, timeout_s}``, and the command is no
     device of its own. Such a positioner carries its ``stopped_by`` command
@@ -260,14 +253,14 @@ def devices_document(
     restating the setpoint as its own readback would claim a pairing the roster
     did not make.
 
-    ``tolerances`` maps a setpoint address to its declared tolerance record,
-    ``{absolute: <x>}`` or ``{relative: <f>}``: the settable carries it as
+    A setpoint whose record carries a ``tolerance``, ``{absolute: <x>}`` or
+    ``{relative: <f>}``, is a settable that carries it as
     ``settle_tolerance``, a number for an absolute record and ``{relative:
     <f>}`` for a relative one. ``motion_bands`` maps a readback address to the
     band its simulated motion keeps it within: a settable without a declared
     tolerance whose readback (its pair, or its own setpoint when unpaired)
     has a band above zero carries it as ``motion_band``. Either key follows
-    ``readback``; with no mappings no settable carries one.
+    ``readback``; with neither no settable carries one.
 
     Each device carries ``value_type``, the facility value type of the value
     it reports under its name -- a settable's readback, a readable's channel, a
@@ -278,12 +271,11 @@ def devices_document(
     ``options`` (``setpoint_options`` for a paired settable's setpoint), so a
     run records the same word on every control system.
 
-    ``units`` maps a channel address to the unit the facility states for it.
-    A device carries ``unit``, the unit of the value it reports under its name
-    -- a settable's readback (its pair, or its own setpoint when unpaired), a
-    readable's channel -- and a paired settable also carries
-    ``setpoint_unit``, its setpoint's unit. Each key is written only for a
-    channel the mapping names, after every other key.
+    A device carries ``unit``, the ``unit`` of the record of the value it
+    reports under its name -- a settable's readback (its pair, or its own
+    setpoint when unpaired), a readable's channel -- and a paired settable also
+    carries ``setpoint_unit``, its setpoint record's unit. Each key is written
+    only for a record that carries a unit, after every other key.
 
     A readable on a waveform channel of one dimension carries ``shape: [n]``,
     the length the facility states, after its ``unit``. A read record of more
@@ -296,12 +288,10 @@ def devices_document(
     derived file rather than guess which channels are settable.
 
     Args:
-        records: The roster's channel records, e.g.
-            ``registered_channels(config).records``.
-        tolerances: Each setpoint address's tolerance record, or None.
+        roster: The channel roster, e.g. ``registered_channels(config)``.
         motion_bands: Each readback address's motion band, or None.
-        units: Each channel address's unit, or None.
-        completions: Each command's completion signal, by address, or None.
+        detectors: Each detector as ``(device id, acquire address, result
+            addresses)``.
 
     Returns:
         The device document, ready for :func:`write_devices_file` or the
@@ -313,10 +303,13 @@ def devices_document(
         READABLES_KEY: [],
         TRIGGERED_READABLES_KEY: [],
     }
-    declared = tolerances or {}
+    records = roster.records
     bands = motion_bands or {}
-    stated = units or {}
-    commands = completions or {}
+    commands = {
+        record.address: completion
+        for record in roster.write_records
+        if (completion := roster.completion(record.address)) is not None
+    }
     kinds = {record.address: record for record in records}
     started = frozenset(
         record.started_by
@@ -340,9 +333,7 @@ def devices_document(
                 record,
                 commands,
                 started | stops | acquired,
-                declared.get(record.address),
                 bands,
-                stated,
                 kinds,
             )
             if device is not None:
@@ -353,8 +344,8 @@ def devices_document(
                 continue
             readable: dict[str, Any] = {"name": record.address, "pv": record.address}
             readable.update(_value_type(record))
-            if record.address in stated:
-                readable[UNIT_KEY] = stated[record.address]
+            if record.unit is not None:
+                readable[UNIT_KEY] = record.unit
             if record.shape is not None:
                 readable[SHAPE_KEY] = list(record.shape)
             document[READABLES_KEY].append(readable)
@@ -366,22 +357,20 @@ def devices_document(
             {
                 "name": device_id,
                 **_act(commands[acquire]),
-                RESULTS_KEY: [_result(address, kinds, stated) for address in results],
+                RESULTS_KEY: [_result(address, kinds) for address in results],
             }
         )
 
     return document
 
 
-def _result(
-    address: str, kinds: Mapping[str, ChannelRecord], stated: Mapping[str, str]
-) -> dict[str, Any]:
+def _result(address: str, kinds: Mapping[str, ChannelRecord]) -> dict[str, Any]:
     """One detector result as the device file states it: its address, value type,
     unit and shape, each kind key only where the facility states it."""
-    entry: dict[str, Any] = {"pv": address, **_value_type(kinds.get(address))}
-    if address in stated:
-        entry[UNIT_KEY] = stated[address]
     record = kinds.get(address)
+    entry: dict[str, Any] = {"pv": address, **_value_type(record)}
+    if record is not None and record.unit is not None:
+        entry[UNIT_KEY] = record.unit
     if record is not None and record.shape is not None:
         entry[SHAPE_KEY] = list(record.shape)
     return entry
@@ -413,18 +402,15 @@ _GENERATED_HEADER = """\
 
 def write_devices_file(
     path: Path,
-    records: Sequence[ChannelRecord],
+    roster: RosterResult,
     *,
     source: RosterSource,
     schema: str,
-    tolerances: Mapping[str, Mapping[str, float]] | None = None,
     motion_bands: Mapping[str, float] | None = None,
-    units: Mapping[str, str] | None = None,
-    completions: Mapping[str, CommandCompletion] | None = None,
     detectors: Sequence[tuple[str, str, Sequence[str]]] = (),
 ) -> dict[str, list[dict[str, Any]]]:
-    """Write the document ``devices_document(records, tolerances, motion_bands,
-    units, completions, detectors)`` builds to ``path`` as YAML, and return it.
+    """Write the document ``devices_document(roster, motion_bands, detectors)``
+    builds to ``path`` as YAML, and return it.
 
     ``source`` is the roster source the records came from; it is named in the
     file's header via :meth:`~osprey.channel_roster.records.RosterSource.describe`,
@@ -444,7 +430,7 @@ def write_devices_file(
     validate what it just wrote does not have to re-derive or re-read it.
     """
     path = Path(path)
-    document = devices_document(records, tolerances, motion_bands, units, completions, detectors)
+    document = devices_document(roster, motion_bands, detectors)
     body = yaml_loader.safe_dump(
         document, sort_keys=False, default_flow_style=False, allow_unicode=True
     )

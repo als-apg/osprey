@@ -24,7 +24,8 @@ pairing the roster did not make.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -34,11 +35,11 @@ import yaml
 import osprey.channel_roster as channel_roster
 from osprey.channel_roster import (
     ChannelRecord,
+    RosterResult,
     RosterSource,
     RosterSourceKind,
     registered_channels,
 )
-from osprey.channel_roster.records import CommandCompletion
 from osprey.services.bluesky_bridge import substrate_devices
 from osprey.services.bluesky_bridge.devices._specs_from_file import validate_device_document
 from osprey.services.bluesky_bridge.substrate_devices import (
@@ -59,14 +60,21 @@ _SOURCE = RosterSource(
 _SCHEMA = "osprey.facility.bluesky_devices/2"
 
 
-def _write(address: str, readback: str | None = None) -> ChannelRecord:
+def _write(address: str, readback: str | None = None, **facts: Any) -> ChannelRecord:
     """A write-direction record, optionally carrying the readback pairing gave it."""
-    return ChannelRecord(address=address, source=_SOURCE, direction="write", readback=readback)
+    return ChannelRecord(
+        address=address, source=_SOURCE, direction="write", readback=readback, **facts
+    )
 
 
-def _read(address: str) -> ChannelRecord:
+def _read(address: str, **facts: Any) -> ChannelRecord:
     """A read-direction record."""
-    return ChannelRecord(address=address, source=_SOURCE, direction="read")
+    return ChannelRecord(address=address, source=_SOURCE, direction="read", **facts)
+
+
+def _roster(*records: ChannelRecord) -> RosterResult:
+    """The roster of ``records``."""
+    return RosterResult(records=records, source=_SOURCE)
 
 
 #: A roster slice covering every shape the document builder has to distinguish:
@@ -81,14 +89,20 @@ _RECORDS = (
 )
 
 
+def _carrying(facts: Mapping[str, Mapping[str, Any]]) -> RosterResult:
+    """The roster of ``_RECORDS``, each record carrying the facts ``facts`` names for it."""
+    return _roster(*(replace(record, **facts.get(record.address, {})) for record in _RECORDS))
+
+
 class TestDevicesDocument:
     def test_a_command_with_a_completion_is_a_triggerable_and_no_settable(self) -> None:
         command, status = "ES1:DET:MCA:01:ACQUIRE:SP", "ES1:DET:MCA:01:STATUS:ACQUIRE"
-        records = (_write(command, readback=status), _read(status))
-
-        document = devices_document(
-            records, completions={command: CommandCompletion(command, status, "FALSE", 5.0)}
+        records = (
+            _write(command, readback=status, command=True, timeout_s=5.0),
+            _read(status, idle="FALSE"),
         )
+
+        document = devices_document(_roster(*records))
 
         assert document == {
             "settables": [],
@@ -109,7 +123,7 @@ class TestDevicesDocument:
     def test_a_command_without_a_completion_stays_a_settable(self) -> None:
         command = "ES1:MOT:STAGE:01:STOP:SP"
 
-        document = devices_document((_write(command),), completions={})
+        document = devices_document(_roster(_write(command, command=True)))
 
         assert document["settables"] == [{"name": command, "setpoint": command}]
         assert document["triggerables"] == []
@@ -117,30 +131,17 @@ class TestDevicesDocument:
     _POSITION, _POSITION_RB = "ES1:MOT:STAGE:01:POSITION:SP", "ES1:MOT:STAGE:01:POSITION:RB"
     _MOVE, _MOVE_STATUS = "ES1:MOT:STAGE:01:MOVE:SP", "ES1:MOT:STAGE:01:STATUS:MOVE"
 
-    def _stage(self) -> tuple[ChannelRecord, ...]:
+    def _stage(self, **position: Any) -> tuple[ChannelRecord, ...]:
         """A setpoint started by its move command, the command and both readbacks."""
         return (
-            ChannelRecord(
-                address=self._POSITION,
-                source=_SOURCE,
-                direction="write",
-                readback=self._POSITION_RB,
-                started_by=self._MOVE,
-            ),
-            _write(self._MOVE, readback=self._MOVE_STATUS),
+            _write(self._POSITION, readback=self._POSITION_RB, started_by=self._MOVE, **position),
+            _write(self._MOVE, readback=self._MOVE_STATUS, command=True, timeout_s=10.0),
             _read(self._POSITION_RB),
-            _read(self._MOVE_STATUS),
+            _read(self._MOVE_STATUS, idle="DONE"),
         )
-
-    def _completions(self) -> dict[str, CommandCompletion]:
-        return {self._MOVE: CommandCompletion(self._MOVE, self._MOVE_STATUS, "DONE", 10.0)}
 
     def test_a_positioner_carries_its_start_act(self) -> None:
-        document = devices_document(
-            self._stage(),
-            tolerances={self._POSITION: {"absolute": 0.01}},
-            completions=self._completions(),
-        )
+        document = devices_document(_roster(*self._stage(tolerance={"absolute": 0.01})))
 
         (entry,) = document["settables"]
         assert entry == {
@@ -159,7 +160,7 @@ class TestDevicesDocument:
         assert validate_device_document(document) == []
 
     def test_the_start_command_a_positioner_names_is_no_device(self) -> None:
-        document = devices_document(self._stage(), completions=self._completions())
+        document = devices_document(_roster(*self._stage()))
 
         assert [entry["name"] for entry in document["settables"]] == [self._POSITION]
         assert document["triggerables"] == []
@@ -173,18 +174,10 @@ class TestDevicesDocument:
     def _stopping_stage(self, *others: ChannelRecord) -> tuple[ChannelRecord, ...]:
         """The stage with its setpoint stopped by its stop command, which is a write record."""
         position, *rest = self._stage()
-        stopped = ChannelRecord(
-            address=position.address,
-            source=_SOURCE,
-            direction="write",
-            readback=position.readback,
-            started_by=position.started_by,
-            stopped_by=self._STOP,
-        )
-        return (stopped, *rest, _write(self._STOP), *others)
+        return (replace(position, stopped_by=self._STOP), *rest, _write(self._STOP), *others)
 
     def test_a_positioner_carries_its_stop_channel(self) -> None:
-        document = devices_document(self._stopping_stage(), completions=self._completions())
+        document = devices_document(_roster(*self._stopping_stage()))
 
         (entry,) = document["settables"]
         assert entry["stopped_by"] == self._STOP
@@ -193,22 +186,10 @@ class TestDevicesDocument:
 
     def test_a_shared_stop_channel_is_no_device(self) -> None:
         trim, trim_go = "ES1:MOT:STAGE:01:TRIM:SP", "ES1:MOT:STAGE:01:TRIM:GO"
-        second = ChannelRecord(
-            address=trim,
-            source=_SOURCE,
-            direction="write",
-            started_by=trim_go,
-            stopped_by=self._STOP,
-        )
-        completions = {
-            **self._completions(),
-            trim_go: CommandCompletion(trim_go, self._MOVE_STATUS, "DONE", 10.0),
-        }
+        second = _write(trim, started_by=trim_go, stopped_by=self._STOP)
+        go = _write(trim_go, readback=self._MOVE_STATUS, command=True, timeout_s=10.0)
 
-        document = devices_document(
-            self._stopping_stage(second, _write(trim_go, readback=self._MOVE_STATUS)),
-            completions=completions,
-        )
+        document = devices_document(_roster(*self._stopping_stage(second, go)))
 
         assert [entry["name"] for entry in document["settables"]] == [self._POSITION, trim]
         assert [entry["stopped_by"] for entry in document["settables"]] == [self._STOP] * 2
@@ -217,7 +198,7 @@ class TestDevicesDocument:
     def test_every_top_level_key_is_always_present(self) -> None:
         """Even a facility that yields nothing gets every key, so a caller can
         see WHICH kind came up empty instead of inferring it from a missing key."""
-        assert devices_document(()) == {
+        assert devices_document(_roster()) == {
             "settables": [],
             "triggerables": [],
             "readables": [],
@@ -227,11 +208,11 @@ class TestDevicesDocument:
     _ACQUIRE, _BUSY = "ES1:DET:ACQ:SP", "ES1:DET:STATUS"
     _COUNTS, _SPECTRUM = "ES1:DET:COUNTS:RB", "ES1:DET:SPECTRUM:WAVEFORM"
 
-    def _detector(self) -> tuple[ChannelRecord, ...]:
+    def _detector(self, timeout_s: float | None = 5.0) -> tuple[ChannelRecord, ...]:
         return (
-            _write(self._ACQUIRE, readback=self._BUSY),
-            _read(self._BUSY),
-            _read(self._COUNTS),
+            _write(self._ACQUIRE, readback=self._BUSY, command=True, timeout_s=timeout_s),
+            _read(self._BUSY, idle="FALSE"),
+            _read(self._COUNTS, unit="counts"),
             ChannelRecord(
                 address=self._SPECTRUM,
                 source=_SOURCE,
@@ -242,17 +223,11 @@ class TestDevicesDocument:
         )
 
     def test_the_document_always_carries_a_detectors_list(self) -> None:
-        completions = {self._ACQUIRE: CommandCompletion(self._ACQUIRE, self._BUSY, "FALSE", 5.0)}
         detector = ("ES1-MCA01", self._ACQUIRE, [self._COUNTS, self._SPECTRUM])
 
-        document = devices_document(
-            self._detector(),
-            units={self._COUNTS: "counts"},
-            completions=completions,
-            detectors=[detector],
-        )
+        document = devices_document(_roster(*self._detector()), detectors=[detector])
 
-        assert devices_document(self._detector())["triggered_readables"] == []
+        assert devices_document(_roster(*self._detector()))["triggered_readables"] == []
         assert document["triggered_readables"] == [
             {
                 "name": "ES1-MCA01",
@@ -271,7 +246,6 @@ class TestDevicesDocument:
 
     def test_a_word_result_carries_its_words(self) -> None:
         state = "ES1:DET:STATE"
-        completions = {self._ACQUIRE: CommandCompletion(self._ACQUIRE, self._BUSY, "FALSE", 5.0)}
         records = (
             *self._detector(),
             ChannelRecord(
@@ -284,7 +258,7 @@ class TestDevicesDocument:
         )
 
         document = devices_document(
-            records, completions=completions, detectors=[("ES1-MCA01", self._ACQUIRE, [state])]
+            _roster(*records), detectors=[("ES1-MCA01", self._ACQUIRE, [state])]
         )
 
         (detector,) = document["triggered_readables"]
@@ -296,7 +270,7 @@ class TestDevicesDocument:
     def test_a_detector_without_a_completion_writes_no_entry_and_hides_no_command(self) -> None:
         detector = ("ES1-MCA01", self._ACQUIRE, [self._COUNTS])
 
-        document = devices_document(self._detector(), completions=None, detectors=[detector])
+        document = devices_document(_roster(*self._detector(timeout_s=None)), detectors=[detector])
 
         assert document["triggered_readables"] == []
         assert document["settables"] == [
@@ -304,7 +278,7 @@ class TestDevicesDocument:
         ]
 
     def test_every_write_record_is_a_settable_in_roster_order(self) -> None:
-        document = devices_document(_RECORDS)
+        document = devices_document(_roster(*_RECORDS))
 
         assert document["settables"] == [
             {
@@ -321,7 +295,7 @@ class TestDevicesDocument:
     def test_every_read_record_is_its_own_readable(self) -> None:
         """One device per readable channel, name and pv both the address --
         no pairing, no grouping, no field filter."""
-        document = devices_document(_RECORDS)
+        document = devices_document(_roster(*_RECORDS))
 
         assert document["readables"] == [
             {"name": "SR:MAG:COIL:01:CURRENT:RB", "pv": "SR:MAG:COIL:01:CURRENT:RB"},
@@ -331,24 +305,24 @@ class TestDevicesDocument:
     def test_unpaired_settable_carries_no_readback_key(self) -> None:
         """Absent (not null, not the setpoint restated): that is how the loader
         is told the device reads its setpoint back."""
-        document = devices_document((_write("A:B:C:SP"),))
+        document = devices_document(_roster(_write("A:B:C:SP")))
 
         assert document["settables"] == [{"name": "A:B:C:SP", "setpoint": "A:B:C:SP"}]
 
     def test_never_emits_a_null_readback(self) -> None:
-        document = devices_document(_RECORDS)
+        document = devices_document(_roster(*_RECORDS))
 
         assert all("readback" not in entry or entry["readback"] for entry in document["settables"])
 
     def test_a_readback_equal_to_the_setpoint_is_not_restated(self) -> None:
-        document = devices_document((_write("A:B:C:SP", readback="A:B:C:SP"),))
+        document = devices_document(_roster(_write("A:B:C:SP", readback="A:B:C:SP")))
 
         assert document["settables"] == [{"name": "A:B:C:SP", "setpoint": "A:B:C:SP"}]
 
     def test_a_record_with_no_direction_becomes_no_device(self) -> None:
         """An unknown direction is not silently demoted to a readable; the
         build refuses to stage a derived file rather than guess."""
-        document = devices_document((ChannelRecord(address="A:B:C", source=_SOURCE),))
+        document = devices_document(_roster(ChannelRecord(address="A:B:C", source=_SOURCE)))
 
         assert document == {
             "settables": [],
@@ -364,7 +338,7 @@ class TestDevicesDocument:
             validate_device_document,
         )
 
-        assert validate_device_document(devices_document(_RECORDS)) == []
+        assert validate_device_document(devices_document(_roster(*_RECORDS))) == []
 
 
 _SP = "SR:MAG:COIL:01:CURRENT:SP"
@@ -377,7 +351,7 @@ class TestTolerancesAndMotionBands:
 
     def test_an_absolute_tolerance_is_a_number_after_the_readback(self) -> None:
         document = devices_document(
-            _RECORDS, tolerances={_SP: {"absolute": 0.05}}, motion_bands={_RB: 0.011}
+            _carrying({_SP: {"tolerance": {"absolute": 0.05}}}), motion_bands={_RB: 0.011}
         )
 
         entry = document["settables"][0]
@@ -390,12 +364,12 @@ class TestTolerancesAndMotionBands:
         assert list(entry)[-2:] == ["readback", "settle_tolerance"]
 
     def test_a_relative_tolerance_is_written_as_its_record(self) -> None:
-        document = devices_document(_RECORDS, tolerances={_SP: {"relative": 1e-4}})
+        document = devices_document(_carrying({_SP: {"tolerance": {"relative": 1e-4}}}))
 
         assert document["settables"][0]["settle_tolerance"] == {"relative": 1e-4}
 
     def test_without_a_tolerance_the_readback_band_is_written_after_the_readback(self) -> None:
-        document = devices_document(_RECORDS, motion_bands={_RB: 0.011})
+        document = devices_document(_roster(*_RECORDS), motion_bands={_RB: 0.011})
 
         entry = document["settables"][0]
         assert list(entry)[-2:] == ["readback", "motion_band"]
@@ -403,17 +377,17 @@ class TestTolerancesAndMotionBands:
         assert "settle_tolerance" not in entry
 
     def test_an_unpaired_settable_carries_its_own_setpoint_band(self) -> None:
-        document = devices_document(_RECORDS, motion_bands={_UNPAIRED: 0.5})
+        document = devices_document(_roster(*_RECORDS), motion_bands={_UNPAIRED: 0.5})
 
         assert document["settables"][1]["motion_band"] == 0.5
 
     def test_the_setpoint_band_does_not_stand_in_for_a_paired_readback(self) -> None:
-        document = devices_document(_RECORDS, motion_bands={_SP: 0.5})
+        document = devices_document(_roster(*_RECORDS), motion_bands={_SP: 0.5})
 
         assert "motion_band" not in document["settables"][0]
 
     def test_a_zero_band_carries_no_key(self) -> None:
-        document = devices_document(_RECORDS, motion_bands={_RB: 0.0})
+        document = devices_document(_roster(*_RECORDS), motion_bands={_RB: 0.0})
 
         assert all("motion_band" not in entry for entry in document["settables"])
 
@@ -423,18 +397,24 @@ class TestTolerancesAndMotionBands:
         )
 
         document = devices_document(
-            _RECORDS,
-            tolerances={_UNPAIRED: {"relative": 0.01}},
-            motion_bands={_RB: 3.9},
+            _carrying({_UNPAIRED: {"tolerance": {"relative": 0.01}}}), motion_bands={_RB: 3.9}
         )
 
         assert validate_device_document(document) == []
 
     def test_units_follow_the_tolerance_keys(self) -> None:
-        """A device's units come last, after every other optional key; a channel
-        the mapping does not name gets no unit key."""
+        """A device's units come last, after every other optional key; a record
+        that carries no unit gets no unit key."""
         units = {_SP: "u-sp", _RB: "u-rb", _UNPAIRED: "u-unpaired"}
-        document = devices_document(_RECORDS, tolerances={_SP: {"absolute": 0.05}}, units=units)
+        document = devices_document(
+            _carrying(
+                {
+                    _SP: {"unit": units[_SP], "tolerance": {"absolute": 0.05}},
+                    _RB: {"unit": units[_RB]},
+                    _UNPAIRED: {"unit": units[_UNPAIRED]},
+                }
+            )
+        )
 
         paired, unpaired = document["settables"]
         assert list(paired)[-3:] == ["settle_tolerance", "unit", "setpoint_unit"]
@@ -470,24 +450,11 @@ class TestTolerancesAndMotionBands:
                 options=("OFF", "ON"),
             ),
             ChannelRecord(address="ENUM", source=_SOURCE, direction="read", value_type="enum"),
-            ChannelRecord(
-                address=command,
-                source=_SOURCE,
-                direction="write",
-                readback=status,
-                value_type="bool",
-            ),
-            ChannelRecord(
-                address=status,
-                source=_SOURCE,
-                direction="read",
-                value_type="enum",
-                options=words,
-            ),
+            _write(command, readback=status, value_type="bool", command=True, timeout_s=5.0),
+            _read(status, value_type="enum", options=words, idle=0),
         )
-        completions = {command: CommandCompletion(command, status, 0, 5.0)}
 
-        plain = devices_document(records, completions=completions)
+        plain = devices_document(_roster(*records))
 
         (settable,) = plain["settables"]
         assert list(settable)[-4:] == [
@@ -514,27 +481,15 @@ class TestTolerancesAndMotionBands:
         triggerable's status. A record that states none gets no key."""
         command, status = "ES1:ACQ:SP", "ES1:ACQ:STATUS"
         records = (
-            ChannelRecord(
-                address="SP", source=_SOURCE, direction="write", readback="RB", value_type="float"
-            ),
-            ChannelRecord(address="RB", source=_SOURCE, direction="read", value_type="int"),
-            ChannelRecord(address="WORD", source=_SOURCE, direction="read", value_type="string"),
-            ChannelRecord(address="PLAIN", source=_SOURCE, direction="read"),
-            ChannelRecord(
-                address=command,
-                source=_SOURCE,
-                direction="write",
-                readback=status,
-                value_type="bool",
-            ),
-            ChannelRecord(address=status, source=_SOURCE, direction="read", value_type="enum"),
+            _write("SP", readback="RB", value_type="float", unit="mm"),
+            _read("RB", value_type="int", unit="mm"),
+            _read("WORD", value_type="string"),
+            _read("PLAIN"),
+            _write(command, readback=status, value_type="bool", command=True, timeout_s=5.0),
+            _read(status, value_type="enum", idle="DONE"),
         )
 
-        document = devices_document(
-            records,
-            units={"RB": "mm", "SP": "mm"},
-            completions={command: CommandCompletion(command, status, "DONE", 5.0)},
-        )
+        document = devices_document(_roster(*records))
 
         (settable,) = document["settables"]
         assert list(settable)[-4:] == ["value_type", "unit", "setpoint_value_type", "setpoint_unit"]
@@ -553,11 +508,9 @@ class TestTolerancesAndMotionBands:
             validate_device_document,
         )
 
-        waveform = ChannelRecord(
-            address="SR:DIAG:TRACE", source=_SOURCE, direction="read", shape=(500,)
-        )
+        waveform = _read("SR:DIAG:TRACE", shape=(500,), unit="A")
 
-        document = devices_document((*_RECORDS, waveform), units={"SR:DIAG:TRACE": "A"})
+        document = devices_document(_roster(*_RECORDS, waveform))
 
         readables = {entry["name"]: entry for entry in document["readables"]}
         assert readables["SR:DIAG:TRACE"] == {
@@ -574,7 +527,7 @@ class TestTolerancesAndMotionBands:
             address="SR:DIAG:IMAGE", source=_SOURCE, direction="read", shape=(4, 8)
         )
 
-        document = devices_document((*_RECORDS, image))
+        document = devices_document(_roster(*_RECORDS, image))
 
         assert "SR:DIAG:IMAGE" not in {entry["name"] for entry in document["readables"]}
         assert len(document["readables"]) == 2
@@ -584,9 +537,9 @@ class TestTolerancesAndMotionBands:
         plain = tmp_path / "plain.yml"
         empty = tmp_path / "empty.yml"
 
-        write_devices_file(plain, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(plain, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
         write_devices_file(
-            empty, _RECORDS, source=_SOURCE, schema=_SCHEMA, tolerances=None, motion_bands=None
+            empty, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA, motion_bands=None
         )
 
         assert plain.read_bytes() == empty.read_bytes()
@@ -598,10 +551,9 @@ class TestTolerancesAndMotionBands:
 
         document = write_devices_file(
             path,
-            _RECORDS,
+            _carrying({_UNPAIRED: {"tolerance": {"relative": 0.01}}}),
             source=_SOURCE,
             schema=_SCHEMA,
-            tolerances={_UNPAIRED: {"relative": 0.01}},
             motion_bands={_RB: 0.011},
         )
 
@@ -626,7 +578,7 @@ class TestTheDerivationIsFilterFree:
     )
 
     def test_every_record_survives_whatever_its_address_looks_like(self) -> None:
-        document = devices_document(self._ALIEN)
+        document = devices_document(_roster(*self._ALIEN))
 
         assert [entry["name"] for entry in document["settables"]] == [
             "plain_name",
@@ -640,7 +592,7 @@ class TestTheDerivationIsFilterFree:
         ]
 
     def test_counts_are_exactly_the_roster_split(self) -> None:
-        document = devices_document(self._ALIEN)
+        document = devices_document(_roster(*self._ALIEN))
 
         assert len(document["settables"]) == 3
         assert len(document["readables"]) == 3
@@ -683,23 +635,38 @@ class TestTheShippedDemoRoster:
         write_demo_facility_file(tmp_path)
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
+    @staticmethod
+    def _fired(document: dict[str, Any]) -> set[str]:
+        """The commands a plan fires: each triggerable, and each a positioner carries."""
+        carried = {
+            command
+            for entry in document["settables"]
+            for command in (entry.get("started_by", {}).get("command"), entry.get("stopped_by"))
+            if command is not None
+        }
+        return {entry["name"] for entry in document["triggerables"]} | carried
+
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """681 settables / 4094 readables: every channel the demo tree holds."""
+        """The roster's 681 settables / 4094 readables: each settable channel is a
+        device or a command a plan fires, each readable one a device."""
         result = registered_channels(demo_config)
 
-        document = devices_document(result.records)
+        document = devices_document(result)
 
-        assert len(document["settables"]) == DEMO_WRITES
+        devices = len(document["settables"]) + len(document["triggerables"])
+        carried = self._fired(document) - {entry["name"] for entry in document["triggerables"]}
+        assert devices + len(carried) == DEMO_WRITES
         assert len(document["readables"]) == DEMO_READS
 
     def test_every_demo_settable_names_the_readback_the_roster_paired(self, demo_config) -> None:
         result = registered_channels(demo_config)
 
-        document = devices_document(result.records)
+        document = devices_document(result)
 
         paired = [entry for entry in document["settables"] if "readback" in entry]
         unpaired = [entry["setpoint"] for entry in document["settables"] if "readback" not in entry]
-        assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED
+        fired_paired = [a for a in self._fired(document) if not is_demo_unpaired(a)]
+        assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED - len(fired_paired)
         assert all(entry["readback"] == demo_readback(entry["setpoint"]) for entry in paired)
         assert all(is_demo_unpaired(address) for address in unpaired)
 
@@ -708,23 +675,23 @@ class TestWriteDevicesFile:
     def test_the_schema_line_is_the_first_line(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         assert path.read_text(encoding="utf-8").split("\n", 1)[0] == f"schema: {_SCHEMA}"
 
     def test_a_write_without_a_schema_is_refused(self, tmp_path) -> None:
         with pytest.raises(TypeError, match="schema"):
             write_devices_file(  # type: ignore[call-arg]
-                tmp_path / "bluesky_devices.yml", _RECORDS, source=_SOURCE
+                tmp_path / "bluesky_devices.yml", _roster(*_RECORDS), source=_SOURCE
             )
 
     def test_written_yaml_parses_back_to_the_returned_document(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
-        assert document == devices_document(_RECORDS)
+        assert document == devices_document(_roster(*_RECORDS))
 
     def test_header_marks_the_file_generated_and_names_the_roster_source(self, tmp_path) -> None:
         """The header has to answer both questions a reader of a staged file
@@ -732,7 +699,7 @@ class TestWriteDevicesFile:
         projection of."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         text = "\n".join(
             line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("#")
@@ -747,7 +714,7 @@ class TestWriteDevicesFile:
         path = tmp_path / "bluesky_devices.yml"
         source = RosterSource(kind=RosterSourceKind.FACILITY, path=tmp_path / "facility.json")
 
-        write_devices_file(path, _RECORDS, source=source, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=source, schema=_SCHEMA)
 
         assert source.describe() in path.read_text(encoding="utf-8")
 
@@ -755,7 +722,7 @@ class TestWriteDevicesFile:
         """Which is why the source is passed rather than read off a record."""
         path = tmp_path / "bluesky_devices.yml"
 
-        document = write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _roster(), source=_SOURCE, schema=_SCHEMA)
 
         assert document == {
             "settables": [],
@@ -768,7 +735,7 @@ class TestWriteDevicesFile:
     def test_leaves_no_temp_file_behind(self, tmp_path) -> None:
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
 
@@ -777,8 +744,8 @@ class TestWriteDevicesFile:
         two concatenated documents behind."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
-        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         assert yaml.safe_load(path.read_text(encoding="utf-8")) == {"schema": _SCHEMA, **document}
 
@@ -788,7 +755,7 @@ class TestWriteDevicesFile:
         import os
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
         before = path.read_text(encoding="utf-8")
 
         def _boom(*args, **kwargs):
@@ -796,7 +763,7 @@ class TestWriteDevicesFile:
 
         monkeypatch.setattr(os, "replace", _boom)
         with pytest.raises(OSError):
-            write_devices_file(path, (), source=_SOURCE, schema=_SCHEMA)
+            write_devices_file(path, _roster(), source=_SOURCE, schema=_SCHEMA)
 
         assert path.read_text(encoding="utf-8") == before
         assert [entry.name for entry in tmp_path.iterdir()] == ["bluesky_devices.yml"]
@@ -806,7 +773,7 @@ class TestWriteDevicesFile:
         would make it unreadable to any uid but the one that rendered it."""
         path = tmp_path / "bluesky_devices.yml"
 
-        write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         assert path.stat().st_mode & 0o044 == 0o044
 
@@ -831,7 +798,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        write_devices_file(path, self._AWKWARD, source=_SOURCE, schema=_SCHEMA)
+        write_devices_file(path, _roster(*self._AWKWARD), source=_SOURCE, schema=_SCHEMA)
 
         found = specs_from_file(path)
         settables, readables = found.settables, found.readables
@@ -854,7 +821,7 @@ class TestDeviceFileRoundTrip:
         from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 
         path = tmp_path / "bluesky_devices.yml"
-        document = write_devices_file(path, _RECORDS, source=_SOURCE, schema=_SCHEMA)
+        document = write_devices_file(path, _roster(*_RECORDS), source=_SOURCE, schema=_SCHEMA)
 
         found = specs_from_file(path)
         settables, readables = found.settables, found.readables

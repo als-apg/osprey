@@ -1,0 +1,1 @@
+A channel's `unit` and settle `tolerance` are fields of the channel roster's `ChannelRecord`; the Bluesky device-file writer reads them, and each command's completion, off the roster instead of from separate tables. The device file is unchanged.
