@@ -233,6 +233,13 @@ class ChannelRecord:
         stopped_by: On a setpoint that states ``started_by``, the command that
             stops its move, the wiring record's for a further address;
             ``None`` otherwise.
+        unit: The facility file's non-empty ``unit`` for the channel, the
+            wiring record's for a further address; ``None`` when the file
+            states none.
+        tolerance: On a setpoint, its settle ``tolerance`` as the facility
+            file states it, exactly one of ``absolute`` and ``relative``, the
+            wiring record's for a further address; ``None`` when the file
+            states none.
 
     Raises:
         ValueError: On an empty address, a direction outside ``"read"``/
@@ -255,6 +262,8 @@ class ChannelRecord:
     idle: str | int | float | None = None
     started_by: str | None = None
     stopped_by: str | None = None
+    unit: str | None = None
+    tolerance: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
         if not self.address:
