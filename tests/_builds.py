@@ -54,7 +54,7 @@ def build(facility_dir: Path, **kw: Any) -> dict[str, Any]:
     """Build a facility file in memory as ``osprey build`` does.
 
     Args:
-        facility_dir: The ``data/facility`` directory.
+        facility_dir: The ``facility`` directory.
         **kw: The keywords of :func:`osprey_facility.build.build_facility`;
             ``extra_checks`` defaults to :data:`FRAMEWORK_CHECKS`.
 

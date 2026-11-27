@@ -5,7 +5,7 @@ writes that file; a test that stands up a render by hand and then asks for
 channels has to write one too, or the roster answers with the absence that
 says the file is not built.
 
-The file is built from a ``data/facility`` tree by the same in-memory build
+The file is built from a ``facility`` tree by the same in-memory build
 the real one runs, and serialised by the same writer, so a test's file has the
 shape a build's has -- defaults filled, records sorted.
 
@@ -130,9 +130,9 @@ def write_facility_file(
 
     Args:
         render: The render root, the directory holding ``config.yml``.
-        tree: A ``data/facility`` tree in the shape
+        tree: A ``facility`` tree in the shape
             ``tests.facility._synthetic_trees`` writes; ``None`` is a project
-            with no ``data/facility`` at all.
+            with no ``facility`` at all.
         name: The project name.
 
     Returns:
@@ -207,7 +207,7 @@ def write_facility_views(render: Path | str, bundle: str = "demo") -> list[Path]
 
     The facility file and every view the render's ``config.yml`` asks for, by
     the build's own writer, so the render's agent facts name the models its
-    config serves. A bundle that packages no ``data/facility`` tree writes
+    config serves. A bundle that packages no ``facility`` tree writes
     nothing.
 
     Args:

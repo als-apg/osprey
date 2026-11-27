@@ -22,7 +22,7 @@ by a directory copy for each test.
 is logged; :class:`StubRuntime` reads the log back.
 
 The exemplar is shared **read-only**. A start verb writes to the repo it starts
-— it mints service tokens into ``.env``, generates key material under ``data/``,
+— it mints service tokens into ``.env``, generates key material under ``var/runtime/``,
 and spools command output under ``var/`` — and the profile fingerprint notices,
 so a second test starting the same directory is refused as stale. Use
 ``exemplar_copy``, a writable tree of the test's own, for anything that runs a
@@ -409,7 +409,7 @@ def exemplar_copy(_startable_exemplar: Restorable) -> Path:
     """A private, writable exemplar for one test.
 
     The copy is what a start verb is allowed to scribble on: it mints tokens
-    into ``.env``, writes key material under ``data/``, and spools output under
+    into ``.env``, writes key material under ``var/runtime/``, and spools output under
     ``var/``, all of which the profile fingerprint sees.
 
     It is rendered at the path it is used at and put back pristine there for

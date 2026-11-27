@@ -35,7 +35,7 @@ which of them a corrector-sweeping plan can do physics with is a question a
 lane asks of the repo's own simulator view
 (:func:`tests.e2e._facility_select.repo_view`) and has no place in a
 framework that must stay facility-agnostic. The limits table is
-the view of ``data/facility/limits.yaml``, the same table the render enforces,
+the view of ``facility/limits.yaml``, the same table the render enforces,
 readable before the build through :func:`channel_limits`.
 """
 
@@ -626,7 +626,7 @@ def build_project_subprocess(
 
 
 def channel_limits(project_dir: Path) -> dict[str, Any]:
-    """The limits view of the repo's ``data/facility/limits.yaml``, parsed --
+    """The limits view of the repo's ``facility/limits.yaml``, parsed --
     the same table the render enforces on the channels it can write.
 
     Callers pass the deployment REPO. The view is rendered from the repo's own

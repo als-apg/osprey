@@ -166,7 +166,7 @@ The demo scenario tests (``test_vacuum_burst_scenario.py`` and
 ``test_rf_cavity_correlation_scenario.py``) get
 their archiver ground truth from the **data-driven simulation engine**, not from
 hard-coded connector code. Scenarios are the facility's scenario files under
-``data/facility/simulation/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
+``facility/simulation/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
 optionally, its logbook narrative (its ``logbook`` block).
 Each test builds a project from the ``demo`` preset and calls
 ``activate_scenarios(project, "<name>"...)`` to compose and apply one or more

@@ -190,7 +190,7 @@ alone. `database_path` has no per-type spelling: a
 deployment mounts one limits database, so that leaf stays deployment-wide, and a
 per-type block omitting it is complete rather than half-written. A profile that
 states `database_path`, at either scope, stops the build: the build derives it,
-writing `data/channel_limits.json` from `data/facility/limits.yaml` and naming
+writing `data/channel_limits.json` from `facility/limits.yaml` and naming
 that file in every render that states a limits block.
 
 No preset writes a per-type limits block, so none is in the union and every

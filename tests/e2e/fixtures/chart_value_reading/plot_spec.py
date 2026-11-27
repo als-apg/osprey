@@ -17,7 +17,7 @@ else. ``hours_before`` counts back from the entry's own time, as every plot
 spec does (see :func:`osprey.simulation.plots.render_plot_spec`).
 
 Both scenarios are facility scenario files: :func:`install_scenarios` copies
-them into a deployment's ``data/facility/simulation/scenarios/`` and draws the spec where
+them into a deployment's ``facility/simulation/scenarios/`` and draws the spec where
 the entry's ``plot`` attachment points, in the scenario's own directory.
 """
 
