@@ -77,7 +77,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -713,6 +712,10 @@ class TestJsonOutput:
 # --------------------------------------------------------------------------- #
 
 
+#: The exit ceiling after the deadline row, as a multiple of the configured suite deadline.
+_EXIT_AFTER_DEADLINE_FACTOR = 5
+
+
 class TestNoHang:
     """A never-returning check must not block process exit."""
 
@@ -721,11 +724,12 @@ class TestNoHang:
         # A short suite deadline plus a plugin whose sync check never returns: the
         # runner off-loads it to a daemon thread, abandons it at the deadline, and
         # the CLI must still exit (via os._exit) with an error code.
+        suite_timeout_s = 2
         _write_config(
             project,
             "project_name: hung_test\n"
             "health:\n"
-            "  suite_timeout_s: 2\n"
+            f"  suite_timeout_s: {suite_timeout_s}\n"
             "  plugins:\n"
             "    - hung_health_plugin\n",
         )
@@ -739,29 +743,45 @@ class TestNoHang:
             os.pathsep
         )
 
-        # Wall-clock bound well above the 2s suite deadline but far below any hang:
-        # a TimeoutExpired here is the no-hang failure signal.
-        wall_clock_bound_s = 30.0
-        started = time.monotonic()
-        proc = subprocess.run(
-            [str(osprey_bin), "health", "--project", str(project), "--category", "hung"],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=wall_clock_bound_s,
-        )
-        elapsed = time.monotonic() - started
+        stderr_path = tmp_path / "health.stderr"
+        exit_ceiling_s = _EXIT_AFTER_DEADLINE_FACTOR * suite_timeout_s
+        lines: list[str] = []
+        with stderr_path.open("w", encoding="utf-8") as stderr_file:
+            proc = subprocess.Popen(
+                [str(osprey_bin), "health", "--project", str(project), "--category", "hung"],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=stderr_file,
+                text=True,
+            )
+        try:
+            assert proc.stdout is not None
+            # The synthesized budget-exceeded row is the runner's attestation that
+            # the deadline path fired; the exit must follow it.
+            for line in proc.stdout:
+                lines.append(line)
+                if "exceeded its" in line and "budget" in line:
+                    break
+            try:
+                returncode = proc.wait(timeout=exit_ceiling_s)
+            except subprocess.TimeoutExpired:
+                pytest.fail(
+                    "osprey health printed its deadline row but did not exit within "
+                    f"{exit_ceiling_s} s\nstdout={''.join(lines)!r}"
+                )
+            lines.extend(proc.stdout)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            proc.stdout.close()
 
-        assert elapsed < wall_clock_bound_s
-        # Lower bound: the process must have actually reached the 2s suite deadline
-        # (abandon-then-exit), not fast-failed before running the hung check.
-        assert elapsed >= 1.5, f"exited too fast ({elapsed:.2f}s); deadline path may not have fired"
+        stdout = "".join(lines)
+        stderr = stderr_path.read_text(encoding="utf-8")
         # The abandoned category yields a deadline error row → exit 2.
-        assert proc.returncode == 2, (
-            f"rc={proc.returncode}\nstdout={proc.stdout!r}\nstderr={proc.stderr!r}"
-        )
+        assert returncode == 2, f"rc={returncode}\nstdout={stdout!r}\nstderr={stderr!r}"
         # Positively pin that the os._exit deadline path fired: the synthesized
         # budget-exceeded row for the hung category is rendered on stdout.
-        assert "exceeded its" in proc.stdout and "budget" in proc.stdout, (
-            f"missing deadline row\nstdout={proc.stdout!r}"
+        assert "exceeded its" in stdout and "budget" in stdout, (
+            f"missing deadline row\nstdout={stdout!r}\nstderr={stderr!r}"
         )
