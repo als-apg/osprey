@@ -11,13 +11,19 @@ laid out from literal paths here, never from the declaration.
 from __future__ import annotations
 
 import io
+import json
 import os
 import shutil
 import subprocess
+import sys
+import types
+from importlib import metadata
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from osprey_connectors.simulation.engines import ENGINE_GROUP
 from osprey_facility.build import build_facility
 from osprey_facility.errors import (
     _PLACE_THESE,
@@ -45,11 +51,15 @@ from osprey_facility_tests._harness import REPO_ROOT
 
 DECK = REPO_ROOT / "src/osprey/templates/facilities/example/simulation/decks/LTB.json"
 
+#: The engine the models name: one this module registers, so a build here asks
+#: nothing of the engines the environment happens to install.
+ENGINE = "deck_reader"
+
 #: One model's entry, its ``deck`` value written in each style an author may use.
 MODELS = {
-    "block": "# the ring\n- name: ring\n  engine: pyat\n  deck: decks/ring.json\n",
-    "first-key": "- deck: decks/ring.json\n  name: ring\n  engine: pyat\n",
-    "quoted": '- name: ring\n  engine: pyat\n  deck: "decks/ring.json"\n',
+    "block": f"# the ring\n- name: ring\n  engine: {ENGINE}\n  deck: decks/ring.json\n",
+    "first-key": f"- deck: decks/ring.json\n  name: ring\n  engine: {ENGINE}\n",
+    "quoted": f'- name: ring\n  engine: {ENGINE}\n  deck: "decks/ring.json"\n',
 }
 
 
@@ -61,6 +71,45 @@ def _hermetic_git(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for role in ("AUTHOR", "COMMITTER"):
         monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
         monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@example.invalid")
+
+
+@pytest.fixture
+def decks_read(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+    """Register engine ``ENGINE``, which reads the deck a build hands it; the decks read.
+
+    The engine parses the file, so a build passes only when the model's ``deck``
+    names a deck that is there. Every other entry-point group reads as installed.
+    """
+    read: list[Path] = []
+
+    def prepare(deck: Path, *args: Any, **kwargs: Any) -> types.SimpleNamespace:
+        json.loads(Path(deck).read_text(encoding="utf-8"))
+        read.append(Path(deck))
+        return types.SimpleNamespace(solve="open", length_m=1.0)
+
+    def start_values(deck: Path, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        json.loads(Path(deck).read_text(encoding="utf-8"))
+        return {}
+
+    def unused(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    module = types.ModuleType(f"{__name__}.{ENGINE}")
+    for name in ("locate", "describe", "build"):
+        setattr(module, name, unused)
+    module.prepare = prepare  # type: ignore[attr-defined]
+    module.start_values = start_values  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    engines = metadata.EntryPoints(
+        [metadata.EntryPoint(name=ENGINE, value=module.__name__, group=ENGINE_GROUP)]
+    )
+    installed = metadata.entry_points
+
+    def entry_points(**params: Any) -> Any:
+        return engines if params.get("group") == ENGINE_GROUP else installed(**params)
+
+    monkeypatch.setattr(metadata, "entry_points", entry_points)
+    return read
 
 
 def _write(root: Path, relative: str, text: str = "x\n") -> Path:
@@ -361,7 +410,9 @@ def test_a_clash_beside_moves_prints_the_moves_but_no_command(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize("style", sorted(MODELS), ids=lambda value: value)
-def test_running_the_printed_script_leaves_a_tree_that_builds(tmp_path: Path, style: str) -> None:
+def test_running_the_printed_script_leaves_a_tree_that_builds(
+    tmp_path: Path, style: str, decks_read: list[Path]
+) -> None:
     deployment = tmp_path / "deployment"
     facility = _old_tree(deployment / "data/facility", MODELS[style])
     _repository(deployment)
@@ -376,11 +427,14 @@ def test_running_the_printed_script_leaves_a_tree_that_builds(tmp_path: Path, st
         encoding="utf-8"
     )
     build_facility(facility, project_name="demo", extra_checks=())
+    assert decks_read == [facility / "simulation/decks/ring.json"]
     status = _git(deployment, "status", "--porcelain")
     assert "R  data/facility/classes.yaml -> data/facility/vocabulary/classes.yaml" in status
 
 
-def test_running_the_printed_script_merges_into_an_existing_successor(tmp_path: Path) -> None:
+def test_running_the_printed_script_merges_into_an_existing_successor(
+    tmp_path: Path, decks_read: list[Path]
+) -> None:
     deployment = tmp_path / "deployment"
     facility = _old_tree(deployment / "data/facility")
     _write(facility, "decks/sub/extra.json", "{}\n")
@@ -396,9 +450,12 @@ def test_running_the_printed_script_merges_into_an_existing_successor(tmp_path: 
     assert (facility / "simulation/decks/sub/extra.json").is_file()
     assert (facility / "simulation/decks/other.json").is_file()
     build_facility(facility, project_name="demo", extra_checks=())
+    assert decks_read == [facility / "simulation/decks/ring.json"]
 
 
-def test_running_the_printed_script_untracked_outside_a_repository(tmp_path: Path) -> None:
+def test_running_the_printed_script_untracked_outside_a_repository(
+    tmp_path: Path, decks_read: list[Path]
+) -> None:
     facility = _old_tree(tmp_path / "facility")
     _write(facility, "benchmarks/cross_paradigm/queries/tree_queries.json", "[]\n")
 
@@ -407,9 +464,12 @@ def test_running_the_printed_script_untracked_outside_a_repository(tmp_path: Pat
     assert find_retired(facility).empty
     assert not (facility / "benchmarks/cross_paradigm").exists()
     build_facility(facility, project_name="demo", extra_checks=())
+    assert decks_read == [facility / "simulation/decks/ring.json"]
 
 
-def test_running_the_printed_script_moves_a_mounted_second_repository(tmp_path: Path) -> None:
+def test_running_the_printed_script_moves_a_mounted_second_repository(
+    tmp_path: Path, decks_read: list[Path]
+) -> None:
     machine = _old_tree(tmp_path / "machine-repo", MODELS["first-key"])
     _repository(machine)
     deployment = tmp_path / "deployment"
@@ -425,6 +485,7 @@ def test_running_the_printed_script_moves_a_mounted_second_repository(tmp_path: 
         deployment, "status", "--porcelain"
     )
     build_facility(machine, project_name="demo", content_dir=content, extra_checks=())
+    assert decks_read == [machine / "simulation/decks/ring.json"]
 
 
 # --- the script for any tree --------------------------------------------------------------
