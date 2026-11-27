@@ -10,6 +10,9 @@ render carries the view when it runs a Bluesky lane.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,7 +30,9 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import (
     specs_from_file,
     validate_device_document,
 )
+from osprey_facility.build import build_facility
 from osprey_facility.records import FacilityRecords
+from tests._builds import FRAMEWORK_CHECKS
 from tests._facility_file import FACILITY_V4
 from tests.facility.test_cf_view_parity import load_golden, served_fingerprint_rows
 
@@ -665,6 +670,28 @@ def test_the_demo_view_states_each_waveform_as_an_array_of_its_length(
         "ES1:DET:MCA:01:SPECTRUM:WAVEFORM": (1024,),
         "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM": (500,),
     }
+
+
+#: The SHA-256 of the example facility's device document, JSON-dumped.
+EXAMPLE_DEVICES_DIGEST = "d631d807817196d0692223f9128bc4395a3daf47f8dbab8bab04df58b2de334e"
+
+
+@pytest.mark.slow
+def test_the_example_device_document_is_unchanged(tmp_path: Path) -> None:
+    """The example facility's device document has the digest it had before a
+    channel's unit and settle tolerance came to be read off its roster record.
+
+    A change to the example's devices retakes the digest, and says why.
+    """
+    example = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
+    facility_dir = tmp_path / "data" / "facility"
+    shutil.copytree(example, facility_dir)
+    document = build_facility(facility_dir, project_name="example", extra_checks=FRAMEWORK_CHECKS)
+
+    devices = bluesky_document(FacilityRecords(document))
+
+    digest = hashlib.sha256(json.dumps(devices).encode("utf-8")).hexdigest()
+    assert digest == EXAMPLE_DEVICES_DIGEST
 
 
 _WRITE_PLANS_DOC = (
