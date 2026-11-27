@@ -8,6 +8,137 @@
     "setpoints": 681,
     "readables": 4094
   },
+  "facts": {
+    "bound_devices": 1027,
+    "bound_magnets": 480,
+    "derived_by_system": {
+      "BR": [
+        "BeamCurrentMonitor"
+      ],
+      "BTS": [],
+      "ES1": [],
+      "GTL": [],
+      "LN": [],
+      "LTB": [],
+      "SR": [
+        "AcceleratingCavity",
+        "AirHandler",
+        "BeamCurrentMonitor",
+        "BeamLossMonitor",
+        "Gauge",
+        "Modulator",
+        "Pump",
+        "TemperatureSensor",
+        "Valve"
+      ]
+    },
+    "distinct_device_texts": {
+      "familyDescription": 74,
+      "systemDescription": 8
+    },
+    "family_described": 1082,
+    "graph_classes": 38,
+    "graph_read_only": 4089,
+    "graph_sections": 24,
+    "graph_signals": 71,
+    "groups_by_system": {
+      "BR": [
+        "BPM",
+        "DIAG",
+        "DIPOLE-RAMP",
+        "HCM",
+        "KICKER",
+        "MAG",
+        "QD-RAMP",
+        "QF-RAMP",
+        "SEPTUM",
+        "TV",
+        "VCM"
+      ],
+      "BTS": [
+        "BPM",
+        "DIAG",
+        "DIPOLE",
+        "HCM",
+        "ICT",
+        "MAG",
+        "PADDLES",
+        "QD",
+        "QF",
+        "TV",
+        "VCM"
+      ],
+      "ES1": [
+        "MCA",
+        "STAGE"
+      ],
+      "GTL": [
+        "BC",
+        "BPM",
+        "EGUN",
+        "HCM",
+        "ICT",
+        "SHB",
+        "SOL",
+        "TV",
+        "VCM"
+      ],
+      "LN": [
+        "ACC",
+        "BPM",
+        "BUNCHER",
+        "HCM",
+        "ICT",
+        "MASTER",
+        "QD",
+        "QF",
+        "SOL",
+        "TV",
+        "VCM",
+        "WATER"
+      ],
+      "LTB": [
+        "BPM",
+        "DIPOLE",
+        "HCM",
+        "ICT",
+        "QD",
+        "QF",
+        "TV",
+        "VCM"
+      ],
+      "SR": [
+        "BPM",
+        "DIAG",
+        "DIPOLE",
+        "ENV",
+        "FE",
+        "HC",
+        "HCM",
+        "ID",
+        "MAG",
+        "QD",
+        "QF",
+        "QFA",
+        "RF",
+        "SCRAPER",
+        "SD",
+        "SEPTUM",
+        "SF",
+        "SHD",
+        "SHF",
+        "TC",
+        "VAC",
+        "VCM"
+      ]
+    },
+    "magnets": 537,
+    "manifest_channels": 2908,
+    "retired": 64,
+    "system_described": 1084,
+    "triples_loaded": 45622,
+    "typed_devices": 1026
+  },
   "entries": [
     {
       "file": "tests/facility/golden/demo_fingerprint.json",
