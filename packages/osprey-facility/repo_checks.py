@@ -67,6 +67,9 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_facility.kinds.block_problems": "a kind plug-in checks its measurement block",
     "osprey_facility.kinds.member_sorts": "a kind plug-in reads a declaration's member sorts",
     "osprey_facility.kinds.plan_problems": "a kind plug-in checks its measure plan",
+    "osprey_facility.plan_names.PLAN_NAME_PATTERN": (
+        "a fork or tool reads the grammar a Bluesky run's names follow"
+    ),
     "osprey_facility.schema.Facility": (
         "a fork or tool validates a facility file against the generated model"
     ),
