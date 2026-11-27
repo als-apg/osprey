@@ -27,9 +27,9 @@ CONSTANT_LINE = 'SCREEN_IR_VERSION = "1.1"'
 
 #: sha256 of the parity baseline's ``digests.sha256``: one ``<sha256>  ./<path>`` line
 #: per file the fixture's ``write`` put in ``out`` (60 screens and ``index.json``),
-#: sorted by path. Taken at the phase base with the framework command, before the
-#: engine moved; the output must not change while the version stays the same.
-PARITY_DIGEST = "34d1aedcbb516c9952457627ca86f0f2e800f8c917767a8a3f380d03fc6b512d"
+#: sorted by path. The output must not change unnoticed: a change of what the engine
+#: writes moves this digest in the same commit (last: ``menuTitle`` on computed tiles).
+PARITY_DIGEST = "63c5e98cda1103e33c35b28271981cae676c3a0790511651f4eb84dc6abafd1a"
 PARITY_FILES = 61
 
 

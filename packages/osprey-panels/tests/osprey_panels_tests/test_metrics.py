@@ -109,6 +109,10 @@ def test_every_measure_is_a_formula_the_engine_computes_right(xr01) -> None:
     assert evaluate(formula_of("Magnets"), {sp: 10.0, rb: 10.2}) == 0
     (bend,) = tiles["Bend"]["pv-label"]  # one channel: bound as itself
     assert bend["props"]["pv"] == "XR01-BEND1:Current-RB"
+    assert "menuTitle" not in bend["props"]
+    # a computed number carries its tile's title, as drawn, for the viewer's menu
+    (currents,) = tiles["Currents"]["pv-label"]
+    assert currents["props"]["menuTitle"] == "CURRENTS"
 
 
 def test_a_count_reads_n_of_n_and_turns_its_border_bad_on_a_loss(xr01) -> None:
