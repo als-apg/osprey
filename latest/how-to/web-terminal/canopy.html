@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 26, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 27, 2026"/>
   </head>
   
   
@@ -823,6 +823,14 @@ several channels has one menu; the chips above the entries pick the channel.
 Hold <strong>Shift</strong> for the browser’s own menu. <strong>PV details…</strong> opens the page
 <code class="docutils literal notranslate"><span class="pre">web.panels.canopy.pv_details_url</span></code> names, with the channel’s name in place
 of <code class="docutils literal notranslate"><span class="pre">{pv}</span></code>; without that key the menu has no such entry.</p>
+<p>A widget that shows a number the screen computes from several channels (a
+<code class="docutils literal notranslate"><span class="pre">formula://</span></code> binding) has a menu of its own. It names the number (the
+widget’s <code class="docutils literal notranslate"><span class="pre">menuTitle</span></code>), its value, how many channels feed it and the pattern
+of their names, and never lists them: <strong>Inputs (N)…</strong> opens a window with one
+row per channel, a filter by name and a largest-first order, and a right-click
+on a row is that channel’s menu. Up to 12 inputs, <strong>Plot history</strong> plots the
+inputs; above that the entry is disabled. A number computed from one channel
+opens that channel’s menu.</p>
 <p><strong>Which machine.</strong> A badge names the machine the values come from. Switch the
 control target on the chip and CANOPY follows: the screens go blank for a
 moment and return with the new machine’s values. A click made on a screen
