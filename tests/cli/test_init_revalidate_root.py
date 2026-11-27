@@ -316,6 +316,41 @@ def test_host_steps_and_what_to_check_are_printed(_template: Path, tmp_path: Pat
 
 
 @pytest.mark.usefixtures("planted")
+def test_pipeline_paths_are_rewritten_and_a_bare_file_name_is_listed(
+    _template: Path, tmp_path: Path
+) -> None:
+    root = _plant(_template, tmp_path, git=True)
+    job = (
+        "job:\n  script:\n"
+        "    - sh $CI_PROJECT_DIR/scripts/run.sh\n"
+        '    - ls "${CI_PROJECT_DIR}/services" ${CI_PROJECT_DIR}/osprey.service\n'
+        "    - ls $CI_PROJECT_DIR/build\n"
+        "    - cp ./osprey.service ~/.config/systemd/user/\n"
+        "    - systemctl enable osprey.service\n"
+    )
+    _write(root, {".gitlab-ci.yml": _PIPELINE + job, "osprey.service": "[Unit]\n"})
+    _commit_all(root, "the operator's pipeline job")
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert (root / ".gitlab-ci.yml").read_text(encoding="utf-8") == _NEW_PIPELINE + (
+        "job:\n  script:\n"
+        "    - sh $CI_PROJECT_DIR/ops/scripts/run.sh\n"
+        '    - ls "${CI_PROJECT_DIR}/ops/services" ${CI_PROJECT_DIR}/ops/osprey.service\n'
+        "    - ls $CI_PROJECT_DIR/build\n"
+        "    - cp ./ops/osprey.service ~/.config/systemd/user/\n"
+        "    - systemctl enable osprey.service\n"
+    )
+    steps = " ".join(result.output[result.output.index("Left for you to do by hand") :].split())
+    assert (
+        ".gitlab-ci.yml:10: osprey.service is ops/osprey.service where it names the file:"
+        " - systemctl enable osprey.service"
+    ) in steps
+    assert find_retired_root(root).empty
+
+
+@pytest.mark.usefixtures("planted")
 def test_stale_canopy_staging_is_removed(_template: Path, tmp_path: Path) -> None:
     root = _plant(_template, tmp_path, git=True)
 

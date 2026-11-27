@@ -19,7 +19,7 @@ release with its rendered sources under a non-default in-repo ``data:`` root;
 the previous release whose facility tree is a repository of its own, where
 the commands for that repository run by both routes; and the previous release
 whose pipeline carries the operator's own job, with paths spelled from
-``CI_PROJECT_DIR``. A refusal that only names
+``CI_PROJECT_DIR`` and a moved file's bare name. A refusal that only names
 files to place by hand prints no command to run.
 """
 
@@ -66,7 +66,8 @@ DATA_ROOT = "content"
 RENDERED_SOURCES = ("facility", "canopy", "landing")
 
 #: The operator's own pipeline job in the previous release: paths spelled from
-#: GitLab's name for the repository root.
+#: GitLab's name for the repository root, and the generated unit both as a file
+#: and as a unit name.
 OPERATOR_JOB = (
     "\noperator-checks:\n"
     "  script:\n"
@@ -74,9 +75,10 @@ OPERATOR_JOB = (
     "    - ls ${CI_PROJECT_DIR}/services ${CI_PROJECT_DIR}/osprey.service\n"
     "    - ls $CI_PROJECT_DIR/build ${CI_PROJECT_DIR}/var\n"
     "    - cp ./osprey.service ~/.config/systemd/user/\n"
+    "    - systemctl --user enable osprey.service\n"
 )
 
-#: The same job once migrated.
+#: The same job once migrated: every spelled path rewritten, the unit name kept.
 MIGRATED_OPERATOR_JOB = (
     "\noperator-checks:\n"
     "  script:\n"
@@ -84,6 +86,13 @@ MIGRATED_OPERATOR_JOB = (
     "    - ls ${CI_PROJECT_DIR}/ops/services ${CI_PROJECT_DIR}/ops/osprey.service\n"
     "    - ls $CI_PROJECT_DIR/build ${CI_PROJECT_DIR}/var\n"
     "    - cp ./ops/osprey.service ~/.config/systemd/user/\n"
+    "    - systemctl --user enable osprey.service\n"
+)
+
+#: What both routes say of the line that holds the unit name.
+UNIT_NAME_LISTED = (
+    "osprey.service is ops/osprey.service where it names the file:"
+    " - systemctl --user enable osprey.service"
 )
 
 #: Where revalidate's commands for another repository start, in its output.
@@ -322,10 +331,20 @@ def test_both_routes_finish_the_migration(routes: Routes) -> None:
 
 
 @pytest.mark.parametrize("routes", ["operator-pipeline-job"], indirect=True)
-def test_both_routes_rewrite_the_same_pipeline_lines(routes: Routes) -> None:
+def test_both_routes_rewrite_the_same_pipeline_lines_and_list_the_same_one(
+    routes: Routes,
+) -> None:
     for repo in (routes.block, routes.moved, routes.revalidated):
         pipeline = (repo / ".gitlab-ci.yml").read_text(encoding="utf-8")
         assert pipeline.endswith(MIGRATED_OPERATOR_JOB), (repo, pipeline)
+    listed = [line for line in routes.refusal.splitlines() if line.endswith(UNIT_NAME_LISTED)]
+    assert len(listed) == 1, routes.refusal
+    entry = listed[0].removeprefix("#").strip()
+    assert entry.startswith(".gitlab-ci.yml:"), entry
+    number = int(entry.split(":")[1])
+    pipeline = (routes.block / ".gitlab-ci.yml").read_text(encoding="utf-8").splitlines()
+    assert pipeline[number - 1].strip() == "- systemctl --user enable osprey.service"
+    assert entry in " ".join(routes.revalidate.split()), routes.revalidate
 
 
 def _moved_paths(repo: Path) -> set[str]:

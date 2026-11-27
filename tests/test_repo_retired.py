@@ -414,6 +414,83 @@ def test_the_project_directory_variable_is_a_root_only_in_the_pipeline(tmp_path:
     assert find_retired_root(root).line_edits == ()
 
 
+def test_a_bare_moved_file_name_in_a_pipeline_command_is_listed_not_rewritten(
+    tmp_path: Path,
+) -> None:
+    root, rewritten = _pipeline_lines(
+        tmp_path,
+        [
+            "systemctl enable osprey.service",
+            "cp ./osprey.service ~/.config/systemd/user/",
+            "systemctl restart osprey.service; cp ./osprey.service /tmp/",
+            "cat ci-extra.yml",
+            "ls osprey.service.bak my-osprey.service",
+        ],
+    )
+    assert rewritten == {
+        4: "- cp ./ops/osprey.service ~/.config/systemd/user/",
+        5: "- systemctl restart osprey.service; cp ./ops/osprey.service /tmp/",
+    }
+    assert find_retired_root(root).check_by_hand == (
+        ".gitlab-ci.yml:3: osprey.service is ops/osprey.service where it names the file:"
+        " - systemctl enable osprey.service",
+        ".gitlab-ci.yml:5: osprey.service is ops/osprey.service where it names the file:"
+        " - systemctl restart osprey.service; cp ./osprey.service /tmp/",
+        ".gitlab-ci.yml:6: ci-extra.yml is ops/ci-extra.yml where it names the file:"
+        " - cat ci-extra.yml",
+    )
+    block = _refusal(root).format_message().splitlines()
+    start = block.index("# Check by hand; the paths inside these are not rewritten:")
+    assert block[start + 1] == (
+        "#   .gitlab-ci.yml:3: osprey.service is ops/osprey.service where it names the file:"
+        " - systemctl enable osprey.service"
+    )
+    assert not any("systemctl enable" in line for line in _refusal(root).script)
+
+
+def test_a_bare_moved_file_name_is_a_path_under_a_pipeline_path_key(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _write(root, "rules/a.md")
+    _write(
+        root,
+        ".gitlab-ci.yml",
+        "include:\n"
+        "  - local: ci-extra.yml\n"
+        "    rules:\n"
+        "      - exists: [ci-extra.yml, osprey.service]\n"
+        "variables:\n"
+        "  UNIT: osprey.service\n",
+    )
+    layout = find_retired_root(root)
+    assert [(edit.line, edit.new) for edit in layout.line_edits] == [
+        (2, "  - local: ops/ci-extra.yml"),
+        (4, "      - exists: [ops/ci-extra.yml, ops/osprey.service]"),
+    ]
+    assert layout.check_by_hand == (
+        ".gitlab-ci.yml:6: osprey.service is ops/osprey.service where it names the file:"
+        " UNIT: osprey.service",
+    )
+
+
+def test_a_pipeline_that_does_not_parse_has_no_path_keys(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _write(root, "rules/a.md")
+    _write(root, ".gitlab-ci.yml", "include:\n  - local: ci-extra.yml\n  bad: [\n")
+    layout = find_retired_root(root)
+    assert layout.line_edits == ()
+    assert layout.check_by_hand == (
+        ".gitlab-ci.yml:2: ci-extra.yml is ops/ci-extra.yml where it names the file:"
+        " - local: ci-extra.yml",
+    )
+
+
+def test_a_bare_name_alone_in_the_pipeline_is_no_retired_layout(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    _write(root, ".gitlab-ci.yml", "job:\n  script:\n    - systemctl enable osprey.service\n")
+    assert find_retired_root(root).empty
+    refuse_retired_layout(root)
+
+
 def test_every_config_path_key_is_a_manifest_key() -> None:
     manifest = Path(__file__).parents[1] / "src/osprey/profiles/config_key_manifest.yml"
     keys = yaml.safe_load(manifest.read_text(encoding="utf-8"))["keys"]

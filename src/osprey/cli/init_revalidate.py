@@ -16,9 +16,10 @@ in place, with the round-trip writer so every comment the operator kept survives
    rewritten on its line, keeping its spelling, each ``data:`` line is
    deleted, and stale canopy staging, the shipped data README and what is
    pruned from the dissolved ``data/`` are removed, ``data/`` itself once it
-   ends empty. What else lies in ``data/`` is never moved: it is listed to
-   place by hand, with the host steps, the values to check by hand and the
-   commands for a source in another repository. A file at both a retired
+   ends empty. A pipeline line that holds only the bare name of a moved file
+   is kept and listed to check by hand. What else lies in ``data/`` is never
+   moved: it is listed to place by hand, with the host steps, the values to
+   check by hand and the commands for a source in another repository. A file at both a retired
    root path and its successor stops the rewrite before anything is written.
 2. The retired layer directory becomes ``tiers/`` (``git mv`` when the files are
    tracked).

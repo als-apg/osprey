@@ -26,7 +26,8 @@ nor prints, and reports:
   shipped, removed with the moves;
 - the steps to take on the host once the files moved;
 - what a person must check by hand, because the paths inside it are not
-  rewritten.
+  rewritten: a moved file with paths of its own, a profile value that cannot
+  be rewritten safely, a pipeline line that holds a moved file's bare name.
 
 :func:`source_of` and :func:`after_moves_view` read a path, or a tree, as it
 is once moves are done. :func:`refuse_retired_layout` stops a command on such
@@ -433,7 +434,7 @@ def find_retired_root(repo_root: Path) -> RetiredRoot:
     edits: list[LineEdit] = []
     for document in _profile_documents(root):
         _document_edits(root, document, table, edits, by_hand)
-    edits.extend(_pipeline_edits(root, table))
+    edits.extend(_pipeline_edits(root, table, by_hand))
     edits.extend(_dockerignore_edits(root, table))
     anchored_left = isinstance(anchor, str) and any(
         item.startswith(f"{anchor}/") for item in leftovers
@@ -1046,33 +1047,91 @@ def _names_retired(text: str, table: Sequence[RootMove]) -> bool:
     return pattern is not None and pattern.search(text) is not None
 
 
-def _pipeline_edits(root: Path, table: Sequence[RootMove]) -> list[LineEdit]:
+def _pipeline_path_key(path: Sequence[str]) -> bool:
+    """True when the pipeline key at *path* holds paths relative to the repo root.
+
+    Those are what the pipeline includes from the repo (``include``, as a
+    string, a list item or a ``local:`` value) and the files a rule tests for
+    (``exists``).
+    """
+    if not path:
+        return False
+    if path[0] == "include" and (path[-1] == "local" or path in (("include",), ("include", "*"))):
+        return True
+    return path[-1] == "exists" or tuple(path[-2:]) == ("exists", "*")
+
+
+def _pipeline_path_spans(text: str) -> dict[int, list[tuple[int, int]]]:
+    """The column spans of the pipeline's path values, by zero-based line.
+
+    Empty when the text does not parse: no value is then known to be a path.
+    """
+    try:
+        tree = yaml.compose(text, Loader=yaml.SafeLoader)
+    except yaml.YAMLError:
+        return {}
+    spans: dict[int, list[tuple[int, int]]] = {}
+    if tree is None:
+        return spans
+    for path, node in _scalars(tree, ()):
+        start, end = node.start_mark, node.end_mark
+        if start.line == end.line and _pipeline_path_key(path):
+            spans.setdefault(start.line, []).append((start.column, end.column))
+    return spans
+
+
+def _pipeline_edits(root: Path, table: Sequence[RootMove], by_hand: list[str]) -> list[LineEdit]:
     """The root pipeline file's lines that name a retired path, rewritten.
 
-    A retired path counts on its own and after a prefix that spells the repo
-    root (:data:`_PIPELINE_ROOTS`).
+    A retired path is rewritten where it is spelled as a path: with a
+    directory component, after a prefix that spells the repo root
+    (:data:`_PIPELINE_ROOTS`), or as a value of a key that holds paths. The
+    bare name of a moved file anywhere else may be a path or the name of
+    something else (a unit, an image, a job): it is left as written and its
+    line is added to *by_hand*.
     """
     file = root / repo_layout.entry(_PIPELINE_KEY).path
     pattern = _token_pattern(tuple(table), _PIPELINE_ROOTS)
     if pattern is None or not file.is_file():
         return []
     try:
-        lines = file.read_text(encoding="utf-8").splitlines()
+        text = file.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
+    path_spans = _pipeline_path_spans(text)
     target = _after_moves(root, file, table)
+    where = target.relative_to(root).as_posix()
     edits = []
-    for number, line in enumerate(lines, start=1):
+    for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
-
-        def moved(match: re.Match[str]) -> str:
+        spans = path_spans.get(number - 1, ())
+        pieces: list[str] = []
+        bare: dict[str, str] = {}
+        done = 0
+        for match in pattern.finditer(line):
             old = match["led"] or match["old"]
-            return (match["lead"] or "") + (successor_of(old, table) or old)
-
-        new = pattern.sub(moved, line)
-        if new != line:
-            edits.append(LineEdit(file=target, line=number, old=line, new=new))
+            new = successor_of(old, table)
+            if new is None:
+                continue
+            spelled = (
+                match["lead"] is not None
+                or "/" in old
+                or line.startswith("/", match.end())
+                or any(begin <= match.start() and match.end() <= end for begin, end in spans)
+            )
+            if not spelled:
+                bare[old] = new
+                continue
+            pieces.extend((line[done : match.start()], match["lead"] or "", new))
+            done = match.end()
+        if pieces:
+            rewritten = "".join(pieces) + line[done:]
+            edits.append(LineEdit(file=target, line=number, old=line, new=rewritten))
+        by_hand.extend(
+            f"{where}:{number}: {old} is {new} where it names the file: {line.strip()}"
+            for old, new in bare.items()
+        )
     return edits
 
 
