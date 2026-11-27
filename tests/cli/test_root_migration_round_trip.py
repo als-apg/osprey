@@ -58,7 +58,7 @@ from osprey_facility.errors import _PLACE_THESE, PASTE_HEADER, _revalidate_comma
 from osprey_facility.retired import find_retired
 from tests._builds import run_build
 from tests.cli.test_init_revalidate import _MIGRATED, _previous_release_repo
-from tests.cli.test_root_retired_refusal import REFUSING
+from tests.cli.test_root_retired_refusal import REFUSING, _invocation
 from tests.fixtures.lifecycle_repo import exemplar_source_files
 from tests.fixtures.machine_repository import commit_all, git, git_init, make_machine_repository
 
@@ -504,18 +504,11 @@ def test_every_command_refuses_before_any_write(
     retired: Path, tmp_path: Path, args: list[str]
 ) -> None:
     repo = _copy(retired, tmp_path)
-    export = tmp_path / "export.csv"
-    export.write_text("address\nSR:NEW:CHANNEL\n", encoding="utf-8")
-    values = {
-        "repo": str(repo),
-        "tier": str(sorted((repo / "tiers").glob("*.yml"))[0]),
-        "export": str(export),
-        "out": str(tmp_path / "render"),
-    }
+    invocation = _invocation(repo, tmp_path, args)
     expected = _refusal_message(repo)
     before = _snapshot(repo)
 
-    result = CliRunner().invoke(cli, [arg.format(**values) for arg in args])
+    result = CliRunner().invoke(cli, invocation)
 
     assert result.exit_code == 1, result.output
     assert result.output.count(expected) == 1, result.output
