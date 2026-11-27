@@ -82,6 +82,7 @@ __all__ = [
     "after_moves_view",
     "deployment_root",
     "find_retired_root",
+    "leftover_lines",
     "plan_retired",
     "refuse_retired_layout",
     "source_of",
@@ -359,7 +360,7 @@ class RetiredRootRefused(click.ClickException):
         if layout.check_by_hand:
             lines.append("# Check by hand; the paths inside these are not rewritten:")
             lines.extend(f"#   {item}" for item in layout.check_by_hand)
-        lines.extend(_leftover_lines(layout.leftovers, layout.data_root))
+        lines.extend(leftover_lines(layout.leftovers, layout.data_root))
         lines.extend(refusal_ending(self.script, layout.root, finishes=finishes))
         super().__init__("\n".join(lines))
 
@@ -770,8 +771,18 @@ def _shipped_readme(file: Path) -> bool:
     return digest in _SHIPPED_DATA_README_DIGESTS
 
 
-def _leftover_lines(leftovers: Sequence[str], data_root: str | None) -> list[str]:
-    """The leftovers as comment lines, grouped by the directory they are still in."""
+def leftover_lines(leftovers: Sequence[str], data_root: str | None) -> list[str]:
+    """The leftovers as comment lines, grouped by the directory they are still in.
+
+    Args:
+        leftovers: What no move takes, as :attr:`RetiredRoot.leftovers` lists it.
+        data_root: :attr:`RetiredRoot.data_root`; a leftover below it is
+            grouped under it.
+
+    Returns:
+        A heading and one line per leftover for each directory, then where
+        content the render must see goes; empty without leftovers.
+    """
     if not leftovers:
         return []
     lines: list[str] = []

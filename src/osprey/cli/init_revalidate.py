@@ -118,8 +118,8 @@ from osprey.profiles.providers import (
 from osprey.repo_layout import display_path, dissolved_names
 from osprey.repo_retired import (
     RetiredRoot,
-    _leftover_lines,
     after_moves_view,
+    leftover_lines,
     plan_retired,
     source_of,
 )
@@ -1467,7 +1467,7 @@ def _plan_root(layout: RetiredRoot) -> _RootPlan:
         )
         elsewhere_steps.extend(render_script(there, (), ()))
     manual: list[str] = []
-    manual.extend(_leftover_lines(layout.leftovers, layout.data_root))
+    manual.extend(leftover_lines(layout.leftovers, layout.data_root))
     if layout.host_steps:
         manual.append("# Host steps, once the files moved:")
         manual.extend(f"#   {step}" for step in layout.host_steps)
@@ -1741,8 +1741,9 @@ def _plan_facility(
     manual: list[str] = []
     if elsewhere:
         manual.append(
-            f"# {', '.join(elsewhere)} lies outside this repository and still holds facility "
-            f"sources at retired paths; nothing there was moved. Run these commands to move them:"
+            f"# {', '.join(elsewhere)} lies outside this deployment or in another repository "
+            f"and still holds facility sources at retired paths; nothing there was moved. "
+            f"Run these commands to move them:"
         )
         elsewhere_layout = RetiredLayout(tuple(there), tuple(edits_there), ())
         manual.extend(

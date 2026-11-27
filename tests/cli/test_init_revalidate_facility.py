@@ -345,7 +345,7 @@ def test_a_tree_still_under_data_moves_out_then_into_its_layout(tmp_path: Path) 
     assert f"rename data/{_FACILITY}/classes.yaml => {_FACILITY}/vocabulary/classes.yaml" in output
     assert f"--- a/data/{_FACILITY}/models.yaml" in output
     assert f"+++ b/{_FACILITY}/simulation/models.yaml" in output
-    assert "lies outside this repository" not in output
+    assert "Run these commands to move them" not in output
 
     again = _revalidate(root)
 
