@@ -11,7 +11,7 @@
       "still"
     ],
     "addresses": {
-      "count": 4768,
+      "count": 4777,
       "excluded": "the suite's synthetic string channel and every waveform"
     },
     "nominal": "Channel Access read, repeated every 3 s until two snapshots agree exactly; a bool or enum as its label, a string as its text"
@@ -1117,6 +1117,33 @@
     },
     "BTS:MAG:VCM:09:STATUS:ON": {
       "nominal": "TRUE"
+    },
+    "ES1:DET:MCA:01:ACQUIRE:SP": {
+      "nominal": "FALSE"
+    },
+    "ES1:DET:MCA:01:COUNTS:RB": {
+      "nominal": 1200.0
+    },
+    "ES1:DET:MCA:01:STATUS:ACQUIRE": {
+      "nominal": "FALSE"
+    },
+    "ES1:DET:MCA:01:TEMPERATURE:RB": {
+      "nominal": 0.0
+    },
+    "ES1:MOT:STAGE:01:MOVE:SP": {
+      "nominal": "FALSE"
+    },
+    "ES1:MOT:STAGE:01:POSITION:RB": {
+      "nominal": 0.0
+    },
+    "ES1:MOT:STAGE:01:POSITION:SP": {
+      "nominal": 0.0
+    },
+    "ES1:MOT:STAGE:01:STATUS:MOVE": {
+      "nominal": "DONE"
+    },
+    "ES1:MOT:STAGE:01:STOP:SP": {
+      "nominal": "FALSE"
     },
     "GTL:DIAG:BPM:01:POSITION:X": {
       "nominal": 0.0
