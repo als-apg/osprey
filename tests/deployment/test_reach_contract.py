@@ -53,6 +53,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import resolve_cards
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from tests._renders import tier_render
+from tests.apps._contract import with_contract
 
 pytestmark = pytest.mark.slow
 
@@ -172,14 +173,16 @@ def test_every_contract_names_a_deployable_service():
 # A projected service's contract, derived from the render
 # ---------------------------------------------------------------------------
 
-_KNOB = {
-    "name": "knob-demo",
-    "containers": {
-        "knob-demo": {"runtime": "osprey", "command": ["python", "-m", "knob_demo.server"]},
-        "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
-    },
-    "panel": {"label": "Knob", "container": "knob-demo", "launch_token": True},
-}
+_KNOB = with_contract(
+    {
+        "name": "knob-demo",
+        "containers": {
+            "knob-demo": {"runtime": "osprey", "command": ["python", "-m", "knob_demo.server"]},
+            "knob-cache": {"image": "redis:7.2", "fragment": "compose/knob-cache/"},
+        },
+        "panel": {"label": "Knob", "container": "knob-demo", "launch_token": True},
+    }
+)
 
 
 def _projected_render(tier: str = "allowed") -> dict:

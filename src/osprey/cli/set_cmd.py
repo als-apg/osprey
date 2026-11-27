@@ -543,9 +543,10 @@ def _configured_agents(profile: dict) -> list[str]:
 def _application_agents(repo_root: Path, profile: dict) -> list[str]:
     """The agent names the applications the profile's ``apps:`` block names carry.
 
-    Empty when an application does not load: ``osprey build`` names that problem.
+    Empty when an application does not load, after a warning that prints every
+    refusal as ``osprey app check`` prints it; ``osprey build`` refuses the same.
     """
-    from osprey.apps.errors import AppManifestError
+    from osprey.apps.errors import AppManifestError, refusal_lines
     from osprey.apps.loader import load
 
     apps = profile.get("apps")
@@ -553,7 +554,11 @@ def _application_agents(repo_root: Path, profile: dict) -> list[str]:
         return []
     try:
         manifests = load(repo_root, [str(name) for name in apps])
-    except AppManifestError:
+    except AppManifestError as exc:
+        warn(
+            "An application's app.yml is refused, so its agents are not checked",
+            "\n".join(refusal_lines(exc.violations)),
+        )
         return []
     return sorted({agent for manifest in manifests for agent in manifest.agents})
 

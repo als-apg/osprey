@@ -1,15 +1,16 @@
 {
   "_comment": "Written by scripts/app_contract.py --refresh after SKILL.md was re-read against the contract. Do not edit by hand.",
-  "reviewed_against": "2026.11.1-318-g5abbb311aa",
+  "reviewed_against": "2026.11.1-387-g753a412177",
   "files": {
-    "apps/manifest.py": "c1ac3a9b276081d0c664993f39360f802e686d12d2683d4334030a7e89606b9b",
+    "apps/contract.py": "298c1b0e6f470ba57461c6ec4a8a5aded0ed50b1e16d5f5a9305ff162923771e",
+    "apps/manifest.py": "16295fa02ecb335fa2b5ea083c19720271dba0680700c16ae9ffc1c89b530757",
     "apps/rules.py": "52b7da64976d3278a913ea7585f04b9cc5f42ef8c3a115c84c8bdb78d7802d34",
-    "apps/loader.py": "af2bdae1e920b882119c50dc50f7c7d0294e9f12533ac10d850b676c76f5c095",
+    "apps/loader.py": "5aef2bd0c6e33c7d174ff994a01a4f67807372966ea52f0d5859c2a890148e96",
     "apps/agents.py": "05c9bfb9da6786598beec26c1081c4ed9f347490a2847d74c4f4b3add6c944f3",
-    "apps/boundary.py": "a573df69ab8094b18b419610a6a1d7f14378d7861918437fa120256063b6a043",
-    "apps/sdk/__init__.py": "005fcdda445bf97a0e4915a8217739d2bd427a068c96712224ceaa71f4fd4fb0",
-    "cli/app_cmd.py": "2cb2917678a3e3274e1755a4af92021c345ee76a97664b7a1d8cb1df74588177",
-    "apps/scaffold-app/app.yml": "6f892eeaed48902f06b8f379047da6550c04e8c923f355d6226afd1e616eed2a",
+    "apps/boundary.py": "aff99a596979b409175779e4f341c57d190b4e2b42abc317d5ad6eb004e6d788",
+    "apps/sdk/__init__.py": "337f0007cb7c9ee64be5ac5b99a456e93467e11ce4993e8c9ce283be56660cfd",
+    "cli/app_cmd.py": "95d8a8f15fe5a85cbca62b47803ccf7409bc87b7b3e04bd5637caa56febed2ce",
+    "apps/scaffold-app/app.yml": "f2403e9426beaaccf1d704267de390328326240558e0630835286be0c1e0aaa1",
     "apps/scaffold-app/panel/index.html": "44efaccf093e8f94c00288eeb4af97d09bf13efb524552be4b5f46439d563f61",
     "apps/scaffold-app/panel/panel.css": "a5e3bd9dcb46a407ab706665db945172a7afbd804e4d94f658395e8fd2ab693c",
     "apps/scaffold-app/panel/panel.js": "e4ad77d79d4fdf3582bcca23fecf5d0e21abb25bdadfdfe7523c03022558f378",
@@ -22,6 +23,12 @@
     "interfaces/design_system/panels/validator.py": "3dae45d6178802849d741e7c8a452a68b5c97c6d7257b32c5896bfdfc0b05506",
     "interfaces/design_system/panels/page_ready.py": "c1bcd312a0ff7403a75c73a8f60add70825d6067c89b6a76db69fa93458ed084",
     "bluesky_tool_names.py": "b8273dc28937bf02ce8b3d113993cccceee30603a21ac244eec28f0a7ecb8ee0",
-    "interfaces/design_system/static/css/primitives.css": "80ad115b1d482a3b02cae0ebd4c4498aee6de08fa34556b800bf4ec2cb87c4ce"
+    "interfaces/design_system/static/css/primitives.css": "80ad115b1d482a3b02cae0ebd4c4498aee6de08fa34556b800bf4ec2cb87c4ce",
+    "apps/sdk/testing/__init__.py": "9ff665f654bdae7af959631c7aaa991b74116e84357184a4d9c1763423911c92",
+    "interfaces/design_system/static/js/page-ready.js": "0a482b8e83b202b026371f8df3bc7f42ea5795271196bc6a2a116dc873012049",
+    "interfaces/web_terminal/static/js/panel-iframe-sync.js": "3bdbe2bbb5eb24413d0cc7935479beb0b559b9e94afb2d5689fad968dedea0d0",
+    "apps/projection.py": "7720f530422d18690e34b41562f5dee1d0be00aa1c8b09b407e82275ec797c42",
+    "utils/owner_header.py": "6e4fd138c9252cf91becd0afc30b42307f8c539aa6db2fef48c108bdd67c3497",
+    "utils/launch_token.py": "96bf265e19bfabed444d9a63b555039ed57eb65b332ea4bc7db6d8df81c6fabb"
   }
 }

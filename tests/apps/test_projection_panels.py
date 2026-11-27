@@ -13,30 +13,34 @@ from osprey.apps.manifest import AppManifest, launch_token_env, parse_manifest
 from osprey.apps.projection import project_login
 from osprey.apps.rules import AppSelection, LoginSelection
 
+from ._contract import with_contract
+
 PORT = 18950
 
-DIAL: dict[str, Any] = {
-    "name": "dial-demo",
-    "containers": {
-        "dial-demo": {
-            "runtime": "osprey",
-            "health": "/health",
-            "drives_target": True,
+DIAL: dict[str, Any] = with_contract(
+    {
+        "name": "dial-demo",
+        "containers": {
+            "dial-demo": {
+                "runtime": "osprey",
+                "health": "/health",
+                "drives_target": True,
+            },
         },
-    },
-    "panel": {
-        "label": "Dial",
-        "container": "dial-demo",
-        "entry": "/ui/",
-        "launch_token": True,
-        "agent_routes": [
-            ["GET", "/api/state"],
-            {"method": "HEAD", "path": "/api/ping"},
-            ["POST", "/api/setpoint"],
-            ["DELETE", "/api/setpoint"],
-        ],
-    },
-}
+        "panel": {
+            "label": "Dial",
+            "container": "dial-demo",
+            "entry": "/ui/",
+            "launch_token": True,
+            "agent_routes": [
+                ["GET", "/api/state"],
+                {"method": "HEAD", "path": "/api/ping"},
+                ["POST", "/api/setpoint"],
+                ["DELETE", "/api/setpoint"],
+            ],
+        },
+    }
+)
 
 SAFE_ROUTES = [
     {"method": "GET", "path": "/api/state"},
@@ -193,10 +197,12 @@ def test_read_timeout_is_projected_only_when_the_manifest_sets_it() -> None:
     assert "read_timeout_s" in unbounded and unbounded["read_timeout_s"] is None
 
 
-TOOLS_ONLY: dict[str, Any] = {
-    "name": "dial-tools",
-    "tools": {"module": "dial_tools.tools", "read": ["read_dial"]},
-}
+TOOLS_ONLY: dict[str, Any] = with_contract(
+    {
+        "name": "dial-tools",
+        "tools": {"module": "dial_tools.tools", "read": ["read_dial"]},
+    }
+)
 
 
 def test_an_application_with_no_container_still_projects_its_tool_server() -> None:

@@ -54,6 +54,7 @@ from osprey.utils.workspace import IMAGE_DIR_NAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import BUILD_DIR_NAME
 from tests._scoped_stdlib import scoped
+from tests.apps._contract import CONTRACT
 
 APP_PYPROJECT = """\
 [project]
@@ -62,7 +63,8 @@ version = "0.1.0"
 dependencies = ["lume-base"]
 """
 
-APP_MANIFEST = """\
+APP_MANIFEST = f"""\
+contract: {CONTRACT}
 name: knob
 containers:
   knob:

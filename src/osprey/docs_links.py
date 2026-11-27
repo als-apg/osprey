@@ -22,6 +22,10 @@ PERIMETER_LIMITS_URL: str = f"{DEPLOY_DOCS_URL}#perimeter-limits"
 #: blocks sends the operator here.
 SETUP_DOCS_URL: str = "https://als-apg.github.io/osprey/getting-started/osprey-install.html"
 
+#: The application contract's page. A manifest refused for its ``contract``
+#: number links it.
+APP_CONTRACT_URL: str = "https://als-apg.github.io/osprey/reference/contracts/app-contract.html"
+
 
 def setup_remedy(fact: str) -> str:
     """The sentence every remedy that needs the guided setup ends with.

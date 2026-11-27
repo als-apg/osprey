@@ -1,3 +1,4 @@
+contract: 1
 name: fixture-installed
 summary: A trivial application an installed distribution ships.
 containers:

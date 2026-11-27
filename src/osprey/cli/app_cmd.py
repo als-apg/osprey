@@ -4,7 +4,8 @@
 ``osprey app check`` reports what ``osprey build`` reports of them, through the same
 :func:`osprey.apps.loader.check_deployment`, then what only the application's own source
 can tell (:func:`app_violations`), for an application under ``apps/`` and one an installed
-package ships alike: the import boundary over each of its Python packages, the panel
+package ships alike: the import boundary over each of its Python packages
+(:func:`osprey.apps.boundary.check_apps`, which ``osprey build`` runs too), the panel
 validator's rules over ``panel/``, ESLint over ``panel/`` when it holds JS, and Vitest over
 ``tests/**/*.test.{js,mjs}`` when that matches a file. A
 deployment repository has no JS toolchain, so the command installs the one pinned in
@@ -30,10 +31,9 @@ from typing import NoReturn
 import click
 from ruamel.yaml import YAML, YAMLError
 
-from osprey.apps.boundary import check_package
+from osprey.apps.boundary import CheckedApp, check_apps, checked_apps
 from osprey.apps.errors import AppManifestError, AppsRefusedError, Violation, refusal_lines
-from osprey.apps.manifest import APP_NAME_PATTERN, AppManifest
-from osprey.apps.origin import AppOrigin, origin_of
+from osprey.apps.manifest import APP_NAME_PATTERN
 from osprey.apps.rules import shadows_installed, taken_package
 from osprey.interfaces.design_system.panels.validator import PanelConsequence, validate_entry
 from osprey.utils.config_writer import load_config_document
@@ -66,30 +66,6 @@ class _ToolchainUnavailable(Exception):
 
 
 @dataclasses.dataclass(frozen=True)
-class CheckedApp:
-    """One application the per-application checks judge.
-
-    Attributes:
-        name: The application's name, which its violations carry.
-        origin: Where its directory is; a report names a file through
-            :meth:`~osprey.apps.origin.AppOrigin.display`.
-    """
-
-    name: str
-    origin: AppOrigin
-
-    @property
-    def directory(self) -> Path:
-        """The application's directory."""
-        return self.origin.directory
-
-
-def checked_apps(manifests: Iterable[AppManifest], root: Path) -> list[CheckedApp]:
-    """Each of *manifests* with the directory it was read from, under deployment *root*."""
-    return [CheckedApp(manifest.name, origin_of(manifest, root)) for manifest in manifests]
-
-
-@dataclasses.dataclass(frozen=True)
 class AppFindings:
     """What only the applications' own source can tell.
 
@@ -105,12 +81,16 @@ class AppFindings:
 def app_violations(apps: Sequence[CheckedApp]) -> AppFindings:
     """What only an application's own source can tell, for each of *apps*.
 
-    The import boundary, the panel validator's rules, and the application's JS checks:
-    what ``osprey app check`` adds to the build's checks.
+    The import boundary (:func:`osprey.apps.boundary.check_apps`, which ``osprey build``
+    runs too; its notes are printed here), the panel validator's rules, and the
+    application's JS checks.
     """
+    boundary, notes = check_apps(apps)
+    for note in notes:
+        report(note)
     panel_refused, panel_reported = _panel_findings(apps)
     return AppFindings(
-        violations=[*_boundary_violations(apps), *panel_refused, *_js_violations(apps)],
+        violations=[*boundary, *panel_refused, *_js_violations(apps)],
         reported=panel_reported,
     )
 
@@ -233,7 +213,8 @@ def check(ctx: click.Context, repo: Path | None) -> None:
     and its violations name the distribution.
 
     Reports every violation with its application, field and rule, and adds the import
-    boundary, each panel's rules and each application's own JS checks. The JS checks
+    boundary (which `osprey build` runs too), each panel's rules and each application's
+    own JS checks. The JS checks
     execute the application's JS tests, with no secret of this shell's environment.
     Exits 1 on any violation; a finding of a panel rule that only reports is printed and
     does not fail the check.
@@ -283,51 +264,6 @@ def _refuse(ctx: click.Context, violations: Sequence[Violation]) -> NoReturn:
         report(line)
     fail(count)
     ctx.exit(1)
-
-
-def _boundary_violations(apps: Iterable[CheckedApp]) -> list[Violation]:
-    """The import boundary over each importable package of each application.
-
-    A deployment application's packages are its top-level directories holding an
-    ``__init__.py``; an installed application's directory is itself its package.
-    """
-    found: list[Violation] = []
-    for checked in apps:
-        origin = checked.origin
-        if origin.installed:
-            found += [
-                dataclasses.replace(
-                    violation,
-                    source=origin.display(_below(violation.source, checked.directory.name)),
-                )
-                for violation in check_package(checked.directory, app=checked.name)
-            ]
-            continue
-        packages = _packages(checked.directory)
-        if not packages:
-            report(f"{origin.display()}/: no Python package, no import boundary to check")
-        found += [
-            dataclasses.replace(violation, source=origin.display(violation.source or ""))
-            for package in packages
-            for violation in check_package(package, app=checked.name)
-        ]
-    return found
-
-
-def _below(source: str | None, top: str) -> str:
-    """*source*, a path under the directory *top*, relative to that directory."""
-    return (source or "").removeprefix(f"{top}/")
-
-
-def _packages(app_dir: Path) -> list[Path]:
-    """The top-level directories of an application that hold an ``__init__.py``."""
-    return [
-        entry
-        for entry in sorted(app_dir.iterdir(), key=lambda path: path.name)
-        if not entry.name.startswith(".")
-        and entry.name != "__pycache__"
-        and (entry / "__init__.py").is_file()
-    ]
 
 
 def _panel_findings(apps: Iterable[CheckedApp]) -> tuple[list[Violation], list[Violation]]:

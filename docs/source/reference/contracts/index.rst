@@ -92,6 +92,14 @@ guides are the better starting point.
       judges and writes for it, and the signal roles, engine record words and
       scenario stops a kind leans on.
 
+   .. grid-item-card:: The Application Contract
+      :link: app-contract
+      :link-type: doc
+      :shadow: md
+
+      The number an app declares in ``app.yml``: what it covers, the rule for
+      raising it, the refusal, and the history of numbers.
+
    .. grid-item-card:: Bridge Dispatch Payload
       :link: bridge-dispatch
       :link-type: doc
@@ -147,6 +155,7 @@ guides are the better starting point.
    facility-graph
    facility-json
    facility-kinds
+   app-contract
    guarded-run
    audit-trail
    watchdog

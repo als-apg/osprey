@@ -43,15 +43,19 @@ from tests._renders import tier_render
 from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
 from tests.interfaces.web_terminal._proxy_fakes import panel_app
 
+from ._contract import with_contract
+
 SUBJECT_HEADER = "X-Osprey-Auth-Subject"
 
-_MANIFEST = {"name": "knob", "containers": {"knob": {"runtime": "osprey"}}}
+_MANIFEST = with_contract({"name": "knob", "containers": {"knob": {"runtime": "osprey"}}})
 
-_PANEL_MANIFEST = {
-    "name": "dial",
-    "containers": {"dial": {"runtime": "osprey"}},
-    "panel": {"label": "Dial", "container": "dial", "entry": "/"},
-}
+_PANEL_MANIFEST = with_contract(
+    {
+        "name": "dial",
+        "containers": {"dial": {"runtime": "osprey"}},
+        "panel": {"label": "Dial", "container": "dial", "entry": "/"},
+    }
+)
 
 
 def _write_yaml(path: Path, body: dict[str, Any]) -> Path:

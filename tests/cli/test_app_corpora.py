@@ -12,6 +12,7 @@ from osprey.apps.errors import AppsRefusedError
 from osprey.apps.loader import corpus_violations
 from osprey.apps.manifest import AppManifest, parse_manifest
 from osprey.cli.build_profile_load import load_profile_document
+from tests.apps._contract import with_contract
 
 QMD = {
     "corpora": [
@@ -23,7 +24,9 @@ QMD = {
 
 def _manifest(*corpora: str) -> AppManifest:
     container: dict[str, Any] = {"runtime": "osprey", "corpora": list(corpora)}
-    return parse_manifest({"name": "knob", "containers": {"knob": container}}, app="knob")
+    return parse_manifest(
+        with_contract({"name": "knob", "containers": {"knob": container}}), app="knob"
+    )
 
 
 def test_a_declared_corpus_with_a_source_passes() -> None:
@@ -57,7 +60,9 @@ def test_a_corpus_declared_without_a_source_is_refused() -> None:
 
 
 def _repo(tmp_path: Path, corpora: list[str], qmd: dict[str, Any]) -> Path:
-    manifest = {"name": "knob", "containers": {"knob": {"runtime": "osprey", "corpora": corpora}}}
+    manifest = with_contract(
+        {"name": "knob", "containers": {"knob": {"runtime": "osprey", "corpora": corpora}}}
+    )
     profile = {
         "name": "site",
         "apps": {"knob": {}},

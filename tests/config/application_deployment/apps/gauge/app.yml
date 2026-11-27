@@ -1,3 +1,4 @@
+contract: 1
 name: gauge
 containers:
   gauge:

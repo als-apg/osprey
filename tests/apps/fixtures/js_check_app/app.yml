@@ -1,4 +1,5 @@
 # A panel with JS and a JS test, the shape `osprey app check` runs its JS half over.
+contract: 1
 name: js-check-app
 containers:
   js-check-app:

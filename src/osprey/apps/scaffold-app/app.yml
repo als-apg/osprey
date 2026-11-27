@@ -1,5 +1,6 @@
 # The starting point of a new application: one panel over one channel, one read tool,
 # one write tool. The channel is the deployment's: apps.scaffold-app.config.channel.
+contract: 1
 name: scaffold-app
 summary: Shows one channel of the control target and sets it on approval.
 containers:
