@@ -62,6 +62,7 @@ from osprey_facility.pairing import (
     same_type,
     seed_follows,
 )
+from osprey_facility.plan_names import is_plan_name
 from osprey_facility.records import ChannelSelection, FacilityRecords
 from osprey_facility.relations import shape_problems
 from osprey_facility.scenarios import FaultRoster, fault_roster, map_fault_errors
@@ -1293,8 +1294,10 @@ def check_detectors(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     command on this device that states ``timeout_s`` (its status then states
     ``idle``), so no other device names it, and no setpoint names it under
     ``started_by``. ``results`` lists each readback on this device it records
-    once, none of more than one dimension. A detector's id is its plan name:
-    it holds no ``/`` or ``.`` and is no channel's address. These stop with
+    once, none of more than one dimension. A detector's id is its plan name and
+    a run records each result under its address, so each is a plan name under
+    event-model's grammar (:func:`~osprey_facility.plan_names.is_plan_name`: no
+    ``/`` or ``.``); the id is no channel's address. These stop with
     ``detector-invalid``. Runs once commands are marked.
 
     Args:
@@ -1335,7 +1338,7 @@ def check_detectors(document: Mapping[str, Any]) -> list[FacilityBuildError]:
                 f"`{stated}` without `{missing}`", "state `acquire` and `results` together", stated
             )
             continue
-        if "/" in device_id or "." in device_id:
+        if not is_plan_name(device_id):
             stop(
                 "a detector's id is its plan name, and a run cannot name a device whose id "
                 "holds `/` or `.`",
@@ -1393,6 +1396,13 @@ def check_detectors(document: Mapping[str, Any]) -> list[FacilityBuildError]:
                 stop(
                     f"`results` lists {address}, a waveform of {len(result['shape'])} dimensions",
                     f"list a readback of one dimension on {device_id}",
+                    "results",
+                )
+            elif not is_plan_name(address):
+                stop(
+                    f"`results` lists {address}, and a run cannot record an address that holds "
+                    "`/` or `.`",
+                    "list a readback whose address holds neither",
                     "results",
                 )
     return errors
