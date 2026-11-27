@@ -256,7 +256,7 @@ one also holds a leftover, ``data/notes.md``:
    perl -pi -e 's{  facility_knowledge\.bundle_path: data/facility/knowledge}{  facility_knowledge.bundle_path: facility/knowledge} if $. == 9' profile.yml
    perl -pi -e 's{        - data/landing/working-safely\.md}{        - web/landing/working-safely.md} if $. == 14' profile.yml
    perl -pi -e 's{services/secret}{ops/services/secret} if $. == 1' .dockerignore
-   perl -ni -e 'print unless $. == 21 && m{^data: data$}' profile.yml
+   perl -ni -e 'print unless $. == 21 && m{^data: data\r?$}' profile.yml
    rmdir data/canopy 2>/dev/null || true
    rmdir data 2>/dev/null || true
    # Host steps, once the files moved:

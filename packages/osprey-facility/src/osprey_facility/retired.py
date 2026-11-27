@@ -117,8 +117,8 @@ class LineDelete:
         file: The file, at the path where the delete applies once the moves
             are done.
         line: The line in that file, 1-based, counted before any delete.
-        text: The line as written, without its line ending; a line that no
-            longer reads so is kept.
+        text: The line as written, without its line ending (``\\n`` or
+            ``\\r\\n``); a line that no longer reads so is kept.
     """
 
     file: Path
@@ -630,7 +630,7 @@ class _Block:
         self.edits.append(f"perl -pi -e {shlex.quote(expression)} {shlex.quote(target)}")
 
     def add_line_delete(self, delete: LineDelete) -> None:
-        expression = f"print unless $. == {delete.line} && m{{^{_perl_pattern(delete.text)}$}}"
+        expression = f"print unless $. == {delete.line} && m{{^{_perl_pattern(delete.text)}\\r?$}}"
         target = _relative(delete.file.resolve(), self.top)
         self.edits.append(f"perl -ni -e {shlex.quote(expression)} {shlex.quote(target)}")
 

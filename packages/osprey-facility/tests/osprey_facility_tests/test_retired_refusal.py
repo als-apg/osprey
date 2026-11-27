@@ -29,6 +29,7 @@ from osprey_facility.errors import (
 )
 from osprey_facility.layers.list import import_list
 from osprey_facility.retired import (
+    LineDelete,
     LineEdit,
     Move,
     find_retired,
@@ -502,6 +503,19 @@ def test_a_tracked_delete_git_refuses_is_removed_all_the_same(tmp_path: Path) ->
     _run("\n".join(script) + "\n", tmp_path / "elsewhere")
 
     assert not (root / "stale").exists()
+
+
+def test_a_rendered_line_delete_removes_a_line_whatever_its_ending(tmp_path: Path) -> None:
+    file = tmp_path / "f.txt"
+    file.write_bytes(b"keep\r\ngone: 1\r\nlast\n")
+    deletes = [
+        (tmp_path, LineDelete(file=file, line=2, text="gone: 1")),
+        (tmp_path, LineDelete(file=file, line=3, text="not this")),
+    ]
+
+    _run("\n".join(render_script((), (), (), deletes)) + "\n", tmp_path / "elsewhere")
+
+    assert file.read_bytes() == b"keep\r\nlast\n"
 
 
 def test_a_rendered_line_edit_takes_its_text_literally(tmp_path: Path) -> None:

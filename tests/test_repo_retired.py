@@ -578,7 +578,7 @@ def test_a_pre_epic_tree_gives_one_block_that_runs_and_leaves_no_refusal(
     facility_move = script.index("git mv facility/classes.yaml facility/vocabulary/classes.yaml")
     assert root_move < facility_move
     assert script[facility_move - 1] == "mkdir -p facility/vocabulary"
-    assert "perl -ni -e 'print unless $. == 2 && m{^data: data$}' profile.yml" in script
+    assert "perl -ni -e 'print unless $. == 2 && m{^data: data\\r?$}' profile.yml" in script
     assert lines[-1] == f"osprey init --revalidate {resolved}"
     assert lines.count(lines[-1]) == 1
 
