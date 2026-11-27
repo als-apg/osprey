@@ -155,11 +155,12 @@ from typing import Any
 
 import pytest
 
-from osprey import bluesky_tool_names
+from osprey import bluesky_tool_names, repo_layout
 from osprey.agent_runner import SDKWorkflowResult, ToolTrace
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.queue_backend import is_queue_active
 from osprey_connectors import posture_store
+from osprey_facility import source_tree
 from tests.e2e import _facility_select, _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._deploy_support import (
@@ -3400,7 +3401,7 @@ def _describe_queue_deployment(repo: Path) -> None:
     prompt section and no measurement tool, and a measurement request has the
     queue as its one route.
     """
-    shutil.rmtree(repo / "data" / "facility" / "simulation" / "measurement")
+    shutil.rmtree(repo / repo_layout.entry("facility").path / source_tree.path("measurement"))
 
 
 def _assert_no_pyaml_surface(repo: Path) -> None:

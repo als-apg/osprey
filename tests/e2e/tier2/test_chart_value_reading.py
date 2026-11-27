@@ -25,7 +25,7 @@ the MongoDB archiver with its recorder, ARIEL's Postgres and the qmd sidecar. A
 mock archive would synthesize last year on request; a store with retention
 answers honestly that it holds nothing there, which is what makes the picture the
 only record. Both scenarios are facility scenario files, installed into the
-deployment's ``data/facility/simulation/scenarios/`` before the build. The logbook scenario
+deployment's ``facility/simulation/scenarios/`` before the build. The logbook scenario
 is concealed after seeding (its file, its render copy, its simulator-view entry
 and attached files, its active-state line), so the plot's numbers are not one
 ``Read`` away in the agent's cwd; the recent scenario stays, being the live
@@ -65,6 +65,8 @@ import pytest
 import yaml
 from pydantic import BaseModel, Field
 
+from osprey import repo_layout
+from osprey_facility import source_tree
 from tests.e2e import _orm_stack
 from tests.e2e._deploy_diagnostics import dead_container_logs
 from tests.e2e._deploy_support import (
@@ -273,10 +275,12 @@ def _build_project(output_dir: Path) -> Path:
     )
     assert result.returncode == 0, f"osprey init failed:\n{result.stdout}\n{result.stderr}"
 
-    # Between the two verbs: the build reads <repo>/data/facility into the render
+    # Between the two verbs: the build reads <repo>/facility into the render
     # and its simulator view, so a scenario written now exists in every tree
     # concealment scrubs.
-    fixture.install_scenarios(repo / "data" / "facility" / "simulation" / "scenarios")
+    fixture.install_scenarios(
+        repo / repo_layout.entry("facility").path / source_tree.path("scenarios")
+    )
 
     build = [
         str(osprey_bin),

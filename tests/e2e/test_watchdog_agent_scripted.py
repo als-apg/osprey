@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey import repo_layout
 from osprey.cli.watchdog_cmd import _MachineSeed
 from osprey.services.watchdog.config import WatchdogDefinition
 from osprey.services.watchdog.definitions import load_profile_watchdogs
@@ -38,6 +39,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     VAInProcessConnector,
 )
 from osprey_connectors.simulation.view import VIEW_RELPATH
+from osprey_facility import source_tree
 from tests._preset_data import bundle_source_root
 from tests.e2e.scripted_model import ScriptedCall, ScriptedModel
 from tests.e2e.sdk_helpers import enable_writes_in_project, render_dir
@@ -83,7 +85,8 @@ def build_deployment(
     repo = root / "repo"
     shutil.copytree(FIXTURES / "agent-profile", repo)
     shutil.copytree(bundle_source_root("hello_world"), repo, dirs_exist_ok=True)
-    records_path = repo / "data" / "facility" / "records" / "channels.yaml"
+    facility = repo / repo_layout.entry("facility").path
+    records_path = facility / source_tree.path("channels")
     records = yaml.safe_load(records_path.read_text(encoding="utf-8"))
     records.append(
         {
@@ -95,7 +98,7 @@ def build_deployment(
         }
     )
     records_path.write_text(yaml.safe_dump(records, sort_keys=False), encoding="utf-8")
-    limits_path = repo / "data" / "facility" / "limits.yaml"
+    limits_path = facility / source_tree.path("limits")
     limits = yaml.safe_load(limits_path.read_text(encoding="utf-8"))
     limits["records"].append(
         {"address": PRESSURE, "min_value": 0.0, "max_value": 1.0, "writable": True}

@@ -142,6 +142,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from osprey import repo_layout
 from osprey.agent_record.contract import OPEN_SUFFIX, SEALED_SUFFIX
 from osprey.cli.main import cli
 from osprey.deployment.compose_generator import (
@@ -151,6 +152,7 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.wheel_build import _copy_local_framework_for_override
 from osprey.utils.workspace import SPOOL_DIR_RELPATH, container_image_context
+from osprey_facility import source_tree
 from tests._container_support import docker_cli_unavailable_reason_once
 
 #: Escape hatch for local diagnosis on a non-Linux host. Deliberately named as
@@ -209,7 +211,7 @@ PROBE_SURFACE = "e2e_audit_mechanism"
 #: from the render because the entrypoint reads no config either: this module
 #: plays the render's role and hands the container the same two variables
 #: compose does.
-BUNDLE_RELPATH = "data/facility/knowledge"
+BUNDLE_RELPATH = f"{repo_layout.entry('facility').path}/{source_tree.path('knowledge')}"
 
 #: The gid floor the entrypoint enforces. Below this it refuses to join —
 #: deliberately, because a bind that looks system-owned inside the container is

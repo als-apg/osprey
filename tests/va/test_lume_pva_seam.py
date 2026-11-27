@@ -124,6 +124,7 @@ if importlib.util.find_spec("pcaspy") is None:
 
 from p4p.client.thread import Context  # noqa: E402
 
+from osprey import repo_layout  # noqa: E402
 from osprey.services.virtual_accelerator.serving.model_rpc import (  # noqa: E402
     ERR_TIMEOUT,
     RPC_PV,
@@ -1070,7 +1071,7 @@ def _limits_records(document: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]
 def names_build(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
     """The names tree built through ``osprey build`` under a mock control system."""
     repo = init_project(tmp_path_factory.mktemp("names"), "hello-world", "names")
-    facility_dir = repo / "data" / "facility"
+    facility_dir = repo / repo_layout.entry("facility").path
     shutil.rmtree(facility_dir)
     write_tree(facility_dir, NAMES_TREE)
     profile_file = repo / "profile.yml"
