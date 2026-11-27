@@ -485,13 +485,18 @@ def repository_root(directory: Path) -> Path | None:
     return Path(result.stdout.strip()).resolve()
 
 
-def move_script(layout: RetiredLayout) -> list[str]:
+def move_script(layout: RetiredLayout, *, after: Iterable[Move] = ()) -> list[str]:
     """POSIX shell lines that carry out *layout*'s moves and deck edits.
 
     One block per repository, as :func:`render_script` lays it out, with the
     deck edits as :func:`deck_line_edits` gives them. Clashes get no command.
+
+    Args:
+        layout: What the tree holds at retired paths.
+        after: Moves another script makes before this one runs, as
+            :func:`render_script` takes them.
     """
-    return render_script(layout.moves, deck_line_edits(layout), ())
+    return render_script(layout.moves, deck_line_edits(layout), (), after=after)
 
 
 def deck_line_edits(layout: RetiredLayout) -> list[tuple[Path, LineEdit]]:

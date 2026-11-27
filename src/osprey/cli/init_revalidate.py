@@ -139,7 +139,7 @@ from osprey_facility.retired import (
     LineEdit,
     Move,
     RetiredLayout,
-    deck_line_edits,
+    move_script,
     render_script,
     repository_root,
 )
@@ -1746,9 +1746,7 @@ def _plan_facility(
             f"Run these commands to move them:"
         )
         elsewhere_layout = RetiredLayout(tuple(there), tuple(edits_there), ())
-        manual.extend(
-            render_script(there, deck_line_edits(elsewhere_layout), (), after=root_elsewhere)
-        )
+        manual.extend(move_script(elsewhere_layout, after=root_elsewhere))
     return _FacilityPlan(tuple(here), tuple(edits_here), tuple(trees), tuple(manual))
 
 
