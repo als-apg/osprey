@@ -63,7 +63,11 @@ import pytest
 import requests
 
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import wait_for_dock_settled, wait_for_page_ready
+from tests.interfaces._browser import (
+    wait_for_dock_settled,
+    wait_for_page_ready,
+    wait_for_pointer,
+)
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
     PLANS,
@@ -176,17 +180,6 @@ def _pointer(page: Page) -> str | None:
         "() => import('/static/js/session-pointer.js').then((m) => m.getPointer())"
     )
     return key
-
-
-def _wait_for_pointer(page: Page, timeout: float = 15.0) -> str:
-    """Block until the page is on a session key and return it."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        key = _pointer(page)
-        if key:
-            return key
-        page.wait_for_timeout(50)
-    raise AssertionError("the page never stored a session pointer")
 
 
 def _handoff_log(page: Page) -> list[str]:
@@ -728,7 +721,7 @@ def test_no_divider_when_the_recreated_session_resumes(tmp_path, chromium_browse
         PLANS["turn one"] = [("text", "answer one"), ("result",)]
         PLANS["turn two"] = [("text", "answer two"), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
-        key = _wait_for_pointer(page)
+        key = wait_for_pointer(page)
 
         _send(page, "turn one")
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
@@ -890,7 +883,7 @@ def test_handoff_pending_shows_the_wait_and_stop_switches_now(tmp_path, chromium
         # released, so the wait the operator sees is real.
         PLANS["hold the line"] = [("text", "working"), ("gate",), ("result",)]
         page = _open_chat_page(chromium_browser, base_url)
-        key = _wait_for_pointer(page)
+        key = wait_for_pointer(page)
 
         _send(page, "hold the line")
         expect(page.locator(f"{_OP} .op-entry.assistant")).to_contain_text(
@@ -1153,7 +1146,7 @@ def test_replayed_turns_show_their_thinking_collapsed(tmp_path, chromium_browser
     """
     with live_chat_server(tmp_path) as (base_url, _app):
         page = _open_chat_page(chromium_browser, base_url)
-        key = _wait_for_pointer(page)
+        key = wait_for_pointer(page)
 
         transcript = seed_transcript(
             tmp_path / "project",
