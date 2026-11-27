@@ -13123,6 +13123,116 @@ def test_ci_installs_the_gitleaks_the_hook_pins__mutation_the_hook_moves_ahead()
 
 
 # ---------------------------------------------------------------------------
+# one JS toolchain: the project's prettier and one stated Node major
+# ---------------------------------------------------------------------------
+
+NVMRC = REPO_ROOT / ".nvmrc"
+SETUP_NODE_ACTION = "actions/setup-node@"
+
+
+def _ci_step_lists() -> dict[str, dict[str, Any]]:
+    """Every workflow and composite action under ``.github``, parsed, by repo-relative path."""
+    github = REPO_ROOT / ".github"
+    paths = sorted(github.glob("workflows/*.yml")) + sorted(github.glob("actions/*/action.yml"))
+    return {
+        str(path.relative_to(REPO_ROOT)): yaml.safe_load(path.read_text(encoding="utf-8"))
+        for path in paths
+    }
+
+
+def _steps_of(doc: dict[str, Any]) -> Iterator[dict[str, Any]]:
+    for job in (doc.get("jobs") or {}).values():
+        yield from job.get("steps") or []
+    yield from (doc.get("runs") or {}).get("steps") or []
+
+
+def _setup_node_steps(docs: dict[str, dict[str, Any]]) -> list[tuple[str, dict[str, Any]]]:
+    return [
+        (name, step)
+        for name, doc in docs.items()
+        for step in _steps_of(doc)
+        if str(step.get("uses", "")).startswith(SETUP_NODE_ACTION)
+    ]
+
+
+def _setup_node_steps_off_the_nvmrc(docs: dict[str, dict[str, Any]]) -> list[str]:
+    problems = []
+    for name, step in _setup_node_steps(docs):
+        with_ = step.get("with") or {}
+        label = f"{name}: {step.get('name', step['uses'])}"
+        if "node-version" in with_:
+            problems.append(f"{label} states node-version")
+        if with_.get("node-version-file") != ".nvmrc":
+            problems.append(f"{label} does not read .nvmrc")
+    return problems
+
+
+def test_every_setup_node_step_reads_the_nvmrc() -> None:
+    """The Node major is stated once, in ``.nvmrc``, and every ``setup-node``
+    step in the workflows and composite actions reads it through
+    ``node-version-file``. A literal ``node-version`` is a second statement
+    that moves on its own, so CI and a contributor's nvm/fnm/volta would run
+    different Nodes. The file holds a bare major, which setup-node resolves
+    to the latest release of that line."""
+    docs = _ci_step_lists()
+    assert _setup_node_steps(docs), "no setup-node step found under .github"
+    assert _setup_node_steps_off_the_nvmrc(docs) == []
+    assert re.fullmatch(r"\d+", NVMRC.read_text(encoding="utf-8").strip())
+
+
+def test_every_setup_node_step_reads_the_nvmrc__mutation_a_step_states_its_own_node() -> None:
+    step = {"name": "Set up Node", "uses": f"{SETUP_NODE_ACTION}v7", "with": {"node-version": "22"}}
+    docs = {"wf.yml": {"jobs": {"j": {"steps": [{"run": "true"}, step]}}}}
+    assert _setup_node_steps_off_the_nvmrc(docs) == [
+        "wf.yml: Set up Node states node-version",
+        "wf.yml: Set up Node does not read .nvmrc",
+    ]
+    step["with"] = {"node-version-file": ".nvmrc"}
+    assert _setup_node_steps_off_the_nvmrc(docs) == []
+
+
+def _prettier_hook_problems(config: dict[str, Any]) -> list[str]:
+    hooks = [
+        hook
+        for repo in config["repos"]
+        for hook in repo.get("hooks", [])
+        if hook.get("id") == "prettier"
+    ]
+    if len(hooks) != 1:
+        return [f"expected one prettier hook; got {len(hooks)}"]
+    hook, problems = hooks[0], []
+    if hook.get("language") != "system":
+        problems.append(f"the prettier hook's language is {hook.get('language')}, not system")
+    if "additional_dependencies" in hook:
+        problems.append("the prettier hook installs its own prettier")
+    if not str(hook.get("entry", "")).startswith("node_modules/.bin/prettier "):
+        problems.append("the prettier hook does not run node_modules/.bin/prettier")
+    if "prettier" not in (config.get("ci") or {}).get("skip", []):
+        problems.append("pre-commit.ci does not skip the prettier hook")
+    return problems
+
+
+def test_the_prettier_hook_runs_the_projects_install() -> None:
+    """The prettier hook runs the prettier ``package-lock.json`` locks, from
+    ``node_modules``, the same install ``scripts/check.py``'s prettier check
+    runs. A hook with its own install formats with a second version, so a
+    commit the hook formatted can fail the check. pre-commit.ci does not build
+    ``node_modules``, so it skips the hook and CI's frontend job runs the check."""
+    config = yaml.safe_load(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    assert _prettier_hook_problems(config) == []
+
+
+def test_the_prettier_hook_runs_the_projects_install__mutation_its_own_install() -> None:
+    config = yaml.safe_load(PRE_COMMIT_CONFIG.read_text(encoding="utf-8"))
+    [hook] = [h for r in config["repos"] for h in r.get("hooks", []) if h.get("id") == "prettier"]
+    hook.update(language="node", additional_dependencies=["prettier@3.9.9"])
+    assert _prettier_hook_problems(config) == [
+        "the prettier hook's language is node, not system",
+        "the prettier hook installs its own prettier",
+    ]
+
+
+# ---------------------------------------------------------------------------
 # CLI tool inventory check runs on every push
 # ---------------------------------------------------------------------------
 

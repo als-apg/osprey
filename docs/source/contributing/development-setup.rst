@@ -49,6 +49,10 @@ Building the docs also needs `Graphviz <https://graphviz.org/download/>`_ (the `
    uv run pre-commit install
 
 Hooks auto-fix formatting and prevent commits with common problems.
+The prettier hook runs the project's prettier from ``node_modules``, so run
+``npm ci`` once (Node at the major in ``.nvmrc``) before the first commit that
+touches ``.js`` or ``.mjs`` files; ``scripts/check.py`` does this by itself when
+``node_modules`` is out of date.
 
 **4. Verify Installation**
 
