@@ -10795,6 +10795,8 @@ def test_the_component_floors_plan_reports_a_facility_connectors_requirement_abo
     ) in plan.log, plan.log
 
 
+# Every hatch-vcs wheel build of the checkout writes its src/*/_version.py.
+@pytest.mark.xdist_group("real-checkout-wheel")
 def test_the_component_floors_facility_scan_passes_over_the_real_trees(
     tmp_path: Path, head_facility_wheel: Path
 ) -> None:
@@ -15628,6 +15630,8 @@ def head_facility_wheel(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return site
 
 
+# Every hatch-vcs wheel build of the checkout writes its src/*/_version.py.
+@pytest.mark.xdist_group("real-checkout-wheel")
 def test_the_armed_facility_floor_scan_passes_over_the_real_trees(
     workflow: dict[str, Any], head_facility_wheel: Path
 ) -> None:
@@ -15642,6 +15646,8 @@ def test_the_armed_facility_floor_scan_passes_over_the_real_trees(
     assert done.returncode == 0, done.stdout + done.stderr
 
 
+# Every hatch-vcs wheel build of the checkout writes its src/*/_version.py.
+@pytest.mark.xdist_group("real-checkout-wheel")
 def test_the_facility_floor_suite_collects_with_the_facility_installed(
     head_facility_wheel: Path,
 ) -> None:
