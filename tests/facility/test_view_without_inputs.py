@@ -39,7 +39,10 @@ Its ``addresses.json``, ``scenarios.json``, ``seeds.json`` and
 ``variables.json`` were retaken when the example gained end station ES1;
 every other file kept its digest. Its ``variables.json`` was retaken when the
 stage's position setpoint came to name its move command as ``started_by``;
-with that one key removed the file has the previous digest. The injection fixture's ``variables.json``
+with that one key removed the file has the previous digest. Its ``seeds.json``
+was retaken when the ES1 detector head temperature gained its nominal of
+25 degC; with that one key removed the file has the previous digest. The
+injection fixture's ``variables.json``
 was retaken when a limits record's range came to be written as floats,
 ``[0.0, 10.0]`` for ``[0, 10]``; with the integers put back the file has the
 previous digest.

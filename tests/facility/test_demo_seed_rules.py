@@ -1528,6 +1528,7 @@ BASELINE: tuple[tuple[str, str, Any], ...] = (
         "responds",
         {"to": "ES1:DET:MCA:01:ACQUIRE:SP", "for_s": 1.0},
     ),
+    ("ES1:DET:MCA:01:TEMPERATURE:RB", "nominal", 25.0),
     ("ES1:MOT:STAGE:01:MOVE:SP", "nominal", "FALSE"),
     ("ES1:MOT:STAGE:01:POSITION:RB", "nominal", 0.0),
     ("ES1:MOT:STAGE:01:POSITION:SP", "nominal", 0.0),

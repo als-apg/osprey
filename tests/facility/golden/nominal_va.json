@@ -1128,7 +1128,7 @@
       "nominal": "FALSE"
     },
     "ES1:DET:MCA:01:TEMPERATURE:RB": {
-      "nominal": 0.0
+      "nominal": 25.0
     },
     "ES1:MOT:STAGE:01:MOVE:SP": {
       "nominal": "FALSE"
