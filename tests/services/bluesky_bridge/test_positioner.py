@@ -192,6 +192,35 @@ async def test_a_start_with_no_effect_fails_when_the_readback_is_elsewhere() -> 
 
 
 @pytest.mark.asyncio
+async def test_a_start_with_no_effect_is_judged_after_the_acts_whole_bound() -> None:
+    stage = _Stage()
+    del stage.responses[COMMAND]
+    stage.moves = False
+
+    with pytest.raises(CommandNoEffectError) as failed:
+        await _positioner(stage).set(TARGET)
+
+    assert failed.value.start_s == TIMEOUT_S
+
+
+@pytest.mark.asyncio
+async def test_an_already_there_move_passes_only_after_the_acts_whole_bound() -> None:
+    stage = _Stage()
+    stage.readbacks[READBACK] = TARGET + TOLERANCE / 2
+    stage.readbacks[SETPOINT] = TARGET + TOLERANCE / 2
+    del stage.responses[COMMAND]
+    loop = asyncio.get_running_loop()
+
+    started = loop.time()
+    status = _positioner(stage).set(TARGET)
+    await status
+    elapsed = loop.time() - started
+
+    assert status.success
+    assert elapsed >= TIMEOUT_S
+
+
+@pytest.mark.asyncio
 async def test_a_start_with_no_effect_fails_without_a_separate_readback() -> None:
     stage = _Stage(separate_readback=False)
     del stage.responses[COMMAND]
