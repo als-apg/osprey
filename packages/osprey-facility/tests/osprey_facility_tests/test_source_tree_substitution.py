@@ -53,8 +53,11 @@ _SIGNALS = [{"name": "kick_strength", "description": "The kick a kicker applies.
 _DOCUMENTS = [{"id": "dwg-1", "title": "Rack layout", "kind": "drawing"}]
 _POLICY = {"relations": {"precedence": {"default": ["drawing"]}}}
 _SEEDS = {"SR:BPM1:X": {"nominal": 0.0}}
-_AUTHORED_MODELS = [{"name": "ring", "engine": "pyat"}]
-_LAYER_MODELS = [{"name": "transfer", "engine": "pyat"}]
+#: The engine the models name: one the probe registers, so a build asks nothing
+#: of the engines the environment happens to install.
+_ENGINE = "probe_engine"
+_AUTHORED_MODELS = [{"name": "ring", "engine": _ENGINE}]
+_LAYER_MODELS = [{"name": "transfer", "engine": _ENGINE}]
 _FIXES = {
     "schema": "osprey.facility.fixes/1",
     "fixes": [
@@ -111,7 +114,7 @@ _DECLARED_TREE: dict[str, Any] = {
 _RETIRED_TREE: dict[str, Any] = {
     "identity.yaml": {"code": "demo"},
     "classes.yaml": _CLASSES,
-    "models.yaml": "- name: ring\n  engine: pyat\n  deck: decks/ring.json\n",
+    "models.yaml": f"- name: ring\n  engine: {_ENGINE}\n  deck: decks/ring.json\n",
     "decks/ring.json": "{}\n",
     "scenarios/quiet.yaml": _SCENARIO,
 }
@@ -199,6 +202,27 @@ def provenance(document):
     }
 
 
+
+def register_engine(name):
+    # A do-nothing engine under *name*; every other entry-point group reads as installed.
+    import types
+    from importlib import metadata
+
+    from osprey_connectors.simulation.engines import ENGINE_GROUP
+
+    module = types.ModuleType(name)
+    for function in ("locate", "describe", "build", "start_values"):
+        setattr(module, function, lambda *args, **kwargs: None)
+    module.prepare = lambda *args, **kwargs: types.SimpleNamespace(solve="open", length_m=1.0)
+    sys.modules[name] = module
+    engines = metadata.EntryPoints([metadata.EntryPoint(name=name, value=name, group=ENGINE_GROUP)])
+    installed = metadata.entry_points
+    metadata.entry_points = lambda **params: (
+        engines if params.get("group") == ENGINE_GROUP else installed(**params)
+    )
+
+
+register_engine(sys.argv[6])
 document = build_facility(moved, project_name="demo", extra_checks=())
 report = validate.run_stages(bad_seed, project_name="demo", extra_checks=())
 
@@ -273,7 +297,7 @@ def probe(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
         )
     ]
     done = subprocess.run(
-        [sys.executable, "-c", _PROBE, json.dumps(_MOVED), *map(str, trees)],
+        [sys.executable, "-c", _PROBE, json.dumps(_MOVED), *map(str, trees), _ENGINE],
         capture_output=True,
         text=True,
         check=False,
