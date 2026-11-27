@@ -245,8 +245,8 @@ def channel_record(
 
     A further address of a wiring record (under ``also``) is that record under
     another name, read through :meth:`FacilityRecords.channel`: its readback,
-    kind, ``timeout_s``, ``idle``, ``started_by`` and ``stopped_by`` are the
-    record's.
+    kind, ``timeout_s``, ``idle``, ``started_by``, ``stopped_by``, ``unit`` and
+    ``tolerance`` are the record's.
 
     Args:
         channel: The channel record.
@@ -268,6 +268,7 @@ def channel_record(
     if role not in _ROLE_DIRECTIONS:
         raise ValueError(f"channel {address} has the role {role!r}")
     pair = read.get("pair")
+    unit, tolerance = read.get("unit"), read.get("tolerance")
     return ChannelRecord(
         address=address,
         source=source,
@@ -284,6 +285,8 @@ def channel_record(
         idle=read.get("idle"),
         started_by=read.get("started_by"),
         stopped_by=read.get("stopped_by"),
+        unit=unit if isinstance(unit, str) and unit else None,
+        tolerance=dict(tolerance) if tolerance else None,
     )
 
 

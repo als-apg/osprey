@@ -199,6 +199,25 @@ class TestTheRecords:
 
         assert records["BPM1:X"].shape is None
 
+    def test_a_record_carries_its_unit_and_tolerance(self, tmp_path: Path) -> None:
+        tree = plain_tree()
+        setpoint, readback, _bpm = tree["records/channels.yaml"]
+        setpoint.update(unit="A", tolerance={"absolute": 0.01})
+        readback.update(unit="A")
+        write_facility_file(tmp_path, tree)
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert (records["Q1:SP"].unit, records["Q1:SP"].tolerance) == ("A", {"absolute": 0.01})
+        assert (records["Q1:RB"].unit, records["Q1:RB"].tolerance) == ("A", None)
+
+    def test_a_record_that_states_neither_carries_none(self, tmp_path: Path) -> None:
+        write_facility_file(tmp_path, plain_tree())
+
+        records = {r.address: r for r in registered_channels(_config(tmp_path)).records}
+
+        assert (records["Q1:SP"].unit, records["Q1:SP"].tolerance) == (None, None)
+
     def test_the_role_states_the_direction(self, tmp_path: Path) -> None:
         write_facility_file(
             tmp_path, channel_tree(setpoints=["A:SP"], readbacks=["A:RB"], unpaired=["A:NOTE"])
@@ -499,6 +518,19 @@ class TestFurtherAddresses:
         assert records[SETPOINT].readback == records[FURTHER].readback == PAIRED
         assert records[FURTHER].command is False
         assert records["roster"].completion(FURTHER) is None
+
+    def test_a_further_address_carries_its_records_unit_and_tolerance(self, tmp_path: Path) -> None:
+        from tests.facility.test_wiring_also import _tree
+
+        tree = _tree()
+        tree["records/channels.yaml"].append({"id": PAIRED, "unit": "A", "on": {"device": "SR/QD"}})
+        (setpoint,) = [c for c in tree["records/channels.yaml"] if c["id"] == SETPOINT]
+        setpoint.update(unit="A", tolerance={"absolute": 0.05})
+
+        records = _further_roster(tmp_path, tree, PAIRED)
+
+        assert records[SETPOINT].unit == records[FURTHER].unit == "A"
+        assert records[SETPOINT].tolerance == records[FURTHER].tolerance == {"absolute": 0.05}
 
     def test_a_further_address_of_a_self_paired_record_names_no_readback(
         self, tmp_path: Path
